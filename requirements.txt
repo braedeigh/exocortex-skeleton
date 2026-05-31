@@ -1,4 +1,6 @@
 flask
+gunicorn
+gevent
 pandas
 plotly
 bcrypt
