@@ -1,7 +1,7 @@
 """Health, HRT, supplements, contacts, food, symptoms, runs, activity, and meetings routes."""
 from flask import request, jsonify
 from datetime import datetime, timedelta
-from data_helpers import DATA_DIR, TULKU_DIR
+from data_helpers import DATA_DIR, CONTENT_DIR
 import pandas as pd
 import store
 
@@ -181,7 +181,7 @@ def register(app):
 
     @app.route("/api/meeting/<filename>")
     def get_meeting(filename):
-        filepath = TULKU_DIR / "meetings" / filename
+        filepath = CONTENT_DIR / "meetings" / filename
         if not filepath.exists():
             return jsonify({"error": "Not found"}), 404
         return jsonify({"content": filepath.read_text()})
@@ -191,7 +191,7 @@ def register(app):
     @app.route("/api/food/log", methods=["POST"])
     def log_food():
         data = request.json
-        csv_path = TULKU_DIR / "habits.csv"
+        csv_path = CONTENT_DIR / "habits.csv"
         target_date = data.get("date") or datetime.now().strftime("%Y-%m-%d")
         food = data["food"].strip()
         df = pd.read_csv(csv_path)
@@ -215,7 +215,7 @@ def register(app):
     @app.route("/api/symptoms", methods=["POST"])
     def log_symptoms():
         data = request.json
-        csv_path = TULKU_DIR / "habits.csv"
+        csv_path = CONTENT_DIR / "habits.csv"
         target_date = data["date"]
         symptoms = data["symptoms"]
         df = pd.read_csv(csv_path)

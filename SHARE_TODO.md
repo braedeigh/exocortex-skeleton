@@ -1,37 +1,37 @@
-# Before this repo is safe to share publicly
+# De-personalization status
 
-This scaffold is **code only** (no data, fresh git history). It runs, but it still
-carries personal and install-specific bits that must be cleaned before it's a real
-shareable product. This file is the honest gap between "Bradie's app" and "an app
-anyone can run."
+This scaffold is **code only** (no data, fresh git history). Goal: anyone can run it
+without it carrying the original author's personal/install-specific values.
 
-## 1. Personal constants hardcoded in `server.py`
-- `_common_data()` hardcodes milestone dates and labels: `days_clean` (2026-02-22),
-  `days_prozac` (2026-04-01), `days_peptides` (2026-05-30), rendered in the morning
-  header as "Day N off weed / of Prozac / on peptides."
-  → Make these user-configurable (e.g. a `streaks.json` the user defines), or remove.
+**The rule going forward:** anything personal, install-specific, or a deployment
+choice lives in **`config.py`** (env-overridable) or in a user **data file** — never
+hardcoded in the app code.
 
-## 2. Install-specific values
-- `mudscryer.org` is hardcoded as the public landing host (`server.py` LANDING_HOSTS,
-  `public_config.py`), with a `mudscryer.html` landing page.
-  → Make the domain an env var / config; ship a generic landing or none.
+## ✅ Done
+- **Milestone streaks** (was hardcoded quit/med dates + "Day N off weed/Prozac/peptides")
+  → now read from `data/streaks.json` (`{"streaks":[{"label","since"}]}`), empty by default.
+- **Personal `tulku/` dependency** → all content (habits `HABITS.md`/`habits.csv`,
+  journal `Journal/Daily`, `meetings/`, `public_intro.md`, personality) now lives under
+  the user's own `DATA_DIR` via `CONTENT_DIR` (= `DATA_DIR`). No sibling-dir dependency.
+- **App identity** (was "Bradie Lee", "built by Bradie", `mudscryer.org`) → `config.py`:
+  `APP_NAME`, `OWNER_NAME` (blank = omitted), threaded into header/footer/title/login.
+- **Personal landing page** (`mudscryer.html`, `landing_terminal.html`, `/mudscryer`
+  route, host-based landing) → removed.
+- **First-run password** → `config.DEFAULT_PASSWORD` (env `EXOCORTEX_DEFAULT_PASSWORD`),
+  documented to change on first login.
+- **Data location** → already env-driven (`EXOCORTEX_DATA_DIR`) via `store.py`.
 
-## 3. The big one — dependency on `../tulku/` (the personal keeper system)
-Several routes read personal content directly from the sibling `tulku/` directory,
-which a new user won't have:
-- Habits: `tulku/HABITS.md`, `tulku/habits.csv`
-- Journal: `tulku/Journal/Daily/*.md`
-- Meetings: `tulku/meetings/`
-- Public intro: `tulku/public_intro.md`
-→ Decouple: move these into the app's own `DATA_DIR` (e.g. `data/habits.md`), or make
-  the journal/meetings features optional. **This is the core "separate personal from
-  build" work** — it's not just the JSON data files, the code itself reaches into the
-  keeper system.
+Verified: boots on an empty data dir, all dashboard endpoints return 200, `APP_NAME`
+flows into the UI.
 
-## 4. Feature assumptions to generalize (later / optional)
-- HRT hardcodes `estradiol` injection — fine personally; generalize the med name for others.
-- Deity-yoga meditation is niche but fully data-driven (empty for new users), so harmless.
+## ⏳ Next candidates to move into `config.py` (still hardcoded, lower priority)
+- **HRT/injection tracker** hardcodes the medication `estradiol` as an activity-type key
+  in `routes_health.py` + the frontend + `public_config.py`. Generalizing the med name is
+  a multi-file change (the *type key*, not just a label) — left for when it matters.
+- **Symptom list** (energy, brain fog, etc.) hardcoded in `static/js/health.js`.
+- **FOOD_GUIDE** + default **kitchen category order** hardcoded in `server.py`.
+- **Base activity-type colors** (`ACT_TYPES`) + theme accents in the JS/CSS.
 
-## 5. First-run security
-- `auth.json` auto-generates on first run with the password `exocortex`.
-  → `DEPLOY.md` tells new users to change it immediately; keep that prominent.
+These are content/feature defaults rather than personal data, so they're safe to ship as
+defaults — but they're the natural next things to lift into `config.py` (or a config file)
+so each install can override them.

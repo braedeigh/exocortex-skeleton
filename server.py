@@ -9,13 +9,14 @@ import traceback
 from datetime import datetime, timedelta
 
 from data_helpers import (
-    BUILD_DIR, DATA_DIR, TULKU_DIR,
+    BUILD_DIR, DATA_DIR, CONTENT_DIR,
     parse_md_sections, load_health_data,
     load_todos, roll_todos, todos_to_sections,
     validate_on_startup,
 )
 from public_config import filter_for_view, is_public_path
 import store
+import config
 import routes_kitchen
 import routes_habits
 import routes_todos
@@ -97,7 +98,7 @@ if auth_path.exists():
     AUTH_ALGO = _auth.get("hash_algo", "sha256")
 else:
     sk = secrets.token_hex(32)
-    ph = bcrypt.hashpw(b"exocortex", bcrypt.gensalt()).decode()
+    ph = bcrypt.hashpw(config.DEFAULT_PASSWORD.encode(), bcrypt.gensalt()).decode()
     auth_path.write_text(json.dumps({"secret_key": sk, "password_hash": ph, "hash_algo": "bcrypt"}, indent=2))
     app.secret_key = sk
     AUTH_HASH = ph
@@ -165,7 +166,7 @@ APP_VERSION = "0.6"
 
 @app.context_processor
 def inject_app_version():
-    return {"app_version": APP_VERSION}
+    return {"app_version": APP_VERSION, "app_name": config.APP_NAME, "owner_name": config.OWNER_NAME}
 
 
 @app.context_processor
@@ -271,10 +272,9 @@ def api_change_password():
 
 
 VALID_TABS = ("today", "map", "kitchen", "inventory", "money", "car", "meditation", "media", "body")
-LANDING_HOSTS = ("mudscryer.org", "www.mudscryer.org")
 
 # Path to the file that backs the public homepage fake-terminal intro.
-PUBLIC_INTRO_PATH = TULKU_DIR / "public_intro.md"
+PUBLIC_INTRO_PATH = CONTENT_DIR / "public_intro.md"
 
 
 def _render_inline(s):
@@ -331,15 +331,9 @@ def _split_response(active_tab, item_name=""):
     return resp
 
 
-def _request_host():
-    return (request.host or "").split(":")[0].lower()
-
-
 @app.route("/")
 @app.route("/dashboard")
 def split_today():
-    if _request_host() in LANDING_HOSTS:
-        return render_template("mudscryer.html")
     return _split_response("today")
 
 
@@ -414,11 +408,6 @@ def about_page():
     return render_template("about.html")
 
 
-@app.route("/mudscryer")
-def mudscryer_page():
-    return render_template("mudscryer.html")
-
-
 # --- Dev Notes (per-tab friction log) ---
 
 def _load_dev_notes():
@@ -473,7 +462,7 @@ def journal_view():
 
 @app.route("/api/journal/dates")
 def journal_dates():
-    daily_dir = TULKU_DIR / "Journal" / "Daily"
+    daily_dir = CONTENT_DIR / "Journal" / "Daily"
     dates = sorted(f.stem for f in daily_dir.glob("*.md"))
     return jsonify({"dates": dates})
 
@@ -484,9 +473,9 @@ def journal_get(date):
         datetime.strptime(date, "%Y-%m-%d")
     except ValueError:
         return jsonify({"error": "invalid date"}), 400
-    path = TULKU_DIR / "Journal" / "Daily" / f"{date}.md"
+    path = CONTENT_DIR / "Journal" / "Daily" / f"{date}.md"
     content = path.read_text() if path.exists() else ""
-    daily_dir = TULKU_DIR / "Journal" / "Daily"
+    daily_dir = CONTENT_DIR / "Journal" / "Daily"
     dates = sorted(f.stem for f in daily_dir.glob("*.md"))
     # prev = newest date strictly before `date`; next = oldest date strictly after `date`.
     # Works whether or not `date` itself has an entry — so an empty today still navigates back.
@@ -505,14 +494,14 @@ def journal_save(date):
         return jsonify({"error": "invalid date"}), 400
     data = request.json or {}
     content = data.get("content", "")
-    path = TULKU_DIR / "Journal" / "Daily" / f"{date}.md"
+    path = CONTENT_DIR / "Journal" / "Daily" / f"{date}.md"
     path.write_text(content)
     return jsonify({"ok": True})
 
 
 # --- Personality (goal-personality.md) ---
 
-PERSONALITY_PATH = TULKU_DIR / "manifestation" / "goal-personality.md"
+PERSONALITY_PATH = CONTENT_DIR / "manifestation" / "goal-personality.md"
 
 
 @app.route("/api/personality")
@@ -555,10 +544,29 @@ def _common_data():
         "server_day_of_year": now.timetuple().tm_yday,
         "server_date": now.strftime("%Y-%m-%d"),
         "date": now.strftime("%A, %B %-d"),
-        "days_clean": (now - datetime(2026, 2, 22)).days,
-        "days_prozac": (now - datetime(2026, 4, 1)).days,
-        "days_peptides": (now - datetime(2026, 5, 30)).days,
+        "streaks": _load_streaks(),
     }
+
+
+def _load_streaks():
+    """User-defined milestone counters shown in the header.
+
+    streaks.json: {"streaks": [{"label": "off weed", "since": "2026-02-22"}, ...]}
+    Each becomes "Day N <label>" where N is days since `since`. Empty by default.
+    """
+    out = []
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    for s in store.read("streaks.json", {}).get("streaks", []):
+        label = str(s.get("label", "")).strip()
+        since = str(s.get("since", "")).strip()
+        if not (label and since):
+            continue
+        try:
+            start = datetime.strptime(since, "%Y-%m-%d")
+        except ValueError:
+            continue
+        out.append({"label": label, "days": (today - start).days})
+    return out
 
 
 def _load_hrt():
@@ -621,7 +629,7 @@ def _load_habits_log():
 
 
 def _load_habits():
-    habits_path = TULKU_DIR / "HABITS.md"
+    habits_path = CONTENT_DIR / "HABITS.md"
     return parse_md_sections(habits_path) if habits_path.exists() else []
 
 

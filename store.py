@@ -26,7 +26,7 @@ import fcntl
 BUILD_DIR = Path(__file__).parent
 DATA_DIR = Path(os.environ.get("EXOCORTEX_DATA_DIR", BUILD_DIR / "data"))
 UPLOAD_DIR = BUILD_DIR / "uploads"
-TULKU_DIR = BUILD_DIR.parent / "tulku"
+CONTENT_DIR = DATA_DIR  # habits, journal, meetings, intro live alongside the user's data
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)

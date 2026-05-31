@@ -17,9 +17,7 @@ STREAMS = {
     "server_day_of_year": "public",
     "server_date": "public",
     "date": "public",
-    "days_clean": "frosted",
-    "days_prozac": "frosted",
-    "days_peptides": "frosted",
+    "streaks": "frosted",
 
     # ---- habits ----
     "habits": "public",
@@ -85,7 +83,6 @@ PUBLIC_PATHS = (
     "/login",
     "/logout",
     "/about",
-    "/mudscryer",
     "/static/",
     "/",
     "/dashboard",

@@ -134,7 +134,7 @@ async function loadDashboard() {
         for (const k in _frostDefaults) {
             if (isFrosted(D[k])) { D._frost[k] = true; D[k] = _frostDefaults[k]; }
         }
-        if (isFrosted(D.days_clean)) D._frost.days_clean = true;
+        if (isFrosted(D.streaks)) D._frost.streaks = true;
         // Normalize: habits items → strings (they use habits_log for done state)
         if (D.habits) D.habits.forEach(s => { s.items = s.items.map(i => typeof i === 'string' ? i : i.text); });
         if (!selectedTime) selectedTime = D.time_of_day;
@@ -228,11 +228,12 @@ function renderHeader() {
     if (currentTab === 'today') {
         const greetings = { morning: 'Good morning', afternoon: 'Good afternoon', evening: 'Good evening' };
         greetingEl.textContent = greetings[getTime()];
-        // Public view: drop the streak counters entirely. Blurring just the numbers would
-        // still leak the labels ("off weed" / "of Prozac"), so the whole segment is omitted.
-        dateEl.textContent = D._frost && D._frost.days_clean
+        // User-defined milestone streaks ("Day N <label>"), joined. Public view drops
+        // them entirely \u2014 blurring numbers would still leak the labels.
+        const streakText = (D.streaks || []).map(s => `Day ${s.days} ${s.label}`).join(' \u00b7 ');
+        dateEl.textContent = (D._frost && D._frost.streaks) || !streakText
             ? D.date
-            : `${D.date} \u00b7 Day ${D.days_clean} off weed \u00b7 Day ${D.days_prozac} of Prozac \u00b7 Day ${D.days_peptides} on peptides`;
+            : `${D.date} \u00b7 ${streakText}`;
         greetingEl.style.display = '';
         dateEl.style.display = '';
     } else {

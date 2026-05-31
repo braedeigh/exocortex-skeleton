@@ -10,7 +10,7 @@ import json
 import pandas as pd
 
 from store import (  # noqa: F401  (re-exported for backward compatibility)
-    BUILD_DIR, DATA_DIR, TULKU_DIR, UPLOAD_DIR,
+    BUILD_DIR, DATA_DIR, CONTENT_DIR, UPLOAD_DIR,
     load_json, save_json, read, write, mutate,
 )
 
@@ -61,7 +61,7 @@ def remove_item_from_file(item, filepath):
 # --- Health data ---
 
 def load_health_data():
-    csv_path = TULKU_DIR / "habits.csv"
+    csv_path = CONTENT_DIR / "habits.csv"
     if not csv_path.exists():
         return []
     df = pd.read_csv(csv_path)
@@ -126,7 +126,7 @@ def load_health_data():
 
 def load_meetings():
     """Load all meetings from tulku/meetings/, sorted by date (newest first)."""
-    meetings_dir = TULKU_DIR / "meetings"
+    meetings_dir = CONTENT_DIR / "meetings"
     if not meetings_dir.exists():
         return []
     meetings = []
@@ -242,9 +242,8 @@ def validate_on_startup(app):
     """Check that data files exist and are well-formed. Logs warnings -- doesn't crash."""
     problems = []
 
-    for d, label in [(DATA_DIR, "data/"), (TULKU_DIR, "tulku/")]:
-        if not d.exists():
-            problems.append(f"Directory missing: {d}")
+    if not DATA_DIR.exists():
+        problems.append(f"Directory missing: {DATA_DIR}")
 
     json_files = list(DATA_DIR.glob("*.json"))
     for jf in json_files:
@@ -270,7 +269,7 @@ def validate_on_startup(app):
                 jf.write_text(json.dumps(data, indent=2, ensure_ascii=False))
                 problems.append("todos.json: auto-fixed missing done fields")
 
-    csv_path = TULKU_DIR / "habits.csv"
+    csv_path = CONTENT_DIR / "habits.csv"
     if csv_path.exists():
         try:
             pd.read_csv(csv_path, nrows=1)

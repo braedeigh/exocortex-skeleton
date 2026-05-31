@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Exocortex</title>
+<title>{{ app_name }}</title>
 <link rel="stylesheet" href="{{ v_static('css/style.css') }}">
 <link rel="stylesheet" href="{{ v_static('css/frosted.css') }}">
 <script>window.VIEW_MODE = "{{ view_mode }}";</script>
@@ -12,7 +12,7 @@
 <body data-active-tab="{{ active_tab }}" data-item-name="{{ item_name|default('', true) }}" data-view-mode="{{ view_mode }}" class="{{ 'public-mode' if view_mode == 'public' else '' }}">
 <div class="container">
     <div class="public-header">
-        <div class="public-header-name">Bradie Lee &nbsp;·&nbsp; Exocortex v{{ app_version }}</div>
+        <div class="public-header-name">{% if owner_name %}{{ owner_name }} &nbsp;·&nbsp; {% endif %}{{ app_name }} v{{ app_version }}</div>
         <div class="public-header-links">
             <a href="/about" target="_top">About</a>
             <a href="/login" target="_top" class="signin-btn">Sign in</a>
@@ -228,7 +228,7 @@
         <div id="media-area"></div>
     </div>
 
-    <div class="footer">Exocortex v{{ app_version }} &mdash; built by Bradie</div>
+    <div class="footer">{{ app_name }} v{{ app_version }}{% if owner_name %} &mdash; {{ owner_name }}{% endif %}</div>
 </div>
 
 <!-- Delete confirmation modal -->

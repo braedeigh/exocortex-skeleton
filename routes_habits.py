@@ -1,7 +1,7 @@
 """Habits, edges, and growth notes routes."""
 from flask import request, jsonify
 from datetime import datetime
-from data_helpers import DATA_DIR, TULKU_DIR, load_json, save_json, parse_md_sections, add_item_to_file, remove_item_from_file
+from data_helpers import DATA_DIR, CONTENT_DIR, load_json, save_json, parse_md_sections, add_item_to_file, remove_item_from_file
 import store
 
 
@@ -21,7 +21,7 @@ def register(app):
         item = data["item"].strip()
         item = item[0].upper() + item[1:] if len(item) > 1 else item.upper()
         section = data["section"]
-        filepath = TULKU_DIR / "HABITS.md"
+        filepath = CONTENT_DIR / "HABITS.md"
         sections = parse_md_sections(filepath)
         for s in sections:
             if s["name"] == section:
@@ -33,7 +33,7 @@ def register(app):
     @app.route("/api/habits/remove", methods=["POST"])
     def remove_habit():
         data = request.json
-        remove_item_from_file(data["item"], TULKU_DIR / "HABITS.md")
+        remove_item_from_file(data["item"], CONTENT_DIR / "HABITS.md")
         return jsonify({"ok": True})
 
     @app.route("/api/habits/move", methods=["POST"])
@@ -41,7 +41,7 @@ def register(app):
         data = request.json
         item = data["item"]
         to_section = data["to_section"]
-        filepath = TULKU_DIR / "HABITS.md"
+        filepath = CONTENT_DIR / "HABITS.md"
         remove_item_from_file(item, filepath)
         add_item_to_file(item, to_section, filepath)
         return jsonify({"ok": True})
@@ -67,7 +67,7 @@ def register(app):
         data = request.json
         section = data["section"]
         new_order = data["items"]
-        filepath = TULKU_DIR / "HABITS.md"
+        filepath = CONTENT_DIR / "HABITS.md"
         text = filepath.read_text()
         lines = text.split("\n")
         target = f"## {section}"
@@ -103,7 +103,7 @@ def register(app):
         old_name = data["old"]
         new_name = data["new"].strip()
         section = data["section"]
-        filepath = TULKU_DIR / "HABITS.md"
+        filepath = CONTENT_DIR / "HABITS.md"
         text = filepath.read_text()
         text = text.replace(f"- [ ] {old_name}\n", f"- [ ] {new_name}\n", 1)
         text = text.replace(f"- [x] {old_name}\n", f"- [x] {new_name}\n", 1)
@@ -123,7 +123,7 @@ def register(app):
         data = request.json
         item = data["item"].strip()
         item = item[0].upper() + item[1:] if len(item) > 1 else item.upper()
-        filepath = TULKU_DIR / "HABITS.md"
+        filepath = CONTENT_DIR / "HABITS.md"
         text = filepath.read_text()
         for line in text.split("\n"):
             if line.strip().startswith("- ") and line.strip()[2:].lower() == item.lower():
@@ -139,7 +139,7 @@ def register(app):
         data = request.json
         old = data["old"]
         new = data["new"].strip()
-        filepath = TULKU_DIR / "HABITS.md"
+        filepath = CONTENT_DIR / "HABITS.md"
         text = filepath.read_text()
         text = text.replace(f"- {old}\n", f"- {new}\n", 1)
         filepath.write_text(text)
@@ -149,7 +149,7 @@ def register(app):
     def remove_edge():
         data = request.json
         item = data["item"]
-        filepath = TULKU_DIR / "HABITS.md"
+        filepath = CONTENT_DIR / "HABITS.md"
         text = filepath.read_text()
         text = text.replace(f"- {item}\n", "", 1)
         filepath.write_text(text)

@@ -78,8 +78,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 <body>
 <div class="login-container">
     <form class="login-box" method="POST">
-        <h1>exocortex</h1>
-        <p>mudscryer.org</p>
+        <h1>{{ app_name|default('exocortex') }}</h1>
         {% if error %}<div class="error">{{ error }}</div>{% endif %}
         <input type="password" name="password" placeholder="password" autofocus>
         <button type="submit">enter</button>
