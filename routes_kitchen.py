@@ -629,8 +629,8 @@ def register(app):
         target = GROCERY_RECEIPTS_DIR / fname
         f.save(str(target))
 
-        # Flask runs as root; Claude-in-tmux runs as bradie. Make dir + photo
-        # writable so Claude can drop the sibling .parsed.json next to the photo.
+        # Flask may run as root while a separate editor/agent process runs as a non-root
+        # user. Make dir + photo writable so that process can drop the sibling .parsed.json.
         try:
             import os
             os.chmod(GROCERY_RECEIPTS_DIR, 0o777)

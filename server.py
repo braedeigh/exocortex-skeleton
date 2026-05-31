@@ -294,7 +294,7 @@ def _load_public_intro_html():
       - A paragraph whose lines all start with ⎿ becomes a block of `cc-tool` lines.
       - A single-line paragraph wrapped in _..._ becomes a dim italic intro (`cc-p cc-dim`).
       - Everything else is a normal `cc-p` paragraph.
-    Bradie edits the .md file directly in VSCode; template auto-reload picks it up.
+    You edit the .md file directly; template auto-reload picks it up.
     """
     if not PUBLIC_INTRO_PATH.exists():
         return ""

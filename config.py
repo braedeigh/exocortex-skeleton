@@ -1,7 +1,7 @@
 """Instance configuration — the single home for values that change per deployment
 or per person.
 
-Rule of thumb: if a value is personal ("Bradie"), install-specific (a domain), or a
+Rule of thumb: if a value is personal (a name), install-specific (a domain), or a
 deployment choice (a default password), it belongs HERE, not hardcoded in the code.
 Everything is overridable by an environment variable with a sensible default, so a new
 user can stand up their own instance without editing source.

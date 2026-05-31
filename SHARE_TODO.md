@@ -13,10 +13,9 @@ hardcoded in the app code.
 - **Personal `tulku/` dependency** → all content (habits `HABITS.md`/`habits.csv`,
   journal `Journal/Daily`, `meetings/`, `public_intro.md`, personality) now lives under
   the user's own `DATA_DIR` via `CONTENT_DIR` (= `DATA_DIR`). No sibling-dir dependency.
-- **App identity** (was "Bradie Lee", "built by Bradie", `mudscryer.org`) → `config.py`:
-  `APP_NAME`, `OWNER_NAME` (blank = omitted), threaded into header/footer/title/login.
-- **Personal landing page** (`mudscryer.html`, `landing_terminal.html`, `/mudscryer`
-  route, host-based landing) → removed.
+- **App identity** (was a hardcoded owner name + domain) → `config.py`: `APP_NAME`,
+  `OWNER_NAME` (blank = omitted), threaded into header/footer/title/login.
+- **Personal landing page** (custom landing templates + host-based landing route) → removed.
 - **First-run password** → `config.DEFAULT_PASSWORD` (env `EXOCORTEX_DEFAULT_PASSWORD`),
   documented to change on first login.
 - **Data location** → already env-driven (`EXOCORTEX_DATA_DIR`) via `store.py`.

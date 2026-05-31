@@ -33,12 +33,11 @@ venv/bin/pip install -r requirements.txt
 # 4. First run generates auth.json with the password "exocortex".
 #    CHANGE IT immediately in the app's Settings after first login.
 
-# 5. Harden the box (firewall, fail2ban, etc.)
-sudo bash deploy/harden_vps.sh
+# 5. Harden the box: firewall (ufw), fail2ban, SSH key-only login, etc.
 
-# 6. Web server + TLS (needs your domain)
-sudo bash deploy/setup_nginx.sh
-sudo bash deploy/setup_ssl.sh
+# 6. Web server + TLS: put nginx in front as a reverse proxy to 127.0.0.1:5000,
+#    then get a cert for your domain:
+#      sudo certbot --nginx -d your.domain.com --agree-tos -m you@example.com
 
 # 7. Run as a service (see systemd template below), then:
 sudo systemctl enable --now exocortex.service
