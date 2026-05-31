@@ -89,8 +89,9 @@ def static_versioning():
         return f"/static/{filename}?v={mtime}"
     return dict(v_static=versioned_static)
 
-# Session auth
-auth_path = Path(__file__).parent / "auth.json"
+# Session auth — the password hash + secret key are personal secrets, so they live
+# in the data layer (DATA_DIR), not the shared code dir.
+auth_path = store.DATA_DIR / "auth.json"
 if auth_path.exists():
     _auth = json.loads(auth_path.read_text())
     app.secret_key = _auth["secret_key"]

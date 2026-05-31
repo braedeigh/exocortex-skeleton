@@ -25,7 +25,7 @@ import fcntl
 # env var at the data, the code doesn't care where it is.
 BUILD_DIR = Path(__file__).parent
 DATA_DIR = Path(os.environ.get("EXOCORTEX_DATA_DIR", BUILD_DIR / "data"))
-UPLOAD_DIR = BUILD_DIR / "uploads"
+UPLOAD_DIR = DATA_DIR / "uploads"  # personal uploads live in the data layer, not the code dir
 CONTENT_DIR = DATA_DIR  # habits, journal, meetings, intro live alongside the user's data
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
