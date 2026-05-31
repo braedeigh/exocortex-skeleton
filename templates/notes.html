@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Notes</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body {
+    height: 100%;
+    background: #0d0d1a;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+.container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    padding: 12px;
+    gap: 8px;
+}
+.status {
+    font-size: 12px;
+    color: rgba(180, 160, 220, 0.5);
+    flex-shrink: 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.status .saved { color: rgba(124, 191, 92, 0.7); }
+textarea {
+    flex: 1;
+    background: #1a1a2e;
+    border: 1px solid #2a2a4a;
+    border-radius: 12px;
+    padding: 14px;
+    color: #e0e0e0;
+    font-size: 15px;
+    font-family: inherit;
+    line-height: 1.5;
+    outline: none;
+    resize: none;
+    -webkit-overflow-scrolling: touch;
+}
+textarea::placeholder { color: #555; }
+textarea:focus { border-color: #7c5cbf; }
+.actions {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+}
+.actions button {
+    flex: 1;
+    padding: 10px;
+    border-radius: 10px;
+    border: 1px solid #2a2a4a;
+    background: #1a1a2e;
+    color: #8888aa;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+}
+.actions button:active {
+    background: #2a2a4a;
+    color: #c8c8e0;
+}
+.actions .btn-dump {
+    background: #7c5cbf;
+    border-color: #7c5cbf;
+    color: white;
+}
+.actions .btn-dump:active {
+    background: #9b7dd4;
+}
+</style>
+</head>
+<body>
+<div class="container">
+    <div class="status">
+        <span id="statusText">Notes</span>
+        <span id="saveStatus"></span>
+    </div>
+    <textarea id="notes" placeholder="Dump anything here — thoughts, links, transcripts, to-dos. It auto-saves. Hit 'Send to terminal' when you want Claude to process it."></textarea>
+    <div class="actions">
+        <div id="undoRedoBtns" style="display:flex;gap:6px;flex:1">
+            <button onclick="undoNotes()" style="flex:1">Undo</button>
+        </div>
+        <button class="btn-dump" onclick="sendToTerminal()" style="flex:1">Send to terminal</button>
+    </div>
+</div>
+<script>
+const textarea = document.getElementById('notes');
+const saveStatus = document.getElementById('saveStatus');
+let saveTimer = null;
+let lastSaved = '';
+
+// Load on start
+async function loadNotes() {
+    try {
+        const resp = await fetch('/api/notes');
+        const data = await resp.json();
+        textarea.value = data.content || '';
+        lastSaved = textarea.value;
+    } catch(e) {}
+}
+
+// Auto-save on typing
+textarea.addEventListener('input', () => {
+    clearTimeout(saveTimer);
+    saveStatus.textContent = '';
+    saveTimer = setTimeout(saveNotes, 800);
+});
+
+async function saveNotes() {
+    const content = textarea.value;
+    if (content === lastSaved) return;
+    pushUndo(lastSaved);
+    try {
+        await fetch('/api/notes', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({content})
+        });
+        lastSaved = content;
+        saveStatus.innerHTML = '<span class="saved">saved</span>';
+        setTimeout(() => { saveStatus.textContent = ''; }, 2000);
+    } catch(e) {
+        saveStatus.textContent = 'save failed';
+    }
+}
+
+async function sendToTerminal() {
+    const text = textarea.value.trim();
+    if (!text) return;
+    // Save first
+    await saveNotes();
+    // Send path reference to terminal
+    await fetch('/api/terminal/send', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({text: '[notes dump ready — read /opt/exocortex/build/notes_dump.md]', enter: false})
+    });
+    saveStatus.innerHTML = '<span class="saved">sent to terminal</span>';
+    setTimeout(() => { saveStatus.textContent = ''; }, 3000);
+}
+
+let undoStack = [];
+let redoStack = [];
+const MAX_UNDO = 20;
+
+function pushUndo(text) {
+    if (undoStack.length && undoStack[undoStack.length - 1] === text) return;
+    undoStack.push(text);
+    if (undoStack.length > MAX_UNDO) undoStack.shift();
+    redoStack = [];
+    updateUndoRedoUI();
+}
+
+function undoNotes() {
+    if (!undoStack.length) return;
+    redoStack.push(textarea.value);
+    const prev = undoStack.pop();
+    textarea.value = prev;
+    lastSaved = prev;
+    fetch('/api/notes', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({content: prev})
+    });
+    saveStatus.innerHTML = '<span class="saved">undone</span>';
+    setTimeout(() => { saveStatus.textContent = ''; }, 2000);
+    updateUndoRedoUI();
+}
+
+function redoNotes() {
+    if (!redoStack.length) return;
+    undoStack.push(textarea.value);
+    const next = redoStack.pop();
+    textarea.value = next;
+    lastSaved = next;
+    fetch('/api/notes', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({content: next})
+    });
+    saveStatus.innerHTML = '<span class="saved">redone</span>';
+    setTimeout(() => { saveStatus.textContent = ''; }, 2000);
+    updateUndoRedoUI();
+}
+
+function updateUndoRedoUI() {
+    const container = document.getElementById('undoRedoBtns');
+    if (redoStack.length) {
+        container.innerHTML = '<button onclick="undoNotes()" style="flex:1">Undo</button><button onclick="redoNotes()" style="flex:1">Redo</button>';
+    } else {
+        container.innerHTML = '<button onclick="undoNotes()" style="flex:1">Undo</button>';
+    }
+}
+
+loadNotes();
+
+// Track whether this tab is active
+let _tabActive = (window === window.top);
+window.addEventListener('message', (e) => {
+    if (e.data && e.data.type === 'tabActive') {
+        _tabActive = e.data.active;
+        if (_tabActive) textarea.focus();
+    }
+});
+if (_tabActive) textarea.focus();
+</script>
+</body>
+</html>

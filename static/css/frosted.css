@@ -1,0 +1,127 @@
+/* frosted.css — public/anonymous view styles */
+
+/* Public-only header bar (hidden when authed) */
+.public-header {
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 14px 20px;
+    margin: -24px -20px 20px -20px;
+    background: var(--card-bg, #fff);
+    border-bottom: 1px solid var(--border, #e0d8ce);
+    font-size: 14px;
+}
+body.public-mode .public-header { display: flex; }
+
+.public-header-name {
+    font-weight: 700;
+    color: var(--text, #2a2520);
+    letter-spacing: 0.2px;
+}
+.public-header-links {
+    display: flex;
+    gap: 18px;
+    align-items: center;
+}
+.public-header-links a {
+    color: var(--text-secondary, #5a5048);
+    text-decoration: none;
+    font-weight: 600;
+}
+.public-header-links a:hover { color: var(--text, #2a2520); }
+.public-header-links .signin-btn {
+    padding: 6px 14px;
+    border-radius: 8px;
+    background: var(--text, #2a2520);
+    color: #fff;
+}
+.public-header-links .signin-btn:hover { background: var(--accent, #7c5cbf); }
+
+/* Hide authed-only edit affordances in public mode */
+body.public-mode .edit-toggle,
+body.public-mode .add-trigger,
+body.public-mode .add-form,
+body.public-mode .delete-btn,
+body.public-mode .drag-handle,
+body.public-mode #expand-btn,
+body.public-mode #map-collapse-btn,
+body.public-mode .hrt-done-btn,
+body.public-mode .auth-only {
+    display: none !important;
+}
+
+/* Cards in public mode shouldn't react like they're editable */
+body.public-mode .card-item {
+    cursor: default;
+}
+body.public-mode .habit-check {
+    cursor: default !important;
+    pointer-events: none;
+}
+
+/* Frosted card: shows shape, blurs content, locks interaction */
+.frosted-card {
+    position: relative;
+    background: var(--card-bg, #fff);
+    border-radius: 12px;
+    padding: 18px 20px;
+    margin-bottom: 16px;
+    overflow: hidden;
+    border-left: 4px solid var(--text-muted, #998e82);
+    min-height: 60px;
+}
+.frosted-card .frosted-blur {
+    filter: blur(7px);
+    pointer-events: none;
+    user-select: none;
+    opacity: 0.6;
+}
+.frosted-card .frosted-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: var(--text-secondary, #5a5048);
+    font-size: 13px;
+    font-weight: 600;
+    z-index: 2;
+    background: linear-gradient(180deg, rgba(255,255,255,0.15), rgba(255,255,255,0.55));
+}
+.frosted-card .frosted-overlay::before {
+    content: "🔒";
+    font-size: 14px;
+    filter: grayscale(0.4);
+}
+.frosted-card .frosted-overlay a {
+    color: var(--accent, #7c5cbf);
+    text-decoration: none;
+    font-weight: 700;
+}
+.frosted-card .frosted-overlay a:hover { text-decoration: underline; }
+
+.frosted-card .frosted-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-muted, #998e82);
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    margin-bottom: 10px;
+}
+
+/* Faux-text rows under the blur to give the card body */
+.frosted-faux-row {
+    height: 14px;
+    margin: 6px 0;
+    background: linear-gradient(90deg,
+        var(--border, #e0d8ce) 0%,
+        var(--border, #e0d8ce) 80%,
+        transparent 80%);
+    background-size: 100% 100%;
+    border-radius: 4px;
+    opacity: 0.7;
+}
+.frosted-faux-row.short { width: 60%; }
+.frosted-faux-row.medium { width: 80%; }

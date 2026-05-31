@@ -1,0 +1,14 @@
+# Personal data + secrets never belong in the shareable repo
+data/*
+!data/.gitkeep
+uploads/
+*.log
+auth.json
+sessions.json
+.env
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.pytest_cache/

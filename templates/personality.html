@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Personality</title>
+<style>
+:root {
+    --bg: #0d0d1a;
+    --text: #f0e6d6;
+    --text-muted: rgba(200, 190, 170, 0.5);
+    --border: #2a2a4a;
+    --accent: #7c5cbf;
+    --accent-light: rgba(124, 92, 191, 0.15);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+
+.container {
+    display: flex; flex-direction: column; height: 100%; max-width: 800px; margin: 0 auto; padding: 0 16px;
+}
+
+.title-bar {
+    display: flex; align-items: center; gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.title-bar .back-link {
+    color: var(--text-muted); text-decoration: none; font-size: 14px;
+    padding: 4px 10px; border: 1px solid var(--border); border-radius: 6px; margin-right: 12px;
+}
+.title-bar .title { font-size: 15px; font-weight: 700; flex: 1; }
+
+/* ===== Sections list (landing) ===== */
+.sections-view {
+    flex: 1; min-height: 0; overflow-y: auto; padding: 16px 0;
+}
+.section-card {
+    border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin-bottom: 10px;
+    cursor: pointer; transition: background 0.12s, border-color 0.12s;
+    background: var(--bg);
+}
+.section-card:hover, .section-card:active { background: var(--accent-light); border-color: var(--accent); }
+.section-card .sc-title {
+    font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 6px;
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+.section-card .sc-chev { color: var(--text-muted); font-size: 14px; flex-shrink: 0; }
+.section-card .sc-summary { font-size: 13.5px; color: var(--text-muted); line-height: 1.55; }
+.section-card .sc-empty { font-style: italic; color: var(--accent); font-size: 12.5px; margin-top: 6px; }
+
+/* ===== Section detail ===== */
+.section-detail {
+    flex: 1; min-height: 0; display: none; flex-direction: column;
+}
+.section-detail-header {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 12px 0; border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.section-detail .back-btn {
+    display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted);
+    font-size: 13px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px;
+    cursor: pointer; background: none;
+}
+.section-detail .back-btn:hover { color: var(--text); border-color: var(--accent); }
+.section-mode-toggle {
+    display: flex; gap: 0; border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
+}
+.section-mode-toggle button {
+    padding: 6px 14px; border: none; background: none; font-size: 13px; font-weight: 600;
+    color: var(--text-muted); cursor: pointer;
+}
+.section-mode-toggle button.active { color: var(--accent); background: var(--accent-light); }
+
+.section-content {
+    flex: 1; min-height: 0; display: flex; flex-direction: column;
+}
+.section-preview {
+    flex: 1; overflow-y: auto; padding: 16px 0; line-height: 1.7; font-size: 15px;
+}
+.section-editor {
+    flex: 1; width: 100%; border: none; outline: none; resize: none; padding: 16px 0;
+    font-family: "SF Mono", Monaco, "Cascadia Code", Consolas, monospace; font-size: 14px;
+    line-height: 1.7; color: var(--text); background: var(--bg); display: none;
+}
+
+/* ===== Markdown rendering (used in section preview) ===== */
+.section-preview h1 { font-size: 22px; margin-bottom: 8px; }
+.section-preview h2 { font-size: 20px; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.section-preview h3 { font-size: 16px; margin-top: 16px; margin-bottom: 4px; }
+.section-preview hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+.section-preview p { margin-bottom: 8px; }
+.section-preview code { background: var(--accent-light); padding: 1px 4px; border-radius: 3px; font-size: 13px; }
+.section-preview em { font-style: italic; color: var(--text-muted); }
+.section-preview strong { font-weight: 700; }
+.section-preview blockquote { border-left: 3px solid var(--accent); padding-left: 12px; color: var(--text-muted); margin: 8px 0; }
+.section-preview ul, .section-preview ol { padding-left: 20px; margin-bottom: 8px; }
+
+.empty-msg { color: var(--text-muted); font-style: italic; }
+
+.save-status {
+    padding: 6px 0; font-size: 12px; color: var(--text-muted); text-align: right; flex-shrink: 0; min-height: 24px;
+}
+
+/* ===== Dev notes (footer of sections view) ===== */
+.dev-notes-section { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border); }
+.dev-notes-section .dn-title { font-size: 13px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }
+.dn-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.dn-note { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); }
+.dn-note .dn-text { flex: 1; font-size: 13.5px; line-height: 1.5; color: var(--text); }
+.dn-note .dn-date { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.dn-note .dn-remove { background: none; border: none; color: var(--text-muted); font-size: 16px; cursor: pointer; line-height: 1; padding: 2px 4px; }
+.dn-note .dn-remove:hover { color: var(--accent); }
+.dn-add { display: flex; gap: 6px; }
+.dn-add input { flex: 1; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); font-size: 13.5px; font-family: inherit; }
+.dn-add button { padding: 8px 14px; background: var(--accent); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600; }
+.dn-empty { font-style: italic; color: var(--text-muted); font-size: 13px; padding: 6px 0; }
+</style>
+</head>
+<body>
+<div class="container">
+    <div class="title-bar">
+        <a href="/tab/today" onclick="if(history.length>1){history.back();return false;}" class="back-link">← back</a>
+        <span class="title" id="topTitle">Goal Personality</span>
+    </div>
+
+    <div class="sections-view" id="sectionsView"></div>
+
+    <div class="section-detail" id="sectionDetail">
+        <div class="section-detail-header">
+            <button class="back-btn" onclick="closeSection()">← sections</button>
+            <div class="section-mode-toggle">
+                <button class="active" id="sdReadBtn" onclick="setSectionMode('read')">Read</button>
+                <button id="sdEditBtn" onclick="setSectionMode('edit')">Edit</button>
+            </div>
+        </div>
+        <div class="section-content">
+            <div class="section-preview" id="sectionPreview"></div>
+            <textarea class="section-editor" id="sectionEditor" spellcheck="false"></textarea>
+        </div>
+    </div>
+
+    <div class="save-status" id="status"></div>
+</div>
+
+<script src="/static/js/sky-theme.js"></script>
+<script>
+let parsedSections = [];
+let fullMd = '';
+let currentSectionIdx = -1;
+let currentSectionMode = 'read';
+let saveTimer = null;
+let devNotes = [];
+
+const sectionsView = document.getElementById('sectionsView');
+const sectionDetail = document.getElementById('sectionDetail');
+const sectionPreview = document.getElementById('sectionPreview');
+const sectionEditor = document.getElementById('sectionEditor');
+const status = document.getElementById('status');
+
+async function load() {
+    try {
+        const resp = await fetch('/api/personality');
+        const data = await resp.json();
+        fullMd = data.content || '';
+        parsedSections = parseSections(fullMd);
+        await loadDevNotes();
+        renderSections();
+        status.textContent = '';
+    } catch(e) {
+        status.textContent = 'Load error';
+    }
+}
+
+async function loadDevNotes() {
+    try {
+        const r = await fetch('/api/devnotes/personality');
+        const d = await r.json();
+        devNotes = d.notes || [];
+    } catch(e) {
+        devNotes = [];
+    }
+}
+
+function devNotesHtml() {
+    let notesHtml = '';
+    if (!devNotes.length) {
+        notesHtml = '<div class="dn-empty">No dev notes yet.</div>';
+    } else {
+        notesHtml = '<div class="dn-list">' + devNotes.map(n => `
+            <div class="dn-note">
+                <div class="dn-text">${escapeHtml(n.text)}<div class="dn-date">${escapeHtml(n.created || '')}</div></div>
+                <button class="dn-remove" title="Remove" onclick="removeDevNote('${escapeHtml(n.id)}')">&times;</button>
+            </div>
+        `).join('') + '</div>';
+    }
+    return `
+        <div class="dev-notes-section">
+            <div class="dn-title">Dev notes</div>
+            ${notesHtml}
+            <div class="dn-add">
+                <input type="text" id="dnInput" placeholder="Add a note about this page…" onkeydown="if(event.key==='Enter')addDevNote()">
+                <button onclick="addDevNote()">Add</button>
+            </div>
+        </div>
+    `;
+}
+
+async function addDevNote() {
+    const input = document.getElementById('dnInput');
+    if (!input) return;
+    const text = input.value.trim();
+    if (!text) return;
+    await fetch('/api/devnote/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tab: 'personality', text }),
+    });
+    input.value = '';
+    await loadDevNotes();
+    renderSections();
+}
+
+async function removeDevNote(id) {
+    await fetch('/api/devnote/remove', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tab: 'personality', id }),
+    });
+    await loadDevNotes();
+    renderSections();
+}
+
+function parseSections(md) {
+    const lines = md.split('\n');
+    const markers = [];
+    for (let i = 0; i < lines.length; i++) {
+        const h2 = lines[i].match(/^## (.+)$/);
+        if (h2) {
+            let summaryIdx = -1, summary = '';
+            if (i > 0) {
+                const sm = lines[i-1].match(/^<!--\s*summary:\s*(.+?)\s*-->\s*$/);
+                if (sm) { summaryIdx = i - 1; summary = sm[1]; }
+            }
+            markers.push({ headerIdx: i, summaryIdx, title: h2[1], summary });
+        }
+    }
+    const sections = [];
+    for (let m = 0; m < markers.length; m++) {
+        const cur = markers[m];
+        const next = markers[m+1];
+        const blockEndIdx = next
+            ? (next.summaryIdx >= 0 ? next.summaryIdx : next.headerIdx) - 1
+            : lines.length - 1;
+        const blockStartIdx = cur.summaryIdx >= 0 ? cur.summaryIdx : cur.headerIdx;
+        sections.push({
+            title: cur.title,
+            summary: cur.summary,
+            blockStartIdx,
+            blockEndIdx,
+            block: lines.slice(blockStartIdx, blockEndIdx + 1).join('\n'),
+        });
+    }
+    return sections;
+}
+
+function renderSections() {
+    let html = '';
+    if (!parsedSections.length) {
+        html = '<p class="empty-msg">No sections found. Add ## headings via Edit on a section.</p>';
+    } else {
+        parsedSections.forEach((sec, i) => {
+            // Strip the summary comment + header line from block to check body emptiness
+            const bodyOnly = sec.block.replace(/^<!--[\s\S]*?-->\s*\n?/, '').replace(/^## .+\n?/, '').trim();
+            const isEmpty = bodyOnly.length < 20;
+            const summary = sec.summary || (isEmpty ? '<em>Empty section.</em>' : '<em>No summary yet.</em>');
+            html += `
+                <div class="section-card" onclick="openSection(${i})">
+                    <div class="sc-title"><span>${escapeHtml(sec.title)}</span><span class="sc-chev">›</span></div>
+                    <div class="sc-summary">${summary}</div>
+                    ${isEmpty ? '<div class="sc-empty">Empty — tap to fill</div>' : ''}
+                </div>
+            `;
+        });
+    }
+    sectionsView.innerHTML = html + devNotesHtml();
+}
+
+function openSection(i) {
+    if (!parsedSections[i]) return;
+    currentSectionIdx = i;
+    sectionsView.style.display = 'none';
+    sectionDetail.style.display = 'flex';
+    setSectionMode('read');
+}
+
+async function closeSection() {
+    if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; await doSave(); }
+    currentSectionIdx = -1;
+    sectionDetail.style.display = 'none';
+    sectionsView.style.display = 'block';
+    renderSections();
+}
+
+function setSectionMode(mode) {
+    currentSectionMode = mode;
+    document.getElementById('sdReadBtn').classList.toggle('active', mode === 'read');
+    document.getElementById('sdEditBtn').classList.toggle('active', mode === 'edit');
+    const sec = parsedSections[currentSectionIdx];
+    if (!sec) return;
+    if (mode === 'read') {
+        sectionPreview.style.display = 'block';
+        sectionEditor.style.display = 'none';
+        sectionPreview.innerHTML = renderMarkdown(sec.block);
+        sectionPreview.scrollTop = 0;
+    } else {
+        sectionPreview.style.display = 'none';
+        sectionEditor.style.display = 'block';
+        sectionEditor.value = sec.block;
+        sectionEditor.focus();
+    }
+}
+
+sectionEditor.addEventListener('input', () => {
+    clearTimeout(saveTimer);
+    status.textContent = 'Unsaved…';
+    saveTimer = setTimeout(doSave, 1500);
+});
+
+async function doSave() {
+    if (currentSectionIdx < 0) return;
+    const sec = parsedSections[currentSectionIdx];
+    if (sectionEditor.value === sec.block) { status.textContent = ''; return; }
+
+    const lines = fullMd.split('\n');
+    const before = lines.slice(0, sec.blockStartIdx);
+    const after = lines.slice(sec.blockEndIdx + 1);
+    const newBlock = sectionEditor.value.split('\n');
+    const newMd = [...before, ...newBlock, ...after].join('\n');
+
+    try {
+        await fetch('/api/personality', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: newMd })
+        });
+        fullMd = newMd;
+        parsedSections = parseSections(fullMd);
+        status.textContent = 'Saved';
+        setTimeout(() => { if (status.textContent === 'Saved') status.textContent = ''; }, 2000);
+    } catch(e) {
+        status.textContent = 'Save error';
+    }
+}
+
+window.addEventListener('beforeunload', () => { if (saveTimer) doSave(); });
+
+function escapeHtml(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function renderMarkdown(md) {
+    if (!md.trim()) return '<p class="empty-msg">Empty.</p>';
+    md = md.replace(/<!--[\s\S]*?-->/g, '');
+    md = md.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    md = md.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+    md = md.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+    md = md.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+    md = md.replace(/^---+$/gm, '<hr>');
+    md = md.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    md = md.replace(/\*(.+?)\*/g, '<em>$1</em>');
+    md = md.replace(/`([^`]+)`/g, '<code>$1</code>');
+    md = md.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
+    md = md.replace(/^- (.+)$/gm, '<li>$1</li>');
+    md = md.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
+    md = md.replace(/\n\n/g, '</p><p>');
+    md = '<p>' + md + '</p>';
+    md = md.replace(/<p><(h[123]|hr|ul|blockquote)/g, '<$1');
+    md = md.replace(/<\/(h[123]|ul|blockquote)><\/p>/g, '</$1>');
+    return md;
+}
+
+load();
+</script>
+</body>
+</html>

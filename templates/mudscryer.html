@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mudscryer</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ctext y='52' font-size='52'%3E%F0%9F%8D%84%3C/text%3E%3C/svg%3E">
+<style>
+:root {
+    --bg: #1a1410;
+    --bg-soft: #2a1f17;
+    --ink: #f0e6d2;
+    --ink-soft: #b8a890;
+    --ink-muted: #7a6b5a;
+    --moss: #6b8a4f;
+    --moss-glow: #8fad6b;
+    --gold: #c89c5b;
+    --rust: #b85c3a;
+    --border: rgba(240, 230, 210, 0.08);
+    --card-bg: rgba(240, 230, 210, 0.025);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.6;
+    min-height: 100%;
+    overflow-x: hidden;
+}
+
+/* Subtle living background — slow gradient mist */
+body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background:
+        radial-gradient(ellipse at 20% 10%, rgba(107, 138, 79, 0.08), transparent 50%),
+        radial-gradient(ellipse at 80% 80%, rgba(184, 92, 58, 0.06), transparent 50%),
+        radial-gradient(ellipse at 50% 50%, rgba(200, 156, 91, 0.04), transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+    animation: drift 40s ease-in-out infinite alternate;
+}
+@keyframes drift {
+    0%   { transform: translate(0, 0) scale(1); }
+    100% { transform: translate(-3%, 2%) scale(1.05); }
+}
+
+.wrap {
+    position: relative;
+    z-index: 1;
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 80px 28px 60px 28px;
+}
+
+/* Wordmark */
+.mark {
+    font-size: 56px;
+    font-weight: 700;
+    letter-spacing: -1.5px;
+    color: var(--ink);
+    margin-bottom: 10px;
+    line-height: 1.05;
+}
+.mark .glyph {
+    display: inline-block;
+    transform: translateY(-2px);
+    margin-right: 4px;
+    font-size: 0.9em;
+    filter: drop-shadow(0 0 18px rgba(143, 173, 107, 0.35));
+}
+.tagline {
+    font-size: 16px;
+    color: var(--ink-soft);
+    font-style: italic;
+    margin-bottom: 6px;
+}
+.byline {
+    font-size: 13px;
+    color: var(--ink-muted);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 56px;
+}
+.byline a { color: var(--moss-glow); text-decoration: none; }
+.byline a:hover { color: var(--gold); }
+
+/* Intro paragraph */
+.intro {
+    font-size: 17px;
+    color: var(--ink-soft);
+    margin-bottom: 56px;
+    max-width: 580px;
+    line-height: 1.75;
+}
+.intro em { color: var(--gold); font-style: normal; font-weight: 600; }
+
+/* Section label */
+.section-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--ink-muted);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 18px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.section-label::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+}
+
+/* Project cards */
+.projects {
+    display: grid;
+    gap: 14px;
+    margin-bottom: 64px;
+}
+.project {
+    display: block;
+    text-decoration: none;
+    color: inherit;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--moss);
+    border-radius: 10px;
+    padding: 22px 26px;
+    transition: all 0.2s ease;
+    position: relative;
+    overflow: hidden;
+}
+.project:hover {
+    background: rgba(240, 230, 210, 0.05);
+    border-left-color: var(--gold);
+    transform: translateX(4px);
+}
+.project:hover .project-arrow { transform: translateX(4px); color: var(--gold); }
+.project-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 6px;
+}
+.project-name {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+    color: var(--ink);
+}
+.project-status {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--moss-glow);
+    padding: 3px 9px;
+    border: 1px solid var(--moss);
+    border-radius: 100px;
+    white-space: nowrap;
+}
+.project-status.archive {
+    color: var(--ink-muted);
+    border-color: var(--ink-muted);
+}
+.project-tagline {
+    font-size: 14px;
+    color: var(--ink-soft);
+    margin-bottom: 10px;
+}
+.project-desc {
+    font-size: 14px;
+    color: var(--ink-muted);
+    line-height: 1.65;
+    max-width: 540px;
+}
+.project-arrow {
+    position: absolute;
+    right: 22px;
+    top: 22px;
+    color: var(--ink-muted);
+    font-size: 20px;
+    transition: all 0.2s ease;
+}
+
+/* Footer */
+.footer {
+    font-size: 12px;
+    color: var(--ink-muted);
+    border-top: 1px solid var(--border);
+    padding-top: 24px;
+    margin-top: 24px;
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+.footer a { color: var(--ink-soft); text-decoration: none; }
+.footer a:hover { color: var(--gold); }
+
+@media (max-width: 600px) {
+    .wrap { padding: 56px 22px 40px 22px; }
+    .mark { font-size: 42px; }
+    .intro { font-size: 16px; margin-bottom: 44px; }
+    .project { padding: 20px 22px; }
+    .project-name { font-size: 19px; }
+    .project-arrow { display: none; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+    <div class="mark"><span class="glyph">🍄</span>Mudscryer</div>
+    <div class="tagline">Reading the underground.</div>
+    <div class="byline">Bradie Lee &nbsp;·&nbsp; <a href="https://exocortex.mudscryer.org/about">About</a></div>
+
+    <p class="intro">
+        Soil microbiome PhD turned <em>health prosthesis builder</em>. Long COVID forced me to learn my own body the way I learned bacterial communities — slowly, by listening. These are the systems I'm building to do that listening.
+    </p>
+
+    <div class="section-label">Projects</div>
+
+    <div class="projects">
+
+        <a href="https://exocortex.mudscryer.org/" class="project">
+            <div class="project-head">
+                <div class="project-name">The Exocortex</div>
+                <div class="project-status">Live</div>
+            </div>
+            <div class="project-tagline">An extended mind, built in public.</div>
+            <div class="project-desc">
+                A conversational health-tracking platform I use every day. Habits, food, sleep, symptoms, finances, kitchen, inventory — all tracked through natural language and surfaced as patterns. Built in Claude Code; the dashboard and the dev environment are the same thing.
+            </div>
+            <div class="project-arrow">→</div>
+        </a>
+
+        <a href="https://github.com/braedeigh/inventory-app" target="_blank" rel="noopener" class="project">
+            <div class="project-head">
+                <div class="project-name">Inventory App</div>
+                <div class="project-status">Live</div>
+            </div>
+            <div class="project-tagline">Archival counterpart to the exocortex's consumables tracker.</div>
+            <div class="project-desc">
+                Photos, materials, origin stories. For things you keep — clothes, jewelry, tools — vs. things that run out and get reordered. Same philosophy, different cadence.
+            </div>
+            <div class="project-arrow">→</div>
+        </a>
+
+    </div>
+
+    <div class="footer">
+        <div>Built in Claude Code &nbsp;·&nbsp; Austin, TX</div>
+        <div><a href="https://exocortex.mudscryer.org/about">About</a> &nbsp;·&nbsp; <a href="https://exocortex.mudscryer.org/login">Sign in</a></div>
+    </div>
+
+</div>
+</body>
+</html>

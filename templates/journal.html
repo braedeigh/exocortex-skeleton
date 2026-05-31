@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Journal</title>
+<style>
+:root {
+    --bg: #0d0d1a;
+    --text: #f0e6d6;
+    --text-muted: rgba(200, 190, 170, 0.5);
+    --border: #2a2a4a;
+    --accent: #7c5cbf;
+    --accent-light: rgba(124, 92, 191, 0.15);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+
+.container {
+    display: flex; flex-direction: column; height: 100%; max-width: 800px; margin: 0 auto; padding: 0 16px;
+}
+
+/* Nav */
+.nav {
+    display: flex; align-items: center; gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.nav button {
+    background: none; border: 1px solid var(--border); border-radius: 6px; padding: 5px 12px;
+    cursor: pointer; font-size: 14px; color: var(--text); transition: all 0.12s;
+}
+.nav button:hover { border-color: var(--accent); color: var(--accent); }
+.nav button:disabled { opacity: 0.3; cursor: default; }
+.nav .date-label {
+    font-size: 15px; font-weight: 700; flex: 1; text-align: center;
+    cursor: pointer; padding: 4px 8px; border-radius: 6px; transition: background 0.12s;
+}
+.nav .date-label:hover { background: var(--accent-light); }
+.nav .today-btn { font-size: 12px; color: var(--accent); }
+
+/* Calendar overlay */
+.calendar-overlay {
+    display: none; position: absolute; top: 48px; left: 50%; transform: translateX(-50%);
+    background: #1a1a2e; border: 1px solid var(--border); border-radius: 10px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.12); z-index: 20; padding: 12px; min-width: 280px;
+}
+.calendar-overlay.open { display: block; }
+.cal-header {
+    display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;
+}
+.cal-header button {
+    background: none; border: none; cursor: pointer; font-size: 16px; color: var(--text-muted);
+    padding: 4px 8px; border-radius: 4px;
+}
+.cal-header button:hover { background: var(--accent-light); color: var(--accent); }
+.cal-header .cal-month { font-size: 14px; font-weight: 700; }
+.cal-grid {
+    display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; text-align: center;
+}
+.cal-grid .cal-dow { font-size: 11px; font-weight: 600; color: var(--text-muted); padding: 4px 0; }
+.cal-grid .cal-day {
+    font-size: 13px; padding: 6px 0; border-radius: 6px; cursor: default; color: var(--text-muted);
+}
+.cal-grid .cal-day.has-entry {
+    color: var(--accent); font-weight: 700; cursor: pointer; background: var(--accent-light);
+}
+.cal-grid .cal-day.has-entry:hover { background: var(--accent); color: #fff; }
+.cal-grid .cal-day.today { outline: 2px solid var(--accent); outline-offset: -2px; }
+.cal-grid .cal-day.selected { background: var(--accent); color: #fff; }
+.cal-grid .cal-day.empty { visibility: hidden; }
+
+/* Mode toggle */
+.mode-toggle {
+    display: flex; gap: 0; border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.mode-toggle button {
+    flex: 1; padding: 8px 0; border: none; background: none; font-size: 13px; font-weight: 600;
+    color: var(--text-muted); cursor: pointer; border-bottom: 2px solid transparent;
+}
+.mode-toggle button.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* Content area */
+.content {
+    flex: 1; min-height: 0; display: flex; flex-direction: column;
+}
+.content textarea {
+    flex: 1; width: 100%; border: none; outline: none; resize: none; padding: 16px 0;
+    font-family: "SF Mono", Monaco, "Cascadia Code", Consolas, monospace; font-size: 14px;
+    line-height: 1.7; color: var(--text); background: var(--bg);
+}
+.preview {
+    flex: 1; overflow-y: auto; padding: 16px 0; line-height: 1.7; font-size: 15px; display: none;
+}
+.preview h1 { font-size: 22px; margin-bottom: 8px; }
+.preview h2 { font-size: 18px; margin-top: 20px; margin-bottom: 6px; }
+.preview h3 { font-size: 16px; margin-top: 16px; margin-bottom: 4px; }
+.preview hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+.preview p { margin-bottom: 8px; }
+.preview code { background: rgba(124, 92, 191, 0.15); padding: 1px 4px; border-radius: 3px; font-size: 13px; }
+.preview em { font-style: italic; color: var(--text-muted); }
+.preview strong { font-weight: 700; }
+.preview blockquote { border-left: 3px solid var(--accent); padding-left: 12px; color: var(--text-muted); margin: 8px 0; }
+.preview ul, .preview ol { padding-left: 20px; margin-bottom: 8px; }
+
+.save-status {
+    padding: 6px 0; font-size: 12px; color: var(--text-muted); text-align: right; flex-shrink: 0; min-height: 24px;
+}
+</style>
+</head>
+<body>
+<div class="container">
+    <div class="nav" style="position:relative">
+        <button id="prevBtn" onclick="nav(-1)">&larr;</button>
+        <span class="date-label" id="dateLabel" onclick="toggleCalendar()"></span>
+        <button id="todayBtn" class="today-btn" onclick="goToday()" style="display:none">Today</button>
+        <button id="nextBtn" onclick="nav(1)">&rarr;</button>
+        <div class="calendar-overlay" id="calOverlay"></div>
+    </div>
+    <div class="mode-toggle">
+        <button class="active" id="editBtn" onclick="setMode('edit')">Edit</button>
+        <button id="readBtn" onclick="setMode('read')">Read</button>
+    </div>
+    <div class="content">
+        <textarea id="editor" spellcheck="false"></textarea>
+        <div class="preview" id="preview"></div>
+    </div>
+    <div class="save-status" id="status"></div>
+</div>
+
+<script src="/static/js/sky-theme.js"></script>
+<script>
+let currentDate = null;
+let saveTimer = null;
+let lastSaved = '';
+let journalDates = new Set();
+let calMonth = null;
+let calOpen = false;
+
+const editor = document.getElementById('editor');
+const preview = document.getElementById('preview');
+const status = document.getElementById('status');
+const calOverlay = document.getElementById('calOverlay');
+
+let _journalServerDate = null;
+
+function localToday() {
+    if (_journalServerDate) return _journalServerDate;
+    const n = new Date();
+    return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}`;
+}
+
+async function fetchServerDate() {
+    try {
+        const resp = await fetch('/api/data');
+        const data = await resp.json();
+        if (data.server_date) _journalServerDate = data.server_date;
+    } catch(e) {}
+}
+
+// --- Data loading ---
+async function loadDates() {
+    const resp = await fetch('/api/journal/dates');
+    const data = await resp.json();
+    journalDates = new Set(data.dates);
+}
+
+async function loadDate(date) {
+    if (editor.value !== lastSaved && currentDate) await save();
+    if (!date) date = localToday();
+    try {
+        const resp = await fetch(`/api/journal/${date}`);
+        const data = await resp.json();
+        if (data.error) { status.textContent = 'Error: ' + data.error; return; }
+        currentDate = data.date;
+        editor.value = data.content;
+        lastSaved = data.content;
+        document.getElementById('dateLabel').textContent = formatDate(data.date);
+        document.getElementById('prevBtn').disabled = !data.prev;
+        document.getElementById('prevBtn').dataset.date = data.prev || '';
+        document.getElementById('nextBtn').disabled = !data.next;
+        document.getElementById('nextBtn').dataset.date = data.next || '';
+        document.getElementById('todayBtn').style.display = data.date === localToday() ? 'none' : '';
+        renderPreview();
+        closeCalendar();
+        status.textContent = '';
+    } catch(e) {
+        status.textContent = 'Load error';
+    }
+}
+
+function formatDate(dateStr) {
+    const d = new Date(dateStr + 'T12:00:00');
+    return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+}
+
+function nav(dir) {
+    const btn = dir === -1 ? document.getElementById('prevBtn') : document.getElementById('nextBtn');
+    if (btn.dataset.date) loadDate(btn.dataset.date);
+}
+
+function goToday() { loadDate(null); }
+
+// --- Edit / Read toggle ---
+function setMode(mode) {
+    document.getElementById('editBtn').classList.toggle('active', mode === 'edit');
+    document.getElementById('readBtn').classList.toggle('active', mode === 'read');
+    editor.style.display = mode === 'edit' ? 'block' : 'none';
+    preview.style.display = mode === 'read' ? 'block' : 'none';
+    if (mode === 'read') renderPreview();
+}
+
+function renderPreview() {
+    let md = editor.value;
+    if (!md.trim()) { preview.innerHTML = '<p style="color:var(--text-muted);font-style:italic">No entry for this day.</p>'; return; }
+    md = md.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    md = md.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+    md = md.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+    md = md.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+    md = md.replace(/^---+$/gm, '<hr>');
+    md = md.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    md = md.replace(/\*(.+?)\*/g, '<em>$1</em>');
+    md = md.replace(/`([^`]+)`/g, '<code>$1</code>');
+    md = md.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
+    md = md.replace(/^- (.+)$/gm, '<li>$1</li>');
+    md = md.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
+    md = md.replace(/\n\n/g, '</p><p>');
+    md = '<p>' + md + '</p>';
+    md = md.replace(/<p><(h[123]|hr|ul|blockquote)/g, '<$1');
+    md = md.replace(/<\/(h[123]|ul|blockquote)><\/p>/g, '</$1>');
+    preview.innerHTML = md;
+}
+
+// --- Auto-save ---
+editor.addEventListener('input', () => {
+    clearTimeout(saveTimer);
+    status.textContent = 'Unsaved...';
+    saveTimer = setTimeout(save, 1500);
+});
+
+async function save() {
+    if (editor.value === lastSaved) return;
+    await fetch(`/api/journal/${currentDate}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: editor.value })
+    });
+    lastSaved = editor.value;
+    status.textContent = 'Saved';
+    setTimeout(() => { if (status.textContent === 'Saved') status.textContent = ''; }, 2000);
+}
+
+window.addEventListener('beforeunload', () => { if (editor.value !== lastSaved) save(); });
+
+// --- Calendar ---
+function toggleCalendar() {
+    if (calOpen) { closeCalendar(); return; }
+    calOpen = true;
+    const d = new Date(currentDate + 'T12:00:00');
+    calMonth = { year: d.getFullYear(), month: d.getMonth() };
+    renderCalendar();
+    calOverlay.classList.add('open');
+}
+
+function closeCalendar() {
+    calOpen = false;
+    calOverlay.classList.remove('open');
+}
+
+function calNav(dir) {
+    calMonth.month += dir;
+    if (calMonth.month < 0) { calMonth.month = 11; calMonth.year--; }
+    if (calMonth.month > 11) { calMonth.month = 0; calMonth.year++; }
+    renderCalendar();
+}
+
+function renderCalendar() {
+    const { year, month } = calMonth;
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const startDow = (firstDay.getDay() + 6) % 7;
+    const daysInMonth = lastDay.getDate();
+    const today = localToday();
+    const monthLabel = firstDay.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+    let html = `<div class="cal-header">
+        <button onclick="calNav(-1)">&larr;</button>
+        <span class="cal-month">${monthLabel}</span>
+        <button onclick="calNav(1)">&rarr;</button>
+    </div><div class="cal-grid">`;
+    ['M','T','W','T','F','S','S'].forEach(d => { html += `<div class="cal-dow">${d}</div>`; });
+    for (let i = 0; i < startDow; i++) html += '<div class="cal-day empty"></div>';
+    for (let day = 1; day <= daysInMonth; day++) {
+        const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+        const hasEntry = journalDates.has(dateStr);
+        const isToday = dateStr === today;
+        const isSelected = dateStr === currentDate;
+        let cls = 'cal-day';
+        if (hasEntry) cls += ' has-entry';
+        if (isToday) cls += ' today';
+        if (isSelected) cls += ' selected';
+        const click = hasEntry ? `onclick="loadDate('${dateStr}')"` : '';
+        html += `<div class="${cls}" ${click}>${day}</div>`;
+    }
+    html += '</div>';
+    calOverlay.innerHTML = html;
+}
+
+document.addEventListener('click', (e) => {
+    if (calOpen && !calOverlay.contains(e.target) && e.target.id !== 'dateLabel') {
+        closeCalendar();
+    }
+});
+
+// --- Polling ---
+let journalCodeVersion = null;
+async function pollJournal() {
+    try {
+        // Auto-reload on code changes
+        const vRes = await fetch('/api/version');
+        const vData = await vRes.json();
+        if (journalCodeVersion && vData.hash !== journalCodeVersion) { location.reload(); return; }
+        journalCodeVersion = vData.hash;
+
+        // Poll journal content
+        if (!currentDate) return;
+        if (document.activeElement === editor) return;
+        const resp = await fetch(`/api/journal/${currentDate}`);
+        const data = await resp.json();
+        if (data.content !== lastSaved) {
+            editor.value = data.content;
+            lastSaved = data.content;
+            renderPreview();
+        }
+    } catch(e) {}
+}
+setInterval(pollJournal, 3000);
+
+// --- Init ---
+fetchServerDate().then(() => loadDates()).then(() => loadDate(null));
+</script>
+</body>
+</html>

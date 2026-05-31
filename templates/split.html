@@ -1,0 +1,1193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0d0d1a">
+<link rel="manifest" href="/static/manifest.json">
+<link rel="apple-touch-icon" href="/static/icon-192.png">
+<title>Exocortex</title>
+<style>
+:root {
+    --bg: #0d0d1a;
+    --border: #2a2a4a;
+    --accent: #7c5cbf;
+    --accent-glow: rgba(124, 92, 191, 0.3);
+    --tab-bg: #1a1a2e;
+    --tab-active: #7c5cbf;
+    --text: #e0d0ff;
+    --text-muted: rgba(180, 160, 220, 0.6);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { height: 100%; background: var(--bg); }
+body { height: 100%; overflow: hidden; background: var(--bg); }
+
+/* === DESKTOP SPLIT === */
+.split-container {
+    display: flex;
+    height: 100%;
+    width: 100%;
+}
+.pane {
+    height: 100%;
+    overflow: hidden;
+    position: relative;
+}
+.pane iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+}
+.pane-terminal iframe {
+    flex: 1;
+    min-height: 0;
+}
+.pane-terminal { flex: 1; min-width: 200px; display: flex; flex-direction: column; }
+.pane-dashboard { flex: 1; min-width: 200px; display: flex; flex-direction: column; }
+.pane-dashboard iframe { flex: 1; min-height: 0; }
+
+/* Dashboard pane tab bar — matches session-bar style */
+.dash-bar {
+    display: flex;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+.dash-bar button {
+    flex: 1;
+    /* Bumped padding so the bar height matches the session-bar, whose "+" button
+       (font-size 18px) makes that side taller than the default 13px tab text. */
+    padding: 11px 0;
+    border: none;
+    background: var(--tab-bg);
+    color: var(--text-muted);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    transition: all 0.15s;
+    border-bottom: 3px solid transparent;
+}
+.dash-bar button.active {
+    color: var(--text);
+    background: var(--bg);
+    border-bottom-color: var(--tab-active);
+}
+.dash-bar button:hover:not(.active) {
+    color: var(--text);
+    background: rgba(124, 92, 191, 0.1);
+}
+/* Close-vscode affordance on the Files tab */
+.dash-bar button, .tab-btn { position: relative; }
+.tab-close-x {
+    position: absolute;
+    top: 3px;
+    right: 4px;
+    font-size: 14px;
+    line-height: 1;
+    color: var(--text-muted);
+    opacity: 0;
+    padding: 2px 5px;
+    border-radius: 4px;
+    transition: opacity 0.15s, background 0.15s, color 0.15s;
+    cursor: pointer;
+    user-select: none;
+}
+.dash-bar button:hover .tab-close-x { opacity: 0.55; }
+.tab-close-x:hover {
+    opacity: 1 !important;
+    color: #e74c3c;
+    background: rgba(231,76,60,0.12);
+}
+/* Touch devices: rely on long-press, hide the × */
+@media (hover: none) {
+    .tab-close-x { display: none; }
+}
+.tab-btn.long-pressing {
+    background: rgba(231,76,60,0.18) !important;
+    transition: background 0.6s ease;
+}
+
+/* Desktop session tabs */
+.session-bar {
+    display: flex;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+.session-bar button {
+    flex: 1;
+    padding: 8px 0;
+    border: none;
+    background: var(--tab-bg);
+    color: var(--text-muted);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    transition: all 0.15s;
+    border-bottom: 3px solid transparent;
+}
+.session-bar button.active {
+    color: var(--text);
+    background: var(--bg);
+    border-bottom-color: var(--tab-active);
+}
+.session-bar button:hover:not(.active) {
+    color: var(--text);
+    background: rgba(124, 92, 191, 0.1);
+}
+.session-bar .add-session-btn {
+    flex: 0 0 36px;
+    font-size: 18px;
+    color: var(--text-muted);
+    background: var(--tab-bg);
+    border: none;
+    cursor: pointer;
+    transition: all 0.15s;
+    border-bottom: 3px solid transparent;
+    padding: 8px 0;
+}
+.session-bar .add-session-btn:hover {
+    color: var(--text);
+    background: rgba(124, 92, 191, 0.1);
+}
+/* Right-click context menu for closing custom tabs */
+.ctx-menu {
+    position: fixed;
+    z-index: 9999;
+    background: rgba(26, 26, 46, 0.95);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 0;
+    min-width: 140px;
+    display: none;
+}
+.ctx-menu.open { display: block; }
+.ctx-menu button {
+    display: block;
+    width: 100%;
+    padding: 8px 14px;
+    border: none;
+    background: transparent;
+    color: #ff6b6b;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+    letter-spacing: 0;
+    text-transform: none;
+    font-weight: 500;
+}
+.ctx-menu button:hover {
+    background: rgba(255, 80, 80, 0.15);
+}
+
+/* Divider */
+.divider {
+    width: 6px;
+    background: var(--border);
+    cursor: col-resize;
+    flex-shrink: 0;
+    position: relative;
+    transition: background 0.15s;
+}
+.divider:hover, .divider.active {
+    background: var(--accent);
+    box-shadow: 0 0 12px var(--accent-glow);
+}
+.divider::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 2px;
+    height: 40px;
+    background: rgba(255,255,255,0.2);
+    border-radius: 1px;
+}
+.divider:hover::after, .divider.active::after {
+    background: rgba(255,255,255,0.5);
+}
+
+/* === MOBILE TABS === */
+.mobile-tabs {
+    display: none;
+    height: 100%;
+    flex-direction: column;
+}
+.tab-bar {
+    display: flex;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    padding-top: env(safe-area-inset-top);
+}
+.tab-btn {
+    flex: 1;
+    padding: 12px 0;
+    border: none;
+    background: var(--tab-bg);
+    color: var(--text-muted);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    transition: all 0.15s;
+    border-bottom: 3px solid transparent;
+}
+.tab-btn.active {
+    color: var(--text);
+    background: var(--bg);
+    border-bottom-color: var(--tab-active);
+}
+.session-menu {
+    display: none;
+    position: absolute;
+    top: calc(43px + env(safe-area-inset-top));
+    left: 0;
+    right: 0;
+    z-index: 99;
+    background: rgba(13, 13, 26, 0.95);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    border-bottom: 1px solid rgba(124, 92, 191, 0.3);
+}
+.session-menu.open { display: flex; }
+.session-btn {
+    flex: 1;
+    padding: 10px 0;
+    border: none;
+    background: transparent;
+    color: rgba(124, 92, 191, 0.7);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    border-bottom: 3px solid transparent;
+}
+.session-btn.active {
+    color: var(--text);
+    background: var(--bg);
+    border-bottom-color: var(--tab-active);
+}
+.session-menu .add-session-btn {
+    flex: 0 0 40px;
+    font-size: 18px;
+    color: rgba(124, 92, 191, 0.7);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 10px 0;
+    border-bottom: 3px solid transparent;
+}
+/* Hide the purple bar on the Terminal tab when dropdown is open */
+.tab-btn.menu-open {
+    border-bottom-color: transparent;
+}
+.tab-content {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    margin-top: calc(43px + env(safe-area-inset-top));
+}
+.tab-pane {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    display: none;
+}
+.tab-pane.active { display: block; }
+.tab-pane iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+}
+
+/* === RESPONSIVE === */
+@media (max-width: 768px) {
+    .split-container { display: none; }
+    .mobile-tabs { display: flex; }
+    .upload-btn { top: calc(52px + env(safe-area-inset-top)); left: 12px; width: 44px; height: 44px; font-size: 20px; border-radius: 12px; }
+    .session-bar { display: none; }
+}
+@media (min-width: 769px) {
+    .split-container { display: flex; }
+    .mobile-tabs { display: none; }
+}
+
+/* Iframe overlay to prevent stealing mouse during divider drag */
+.drag-overlay {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    z-index: 10;
+    display: none;
+}
+.dragging .drag-overlay { display: block; }
+
+/* Upload button — positioned in session bar on desktop */
+.upload-btn {
+    position: fixed;
+    top: 46px;
+    left: 4px;
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: rgba(26, 26, 46, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    color: var(--text-muted);
+    font-size: 17px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+    transition: all 0.15s;
+}
+.upload-btn:hover {
+    background: rgba(124, 92, 191, 0.25);
+    border-color: var(--accent);
+    color: var(--text);
+}
+
+/* Full-screen drop catcher — sits above iframes, only visible during file drag */
+.drop-catcher {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    z-index: 9999;
+    display: none;
+    background: rgba(124, 92, 191, 0.12);
+    border: 3px dashed var(--accent);
+    align-items: center;
+    justify-content: center;
+}
+.drop-catcher.active {
+    display: flex;
+}
+.drop-catcher .drop-label {
+    background: rgba(13, 13, 26, 0.92);
+    color: var(--text);
+    padding: 20px 40px;
+    border-radius: 14px;
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    pointer-events: none;
+}
+
+/* Upload toast */
+.upload-toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(13, 13, 26, 0.95);
+    border: 1px solid var(--accent);
+    color: var(--text);
+    padding: 10px 20px;
+    border-radius: 10px;
+    font-size: 14px;
+    z-index: 10000;
+    opacity: 0;
+    transition: opacity 0.3s;
+    pointer-events: none;
+}
+.upload-toast.visible { opacity: 1; }
+
+/* === Public mode: keep desktop split layout, hide chrome that requires auth.
+       Mobile public-mode stays dashboard-only (no fake terminal on phones).
+       Divider stays visible on desktop so visitors can resize the split. === */
+body.public-mode .dash-bar,
+body.public-mode .upload-btn,
+body.public-mode #journalFrame,
+body.public-mode #filesFrame {
+    display: none !important;
+}
+body.public-mode .tab-bar { display: none; }
+body.public-mode .tab-content { margin-top: 0; }
+body.public-mode #mobileDashboard { display: block; }
+body.public-mode #mobileTerminal,
+body.public-mode #mobileFiles {
+    display: none !important;
+}
+
+/* Mobile (max-width: 768px): collapse the split — show only the dashboard pane. */
+@media (max-width: 768px) {
+    body.public-mode .pane-terminal { display: none; }
+    body.public-mode .pane-dashboard { flex: 1 1 100%; width: 100%; }
+}
+
+/* Fake Claude Code styling (used only in public mode, lives inside .pane-terminal) */
+.cc-fake {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    background: #161618;
+    color: #ececec;
+    font-family: 'Berkeley Mono', 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+    font-size: 13.5px;
+    line-height: 1.65;
+    overflow: hidden;
+}
+.cc-fake .cc-fake-content {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 24px 26px 14px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;   /* start at the top; visitor scrolls down to read */
+}
+.cc-fake .cc-banner { color: #9ca3af; margin-bottom: 14px; }
+.cc-fake .cc-mark   { color: #d97757; }   /* ◆ */
+.cc-fake .cc-dim    { color: #9ca3af; }
+.cc-fake .cc-prompt { color: #d97757; font-weight: 600; }
+.cc-fake .cc-user   { color: #cdcdd2; }   /* user input — slightly brighter than response body */
+.cc-fake .cc-row    { margin: 10px 0; }
+.cc-fake .cc-p      { margin: 0 0 10px; color: #a8a8b0; }   /* Claude Code chat body gray */
+.cc-fake .cc-tool   { color: #9ca3af; padding-left: 4px; margin: 2px 0; }
+.cc-fake .cc-file   { color: #d6d6dc; }
+.cc-fake .cc-cursor-row { margin-top: 16px; }
+.cc-fake .cc-cursor { color: #cdcdd2; }
+
+/* Bottom status bars — mimic Claude Code's permission line + tmux session bar */
+.cc-fake .cc-statusbar {
+    flex: 0 0 auto;
+    padding: 4px 14px;
+    font-size: 11px;
+    color: #9ca3af;
+    background: #1a1a1d;
+    border-top: 1px solid #2a2a2e;
+    font-family: 'Berkeley Mono', 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.cc-fake .cc-statusbar.cc-warn {
+    background: #2a1f12;
+    color: #d97757;
+}
+.cc-fake .cc-statusbar-link {
+    color: inherit;
+    text-decoration: none;
+    display: block;
+    width: 100%;
+}
+.cc-fake .cc-statusbar-link:hover {
+    text-decoration: underline;
+    filter: brightness(1.1);
+}
+</style>
+</head>
+<body class="{{ 'public-mode' if view_mode == 'public' else '' }}" data-view-mode="{{ view_mode }}">
+<script>window.VIEW_MODE = "{{ view_mode }}";</script>
+
+<!-- Desktop: side-by-side -->
+<div class="split-container" id="splitContainer">
+    <div class="pane pane-terminal" id="paneTerminal">
+        <div class="drag-overlay"></div>
+        {% if view_mode == 'authed' %}
+        <div class="session-bar" id="desktopSessionBar"></div>
+        <iframe id="terminalFrame"></iframe>
+        {% else %}
+        <div class="cc-fake" id="ccFake">
+            <div class="cc-fake-content">
+                <div class="cc-banner"><span class="cc-mark">◆</span> Claude Code <span class="cc-dim">· ~/exocortex · v{{ app_version }}</span></div>
+                <div class="cc-row"><span class="cc-prompt">&gt;</span> <span class="cc-user">what is this site</span></div>
+
+                {{ public_intro_html|safe }}
+
+                <div class="cc-row cc-cursor-row"><span class="cc-prompt">&gt;</span> <span class="cc-cursor">▎</span></div>
+            </div>
+            <div class="cc-statusbar cc-warn"><a href="/about" target="_top" class="cc-statusbar-link">read more about my project here</a></div>
+            <div class="cc-statusbar">▼ ~/exocortex &nbsp;·&nbsp; claude-opus-4-7 &nbsp;·&nbsp; tmux: chat</div>
+        </div>
+        {% endif %}
+    </div>
+    <div class="divider" id="divider"></div>
+    <div class="pane pane-dashboard" id="paneDashboard">
+        <div class="drag-overlay"></div>
+        <div class="dash-bar" id="desktopDashBar">
+            <button class="active" data-dashview="dashboard" onclick="switchDashView('dashboard', this)">Dashboard</button>
+            <button data-dashview="journal" onclick="switchDashView('journal', this)">Journal</button>
+            <button data-dashview="files" onclick="switchDashView('files', this)">Files<span class="tab-close-x" onclick="closeVscodeFromTab(event)" title="Close VS Code (free memory)">&times;</span></button>
+            <button data-dashview="settings" onclick="switchDashView('settings', this)" title="Settings" aria-label="Settings" style="flex:0;padding:11px 16px;font-size:18px;margin-left:auto">&#9881;</button>
+        </div>
+        <iframe src="/tab/{{ active_tab }}{% if item_name %}?item={{ item_name }}{% endif %}" id="dashboardFrame"></iframe>
+        <iframe id="journalFrame" style="display:none"></iframe>
+        <iframe src="/files/" id="filesFrame" style="display:none"></iframe>
+        <iframe id="settingsFrame" style="display:none"></iframe>
+    </div>
+</div>
+
+<!-- Mobile: tabs -->
+<div class="mobile-tabs" id="mobileTabs">
+    <div class="tab-bar">
+        <button class="tab-btn active" data-tab="terminal" id="termTabBtn" onclick="switchTab('terminal')">Chat</button>
+        <button class="tab-btn" data-tab="journal" onclick="switchTab('journal')">Journal</button>
+        <button class="tab-btn" data-tab="dashboard" onclick="switchTab('dashboard')">Dashboard</button>
+        <button class="tab-btn" data-tab="files" onclick="switchTab('files')">Files<span class="tab-close-x" onclick="closeVscodeFromTab(event)" title="Close VS Code (free memory)">&times;</span></button>
+    </div>
+    <div class="session-menu" id="sessionMenu"></div>
+    <div class="tab-content">
+        <div class="tab-pane active" id="mobileTerminal">
+            <iframe id="mobileTerminalFrame"></iframe>
+        </div>
+        <div class="tab-pane" id="mobileDashboard">
+            <iframe id="mobileDashboardFrame" src="/tab/{{ active_tab }}{% if item_name %}?item={{ item_name }}{% endif %}"></iframe>
+        </div>
+        <div class="tab-pane" id="mobileJournal">
+            <iframe id="mobileJournalFrame"></iframe>
+        </div>
+        <div class="tab-pane" id="mobileFiles">
+            <iframe src="/files/"></iframe>
+        </div>
+        <div class="tab-pane" id="mobileSettings">
+            <iframe id="mobileSettingsFrame"></iframe>
+        </div>
+    </div>
+</div>
+
+<!-- Camera button -->
+<button class="upload-btn" id="uploadBtn" title="Upload file">
+    &#128206;
+</button>
+<input type="file" id="fileInput" style="display:none">
+
+<!-- Full-screen drop zone (above iframes) -->
+<div class="drop-catcher" id="dropCatcher">
+    <div class="drop-label">Drop file to upload</div>
+</div>
+
+<div class="upload-toast" id="uploadToast"></div>
+
+<!-- Right-click context menu for custom tabs -->
+<div class="ctx-menu" id="ctxMenu">
+    <button id="ctxClose">Close session</button>
+</div>
+
+<script>
+// === Dynamic session management ===
+let desktopSession = localStorage.getItem('exo-desktop-session') || 'chat';
+let currentSession = localStorage.getItem('exo-mobile-session') || 'chat';
+let allSessions = [];
+let defaultSessions = [];
+
+function switchDesktopSession(session, btn) {
+    desktopSession = session;
+    currentSession = session;
+    localStorage.setItem('exo-desktop-session', session);
+    document.getElementById('terminalFrame').src = '/terminal/?arg=' + session;
+    document.querySelectorAll('#desktopSessionBar .session-tab').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    fetch('/api/terminal/session', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({session: session}),
+    });
+}
+
+// === Context menu (desktop right-click) ===
+const ctxMenu = document.getElementById('ctxMenu');
+const ctxClose = document.getElementById('ctxClose');
+let ctxTarget = null;
+
+function showCtxMenu(x, y, sessionName) {
+    ctxTarget = sessionName;
+    ctxMenu.style.left = x + 'px';
+    ctxMenu.style.top = y + 'px';
+    ctxMenu.classList.add('open');
+}
+function hideCtxMenu() { ctxMenu.classList.remove('open'); ctxTarget = null; }
+document.addEventListener('click', hideCtxMenu);
+document.addEventListener('contextmenu', function(e) {
+    if (!ctxMenu.contains(e.target)) hideCtxMenu();
+});
+ctxClose.onclick = function() {
+    if (ctxTarget) removeSession(ctxTarget);
+    hideCtxMenu();
+};
+
+function renderDesktopTabs() {
+    const bar = document.getElementById('desktopSessionBar');
+    bar.innerHTML = '';
+    allSessions.forEach(s => {
+        const isCustom = !defaultSessions.includes(s);
+        const btn = document.createElement('button');
+        btn.className = 'session-tab' + (s === desktopSession ? ' active' : '');
+        btn.dataset.session = s;
+        btn.onclick = function() { switchDesktopSession(s, this); };
+        btn.textContent = s.charAt(0).toUpperCase() + s.slice(1);
+        if (isCustom) {
+            btn.addEventListener('contextmenu', function(e) {
+                e.preventDefault();
+                showCtxMenu(e.clientX, e.clientY, s);
+            });
+        }
+        bar.appendChild(btn);
+    });
+    const addBtn = document.createElement('button');
+    addBtn.className = 'add-session-btn';
+    addBtn.textContent = '+';
+    addBtn.title = 'New session';
+    addBtn.onclick = addSession;
+    bar.appendChild(addBtn);
+}
+
+// === Long-press for mobile ===
+let longPressTimer = null;
+let longPressFired = false;
+
+function renderMobileMenu() {
+    const menu = document.getElementById('sessionMenu');
+    menu.innerHTML = '';
+    allSessions.forEach(s => {
+        const isCustom = !defaultSessions.includes(s);
+        const btn = document.createElement('button');
+        btn.className = 'session-btn' + (s === currentSession ? ' active' : '');
+        btn.textContent = s.charAt(0).toUpperCase() + s.slice(1);
+        btn.onclick = function(e) {
+            if (longPressFired) { longPressFired = false; return; }
+            pickSession(s, this);
+        };
+        if (isCustom) {
+            btn.addEventListener('touchstart', function(e) {
+                longPressFired = false;
+                longPressTimer = setTimeout(function() {
+                    longPressTimer = null;
+                    longPressFired = true;
+                    removeSession(s);
+                }, 600);
+            }, {passive: true});
+            btn.addEventListener('touchend', function() {
+                if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+            });
+            btn.addEventListener('touchmove', function() {
+                if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+            });
+        }
+        menu.appendChild(btn);
+    });
+    const addBtn = document.createElement('button');
+    addBtn.className = 'add-session-btn';
+    addBtn.textContent = '+';
+    addBtn.onclick = addSession;
+    menu.appendChild(addBtn);
+}
+
+function applySessionData(data) {
+    allSessions = data.sessions;
+    defaultSessions = data.defaults;
+    if (!allSessions.includes(desktopSession)) desktopSession = allSessions[0] || 'chat';
+    if (!allSessions.includes(currentSession)) currentSession = allSessions[0] || 'chat';
+    renderDesktopTabs();
+    renderMobileMenu();
+}
+
+// SSE: live session updates from server
+function connectSessionStream() {
+    const es = new EventSource('/api/sessions/stream');
+    es.onmessage = function(e) {
+        try { applySessionData(JSON.parse(e.data)); } catch(err) {}
+    };
+    es.onerror = function() {
+        es.close();
+        // Reconnect after a few seconds
+        setTimeout(connectSessionStream, 3000);
+    };
+}
+
+async function loadSessions() {
+    try {
+        const resp = await fetch('/api/sessions');
+        applySessionData(await resp.json());
+    } catch(e) {
+        applySessionData({sessions: ['chat', 'dev', 'other'], defaults: ['chat', 'dev', 'other']});
+    }
+}
+
+async function addSession() {
+    const name = prompt('Session name:');
+    if (!name) return;
+    const clean = name.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-').slice(0, 30);
+    if (!clean) return;
+    const resp = await fetch('/api/sessions', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name: clean}),
+    });
+    const data = await resp.json();
+    if (!resp.ok) { alert(data.error); return; }
+    allSessions = data.sessions;
+    renderDesktopTabs();
+    renderMobileMenu();
+    // Auto-switch to the new session
+    switchDesktopSession(clean, document.querySelector('#desktopSessionBar .session-tab[data-session="' + clean + '"]'));
+}
+
+async function removeSession(name) {
+    if (!confirm('Close "' + name + '" session? This kills the tmux session.')) return;
+    const resp = await fetch('/api/sessions', {
+        method: 'DELETE',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name: name}),
+    });
+    const data = await resp.json();
+    if (!resp.ok) { alert(data.error); return; }
+    allSessions = data.sessions;
+    renderDesktopTabs();
+    renderMobileMenu();
+    // If we just closed the active session, switch to first one
+    if (desktopSession === name) {
+        const first = allSessions[0] || 'chat';
+        switchDesktopSession(first, document.querySelector('#desktopSessionBar .session-tab[data-session="' + first + '"]'));
+    }
+    if (currentSession === name) {
+        const first = allSessions[0] || 'chat';
+        pickSession(first, document.querySelector('.session-btn'));
+    }
+}
+
+// Initial load — called once, handles both desktop and mobile, then starts SSE
+async function initSessions() {
+    if (window.VIEW_MODE !== 'authed') return;  // public visitors don't get terminal/sessions
+    await loadSessions();
+    document.getElementById('terminalFrame').src = '/terminal/?arg=' + desktopSession;
+    document.getElementById('termTabBtn').textContent = currentSession.charAt(0).toUpperCase() + currentSession.slice(1);
+    document.getElementById('mobileTerminalFrame').src = '/phone?session=' + currentSession;
+    connectSessionStream();
+}
+
+// === Dashboard view switcher (Dashboard / Journal / Files / Settings) ===
+function switchDashView(view, btn) {
+    // Re-click Dashboard while it's already the active view → jump to the To Do
+    // sub-tab inside the iframe. (No-op if the iframe is already on /tab/today.)
+    if (view === 'dashboard' && btn && btn.classList.contains('active')) {
+        const f = document.getElementById('dashboardFrame');
+        if (f) {
+            let cur = '';
+            try { cur = f.contentWindow.location.pathname; } catch (e) {}
+            if (cur !== '/tab/today') f.src = '/tab/today';
+        }
+        return;
+    }
+    document.getElementById('dashboardFrame').style.display = view === 'dashboard' ? 'block' : 'none';
+    const jf = document.getElementById('journalFrame');
+    jf.style.display = view === 'journal' ? 'block' : 'none';
+    if (view === 'journal' && !jf.src.includes('/journal-view')) {
+        jf.src = '/journal-view';
+    }
+    document.getElementById('filesFrame').style.display = view === 'files' ? 'block' : 'none';
+    const sf = document.getElementById('settingsFrame');
+    sf.style.display = view === 'settings' ? 'block' : 'none';
+    if (view === 'settings' && !sf.src) sf.src = '/settings';
+    document.querySelectorAll('#desktopDashBar button').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+}
+
+// Callable from child iframes (dashboard / journal / files) to switch the
+// right-pane view. Picks the right path automatically based on viewport.
+function openSettingsTab() {
+    if (window.matchMedia('(max-width: 768px)').matches) {
+        switchTab('settings');
+    } else {
+        const btn = document.querySelector('#desktopDashBar [data-dashview="settings"]');
+        switchDashView('settings', btn);
+    }
+}
+function openDashboardTab() {
+    if (window.matchMedia('(max-width: 768px)').matches) {
+        switchTab('dashboard');
+    } else {
+        const btn = document.querySelector('#desktopDashBar [data-dashview="dashboard"]');
+        switchDashView('dashboard', btn);
+    }
+}
+
+// Theme broadcast: when settings saves, it postMessages the parent here. We
+// fan out to every iframe so they refresh CSS vars without a hard reload.
+window.addEventListener('message', (e) => {
+    const msg = e.data;
+    if (!msg || msg.type !== 'theme-changed' || !msg.overrides) return;
+    const frames = [
+        'dashboardFrame', 'journalFrame', 'filesFrame', 'settingsFrame',
+        'mobileTerminalFrame', 'mobileDashboardFrame', 'mobileJournalFrame', 'mobileSettingsFrame',
+    ];
+    for (const id of frames) {
+        const f = document.getElementById(id);
+        if (f && f.contentWindow && f.contentWindow !== e.source) {
+            f.contentWindow.postMessage({ type: 'theme-changed', overrides: msg.overrides }, '*');
+        }
+    }
+});
+
+// === Upload logic ===
+const uploadBtn = document.getElementById('uploadBtn');
+const fileInput = document.getElementById('fileInput');
+const dropCatcher = document.getElementById('dropCatcher');
+const uploadToast = document.getElementById('uploadToast');
+let toastTimer = null;
+
+function showToast(msg, ms) {
+    clearTimeout(toastTimer);
+    uploadToast.textContent = msg;
+    uploadToast.classList.add('visible');
+    toastTimer = setTimeout(() => uploadToast.classList.remove('visible'), ms || 2500);
+}
+
+async function uploadFile(file) {
+    if (!file) return;
+    showToast('Uploading...', 10000);
+    const formData = new FormData();
+    formData.append('photo', file);
+    try {
+        const resp = await fetch('/api/terminal/upload', { method: 'POST', body: formData });
+        if (!resp.ok) {
+            const text = await resp.text();
+            showToast('Upload failed: ' + resp.status + ' — ' + (text.slice(0, 80) || 'unknown error'), 5000);
+            return;
+        }
+        const data = await resp.json();
+        if (data.path) {
+            await fetch('/api/terminal/send', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({text: '[uploaded: ' + data.path + ']', enter: false, session: window.innerWidth > 768 ? desktopSession : currentSession}),
+            });
+            showToast('Uploaded — path pasted into terminal', 3000);
+        } else {
+            showToast('Upload error: ' + JSON.stringify(data), 4000);
+        }
+    } catch (e) {
+        showToast('Upload failed: ' + e.message, 4000);
+    }
+}
+
+// Camera button — click to pick file
+uploadBtn.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', () => {
+    if (fileInput.files.length) {
+        uploadFile(fileInput.files[0]);
+        fileInput.value = '';
+    }
+});
+
+// === Drag and drop ===
+// The trick: we can't detect drag events over iframes, but the browser DOES fire
+// dragenter/dragleave on the top-level window when a file enters from outside.
+// As soon as we detect it, we show the drop-catcher (full-screen, above iframes)
+// which then receives all subsequent dragover/drop events.
+
+let dragEnterTarget = null;
+
+document.addEventListener('dragenter', (e) => {
+    e.preventDefault();
+    // Only activate for file drags
+    if (!e.dataTransfer.types.includes('Files')) return;
+    dragEnterTarget = e.target;
+    dropCatcher.classList.add('active');
+});
+
+// dragleave fires on the document when leaving the window — but also when
+// entering child elements. We only hide when leaving the drop-catcher itself.
+dropCatcher.addEventListener('dragleave', (e) => {
+    // Only hide if we actually left the drop catcher (not entering a child)
+    if (e.target === dropCatcher) {
+        dropCatcher.classList.remove('active');
+    }
+});
+
+dropCatcher.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+});
+
+dropCatcher.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropCatcher.classList.remove('active');
+    if (e.dataTransfer.files.length) {
+        uploadFile(e.dataTransfer.files[0]);
+    }
+});
+
+// Paste from clipboard (Cmd+V / Ctrl+V)
+document.addEventListener('paste', (e) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of items) {
+        if (item.kind === 'file') {
+            e.preventDefault();
+            uploadFile(item.getAsFile());
+            return;
+        }
+    }
+});
+
+// === Tab switching (mobile) ===
+const sessionMenu = document.getElementById('sessionMenu');
+const termTabBtn = document.getElementById('termTabBtn');
+
+function switchTab(tab) {
+    if (tab === 'terminal') {
+        const isAlreadyActive = termTabBtn.classList.contains('active');
+        if (isAlreadyActive) {
+            const opening = !sessionMenu.classList.contains('open');
+            sessionMenu.classList.toggle('open');
+            termTabBtn.classList.toggle('menu-open', opening);
+            return;
+        }
+    }
+    // Re-tap mobile Dashboard while it's already active → jump to To Do inside.
+    if (tab === 'dashboard') {
+        const dashBtn = document.querySelector('.tab-btn[data-tab="dashboard"]');
+        if (dashBtn && dashBtn.classList.contains('active')) {
+            const f = document.getElementById('mobileDashboardFrame');
+            if (f) {
+                let cur = '';
+                try { cur = f.contentWindow.location.pathname; } catch (e) {}
+                if (cur !== '/tab/today') f.src = '/tab/today';
+            }
+            return;
+        }
+    }
+    sessionMenu.classList.remove('open');
+    termTabBtn.classList.remove('menu-open');
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+    document.getElementById('mobileTerminal').classList.toggle('active', tab === 'terminal');
+    document.getElementById('mobileJournal').classList.toggle('active', tab === 'journal');
+    document.getElementById('mobileDashboard').classList.toggle('active', tab === 'dashboard');
+    document.getElementById('mobileFiles').classList.toggle('active', tab === 'files');
+    document.getElementById('mobileSettings').classList.toggle('active', tab === 'settings');
+
+    // Lazy-load the markdown journal iframe the first time it's opened
+    if (tab === 'journal') {
+        const jf = document.getElementById('mobileJournalFrame');
+        if (jf && !jf.src) jf.src = '/journal-view';
+    }
+    if (tab === 'settings') {
+        const sf = document.getElementById('mobileSettingsFrame');
+        if (sf && !sf.src) sf.src = '/settings';
+    }
+
+    // Tell iframes whether they're active so they can manage focus
+    const termFrame = document.getElementById('mobileTerminalFrame');
+    if (termFrame && termFrame.contentWindow) {
+        termFrame.contentWindow.postMessage({ type: 'tabActive', active: tab === 'terminal' }, '*');
+    }
+}
+
+function pickSession(session, btn) {
+    currentSession = session;
+    localStorage.setItem('exo-mobile-session', session);
+    sessionMenu.classList.remove('open');
+    termTabBtn.classList.remove('menu-open');
+    termTabBtn.textContent = session.charAt(0).toUpperCase() + session.slice(1);
+    document.getElementById('mobileTerminalFrame').src = '/phone?session=' + session;
+    fetch('/api/terminal/session', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({session: session}),
+    });
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === 'terminal'));
+    document.getElementById('mobileTerminal').classList.add('active');
+    document.getElementById('mobileDashboard').classList.remove('active');
+    document.getElementById('mobileNotes').classList.remove('active');
+    document.querySelectorAll('.session-btn').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+}
+
+// Kick off session init
+initSessions();
+
+// === Draggable divider (desktop) ===
+const split = document.getElementById('splitContainer');
+const divider = document.getElementById('divider');
+const paneL = document.getElementById('paneTerminal');
+const paneR = document.getElementById('paneDashboard');
+
+let dragging = false;
+
+divider.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    dragging = true;
+    divider.classList.add('active');
+    split.classList.add('dragging');
+});
+
+document.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    const rect = split.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const total = rect.width;
+    const divW = 6;
+    const minPane = 200;
+
+    let leftW = Math.max(minPane, Math.min(x - divW / 2, total - divW - minPane));
+    let rightW = total - leftW - divW;
+
+    paneL.style.flex = 'none';
+    paneL.style.width = leftW + 'px';
+    paneR.style.flex = 'none';
+    paneR.style.width = rightW + 'px';
+});
+
+document.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    divider.classList.remove('active');
+    split.classList.remove('dragging');
+});
+
+// Save/restore divider position
+function saveSplit() {
+    if (paneL.style.width) {
+        localStorage.setItem('exo-split', paneL.style.width);
+    }
+}
+function restoreSplit() {
+    const saved = localStorage.getItem('exo-split');
+    if (saved) {
+        const total = split.getBoundingClientRect().width;
+        const leftW = parseInt(saved);
+        if (leftW > 200 && leftW < total - 206) {
+            paneL.style.flex = 'none';
+            paneL.style.width = saved;
+            paneR.style.flex = 'none';
+            paneR.style.width = (total - leftW - 6) + 'px';
+        }
+    }
+}
+
+document.addEventListener('mouseup', saveSplit);
+window.addEventListener('load', restoreSplit);
+window.addEventListener('resize', () => {
+    paneL.style.flex = '1';
+    paneL.style.width = '';
+    paneR.style.flex = '1';
+    paneR.style.width = '';
+});
+
+// === Double-click divider to reset 50/50 ===
+divider.addEventListener('dblclick', () => {
+    paneL.style.flex = '1';
+    paneL.style.width = '';
+    paneR.style.flex = '1';
+    paneR.style.width = '';
+    localStorage.removeItem('exo-split');
+});
+
+// === Tab nav: keep URL in sync with the active dashboard tab without reloading the shell ===
+const TAB_PATHS = { today: '/', map: '/map', kitchen: '/kitchen', inventory: '/inventory', money: '/money', car: '/car-maintenance', meditation: '/meditation', media: '/media', body: '/body' };
+
+function tabFromPath(path) {
+    if (path.startsWith('/item/buy/')) return 'inventory';
+    for (const k in TAB_PATHS) if (TAB_PATHS[k] === path) return k;
+    if (path === '/dashboard') return 'today';
+    return 'today';
+}
+
+function dashIframes() {
+    return [document.getElementById('dashboardFrame'), document.getElementById('mobileDashboardFrame')].filter(Boolean);
+}
+
+function broadcastSwitchTo(name) {
+    dashIframes().forEach(f => {
+        if (f && f.contentWindow) f.contentWindow.postMessage({ type: 'switchTo', name: name }, location.origin);
+    });
+}
+
+window.addEventListener('message', (e) => {
+    if (e.origin !== location.origin) return;
+    if (!e.data || e.data.type !== 'tab') return;
+    // Only accept from our dashboard iframes
+    const fromDash = dashIframes().some(f => f && f.contentWindow === e.source);
+    if (!fromDash) return;
+    const name = e.data.name;
+    const path = TAB_PATHS[name];
+    if (!path) return;
+    if (location.pathname !== path) {
+        history.pushState({ tab: name }, '', path);
+    }
+    broadcastSwitchTo(name);
+});
+
+window.addEventListener('popstate', () => {
+    broadcastSwitchTo(tabFromPath(location.pathname));
+});
+
+// === Close VS Code from the Files tab ===
+async function closeVscodeFromTab(e) {
+    if (e) { e.stopPropagation(); e.preventDefault(); }
+    try {
+        const r = await fetch('/api/vscode/stop', { method: 'POST' });
+        if (!r.ok) throw new Error(r.status);
+        showToast('VS Code closed', 2000);
+        // Point iframes at the launcher so the next Files tap shows it
+        const df = document.getElementById('filesFrame');
+        if (df) df.src = '/vscode';
+        const mf = document.querySelector('#mobileFiles iframe');
+        if (mf) mf.src = '/vscode';
+        // If Files is currently visible, switch back to Dashboard
+        const desktopFilesActive = document.querySelector('.dash-bar button[data-dashview="files"].active');
+        if (desktopFilesActive) {
+            const dashBtn = document.querySelector('.dash-bar button[data-dashview="dashboard"]');
+            if (dashBtn) switchDashView('dashboard', dashBtn);
+        }
+        const mobileFilesActive = document.querySelector('.tab-btn[data-tab="files"].active');
+        if (mobileFilesActive) switchTab('dashboard');
+    } catch (err) {
+        showToast('Close failed', 2000);
+    }
+}
+
+// Long-press on the Files tab (mobile/PWA): hold ~600ms to close VS Code
+function setupFilesLongPress() {
+    document.querySelectorAll('.tab-btn[data-tab="files"], .dash-bar button[data-dashview="files"]').forEach(btn => {
+        let timer = null;
+        let fired = false;
+        const start = () => {
+            fired = false;
+            btn.classList.add('long-pressing');
+            timer = setTimeout(() => {
+                fired = true;
+                btn.classList.remove('long-pressing');
+                if (navigator.vibrate) navigator.vibrate(40);
+                closeVscodeFromTab();
+            }, 600);
+        };
+        const cancel = (e) => {
+            btn.classList.remove('long-pressing');
+            if (timer) { clearTimeout(timer); timer = null; }
+            // If the long-press already fired, swallow the synthesized click
+            if (fired && e && e.cancelable) e.preventDefault();
+        };
+        btn.addEventListener('touchstart', start, { passive: true });
+        btn.addEventListener('touchmove', cancel);
+        btn.addEventListener('touchend', cancel);
+        btn.addEventListener('touchcancel', cancel);
+    });
+}
+setupFilesLongPress();
+
+// === PWA service worker ===
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/static/sw.js');
+}
+</script>
+</body>
+</html>

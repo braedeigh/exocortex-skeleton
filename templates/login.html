@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0d0d1a">
+<title>Exocortex</title>
+<style>
+:root {
+    --bg: #0d0d1a;
+    --accent: #7c5cbf;
+    --text: #e0d0ff;
+    --text-muted: rgba(180, 160, 220, 0.6);
+    --border: #2a2a4a;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+
+.login-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    padding: 20px;
+}
+.login-box {
+    width: 100%;
+    max-width: 320px;
+    text-align: center;
+}
+.login-box h1 {
+    font-size: 24px;
+    font-weight: 700;
+    margin-bottom: 8px;
+    letter-spacing: 1px;
+}
+.login-box p {
+    color: var(--text-muted);
+    font-size: 14px;
+    margin-bottom: 32px;
+}
+.login-box input {
+    width: 100%;
+    padding: 14px 18px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: rgba(26, 26, 46, 0.8);
+    color: var(--text);
+    font-size: 16px;
+    margin-bottom: 16px;
+    outline: none;
+    transition: border-color 0.15s;
+}
+.login-box input:focus {
+    border-color: var(--accent);
+}
+.login-box button {
+    width: 100%;
+    padding: 14px;
+    border: none;
+    border-radius: 10px;
+    background: var(--accent);
+    color: white;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.15s;
+}
+.login-box button:hover { opacity: 0.85; }
+.error {
+    color: #e74c3c;
+    font-size: 14px;
+    margin-bottom: 16px;
+}
+</style>
+</head>
+<body>
+<div class="login-container">
+    <form class="login-box" method="POST">
+        <h1>exocortex</h1>
+        <p>mudscryer.org</p>
+        {% if error %}<div class="error">{{ error }}</div>{% endif %}
+        <input type="password" name="password" placeholder="password" autofocus>
+        <button type="submit">enter</button>
+    </form>
+</div>
+</body>
+</html>
