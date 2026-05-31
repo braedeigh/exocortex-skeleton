@@ -26,7 +26,10 @@ import fcntl
 BUILD_DIR = Path(__file__).parent
 DATA_DIR = Path(os.environ.get("EXOCORTEX_DATA_DIR", BUILD_DIR / "data"))
 UPLOAD_DIR = DATA_DIR / "uploads"  # personal uploads live in the data layer, not the code dir
-CONTENT_DIR = DATA_DIR  # habits, journal, meetings, intro live alongside the user's data
+# Markdown content (habits, journal, meetings, intro). Defaults to the data dir so a new
+# user is self-contained; override with EXOCORTEX_CONTENT_DIR to point at an existing
+# content store (e.g. a separate journaling system that also reads/writes these files).
+CONTENT_DIR = Path(os.environ.get("EXOCORTEX_CONTENT_DIR", DATA_DIR))
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
