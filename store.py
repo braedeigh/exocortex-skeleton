@@ -30,6 +30,12 @@ UPLOAD_DIR = DATA_DIR / "uploads"  # personal uploads live in the data layer, no
 # user is self-contained; override with EXOCORTEX_CONTENT_DIR to point at an existing
 # content store (e.g. a separate journaling system that also reads/writes these files).
 CONTENT_DIR = Path(os.environ.get("EXOCORTEX_CONTENT_DIR", DATA_DIR))
+# Receipt images and the recipe pipeline are bulkier, feature-specific stores. They
+# default INSIDE the data layer so a fresh install is self-contained, but can be
+# relocated to a sibling dir or a separate disk via env — same idea as DATA_DIR /
+# CONTENT_DIR. (Defaulting them next to the *code* is what orphaned them on migration.)
+RECEIPTS_DIR = Path(os.environ.get("EXOCORTEX_RECEIPTS_DIR", DATA_DIR / "receipts"))
+RECIPES_DIR = Path(os.environ.get("EXOCORTEX_RECIPES_DIR", DATA_DIR / "recipes"))
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)

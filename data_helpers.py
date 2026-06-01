@@ -10,7 +10,7 @@ import json
 import pandas as pd
 
 from store import (  # noqa: F401  (re-exported for backward compatibility)
-    BUILD_DIR, DATA_DIR, CONTENT_DIR, UPLOAD_DIR,
+    BUILD_DIR, DATA_DIR, CONTENT_DIR, UPLOAD_DIR, RECEIPTS_DIR, RECIPES_DIR,
     load_json, save_json, read, write, mutate,
 )
 

@@ -1,6 +1,6 @@
 """Money routes — budget, expense log, subscriptions, CSV import, receipts."""
 from flask import request, jsonify, send_from_directory
-from data_helpers import DATA_DIR, BUILD_DIR
+from data_helpers import DATA_DIR, RECEIPTS_DIR
 from datetime import datetime
 from pathlib import Path
 import csv
@@ -521,8 +521,7 @@ def register(app):
         return jsonify({"ok": True})
 
     # --- Receipts ---
-
-    RECEIPTS_DIR = BUILD_DIR / "receipts"
+    # RECEIPTS_DIR comes from the data layer (store.py), not the code dir.
 
     def _load_receipts_map():
         return store.read("expense_receipts.json", {})

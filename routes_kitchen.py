@@ -2,7 +2,7 @@
 from flask import request, jsonify
 from datetime import datetime
 from pathlib import Path
-from data_helpers import DATA_DIR, load_json, save_json
+from data_helpers import DATA_DIR, RECEIPTS_DIR, RECIPES_DIR, load_json, save_json
 import store
 import json
 import re
@@ -548,8 +548,7 @@ def register(app):
 
     # --- Receipt scanner: upload photo + push to claude in 'receipts' tmux session ---
 
-    BUILD_DIR = Path(__file__).parent
-    RECEIPTS_DIR = BUILD_DIR / "receipts"
+    # RECEIPTS_DIR / RECIPES_DIR come from the data layer (store.py), not the code dir.
     GROCERY_RECEIPTS_DIR = RECEIPTS_DIR / "grocery"
     # Fallback location for parsed receipts when grocery/ is unwriteable for Claude
     # (older root-owned uploads). Both dirs are scanned by the list/preview/import endpoints.
@@ -909,7 +908,6 @@ def register(app):
 
     # --- Recipes pipeline: paste URL or upload image → Claude in 'recipes' tmux session ---
 
-    RECIPES_DIR = BUILD_DIR / "recipes"
     RECIPES_URLS_DIR = RECIPES_DIR / "urls"
     RECIPES_IMAGES_DIR = RECIPES_DIR / "images"
     RECIPES_PARSED_DIR = RECIPES_DIR / "parsed"
