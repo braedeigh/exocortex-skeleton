@@ -983,21 +983,25 @@ details.card-section > summary > span[style*="color:var(--text-muted)"] {
     margin-bottom: var(--space-3);
 }
 
-/* Items — roomier vertical rhythm = calmer + easier to tap */
+/* Items — roomier vertical rhythm = calmer + easier to tap, larger text */
 #tab-today .card-item {
     padding: var(--space-2) 0;
-    font-size: var(--text-base);
-    line-height: 1.45;
+    font-size: 16px;
+    line-height: 1.5;
 }
+#tab-today .card-item .item-text { font-size: 16px; }
 
 /* Habit checkbox — bigger, centered tap target */
 #tab-today .habit-check {
-    font-size: var(--text-xl);
+    font-size: 20px;
     margin-right: var(--space-3);
     width: 1.4em;
     text-align: center;
     flex: 0 0 auto;
 }
+/* Bigger remove (×) and "edit" affordances */
+#tab-today .delete-btn { font-size: 23px; }
+#tab-today .edit-toggle { font-size: 13px; }
 
 /* "Add" trigger — reads as a real action, not throwaway grey */
 #tab-today .add-trigger { color: var(--accent); font-weight: 600; opacity: 0.85; }
@@ -1040,3 +1044,62 @@ details.card-section > summary > span[style*="color:var(--text-muted)"] {
     #tab-today .delete-btn { opacity: 0.4; }
     #tab-today .delete-btn:active { opacity: 1; }
 }
+
+/* ---- Whole-row tap-to-complete + gentle completion animation ----
+   (paired with static/js/today-polish.js) */
+#tab-today .card-item { cursor: pointer; border-radius: 8px; }
+#tab-today .habit-check { transition: transform 0.12s ease, color 0.15s ease; }
+#tab-today .habit-check:active { transform: scale(0.82); }   /* tactile press */
+
+@media (prefers-reduced-motion: no-preference) {
+    #tab-today .card-item.tt-completing .habit-check {
+        animation: tt-pop 0.36s ease;
+        color: var(--green);
+    }
+    #tab-today .card-item.tt-completing .item-text {
+        animation: tt-strike 0.36s ease forwards;
+    }
+}
+@keyframes tt-pop {
+    0%   { transform: scale(1); }
+    40%  { transform: scale(1.35); }
+    100% { transform: scale(1); }
+}
+@keyframes tt-strike {
+    to { opacity: 0.5; text-decoration: line-through; }
+}
+
+/* ---- Undo toast (paired with today-polish.js) ---- */
+.tt-toast {
+    position: fixed;
+    left: 50%;
+    bottom: 24px;
+    transform: translateX(-50%) translateY(10px);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    max-width: 90vw;
+    padding: 12px 14px 12px 18px;
+    background: var(--card-bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+    box-shadow: 0 8px 30px rgba(0,0,0,0.18);
+    font-size: 14px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    z-index: 9999;
+}
+.tt-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; }
+.tt-toast button {
+    background: none;
+    border: none;
+    color: var(--accent);
+    font-weight: 700;
+    font-size: 14px;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: var(--radius-sm);
+}
+.tt-toast button:hover { background: rgba(124,92,191,0.12); }
