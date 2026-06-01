@@ -931,3 +931,112 @@ details.card-section > summary > span[style*="color:var(--text-muted)"] {
     color: var(--accent) !important;
     transform: translateX(3px);
 }
+
+/* ============================================================
+   TO DO TAB — "warm / human" refinement (scoped to #tab-today)
+   Desktop + mobile. Uses theme tokens so it adapts to whatever
+   theme is active. #id-scoped + appended last, so it overrides
+   the base rules and touches NO other tab. Remove this block to
+   revert. (2026-05-31)
+   ============================================================ */
+
+/* Section headers ("Habits" / "To Do") — warm system serif, more air.
+   .col-header only appears inside the To Do tab. */
+#tab-today .col-header {
+    font-size: 21px;
+    font-weight: 600;
+    letter-spacing: 0.1px;
+    color: var(--text);
+    margin-bottom: var(--space-4);
+    padding-bottom: var(--space-2);
+    border-bottom: 1px solid var(--border);
+}
+
+/* Breathing room between + below the two columns */
+#tab-today .two-col { gap: var(--space-8); margin-bottom: var(--space-8); }
+
+/* Cards — soft framed surface instead of a bare left bar. The colored
+   left border (set per-card) is preserved; we add a faint full frame,
+   rounder corners, and a real layered shadow. */
+#tab-today .card {
+    border-top: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+    padding: var(--space-4) var(--space-5);
+    margin-bottom: var(--space-3);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.03), 0 6px 18px rgba(0,0,0,0.05);
+    transition: box-shadow 0.18s ease, transform 0.18s ease, border-color 0.18s ease;
+}
+@media (hover: hover) {
+    #tab-today .card:hover {
+        box-shadow: 0 2px 4px rgba(0,0,0,0.04), 0 10px 28px rgba(0,0,0,0.08);
+        transform: translateY(-1px);
+    }
+}
+
+/* Card title — keep the micro-label but soften it */
+#tab-today .card-title {
+    font-size: var(--text-md);
+    letter-spacing: 0.8px;
+    color: var(--text-secondary);
+    margin-bottom: var(--space-3);
+}
+
+/* Items — roomier vertical rhythm = calmer + easier to tap */
+#tab-today .card-item {
+    padding: var(--space-2) 0;
+    font-size: var(--text-base);
+    line-height: 1.45;
+}
+
+/* Habit checkbox — bigger, centered tap target */
+#tab-today .habit-check {
+    font-size: var(--text-xl);
+    margin-right: var(--space-3);
+    width: 1.4em;
+    text-align: center;
+    flex: 0 0 auto;
+}
+
+/* "Add" trigger — reads as a real action, not throwaway grey */
+#tab-today .add-trigger { color: var(--accent); font-weight: 600; opacity: 0.85; }
+#tab-today .add-trigger:hover { opacity: 1; }
+
+/* Empty state — softer, less error-like */
+#tab-today .empty-state { color: var(--text-muted); font-style: italic; padding: var(--space-4) 0; }
+
+/* Time-of-day control (Morning / Midday / Evening) — clean pill segments */
+#tab-today .time-selector {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+    padding: 4px;
+    gap: 2px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+#tab-today .time-selector .time-btn {
+    border-radius: var(--radius-pill);
+    color: var(--text-muted);
+    font-weight: 600;
+    transition: background 0.15s, color 0.15s;
+}
+#tab-today .time-selector .time-btn.active { background: var(--accent); color: #fff; box-shadow: none; }
+#tab-today .time-selector .time-btn:not(.active):hover { color: var(--text); }
+
+/* ---- Mobile (≤700px) ---- */
+@media (max-width: 700px) {
+    #tab-today .two-col { gap: var(--space-6); }
+    #tab-today .col-header { font-size: 19px; }
+    #tab-today .card { padding: var(--space-4); border-radius: var(--radius-lg); }
+    #tab-today .card-item { padding: 10px 0; }            /* taller rows for thumbs */
+    #tab-today .time-selector { display: flex; flex: 1; } /* fill the row */
+    #tab-today .time-selector .time-btn { flex: 1; text-align: center; padding: 10px 6px; }
+}
+
+/* Touch devices: hover-only delete/edit controls are unreachable on a
+   phone — reveal them subtly so they're actually usable. */
+@media (hover: none) {
+    #tab-today .delete-btn { opacity: 0.4; }
+    #tab-today .delete-btn:active { opacity: 1; }
+}
