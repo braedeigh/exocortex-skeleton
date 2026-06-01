@@ -2,7 +2,7 @@
 from flask import request, jsonify, render_template, Response
 from pathlib import Path
 from datetime import datetime
-from data_helpers import BUILD_DIR, UPLOAD_DIR
+from data_helpers import DATA_DIR, UPLOAD_DIR
 import json
 import subprocess
 import re
@@ -10,9 +10,12 @@ import time
 
 TMUX_SESSION = "chat"
 DEFAULT_SESSIONS = ["chat", "dev", "other"]
-SESSIONS_PATH = BUILD_DIR / "sessions.json"
+# sessions.json and notes_dump.md are USER DATA — they must live in the data
+# layer (DATA_DIR), not next to the code (BUILD_DIR). Putting them in the code
+# dir means every code migration/redeploy orphans or deletes them.
+SESSIONS_PATH = DATA_DIR / "sessions.json"
 TMUX_SOCKET = "/tmp/tmux-1000/default"
-NOTES_PATH = BUILD_DIR / "notes_dump.md"
+NOTES_PATH = DATA_DIR / "notes_dump.md"
 
 _VALID_SESSION_RE = re.compile(r'^[a-zA-Z0-9_-]{1,30}$')
 

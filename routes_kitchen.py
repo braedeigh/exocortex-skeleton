@@ -554,7 +554,7 @@ def register(app):
     # Fallback location for parsed receipts when grocery/ is unwriteable for Claude
     # (older root-owned uploads). Both dirs are scanned by the list/preview/import endpoints.
     GROCERY_RECEIPTS_DIRS = [RECEIPTS_DIR / "grocery", RECEIPTS_DIR / "grocery_parsed"]
-    SESSIONS_PATH = BUILD_DIR / "sessions.json"
+    SESSIONS_PATH = DATA_DIR / "sessions.json"  # user data lives in the data layer, not the code dir
     TMUX_SOCKET = "/tmp/tmux-1000/default"
 
     def _find_parsed_receipt(filename):
