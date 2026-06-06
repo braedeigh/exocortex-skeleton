@@ -607,6 +607,16 @@ async function executeDelete() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ habit: pendingDelete.habit, date: pendingDelete.date })
         });
+    } else if (pendingDelete.type === 'devnote') {
+        const tab = pendingDelete.tab;
+        await fetch('/api/devnote/remove', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tab, id: pendingDelete.id })
+        });
+        closeModal();
+        await refreshDevNotes(tab);
+        return;
     } else if (pendingDelete.type === 'buy') {
         await fetch('/api/buy/remove', {
             method: 'POST',
@@ -887,25 +897,44 @@ const APP_STATUS_CLASS = (s) => {
 // or a div whose id starts with "dev-notes-". The div needs `data-tab="<key>"`.
 // Notes are loaded from D.dev_notes (the page's data endpoint must populate it).
 
+// Which note (if any) is currently being inline-edited: { tab, id } or null.
+let _devNoteEditing = null;
+
 function renderDevNotes() {
     const els = document.querySelectorAll('[id^="dev-notes-"]');
     els.forEach(el => {
         const tab = el.dataset.tab || el.id.replace('dev-notes-', '');
+        // Preserve open/closed state across re-renders so adding/deleting a
+        // note doesn't collapse the panel.
+        const wasOpen = el.querySelector('details')?.open;
         const notes = D.dev_notes || [];
-        const rows = notes.map(n => `<div style="display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-top:1px solid var(--border);font-size:13px">
-            <div style="flex:1">${esc(n.text)}</div>
-            <div style="font-size:11px;color:var(--text-muted);white-space:nowrap">${esc(n.created || '')}</div>
-            <button onclick="removeDevNote('${escJs(tab)}','${escJs(n.id)}')" title="Remove" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;padding:0 4px">&times;</button>
-        </div>`).join('');
-        el.innerHTML = `<details style="margin-top:24px">
+        const rows = notes.map(n => {
+            const editing = _devNoteEditing && _devNoteEditing.tab === tab && _devNoteEditing.id === n.id;
+            if (editing) {
+                return `<div style="padding:8px 0;border-top:1px solid var(--border)">
+                    <textarea id="devnote-edit-${esc(tab)}-${esc(n.id)}" style="width:100%;box-sizing:border-box;min-height:72px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;background:var(--bg);color:var(--text);resize:vertical">${esc(n.text)}</textarea>
+                    <div style="display:flex;gap:6px;margin-top:6px;justify-content:flex-end">
+                        <button onclick="saveDevNote('${escJs(tab)}','${escJs(n.id)}')" style="padding:5px 12px;border:none;border-radius:6px;background:var(--text);color:#fff;font-size:12px;font-weight:600;cursor:pointer">Save</button>
+                        <button onclick="cancelDevNoteEdit()" style="padding:5px 12px;border:1px solid var(--border);border-radius:6px;background:none;color:var(--text-muted);font-size:12px;cursor:pointer">Cancel</button>
+                    </div>
+                </div>`;
+            }
+            return `<div style="display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-top:1px solid var(--border);font-size:13px">
+                <div style="flex:1">${esc(n.text)}</div>
+                <div style="font-size:11px;color:var(--text-muted);white-space:nowrap">${esc(n.created || '')}</div>
+                <button onclick="editDevNote('${escJs(tab)}','${escJs(n.id)}')" title="Edit" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:13px;padding:0 4px">&#9998;</button>
+                <button onclick="removeDevNote('${escJs(tab)}','${escJs(n.id)}')" title="Remove" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;padding:0 4px">&times;</button>
+            </div>`;
+        }).join('');
+        el.innerHTML = `<details style="margin-top:24px"${wasOpen ? ' open' : ''}>
             <summary style="font-size:13px;font-weight:600;cursor:pointer;color:var(--text-muted)">Dev notes${notes.length ? ` (${notes.length})` : ''}</summary>
             <div class="card" style="border-left-color:var(--text-muted);margin-top:8px;padding:10px">
                 <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">Friction, change ideas, things to fix on this page.</div>
-                ${rows}
-                <div style="display:flex;gap:6px;margin-top:10px;border-top:${notes.length ? '1px solid var(--border)' : 'none'};padding-top:${notes.length ? '8px' : '0'}">
+                <div style="display:flex;gap:6px;margin-bottom:10px">
                     <input type="text" id="devnote-input-${esc(tab)}" placeholder="What's bugging you about this page?" style="flex:1;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;outline:none;background:var(--bg)" onkeydown="if(event.key==='Enter')addDevNote('${escJs(tab)}')">
                     <button onclick="addDevNote('${escJs(tab)}')" style="padding:6px 14px;border:none;border-radius:6px;background:var(--text);color:#fff;font-size:12px;font-weight:600;cursor:pointer">Add</button>
                 </div>
+                ${rows}
             </div>
         </details>`;
     });
@@ -922,17 +951,57 @@ async function addDevNote(tab) {
     });
     if (res.ok) {
         input.value = '';
-        loadDashboard();
+        await refreshDevNotes(tab);
     }
 }
 
-async function removeDevNote(tab, id) {
-    await fetch('/api/devnote/remove', {
+function editDevNote(tab, id) {
+    _devNoteEditing = { tab, id };
+    renderDevNotes();
+    const ta = document.getElementById(`devnote-edit-${tab}-${id}`);
+    if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+}
+
+function cancelDevNoteEdit() {
+    _devNoteEditing = null;
+    renderDevNotes();
+}
+
+async function saveDevNote(tab, id) {
+    const ta = document.getElementById(`devnote-edit-${tab}-${id}`);
+    if (!ta) return;
+    const text = ta.value.trim();
+    if (!text) return;
+    const res = await fetch('/api/devnote/edit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tab, id })
+        body: JSON.stringify({ tab, id, text })
     });
-    if (tab !== 'global') loadDashboard();
+    if (res.ok) {
+        _devNoteEditing = null;
+        await refreshDevNotes(tab);
+    }
+}
+
+function removeDevNote(tab, id) {
+    const note = (D.dev_notes || []).find(n => n.id === id);
+    confirmDelete(note ? note.text : 'this note', 'devnote');
+    pendingDelete = { type: 'devnote', tab, id, item: note ? note.text : 'this note' };
+}
+
+// Refresh just the dev-notes panel from the server without a full dashboard
+// reload, so the open panel and scroll position are preserved.
+async function refreshDevNotes(tab) {
+    try {
+        const r = await fetch(`/api/devnotes/${tab}`);
+        if (r.ok) {
+            const data = await r.json();
+            D.dev_notes = data.notes || [];
+            renderDevNotes();
+            return;
+        }
+    } catch (e) { /* fall through to full reload */ }
+    loadDashboard();
 }
 
 // --- Settings (opens as a tab in the parent split-screen's right pane) ---

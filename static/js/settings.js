@@ -312,6 +312,8 @@
         return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     }
 
+    let _globalEditId = null;
+
     async function renderDevNotes() {
         const list = document.getElementById('devNotesList');
         let notes = [];
@@ -323,17 +325,55 @@
             list.innerHTML = `<div style="font-size:13px;color:var(--text-muted);padding:8px 0">No notes yet.</div>`;
             return;
         }
-        list.innerHTML = notes.map(n => `<div style="display:flex;justify-content:space-between;gap:8px;padding:8px 0;border-top:1px solid var(--border);font-size:13px">
-            <div style="flex:1">${escapeHtml(n.text)}</div>
-            <div style="font-size:11px;color:var(--text-muted);white-space:nowrap">${escapeHtml(n.created || '')}</div>
-            <button data-remove-id="${escapeHtml(n.id)}" title="Remove" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;padding:0 4px">&times;</button>
-        </div>`).join('');
+        list.innerHTML = notes.map(n => {
+            if (_globalEditId === n.id) {
+                return `<div style="padding:8px 0;border-top:1px solid var(--border)">
+                    <textarea data-edit-id="${escapeHtml(n.id)}" style="width:100%;box-sizing:border-box;min-height:72px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;background:var(--bg);color:var(--text);resize:vertical">${escapeHtml(n.text)}</textarea>
+                    <div style="display:flex;gap:6px;margin-top:6px;justify-content:flex-end">
+                        <button data-save-id="${escapeHtml(n.id)}" style="padding:5px 12px;border:none;border-radius:6px;background:var(--text);color:var(--bg);font-size:12px;font-weight:600;cursor:pointer">Save</button>
+                        <button data-cancel-edit="1" style="padding:5px 12px;border:1px solid var(--border);border-radius:6px;background:none;color:var(--text-muted);font-size:12px;cursor:pointer">Cancel</button>
+                    </div>
+                </div>`;
+            }
+            return `<div style="display:flex;justify-content:space-between;gap:8px;padding:8px 0;border-top:1px solid var(--border);font-size:13px">
+                <div style="flex:1">${escapeHtml(n.text)}</div>
+                <div style="font-size:11px;color:var(--text-muted);white-space:nowrap">${escapeHtml(n.created || '')}</div>
+                <button data-edit-trigger="${escapeHtml(n.id)}" title="Edit" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:13px;padding:0 4px">&#9998;</button>
+                <button data-remove-id="${escapeHtml(n.id)}" title="Remove" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;padding:0 4px">&times;</button>
+            </div>`;
+        }).join('');
         list.querySelectorAll('[data-remove-id]').forEach(btn => {
             btn.addEventListener('click', async () => {
+                if (!confirm('Remove this note?')) return;
                 await fetch('/api/devnote/remove', {
                     method: 'POST', headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ tab: 'global', id: btn.dataset.removeId }),
                 });
+                renderDevNotes();
+            });
+        });
+        list.querySelectorAll('[data-edit-trigger]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                _globalEditId = btn.dataset.editTrigger;
+                renderDevNotes().then(() => {
+                    const ta = list.querySelector(`[data-edit-id="${_globalEditId}"]`);
+                    if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+                });
+            });
+        });
+        list.querySelectorAll('[data-cancel-edit]').forEach(btn => {
+            btn.addEventListener('click', () => { _globalEditId = null; renderDevNotes(); });
+        });
+        list.querySelectorAll('[data-save-id]').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const ta = list.querySelector(`[data-edit-id="${btn.dataset.saveId}"]`);
+                const text = ta ? ta.value.trim() : '';
+                if (!text) return;
+                await fetch('/api/devnote/edit', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ tab: 'global', id: btn.dataset.saveId, text }),
+                });
+                _globalEditId = null;
                 renderDevNotes();
             });
         });

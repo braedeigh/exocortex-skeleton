@@ -109,6 +109,8 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .dn-note .dn-date { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
 .dn-note .dn-remove { background: none; border: none; color: var(--text-muted); font-size: 16px; cursor: pointer; line-height: 1; padding: 2px 4px; }
 .dn-note .dn-remove:hover { color: var(--accent); }
+.dn-note .dn-edit { background: none; border: none; color: var(--text-muted); font-size: 13px; cursor: pointer; line-height: 1; padding: 2px 4px; }
+.dn-note .dn-edit:hover { color: var(--accent); }
 .dn-add { display: flex; gap: 6px; }
 .dn-add input { flex: 1; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); font-size: 13.5px; font-family: inherit; }
 .dn-add button { padding: 8px 14px; background: var(--accent); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600; }
@@ -180,28 +182,69 @@ async function loadDevNotes() {
     }
 }
 
+let dnEditId = null;
+
 function devNotesHtml() {
     let notesHtml = '';
     if (!devNotes.length) {
         notesHtml = '<div class="dn-empty">No dev notes yet.</div>';
     } else {
-        notesHtml = '<div class="dn-list">' + devNotes.map(n => `
+        notesHtml = '<div class="dn-list">' + devNotes.map(n => {
+            if (dnEditId === n.id) {
+                return `
+                <div class="dn-note" style="display:block">
+                    <textarea id="dnEdit-${escapeHtml(n.id)}" style="width:100%;box-sizing:border-box;min-height:72px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;background:var(--bg);color:var(--text);resize:vertical">${escapeHtml(n.text)}</textarea>
+                    <div style="display:flex;gap:6px;margin-top:6px;justify-content:flex-end">
+                        <button onclick="saveDevNote('${escapeHtml(n.id)}')">Save</button>
+                        <button onclick="cancelDevNoteEdit()">Cancel</button>
+                    </div>
+                </div>`;
+            }
+            return `
             <div class="dn-note">
                 <div class="dn-text">${escapeHtml(n.text)}<div class="dn-date">${escapeHtml(n.created || '')}</div></div>
+                <button class="dn-edit" title="Edit" onclick="editDevNote('${escapeHtml(n.id)}')">&#9998;</button>
                 <button class="dn-remove" title="Remove" onclick="removeDevNote('${escapeHtml(n.id)}')">&times;</button>
-            </div>
-        `).join('') + '</div>';
+            </div>`;
+        }).join('') + '</div>';
     }
     return `
         <div class="dev-notes-section">
             <div class="dn-title">Dev notes</div>
-            ${notesHtml}
-            <div class="dn-add">
+            <div class="dn-add" style="margin-bottom:10px">
                 <input type="text" id="dnInput" placeholder="Add a note about this page…" onkeydown="if(event.key==='Enter')addDevNote()">
                 <button onclick="addDevNote()">Add</button>
             </div>
+            ${notesHtml}
         </div>
     `;
+}
+
+function editDevNote(id) {
+    dnEditId = id;
+    renderSections();
+    const ta = document.getElementById('dnEdit-' + id);
+    if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+}
+
+function cancelDevNoteEdit() {
+    dnEditId = null;
+    renderSections();
+}
+
+async function saveDevNote(id) {
+    const ta = document.getElementById('dnEdit-' + id);
+    if (!ta) return;
+    const text = ta.value.trim();
+    if (!text) return;
+    await fetch('/api/devnote/edit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tab: 'personality', id, text }),
+    });
+    dnEditId = null;
+    await loadDevNotes();
+    renderSections();
 }
 
 async function addDevNote() {
@@ -220,6 +263,7 @@ async function addDevNote() {
 }
 
 async function removeDevNote(id) {
+    if (!confirm('Remove this note?')) return;
     await fetch('/api/devnote/remove', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

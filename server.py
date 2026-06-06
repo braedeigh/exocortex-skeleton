@@ -454,6 +454,26 @@ def remove_devnote():
     return jsonify({"ok": True})
 
 
+@app.route("/api/devnote/edit", methods=["POST"])
+def edit_devnote():
+    data = request.json
+    tab = (data.get("tab") or "").strip()
+    nid = data.get("id", "")
+    text = (data.get("text") or "").strip()
+    if not tab or not nid or not text:
+        return jsonify({"error": "tab, id and text required"}), 400
+    d = _load_dev_notes()
+    notes = d.get("tabs", {}).get(tab, [])
+    for n in notes:
+        if n.get("id") == nid:
+            n["text"] = text
+            break
+    else:
+        return jsonify({"error": "note not found"}), 404
+    _save_dev_notes(d)
+    return jsonify({"ok": True})
+
+
 # --- Journal ---
 
 @app.route("/journal-view")
