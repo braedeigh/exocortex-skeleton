@@ -1,78 +1,16 @@
-"""Health, HRT, supplements, contacts, food, symptoms, runs, activity, and meetings routes."""
+"""Health, supplements, contacts, food, symptoms, runs, activity, and meetings routes."""
 from flask import request, jsonify
-from datetime import datetime, timedelta
+from datetime import datetime
 from data_helpers import DATA_DIR, CONTENT_DIR
 import pandas as pd
 import store
 
 
-def _activity_log_add(date, atype):
-    """Add (date, type) to activity_log.json if not already present."""
-    with store.mutate("activity_log.json", {"entries": []}) as adata:
-        if not any(e["date"] == date and e["type"] == atype for e in adata["entries"]):
-            adata["entries"].append({"date": date, "type": atype})
-            adata["entries"].sort(key=lambda e: e["date"])
-
-
-def _activity_log_remove(date, atype):
-    if not (DATA_DIR / "activity_log.json").exists():
-        return
-    with store.mutate("activity_log.json") as adata:
-        adata["entries"] = [e for e in adata["entries"] if not (e["date"] == date and e["type"] == atype)]
-
-
 def register(app):
 
-    # --- HRT ---
-
-    @app.route("/api/hrt/done", methods=["POST"])
-    def hrt_done():
-        hrt = store.read("hrt.json")
-        hrt["prev_last_dose"] = hrt.get("last_dose")
-        hrt["prev_next_due"] = hrt.get("next_due")
-        data = request.json or {}
-        dose_date = data.get("date") or datetime.now().strftime("%Y-%m-%d")
-        cycle = hrt.get("cycle_days", 5)
-        dose_dt = datetime.strptime(dose_date, "%Y-%m-%d")
-        next_due = (dose_dt + timedelta(days=cycle)).strftime("%Y-%m-%d")
-        hrt["last_dose"] = dose_date
-        hrt["next_due"] = next_due
-        store.write("hrt.json", hrt)
-        _activity_log_add(dose_date, "estradiol")
-        return jsonify({"ok": True, "next_due": next_due})
-
-    @app.route("/api/hrt/cycle", methods=["POST"])
-    def hrt_cycle():
-        """Update the estradiol injection cycle length (managed from the reminders
-        manager). Re-derives next_due from the existing last_dose so the schedule
-        stays anchored to the real last shot."""
-        data = request.json or {}
-        try:
-            cycle = int(data.get("cycle_days"))
-        except (TypeError, ValueError):
-            return jsonify({"error": "cycle_days must be a number"}), 400
-        if cycle < 1:
-            return jsonify({"error": "cycle_days must be >= 1"}), 400
-        hrt = store.read("hrt.json", {})
-        hrt["cycle_days"] = cycle
-        if hrt.get("last_dose"):
-            last_dt = datetime.strptime(hrt["last_dose"], "%Y-%m-%d")
-            hrt["next_due"] = (last_dt + timedelta(days=cycle)).strftime("%Y-%m-%d")
-        store.write("hrt.json", hrt)
-        return jsonify({"ok": True})
-
-    @app.route("/api/hrt/undo", methods=["POST"])
-    def hrt_undo():
-        hrt = store.read("hrt.json")
-        if hrt.get("prev_last_dose") is not None:
-            undone_dose = hrt.get("last_dose")
-            hrt["last_dose"] = hrt.pop("prev_last_dose")
-            hrt["next_due"] = hrt.pop("prev_next_due")
-            store.write("hrt.json", hrt)
-            if undone_dose:
-                _activity_log_remove(undone_dose, "estradiol")
-            return jsonify({"ok": True})
-        return jsonify({"error": "Nothing to undo"}), 400
+    # Estradiol is now a normal reminder (data/reminders.json, type "estradiol").
+    # It logs through /api/activity/log + /api/activity/remove like every other
+    # reminder; the old /api/hrt/* engine has been retired.
 
     # --- Contacts ---
 

@@ -2,6 +2,8 @@
 
 function renderFoodBanner() {
     const el = document.getElementById('food-log-banner');
+    // Only surface during the evening view — that's when the day's eating is done.
+    if (getTime() !== 'evening' && !expandedAll) { el.innerHTML = ''; return; }
     const today = todayStr();
     const todayLog = (D.habits_log || {})[today] || {};
     if (todayLog['Log new or flagged foods'] && !expandedAll) { el.innerHTML = ''; return; }

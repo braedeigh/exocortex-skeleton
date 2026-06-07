@@ -215,6 +215,24 @@ def register(app):
         _save_growth(gd)
         return jsonify({"ok": True})
 
+    @app.route("/api/growth/details", methods=["POST"])
+    def growth_details():
+        """Set/clear an optional description on a Working On item."""
+        data = request.json or {}
+        text = data.get("text", "")
+        gd = _load_growth()
+        for item in gd["items"]:
+            if item["text"] == text:
+                if "notes" in data:
+                    notes = (data.get("notes") or "").strip()
+                    if notes:
+                        item["notes"] = notes
+                    else:
+                        item.pop("notes", None)
+                _save_growth(gd)
+                return jsonify({"ok": True})
+        return jsonify({"ok": True})
+
     @app.route("/api/growth/incorporate", methods=["POST"])
     def incorporate_growth():
         data = request.json

@@ -15,8 +15,12 @@
 // A reminder may also have a `companion` (another reminder's type): logging it
 // pops a "did you also …?" prompt for the companion (e.g. sheets → eye masks).
 //
-// Day-counts come from activity_log (logged via /api/activity/log). Estradiol
-// keeps its own richer HRT engine (exact dates + undo) while still appearing here.
+// A reminder may set `times` (subset of morning/afternoon/evening): it then only
+// pops on the To-Do page during those windows (empty = all day). `private` hides
+// its activity type from the public/shared calendar.
+//
+// Day-counts come from activity_log (logged via /api/activity/log). Estradiol is
+// now a normal reminder (type "estradiol") just like the rest — no special engine.
 
 const WEEKDAY_LETTER = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 const WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -59,6 +63,9 @@ function _remCompute(r) {
     const days = _remDaysSince(r.type);
     const daysText = days === null ? 'never logged' : days === 0 ? 'today' : `${days} day${days !== 1 ? 's' : ''} ago`;
     const schedule = r.schedule || 'interval';
+    // Per-reminder copy for the "it's due" line (overdue/future states keep their
+    // own status wording). Empty → the generic default for the mode.
+    const dueText = (r.due_text || '').trim();
 
     if (schedule === 'weekly') {
         const weekdays = r.weekdays || [];
@@ -80,7 +87,7 @@ function _remCompute(r) {
             sub = next ? `Next ${WEEKDAY_SHORT[next.getDay()]}` : 'Scheduled';
         } else {
             color = overdue ? 'var(--red)' : 'var(--orange)';
-            sub = overdue ? `Overdue since ${WEEKDAY_SHORT[last.getDay()]}` : 'Due today';
+            sub = overdue ? `Overdue since ${WEEKDAY_SHORT[last.getDay()]}` : (dueText || 'Due today');
         }
         const pulse = overdue && r.mode === 'log' ? _REM_PULSE : '';
         return { show: true, color, sub, daysText, pulse };
@@ -94,46 +101,91 @@ function _remCompute(r) {
     let color, sub;
     if (r.mode === 'countdown') {
         if (overdue) { color = 'var(--red)'; sub = 'Overdue'; }
-        else if (due) { color = 'var(--orange)'; sub = 'Due now'; }
+        else if (due) { color = 'var(--orange)'; sub = dueText || 'Due now'; }
         else { const left = r.every_days - days; color = 'var(--ongoing)'; sub = `Due in ${left} day${left !== 1 ? 's' : ''}`; }
     } else {
         color = overdue ? 'var(--red)' : 'var(--orange)';
-        sub = days === null ? 'Start tracking!' : overdue ? 'Overdue!' : 'Time to change';
+        sub = days === null ? 'Start tracking!' : overdue ? 'Overdue!' : (dueText || 'Time to change');
     }
     const pulse = overdue && r.mode === 'log' ? _REM_PULSE : '';
     return { show: true, color, sub, daysText, pulse };
 }
 
 // --- To-Do pops -----------------------------------------------------------
+// Transient "just logged" state: after ✓ Done the bar becomes "logged · Undo"
+// for a few seconds so a misclick can be caught, then quietly disappears.
+// { [type]: { date } }
+window._remRecent = window._remRecent || {};
+
 function renderReminders() {
     const el = document.getElementById('linen-reminders');
     if (!el) return;
 
+    const now = getTime();
     let html = '';
     for (const r of _reminderList()) {
+        // Just logged → brief green "logged · Undo" confirmation (see logReminderDone).
+        if (window._remRecent[r.type]) {
+            const emoji = r.emoji ? `${r.emoji} ` : '';
+            html += `<div class="hrt-bar" style="border-left-color:var(--green);background:var(--green);margin-bottom:12px">
+                <div><div style="font-size:18px">&#10003; ${emoji}${esc(r.label)} logged</div></div>
+                <button class="hrt-done-btn" onclick="undoReminderLog('${escJs(r.type)}')">Undo</button>
+            </div>`;
+            continue;
+        }
         const s = _remCompute(r);
         if (!s.show) continue;
+        // Time-of-day filter: a reminder with `times` only pops in those windows.
+        // Skipped when "show hidden" is on so nothing is ever truly lost.
+        if (!expandedAll && Array.isArray(r.times) && r.times.length && !r.times.includes(now)) continue;
         const emoji = r.emoji ? `${r.emoji} ` : '';
         html += `<div class="hrt-bar" style="border-left-color:${s.color};background:${s.color};${s.pulse}margin-bottom:12px">
             <div>
                 <div style="font-size:18px">${emoji}${esc(r.label)} — ${s.daysText}</div>
                 <div style="font-size:13px;opacity:0.8;font-weight:400;margin-top:2px">${s.sub}</div>
             </div>
-            <button class="hrt-done-btn" onclick="logReminderDone('${escJs(r.type)}')">&#10003; Done</button>
+            <div style="display:flex;gap:8px;align-items:center;flex:none">
+                <button class="hrt-done-btn" onclick="logReminderDone('${escJs(r.type)}',{daysAgo:1})" title="Log it for yesterday" style="opacity:0.85">Yesterday</button>
+                <button class="hrt-done-btn" onclick="logReminderDone('${escJs(r.type)}')">&#10003; Done</button>
+            </div>
         </div>`;
     }
     el.innerHTML = html;
 }
 
-async function logReminderDone(type) {
-    const date = todayStr();
+// Log a reminder. opts.daysAgo backdates (e.g. {daysAgo:1} = yesterday, for a
+// shot done/logged past midnight). Leaves a brief undo affordance.
+async function logReminderDone(type, opts) {
+    opts = opts || {};
+    let date = todayStr();
+    if (opts.daysAgo) {
+        const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - opts.daysAgo);
+        date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
     await fetch('/api/activity/log', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ date, type })
     });
+    // Keep the bar visible as "logged · Undo" for ~6s, then clear it.
+    window._remRecent[type] = { date };
+    setTimeout(() => { delete window._remRecent[type]; renderReminders(); }, 6000);
     // Prompt for a companion before reloading, if any (and not already done today).
     if (!maybeCompanionPrompt(type, date)) loadDashboard();
+}
+
+// Undo the most recent log for a reminder (removes the activity_log entry).
+async function undoReminderLog(type) {
+    const rec = window._remRecent[type];
+    delete window._remRecent[type];
+    if (rec) {
+        await fetch('/api/activity/remove', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ date: rec.date, type })
+        });
+    }
+    loadDashboard();
 }
 
 // =========================================================================
@@ -200,6 +252,8 @@ function reminderManagerPanelHtml() {
             every_days: r.every_days, overdue_days: r.overdue_days,
             weekdays: Array.isArray(r.weekdays) ? r.weekdays.slice() : [],
             mode: r.mode || 'log', companion: r.companion || '',
+            times: Array.isArray(r.times) ? r.times.slice() : [],
+            private: !!r.private, due_text: r.due_text || '',
         }));
     }
 
@@ -217,29 +271,10 @@ function reminderManagerPanelHtml() {
         </div>`;
     html += `<div style="margin-bottom:14px">${actions}</div>`;
 
-    // Estradiol: special row backed by the HRT engine (exact dates + undo kept).
-    html += _remEstradiolRow(numInp);
-
     html += `<div id="reminder-manager-rows">${_remDraftRowsHtml(numInp)}</div>`;
     html += `<button onclick="_remAdd()" style="padding:7px 14px;border-radius:6px;border:1px dashed var(--border);background:none;color:var(--text-muted);cursor:pointer;font-size:13px;margin-top:4px">+ Add reminder</button>`;
     html += `<div style="margin-top:14px">${actions}</div>`;
     return html;
-}
-
-function _remEstradiolRow(numInp) {
-    const h = (D && D.hrt) || null;
-    if (!h || isFrosted(h) || h.cycle_days === undefined) return '';
-    const next = h.next_formatted ? ` · next: ${esc(h.next_formatted)}` : '';
-    return `<div style="border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px;background:rgba(224,145,199,0.08)">
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-            <span style="font-size:16px">💉</span>
-            <b style="color:var(--text)">Estradiol</b>
-            <span style="font-size:12px;color:var(--text-muted)">injection · every</span>
-            <input type="number" min="1" value="${esc(h.cycle_days)}" onchange="_remSaveEstradiolCycle(this.value)" style="${numInp}">
-            <span style="font-size:12px;color:var(--text-muted)">days${next}</span>
-        </div>
-        <div style="font-size:12px;color:var(--text-muted);margin-top:6px">Exact next-dose date + undo are kept — log it from the To-Do shot bar or the + Estradiol button.</div>
-    </div>`;
 }
 
 function _remDraftRowsHtml(numInp) {
@@ -291,6 +326,28 @@ function _remDraftRowsHtml(numInp) {
             <select onchange="_remField(${i},'companion',this.value)" style="${inp};max-width:200px">${compOpts}</select>
         </div>`;
 
+        // Per-reminder wording for the "it's due" line (track never pops → hidden).
+        const dueWording = isTrack ? '' : `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13px;color:var(--text-muted);margin-top:8px">
+            <span>when due, say</span>
+            <input value="${esc(r.due_text || '')}" oninput="_remField(${i},'due_text',this.value)" placeholder="Due today" maxlength="60" style="${inp};flex:1;min-width:140px">
+        </div>`;
+
+        // Time-of-day: which windows it pops on the To-Do page (none = all day).
+        // Irrelevant for track-only (never pops), so hidden there.
+        const tlist = Array.isArray(r.times) ? r.times : [];
+        const timeOpts = [['morning', 'Morning'], ['afternoon', 'Midday'], ['evening', 'Evening']];
+        const timeRow = isTrack ? '' : `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13px;color:var(--text-muted);margin-top:8px">
+            <span>show on To-Do</span>
+            <span style="display:flex;gap:4px">${timeOpts.map(([v, lbl]) => chip(`_remToggleTime(${i},'${v}')`, lbl, tlist.includes(v))).join('')}</span>
+            <span style="font-size:12px;opacity:0.7">${tlist.length ? '' : '(all day)'}</span>
+        </div>`;
+
+        // Privacy: hide this activity type from the public/shared calendar.
+        const privacy = `<label style="display:flex;gap:6px;align-items:center;font-size:13px;color:var(--text-muted);margin-top:8px;cursor:pointer">
+            <input type="checkbox" ${r.private ? 'checked' : ''} onchange="_remField(${i},'private',this.checked)" style="width:16px;height:16px;flex:none">
+            private — hidden on the public calendar
+        </label>`;
+
         return `<div style="border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px;background:var(--bg)">
             <div style="display:flex;gap:6px;align-items:center">
                 <input value="${esc(r.emoji)}" oninput="_remField(${i},'emoji',this.value)" placeholder="🛏" maxlength="4" style="${inp};width:46px;text-align:center;font-size:16px">
@@ -304,7 +361,10 @@ function _remDraftRowsHtml(numInp) {
                 ${chip(`_remSetMode(${i},'track')`, 'track', r.mode === 'track')}
             </div>
             ${cadence}
+            ${dueWording}
+            ${timeRow}
             ${companion}
+            ${privacy}
         </div>`;
     }).join('');
 }
@@ -370,6 +430,17 @@ function _remToggleWeekday(i, day) {
     _remRerenderRows();
 }
 
+function _remToggleTime(i, t) {
+    const a = window._remindersDraft;
+    if (!a || !a[i]) return;
+    const ts = a[i].times = a[i].times || [];
+    const idx = ts.indexOf(t);
+    if (idx === -1) ts.push(t); else ts.splice(idx, 1);
+    const order = ['morning', 'afternoon', 'evening'];
+    a[i].times = order.filter(x => ts.includes(x));
+    _remRerenderRows();
+}
+
 function _remDel(i) {
     const a = window._remindersDraft;
     if (!a) return;
@@ -381,19 +452,9 @@ function _remAdd() {
     (window._remindersDraft = window._remindersDraft || []).push({
         id: '', emoji: '', label: '', type: '', color: '#9AA0B5', schedule: 'interval',
         every_days: 3, overdue_days: 7, weekdays: [], mode: 'log', companion: '',
+        times: [], private: false, due_text: '',
     });
     _remRerenderRows();
-}
-
-async function _remSaveEstradiolCycle(value) {
-    const cycle = Number(value);
-    if (!cycle || cycle < 1) return;
-    await fetch('/api/hrt/cycle', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cycle_days: cycle }),
-    });
-    loadDashboard();
 }
 
 async function saveReminders() {
@@ -411,6 +472,9 @@ async function saveReminders() {
             weekdays: Array.isArray(r.weekdays) ? r.weekdays : [],
             mode: ['log', 'countdown', 'track'].includes(r.mode) ? r.mode : 'log',
             companion: (r.companion || '').trim(),
+            times: Array.isArray(r.times) ? r.times : [],
+            private: !!r.private,
+            due_text: (r.due_text || '').trim(),
         }));
     const res = await fetch('/api/reminders/save', {
         method: 'POST',

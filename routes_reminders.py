@@ -51,6 +51,21 @@ def _coerce_weekdays(value):
     return out
 
 
+VALID_TIMES = ("morning", "afternoon", "evening")
+
+
+def _coerce_times(value):
+    """Accept a list of time-of-day strings. Empty = always show (no filter)."""
+    out = []
+    if isinstance(value, list):
+        for x in value:
+            t = str(x).strip().lower()
+            if t in VALID_TIMES and t not in out:
+                out.append(t)
+    # canonical morning→evening order
+    return [t for t in VALID_TIMES if t in out]
+
+
 def _coerce_reminder(raw):
     """Sanitize one reminder dict into the stored shape."""
     if not isinstance(raw, dict):
@@ -90,6 +105,9 @@ def _coerce_reminder(raw):
         "weekdays": weekdays,
         "mode": mode,
         "companion": companion,
+        "times": _coerce_times(raw.get("times")),
+        "private": bool(raw.get("private")),
+        "due_text": str(raw.get("due_text", "")).strip()[:60],
     }
 
 

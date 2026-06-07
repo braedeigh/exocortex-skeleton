@@ -59,8 +59,11 @@ STREAMS = {
     "subscriptions": "public",
     "tax_setaside": "frosted",   # set-aside/tax UI is auth-only; keep its data private
 
+    # Plain list of activity types to hide on the public calendar (legend). Safe
+    # to expose — just type strings, no cadence/personal detail.
+    "private_act_types": "public",
+
     # ---- frosted (visible as existing, content blurred) ----
-    "hrt": "frosted",
     "todos": "frosted",
     "growth_notes": "frosted",
 
@@ -74,7 +77,9 @@ STREAMS = {
 
 # Activity-log entry types stripped from the public view (kept for the owner).
 # These ride inside the otherwise-public `activity_log` stream, so they need
-# row-level redaction rather than a whole-stream rule above.
+# row-level redaction rather than a whole-stream rule above. This is the static
+# fallback; the live set is driven by each reminder's `private` flag (see
+# `private_act_types` computed in server.py and applied in filter_for_view).
 PRIVATE_ACTIVITY_TYPES = ("estradiol", "peptides")
 
 # Page paths anonymous visitors are allowed to reach.
@@ -141,9 +146,12 @@ def filter_for_view(data, view_mode):
         # hidden → skip
     # Row-level redaction: drop private activity types (e.g. estradiol shots) from
     # the otherwise-public activity log so they never reach a logged-out browser.
+    # The live set comes from the reminders' `private` flags (server computes it
+    # into `private_act_types`); fall back to the static tuple if absent.
+    private_types = set(data.get("private_act_types") or PRIVATE_ACTIVITY_TYPES)
     if isinstance(out.get("activity_log"), list):
         out["activity_log"] = [
             e for e in out["activity_log"]
-            if not (isinstance(e, dict) and e.get("type") in PRIVATE_ACTIVITY_TYPES)
+            if not (isinstance(e, dict) and e.get("type") in private_types)
         ]
     return out

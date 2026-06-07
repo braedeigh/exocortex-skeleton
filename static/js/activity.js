@@ -24,9 +24,15 @@ function renderActivityCalendar() {
     if (!el) return;
     try {
 
+    // In the public/shared view, private activity types never appear on the
+    // calendar (their rows are also stripped server-side — this is belt-and-braces).
+    const _publicView = window.VIEW_MODE && window.VIEW_MODE !== 'authed';
+    const _privList = privateActTypes();
+
     // Merge all activity data into a date map: { "2026-03-24": ["run", "kitchen"] }
     const dateMap = {};
     function addEntry(date, type) {
+        if (_publicView && _privList.includes(type)) return;
         if (!dateMap[date]) dateMap[date] = [];
         if (!dateMap[date].includes(type)) dateMap[date].push(type);
     }
@@ -89,10 +95,9 @@ function renderActivityCalendar() {
     html += '</tr></tbody></table></div>';
 
     // Legend
-    const _publicView = window.VIEW_MODE && window.VIEW_MODE !== 'authed';
     html += '<div class="activity-legend">';
     for (const [key, info] of Object.entries(activityTypeMap())) {
-        if (_publicView && PRIVATE_ACT_TYPES.includes(key)) continue;
+        if (_publicView && _privList.includes(key)) continue;
         html += `<span><span class="ldot" style="background:${info.color}"></span>${esc(info.label)}</span>`;
     }
     html += '</div>';
@@ -134,17 +139,14 @@ function renderActivityCalendar() {
         ${selDate !== today ? `<button onclick="_selectedActivityDate=null;render()" style="font-size:12px;background:none;border:1px solid var(--border);border-radius:6px;padding:3px 8px;cursor:pointer;color:var(--text-muted)">Back to today</button>` : ''}
     </div>`;
     // Quick-log buttons. Run + Grocery keep their special subsystems (a form /
-    // trip log); the rest are generated from the reminder registry + estradiol so
-    // adding a reminder automatically gives it a log button here.
+    // trip log); the rest are generated from the reminder registry (estradiol is
+    // now a normal reminder, so it shows up here automatically too).
     html += '<div class="activity-btns">';
     html += `<button onclick="showRunForm()" style="border-color:var(--green);color:var(--green)">+ Run</button>`;
     html += `<button onclick="quickLogActivity('kitchen')" style="border-color:#4A90D9;color:#4A90D9">+ Grocery</button>`;
     for (const r of (D.reminders || [])) {
         const label = `${r.emoji ? r.emoji + ' ' : ''}${esc(r.label)}`;
         html += `<button onclick="quickLogActivity('${escJs(r.type)}')" style="border-color:${r.color || '#9AA0B5'};color:${r.color || '#9AA0B5'}">+ ${label}</button>`;
-    }
-    if (D.hrt && !isFrosted(D.hrt)) {
-        html += `<button onclick="logHRT()" style="border-color:#E091C7;color:#E091C7">+ 💉 Estradiol</button>`;
     }
     html += '</div>';
 

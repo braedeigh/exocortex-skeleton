@@ -54,5 +54,7 @@ async function pollForUpdates() {
 setInterval(pollForUpdates, 5000);
 
 // --- Go ---
+// Fresh page load → start the To-Do ladder in its default layout (only "Now" open).
+if (currentTab === 'today') resetTodoCollapseMemory();
 initTab();
 loadDashboard();

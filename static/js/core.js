@@ -222,7 +222,7 @@ function render() {
     if (!TAB_RENDERERS) {
         TAB_RENDERERS = {
             today: [
-                renderHeader, renderHRT, renderFoodBanner, renderGroceryQuick,
+                renderHeader, renderFoodBanner, renderGroceryQuick,
                 renderReminders, renderContactReminders, renderContacts,
                 renderContactCalendar, renderHabits, renderTodos, renderSymptomForm,
                 renderDevNotes, restoreEditModes
@@ -396,6 +396,7 @@ window.addEventListener('message', (e) => {
     if (name === currentTab) return;
     currentTab = name;
     document.body.dataset.activeTab = name;
+    if (name === 'today') resetTodoCollapseMemory();  // start the To-Do page fresh
     initTab();
     loadDashboard();
 });
@@ -648,13 +649,30 @@ function cardHTML(title, items, color, type, sectionName, dim, manualOrder) {
 }
 
 // Per-bucket collapse memory for the To-Do ladder. Default: only "Now" opens;
-// the rest start collapsed (a saved choice still wins).
+// the rest start collapsed. The memory is wiped on each visit to the To-Do page
+// (see resetTodoCollapseMemory), so the page always *starts* clean — only "Now"
+// (and the active habit section) open — while expands you make stick for the rest
+// of that visit.
 function todoCardOpen(sectionName) {
     try { const v = localStorage.getItem('todoOpenV2:' + sectionName); if (v !== null) return v === '1'; } catch (e) {}
     return (sectionName || '').toLowerCase() === 'now';
 }
 function todoCardToggled(d, sectionName) {
     try { localStorage.setItem('todoOpenV2:' + sectionName, d.open ? '1' : '0'); } catch (e) {}
+}
+
+// Clear the saved open/closed state of every To-Do bucket so the page reopens in
+// its default layout (only "Now" expanded). Call this when entering the To-Do
+// page — NOT on data re-renders — so logging an item doesn't snap your work shut.
+function resetTodoCollapseMemory() {
+    try {
+        const keys = [];
+        for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && k.indexOf('todoOpenV2:') === 0) keys.push(k);
+        }
+        keys.forEach(k => localStorage.removeItem(k));
+    } catch (e) { /* no-op */ }
 }
 
 // --- habitCount, habitStartLabel, habitCardHTML ---
@@ -747,13 +765,6 @@ async function executeDelete() {
                 body: JSON.stringify({ item: text })
             });
         }
-    } else if (pendingDelete.type === 'hrt-confirm') {
-        const hrtDate = document.getElementById('hrt-date')?.value || todayStr();
-        await fetch('/api/hrt/done', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ date: hrtDate })
-        });
     } else if (pendingDelete.type === 'habit') {
         await fetch('/api/habits/remove', {
             method: 'POST',
@@ -1159,8 +1170,9 @@ async function toggleTodoModalEdit(btn) {
     loadDashboard();
 }
 
-// Delete from the item detail modal → a secondary "are you sure" confirm.
-function confirmDeleteTodoItem(text) {
+// Shared "are you sure" delete confirm — sits above the detail modal. Pass the
+// label to show and a callback to run when the user confirms.
+function _showDeleteConfirm(label, onYes) {
     let ov = document.getElementById('todo-confirm-overlay');
     if (!ov) {
         ov = document.createElement('div');
@@ -1177,13 +1189,18 @@ function confirmDeleteTodoItem(text) {
         document.body.appendChild(ov);
         ov.addEventListener('click', e => { if (e.target === ov) closeTodoConfirm(); });
     }
-    ov.querySelector('#todo-confirm-text').textContent = `Delete “${text}”? This can’t be undone.`;
-    ov.querySelector('#todo-confirm-yes').onclick = () => deleteTodoItemConfirmed(text);
+    ov.querySelector('#todo-confirm-text').textContent = `Delete “${label}”? This can’t be undone.`;
+    ov.querySelector('#todo-confirm-yes').onclick = onYes;
     ov.classList.add('open');
 }
 function closeTodoConfirm() {
     const ov = document.getElementById('todo-confirm-overlay');
     if (ov) ov.classList.remove('open');
+}
+
+// To-do item delete (from the detail modal)
+function confirmDeleteTodoItem(text) {
+    _showDeleteConfirm(text, () => deleteTodoItemConfirmed(text));
 }
 async function deleteTodoItemConfirmed(text) {
     await fetch('/api/todos/remove', {
@@ -1192,6 +1209,87 @@ async function deleteTodoItemConfirmed(text) {
     });
     closeTodoConfirm();
     hideEditorModal();
+    loadDashboard();
+}
+
+// Working On (growth) delete — same are-you-sure confirm
+function confirmDeleteGrowth(text) {
+    _showDeleteConfirm(text, () => deleteGrowthConfirmed(text));
+}
+async function deleteGrowthConfirmed(text) {
+    await fetch('/api/growth/remove', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text })
+    });
+    closeTodoConfirm();
+    hideEditorModal();
+    loadDashboard();
+}
+
+// Tap a Working On item → a simple detail modal: title + description (no due /
+// no to-do fields), with an Edit/Save toggle and an are-you-sure Delete.
+function openGrowthDetail(el, ev) {
+    if (ev && ev.target && ev.target.closest('a')) return;
+    const row = el.closest('.card-item');
+    if (!row) return;
+    const text = row.dataset.habit || '';
+    const notes = row.dataset.notes || '';
+    const body = `<div class="todo-modal-body growth-modal-body" data-item="${esc(text)}">
+        <div class="todo-modal-desc-read${notes ? '' : ' empty'}">${notes ? esc(notes) : 'No description'}</div>
+        <textarea class="todo-modal-desc-edit" placeholder="Add a description…" oninput="autoGrow(this)" style="display:none">${esc(notes)}</textarea>
+        <div class="todo-modal-foot">
+            <button type="button" class="todo-modal-delete" onclick="confirmDeleteGrowth(this.closest('.todo-modal-body').dataset.item)">Delete</button>
+            <button type="button" class="todo-desc-editbtn" onclick="toggleGrowthModalEdit(this)">Edit</button>
+        </div>
+    </div>`;
+    showEditorModal('Working on', body);
+    const h3 = document.getElementById('panel-modal-title');
+    if (h3) h3.innerHTML = `<span class="todo-modal-kicker">Working on:</span> <span class="todo-modal-htitle">${esc(text)}</span><textarea class="todo-modal-htitle-edit" rows="1" placeholder="Working on…" oninput="autoGrow(this)" style="display:none">${esc(text)}</textarea>`;
+}
+
+async function toggleGrowthModalEdit(btn) {
+    const body = btn.closest('.todo-modal-body');
+    if (!body) return;
+    const headerTitle = document.querySelector('#panel-modal-title .todo-modal-htitle');
+    const titleEdit = document.querySelector('#panel-modal-title .todo-modal-htitle-edit');
+    const descRead = body.querySelector('.todo-modal-desc-read');
+    const descEdit = body.querySelector('.todo-modal-desc-edit');
+
+    if (btn.textContent.trim() === 'Edit') {
+        headerTitle.style.display = 'none';
+        titleEdit.style.display = '';
+        autoGrow(titleEdit);
+        descRead.style.display = 'none';
+        descEdit.style.display = 'block';
+        autoGrow(descEdit);
+        titleEdit.focus();
+        titleEdit.setSelectionRange(titleEdit.value.length, titleEdit.value.length);
+        btn.textContent = 'Save';
+        return;
+    }
+
+    const oldText = body.dataset.item;
+    const newText = titleEdit.value.trim() || oldText;
+    const notes = descEdit.value.trim();
+    if (newText !== oldText) {
+        await fetch('/api/growth/rename', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ old: oldText, new: newText })
+        });
+        body.dataset.item = newText;
+    }
+    await fetch('/api/growth/details', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: newText, notes })
+    });
+    if (headerTitle) headerTitle.textContent = newText;
+    descRead.textContent = notes || 'No description';
+    descRead.classList.toggle('empty', !notes);
+    headerTitle.style.display = '';
+    titleEdit.style.display = 'none';
+    descRead.style.display = '';
+    descEdit.style.display = 'none';
+    btn.textContent = 'Edit';
     loadDashboard();
 }
 
@@ -1324,8 +1422,15 @@ const ACT_TYPES = {
 };
 
 // Activity types hidden from the public legend (their entries are also stripped
-// server-side, so logged-out visitors see no trace). Mirror of public_config.py.
+// server-side, so logged-out visitors see no trace). The live set is driven by
+// each reminder's `private` flag, exposed publicly as D.private_act_types; this
+// constant is the fallback when that field is absent.
 const PRIVATE_ACT_TYPES = ['estradiol', 'peptides'];
+
+function privateActTypes() {
+    const d = (typeof D !== 'undefined' && D && D.private_act_types) || null;
+    return Array.isArray(d) && d.length ? d : PRIVATE_ACT_TYPES;
+}
 
 // The calendar's type map is derived: the hardcoded ACT_TYPES above are the
 // base (run/grocery/estradiol are "system" types with their own subsystems),

@@ -1,58 +1,8 @@
-// health.js — HRT, linen reminders, symptom form
-
-function renderHRT() {
-    const el = document.getElementById('hrt');
-    const h = D.hrt;
-    if (isFrosted(h)) {
-        el.innerHTML = frostedCard('Estradiol', 2);
-        return;
-    }
-    if (!h || h.days_until === undefined || h.days_until === null || h.days_until > 0) {
-        if (expandedAll && h.last_formatted) {
-            el.innerHTML = `<div style="font-size:14px;color:var(--text-secondary);margin-bottom:12px;padding:10px 16px;background:var(--card-bg);border-radius:8px;border-left:4px solid var(--green);box-shadow:0 1px 3px rgba(0,0,0,0.06)">
-                <b>Estradiol</b> &mdash; last: ${h.last_formatted} &middot; next: ${h.next_formatted}
-                ${h.prev_last_dose ? `&nbsp;<a href="#" style="color:var(--red);font-size:12px" onclick="event.preventDefault();undoHRT()">undo last</a>` : ''}
-            </div>`;
-        } else {
-            el.innerHTML = '';
-        }
-        return;
-    }
-
-    let status;
-    if (h.days_until < 0) {
-        status = `OVERDUE by ${Math.abs(h.days_until)} day${Math.abs(h.days_until)!==1?'s':''}`;
-    } else {
-        status = 'Due today';
-    }
-
-    el.innerHTML = `<div class="hrt-bar" style="border-left-color:var(--red);background:var(--red)">
-        <div>
-            <div style="font-size:18px">Estradiol Shot — ${status}</div>
-            <div style="font-size:13px;opacity:0.8;font-weight:400;margin-top:2px">Last: ${h.last_formatted}</div>
-        </div>
-        <button class="hrt-done-btn" onclick="logHRT()">&#10003; Done</button>
-    </div>`;
-}
-
-function logHRT() {
-    pendingDelete = { type: 'hrt-confirm' };
-    document.getElementById('modal-text').innerHTML = `Did you do your estradiol shot?<br>
-        <label style="font-size:13px;color:var(--text-secondary);margin-top:8px;display:block">
-            Date: <input type="date" id="hrt-date" value="${todayStr()}" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px;margin-left:4px">
-        </label>`;
-    document.getElementById('modal').querySelector('.confirm').textContent = 'Yes, done';
-    document.getElementById('modal').classList.add('open');
-}
-
-async function undoHRT() {
-    await fetch('/api/hrt/undo', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({})
-    });
-    loadDashboard();
-}
+// health.js — linen/recurring reminder aliases, symptom form
+//
+// Estradiol used to live here as a bespoke "HRT" engine. It's now a normal
+// reminder (data/reminders.json, type "estradiol") rendered by reminders.js —
+// no special bar, log, or undo code is needed anymore.
 
 // --- Linen / recurring reminders ---
 // The reminder pops + manage modal now live in reminders.js (driven by the

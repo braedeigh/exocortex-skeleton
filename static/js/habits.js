@@ -70,15 +70,14 @@ function renderHabits() {
         active.forEach((g, idx) => {
             const daysAgo = Math.floor((new Date() - new Date(g.added + 'T12:00:00')) / 86400000);
             const daysLabel = daysAgo === 0 ? 'today' : `${daysAgo}d`;
-            growthHTML += `<div class="card-item" draggable="true" data-section="growth" data-idx="${idx}" data-habit="${esc(g.text)}"
+            growthHTML += `<div class="card-item" draggable="true" data-section="growth" data-idx="${idx}" data-habit="${esc(g.text)}" data-notes="${esc(g.notes || '')}"
                   ondragstart="habitDragStart(event)" ondragover="habitDragOver(event)" ondrop="habitDrop(event,'growth')" ondragend="habitDragEnd(event)" ondragleave="habitDragLeave(event)">
                 <span class="drag-handle" onmousedown="dragFromHandle=true">&#8942;&#8942;</span>
-                <span class="item-text todo-view" style="color:var(--text-secondary)">${esc(g.text)}</span>
+                <span class="item-text todo-view" onclick="openGrowthDetail(this, event)" style="color:var(--text-secondary);cursor:pointer">${esc(g.text)}</span>
                 <span style="font-size:12px;color:var(--text-muted);margin-left:auto;margin-right:6px;white-space:nowrap">${daysLabel}</span>
                 <input class="habit-rename todo-edit" style="display:none" value="${esc(g.text)}" data-original="${esc(g.text)}" data-type="growth"
                     onblur="commitRename(this)" onkeydown="if(event.key==='Enter'){this.blur()}else if(event.key==='Escape'){this.value=this.dataset.original;this.blur()}">
-                <button class="delete-btn todo-edit" style="display:none;font-size:12px;color:var(--green);border:1px solid var(--green);border-radius:4px;padding:2px 6px;background:none;cursor:pointer;margin-right:4px" onclick="incorporateGrowth('${escJs(g.text)}')" title="Mark incorporated">&#10003;</button>
-                <button class="delete-btn" onclick="confirmDelete('${escJs(g.text)}','growth')" title="Remove">&times;</button>
+                <button class="delete-btn" onclick="confirmDeleteGrowth('${escJs(g.text)}')" title="Remove">&times;</button>
             </div>`;
         });
 

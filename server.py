@@ -620,20 +620,6 @@ def remove_streak():
     return jsonify({"ok": True})
 
 
-def _load_hrt():
-    now = datetime.now()
-    hrt = store.read("hrt.json", {})
-    if hrt:
-        if hrt.get("last_dose") and hrt.get("next_due"):
-            last_dt = datetime.strptime(hrt["last_dose"], "%Y-%m-%d")
-            next_dt = datetime.strptime(hrt["next_due"], "%Y-%m-%d")
-            today = now.replace(hour=0, minute=0, second=0, microsecond=0)
-            hrt["days_until"] = (next_dt - today).days
-            hrt["last_formatted"] = last_dt.strftime("%b %d")
-            hrt["next_formatted"] = next_dt.strftime("%b %d (%A)")
-    return hrt
-
-
 def _load_car():
     return store.read("car_maintenance.json", {"entries": []})
 
@@ -660,6 +646,17 @@ def _load_media():
 
 def _load_reminders():
     return store.read("reminders.json", {}).get("reminders", [])
+
+
+# Activity types that must stay hidden on the public/shared calendar. Exposed as
+# a plain list of type strings (safe in public view) so the calendar can filter
+# dots + legend even though the full reminder list itself is hidden publicly.
+def _private_act_types():
+    types = {"estradiol", "peptides"}  # fallback even if a reminder is missing
+    for r in _load_reminders():
+        if r.get("private") and r.get("type"):
+            types.add(r["type"])
+    return sorted(types)
 
 
 def _load_contacts():
@@ -749,7 +746,6 @@ def get_data_today():
     applications = store.read("shrike_applied.json", [])
 
     data.update({
-        "hrt": _load_hrt(),
         "habits": habits,
         "habit_settings": _load_habit_settings(),
         "habit_starts": _load_habit_starts(),
@@ -763,6 +759,7 @@ def get_data_today():
         "food_guide": FOOD_GUIDE,
         "activity_log": _load_activity_log(),
         "reminders": _load_reminders(),
+        "private_act_types": _private_act_types(),
     })
     data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("today", [])
     return jsonify(filter_for_view(data, request.view_mode))
@@ -794,7 +791,7 @@ def get_data_map():
         "food_guide": FOOD_GUIDE,
         "contacts": _load_contacts(),
         "reminders": _load_reminders(),
-        "hrt": _load_hrt(),
+        "private_act_types": _private_act_types(),
     })
     data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("map", [])
     return jsonify(filter_for_view(data, request.view_mode))
@@ -984,7 +981,6 @@ def get_data():
     applications = store.read("shrike_applied.json", [])
 
     data.update({
-        "hrt": _load_hrt(),
         "habits": habits,
         "habit_settings": _load_habit_settings(),
         "habit_starts": _load_habit_starts(),
