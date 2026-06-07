@@ -92,11 +92,8 @@
 
     <!-- LIFE MAP TAB -->
     <div id="tab-map" style="display:none">
-        <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
-            <button id="map-collapse-btn" onclick="toggleMapCollapse()" style="font-size:12px;color:var(--text-muted);cursor:pointer;border:1px solid var(--border);border-radius:6px;padding:5px 12px;background:none">Expand all</button>
-        </div>
 
-        <details class="map-section kitchen-section" data-card="habit" open ontoggle="mapCardToggled(this)">
+        <details class="map-section kitchen-section" data-card="habit" data-default-open open ontoggle="mapCardToggled(this)">
             <summary style="font-size:16px;font-weight:700;cursor:pointer;padding:8px 0;list-style:none;display:flex;align-items:center;gap:8px">
                 <span class="kitchen-arrow" style="font-size:12px;transition:transform 0.15s;display:inline-block">&#9654;</span>Habit Tracker
                 <button class="card-edit-btn habit-edit-btn" onclick="event.preventDefault();event.stopPropagation();toggleHabitTrackerEdit()">Edit</button>
@@ -179,8 +176,10 @@
             Symptom tracker, food log, and confirmed safe / suspect foods. Long-COVID signal in one place.
         </div>
 
-        <details class="map-section" open>
-            <summary class="section-title" style="cursor:pointer">Symptom Tracker</summary>
+        <details class="map-section kitchen-section" data-card="symptoms" data-default-open open ontoggle="mapCardToggled(this)">
+            <summary style="font-size:16px;font-weight:700;cursor:pointer;padding:8px 0;list-style:none;display:flex;align-items:center;gap:8px">
+                <span class="kitchen-arrow" style="font-size:12px;transition:transform 0.15s;display:inline-block">&#9654;</span><span style="flex:1">Symptom Tracker</span>
+            </summary>
             <div style="font-size:11px;color:var(--text-muted);margin:0 0 8px 0">Tap any day to edit its symptoms and food.</div>
             <div style="display:flex;gap:16px;align-items:flex-start">
                 <div id="dot-grid" class="dot-grid" style="flex:1;overflow-x:auto"></div>
@@ -193,34 +192,37 @@
             </details>
         </details>
 
-        <details class="map-section" open>
-            <summary class="section-title" style="cursor:pointer">Food Log</summary>
+        <details class="map-section kitchen-section" data-card="foodlog" ontoggle="mapCardToggled(this)">
+            <summary style="font-size:16px;font-weight:700;cursor:pointer;padding:8px 0;list-style:none;display:flex;align-items:center;gap:8px">
+                <span class="kitchen-arrow" style="font-size:12px;transition:transform 0.15s;display:inline-block">&#9654;</span><span style="flex:1">Food Log</span>
+            </summary>
             <div id="food-log-area"></div>
         </details>
 
-        <details class="map-section" open>
-            <summary class="section-title" style="cursor:pointer">Food experiments</summary>
-            <div id="food-experiments-area"></div>
-        </details>
-
-        <details class="map-section" open>
-            <summary class="section-title" style="cursor:pointer">Triage foods</summary>
+        <details class="map-section kitchen-section" data-card="triage" ontoggle="mapCardToggled(this)">
+            <summary style="font-size:16px;font-weight:700;cursor:pointer;padding:8px 0;list-style:none;display:flex;align-items:center;gap:8px">
+                <span class="kitchen-arrow" style="font-size:12px;transition:transform 0.15s;display:inline-block">&#9654;</span><span style="flex:1">Triage foods</span>
+            </summary>
             <div id="triage-foods-area"></div>
         </details>
 
-        <details class="map-section" open>
-            <summary class="section-title" style="cursor:pointer">Confirmed safe foods<button class="safety-edit-btn" onclick="event.preventDefault();event.stopPropagation();toggleFoodSafetyEdit()">Edit</button></summary>
+        <details class="map-section kitchen-section" data-card="foodsafety" ontoggle="mapCardToggled(this)">
+            <summary style="font-size:16px;font-weight:700;cursor:pointer;padding:8px 0;list-style:none;display:flex;align-items:center;gap:8px">
+                <span class="kitchen-arrow" style="font-size:12px;transition:transform 0.15s;display:inline-block">&#9654;</span><span style="flex:1">Food sensitivities</span><button class="card-edit-btn safety-edit-btn" onclick="event.preventDefault();event.stopPropagation();toggleFoodSafetyEdit()">Edit</button>
+            </summary>
+            <div style="font-size:13px;font-weight:600;color:var(--green);margin:8px 0 2px">Confirmed safe</div>
             <div id="safe-foods-area"></div>
-        </details>
-
-        <details class="map-section" open>
-            <summary class="section-title" style="cursor:pointer">Suspect foods<button class="safety-edit-btn" onclick="event.preventDefault();event.stopPropagation();toggleFoodSafetyEdit()">Edit</button></summary>
+            <div style="font-size:13px;font-weight:600;color:var(--orange);margin:14px 0 2px">Suspect</div>
             <div id="suspect-foods-area"></div>
+            <div style="font-size:13px;font-weight:600;color:#c2185b;margin:14px 0 2px">Inflammatory</div>
+            <div id="inflammatory-foods-area"></div>
         </details>
 
-        <details class="map-section" open>
-            <summary class="section-title" style="cursor:pointer">Inflammatory foods<button class="safety-edit-btn" onclick="event.preventDefault();event.stopPropagation();toggleFoodSafetyEdit()">Edit</button></summary>
-            <div id="inflammatory-foods-area"></div>
+        <details class="map-section kitchen-section" data-card="foodexp" ontoggle="mapCardToggled(this)">
+            <summary style="font-size:16px;font-weight:700;cursor:pointer;padding:8px 0;list-style:none;display:flex;align-items:center;gap:8px">
+                <span class="kitchen-arrow" style="font-size:12px;transition:transform 0.15s;display:inline-block">&#9654;</span><span style="flex:1">Food experiments</span>
+            </summary>
+            <div id="food-experiments-area"></div>
         </details>
 
         <div id="dev-notes-body" class="auth-only" data-tab="body"></div>

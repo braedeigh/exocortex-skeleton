@@ -123,14 +123,15 @@ function closeActiveEditor() {
     }
 }
 
-// Restore each Map card's saved open/closed state on load.
+// Restore each collapsible card's saved open/closed state on load (Map + Body).
+// No saved value → default to whether it has the data-default-open attribute.
 function restoreMapCards() {
-    document.querySelectorAll('#tab-map details.map-section[data-card]').forEach(d => {
+    document.querySelectorAll('details.map-section[data-card]').forEach(d => {
         let v = null;
         try { v = localStorage.getItem('mapCardOpen:' + d.dataset.card); } catch (e) {}
         if (v === '1') d.open = true;
         else if (v === '0') d.open = false;
-        else d.open = (d.dataset.card === 'habit'); // default: Habit Tracker open, others closed
+        else d.open = d.hasAttribute('data-default-open');
     });
 }
 if (document.readyState === 'loading') {

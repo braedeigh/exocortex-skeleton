@@ -3260,6 +3260,12 @@ function toggleFoodSafetyEdit() {
     renderSafeFoods();
     renderSuspectFoods();
     renderInflammatoryFoods();
+    // The Edit button lives in the card's <summary>; clicking it can still trip the
+    // <details> toggle. Keep the card open so editing never collapses it.
+    requestAnimationFrame(() => {
+        const card = document.querySelector('details.map-section[data-card="foodsafety"]');
+        if (card && !card.open) card.open = true;
+    });
 }
 
 function _renderSafetyChip(name, tag, editing) {
