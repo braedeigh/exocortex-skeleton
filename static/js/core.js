@@ -1475,7 +1475,7 @@ function renderDevNotes() {
             const editing = _devNoteEditing && _devNoteEditing.tab === tab && _devNoteEditing.id === n.id;
             if (editing) {
                 return `<div style="padding:8px 0;border-top:1px solid var(--border)">
-                    <textarea id="devnote-edit-${esc(tab)}-${esc(n.id)}" style="width:100%;box-sizing:border-box;min-height:72px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;background:var(--bg);color:var(--text);resize:vertical">${esc(n.text)}</textarea>
+                    <textarea id="devnote-edit-${esc(tab)}-${esc(n.id)}" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'" style="width:100%;box-sizing:border-box;min-height:72px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;line-height:1.4;font-family:inherit;background:var(--bg);color:var(--text);resize:none;overflow:hidden">${esc(n.text)}</textarea>
                     <div style="display:flex;gap:6px;margin-top:6px;justify-content:flex-end">
                         <button onclick="saveDevNote('${escJs(tab)}','${escJs(n.id)}')" style="padding:5px 12px;border:none;border-radius:6px;background:var(--text);color:#fff;font-size:12px;font-weight:600;cursor:pointer">Save</button>
                         <button onclick="cancelDevNoteEdit()" style="padding:5px 12px;border:1px solid var(--border);border-radius:6px;background:none;color:var(--text-muted);font-size:12px;cursor:pointer">Cancel</button>
@@ -1489,8 +1489,8 @@ function renderDevNotes() {
                 <button onclick="removeDevNote('${escJs(tab)}','${escJs(n.id)}')" title="Remove" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;padding:0 4px">&times;</button>
             </div>`;
         }).join('');
-        const addBox = (which) => `<div style="display:flex;gap:6px;margin-${which === 'top' ? 'bottom' : 'top'}:10px">
-                    <input type="text" id="devnote-input-${esc(tab)}-${which}" placeholder="What's bugging you about this page?" style="flex:1;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;outline:none;background:var(--bg)" onkeydown="if(event.key==='Enter')addDevNote('${escJs(tab)}','${which}')">
+        const addBox = (which) => `<div style="display:flex;gap:6px;align-items:flex-end;margin-${which === 'top' ? 'bottom' : 'top'}:10px">
+                    <textarea rows="1" id="devnote-input-${esc(tab)}-${which}" placeholder="What's bugging you about this page?" style="flex:1;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;line-height:1.4;font-family:inherit;outline:none;background:var(--bg);color:var(--text);resize:none;overflow:hidden" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();addDevNote('${escJs(tab)}','${which}')}"></textarea>
                     <button onclick="addDevNote('${escJs(tab)}','${which}')" style="padding:6px 14px;border:none;border-radius:6px;background:var(--text);color:#fff;font-size:12px;font-weight:600;cursor:pointer">Add</button>
                 </div>`;
         el.innerHTML = `<details style="margin-top:24px"${wasOpen ? ' open' : ''}>
@@ -1518,6 +1518,7 @@ async function addDevNote(tab, which) {
     });
     if (res.ok) {
         input.value = '';
+        input.style.height = '';
         await refreshDevNotes(tab);
     }
 }
@@ -1526,7 +1527,7 @@ function editDevNote(tab, id) {
     _devNoteEditing = { tab, id };
     renderDevNotes();
     const ta = document.getElementById(`devnote-edit-${tab}-${id}`);
-    if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+    if (ta) { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
 }
 
 function cancelDevNoteEdit() {

@@ -64,13 +64,13 @@
     <div class="settings-section">
         <h2>Cross-tab dev notes</h2>
         <div class="sub">Ideas that don't fit any one page.</div>
-        <div style="display:flex;gap:6px;margin-bottom:10px">
-            <input type="text" id="devNoteInput" placeholder="A thing to build that doesn't fit a tab..." style="flex:1;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;outline:none;background:var(--bg);color:var(--text)">
+        <div style="display:flex;gap:6px;align-items:flex-end;margin-bottom:10px">
+            <textarea rows="1" id="devNoteInput" placeholder="A thing to build that doesn't fit a tab..." style="flex:1;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;line-height:1.4;font-family:inherit;outline:none;background:var(--bg);color:var(--text);resize:none;overflow:hidden" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"></textarea>
             <button id="devNoteAdd" style="padding:6px 14px;border:none;border-radius:6px;background:var(--text);color:var(--bg);font-size:12px;font-weight:600;cursor:pointer">Add</button>
         </div>
         <div id="devNotesList"></div>
-        <div style="display:flex;gap:6px;margin-top:10px">
-            <input type="text" id="devNoteInputBottom" placeholder="A thing to build that doesn't fit a tab..." style="flex:1;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;outline:none;background:var(--bg);color:var(--text)">
+        <div style="display:flex;gap:6px;align-items:flex-end;margin-top:10px">
+            <textarea rows="1" id="devNoteInputBottom" placeholder="A thing to build that doesn't fit a tab..." style="flex:1;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;line-height:1.4;font-family:inherit;outline:none;background:var(--bg);color:var(--text);resize:none;overflow:hidden" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"></textarea>
             <button id="devNoteAddBottom" style="padding:6px 14px;border:none;border-radius:6px;background:var(--text);color:var(--bg);font-size:12px;font-weight:600;cursor:pointer">Add</button>
         </div>
     </div>

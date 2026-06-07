@@ -112,7 +112,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .dn-note .dn-edit { background: none; border: none; color: var(--text-muted); font-size: 13px; cursor: pointer; line-height: 1; padding: 2px 4px; }
 .dn-note .dn-edit:hover { color: var(--accent); }
 .dn-add { display: flex; gap: 6px; }
-.dn-add input { flex: 1; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); font-size: 13.5px; font-family: inherit; }
+.dn-add input, .dn-add textarea { flex: 1; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); font-size: 13.5px; font-family: inherit; }
 .dn-add button { padding: 8px 14px; background: var(--accent); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600; }
 .dn-empty { font-style: italic; color: var(--text-muted); font-size: 13px; padding: 6px 0; }
 </style>
@@ -193,7 +193,7 @@ function devNotesHtml() {
             if (dnEditId === n.id) {
                 return `
                 <div class="dn-note" style="display:block">
-                    <textarea id="dnEdit-${escapeHtml(n.id)}" style="width:100%;box-sizing:border-box;min-height:72px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;background:var(--bg);color:var(--text);resize:vertical">${escapeHtml(n.text)}</textarea>
+                    <textarea id="dnEdit-${escapeHtml(n.id)}" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'" style="width:100%;box-sizing:border-box;min-height:72px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;line-height:1.4;font-family:inherit;background:var(--bg);color:var(--text);resize:none;overflow:hidden">${escapeHtml(n.text)}</textarea>
                     <div style="display:flex;gap:6px;margin-top:6px;justify-content:flex-end">
                         <button onclick="saveDevNote('${escapeHtml(n.id)}')">Save</button>
                         <button onclick="cancelDevNoteEdit()">Cancel</button>
@@ -209,8 +209,8 @@ function devNotesHtml() {
         }).join('') + '</div>';
     }
     const addBox = (id) => `
-            <div class="dn-add">
-                <input type="text" id="${id}" placeholder="Add a note about this page…" onkeydown="if(event.key==='Enter')addDevNote('${id}')">
+            <div class="dn-add" style="align-items:flex-end">
+                <textarea rows="1" id="${id}" placeholder="Add a note about this page…" style="resize:none;overflow:hidden;line-height:1.4;font-family:inherit" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();addDevNote('${id}')}"></textarea>
                 <button onclick="addDevNote('${id}')">Add</button>
             </div>`;
     return `
@@ -227,7 +227,7 @@ function editDevNote(id) {
     dnEditId = id;
     renderSections();
     const ta = document.getElementById('dnEdit-' + id);
-    if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+    if (ta) { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
 }
 
 function cancelDevNoteEdit() {

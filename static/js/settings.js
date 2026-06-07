@@ -64,11 +64,11 @@
         document.getElementById('saveBtn').addEventListener('click', save);
         document.getElementById('devNoteAdd').addEventListener('click', () => addDevNote('devNoteInput'));
         document.getElementById('devNoteInput').addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') addDevNote('devNoteInput');
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); addDevNote('devNoteInput'); }
         });
         document.getElementById('devNoteAddBottom').addEventListener('click', () => addDevNote('devNoteInputBottom'));
         document.getElementById('devNoteInputBottom').addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') addDevNote('devNoteInputBottom');
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); addDevNote('devNoteInputBottom'); }
         });
         const pwBtn = document.getElementById('pwChangeBtn');
         if (pwBtn) pwBtn.addEventListener('click', changePassword);
@@ -347,7 +347,7 @@
         list.innerHTML = notes.map(n => {
             if (_globalEditId === n.id) {
                 return `<div style="padding:8px 0;border-top:1px solid var(--border)">
-                    <textarea data-edit-id="${escapeHtml(n.id)}" style="width:100%;box-sizing:border-box;min-height:72px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;background:var(--bg);color:var(--text);resize:vertical">${escapeHtml(n.text)}</textarea>
+                    <textarea data-edit-id="${escapeHtml(n.id)}" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'" style="width:100%;box-sizing:border-box;min-height:72px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;line-height:1.4;font-family:inherit;background:var(--bg);color:var(--text);resize:none;overflow:hidden">${escapeHtml(n.text)}</textarea>
                     <div style="display:flex;gap:6px;margin-top:6px;justify-content:flex-end">
                         <button data-save-id="${escapeHtml(n.id)}" style="padding:5px 12px;border:none;border-radius:6px;background:var(--text);color:var(--bg);font-size:12px;font-weight:600;cursor:pointer">Save</button>
                         <button data-cancel-edit="1" style="padding:5px 12px;border:1px solid var(--border);border-radius:6px;background:none;color:var(--text-muted);font-size:12px;cursor:pointer">Cancel</button>
@@ -376,7 +376,7 @@
                 _globalEditId = btn.dataset.editTrigger;
                 renderDevNotes().then(() => {
                     const ta = list.querySelector(`[data-edit-id="${_globalEditId}"]`);
-                    if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+                    if (ta) { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
                 });
             });
         });
@@ -409,8 +409,9 @@
         });
         if (r.ok) {
             inp.value = '';
+            inp.style.height = '';
             const other = document.getElementById(inputId === 'devNoteInputBottom' ? 'devNoteInput' : 'devNoteInputBottom');
-            if (other) other.value = '';
+            if (other) { other.value = ''; other.style.height = ''; }
             renderDevNotes();
         }
     }
