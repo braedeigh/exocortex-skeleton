@@ -67,11 +67,13 @@
 
         <div class="two-col">
             <div>
-                <div class="col-header">Habits</div>
-                <div class="time-selector" id="time-selector" style="margin:8px 0 14px">
-                    <button class="time-btn" data-time="morning" onclick="setTime('morning')">Morning</button>
-                    <button class="time-btn" data-time="afternoon" onclick="setTime('afternoon')">Midday</button>
-                    <button class="time-btn" data-time="evening" onclick="setTime('evening')">Evening</button>
+                <div class="habits-head">
+                    <div class="col-header">Habits</div>
+                    <div class="time-selector" id="time-selector">
+                        <button class="time-btn" data-time="morning" onclick="setTime('morning')">Morning</button>
+                        <button class="time-btn" data-time="afternoon" onclick="setTime('afternoon')">Midday</button>
+                        <button class="time-btn" data-time="evening" onclick="setTime('evening')">Evening</button>
+                    </div>
                 </div>
                 <div id="habits-cards"></div>
             </div>

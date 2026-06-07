@@ -23,7 +23,7 @@ function renderTodos() {
             if (su && su > today && !it.done) snoozed.push(it);
             else visible.push(it);
         });
-        html += cardHTML(section.name, visible, colors[Math.min(i, 2)], 'todo', section.name);
+        html += cardHTML(section.name, visible, colors[Math.min(i, 2)], 'todo', section.name, false, section.manual_order);
     });
 
     if (snoozed.length) html += snoozedCardHTML(snoozed);

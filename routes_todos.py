@@ -149,8 +149,23 @@ def register(app):
         sec = todos.get(key, {"items": []})
         old_items = {item["text"]: item for item in sec.get("items", [])}
         sec["items"] = [old_items.get(text, {"text": text, "done": False}) for text in new_order]
+        sec["manual_order"] = True  # a hand-dragged bucket sticks to manual order
         todos[key] = sec
         save_todos(todos)
+        return jsonify({"ok": True})
+
+    @app.route("/api/todos/autosort", methods=["POST"])
+    def autosort_todo():
+        """Drop a bucket's manual order so it auto-sorts (due date, then age) again."""
+        data = request.json or {}
+        key = find_section_key(data.get("section", ""))
+        if not key:
+            return jsonify({"error": "Section not found"}), 404
+        todos = load_todos()
+        sec = todos.get(key)
+        if sec is not None and sec.pop("manual_order", None) is not None:
+            todos[key] = sec
+            save_todos(todos)
         return jsonify({"ok": True})
 
     @app.route("/api/todos/rename", methods=["POST"])

@@ -182,13 +182,28 @@ def roll_todos(data):
 
 
 def todos_to_sections(data):
-    """Convert todos.json structure to the section list the frontend expects."""
+    """Convert todos.json structure to the section list the frontend expects.
+
+    Buckets auto-sort: not-done before done, dated before undated, due date
+    ascending (overdue/soonest first), then created date ascending (oldest
+    first, so stale tasks bubble up). A bucket that's been manually dragged
+    carries `manual_order` and keeps its stored order verbatim (toggle already
+    sinks done items to the bottom there)."""
     sections = []
     for key, label in TODO_SECTIONS:
         sec = data.get(key, {})
         items = sec.get("items", [])
-        items = sorted(items, key=lambda x: x.get("done", False))
-        sections.append({"name": label, "items": items})
+        manual = bool(sec.get("manual_order", False))
+        if manual:
+            ordered = list(items)
+        else:
+            ordered = sorted(items, key=lambda x: (
+                x.get("done", False),
+                0 if x.get("due_by") else 1,
+                x.get("due_by") or "",
+                x.get("created") or "",
+            ))
+        sections.append({"name": label, "items": ordered, "manual_order": manual})
     return sections
 
 

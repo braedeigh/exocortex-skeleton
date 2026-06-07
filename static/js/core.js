@@ -444,6 +444,8 @@ function applyEditMode(card, editing) {
         // is 0 while hidden), so long items wrap and grow instead of scrolling.
         if (editing && el.tagName === 'TEXTAREA') autoGrow(el);
     });
+    // The description editor reveals in edit mode (CSS); size it once visible.
+    if (editing) card.querySelectorAll('.todo-notes-input').forEach(autoGrow);
 }
 
 // Grow a textarea to fit its content (no inner scrollbar).
@@ -585,7 +587,7 @@ async function cardDrop(e, sectionName) {
 }
 
 // --- cardHTML (shared between habits and todos) ---
-function cardHTML(title, items, color, type, sectionName, dim) {
+function cardHTML(title, items, color, type, sectionName, dim, manualOrder) {
     const cardId = `card-${type}-${sectionName.replace(/\s+/g,'-')}`;
     const itemsHTML = items.map((rawItem, idx) => {
         const item = typeof rawItem === 'string' ? { text: rawItem, done: false } : rawItem;
@@ -597,15 +599,18 @@ function cardHTML(title, items, color, type, sectionName, dim) {
             <span class="habit-check ${done?'done':''}" onclick="toggleTodo('${escJs(text)}')" style="cursor:pointer" title="Check off">
                 ${done ? '&#10003;' : '&#9675;'}
             </span>
-            <span class="item-text todo-view" style="${done?'text-decoration:line-through;opacity:0.5':''}">${item.url ? `<a href="${esc(item.url)}" target="_blank" rel="noopener" style="color:inherit">${esc(text)}</a>` : esc(text)}${item.due_by ? `<span class="todo-due${_isOverdue(item.due_by) && !done ? ' overdue' : ''}" title="Due ${esc(item.due_by)}">${_isOverdue(item.due_by) && !done ? 'overdue · ' : 'due '}${esc(_fmtAddedDate(item.due_by))}</span>` : ''}${item.created ? `<span class="todo-added" style="font-size:12px;color:var(--text-muted);margin-left:8px;white-space:nowrap" title="Added ${esc(item.created)}">${esc(_fmtAddedDate(item.created))}</span>` : ''}</span>
+            <span class="item-text todo-view"${type === 'todo' ? ' onclick="openTodoDetail(this, event)"' : ''} style="${type === 'todo' ? 'cursor:pointer;' : ''}${done?'text-decoration:line-through;opacity:0.5':''}">${item.url ? `<a href="${esc(item.url)}" target="_blank" rel="noopener" style="color:inherit">${esc(text)}</a>` : esc(text)}${item.due_by ? `<span class="todo-due${_isOverdue(item.due_by) && !done ? ' overdue' : ''}" title="Due ${esc(item.due_by)}">${_isOverdue(item.due_by) && !done ? 'overdue · ' : 'due '}${esc(_fmtAddedDate(item.due_by))}</span>` : ''}${type === 'todo' ? `<span class="todo-expand" aria-hidden="true">&#8250;</span>` : ''}</span>
             <textarea class="habit-rename todo-edit" rows="1" style="display:none" data-original="${esc(text)}" data-section="${esc(sectionName)}" data-type="${type}"
                 oninput="autoGrow(this)" onblur="commitRename(this)" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur()}else if(event.key==='Escape'){this.value=this.dataset.original;this.blur()}">${esc(text)}</textarea>
-            ${type === 'todo' ? `<button class="todo-note-btn" onclick="toggleTodoNotes(this)" title="${item.notes ? 'Details' : 'Add a note'}" style="background:none;border:none;cursor:pointer;font-size:14px;padding:0 4px;color:${item.notes ? 'var(--accent)' : 'var(--text-muted)'};${item.notes ? '' : 'opacity:0.55'}">&#9776;</button>` : ''}
-            ${type === 'todo' ? `<button class="delete-btn" onclick="showMoveMenu(this,'${escJs(text)}')" title="Move / snooze" style="font-size:14px">&#8595;</button>` : ''}
-            <button class="delete-btn" onclick="confirmDelete('${escJs(text)}','${type}')" title="Remove">&times;</button>
+            ${type === 'todo' ? `<button class="delete-btn todo-action" onclick="showMoveMenu(this,'${escJs(text)}')" title="Move / snooze" style="font-size:14px">&#8595;</button>` : ''}
+            <button class="delete-btn${type === 'todo' ? ' todo-action' : ''}" onclick="confirmDelete('${escJs(text)}','${type}')" title="Remove">&times;</button>
         </div>
-        ${type === 'todo' ? `<div class="todo-notes" style="display:${item.notes ? 'block' : 'none'};padding:2px 0 8px 50px">
-            <textarea class="todo-notes-input" placeholder="Details / notes…" data-item="${esc(text)}" oninput="autoGrow(this)" onblur="saveTodoNotes(this)" rows="1" style="width:100%;box-sizing:border-box;min-height:34px;padding:6px 9px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;background:var(--bg);color:var(--text);resize:none">${esc(item.notes || '')}</textarea>
+        ${type === 'todo' ? `<div class="todo-detail">
+            <div class="todo-detail-read">
+                ${item.created ? `<span class="todo-detail-added">Added ${esc(_fmtAddedDate(item.created))}</span>` : ''}
+                ${item.notes ? `<div class="todo-detail-desc">${esc(item.notes)}</div>` : `<div class="todo-detail-desc empty">No description</div>`}
+            </div>
+            <textarea class="todo-notes-input" placeholder="Add a description…" data-item="${esc(text)}" oninput="autoGrow(this)" onblur="saveTodoNotes(this)" rows="1">${esc(item.notes || '')}</textarea>
         </div>` : ''}`;
     }).join('');
 
@@ -631,6 +636,7 @@ function cardHTML(title, items, color, type, sectionName, dim) {
         <summary class="card-title" style="color:${color};cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px">
             <span class="kitchen-arrow" style="font-size:12px;transition:transform 0.15s;display:inline-block">&#9654;</span>
             <span style="flex:1">${title}${countBadge}</span>
+            ${type === 'todo' && manualOrder ? `<span class="autosort-toggle" onclick="event.preventDefault();event.stopPropagation();autosortTodos('${escJs(sectionName)}')" title="Sort by due date again">&#8597; Auto-sort</span>` : ''}
             <span class="edit-toggle" onclick="event.preventDefault();event.stopPropagation();toggleEditMode('${cardId}')">edit</span>
         </summary>
         ${itemsHTML}${emptyHTML}${addForm}</details>`;
@@ -910,13 +916,16 @@ async function addItem(type, section, inputEl) {
 function openAddTodoModal(section) {
     const html = `
         <form class="todo-add-form" onsubmit="event.preventDefault();submitAddTodoModal('${escJs(section)}')">
-            <label class="todo-add-label">To-do
+            <label class="todo-add-label">
+                <span class="todo-add-labeltext">To-do</span>
                 <input type="text" id="add-todo-text" class="todo-add-input" placeholder="What needs doing?" autocomplete="off">
             </label>
-            <label class="todo-add-label">Due by <span style="color:var(--text-muted);font-weight:400">(optional)</span>
+            <label class="todo-add-label">
+                <span class="todo-add-labeltext">Due by <span class="todo-add-opt">(optional)</span></span>
                 <input type="date" id="add-todo-due" class="todo-add-input">
             </label>
-            <label class="todo-add-label">Description <span style="color:var(--text-muted);font-weight:400">(optional)</span>
+            <label class="todo-add-label">
+                <span class="todo-add-labeltext">Description <span class="todo-add-opt">(optional)</span></span>
                 <textarea id="add-todo-desc" class="todo-add-input" rows="3" placeholder="Any details…"></textarea>
             </label>
             <div class="todo-add-actions">
@@ -1011,34 +1020,63 @@ async function snoozeTodo(item, days) {
     loadDashboard();
 }
 
-function toggleTodoNotes(btn) {
-    const row = btn.closest('.card-item');
-    const panel = row && row.nextElementSibling;
-    if (!panel || !panel.classList.contains('todo-notes')) return;
-    const show = panel.style.display === 'none';
-    panel.style.display = show ? 'block' : 'none';
-    if (show) {
-        const ta = panel.querySelector('textarea');
-        if (ta) { autoGrow(ta); ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
-    }
+// Tap a to-do to pop up its details (due date + when added + an editable
+// description) in a modal. Ignores clicks on an inner link so URL to-dos still
+// navigate.
+function openTodoDetail(el, ev) {
+    if (ev && ev.target && ev.target.closest('a')) return;
+    const row = el.closest('.card-item');
+    if (!row) return;
+    const text = row.dataset.habit || '';
+    const detail = row.nextElementSibling;
+    const addedEl = detail && detail.querySelector('.todo-detail-added');
+    const inlineNotes = detail && detail.querySelector('.todo-notes-input');
+    const notes = inlineNotes ? inlineNotes.value : '';
+    const dueEl = row.querySelector('.todo-due');
+    const dueHTML = dueEl
+        ? `<div class="todo-modal-due${dueEl.classList.contains('overdue') ? ' overdue' : ''}">${esc(dueEl.textContent.trim())}</div>`
+        : '';
+    const addedHTML = addedEl ? `<div class="todo-detail-added">${esc(addedEl.textContent.trim())}</div>` : '';
+    const body = `<div class="todo-modal-body">
+        ${dueHTML}${addedHTML}
+        <label class="todo-modal-label">Description</label>
+        <textarea class="todo-modal-desc" placeholder="Add a description…" data-item="${esc(text)}" oninput="autoGrow(this)" onblur="saveTodoNotes(this)">${esc(notes)}</textarea>
+    </div>`;
+    showEditorModal(text, body);
+    setTimeout(() => { const ta = document.querySelector('.todo-modal-desc'); if (ta) autoGrow(ta); }, 30);
 }
 
 async function saveTodoNotes(ta) {
     const notes = ta.value.trim();
+    const item = ta.dataset.item;
     await fetch('/api/todos/details', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ item: ta.dataset.item, notes })
+        body: JSON.stringify({ item, notes })
     });
-    // Immediate feedback on the note button (accent when a note exists)
-    const panel = ta.closest('.todo-notes');
-    const row = panel && panel.previousElementSibling;
-    const noteBtn = row && row.querySelector('.todo-note-btn');
-    if (noteBtn) {
-        noteBtn.style.color = notes ? 'var(--accent)' : 'var(--text-muted)';
-        noteBtn.style.opacity = notes ? '1' : '0.55';
-        noteBtn.title = notes ? 'Details' : 'Add a note';
-    }
+    // Keep every view of this item's description in sync (modal ↔ inline editor
+    // ↔ read display) so reopening or entering edit mode shows the latest.
+    document.querySelectorAll('.todo-notes-input, .todo-modal-desc').forEach(el => {
+        if (el !== ta && el.dataset.item === item) el.value = ta.value;
+    });
+    document.querySelectorAll('#tab-today .card-item').forEach(row => {
+        if (row.dataset.habit !== item) return;
+        const detail = row.nextElementSibling;
+        const desc = detail && detail.querySelector('.todo-detail-desc');
+        if (!desc) return;
+        desc.textContent = notes || 'No description';
+        desc.classList.toggle('empty', !notes);
+    });
+}
+
+// Drop a bucket's manual order so it auto-sorts (due date, then age) again.
+async function autosortTodos(section) {
+    await fetch('/api/todos/autosort', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ section })
+    });
+    loadDashboard();
 }
 
 // Short, friendly "added" date label (e.g. "Jun 6"). Hides the current year.
