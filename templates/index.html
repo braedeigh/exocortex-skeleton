@@ -44,10 +44,11 @@
 
     <div id="greeting" class="greeting"></div>
     <div id="date-info" class="date-info"></div>
+    <div id="streaks-area" class="auth-only"></div>
 
     <!-- TODAY TAB -->
     <div id="tab-today">
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:28px">
             <div class="time-selector" id="time-selector" style="margin-bottom:0">
                 <button class="time-btn" data-time="morning" onclick="setTime('morning')">Morning</button>
                 <button class="time-btn" data-time="afternoon" onclick="setTime('afternoon')">Midday</button>
@@ -101,6 +102,7 @@
         <details class="map-section kitchen-section" data-card="activity" ontoggle="mapCardToggled(this)">
             <summary style="font-size:16px;font-weight:700;cursor:pointer;padding:8px 0;list-style:none;display:flex;align-items:center;gap:8px">
                 <span class="kitchen-arrow" style="font-size:12px;transition:transform 0.15s;display:inline-block">&#9654;</span>Activity
+                <button class="card-edit-btn auth-only" onclick="event.preventDefault();event.stopPropagation();toggleReminderManager()">&#9881; Reminders</button>
             </summary>
             <div id="activity-calendar"></div>
             <div id="reminder-manager" class="auth-only" style="margin-top:14px"></div>
@@ -109,6 +111,7 @@
         <details class="map-section kitchen-section auth-only" data-card="contacts" ontoggle="mapCardToggled(this)">
             <summary style="font-size:16px;font-weight:700;cursor:pointer;padding:8px 0;list-style:none;display:flex;align-items:center;gap:8px">
                 <span class="kitchen-arrow" style="font-size:12px;transition:transform 0.15s;display:inline-block">&#9654;</span>Keep in Touch
+                <button class="card-edit-btn" onclick="event.preventDefault();event.stopPropagation();openContactsManage()">Manage</button>
             </summary>
             <div id="contacts-area"></div>
         </details>

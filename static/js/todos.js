@@ -7,28 +7,48 @@ function renderTodos() {
         return;
     }
     const colors = ['var(--todo-1)', 'var(--todo-2)', 'var(--todo-3)'];
-    const showNow = ['today', 'tomorrow', 'this week'];
     const hide = ['done'];
+    const today = todayStr();
     let html = '';
-    let collapsedHTML = '';
+    const snoozed = [];
 
+    // Each bucket (Now / Up Next / Later / Someday) is its own collapsible card.
+    // Snoozed (not-yet-due) items are pulled out into their own section below.
     D.todos.forEach((section, i) => {
         const name = section.name.toLowerCase().replace(/\s*—.*/, '').trim();
         if (hide.some(h => name.startsWith(h))) return;
-        if (showNow.some(s => name.startsWith(s))) {
-            html += cardHTML(section.name, section.items, colors[Math.min(i, 2)], 'todo', section.name);
-        } else {
-            collapsedHTML += cardHTML(section.name, section.items, colors[Math.min(i, 2)], 'todo', section.name);
-        }
+        const visible = [];
+        (section.items || []).forEach(it => {
+            const su = (it && typeof it === 'object') ? it.snoozed_until : null;
+            if (su && su > today && !it.done) snoozed.push(it);
+            else visible.push(it);
+        });
+        html += cardHTML(section.name, visible, colors[Math.min(i, 2)], 'todo', section.name);
     });
 
-    if (collapsedHTML) {
-        const wasOpen = el.querySelector('details#todo-later')?.open;
-        html += `<details id="todo-later" ${wasOpen ? 'open' : ''} style="margin-top:8px"><summary style="font-size:13px;font-weight:600;cursor:pointer;color:var(--text-muted)">Later</summary>
-            <div style="margin-top:8px">${collapsedHTML}</div></details>`;
-    }
+    if (snoozed.length) html += snoozedCardHTML(snoozed);
 
     el.innerHTML = html;
+}
+
+function snoozedCardHTML(items) {
+    const wasOpen = document.querySelector('details#todo-snoozed')?.open;
+    const rows = items
+        .sort((a, b) => (a.snoozed_until || '').localeCompare(b.snoozed_until || ''))
+        .map(it => {
+            const back = _fmtAddedDate(it.snoozed_until);
+            return `<div class="card-item">
+                <span class="item-text" style="flex:1">${esc(it.text)}<span style="font-size:11px;color:var(--text-muted);margin-left:8px">💤 back ${esc(back)}</span></span>
+                <button class="delete-btn" onclick="snoozeTodo('${escJs(it.text)}',0)" title="Un-snooze now" style="font-size:12px">↩</button>
+            </div>`;
+        }).join('');
+    return `<details id="todo-snoozed" class="card todo-card" ${wasOpen ? 'open' : ''} style="border-left-color:var(--text-muted)" ontoggle="todoCardToggled(this,'__snoozed__')">
+        <summary class="card-title" style="color:var(--text-muted);cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px">
+            <span class="kitchen-arrow" style="font-size:11px;transition:transform 0.15s;display:inline-block">&#9654;</span>
+            <span style="flex:1">Snoozed<span style="font-size:11px;font-weight:600;color:var(--text-muted);background:var(--bg);border-radius:10px;padding:1px 8px;margin-left:8px">${items.length}</span></span>
+        </summary>
+        ${rows}
+    </details>`;
 }
 
 // --- Applications ---

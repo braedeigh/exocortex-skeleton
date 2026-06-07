@@ -281,23 +281,60 @@ function setTime(t) {
 function getTime() { return selectedTime || D.time_of_day; }
 
 // --- Header ---
+// User-defined "Day N <label>" counters in the header (add-only; delete to redo).
+function renderStreaks() {
+    const el = document.getElementById('streaks-area');
+    if (!el) return;
+    if (D._frost && D._frost.streaks) { el.innerHTML = ''; return; }
+    const inp = 'padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px';
+    const chips = (D.streaks || []).map(s => `<span class="streak-chip">
+        <span><span class="num">Day ${s.days}</span> ${esc(s.label)}</span>
+        <button class="x" onclick="removeStreak('${escJs(s.label)}','${esc(s.since)}')" title="Remove (re-add to fix a date)">&times;</button>
+    </span>`).join('');
+    el.innerHTML = `<div class="streak-row">
+            ${chips}
+            <button class="streak-add" onclick="toggleAdd('add-streak-form')">+ day count</button>
+        </div>
+        <div class="add-form" id="add-streak-form" style="margin-top:8px;align-items:center;flex-wrap:wrap;gap:6px">
+            <input type="text" id="streak-label" placeholder="e.g. nicotine patches" style="${inp};flex:1;min-width:140px" onkeydown="if(event.key==='Enter')addStreak()">
+            <span style="font-size:12px;color:var(--text-muted)">since</span>
+            <input type="date" id="streak-since" value="${todayStr()}" style="${inp}">
+            <button onclick="addStreak()">Add</button>
+        </div>`;
+}
+
+async function addStreak() {
+    const label = (document.getElementById('streak-label')?.value || '').trim();
+    const since = document.getElementById('streak-since')?.value || '';
+    if (!label || !since) return;
+    const res = await fetch('/api/streaks/add', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label, since })
+    });
+    if (res.ok) loadDashboard();
+    else { const d = await res.json().catch(() => ({})); alert(d.error || 'Failed to add'); }
+}
+
+function removeStreak(label, since) {
+    confirmDelete(label, 'streak');
+    pendingDelete = { type: 'streak', label, since, item: label };
+}
+
 function renderHeader() {
     const greetingEl = document.getElementById('greeting');
     const dateEl = document.getElementById('date-info');
     if (currentTab === 'today') {
         const greetings = { morning: 'Good morning', afternoon: 'Good afternoon', evening: 'Good evening' };
         greetingEl.textContent = greetings[getTime()];
-        // User-defined milestone streaks ("Day N <label>"), joined. Public view drops
-        // them entirely \u2014 blurring numbers would still leak the labels.
-        const streakText = (D.streaks || []).map(s => `Day ${s.days} ${s.label}`).join(' \u00b7 ');
-        dateEl.textContent = (D._frost && D._frost.streaks) || !streakText
-            ? D.date
-            : `${D.date} \u00b7 ${streakText}`;
+        dateEl.textContent = D.date;
         greetingEl.style.display = '';
         dateEl.style.display = '';
+        renderStreaks();
     } else {
         greetingEl.style.display = 'none';
         dateEl.style.display = 'none';
+        const sa = document.getElementById('streaks-area');
+        if (sa) sa.innerHTML = '';
     }
 
     document.querySelectorAll('#time-selector .time-btn').forEach(btn => {
@@ -548,12 +585,16 @@ function cardHTML(title, items, color, type, sectionName, dim) {
             <span class="habit-check ${done?'done':''}" onclick="toggleTodo('${escJs(text)}')" style="cursor:pointer" title="Check off">
                 ${done ? '&#10003;' : '&#9675;'}
             </span>
-            <span class="item-text todo-view" style="${done?'text-decoration:line-through;opacity:0.5':''}">${item.url ? `<a href="${esc(item.url)}" target="_blank" rel="noopener" style="color:inherit">${esc(text)}</a>` : esc(text)}</span>
+            <span class="item-text todo-view" style="${done?'text-decoration:line-through;opacity:0.5':''}">${item.url ? `<a href="${esc(item.url)}" target="_blank" rel="noopener" style="color:inherit">${esc(text)}</a>` : esc(text)}${item.created ? `<span class="todo-added" style="font-size:10px;color:var(--text-muted);margin-left:8px;white-space:nowrap" title="Added ${esc(item.created)}">${esc(_fmtAddedDate(item.created))}</span>` : ''}</span>
             <textarea class="habit-rename todo-edit" rows="1" style="display:none" data-original="${esc(text)}" data-section="${esc(sectionName)}" data-type="${type}"
                 oninput="autoGrow(this)" onblur="commitRename(this)" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur()}else if(event.key==='Escape'){this.value=this.dataset.original;this.blur()}">${esc(text)}</textarea>
-            ${type === 'todo' ? `<button class="delete-btn" onclick="showMoveMenu(this,'${escJs(text)}')" title="Move" style="font-size:14px">&#8595;</button>` : ''}
+            ${type === 'todo' ? `<button class="todo-note-btn" onclick="toggleTodoNotes(this)" title="${item.notes ? 'Details' : 'Add a note'}" style="background:none;border:none;cursor:pointer;font-size:14px;padding:0 4px;color:${item.notes ? 'var(--accent)' : 'var(--text-muted)'};${item.notes ? '' : 'opacity:0.55'}">&#9776;</button>` : ''}
+            ${type === 'todo' ? `<button class="delete-btn" onclick="showMoveMenu(this,'${escJs(text)}')" title="Move / snooze" style="font-size:14px">&#8595;</button>` : ''}
             <button class="delete-btn" onclick="confirmDelete('${escJs(text)}','${type}')" title="Remove">&times;</button>
-        </div>`;
+        </div>
+        ${type === 'todo' ? `<div class="todo-notes" style="display:${item.notes ? 'block' : 'none'};padding:2px 0 8px 50px">
+            <textarea class="todo-notes-input" placeholder="Details / notes…" data-item="${esc(text)}" oninput="autoGrow(this)" onblur="saveTodoNotes(this)" rows="1" style="width:100%;box-sizing:border-box;min-height:34px;padding:6px 9px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;background:var(--bg);color:var(--text);resize:none">${esc(item.notes || '')}</textarea>
+        </div>` : ''}`;
     }).join('');
 
     const emptyHTML = items.length === 0
@@ -569,9 +610,26 @@ function cardHTML(title, items, color, type, sectionName, dim) {
         </div>`;
 
     const dropAttrs = type === 'todo' ? `ondragover="cardDragOver(event)" ondragleave="cardDragLeave(event)" ondrop="cardDrop(event,'${escJs(sectionName)}')"` : '';
-    return `<div class="card${dim?' dimmed':''}" style="border-left-color:${color}" id="${cardId}" ${dropAttrs}>
-        <div class="card-title" style="color:${color}">${title}<span class="edit-toggle" onclick="toggleEditMode('${cardId}')">edit</span></div>
-        ${itemsHTML}${emptyHTML}${addForm}</div>`;
+    const open = todoCardOpen(sectionName);
+    const remaining = items.filter(it => !(typeof it === 'object' && it.done)).length;
+    const countBadge = `<span style="font-size:11px;font-weight:600;color:var(--text-muted);background:var(--bg);border-radius:10px;padding:1px 8px;margin-left:8px">${remaining}</span>`;
+    return `<details class="card todo-card${dim?' dimmed':''}" style="border-left-color:${color}" id="${cardId}" ${open ? 'open' : ''} ontoggle="todoCardToggled(this,'${escJs(sectionName)}')" ${dropAttrs}>
+        <summary class="card-title" style="color:${color};cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px">
+            <span class="kitchen-arrow" style="font-size:11px;transition:transform 0.15s;display:inline-block">&#9654;</span>
+            <span style="flex:1">${title}${countBadge}</span>
+            <span class="edit-toggle" onclick="event.preventDefault();event.stopPropagation();toggleEditMode('${cardId}')">edit</span>
+        </summary>
+        ${itemsHTML}${emptyHTML}${addForm}</details>`;
+}
+
+// Per-bucket collapse memory for the To-Do ladder. Default: only "Now" opens;
+// the rest start collapsed (a saved choice still wins).
+function todoCardOpen(sectionName) {
+    try { const v = localStorage.getItem('todoCardOpen:' + sectionName); if (v !== null) return v === '1'; } catch (e) {}
+    return (sectionName || '').toLowerCase() === 'now';
+}
+function todoCardToggled(d, sectionName) {
+    try { localStorage.setItem('todoCardOpen:' + sectionName, d.open ? '1' : '0'); } catch (e) {}
 }
 
 // --- habitCount, habitStartLabel, habitCardHTML ---
@@ -682,6 +740,12 @@ async function executeDelete() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ habit: pendingDelete.habit, date: pendingDelete.date })
+        });
+    } else if (pendingDelete.type === 'streak') {
+        await fetch('/api/streaks/remove', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ label: pendingDelete.label, since: pendingDelete.since })
         });
     } else if (pendingDelete.type === 'devnote') {
         const tab = pendingDelete.tab;
@@ -835,6 +899,10 @@ function showMoveMenu(btn, item) {
     const menu = document.createElement('div');
     menu.className = 'move-menu';
     menu.style.cssText = 'position:absolute;right:0;top:100%;background:var(--card-bg);border:1px solid var(--border);border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.12);z-index:100;min-width:160px;padding:4px 0;font-size:13px';
+    const moveLbl = document.createElement('div');
+    moveLbl.textContent = 'Move to';
+    moveLbl.style.cssText = 'padding:4px 14px;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)';
+    menu.appendChild(moveLbl);
     sections.forEach(s => {
         const opt = document.createElement('div');
         opt.textContent = s;
@@ -842,6 +910,23 @@ function showMoveMenu(btn, item) {
         opt.onmouseenter = () => opt.style.background = 'var(--bg)';
         opt.onmouseleave = () => opt.style.background = 'none';
         opt.onclick = () => { menu.remove(); moveTodo(item, s); };
+        menu.appendChild(opt);
+    });
+    // Snooze ("kick the can down the road")
+    const sep = document.createElement('div');
+    sep.style.cssText = 'border-top:1px solid var(--border);margin:4px 0';
+    menu.appendChild(sep);
+    const snoozeLbl = document.createElement('div');
+    snoozeLbl.textContent = 'Snooze';
+    snoozeLbl.style.cssText = 'padding:4px 14px;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)';
+    menu.appendChild(snoozeLbl);
+    [['3 days', 3], ['1 week', 7], ['2 weeks', 14], ['1 month', 30]].forEach(([label, days]) => {
+        const opt = document.createElement('div');
+        opt.textContent = `💤 ${label}`;
+        opt.style.cssText = 'padding:6px 14px;cursor:pointer;color:var(--text)';
+        opt.onmouseenter = () => opt.style.background = 'var(--bg)';
+        opt.onmouseleave = () => opt.style.background = 'none';
+        opt.onclick = () => { menu.remove(); snoozeTodo(item, days); };
         menu.appendChild(opt);
     });
     btn.parentElement.style.position = 'relative';
@@ -859,6 +944,53 @@ async function moveTodo(item, toSection) {
         body: JSON.stringify({ item, to_section: toSection })
     });
     loadDashboard();
+}
+
+async function snoozeTodo(item, days) {
+    await fetch('/api/todos/snooze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item, days })
+    });
+    loadDashboard();
+}
+
+function toggleTodoNotes(btn) {
+    const row = btn.closest('.card-item');
+    const panel = row && row.nextElementSibling;
+    if (!panel || !panel.classList.contains('todo-notes')) return;
+    const show = panel.style.display === 'none';
+    panel.style.display = show ? 'block' : 'none';
+    if (show) {
+        const ta = panel.querySelector('textarea');
+        if (ta) { autoGrow(ta); ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+    }
+}
+
+async function saveTodoNotes(ta) {
+    const notes = ta.value.trim();
+    await fetch('/api/todos/details', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item: ta.dataset.item, notes })
+    });
+    // Immediate feedback on the note button (accent when a note exists)
+    const panel = ta.closest('.todo-notes');
+    const row = panel && panel.previousElementSibling;
+    const noteBtn = row && row.querySelector('.todo-note-btn');
+    if (noteBtn) {
+        noteBtn.style.color = notes ? 'var(--accent)' : 'var(--text-muted)';
+        noteBtn.style.opacity = notes ? '1' : '0.55';
+        noteBtn.title = notes ? 'Details' : 'Add a note';
+    }
+}
+
+// Short, friendly "added" date label (e.g. "Jun 6"). Hides the current year.
+function _fmtAddedDate(iso) {
+    try {
+        const d = new Date(iso + 'T12:00:00');
+        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    } catch (e) { return iso; }
 }
 
 // --- Toggle functions ---

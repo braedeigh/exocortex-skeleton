@@ -24,7 +24,7 @@ def register(app):
     def theme_save():
         data = request.json or {}
         # Whitelist top-level keys so junk doesn't accumulate
-        allowed = {"themes", "offsets", "phasesEnabled", "accents", "enabled"}
+        allowed = {"themes", "offsets", "phasesEnabled", "accents", "enabled", "mode"}
         clean = {k: v for k, v in data.items() if k in allowed}
         save_theme(clean)
         return jsonify({"ok": True})

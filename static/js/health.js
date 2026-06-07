@@ -110,7 +110,10 @@ function renderSymptomForm() {
                     <input type="checkbox" id="sym-nose-spray" style="width:18px;height:18px;cursor:pointer"> Nose spray used?
                 </label>
             </div>
-            <button class="submit-btn" onclick="logSymptoms()">${btnLabel}</button>`;
+            <button class="submit-btn" onclick="logSymptoms()">${btnLabel}</button>
+            <div style="margin-top:10px">
+                <a href="/body" onclick="switchTab(event,'body')" style="font-size:12px;color:var(--accent);text-decoration:none">View full symptom tracker ↗</a>
+            </div>`;
     }
 
     if (done && !expandedAll) {

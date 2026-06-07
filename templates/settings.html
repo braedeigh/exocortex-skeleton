@@ -17,8 +17,19 @@
     </div>
 
     <div class="settings-section">
+        <h2>Theme mode</h2>
+        <div class="sub">Auto follows Austin sunrise/sunset — lavender by day, indigo at night. Or pick a fixed look.</div>
+        <select id="themeModeSel" style="padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:14px;max-width:320px">
+            <option value="auto">Auto — lavender by day, indigo at night</option>
+            <option value="light">Light (lavender)</option>
+            <option value="dark">Dark (indigo)</option>
+            <option value="sky">Color runway (full day cycle)</option>
+        </select>
+    </div>
+
+    <div class="settings-section">
         <h2>Sky theme</h2>
-        <div class="sub">Colors shift through the day based on Austin sunrise/sunset. Turn off to use a single static palette.</div>
+        <div class="sub">Used only in “Color runway” mode. Colors shift through the day based on Austin sunrise/sunset.</div>
         <div class="toggle-row">
             <div>
                 <div class="label">Enable sky theme</div>

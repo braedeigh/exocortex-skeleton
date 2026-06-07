@@ -587,8 +587,37 @@ def _load_streaks():
             start = datetime.strptime(since, "%Y-%m-%d")
         except ValueError:
             continue
-        out.append({"label": label, "days": (today - start).days})
+        out.append({"label": label, "days": (today - start).days, "since": since})
     return out
+
+
+@app.route("/api/streaks/add", methods=["POST"])
+def add_streak():
+    data = request.json or {}
+    label = (data.get("label") or "").strip()
+    since = (data.get("since") or "").strip()
+    if not label or not since:
+        return jsonify({"error": "label and date required"}), 400
+    try:
+        datetime.strptime(since, "%Y-%m-%d")
+    except ValueError:
+        return jsonify({"error": "date must be YYYY-MM-DD"}), 400
+    d = store.read("streaks.json", {"streaks": []})
+    d.setdefault("streaks", []).append({"label": label, "since": since})
+    store.write("streaks.json", d)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/streaks/remove", methods=["POST"])
+def remove_streak():
+    data = request.json or {}
+    label = (data.get("label") or "").strip()
+    since = (data.get("since") or "").strip()
+    d = store.read("streaks.json", {"streaks": []})
+    d["streaks"] = [s for s in d.get("streaks", [])
+                    if not (str(s.get("label", "")).strip() == label and str(s.get("since", "")).strip() == since)]
+    store.write("streaks.json", d)
+    return jsonify({"ok": True})
 
 
 def _load_hrt():

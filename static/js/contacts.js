@@ -102,21 +102,24 @@ async function quickLogContact(name, method) {
 
 // --- Contacts ---
 function renderContacts() {
+    // The card shows just the calendar; "Manage contacts" opens in the editor modal.
     const el = document.getElementById('contacts-area');
-    if (!D.contacts || !D.contacts.length) { el.innerHTML = ''; return; }
+    if (el) el.innerHTML = (D.contacts && D.contacts.length) ? '<div id="contact-calendar-slot"></div>' : '';
+    if (window._contactsManageOpen) showEditorModal('Manage contacts', manageContactsPanelHtml());
+}
 
-    // Preserve open/closed state of the inner "Manage contacts" panel across
-    // re-renders so editing a contact doesn't collapse it. (The outer "Contacts"
-    // card is a static template <details>, so its state persists on its own.)
-    const manageOpen = document.getElementById('manage-contacts-details')?.open ?? false;
+function openContactsManage() {
+    window._contactsManageOpen = true;
+    if (typeof _habitTrackerEditing !== 'undefined') _habitTrackerEditing = false;
+    window._remMgrOpen = false;
+    if (typeof renderHabitTracker === 'function') renderHabitTracker();
+    if (typeof renderReminderManager === 'function') renderReminderManager();
+    renderContacts();
+}
 
-    // Calendar goes first (rendered by renderContactCalendar)
-    let html = '<div id="contact-calendar-slot"></div>';
-
-    // Cards in a collapsible details
-    html += `<details id="manage-contacts-details" ${manageOpen ? 'open' : ''} style="margin-top:12px"><summary style="font-size:14px;font-weight:600;cursor:pointer;color:var(--text-secondary)">Manage contacts</summary>`;
-    html += '<div class="contacts-grid" style="margin-top:12px">';
-    D.contacts.forEach(c => {
+function manageContactsPanelHtml() {
+    let html = '<div class="contacts-grid">';
+    (D.contacts || []).forEach(c => {
         const days = c.days_since;
         let color, statusText;
         if (days === null || days === undefined) {
@@ -171,9 +174,7 @@ function renderContacts() {
             <span style="font-size:12px;color:var(--text-muted)">days</span>
             <button onclick="addContact()">Add</button>
         </div>`;
-    html += '</details>'; // manage contacts
-
-    el.innerHTML = html;
+    return html;
 }
 
 async function logContact(name, method) {

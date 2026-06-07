@@ -43,8 +43,8 @@ const SKY_DEFAULT_THEMES = {
         textMuted: 'rgba(215,195,180,0.6)', border: '#3a2a3a',
     },
     postDawn: {
-        bg: '#8a7e88', cardBg: '#9a8e98', text: '#1a1815', textSecondary: '#2a2522',
-        textMuted: 'rgba(30,25,20,0.5)', border: '#7a7078',
+        bg: '#aba3b2', cardBg: '#b8b1c2', text: '#1a1815', textSecondary: '#2a2522',
+        textMuted: 'rgba(30,25,20,0.6)', border: '#888391',
     },
     morning: {
         bg: '#eeeae4', cardBg: '#f8f6f2', text: '#1a1815', textSecondary: '#45403a',
@@ -161,10 +161,35 @@ function applyAccents(accents) {
 let _serverHour = null;
 let _serverDayOfYear = null;
 
+// Which theme mode is active: 'auto' | 'light' | 'dark' | 'sky' | 'off'.
+// Light = the postDawn (lavender) palette; Dark = the twilight (indigo) palette.
+function currentThemeMode() {
+    const o = window.THEME_OVERRIDES || {};
+    if (o.mode) return o.mode;
+    try { const m = localStorage.getItem('themeMode'); if (m) return m; } catch (e) {}
+    return o.enabled === false ? 'off' : 'sky';
+}
+
 function updateSkyTheme() {
     const cfg = resolveSkyConfig();
     themes = cfg.themes;
     applyAccents(cfg.accents);
+
+    const mode = currentThemeMode();
+    if (mode === 'off') return; // leave CSS var defaults from style.css
+    if (mode === 'light') { applyTheme(themes.postDawn); return; }
+    if (mode === 'dark') { applyTheme(themes.twilight); return; }
+    if (mode === 'auto') {
+        // Lavender (postDawn) between sunrise and sunset, indigo (twilight) otherwise.
+        const hour = _serverHour !== null ? _serverHour : (new Date().getHours() + new Date().getMinutes() / 60);
+        const dayOfYear = _serverDayOfYear !== null ? _serverDayOfYear : Math.floor((new Date() - new Date(new Date().getFullYear(), 0, 0)) / 86400000);
+        const { sunrise, sunset } = sunTimesFromDay(dayOfYear);
+        const isDay = hour >= sunrise && hour < sunset;
+        applyTheme(isDay ? themes.postDawn : themes.twilight);
+        return;
+    }
+
+    // mode === 'sky' — the full time-of-day color runway
     if (!cfg.enabled) return; // Master toggle off — leave CSS var defaults from style.css
 
     // Use server time if available, fall back to local

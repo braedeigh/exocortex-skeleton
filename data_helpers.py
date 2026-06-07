@@ -157,11 +157,10 @@ def load_meetings():
 TODOS_PATH = DATA_DIR / "todos.json"
 
 TODO_SECTIONS = [
-    ("today", "Today"),
-    ("tomorrow", "Tomorrow"),
-    ("this_week", "This Week"),
-    ("soon", "Soon"),
-    ("longer_term", "Longer Term"),
+    ("now", "Now"),
+    ("up_next", "Up Next"),
+    ("later", "Later"),
+    ("someday", "Someday"),
     ("done", "Done"),
 ]
 
@@ -177,39 +176,8 @@ def save_todos(data):
 
 
 def roll_todos(data):
-    """Roll the todo list forward if the date has changed."""
-    today = datetime.now()
-    today_str = today.strftime("%Y-%m-%d")
-    tomorrow = today + timedelta(days=1)
-    tomorrow_str = tomorrow.strftime("%Y-%m-%d")
-
-    today_sec = data.get("today", {})
-    if today_sec.get("date") == today_str:
-        return data
-
-    old_items = today_sec.get("items", [])
-    carry = [i for i in old_items if not i.get("done", False)]
-    newly_done = [i for i in old_items if i.get("done", False)]
-    old_date = today_sec.get("date", today_str)
-
-    done_sec = data.get("done", {"items": []})
-    for item in newly_done:
-        item["completed"] = old_date
-    done_sec["items"] = newly_done + done_sec.get("items", [])
-
-    tomorrow_sec = data.get("tomorrow", {"items": []})
-    data["today"] = {
-        "date": today_str,
-        "label": today.strftime("%A %B %-d"),
-        "items": carry + tomorrow_sec.get("items", []),
-    }
-    data["tomorrow"] = {
-        "date": tomorrow_str,
-        "label": tomorrow.strftime("%A %B %-d"),
-        "items": [],
-    }
-    data["done"] = done_sec
-    save_todos(data)
+    """No-op: the priority-ladder model (Now/Up Next/Later/Someday) is fully
+    manual — items only move when the user moves them, so there's no daily roll."""
     return data
 
 
@@ -220,10 +188,7 @@ def todos_to_sections(data):
         sec = data.get(key, {})
         items = sec.get("items", [])
         items = sorted(items, key=lambda x: x.get("done", False))
-        name = label
-        if key in ("today", "tomorrow") and sec.get("label"):
-            name = f"{label} — {sec['label']}"
-        sections.append({"name": name, "items": items})
+        sections.append({"name": label, "items": items})
     return sections
 
 

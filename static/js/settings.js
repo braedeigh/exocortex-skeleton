@@ -48,6 +48,19 @@
             state.enabled = e.target.checked;
             markDirty();
         });
+
+        const modeSel = document.getElementById('themeModeSel');
+        if (modeSel) {
+            modeSel.value = state.mode || 'sky';
+            modeSel.addEventListener('change', (e) => {
+                state.mode = e.target.value;
+                markDirty();
+                // Live preview immediately
+                window.THEME_OVERRIDES = { ...(window.THEME_OVERRIDES || {}), mode: state.mode };
+                try { localStorage.setItem('themeMode', state.mode); } catch (err) {}
+                if (typeof updateSkyTheme === 'function') updateSkyTheme();
+            });
+        }
         document.getElementById('saveBtn').addEventListener('click', save);
         document.getElementById('devNoteAdd').addEventListener('click', () => addDevNote('devNoteInput'));
         document.getElementById('devNoteInput').addEventListener('keydown', (e) => {
@@ -83,11 +96,13 @@
         try {
             const payload = {
                 enabled: state.enabled,
+                mode: state.mode || 'sky',
                 themes: trimEmpty(state.themes),
                 offsets: trimEmpty(state.offsets),
                 phasesEnabled: trimEmpty(state.phasesEnabled),
                 accents: trimEmpty(state.accents),
             };
+            try { localStorage.setItem('themeMode', payload.mode); } catch (err) {}
             const r = await fetch('/api/theme/save', {
                 method: 'POST', headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(payload),

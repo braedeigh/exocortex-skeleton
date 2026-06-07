@@ -28,9 +28,31 @@ def register(app):
         sec = todos.get(key, {"items": []})
         if item_text.lower() in {x["text"].lower() for x in sec.get("items", [])}:
             return jsonify({"error": "Already exists in this section"}), 400
-        sec.setdefault("items", []).append({"text": item_text, "done": False})
+        sec.setdefault("items", []).append({
+            "text": item_text, "done": False,
+            "created": datetime.now().strftime("%Y-%m-%d"),
+        })
         todos[key] = sec
         save_todos(todos)
+        return jsonify({"ok": True})
+
+    @app.route("/api/todos/snooze", methods=["POST"])
+    def snooze_todo():
+        """Kick a to-do down the road: hide it until `days` from now (days<=0 clears)."""
+        from datetime import timedelta
+        data = request.json or {}
+        item_text = data.get("item", "")
+        days = int(data.get("days", 0) or 0)
+        todos = load_todos()
+        for key in todos:
+            for item in todos[key].get("items", []):
+                if item.get("text") == item_text:
+                    if days > 0:
+                        item["snoozed_until"] = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
+                    else:
+                        item.pop("snoozed_until", None)
+                    save_todos(todos)
+                    return jsonify({"ok": True})
         return jsonify({"ok": True})
 
     @app.route("/api/todos/move", methods=["POST"])
@@ -51,6 +73,24 @@ def register(app):
                     break
         todos.setdefault(to_key, {"items": []}).setdefault("items", []).append({"text": item_text, "done": False})
         save_todos(todos)
+        return jsonify({"ok": True})
+
+    @app.route("/api/todos/details", methods=["POST"])
+    def todo_details():
+        """Set optional detail notes on a to-do (empty clears)."""
+        data = request.json or {}
+        item_text = data.get("item", "")
+        notes = (data.get("notes") or "").strip()
+        todos = load_todos()
+        for key in todos:
+            for item in todos[key].get("items", []):
+                if item.get("text") == item_text:
+                    if notes:
+                        item["notes"] = notes
+                    else:
+                        item.pop("notes", None)
+                    save_todos(todos)
+                    return jsonify({"ok": True})
         return jsonify({"ok": True})
 
     @app.route("/api/todos/remove", methods=["POST"])
