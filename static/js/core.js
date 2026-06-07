@@ -130,6 +130,7 @@ function restoreMapCards() {
         try { v = localStorage.getItem('mapCardOpen:' + d.dataset.card); } catch (e) {}
         if (v === '1') d.open = true;
         else if (v === '0') d.open = false;
+        else d.open = (d.dataset.card === 'habit'); // default: Habit Tracker open, others closed
     });
 }
 if (document.readyState === 'loading') {
@@ -358,7 +359,17 @@ function renderHeader() {
 
 // --- Utility functions ---
 function esc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
-function escJs(s) { return String(s == null ? '' : s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"'); }
+// Escape for a JS single-quoted string sitting inside a double-quoted HTML
+// attribute (e.g. onclick="fn('...')"). Note: " must become &quot; — \" does
+// NOT stop the browser from ending the attribute, which silently breaks the
+// handler for any item containing a double-quote.
+function escJs(s) {
+    return String(s == null ? '' : s)
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/"/g, '&quot;')
+        .replace(/\r?\n/g, '\\n');
+}
 
 // --- Tab navigation: post to parent (split.html) so URL updates without reloading the shell ---
 function switchTab(event, name) {
@@ -625,11 +636,11 @@ function cardHTML(title, items, color, type, sectionName, dim) {
 // Per-bucket collapse memory for the To-Do ladder. Default: only "Now" opens;
 // the rest start collapsed (a saved choice still wins).
 function todoCardOpen(sectionName) {
-    try { const v = localStorage.getItem('todoCardOpen:' + sectionName); if (v !== null) return v === '1'; } catch (e) {}
+    try { const v = localStorage.getItem('todoOpenV2:' + sectionName); if (v !== null) return v === '1'; } catch (e) {}
     return (sectionName || '').toLowerCase() === 'now';
 }
 function todoCardToggled(d, sectionName) {
-    try { localStorage.setItem('todoCardOpen:' + sectionName, d.open ? '1' : '0'); } catch (e) {}
+    try { localStorage.setItem('todoOpenV2:' + sectionName, d.open ? '1' : '0'); } catch (e) {}
 }
 
 // --- habitCount, habitStartLabel, habitCardHTML ---

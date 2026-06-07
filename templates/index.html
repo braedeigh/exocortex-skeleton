@@ -26,28 +26,33 @@
             <a href="/" class="time-btn" data-tab="today" style="text-decoration:none" onclick="switchTab(event,'today')">To Do</a>
             <a href="/map" class="time-btn" data-tab="map" style="text-decoration:none" onclick="switchTab(event,'map')">Life Map</a>
             <a href="/kitchen" class="time-btn" data-tab="kitchen" style="text-decoration:none" onclick="switchTab(event,'kitchen')">Kitchen</a>
+            <!-- These promote into the bar as the pane widens; otherwise they live in More. -->
+            <a href="/body" class="time-btn tab-t1" data-tab="body" style="text-decoration:none" onclick="switchTab(event,'body')">Body</a>
+            <a href="/money" class="time-btn tab-t1" data-tab="money" style="text-decoration:none" onclick="switchTab(event,'money')">Money</a>
+            <a href="/meditation" class="time-btn tab-t2" data-tab="meditation" style="text-decoration:none" onclick="switchTab(event,'meditation')">Meditation</a>
+            <a href="/media" class="time-btn tab-t2" data-tab="media" style="text-decoration:none" onclick="switchTab(event,'media')">Media</a>
             <div style="position:relative;display:inline-block">
                 <button type="button" class="time-btn" id="more-btn" onclick="toggleMore(event)">More &#9662;</button>
                 <div id="more-menu" class="more-menu" role="menu">
-                    <a href="/meditation" data-tab="meditation" onclick="switchTab(event,'meditation')">Meditation</a>
-                    <a href="/media" data-tab="media" onclick="switchTab(event,'media')">Media</a>
-                    <a href="/body" data-tab="body" onclick="switchTab(event,'body')">Body</a>
+                    <a href="/meditation" class="m-t2" data-tab="meditation" onclick="switchTab(event,'meditation')">Meditation</a>
+                    <a href="/media" class="m-t2" data-tab="media" onclick="switchTab(event,'media')">Media</a>
+                    <a href="/body" class="m-t1" data-tab="body" onclick="switchTab(event,'body')">Body</a>
                     <a href="/personality" class="auth-only" onclick="closeMore()">Personality</a>
                     <a href="/inventory" data-tab="inventory" onclick="switchTab(event,'inventory')">Inventory</a>
                     <a href="/car-maintenance" data-tab="car" onclick="switchTab(event,'car')">Car Maintenance</a>
-                    <a href="/money" data-tab="money" onclick="switchTab(event,'money')">Money</a>
+                    <a href="/money" class="m-t1" data-tab="money" onclick="switchTab(event,'money')">Money</a>
                 </div>
             </div>
         </div>
         <button type="button" class="auth-only" id="settings-gear" onclick="openSettings()" title="Settings" aria-label="Settings" style="margin-left:auto;font-size:20px;line-height:1;background:none;border:none;color:var(--text-muted);cursor:pointer;padding:6px 4px">&#9881;</button>
     </div>
 
-    <div id="greeting" class="greeting"></div>
-    <div id="date-info" class="date-info"></div>
-    <div id="streaks-area" class="auth-only"></div>
-
     <!-- TODAY TAB -->
     <div id="tab-today">
+        <div id="greeting" class="greeting"></div>
+        <div id="date-info" class="date-info"></div>
+        <div id="streaks-area" class="auth-only"></div>
+
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:28px">
             <div class="time-selector" id="time-selector" style="margin-bottom:0">
                 <button class="time-btn" data-time="morning" onclick="setTime('morning')">Morning</button>
@@ -91,7 +96,7 @@
             <button id="map-collapse-btn" onclick="toggleMapCollapse()" style="font-size:12px;color:var(--text-muted);cursor:pointer;border:1px solid var(--border);border-radius:6px;padding:5px 12px;background:none">Expand all</button>
         </div>
 
-        <details class="map-section kitchen-section" data-card="habit" ontoggle="mapCardToggled(this)">
+        <details class="map-section kitchen-section" data-card="habit" open ontoggle="mapCardToggled(this)">
             <summary style="font-size:16px;font-weight:700;cursor:pointer;padding:8px 0;list-style:none;display:flex;align-items:center;gap:8px">
                 <span class="kitchen-arrow" style="font-size:12px;transition:transform 0.15s;display:inline-block">&#9654;</span>Habit Tracker
                 <button class="card-edit-btn habit-edit-btn" onclick="event.preventDefault();event.stopPropagation();toggleHabitTrackerEdit()">Edit</button>
