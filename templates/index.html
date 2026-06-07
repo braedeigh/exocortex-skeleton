@@ -53,13 +53,8 @@
         <div id="date-info" class="date-info"></div>
         <div id="streaks-area" class="auth-only"></div>
 
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:28px">
-            <div class="time-selector" id="time-selector" style="margin-bottom:0">
-                <button class="time-btn" data-time="morning" onclick="setTime('morning')">Morning</button>
-                <button class="time-btn" data-time="afternoon" onclick="setTime('afternoon')">Midday</button>
-                <button class="time-btn" data-time="evening" onclick="setTime('evening')">Evening</button>
-            </div>
-            <button class="time-btn" id="expand-btn" onclick="toggleExpandAll()" style="font-size:12px;color:var(--text-muted);cursor:pointer;border:1px solid var(--border);border-radius:6px;padding:5px 12px;background:none">Show all</button>
+        <div style="margin:0 0 12px">
+            <button id="expand-btn" onclick="toggleExpandAll()" style="font-size:12px;color:var(--text-muted);cursor:pointer;border:none;background:none;padding:2px 0;text-decoration:underline;text-underline-offset:3px">Show hidden</button>
         </div>
 
         <div id="hrt"></div>
@@ -73,6 +68,11 @@
         <div class="two-col">
             <div>
                 <div class="col-header">Habits</div>
+                <div class="time-selector" id="time-selector" style="margin:8px 0 14px">
+                    <button class="time-btn" data-time="morning" onclick="setTime('morning')">Morning</button>
+                    <button class="time-btn" data-time="afternoon" onclick="setTime('afternoon')">Midday</button>
+                    <button class="time-btn" data-time="evening" onclick="setTime('evening')">Evening</button>
+                </div>
                 <div id="habits-cards"></div>
             </div>
             <div>

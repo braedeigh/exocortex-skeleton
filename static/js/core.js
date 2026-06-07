@@ -64,7 +64,7 @@ function initTab() {
 // --- toggleExpandAll ---
 function toggleExpandAll() {
     expandedAll = !expandedAll;
-    document.getElementById('expand-btn').textContent = expandedAll ? 'Collapse' : 'Show all';
+    document.getElementById('expand-btn').textContent = expandedAll ? 'Show less' : 'Show hidden';
     render();
     if (expandedAll) {
         document.querySelectorAll('details').forEach(d => { d.open = true; });
