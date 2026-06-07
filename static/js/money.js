@@ -227,7 +227,7 @@ function renderSubscriptions() {
         <summary style="font-size:16px;font-weight:600;cursor:pointer;color:var(--text-secondary)">Subscriptions (${items.length}) &mdash; ${_m(monthlyTotal)}/mo equiv</summary>
         <div class="card" style="border-left-color:var(--red);margin-top:8px;padding:10px">
             ${items.length ? `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:14px">
-                <thead><tr style="text-align:left;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.5px">
+                <thead><tr style="text-align:left;color:var(--text-muted);font-size:12px;text-transform:uppercase;letter-spacing:0.5px">
                     <th style="padding:6px 10px;font-weight:600">Name</th>
                     <th style="padding:6px 10px;font-weight:600">Cost</th>
                     <th style="padding:6px 10px;font-weight:600">Next renewal</th>
@@ -238,7 +238,7 @@ function renderSubscriptions() {
             </table></div>` : '<div style="font-size:14px;color:var(--text-muted);padding:6px 0">No subscriptions tracked yet.</div>'}
             <div style="margin-top:10px">
                 <button onclick="autoDetectSubscriptions()" style="padding:6px 14px;border:1px solid var(--ongoing);background:none;color:var(--ongoing);border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">Auto-detect from expenses</button>
-                <span style="font-size:11px;color:var(--text-muted);margin-left:6px">Scans expenses categorized as "Subscriptions" — recurring charges (2+ months) get added.</span>
+                <span style="font-size:12px;color:var(--text-muted);margin-left:6px">Scans expenses categorized as "Subscriptions" — recurring charges (2+ months) get added.</span>
             </div>
             <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
                 <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
@@ -333,7 +333,7 @@ function renderBudgetConfig() {
                 <button onclick="saveBankUrl()" style="padding:6px 14px;border:none;border-radius:6px;background:var(--text);color:#fff;font-size:12px;font-weight:600;cursor:pointer">Save</button>
             </div>
             ${cats.length ? `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:14px">
-                <thead><tr style="text-align:left;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.5px">
+                <thead><tr style="text-align:left;color:var(--text-muted);font-size:12px;text-transform:uppercase;letter-spacing:0.5px">
                     <th style="padding:6px 10px;font-weight:600">Category</th>
                     <th style="padding:6px 10px;font-weight:600">Type</th>
                     <th style="padding:6px 10px;font-weight:600">Planned/mo</th>
@@ -509,7 +509,7 @@ function _renderCsvPreview() {
         const isUncategorized = !r.category || r.category === 'Uncategorized';
         const highlightBg = (r.include && isUncategorized) ? 'background:rgba(231,76,60,0.10);' : '';
         const dimmed = !r.include ? 'opacity:0.4;' : '';
-        const dupTag = r.already_imported ? '<span style="font-size:10px;color:var(--text-muted);background:var(--border);padding:1px 6px;border-radius:4px;margin-left:4px">already imported</span>' : '';
+        const dupTag = r.already_imported ? '<span style="font-size:12px;color:var(--text-muted);background:var(--border);padding:1px 6px;border-radius:4px;margin-left:4px">already imported</span>' : '';
         const amtColor = isExpense ? 'var(--text)' : 'var(--green)';
         return `<tr style="border-top:1px solid var(--border);${highlightBg}${dimmed}">
             <td style="padding:5px 8px"><input type="checkbox" ${r.include ? 'checked' : ''} onchange="toggleCsvInclude(${idx}, this.checked)"></td>
@@ -528,7 +528,7 @@ function _renderCsvPreview() {
         <div style="overflow-x:auto;max-height:600px;overflow-y:auto;border:1px solid var(--border);border-radius:6px">
             <table style="width:100%;border-collapse:collapse;font-size:14px">
                 <thead style="position:sticky;top:0;background:var(--card-bg);z-index:1">
-                    <tr style="text-align:left;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.5px">
+                    <tr style="text-align:left;color:var(--text-muted);font-size:12px;text-transform:uppercase;letter-spacing:0.5px">
                         <th style="padding:6px 8px;font-weight:600">Inc.</th>
                         <th style="padding:6px 8px;font-weight:600">Date</th>
                         <th style="padding:6px 8px;font-weight:600">Description</th>
@@ -641,7 +641,7 @@ function _renderCategoryDropdown(expenseId, currentCat) {
         const sel = c === currentCat ? ' selected' : '';
         opts.push(`<option value="${esc(c)}"${sel}>${esc(c)}</option>`);
     });
-    return `<select onchange="updateExpenseCategory('${escJs(expenseId)}', this.value)" style="padding:2px 4px;border:1px solid var(--border);border-radius:4px;font-size:11px;background:var(--bg);max-width:140px">${opts.join('')}</select>`;
+    return `<select onchange="updateExpenseCategory('${escJs(expenseId)}', this.value)" style="padding:2px 4px;border:1px solid var(--border);border-radius:4px;font-size:12px;background:var(--bg);max-width:140px">${opts.join('')}</select>`;
 }
 
 function _renderDrillTransactions(items, category) {
@@ -664,10 +664,10 @@ function _renderDrillTransactions(items, category) {
                  <input type="file" accept="image/*,.pdf,.heic" style="display:none" onchange="uploadReceipt('${escJs(e.id)}', this.files[0])">
                </label>`;
         return `<tr style="border-top:1px solid var(--border)">
-            <td style="padding:4px 8px;font-size:11px;color:var(--text-muted);white-space:nowrap">${esc(e.date || '')}</td>
+            <td style="padding:4px 8px;font-size:12px;color:var(--text-muted);white-space:nowrap">${esc(e.date || '')}</td>
             <td style="padding:4px 8px;font-size:12px;white-space:nowrap"><b>${_m(e.amount)}</b></td>
             <td style="padding:4px 8px;white-space:nowrap">${titleDisplay}</td>
-            <td style="padding:4px 8px;font-size:11px;color:var(--text-muted)">${esc(e.comments || '')}</td>
+            <td style="padding:4px 8px;font-size:12px;color:var(--text-muted)">${esc(e.comments || '')}</td>
             <td style="padding:4px 8px;text-align:center">${receiptBtn}</td>
             <td style="padding:4px 8px;text-align:right">${_renderCategoryDropdown(e.id, e.category || 'Uncategorized')}</td>
         </tr>`;
@@ -904,9 +904,9 @@ function renderSetAside() {
         .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
         .slice(0, 8)
         .map(t => `<tr style="border-top:1px solid var(--border)">
-            <td style="padding:4px 8px;font-size:11px;color:var(--text-muted);white-space:nowrap">${esc(t.date || '')}</td>
+            <td style="padding:4px 8px;font-size:12px;color:var(--text-muted);white-space:nowrap">${esc(t.date || '')}</td>
             <td style="padding:4px 8px;font-size:12px;white-space:nowrap"><b>$${(t.amount || 0).toFixed(2)}</b></td>
-            <td style="padding:4px 8px;font-size:11px;color:var(--text-muted)">${esc(t.notes || '')}</td>
+            <td style="padding:4px 8px;font-size:12px;color:var(--text-muted)">${esc(t.notes || '')}</td>
             <td style="padding:4px 8px;text-align:right">
                 <button onclick="removeTaxSetaside('${esc(t.id)}')" title="Remove" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;padding:0 4px">&times;</button>
             </td>
@@ -918,15 +918,15 @@ function renderSetAside() {
 
             <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:14px">
                 <div style="background:rgba(46,204,113,0.06);border:1px solid rgba(46,204,113,0.25);border-radius:8px;padding:10px 14px">
-                    <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px">Saved (transfers)</div>
+                    <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px">Saved (transfers)</div>
                     <div style="font-size:22px;font-weight:700;color:var(--green);margin-top:4px">$${savingsTotal.toFixed(2)}</div>
-                    <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${savings.length} transfer${savings.length === 1 ? '' : 's'} logged</div>
+                    <div style="font-size:12px;color:var(--text-muted);margin-top:2px">${savings.length} transfer${savings.length === 1 ? '' : 's'} logged</div>
                 </div>
 
                 <div style="background:rgba(231,76,60,0.06);border:1px solid rgba(231,76,60,0.25);border-radius:8px;padding:10px 14px">
-                    <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px">Tax obligation (25%)</div>
+                    <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px">Tax obligation (25%)</div>
                     <div style="font-size:22px;font-weight:700;color:${taxBalanceColor};margin-top:4px">${taxBalanceLabel}</div>
-                    <div style="font-size:11px;color:var(--text-muted);margin-top:2px">$${taxOwed.toFixed(2)} owed &middot; $${taxAside.toFixed(2)} set aside</div>
+                    <div style="font-size:12px;color:var(--text-muted);margin-top:2px">$${taxOwed.toFixed(2)} owed &middot; $${taxAside.toFixed(2)} set aside</div>
                 </div>
             </div>
 

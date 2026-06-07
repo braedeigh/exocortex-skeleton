@@ -152,7 +152,7 @@ function renderSymptomDefinitions() {
     const el = document.getElementById('symptom-definitions-area');
     if (!el) return;
     const defs = D.symptom_definitions || {};
-    let html = '<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">What each 0–3 means for you. Saved and shown as tooltips on the symptom buttons.</div>';
+    let html = '<div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">What each 0–3 means for you. Saved and shown as tooltips on the symptom buttons.</div>';
     html += '<div style="display:flex;flex-direction:column;gap:12px">';
     SYMPTOM_DEF_FIELDS.forEach(([col, label, hints]) => {
         html += `<div><div style="font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:4px">${label}</div>

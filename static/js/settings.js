@@ -169,7 +169,7 @@
                 <div class="phase-head">
                     <div class="phase-swatch" style="background:${swatchColor}"></div>
                     <div class="name">${PHASE_LABELS[phase]}</div>
-                    <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-muted)" onclick="event.stopPropagation()">
+                    <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted)" onclick="event.stopPropagation()">
                         <input type="checkbox" ${disabled ? '' : 'checked'} data-phase-enable="${phase}">
                         on
                     </label>
@@ -356,7 +356,7 @@
             }
             return `<div style="display:flex;justify-content:space-between;gap:8px;padding:8px 0;border-top:1px solid var(--border);font-size:13px">
                 <div style="flex:1">${escapeHtml(n.text)}</div>
-                <div style="font-size:11px;color:var(--text-muted);white-space:nowrap">${escapeHtml(n.created || '')}</div>
+                <div style="font-size:12px;color:var(--text-muted);white-space:nowrap">${escapeHtml(n.created || '')}</div>
                 <button data-edit-trigger="${escapeHtml(n.id)}" title="Edit" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:13px;padding:0 4px">&#9998;</button>
                 <button data-remove-id="${escapeHtml(n.id)}" title="Remove" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;padding:0 4px">&times;</button>
             </div>`;

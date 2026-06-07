@@ -36,8 +36,8 @@
     /* 50% stays raw — means "circle" semantically */
 
     /* Type scale */
-    --text-2xs: 10px;       /* dates, sub-labels */
-    --text-xs:  11px;       /* uppercase micro labels */
+    --text-2xs: 12px;       /* dates, sub-labels */
+    --text-xs:  12px;       /* uppercase micro labels */
     --text-sm:  12px;       /* captions, metadata */
     --text-md:  13px;       /* small body, small buttons */
     --text-base: 14px;      /* default body */
@@ -768,7 +768,7 @@ body.settings-page { padding: 0; margin: 0; background: var(--bg); }
 }
 .phase-preview-inner .pp-title { font-size: 14px; font-weight: 700; margin-bottom: 4px; transition: color 0.12s; }
 .phase-preview-inner .pp-secondary { font-size: 13px; margin-bottom: 6px; transition: color 0.12s; }
-.phase-preview-inner .pp-muted { font-size: 11px; transition: color 0.12s; }
+.phase-preview-inner .pp-muted { font-size:12px; transition: color 0.12s; }
 
 .accent-preview {
     display: flex; flex-wrap: wrap; gap: 8px;
@@ -778,7 +778,7 @@ body.settings-page { padding: 0; margin: 0; background: var(--bg); }
 .accent-preview .swatch-pill {
     display: inline-flex; align-items: center; gap: 6px;
     padding: 5px 10px; border-radius: 999px;
-    font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+    font-size:12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
     color: #fff;
 }
 .accent-preview .swatch-pill .dot {
@@ -818,7 +818,7 @@ body.settings-page { padding: 0; margin: 0; background: var(--bg); }
     border-bottom: 1px solid var(--border); font-size: 13px;
 }
 .rule-row:last-child { border-bottom: none; }
-.rule-row .anchor { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+.rule-row .anchor { color: var(--text-muted); font-size:12px; text-transform: uppercase; letter-spacing: 0.5px; }
 .rule-row input[type="number"] {
     width: 70px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px;
     background: var(--bg); color: var(--text); font-family: ui-monospace, "SF Mono", Monaco, monospace;
@@ -841,7 +841,7 @@ body.settings-page { padding: 0; margin: 0; background: var(--bg); }
     cursor: pointer; padding: 8px 0; list-style: none;
 }
 .pw-change > summary::-webkit-details-marker { display: none; }
-.pw-change > summary::before { content: '▸ '; color: var(--text-muted); font-size: 11px; }
+.pw-change > summary::before { content: '▸ '; color: var(--text-muted); font-size:12px; }
 .pw-change[open] > summary::before { content: '▾ '; }
 .pw-form { padding: 8px 0 4px; display: flex; flex-direction: column; gap: 8px; }
 .pw-form input {
@@ -911,7 +911,7 @@ details.kitchen-section > summary > span[style*="color:var(--text-muted)"] {
     border-radius: 10px !important;
     background: rgba(124, 92, 191, 0.10);
     color: var(--accent) !important;
-    font-size: 11px !important;
+    font-size:12px !important;
     font-weight: 700 !important;
     letter-spacing: 0.3px;
 }
@@ -986,7 +986,7 @@ details.card-section > summary > span[style*="color:var(--text-muted)"] {
     border-radius: 10px !important;
     background: rgba(124, 92, 191, 0.10);
     color: var(--accent) !important;
-    font-size: 11px !important;
+    font-size:12px !important;
     font-weight: 700 !important;
     letter-spacing: 0.3px;
 }

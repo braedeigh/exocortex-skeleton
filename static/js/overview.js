@@ -81,12 +81,12 @@ function renderDotGrid() {
         ['var(--red)', 'Bad / Severe'],
         [gray, 'No data'],
     ];
-    let khtml = '<div style="font-size:11px;color:var(--text-muted);white-space:nowrap">';
+    let khtml = '<div style="font-size:12px;color:var(--text-muted);white-space:nowrap">';
     keys.forEach(([c, label]) => {
         khtml += `<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><div class="dot" style="width:10px;height:10px;background:${c};cursor:default"></div>${label}</div>`;
     });
     // Nasal spray sub-key
-    khtml += '<div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border)"><div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px">Nasal spray</div>';
+    khtml += '<div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border)"><div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px">Nasal spray</div>';
     [['var(--accent)', 'Used'], ['var(--orange)', '3+ day streak']].forEach(([c, label]) => {
         khtml += `<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><div class="dot" style="width:10px;height:10px;background:${c};cursor:default"></div>${label}</div>`;
     });

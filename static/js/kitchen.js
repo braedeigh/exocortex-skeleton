@@ -80,7 +80,7 @@ function renderGroceryInto(el) {
             <label style="cursor:pointer;padding:6px 14px;border-radius:6px;background:var(--green);color:#fff;font-size:12px;font-weight:600">📷 Scan receipt
                 <input type="file" accept="image/*,.heic,.heif,.pdf" style="display:none" onchange="uploadKitchenReceipt(this.files[0])">
             </label>
-            <button onclick="dismissReceiptPrompt()" style="font-size:11px;color:var(--text-muted);background:none;border:1px solid var(--border);border-radius:6px;padding:4px 10px;cursor:pointer">Dismiss</button>
+            <button onclick="dismissReceiptPrompt()" style="font-size:12px;color:var(--text-muted);background:none;border:1px solid var(--border);border-radius:6px;padding:4px 10px;cursor:pointer">Dismiss</button>
         </div>`
         : '';
 
@@ -90,10 +90,10 @@ function renderGroceryInto(el) {
         <div style="display:flex;align-items:center;gap:8px;padding:8px 0;flex-wrap:wrap">
             <span style="font-size:18px;font-weight:700">Grocery List</span>
             ${listCount ? `<span style="font-size:13px;font-weight:400;color:var(--text-muted)">(${unchecked.length} items)</span>` : ''}
-            <label style="cursor:pointer;font-size:11px;color:var(--ongoing);background:none;border:1px solid var(--ongoing);border-radius:6px;padding:2px 8px;margin-left:auto">📷 Scan receipt
+            <label style="cursor:pointer;font-size:12px;color:var(--ongoing);background:none;border:1px solid var(--ongoing);border-radius:6px;padding:2px 8px;margin-left:auto">📷 Scan receipt
                 <input type="file" accept="image/*,.heic,.heif,.pdf" style="display:none" onchange="uploadKitchenReceipt(this.files[0])">
             </label>
-            <button onclick="openCategoryOrder()" style="font-size:11px;color:var(--text-muted);background:none;border:1px solid var(--border);border-radius:6px;padding:2px 8px;cursor:pointer">Reorder</button>
+            <button onclick="openCategoryOrder()" style="font-size:12px;color:var(--text-muted);background:none;border:1px solid var(--border);border-radius:6px;padding:2px 8px;cursor:pointer">Reorder</button>
         </div>
 
         <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">
@@ -134,19 +134,19 @@ function renderGroceryInto(el) {
             (a.sortIdx - b.sortIdx) || (a.aisleNum - b.aisleNum) || a.label.localeCompare(b.label)
         );
         orderedGroups.forEach((g, gi) => {
-            html += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);padding:8px 0 2px;${gi > 0 ? 'border-top:1px solid var(--border);margin-top:4px' : ''}">${esc(g.label)}</div>`;
+            html += `<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);padding:8px 0 2px;${gi > 0 ? 'border-top:1px solid var(--border);margin-top:4px' : ''}">${esc(g.label)}</div>`;
             g.items.forEach(item => {
                 const aisle = aislesMap[item.name.toLowerCase()];
                 const aisleBadge = aisle != null
-                    ? `<span class="aisle-badge" data-name="${esc(item.name)}" onclick="event.stopPropagation();editGroceryAisle('${esc(item.name)}', this)" title="Tap to change location" style="padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;background:rgba(124,92,191,0.18);color:var(--accent);cursor:pointer;margin-right:6px">A${aisle}</span>`
-                    : `<span class="aisle-badge" data-name="${esc(item.name)}" onclick="event.stopPropagation();editGroceryAisle('${esc(item.name)}', this)" title="Tap to set location (section or aisle #)" style="padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;background:transparent;color:var(--text-muted);border:1px dashed var(--border);cursor:pointer;margin-right:6px;opacity:0.55">📍</span>`;
+                    ? `<span class="aisle-badge" data-name="${esc(item.name)}" onclick="event.stopPropagation();editGroceryAisle('${esc(item.name)}', this)" title="Tap to change location" style="padding:2px 8px;border-radius:10px;font-size:12px;font-weight:700;background:rgba(124,92,191,0.18);color:var(--accent);cursor:pointer;margin-right:6px">A${aisle}</span>`
+                    : `<span class="aisle-badge" data-name="${esc(item.name)}" onclick="event.stopPropagation();editGroceryAisle('${esc(item.name)}', this)" title="Tap to set location (section or aisle #)" style="padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600;background:transparent;color:var(--text-muted);border:1px dashed var(--border);cursor:pointer;margin-right:6px;opacity:0.55">📍</span>`;
                 const noteText = (item.note || '').trim();
                 const inlineNote = noteText
                     ? ` <span onclick="event.stopPropagation();editGroceryNote('${esc(item.name)}')" style="font-size:12px;color:var(--text-muted);cursor:pointer" title="Tap to edit note">— ${esc(noteText)}</span>`
                     : '';
                 const addNoteBtn = noteText
                     ? ''
-                    : `<button onclick="editGroceryNote('${esc(item.name)}')" title="Add a note" style="background:none;border:none;color:var(--text-muted);opacity:0.4;font-size:11px;cursor:pointer;margin-left:6px">+ note</button>`;
+                    : `<button onclick="editGroceryNote('${esc(item.name)}')" title="Add a note" style="background:none;border:none;color:var(--text-muted);opacity:0.4;font-size:12px;cursor:pointer;margin-left:6px">+ note</button>`;
                 const safety = (D.kitchen_safety_tags || {})[item.name.toLowerCase()] || '';
                 const safetyIcon = safety === 'safe'
                     ? `<span style="color:var(--green);font-size:14px;line-height:1" title="Confirmed safe">&#10003;</span>`
@@ -167,7 +167,7 @@ function renderGroceryInto(el) {
 
         // Checked items
         if (checked.length) {
-            html += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);padding:8px 0 2px;border-top:1px solid var(--border);margin-top:4px">Got it</div>`;
+            html += `<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);padding:8px 0 2px;border-top:1px solid var(--border);margin-top:4px">Got it</div>`;
             checked.forEach(item => {
                 const noteText = (item.note || '').trim();
                 const inlineNote = noteText
@@ -211,7 +211,7 @@ function renderGroceryInto(el) {
     const sortMode = localStorage.getItem('kitchen_my_foods_sort') || 'alpha';
     const sortBtn = (mode, label) => {
         const active = mode === sortMode;
-        return `<button onclick="setMyFoodsSort('${mode}')" style="padding:3px 9px;border-radius:6px;border:1px solid ${active ? 'var(--accent)' : 'var(--border)'};background:${active ? 'rgba(124,92,191,0.12)' : 'none'};color:${active ? 'var(--accent)' : 'var(--text-muted)'};font-size:11px;font-weight:${active ? '700' : '500'};cursor:pointer">${esc(label)}</button>`;
+        return `<button onclick="setMyFoodsSort('${mode}')" style="padding:3px 9px;border-radius:6px;border:1px solid ${active ? 'var(--accent)' : 'var(--border)'};background:${active ? 'rgba(124,92,191,0.12)' : 'none'};color:${active ? 'var(--accent)' : 'var(--text-muted)'};font-size:12px;font-weight:${active ? '700' : '500'};cursor:pointer">${esc(label)}</button>`;
     };
 
     html += `<details class="kitchen-section" data-section="add-to-list"${_addToListOpen ? ' open' : ''}>
@@ -255,7 +255,7 @@ function renderGroceryInto(el) {
     if (catalogItems.length) {
         html += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
             <div style="font-size:14px;font-weight:700">${chipFilter ? `Matches for "${esc(chipFilter)}"` : 'Quick add from favorites'}</div>
-            <button onclick="openCatalogEditor()" style="font-size:11px;color:var(--text-muted);background:none;border:1px solid var(--border);border-radius:6px;padding:3px 10px;cursor:pointer">Edit</button>
+            <button onclick="openCatalogEditor()" style="font-size:12px;color:var(--text-muted);background:none;border:1px solid var(--border);border-radius:6px;padding:3px 10px;cursor:pointer">Edit</button>
         </div>`;
 
         if (sortMode === 'alpha') {
@@ -272,13 +272,13 @@ function renderGroceryInto(el) {
             const topSet = new Set(topFreq.map(i => i.name));
             const restAlpha = catalogItems.filter(i => !topSet.has(i.name)).sort((a, b) => a.name.localeCompare(b.name));
             if (topFreq.length) {
-                html += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin-bottom:6px">Most bought</div>';
+                html += '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin-bottom:6px">Most bought</div>';
                 html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">';
                 topFreq.forEach(item => { html += renderCatalogChip(item, onList); });
                 html += '</div>';
             }
             if (restAlpha.length) {
-                html += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin-bottom:6px">Everything else (A–Z)</div>';
+                html += '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin-bottom:6px">Everything else (A–Z)</div>';
                 html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px">';
                 restAlpha.forEach(item => { html += renderCatalogChip(item, onList); });
                 html += '</div>';
@@ -290,7 +290,7 @@ function renderGroceryInto(el) {
             const rest = catalogItems.filter(i => i.count === 0);
 
             if (frequent.length) {
-                html += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin-bottom:6px">Most bought</div>';
+                html += '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin-bottom:6px">Most bought</div>';
                 html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">';
                 frequent.forEach(item => { html += renderCatalogChip(item, onList); });
                 html += '</div>';
@@ -308,7 +308,7 @@ function renderGroceryInto(el) {
                 const allItemsOpen = chipFilter ? ' open' : '';
                 html += `<details${allItemsOpen} style="margin-top:4px"><summary style="font-size:12px;font-weight:600;cursor:pointer;color:var(--text-muted)">All items by category</summary><div style="margin-top:8px">`;
                 catsWithItems.forEach(cat => {
-                    html += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin:8px 0 4px">${categoryLabels[cat] || cat}</div>`;
+                    html += `<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin:8px 0 4px">${categoryLabels[cat] || cat}</div>`;
                     html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px">';
                     catGroups[cat].forEach(item => { html += renderCatalogChip(item, onList); });
                     html += '</div>';
@@ -330,8 +330,8 @@ function renderGroceryInto(el) {
 
     html += `<details style="margin-top:10px;padding-top:10px;border-top:1px dashed rgba(124,92,191,0.18)">
         <summary style="font-size:13px;font-weight:600;cursor:pointer;padding:4px 0;list-style:none;display:flex;align-items:center;gap:8px;color:var(--text-muted)">
-            <span style="font-size:11px;transition:transform 0.15s;display:inline-block" class="kitchen-arrow">&#9654;</span>
-            Other grocery items${householdItems.length ? ` <span style="font-size:11px;font-weight:700;color:var(--accent);background:rgba(124,92,191,0.10);padding:1px 8px;border-radius:10px">${householdItems.length}</span>` : ''}
+            <span style="font-size:12px;transition:transform 0.15s;display:inline-block" class="kitchen-arrow">&#9654;</span>
+            Other grocery items${householdItems.length ? ` <span style="font-size:12px;font-weight:700;color:var(--accent);background:rgba(124,92,191,0.10);padding:1px 8px;border-radius:10px">${householdItems.length}</span>` : ''}
         </summary>`;
     if (householdItems.length) {
         html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin:8px 0">';
@@ -392,7 +392,7 @@ function renderGroceryInto(el) {
             const dateLabel = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
             html += `<div style="background:var(--card-bg);border-radius:8px;padding:12px 16px;margin-bottom:8px;border-left:3px solid var(--accent)">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-                    <span style="font-size:11px;color:var(--text-muted)">${dateLabel}</span>
+                    <span style="font-size:12px;color:var(--text-muted)">${dateLabel}</span>
                     <button onclick="deleteMealNote(${i})" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:14px;opacity:0.5" title="Delete">&times;</button>
                 </div>
                 <div style="font-size:14px;color:var(--text);white-space:pre-wrap;line-height:1.5">${esc(note.text)}</div>
@@ -407,7 +407,7 @@ function renderGroceryInto(el) {
             const dateLabel = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
             html += `<div style="background:var(--card-bg);border-radius:8px;padding:12px 16px;margin-bottom:8px;border-left:3px solid var(--border)">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-                    <span style="font-size:11px;color:var(--text-muted)">${dateLabel}</span>
+                    <span style="font-size:12px;color:var(--text-muted)">${dateLabel}</span>
                     <button onclick="deleteMealNote(${i + 3})" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:14px;opacity:0.5" title="Delete">&times;</button>
                 </div>
                 <div style="font-size:14px;color:var(--text);white-space:pre-wrap;line-height:1.5">${esc(note.text)}</div>
@@ -635,7 +635,7 @@ function openCatalogEditor() {
             <div style="font-size:16px;font-weight:700;color:var(--text)">Edit Catalog</div>
             <button onclick="closeCatalogEditor()" style="background:none;border:none;color:var(--text-muted);font-size:20px;cursor:pointer">&times;</button>
         </div>
-        <div style="margin-bottom:12px"><button onclick="openCategoriesEditor()" style="font-size:11px;color:var(--accent);background:none;border:1px solid rgba(124,92,191,0.4);border-radius:6px;padding:3px 10px;cursor:pointer">⚙ Manage categories</button></div>
+        <div style="margin-bottom:12px"><button onclick="openCategoriesEditor()" style="font-size:12px;color:var(--accent);background:none;border:1px solid rgba(124,92,191,0.4);border-radius:6px;padding:3px 10px;cursor:pointer">⚙ Manage categories</button></div>
         <div style="flex:1;overflow-y:auto;min-height:0;padding-right:20px">
             ${rows}
         </div>
@@ -670,14 +670,14 @@ function openCategoriesEditor() {
     const rows = order.map(cat => {
         if (cat === '@aisles') {
             return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);background:rgba(124,92,191,0.08)">
-                <span style="flex:1;font-size:13px;font-style:italic;color:var(--text-muted)">Aisles (1, 2, 3…) <span style="font-size:10px">— sentinel, can't edit</span></span>
+                <span style="flex:1;font-size:13px;font-style:italic;color:var(--text-muted)">Aisles (1, 2, 3…) <span style="font-size:12px">— sentinel, can't edit</span></span>
             </div>`;
         }
         const count = (itemsByCat[cat] || []).length;
         return `<div style="display:flex;align-items:center;gap:6px;padding:8px 0;border-bottom:1px solid var(--border)">
             <input type="text" value="${esc(cat)}" data-cat="${esc(cat)}" class="cat-rename-input" style="flex:1;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--bg);color:var(--text)">
-            <span style="font-size:11px;color:var(--text-muted);min-width:50px;text-align:right">${count} item${count === 1 ? '' : 's'}</span>
-            <button onclick="renameCategoryFromEditor('${esc(cat)}', this)" style="background:none;border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;color:var(--text-muted)" title="Save rename">✓</button>
+            <span style="font-size:12px;color:var(--text-muted);min-width:50px;text-align:right">${count} item${count === 1 ? '' : 's'}</span>
+            <button onclick="renameCategoryFromEditor('${esc(cat)}', this)" style="background:none;border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer;color:var(--text-muted)" title="Save rename">✓</button>
             <button onclick="deleteCategoryFromEditor('${esc(cat)}', ${count})" style="background:none;border:none;color:var(--red);font-size:16px;cursor:pointer;line-height:1" title="Delete category">&times;</button>
         </div>`;
     }).join('');
@@ -687,7 +687,7 @@ function openCategoriesEditor() {
             <div style="font-size:16px;font-weight:700;color:var(--text)">Manage Categories</div>
             <button onclick="closeCategoriesEditor()" style="background:none;border:none;color:var(--text-muted);font-size:20px;cursor:pointer">&times;</button>
         </div>
-        <div style="font-size:11px;color:var(--text-muted);margin-bottom:12px">Edit name in the field then ✓ to rename. × deletes (items reassign to "other"). Use Reorder for ordering.</div>
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">Edit name in the field then ✓ to rename. × deletes (items reassign to "other"). Use Reorder for ordering.</div>
         <div style="flex:1;overflow-y:auto;min-height:0">${rows}</div>
         <div style="display:flex;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
             <input type="text" id="cat-add-name" placeholder="New category…" style="flex:1;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--bg);color:var(--text)" onkeydown="if(event.key==='Enter')addCategoryFromEditor()">
@@ -1341,7 +1341,7 @@ function renderCategoryOrder() {
         const isAisles = cat === '@aisles';
         const label = isAisles ? 'Aisles (1, 2, 3…)' : (categoryLabels[cat] || cat);
         const tint = isAisles ? 'background:rgba(124,92,191,0.10);' : '';
-        const hint = isAisles ? '<span style="font-size:11px;color:var(--text-muted);margin-left:6px">numbered aisles cluster here</span>' : '';
+        const hint = isAisles ? '<span style="font-size:12px;color:var(--text-muted);margin-left:6px">numbered aisles cluster here</span>' : '';
         return `<div style="display:flex;align-items:center;gap:8px;padding:8px 6px;border-bottom:1px solid var(--border);${tint}">
             <span style="flex:1;font-size:14px;color:var(--text)">${esc(label)}${hint}</span>
             <button onclick="moveCat(${i},-1)" ${i === 0 ? 'disabled style="opacity:0.2"' : ''} style="background:none;border:1px solid var(--border);border-radius:6px;padding:4px 10px;cursor:pointer;font-size:14px;color:var(--text)">&#9650;</button>
@@ -1412,7 +1412,7 @@ function renderParsedReceiptsBanner() {
     }).join('');
     return `<div style="background:rgba(124,92,191,0.08);border:1px solid rgba(124,92,191,0.3);border-radius:8px;padding:10px 14px;margin-bottom:10px">
         <div style="font-size:13px;font-weight:700;color:var(--accent);margin-bottom:4px">${_parsedReceipts.length} parsed receipt${_parsedReceipts.length === 1 ? '' : 's'} ready to import</div>
-        <div style="font-size:11px;color:var(--text-muted);margin-bottom:2px">Categorize items + commit them to the trip log.</div>
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:2px">Categorize items + commit them to the trip log.</div>
         ${items}
     </div>`;
 }
@@ -1486,7 +1486,7 @@ function renderReceiptImportModal() {
         const priceStr = r.price ? `$${Number(r.price).toFixed(2)}` : '';
         const qty = Number(r.qty) || 1;
         const qtyBadge = qty > 1
-            ? `<span style="background:var(--green);color:#fff;padding:1px 6px;border-radius:8px;font-size:11px;font-weight:700;margin-right:4px">×${qty}</span>`
+            ? `<span style="background:var(--green);color:#fff;padding:1px 6px;border-radius:8px;font-size:12px;font-weight:700;margin-right:4px">×${qty}</span>`
             : '';
         const locationOpts = _locationOptionsHtml(r.category, r.aisle);
         const NEW_ITEM_OPT = `<option value="__new__">+ New catalog item…</option>`;
@@ -1506,7 +1506,7 @@ function renderReceiptImportModal() {
                 <input type="checkbox" data-row="${i}" data-field="include" ${r.include ? 'checked' : ''} onclick="event.stopPropagation()" style="margin:3px 0 0 0;flex-shrink:0" title="Include this item in the imported trip — uncheck to skip">
                 <div style="flex:1;min-width:0">
                     <div style="font-weight:600;color:var(--text);word-break:break-word">${qtyBadge}${esc(r.name)}</div>
-                    <div style="font-size:11px;color:var(--text-muted);margin-top:1px">${priceStr}${qty > 1 ? ` &nbsp;·&nbsp; ${qty} units` : ''}${isSorted ? '' : ' &nbsp;·&nbsp; <span style="color:#e8741c;font-weight:700">tap to confirm</span>'}</div>
+                    <div style="font-size:12px;color:var(--text-muted);margin-top:1px">${priceStr}${qty > 1 ? ` &nbsp;·&nbsp; ${qty} units` : ''}${isSorted ? '' : ' &nbsp;·&nbsp; <span style="color:#e8741c;font-weight:700">tap to confirm</span>'}</div>
                 </div>
             </div>
             <div style="display:flex;gap:6px;padding-left:26px" onclick="event.stopPropagation()">
@@ -1893,13 +1893,13 @@ function renderThisWeekMealHTML(D) {
     return `<div class="kitchen-section" style="margin-bottom:20px;background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:12px 16px">
         <div style="display:flex;align-items:center;gap:8px;padding:4px 0 10px">
             <span style="font-size:16px;font-weight:700">This Week's Meal</span>
-            ${tw.week_of ? `<span style="font-size:11px;color:var(--text-muted)">week of ${esc(tw.week_of)}</span>` : ''}
+            ${tw.week_of ? `<span style="font-size:12px;color:var(--text-muted)">week of ${esc(tw.week_of)}</span>` : ''}
         </div>
 
         <div style="display:flex;align-items:center;gap:8px;margin:6px 0;flex-wrap:wrap">
             <span style="font-size:12px;color:var(--text-muted);min-width:54px">Protein</span>
             ${proteinChips}
-            ${rotationHint ? `<span style="font-size:11px;color:var(--text-muted)">${rotationHint}</span>` : ''}
+            ${rotationHint ? `<span style="font-size:12px;color:var(--text-muted)">${rotationHint}</span>` : ''}
         </div>
 
         <div style="display:flex;align-items:center;gap:6px;margin:6px 0;flex-wrap:wrap">
@@ -1910,7 +1910,7 @@ function renderThisWeekMealHTML(D) {
         <div style="margin:10px 0">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
                 <span style="font-size:12px;color:var(--text-muted);min-width:54px">Pick 2</span>
-                <span style="font-size:11px;color:var(--text-muted)">(${pickedVeg.length}/2)</span>
+                <span style="font-size:12px;color:var(--text-muted)">(${pickedVeg.length}/2)</span>
             </div>
             <div style="display:flex;flex-wrap:wrap;gap:6px">${vegChips}</div>
         </div>
@@ -1919,7 +1919,7 @@ function renderThisWeekMealHTML(D) {
             <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
                 <input type="checkbox" ${saladOn ? 'checked' : ''} onchange="toggleMealSalad(this.checked)" style="cursor:pointer">
                 <span>Side salad this week</span>
-                ${saladIngs.length ? `<span style="font-size:11px;color:var(--text-muted)">(${saladIngs.map(esc).join(', ')})</span>` : ''}
+                ${saladIngs.length ? `<span style="font-size:12px;color:var(--text-muted)">(${saladIngs.map(esc).join(', ')})</span>` : ''}
             </label>
         </div>
 
@@ -1928,7 +1928,7 @@ function renderThisWeekMealHTML(D) {
                 style="padding:9px 16px;border-radius:8px;border:none;background:var(--green);color:#fff;font-size:13px;font-weight:600;cursor:pointer">
                 Update grocery list →
             </button>
-            <span style="font-size:11px;color:var(--text-muted)">Adds missing items, checks pantry for staples</span>
+            <span style="font-size:12px;color:var(--text-muted)">Adds missing items, checks pantry for staples</span>
         </div>
 
         ${resultMsg}
@@ -2102,7 +2102,7 @@ function renderRecipeCards(recipes) {
         return '<div style="color:var(--text-muted);font-size:13px;font-style:italic;padding:8px 0">No saved recipes yet. Paste a URL above to get started.</div>';
     }
     return visible.map(r => {
-        const tags = (r.tags || []).map(t => `<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:rgba(124,92,191,0.15);color:var(--accent);font-size:11px;font-weight:600;margin-right:4px">${esc(t)}</span>`).join('');
+        const tags = (r.tags || []).map(t => `<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:rgba(124,92,191,0.15);color:var(--accent);font-size:12px;font-weight:600;margin-right:4px">${esc(t)}</span>`).join('');
         const timeBits = [];
         if (r.prep_min) timeBits.push(`${r.prep_min} min prep`);
         if (r.cook_min) timeBits.push(`${r.cook_min} min cook`);
@@ -2221,7 +2221,7 @@ function _renderRecipeImportModal() {
                 Notes
                 <textarea id="recipe-edit-notes" rows="2" style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px;resize:vertical;font-family:inherit">${esc(r.notes || '')}</textarea>
             </label>
-            <div style="font-size:11px;color:var(--text-muted)">Source: ${r.source_url ? `<a href="${esc(r.source_url)}" target="_blank" style="color:var(--ongoing);text-decoration:none">${esc(r.source_url)}</a>` : r.source_image ? esc(r.source_image) : '—'}</div>
+            <div style="font-size:12px;color:var(--text-muted)">Source: ${r.source_url ? `<a href="${esc(r.source_url)}" target="_blank" style="color:var(--ongoing);text-decoration:none">${esc(r.source_url)}</a>` : r.source_image ? esc(r.source_image) : '—'}</div>
         </div>
         <div style="display:flex;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
             <button onclick="saveRecipeFromImport()" style="padding:8px 18px;background:var(--ongoing);color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">Save recipe</button>
@@ -2386,7 +2386,7 @@ function renderRecipeDetailInto(el, id) {
         }).join('')
         : `<ol style="margin:0 0 18px 18px;padding:0">${steps}</ol>`;
     const tags = (recipe.tags || []).map(t =>
-        `<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:rgba(124,92,191,0.15);color:var(--accent);font-size:11px;font-weight:600;margin-right:4px">${esc(t)}</span>`
+        `<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:rgba(124,92,191,0.15);color:var(--accent);font-size:12px;font-weight:600;margin-right:4px">${esc(t)}</span>`
     ).join('');
     const metaBits = [];
     if (recipe.servings) metaBits.push(`${recipe.servings} servings`);
@@ -2416,7 +2416,7 @@ function renderRecipeDetailInto(el, id) {
         <div style="padding-top:14px;border-top:1px solid var(--border);margin-top:8px">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
                 <div style="font-weight:700;font-size:15px">My notes</div>
-                <div id="recipe-my-notes-status" style="font-size:11px;color:var(--text-muted)"></div>
+                <div id="recipe-my-notes-status" style="font-size:12px;color:var(--text-muted)"></div>
             </div>
             <textarea id="recipe-my-notes-text" data-id="${esc(recipe.id)}" rows="4" placeholder="What you tweaked, how it turned out, who liked it…" oninput="_recipeMyNotesDirty()" onblur="_recipeMyNotesSave()" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px;font-family:inherit;resize:vertical;box-sizing:border-box">${esc(recipe.my_notes || '')}</textarea>
         </div>
@@ -2446,7 +2446,7 @@ function _renderRecipePastVersions(recipe) {
         <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px dashed var(--border)">
             <span style="font-size:12px;color:var(--text-muted);min-width:90px">${esc(r.created || '—')}</span>
             <span style="flex:1;font-size:13px;color:var(--text)">${esc(r.name || '(untitled)')}</span>
-            <button onclick="viewRecipe('${esc(r.id)}')" style="padding:3px 10px;background:none;border:1px solid var(--border);border-radius:6px;color:var(--text-muted);font-size:11px;cursor:pointer">View</button>
+            <button onclick="viewRecipe('${esc(r.id)}')" style="padding:3px 10px;background:none;border:1px solid var(--border);border-radius:6px;color:var(--text-muted);font-size:12px;cursor:pointer">View</button>
         </div>
     `).join('');
     return `<details class="kitchen-section" style="margin-top:18px">
@@ -2575,8 +2575,8 @@ function _renderRecipeEditInto(el, r) {
             <span style="padding-top:6px;font-size:13px;color:var(--text-muted);width:24px;text-align:right">${i + 1}.</span>
             <textarea data-step-idx="${i}" rows="2" style="flex:1;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px;resize:vertical;font-family:inherit">${esc(step)}</textarea>
             <div style="display:flex;flex-direction:column;gap:1px;padding-top:4px">
-                <button onclick="_moveEditStep(${i}, -1)" ${i === 0 ? 'disabled' : ''} title="Move up" style="background:none;border:none;color:var(--text-muted);font-size:11px;cursor:${i === 0 ? 'not-allowed' : 'pointer'};padding:1px 5px;line-height:1;opacity:${i === 0 ? '0.3' : '1'}">&#9650;</button>
-                <button onclick="_moveEditStep(${i}, 1)" ${i === stepCount - 1 ? 'disabled' : ''} title="Move down" style="background:none;border:none;color:var(--text-muted);font-size:11px;cursor:${i === stepCount - 1 ? 'not-allowed' : 'pointer'};padding:1px 5px;line-height:1;opacity:${i === stepCount - 1 ? '0.3' : '1'}">&#9660;</button>
+                <button onclick="_moveEditStep(${i}, -1)" ${i === 0 ? 'disabled' : ''} title="Move up" style="background:none;border:none;color:var(--text-muted);font-size:12px;cursor:${i === 0 ? 'not-allowed' : 'pointer'};padding:1px 5px;line-height:1;opacity:${i === 0 ? '0.3' : '1'}">&#9650;</button>
+                <button onclick="_moveEditStep(${i}, 1)" ${i === stepCount - 1 ? 'disabled' : ''} title="Move down" style="background:none;border:none;color:var(--text-muted);font-size:12px;cursor:${i === stepCount - 1 ? 'not-allowed' : 'pointer'};padding:1px 5px;line-height:1;opacity:${i === stepCount - 1 ? '0.3' : '1'}">&#9660;</button>
             </div>
             <button onclick="_removeEditStep(${i})" style="background:none;border:none;color:var(--red);font-size:16px;cursor:pointer;padding:2px 6px;align-self:flex-start;margin-top:6px">&times;</button>
         </div>
@@ -2626,7 +2626,7 @@ function _renderRecipeEditInto(el, r) {
             My notes
             <textarea id="recipe-edit-my-notes" rows="3" placeholder="What you tweaked, how it turned out…" style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px;resize:vertical;font-family:inherit">${esc(r.my_notes || '')}</textarea>
         </label>
-        <div style="font-size:11px;color:var(--text-muted)">Source: ${r.source_url ? `<a href="${esc(r.source_url)}" target="_blank" style="color:var(--ongoing);text-decoration:none">${esc(r.source_url)}</a>` : r.source_image ? esc(r.source_image) : '—'}</div>
+        <div style="font-size:12px;color:var(--text-muted)">Source: ${r.source_url ? `<a href="${esc(r.source_url)}" target="_blank" style="color:var(--ongoing);text-decoration:none">${esc(r.source_url)}</a>` : r.source_image ? esc(r.source_image) : '—'}</div>
         <div style="display:flex;align-items:center;gap:10px;margin-top:18px;padding-top:14px;border-top:1px solid var(--border);flex-wrap:wrap">
             <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
                 <button onclick="cancelRecipeEdit()" style="padding:6px 14px;background:none;color:var(--text-muted);border:1px solid var(--border);border-radius:6px;font-size:13px;cursor:pointer">Cancel</button>
@@ -2811,7 +2811,7 @@ function _renderRecipeSendModal() {
         return `<div style="margin-bottom:14px">
             <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
                 <div style="font-weight:600;font-size:13px">${esc(g.name || 'Pick')}</div>
-                <div style="font-size:11px;color:${isValid ? 'var(--green)' : 'var(--text-muted)'};font-weight:600">${esc(counter)}</div>
+                <div style="font-size:12px;color:${isValid ? 'var(--green)' : 'var(--text-muted)'};font-weight:600">${esc(counter)}</div>
             </div>
             <div style="display:flex;flex-wrap:wrap;gap:6px">${chips}</div>
         </div>`;
@@ -2830,11 +2830,11 @@ function _renderRecipeSendModal() {
         if (isNa) return '';  // hide N/A items from the modal
         const isStocked = status === 'usually_have';
         const onList = existing.has(nameLower);
-        const note = ing.note ? ` <span style="color:var(--text-muted);font-size:11px">(${esc(ing.note)})</span>` : '';
+        const note = ing.note ? ` <span style="color:var(--text-muted);font-size:12px">(${esc(ing.note)})</span>` : '';
         const reasonLabel = onList
-            ? ' <span style="color:var(--text-muted);font-size:11px">— already on list</span>'
+            ? ' <span style="color:var(--text-muted);font-size:12px">— already on list</span>'
             : isStocked
-                ? ' <span style="color:var(--text-muted);font-size:11px">— usually have</span>'
+                ? ' <span style="color:var(--text-muted);font-size:12px">— usually have</span>'
                 : '';
         const main = qty ? `${esc(name)} — <span style="color:var(--text-muted)">${esc(qty)}</span>` : esc(name);
         const checked = (!onList && !isStocked) ? 'checked' : '';
@@ -2998,7 +2998,7 @@ function pushAllRecipeToGrocery(id) {
 
     const fmtRow = (ing, reason) => {
         const qty = (ing.qty || '').trim();
-        const tag = reason ? ` <span style="color:var(--text-muted);font-size:11px">— ${esc(reason)}</span>` : '';
+        const tag = reason ? ` <span style="color:var(--text-muted);font-size:12px">— ${esc(reason)}</span>` : '';
         return `<div style="display:flex;gap:12px;padding:4px 0;font-size:13px;align-items:baseline">
             <span style="color:var(--text-muted);min-width:140px;flex-shrink:0;text-align:left">${esc(qty)}</span>
             <span style="flex:1;text-align:left">${esc(ing.item)}${tag}</span>
@@ -3006,7 +3006,7 @@ function pushAllRecipeToGrocery(id) {
     };
     const fmtCheckableRow = (ing, reason) => {
         const qty = (ing.qty || '').trim();
-        const tag = reason ? ` <span style="color:var(--text-muted);font-size:11px">— ${esc(reason)}</span>` : '';
+        const tag = reason ? ` <span style="color:var(--text-muted);font-size:12px">— ${esc(reason)}</span>` : '';
         return `<label style="display:flex;gap:10px;padding:4px 0;font-size:13px;align-items:baseline;cursor:pointer">
             <input type="checkbox" data-pushall-include="${esc(ing.item)}" onchange="_pushAllUpdateCount(${willAdd.length})" style="margin:0;cursor:pointer;flex-shrink:0">
             <span style="color:var(--text-muted);min-width:130px;flex-shrink:0;text-align:left">${esc(qty)}</span>
@@ -3202,7 +3202,7 @@ function _renderPurchaseHistorySection(known, counts) {
     const headerCell = (col, label) => {
         const next = sortMode.startsWith(col + '_') ? flipped[col] : (col + '_desc');
         const indicator = sortMode.startsWith(col + '_') ? ` ${curDir}` : '';
-        return `<th onclick="setPurchaseHistorySort('${next}')" style="padding:8px;font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;cursor:pointer;user-select:none;text-align:left;background:var(--bg-card);position:sticky;top:0">${esc(label)}${indicator}</th>`;
+        return `<th onclick="setPurchaseHistorySort('${next}')" style="padding:8px;font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;cursor:pointer;user-select:none;text-align:left;background:var(--bg-card);position:sticky;top:0">${esc(label)}${indicator}</th>`;
     };
 
     const rows = items.map(it => {
@@ -3232,7 +3232,7 @@ function _renderPurchaseHistorySection(known, counts) {
             <span style="font-size:12px;transition:transform 0.15s;display:inline-block" class="kitchen-arrow">&#9654;</span>
             Purchase history <span style="font-size:13px;font-weight:400;color:var(--text-muted)">(${items.length} items)</span>
         </summary>
-        <div style="font-size:11px;color:var(--text-muted);margin:6px 0 8px">Tap column headers to sort.</div>
+        <div style="font-size:12px;color:var(--text-muted);margin:6px 0 8px">Tap column headers to sort.</div>
         <div style="max-height:50vh;overflow-y:auto;border:1px solid var(--border);border-radius:8px">
             <table style="width:100%;border-collapse:collapse">
                 <thead><tr>
@@ -3393,7 +3393,7 @@ function renderFoodExperiments() {
         const dayN = Math.max(1, Math.floor((todayD - startD) / 86400000) + 1);
         const canResolveClear = dayN >= active.watch_window_days;
         html += `<div style="border:1px solid var(--accent);border-left:3px solid var(--accent);background:rgba(124,92,191,0.06);border-radius:8px;padding:14px;margin-bottom:14px">
-            <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Testing</div>
+            <div style="font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Testing</div>
             <div style="font-size:18px;font-weight:700;color:var(--text);margin-bottom:4px">${esc(active.food)}</div>
             <div style="font-size:13px;color:var(--text-muted);margin-bottom:10px">
                 Day ${dayN} of ${active.watch_window_days} · started ${esc(active.started_on)} · clears ${esc(active.results_due_on)}
@@ -3411,7 +3411,7 @@ function renderFoodExperiments() {
     // Recovering block
     if (recovering) {
         html += `<div style="border:1px solid var(--orange);border-left:3px solid var(--orange);background:rgba(212,140,68,0.06);border-radius:8px;padding:14px;margin-bottom:14px">
-            <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Recovering</div>
+            <div style="font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Recovering</div>
             <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:4px">Last flare: ${esc(recovering.food)}</div>
             <div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">Flared on ${esc(recovering.outcome_at || recovering.started_on)}.</div>
             ${recovering.flare_notes ? `<div style="font-size:13px;color:var(--text);font-style:italic;margin-bottom:10px">"${esc(recovering.flare_notes)}"</div>` : ''}
@@ -3424,7 +3424,7 @@ function renderFoodExperiments() {
     if (state === 'clear') {
         const nextUp = queue[0];
         html += `<div style="border:1px solid var(--green);border-left:3px solid var(--green);background:rgba(58,158,140,0.06);border-radius:8px;padding:14px;margin-bottom:14px">
-            <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Ready</div>
+            <div style="font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Ready</div>
             <div style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:8px">Baseline clear — ready for next experiment.</div>
             ${nextUp
                 ? `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><span style="font-size:13px">Next up: <b>${esc(nextUp)}</b></span><button onclick="_foodTestStart('${esc(nextUp).replace(/'/g, "\\'")}')" style="padding:6px 14px;background:var(--accent);color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">Start test</button></div>`
@@ -3438,10 +3438,10 @@ function renderFoodExperiments() {
         <div style="padding-top:8px">`;
     if (queue.length) {
         html += queue.map((f, i) => `<div style="display:flex;align-items:center;gap:6px;padding:6px 4px;border-bottom:1px solid var(--border)">
-            <span style="font-size:11px;color:var(--text-muted);width:24px;text-align:right">${i + 1}.</span>
+            <span style="font-size:12px;color:var(--text-muted);width:24px;text-align:right">${i + 1}.</span>
             <span style="flex:1;font-size:13px">${esc(f)}</span>
-            <button onclick="_foodTestQueueMove('${esc(f).replace(/'/g, "\\'")}',-1)" ${i === 0 ? 'disabled' : ''} style="background:none;border:none;color:var(--text-muted);font-size:11px;cursor:${i === 0 ? 'not-allowed' : 'pointer'};padding:2px 6px;opacity:${i === 0 ? '0.3' : '1'}">&#9650;</button>
-            <button onclick="_foodTestQueueMove('${esc(f).replace(/'/g, "\\'")}',1)" ${i === queue.length - 1 ? 'disabled' : ''} style="background:none;border:none;color:var(--text-muted);font-size:11px;cursor:${i === queue.length - 1 ? 'not-allowed' : 'pointer'};padding:2px 6px;opacity:${i === queue.length - 1 ? '0.3' : '1'}">&#9660;</button>
+            <button onclick="_foodTestQueueMove('${esc(f).replace(/'/g, "\\'")}',-1)" ${i === 0 ? 'disabled' : ''} style="background:none;border:none;color:var(--text-muted);font-size:12px;cursor:${i === 0 ? 'not-allowed' : 'pointer'};padding:2px 6px;opacity:${i === 0 ? '0.3' : '1'}">&#9650;</button>
+            <button onclick="_foodTestQueueMove('${esc(f).replace(/'/g, "\\'")}',1)" ${i === queue.length - 1 ? 'disabled' : ''} style="background:none;border:none;color:var(--text-muted);font-size:12px;cursor:${i === queue.length - 1 ? 'not-allowed' : 'pointer'};padding:2px 6px;opacity:${i === queue.length - 1 ? '0.3' : '1'}">&#9660;</button>
             <button onclick="_foodTestQueueRemove('${esc(f).replace(/'/g, "\\'")}')" style="background:none;border:none;color:var(--red);font-size:14px;cursor:pointer;padding:2px 6px">&times;</button>
         </div>`).join('');
     } else {
@@ -3462,7 +3462,7 @@ function renderFoodExperiments() {
                 const note = t.flare_notes ? ` — <span style="font-style:italic;color:var(--text-muted)">"${esc(t.flare_notes)}"</span>` : '';
                 return `<div style="padding:6px 4px;border-bottom:1px solid var(--border);font-size:13px;display:flex;gap:8px;align-items:center">
                     ${icon}
-                    <span style="color:var(--text-muted);font-size:11px;min-width:90px">${esc(t.started_on)} → ${esc(t.outcome_at || '—')}</span>
+                    <span style="color:var(--text-muted);font-size:12px;min-width:90px">${esc(t.started_on)} → ${esc(t.outcome_at || '—')}</span>
                     <span style="flex:1"><b>${esc(t.food)}</b> — ${esc(t.outcome)}${note}</span>
                 </div>`;
             }).join('')}</div>
@@ -3626,7 +3626,7 @@ function renderFoodTriage() {
             const days = Math.round((Date.now() - lb.getTime()) / 86400000);
             meta.push(days === 0 ? 'today' : days === 1 ? 'yesterday' : days < 30 ? `${days}d ago` : `${Math.round(days/7)}w ago`);
         }
-        const metaText = meta.length ? `<span style="font-size:11px;color:var(--text-muted);margin-left:8px">${esc(meta.join(' · '))}</span>` : '';
+        const metaText = meta.length ? `<span style="font-size:12px;color:var(--text-muted);margin-left:8px">${esc(meta.join(' · '))}</span>` : '';
         return `<div style="display:flex;align-items:center;gap:8px;padding:8px 4px;border-bottom:1px solid var(--border)">
             <span style="flex:1;font-size:14px">${esc(label)}${metaText}</span>
             <button onclick="triageMark('${esc(it.name)}','safe')" title="Mark confirmed safe" style="padding:5px 12px;border:1px solid var(--green);background:none;color:var(--green);border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">&#10003; Safe</button>

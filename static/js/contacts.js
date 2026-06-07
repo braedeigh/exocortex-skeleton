@@ -45,7 +45,7 @@ function renderContactReminders() {
             const subtitle = isRed ? 'Overdue — reach out!' : 'Been a while';
             const pulse = isRed ? 'animation: hrt-pulse 2s ease-in-out infinite;' : '';
             const fontSize = isRed ? '18px' : '15px';
-            const snoozeBtn = !isRed ? `<button onclick="snoozeContact('${esc(c.name)}')" style="font-size:11px;background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.3);border-radius:6px;padding:4px 10px;cursor:pointer;color:inherit;margin-right:6px">Tomorrow</button>` : '';
+            const snoozeBtn = !isRed ? `<button onclick="snoozeContact('${esc(c.name)}')" style="font-size:12px;background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.3);border-radius:6px;padding:4px 10px;cursor:pointer;color:inherit;margin-right:6px">Tomorrow</button>` : '';
 
             cards += `<div class="hrt-bar" style="border-left-color:${color};background:${color};${pulse}margin-bottom:8px;${isRed ? '' : 'padding:10px 16px;'}">
                 <div>
@@ -146,7 +146,7 @@ function manageContactsPanelHtml() {
         ).join('');
         const cardId = `contact-actions-${c.name.replace(/\s+/g,'-')}`;
 
-        const rbtn = 'background:none;border:1px solid var(--border);border-radius:4px;color:var(--text-muted);cursor:pointer;font-size:10px;line-height:1;padding:2px 5px';
+        const rbtn = 'background:none;border:1px solid var(--border);border-radius:4px;color:var(--text-muted);cursor:pointer;font-size:12px;line-height:1;padding:2px 5px';
         html += `<div class="contact-card" style="border-left-color:${color}">
             <button class="contact-remove" onclick="removeContact('${esc(c.name)}')" title="Remove">&times;</button>
             <div style="position:absolute;top:8px;left:10px;display:flex;gap:3px">

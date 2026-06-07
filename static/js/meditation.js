@@ -503,7 +503,7 @@ function _deityRenderLinks(links) {
         </div>`;
     }).join('');
     return `<div style="margin-top:20px;padding-top:14px;border-top:1px solid var(--border)">
-        <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);margin-bottom:12px">Links</div>
+        <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);margin-bottom:12px">Links</div>
         ${items}
     </div>`;
 }

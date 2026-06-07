@@ -12,7 +12,7 @@ function renderPriorityNotes() {
         <div class="card" style="border-left-color:#d4880a;background:#fffaf0;margin-bottom:16px;padding:14px 16px">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
                 <div style="font-size:12px;font-weight:700;color:#d4880a;text-transform:uppercase;letter-spacing:1.2px">Priority notes</div>
-                <span id="priority-notes-status" style="font-size:11px;color:var(--text-muted);font-style:italic"></span>
+                <span id="priority-notes-status" style="font-size:12px;color:var(--text-muted);font-style:italic"></span>
             </div>
             <textarea id="priority-notes-input" placeholder="What you want to buy over other things — running thoughts, savings goals, what to skip..."
                 style="width:100%;min-height:60px;border:none;background:transparent;font:inherit;font-size:14px;color:var(--text);resize:vertical;outline:none;line-height:1.55"
@@ -186,16 +186,16 @@ function renderActiveInventory() {
     const renderRow = (item) => {
         const status = item.status || 'in_use';
         const meta = STATUS_META[status] || STATUS_META.in_use;
-        const statusBadge = `<span style="font-size:11px;font-weight:600;color:#fff;background:${meta.color};border-radius:6px;padding:2px 8px;white-space:nowrap;display:inline-block">${meta.label}</span>`;
+        const statusBadge = `<span style="font-size:12px;font-weight:600;color:#fff;background:${meta.color};border-radius:6px;padding:2px 8px;white-space:nowrap;display:inline-block">${meta.label}</span>`;
         const costCell = item.last_cost ? esc(item.last_cost) : '<span style="color:var(--text-muted)">—</span>';
         const notesOneLine = item.notes ? item.notes.replace(/\n/g, ' · ') : '';
         const notesCell = notesOneLine
             ? `<span title="${esc(item.notes)}" style="color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;max-width:280px;vertical-align:bottom">${esc(notesOneLine)}</span>`
             : '<span style="color:var(--text-muted)">—</span>';
         const restockBtn = status !== 'running_low'
-            ? `<button onclick="restockActive('${escJs(item.name)}')" title="Mark running low — auto-adds to buy list" style="background:none;border:1px solid var(--red);color:var(--red);border-radius:6px;padding:2px 8px;font-size:11px;font-weight:600;cursor:pointer">Restock</button>`
-            : `<span style="font-size:11px;color:var(--red);font-style:italic">on buy list</span>`;
-        const retireBtn = `<button onclick="retireActive('${escJs(item.name)}')" title="Move to Past — log when you stopped + your thoughts" style="background:none;border:1px solid var(--text-muted);color:var(--text-muted);border-radius:6px;padding:2px 8px;font-size:11px;font-weight:600;cursor:pointer;margin-left:4px">Retire</button>`;
+            ? `<button onclick="restockActive('${escJs(item.name)}')" title="Mark running low — auto-adds to buy list" style="background:none;border:1px solid var(--red);color:var(--red);border-radius:6px;padding:2px 8px;font-size:12px;font-weight:600;cursor:pointer">Restock</button>`
+            : `<span style="font-size:12px;color:var(--red);font-style:italic">on buy list</span>`;
+        const retireBtn = `<button onclick="retireActive('${escJs(item.name)}')" title="Move to Past — log when you stopped + your thoughts" style="background:none;border:1px solid var(--text-muted);color:var(--text-muted);border-radius:6px;padding:2px 8px;font-size:12px;font-weight:600;cursor:pointer;margin-left:4px">Retire</button>`;
 
         const orderLink = item.order_url
             ? `<a href="${esc(item.order_url)}" target="_blank" rel="noopener" title="Order page" style="color:var(--ongoing);text-decoration:none;margin-left:6px;font-size:13px">↗</a>`
@@ -203,7 +203,7 @@ function renderActiveInventory() {
 
         const orders = item.ordered_at || [];
         const historyText = orders.length > 0
-            ? `<div style="font-size:11px;color:var(--text-muted);margin-top:2px">Last ordered ${esc(orders[orders.length - 1])}${orders.length > 1 ? ` · ${orders.length} times total` : ''}</div>`
+            ? `<div style="font-size:12px;color:var(--text-muted);margin-top:2px">Last ordered ${esc(orders[orders.length - 1])}${orders.length > 1 ? ` · ${orders.length} times total` : ''}</div>`
             : '';
 
         return `<tr style="border-top:1px solid var(--border)">
@@ -235,7 +235,7 @@ function renderActiveInventory() {
             <div style="overflow-x:auto">
                 <table style="width:100%;border-collapse:collapse;font-size:14px">
                     <thead>
-                        <tr style="text-align:left;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.5px">
+                        <tr style="text-align:left;color:var(--text-muted);font-size:12px;text-transform:uppercase;letter-spacing:0.5px">
                             <th style="padding:6px 10px;font-weight:600">Name</th>
                             <th style="padding:6px 10px;font-weight:600">Last cost</th>
                             <th style="padding:6px 10px;font-weight:600">Status</th>
@@ -346,7 +346,7 @@ function renderPastInventory() {
             <td style="padding:8px 10px;white-space:nowrap;font-size:13px;color:var(--text-muted)">${usedRange}</td>
             <td style="padding:8px 10px;font-size:13px;cursor:pointer" onclick="editReview('${escJs(item.name)}')" title="Click to edit">${reviewText}</td>
             <td style="padding:8px 10px;text-align:right;white-space:nowrap">
-                <button onclick="unretireActive('${escJs(item.name)}')" title="Bring back to active" style="background:none;border:1px solid var(--green);color:var(--green);border-radius:6px;padding:2px 8px;font-size:11px;font-weight:600;cursor:pointer">Bring back</button>
+                <button onclick="unretireActive('${escJs(item.name)}')" title="Bring back to active" style="background:none;border:1px solid var(--green);color:var(--green);border-radius:6px;padding:2px 8px;font-size:12px;font-weight:600;cursor:pointer">Bring back</button>
                 <button onclick="confirmDelete('${escJs(item.name)}','active')" title="Delete forever" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:18px;padding:0 4px;margin-left:4px">&times;</button>
             </td>
         </tr>`;
@@ -361,7 +361,7 @@ function renderPastInventory() {
             <div style="overflow-x:auto">
                 <table style="width:100%;border-collapse:collapse;font-size:14px">
                     <thead>
-                        <tr style="text-align:left;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.5px">
+                        <tr style="text-align:left;color:var(--text-muted);font-size:12px;text-transform:uppercase;letter-spacing:0.5px">
                             <th style="padding:6px 10px;font-weight:600">Name</th>
                             <th style="padding:6px 10px;font-weight:600">Used</th>
                             <th style="padding:6px 10px;font-weight:600">Thoughts</th>

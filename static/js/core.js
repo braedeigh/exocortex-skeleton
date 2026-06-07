@@ -597,7 +597,7 @@ function cardHTML(title, items, color, type, sectionName, dim) {
             <span class="habit-check ${done?'done':''}" onclick="toggleTodo('${escJs(text)}')" style="cursor:pointer" title="Check off">
                 ${done ? '&#10003;' : '&#9675;'}
             </span>
-            <span class="item-text todo-view" style="${done?'text-decoration:line-through;opacity:0.5':''}">${item.url ? `<a href="${esc(item.url)}" target="_blank" rel="noopener" style="color:inherit">${esc(text)}</a>` : esc(text)}${item.created ? `<span class="todo-added" style="font-size:10px;color:var(--text-muted);margin-left:8px;white-space:nowrap" title="Added ${esc(item.created)}">${esc(_fmtAddedDate(item.created))}</span>` : ''}</span>
+            <span class="item-text todo-view" style="${done?'text-decoration:line-through;opacity:0.5':''}">${item.url ? `<a href="${esc(item.url)}" target="_blank" rel="noopener" style="color:inherit">${esc(text)}</a>` : esc(text)}${item.created ? `<span class="todo-added" style="font-size:12px;color:var(--text-muted);margin-left:8px;white-space:nowrap" title="Added ${esc(item.created)}">${esc(_fmtAddedDate(item.created))}</span>` : ''}</span>
             <textarea class="habit-rename todo-edit" rows="1" style="display:none" data-original="${esc(text)}" data-section="${esc(sectionName)}" data-type="${type}"
                 oninput="autoGrow(this)" onblur="commitRename(this)" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur()}else if(event.key==='Escape'){this.value=this.dataset.original;this.blur()}">${esc(text)}</textarea>
             ${type === 'todo' ? `<button class="todo-note-btn" onclick="toggleTodoNotes(this)" title="${item.notes ? 'Details' : 'Add a note'}" style="background:none;border:none;cursor:pointer;font-size:14px;padding:0 4px;color:${item.notes ? 'var(--accent)' : 'var(--text-muted)'};${item.notes ? '' : 'opacity:0.55'}">&#9776;</button>` : ''}
@@ -624,10 +624,10 @@ function cardHTML(title, items, color, type, sectionName, dim) {
     const dropAttrs = type === 'todo' ? `ondragover="cardDragOver(event)" ondragleave="cardDragLeave(event)" ondrop="cardDrop(event,'${escJs(sectionName)}')"` : '';
     const open = todoCardOpen(sectionName);
     const remaining = items.filter(it => !(typeof it === 'object' && it.done)).length;
-    const countBadge = `<span style="font-size:11px;font-weight:600;color:var(--text-muted);background:var(--bg);border-radius:10px;padding:1px 8px;margin-left:8px">${remaining}</span>`;
+    const countBadge = `<span style="font-size:12px;font-weight:600;color:var(--text-muted);background:var(--bg);border-radius:10px;padding:1px 8px;margin-left:8px">${remaining}</span>`;
     return `<details class="card todo-card${dim?' dimmed':''}" style="border-left-color:${color}" id="${cardId}" ${open ? 'open' : ''} ontoggle="todoCardToggled(this,'${escJs(sectionName)}')" ${dropAttrs}>
         <summary class="card-title" style="color:${color};cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px">
-            <span class="kitchen-arrow" style="font-size:11px;transition:transform 0.15s;display:inline-block">&#9654;</span>
+            <span class="kitchen-arrow" style="font-size:12px;transition:transform 0.15s;display:inline-block">&#9654;</span>
             <span style="flex:1">${title}${countBadge}</span>
             <span class="edit-toggle" onclick="event.preventDefault();event.stopPropagation();toggleEditMode('${cardId}')">edit</span>
         </summary>
@@ -682,7 +682,7 @@ function habitCardHTML(title, items, color, sectionName) {
             <span class="item-text habit-view" style="${done?'text-decoration:line-through;opacity:0.5':''}">${esc(item)}</span>
             <textarea class="habit-rename habit-edit" rows="1" style="display:none" data-original="${esc(item)}" data-section="${esc(sectionName)}"
                 oninput="autoGrow(this)" onblur="commitRename(this)" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur()}else if(event.key==='Escape'){this.value=this.dataset.original;this.blur()}">${esc(item)}</textarea>
-            <span style="font-size:11px;color:var(--text-muted);margin-left:auto">${habitStartLabel(item)}${total}/${target}</span>
+            <span style="font-size:12px;color:var(--text-muted);margin-left:auto">${habitStartLabel(item)}${total}/${target}</span>
             <button class="delete-btn" onclick="confirmDelete('${esc(item)}','habit')" title="Remove">&times;</button>
         </div>`;
     }).join('');
@@ -913,7 +913,7 @@ function showMoveMenu(btn, item) {
     menu.style.cssText = 'position:absolute;right:0;top:100%;background:var(--card-bg);border:1px solid var(--border);border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.12);z-index:100;min-width:160px;padding:4px 0;font-size:13px';
     const moveLbl = document.createElement('div');
     moveLbl.textContent = 'Move to';
-    moveLbl.style.cssText = 'padding:4px 14px;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)';
+    moveLbl.style.cssText = 'padding:4px 14px;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)';
     menu.appendChild(moveLbl);
     sections.forEach(s => {
         const opt = document.createElement('div');
@@ -930,7 +930,7 @@ function showMoveMenu(btn, item) {
     menu.appendChild(sep);
     const snoozeLbl = document.createElement('div');
     snoozeLbl.textContent = 'Snooze';
-    snoozeLbl.style.cssText = 'padding:4px 14px;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)';
+    snoozeLbl.style.cssText = 'padding:4px 14px;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)';
     menu.appendChild(snoozeLbl);
     [['3 days', 3], ['1 week', 7], ['2 weeks', 14], ['1 month', 30]].forEach(([label, days]) => {
         const opt = document.createElement('div');
@@ -1141,7 +1141,7 @@ function renderDevNotes() {
             }
             return `<div style="display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-top:1px solid var(--border);font-size:13px">
                 <div style="flex:1">${esc(n.text)}</div>
-                <div style="font-size:11px;color:var(--text-muted);white-space:nowrap">${esc(n.created || '')}</div>
+                <div style="font-size:12px;color:var(--text-muted);white-space:nowrap">${esc(n.created || '')}</div>
                 <button onclick="editDevNote('${escJs(tab)}','${escJs(n.id)}')" title="Edit" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:13px;padding:0 4px">&#9998;</button>
                 <button onclick="removeDevNote('${escJs(tab)}','${escJs(n.id)}')" title="Remove" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;padding:0 4px">&times;</button>
             </div>`;
@@ -1153,7 +1153,7 @@ function renderDevNotes() {
         el.innerHTML = `<details style="margin-top:24px"${wasOpen ? ' open' : ''}>
             <summary style="font-size:13px;font-weight:600;cursor:pointer;color:var(--text-muted)">Dev notes${notes.length ? ` (${notes.length})` : ''}</summary>
             <div class="card" style="border-left-color:var(--text-muted);margin-top:8px;padding:10px">
-                <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">Friction, change ideas, things to fix on this page.</div>
+                <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">Friction, change ideas, things to fix on this page.</div>
                 ${addBox('top')}
                 ${rows}
                 ${notes.length ? addBox('bottom') : ''}

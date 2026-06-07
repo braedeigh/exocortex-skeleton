@@ -86,10 +86,10 @@ function renderHabits() {
                   ondragstart="habitDragStart(event)" ondragover="habitDragOver(event)" ondrop="habitDrop(event,'growth')" ondragend="habitDragEnd(event)" ondragleave="habitDragLeave(event)">
                 <span class="drag-handle" onmousedown="dragFromHandle=true">&#8942;&#8942;</span>
                 <span class="item-text todo-view" style="color:var(--text-secondary)">${esc(g.text)}</span>
-                <span style="font-size:10px;color:var(--text-muted);margin-left:auto;margin-right:6px;white-space:nowrap">${daysLabel}</span>
+                <span style="font-size:12px;color:var(--text-muted);margin-left:auto;margin-right:6px;white-space:nowrap">${daysLabel}</span>
                 <input class="habit-rename todo-edit" style="display:none" value="${esc(g.text)}" data-original="${esc(g.text)}" data-type="growth"
                     onblur="commitRename(this)" onkeydown="if(event.key==='Enter'){this.blur()}else if(event.key==='Escape'){this.value=this.dataset.original;this.blur()}">
-                <button class="delete-btn todo-edit" style="display:none;font-size:11px;color:var(--green);border:1px solid var(--green);border-radius:4px;padding:2px 6px;background:none;cursor:pointer;margin-right:4px" onclick="incorporateGrowth('${escJs(g.text)}')" title="Mark incorporated">&#10003;</button>
+                <button class="delete-btn todo-edit" style="display:none;font-size:12px;color:var(--green);border:1px solid var(--green);border-radius:4px;padding:2px 6px;background:none;cursor:pointer;margin-right:4px" onclick="incorporateGrowth('${escJs(g.text)}')" title="Mark incorporated">&#10003;</button>
                 <button class="delete-btn" onclick="confirmDelete('${escJs(g.text)}','growth')" title="Remove">&times;</button>
             </div>`;
         });
@@ -111,8 +111,8 @@ function renderHabits() {
                 const journey = daysTook === 0 ? 'same day' : `${daysTook} day${daysTook !== 1 ? 's' : ''}`;
                 growthHTML += `<div style="padding:4px 0;font-size:13px;color:var(--text-muted);display:flex;align-items:center;gap:8px">
                     <span style="text-decoration:line-through;opacity:0.6;flex:1">${esc(g.text)}</span>
-                    <span style="font-size:10px;white-space:nowrap;color:var(--green)">${journey}</span>
-                    <button style="font-size:10px;background:none;border:1px solid var(--border);border-radius:4px;padding:2px 6px;cursor:pointer;color:var(--text-muted)" onclick="reactivateGrowth('${escJs(g.text)}')" title="Move back to active">&#8634;</button>
+                    <span style="font-size:12px;white-space:nowrap;color:var(--green)">${journey}</span>
+                    <button style="font-size:12px;background:none;border:1px solid var(--border);border-radius:4px;padding:2px 6px;cursor:pointer;color:var(--text-muted)" onclick="reactivateGrowth('${escJs(g.text)}')" title="Move back to active">&#8634;</button>
                 </div>`;
             });
             growthHTML += '</details>';
@@ -179,7 +179,7 @@ function renderHabitTracker() {
         const total = habitCount(habit);
         const maxLen = 30;
         const shortName = habit.length > maxLen ? habit.slice(0, maxLen) + '...' : habit;
-        let row = `<tr><td class="metric-label">${esc(shortName)}<span style="font-size:10px;color:var(--text-muted);margin-left:6px">${habitStartLabel(habit)}${total}/60</span></td>`;
+        let row = `<tr><td class="metric-label">${esc(shortName)}<span style="font-size:12px;color:var(--text-muted);margin-left:6px">${habitStartLabel(habit)}${total}/60</span></td>`;
         days.forEach(d => {
             const hit = log[d] && log[d][habit];
             const color = hit ? accentColor : '#2a2a4a';
@@ -216,7 +216,7 @@ function renderHabitTracker() {
         s += `<div class="tracker-edit-list" data-section="${esc(sectionName)}">`;
         habits.forEach((h, idx) => {
             const isHidden = hidden.includes(h);
-            const btn = 'background:none;border:1px solid var(--border);border-radius:4px;color:var(--text-muted);cursor:pointer;font-size:11px;padding:2px 6px;flex-shrink:0';
+            const btn = 'background:none;border:1px solid var(--border);border-radius:4px;color:var(--text-muted);cursor:pointer;font-size:12px;padding:2px 6px;flex-shrink:0';
             s += `<div class="tracker-edit-item" draggable="true" data-section="${esc(sectionName)}" data-idx="${idx}" data-habit="${esc(h)}"
                   ondragstart="trackerDragStart(event)" ondragover="trackerDragOver(event)" ondrop="trackerDrop(event)" ondragend="trackerDragEnd(event)" ondragleave="trackerDragLeave(event)"
                   style="display:flex;align-items:center;gap:6px;padding:5px 0;font-size:13px;color:${isHidden ? 'var(--text-muted)' : 'var(--text)'}">
@@ -257,7 +257,7 @@ function renderHabitTracker() {
         return s;
     }
 
-    let symRow = `<tr><td class="metric-label">Log symptoms<span style="font-size:10px;color:var(--text-muted);margin-left:6px">${symCount}/60</span></td>`;
+    let symRow = `<tr><td class="metric-label">Log symptoms<span style="font-size:12px;color:var(--text-muted);margin-left:6px">${symCount}/60</span></td>`;
     days.forEach(d => {
         const dayData = D.health_data.find(h => h.date === d);
         const hit = dayData && dayData.energy !== null;
@@ -282,16 +282,16 @@ function renderHabitTracker() {
 
     // Building next — collapsible, with its own Edit toggle
     if (weeklySections.length || weeklyGoals.length) {
-        const editBtn = `<button onclick="event.preventDefault();event.stopPropagation();toggleBuildingNextEdit()" style="float:right;font-size:11px;background:none;border:1px solid var(--border);border-radius:6px;padding:2px 10px;cursor:pointer;color:var(--text-muted)">${_buildingNextEditing ? 'Done' : 'Edit'}</button>`;
+        const editBtn = `<button onclick="event.preventDefault();event.stopPropagation();toggleBuildingNextEdit()" style="float:right;font-size:12px;background:none;border:1px solid var(--border);border-radius:6px;padding:2px 10px;cursor:pointer;color:var(--text-muted)">${_buildingNextEditing ? 'Done' : 'Edit'}</button>`;
         html += `<details style="margin-top:12px" ${_buildingNextEditing ? 'open' : ''}>
             <summary style="font-size:13px;font-weight:600;cursor:pointer;color:var(--text-muted)">Building next (${weeklyGoals.length})${editBtn}</summary>
             <div style="margin-top:8px">`;
         if (_buildingNextEditing) {
             const routineTargetsJs = '[' + [sectionNames.morning || 'Morning', sectionNames.midday || 'Midday', sectionNames.night || 'Evening / Night'].map(s => `'${escJs(s)}'`).join(',') + ']';
             html += '<div style="background:var(--card-bg);border-radius:8px;padding:10px 14px;border:1px solid var(--border)">';
-            html += '<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">Habits you want to build. Add them here, then “Add to routine” when you’re ready to start.</div>';
+            html += '<div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">Habits you want to build. Add them here, then “Add to routine” when you’re ready to start.</div>';
             weeklySections.forEach(sec => {
-                const btn = 'background:none;border:1px solid var(--border);border-radius:5px;color:var(--text-muted);cursor:pointer;font-size:11px;padding:3px 8px;flex-shrink:0';
+                const btn = 'background:none;border:1px solid var(--border);border-radius:5px;color:var(--text-muted);cursor:pointer;font-size:12px;padding:3px 8px;flex-shrink:0';
                 sec.items.forEach(h => {
                     html += `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:13px">
                         <span class="tracker-edit-name" onclick="startTrackerRename(this, '${escJs(h)}', '${escJs(sec.name)}')" style="cursor:text;flex:1;min-width:0" title="Click to edit wording">${esc(h)}</span>

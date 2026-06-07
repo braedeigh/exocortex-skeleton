@@ -238,7 +238,7 @@ function _remEstradiolRow(numInp) {
             <input type="number" min="1" value="${esc(h.cycle_days)}" onchange="_remSaveEstradiolCycle(this.value)" style="${numInp}">
             <span style="font-size:12px;color:var(--text-muted)">days${next}</span>
         </div>
-        <div style="font-size:11px;color:var(--text-muted);margin-top:6px">Exact next-dose date + undo are kept — log it from the To-Do shot bar or the + Estradiol button.</div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:6px">Exact next-dose date + undo are kept — log it from the To-Do shot bar or the + Estradiol button.</div>
     </div>`;
 }
 
@@ -268,7 +268,7 @@ function _remDraftRowsHtml(numInp) {
             if (schedule === 'weekly') {
                 const wd = r.weekdays || [];
                 detail = `<span style="display:flex;gap:3px;flex-wrap:wrap;align-items:center">` +
-                    [0, 1, 2, 3, 4, 5, 6].map(d => `<button onclick="_remToggleWeekday(${i},${d})" title="${WEEKDAY_FULL[d]}" style="width:28px;height:28px;border-radius:50%;cursor:pointer;font-size:11px;${wd.includes(d)
+                    [0, 1, 2, 3, 4, 5, 6].map(d => `<button onclick="_remToggleWeekday(${i},${d})" title="${WEEKDAY_FULL[d]}" style="width:28px;height:28px;border-radius:50%;cursor:pointer;font-size:12px;${wd.includes(d)
                         ? 'background:rgba(124,92,191,0.18);border:1px solid var(--accent);color:var(--accent);font-weight:700'
                         : 'background:none;border:1px solid var(--border);color:var(--text-muted)'}">${WEEKDAY_LETTER[d]}</button>`).join('') +
                     `</span>`;

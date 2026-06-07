@@ -131,7 +131,7 @@ function renderActivityCalendar() {
     const selLabel = selDate === today ? 'Today' : new Date(selDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
     html += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
         <span style="font-size:13px;font-weight:600;color:${selDate === today ? 'var(--text-secondary)' : 'var(--orange)'}">Log for: ${selLabel}</span>
-        ${selDate !== today ? `<button onclick="_selectedActivityDate=null;render()" style="font-size:11px;background:none;border:1px solid var(--border);border-radius:6px;padding:3px 8px;cursor:pointer;color:var(--text-muted)">Back to today</button>` : ''}
+        ${selDate !== today ? `<button onclick="_selectedActivityDate=null;render()" style="font-size:12px;background:none;border:1px solid var(--border);border-radius:6px;padding:3px 8px;cursor:pointer;color:var(--text-muted)">Back to today</button>` : ''}
     </div>`;
     // Quick-log buttons. Run + Grocery keep their special subsystems (a form /
     // trip log); the rest are generated from the reminder registry + estradiol so

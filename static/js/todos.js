@@ -38,14 +38,14 @@ function snoozedCardHTML(items) {
         .map(it => {
             const back = _fmtAddedDate(it.snoozed_until);
             return `<div class="card-item">
-                <span class="item-text" style="flex:1">${esc(it.text)}<span style="font-size:11px;color:var(--text-muted);margin-left:8px">💤 back ${esc(back)}</span></span>
+                <span class="item-text" style="flex:1">${esc(it.text)}<span style="font-size:12px;color:var(--text-muted);margin-left:8px">💤 back ${esc(back)}</span></span>
                 <button class="delete-btn" onclick="snoozeTodo('${escJs(it.text)}',0)" title="Un-snooze now" style="font-size:12px">↩</button>
             </div>`;
         }).join('');
     return `<details id="todo-snoozed" class="card todo-card" ${wasOpen ? 'open' : ''} style="border-left-color:var(--text-muted)" ontoggle="todoCardToggled(this,'__snoozed__')">
         <summary class="card-title" style="color:var(--text-muted);cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px">
-            <span class="kitchen-arrow" style="font-size:11px;transition:transform 0.15s;display:inline-block">&#9654;</span>
-            <span style="flex:1">Snoozed<span style="font-size:11px;font-weight:600;color:var(--text-muted);background:var(--bg);border-radius:10px;padding:1px 8px;margin-left:8px">${items.length}</span></span>
+            <span class="kitchen-arrow" style="font-size:12px;transition:transform 0.15s;display:inline-block">&#9654;</span>
+            <span style="flex:1">Snoozed<span style="font-size:12px;font-weight:600;color:var(--text-muted);background:var(--bg);border-radius:10px;padding:1px 8px;margin-left:8px">${items.length}</span></span>
         </summary>
         ${rows}
     </details>`;
