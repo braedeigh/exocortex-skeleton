@@ -597,7 +597,7 @@ function cardHTML(title, items, color, type, sectionName, dim) {
             <span class="habit-check ${done?'done':''}" onclick="toggleTodo('${escJs(text)}')" style="cursor:pointer" title="Check off">
                 ${done ? '&#10003;' : '&#9675;'}
             </span>
-            <span class="item-text todo-view" style="${done?'text-decoration:line-through;opacity:0.5':''}">${item.url ? `<a href="${esc(item.url)}" target="_blank" rel="noopener" style="color:inherit">${esc(text)}</a>` : esc(text)}${item.created ? `<span class="todo-added" style="font-size:12px;color:var(--text-muted);margin-left:8px;white-space:nowrap" title="Added ${esc(item.created)}">${esc(_fmtAddedDate(item.created))}</span>` : ''}</span>
+            <span class="item-text todo-view" style="${done?'text-decoration:line-through;opacity:0.5':''}">${item.url ? `<a href="${esc(item.url)}" target="_blank" rel="noopener" style="color:inherit">${esc(text)}</a>` : esc(text)}${item.due_by ? `<span class="todo-due${_isOverdue(item.due_by) && !done ? ' overdue' : ''}" title="Due ${esc(item.due_by)}">${_isOverdue(item.due_by) && !done ? 'overdue · ' : 'due '}${esc(_fmtAddedDate(item.due_by))}</span>` : ''}${item.created ? `<span class="todo-added" style="font-size:12px;color:var(--text-muted);margin-left:8px;white-space:nowrap" title="Added ${esc(item.created)}">${esc(_fmtAddedDate(item.created))}</span>` : ''}</span>
             <textarea class="habit-rename todo-edit" rows="1" style="display:none" data-original="${esc(text)}" data-section="${esc(sectionName)}" data-type="${type}"
                 oninput="autoGrow(this)" onblur="commitRename(this)" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur()}else if(event.key==='Escape'){this.value=this.dataset.original;this.blur()}">${esc(text)}</textarea>
             ${type === 'todo' ? `<button class="todo-note-btn" onclick="toggleTodoNotes(this)" title="${item.notes ? 'Details' : 'Add a note'}" style="background:none;border:none;cursor:pointer;font-size:14px;padding:0 4px;color:${item.notes ? 'var(--accent)' : 'var(--text-muted)'};${item.notes ? '' : 'opacity:0.55'}">&#9776;</button>` : ''}
@@ -614,7 +614,9 @@ function cardHTML(title, items, color, type, sectionName, dim) {
         : '';
 
     const addId = `add-${type}-${sectionName.replace(/\s+/g,'-')}`;
-    const addForm = `
+    const addForm = type === 'todo'
+        ? `<div class="add-trigger" onclick="openAddTodoModal('${escJs(sectionName)}')">+ Add</div>`
+        : `
         <div class="add-trigger" onclick="toggleAdd('${addId}')">+ Add</div>
         <div class="add-form" id="${addId}">
             <input type="text" placeholder="New item..." onkeydown="if(event.key==='Enter')addItem('${type}','${escJs(sectionName)}',this)">
@@ -904,6 +906,48 @@ async function addItem(type, section, inputEl) {
     }
 }
 
+// --- Add-to-do modal (text + due-by + description) ---
+function openAddTodoModal(section) {
+    const html = `
+        <form class="todo-add-form" onsubmit="event.preventDefault();submitAddTodoModal('${escJs(section)}')">
+            <label class="todo-add-label">To-do
+                <input type="text" id="add-todo-text" class="todo-add-input" placeholder="What needs doing?" autocomplete="off">
+            </label>
+            <label class="todo-add-label">Due by <span style="color:var(--text-muted);font-weight:400">(optional)</span>
+                <input type="date" id="add-todo-due" class="todo-add-input">
+            </label>
+            <label class="todo-add-label">Description <span style="color:var(--text-muted);font-weight:400">(optional)</span>
+                <textarea id="add-todo-desc" class="todo-add-input" rows="3" placeholder="Any details…"></textarea>
+            </label>
+            <div class="todo-add-actions">
+                <button type="button" class="modal-btn cancel" onclick="closeActiveEditor()">Cancel</button>
+                <button type="submit" class="modal-btn confirm" style="background:var(--accent)">Add</button>
+            </div>
+        </form>`;
+    showEditorModal('Add to ' + section, html);
+    setTimeout(() => { const el = document.getElementById('add-todo-text'); if (el) el.focus(); }, 50);
+}
+
+async function submitAddTodoModal(section) {
+    const textEl = document.getElementById('add-todo-text');
+    const text = textEl.value.trim();
+    if (!text) { textEl.focus(); return; }
+    const due_by = document.getElementById('add-todo-due').value;
+    const notes = document.getElementById('add-todo-desc').value.trim();
+    const res = await fetch('/api/todos/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item: text, section, due_by, notes })
+    });
+    if (res.ok) {
+        hideEditorModal();
+        loadDashboard();
+    } else {
+        const data = await res.json();
+        alert(data.error || 'Failed to add');
+    }
+}
+
 function showMoveMenu(btn, item) {
     // Remove any existing move menu
     document.querySelectorAll('.move-menu').forEach(m => m.remove());
@@ -1003,6 +1047,13 @@ function _fmtAddedDate(iso) {
         const d = new Date(iso + 'T12:00:00');
         return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     } catch (e) { return iso; }
+}
+
+function _isOverdue(iso) {
+    try {
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        return new Date(iso + 'T12:00:00') < today;
+    } catch (e) { return false; }
 }
 
 // --- Toggle functions ---

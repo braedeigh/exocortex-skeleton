@@ -278,6 +278,30 @@ body {
 .modal-btn.cancel { background: var(--border); color: var(--text); }
 .modal-btn.cancel:hover { background: #3a3a5a; }
 
+/* Add-to-do modal form */
+.todo-add-form { display: flex; flex-direction: column; gap: var(--space-4); }
+.todo-add-label {
+    display: flex; flex-direction: column; gap: var(--space-2);
+    font-size: var(--text-md); font-weight: 600; color: var(--text-secondary);
+}
+.todo-add-input {
+    width: 100%; box-sizing: border-box; min-height: 40px;
+    padding: var(--space-2) var(--space-3); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); font-size: var(--text-base); font-family: inherit;
+    font-weight: 400; background: var(--bg); color: var(--text);
+}
+textarea.todo-add-input { resize: vertical; min-height: 64px; }
+.todo-add-input:focus { border-color: var(--accent); outline: none; }
+.todo-add-actions { display: flex; gap: var(--space-3); justify-content: flex-end; margin-top: var(--space-2); }
+.todo-add-actions .modal-btn { min-height: 40px; }
+
+/* Due-by badge on to-do cards */
+.todo-due {
+    font-size: 12px; color: var(--accent); margin-left: 8px; white-space: nowrap;
+    font-weight: 600;
+}
+.todo-due.overdue { color: var(--red); }
+
 /* Section divider */
 .section-title {
     font-size: var(--text-xl); font-weight: 700; color: var(--text);

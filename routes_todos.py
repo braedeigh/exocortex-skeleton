@@ -28,10 +28,17 @@ def register(app):
         sec = todos.get(key, {"items": []})
         if item_text.lower() in {x["text"].lower() for x in sec.get("items", [])}:
             return jsonify({"error": "Already exists in this section"}), 400
-        sec.setdefault("items", []).append({
+        new_item = {
             "text": item_text, "done": False,
             "created": datetime.now().strftime("%Y-%m-%d"),
-        })
+        }
+        due_by = (data.get("due_by") or "").strip()
+        if due_by:
+            new_item["due_by"] = due_by
+        notes = (data.get("notes") or "").strip()
+        if notes:
+            new_item["notes"] = notes
+        sec.setdefault("items", []).append(new_item)
         todos[key] = sec
         save_todos(todos)
         return jsonify({"ok": True})
@@ -64,14 +71,17 @@ def register(app):
         to_key = find_section_key(to_section_name)
         if not to_key:
             return jsonify({"error": "Section not found"}), 404
+        moved = None
         for key in todos:
             sec = todos[key]
             items = sec.get("items", [])
             for i, item in enumerate(items):
                 if item["text"] == item_text:
-                    items.pop(i)
+                    moved = items.pop(i)
                     break
-        todos.setdefault(to_key, {"items": []}).setdefault("items", []).append({"text": item_text, "done": False})
+        if moved is None:
+            moved = {"text": item_text, "done": False}
+        todos.setdefault(to_key, {"items": []}).setdefault("items", []).append(moved)
         save_todos(todos)
         return jsonify({"ok": True})
 
