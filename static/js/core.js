@@ -108,6 +108,11 @@ function hideEditorModal() {
 // Close whichever editor is open (the modal's × button).
 function closeActiveEditor() {
     hideEditorModal();
+    if (window._editBucket) {
+        window._editBucket = null;
+        const m = document.getElementById('panel-modal');
+        if (m) m.classList.remove('todo-bucket-modal');
+    }
     if (typeof _habitTrackerEditing !== 'undefined' && _habitTrackerEditing) {
         _habitTrackerEditing = false;
         document.querySelectorAll('.habit-edit-btn').forEach(b => { b.textContent = 'Edit'; });
@@ -593,7 +598,7 @@ function cardHTML(title, items, color, type, sectionName, dim, manualOrder) {
         const item = typeof rawItem === 'string' ? { text: rawItem, done: false } : rawItem;
         const text = item.text;
         const done = item.done;
-        return `<div class="card-item" draggable="true" data-section="${esc(sectionName)}" data-idx="${idx}" data-habit="${esc(text)}"
+        return `<div class="card-item" draggable="true" data-section="${esc(sectionName)}" data-idx="${idx}" data-habit="${esc(text)}" data-due="${type === 'todo' && item.due_by ? esc(item.due_by) : ''}"
               ondragstart="habitDragStart(event)" ondragover="habitDragOver(event)" ondrop="habitDrop(event,'${type}')" ondragend="habitDragEnd(event)" ondragleave="habitDragLeave(event)">
             <span class="drag-handle" onmousedown="dragFromHandle=true">&#8942;&#8942;</span>
             <span class="habit-check ${done?'done':''}" onclick="toggleTodo('${escJs(text)}')" style="cursor:pointer" title="Check off">
@@ -637,7 +642,7 @@ function cardHTML(title, items, color, type, sectionName, dim, manualOrder) {
             <span class="kitchen-arrow" style="font-size:12px;transition:transform 0.15s;display:inline-block">&#9654;</span>
             <span style="flex:1">${title}${countBadge}</span>
             ${type === 'todo' && manualOrder ? `<span class="autosort-toggle" onclick="event.preventDefault();event.stopPropagation();autosortTodos('${escJs(sectionName)}')" title="Sort by due date again">&#8597; Auto-sort</span>` : ''}
-            <span class="edit-toggle" onclick="event.preventDefault();event.stopPropagation();toggleEditMode('${cardId}')">edit</span>
+            <span class="edit-toggle" onclick="event.preventDefault();event.stopPropagation();${type === 'todo' ? `openBucketEdit('${escJs(sectionName)}')` : `toggleEditMode('${cardId}')`}">edit</span>
         </summary>
         ${itemsHTML}${emptyHTML}${addForm}</details>`;
 }
@@ -1020,30 +1025,174 @@ async function snoozeTodo(item, days) {
     loadDashboard();
 }
 
-// Tap a to-do to pop up its details (due date + when added + an editable
-// description) in a modal. Ignores clicks on an inner link so URL to-dos still
-// navigate.
+// --- Per-bucket edit modal -------------------------------------------------
+// Tapping a bucket's "edit" opens that whole bucket (Now / Up Next / …) in a
+// large modal, in edit mode, reusing the normal card so all the existing
+// reorder / rename / move / delete / description handlers work. It re-renders
+// from data after every dashboard reload so it never goes stale.
+function openBucketEdit(sectionName) {
+    window._editBucket = sectionName;
+    renderBucketEditModal();
+}
+
+function renderBucketEditModal() {
+    const sectionName = window._editBucket;
+    if (!sectionName) return;
+    const m = document.getElementById('panel-modal');
+    const bodyEl = document.getElementById('panel-modal-body');
+    if (!m || !bodyEl) return;
+    const section = (D.todos || []).find(s => s.name === sectionName);
+    if (!section) { window._editBucket = null; return; }
+    const today = (typeof todayStr === 'function') ? todayStr() : '';
+    const visible = (section.items || []).filter(it => {
+        const su = (it && typeof it === 'object') ? it.snoozed_until : null;
+        return !(su && su > today && !it.done);
+    });
+    const slug = sectionName.replace(/\s+/g, '-');
+    let html = cardHTML(sectionName, visible, 'var(--accent)', 'todo', sectionName, false, section.manual_order);
+    // Unique id so it never collides with the same bucket's card on the page.
+    html = html.replace(`id="card-todo-${slug}"`, `id="modal-card-todo-${slug}"`);
+    document.getElementById('panel-modal-title').innerHTML =
+        `<span class="todo-modal-kicker">Edit:</span> <span class="todo-modal-htitle">${esc(sectionName)}</span>`;
+    bodyEl.innerHTML = `<div class="bucket-edit-wrap">${html}</div>`;
+    m.classList.add('open', 'todo-bucket-modal');
+    const card = bodyEl.querySelector('.card');
+    if (card) { card.setAttribute('open', ''); applyEditMode(card, true); }
+}
+
+// Tap a to-do to pop up its details: due (left) / added (right), title, and
+// description — all read-only until the Edit button (which becomes Save) is
+// tapped. Ignores clicks on an inner link so URL to-dos still navigate.
 function openTodoDetail(el, ev) {
     if (ev && ev.target && ev.target.closest('a')) return;
     const row = el.closest('.card-item');
     if (!row) return;
     const text = row.dataset.habit || '';
+    const dueIso = row.dataset.due || '';
     const detail = row.nextElementSibling;
     const addedEl = detail && detail.querySelector('.todo-detail-added');
     const inlineNotes = detail && detail.querySelector('.todo-notes-input');
     const notes = inlineNotes ? inlineNotes.value : '';
-    const dueEl = row.querySelector('.todo-due');
-    const dueHTML = dueEl
-        ? `<div class="todo-modal-due${dueEl.classList.contains('overdue') ? ' overdue' : ''}">${esc(dueEl.textContent.trim())}</div>`
-        : '';
-    const addedHTML = addedEl ? `<div class="todo-detail-added">${esc(addedEl.textContent.trim())}</div>` : '';
-    const body = `<div class="todo-modal-body">
-        ${dueHTML}${addedHTML}
-        <label class="todo-modal-label">Description</label>
-        <textarea class="todo-modal-desc" placeholder="Add a description…" data-item="${esc(text)}" oninput="autoGrow(this)" onblur="saveTodoNotes(this)">${esc(notes)}</textarea>
+    const overdue = dueIso && _isOverdue(dueIso);
+    const dueText = dueIso ? `${overdue ? 'overdue · ' : 'due '}${_fmtAddedDate(dueIso)}` : '';
+    const addedHTML = addedEl ? `<span class="todo-modal-added">${esc(addedEl.textContent.trim())}</span>` : '';
+    const hasMeta = dueText || addedHTML;
+    const body = `<div class="todo-modal-body" data-item="${esc(text)}" data-due="${esc(dueIso)}">
+        <div class="todo-modal-meta"${hasMeta ? '' : ' style="display:none"'}><span class="todo-modal-due${overdue ? ' overdue' : ''}">${esc(dueText)}</span>${addedHTML}</div>
+        <div class="todo-modal-due-edit" style="display:none">
+            <label class="todo-modal-label">Due by <span class="todo-add-opt">(optional)</span></label>
+            <input type="date" class="todo-modal-due-input" value="${esc(dueIso)}">
+        </div>
+        <div class="todo-modal-desc-read${notes ? '' : ' empty'}">${notes ? esc(notes) : 'No description'}</div>
+        <textarea class="todo-modal-desc-edit" placeholder="Add a description…" oninput="autoGrow(this)" style="display:none">${esc(notes)}</textarea>
+        <div class="todo-modal-foot">
+            <button type="button" class="todo-modal-delete" onclick="confirmDeleteTodoItem(this.closest('.todo-modal-body').dataset.item)">Delete</button>
+            <button type="button" class="todo-desc-editbtn" onclick="toggleTodoModalEdit(this)">Edit</button>
+        </div>
     </div>`;
-    showEditorModal(text, body);
-    setTimeout(() => { const ta = document.querySelector('.todo-modal-desc'); if (ta) autoGrow(ta); }, 30);
+    showEditorModal('To-do', body);
+    const h3 = document.getElementById('panel-modal-title');
+    if (h3) h3.innerHTML = `<span class="todo-modal-kicker">To-do:</span> <span class="todo-modal-htitle">${esc(text)}</span><textarea class="todo-modal-htitle-edit" rows="1" placeholder="To-do" oninput="autoGrow(this)" style="display:none">${esc(text)}</textarea>`;
+}
+
+// Edit/Save toggle inside the item detail modal — flips title, due date and
+// description between read and edit, and persists all three on Save.
+async function toggleTodoModalEdit(btn) {
+    const body = btn.closest('.todo-modal-body');
+    if (!body) return;
+    const headerTitle = document.querySelector('#panel-modal-title .todo-modal-htitle');
+    const titleEdit = document.querySelector('#panel-modal-title .todo-modal-htitle-edit');
+    const metaRow = body.querySelector('.todo-modal-meta');
+    const dueWrap = body.querySelector('.todo-modal-due-edit');
+    const dueInput = body.querySelector('.todo-modal-due-input');
+    const dueRead = body.querySelector('.todo-modal-due');
+    const addedRead = body.querySelector('.todo-modal-added');
+    const descRead = body.querySelector('.todo-modal-desc-read');
+    const descEdit = body.querySelector('.todo-modal-desc-edit');
+
+    if (btn.textContent.trim() === 'Edit') {
+        headerTitle.style.display = 'none';
+        titleEdit.style.display = '';
+        autoGrow(titleEdit);
+        dueWrap.style.display = '';
+        if (metaRow) metaRow.style.display = 'none';
+        descRead.style.display = 'none';
+        descEdit.style.display = 'block';
+        autoGrow(descEdit);
+        titleEdit.focus();
+        titleEdit.setSelectionRange(titleEdit.value.length, titleEdit.value.length);
+        btn.textContent = 'Save';
+        return;
+    }
+
+    // Save
+    const oldText = body.dataset.item;
+    const newText = titleEdit.value.trim() || oldText;
+    const notes = descEdit.value.trim();
+    const due = dueInput.value;
+    if (newText !== oldText) {
+        await fetch('/api/todos/rename', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ old: oldText, new: newText })
+        });
+        body.dataset.item = newText;
+    }
+    await fetch('/api/todos/details', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item: newText, notes, due_by: due })
+    });
+    body.dataset.due = due;
+    if (headerTitle) headerTitle.textContent = newText;
+    descRead.textContent = notes || 'No description';
+    descRead.classList.toggle('empty', !notes);
+    const overdue = due && _isOverdue(due);
+    dueRead.textContent = due ? `${overdue ? 'overdue · ' : 'due '}${_fmtAddedDate(due)}` : '';
+    dueRead.classList.toggle('overdue', !!overdue);
+    headerTitle.style.display = '';
+    titleEdit.style.display = 'none';
+    dueWrap.style.display = 'none';
+    // Show the meta row again only if there's now something in it.
+    if (metaRow) metaRow.style.display = (due || addedRead) ? '' : 'none';
+    descRead.style.display = '';
+    descEdit.style.display = 'none';
+    btn.textContent = 'Edit';
+    loadDashboard();
+}
+
+// Delete from the item detail modal → a secondary "are you sure" confirm.
+function confirmDeleteTodoItem(text) {
+    let ov = document.getElementById('todo-confirm-overlay');
+    if (!ov) {
+        ov = document.createElement('div');
+        ov.id = 'todo-confirm-overlay';
+        ov.className = 'modal-overlay';
+        ov.style.zIndex = '200';   // above the detail modal (z-index 100)
+        ov.innerHTML = `<div class="modal" style="max-width:380px">
+            <p id="todo-confirm-text"></p>
+            <div class="modal-buttons">
+                <button class="modal-btn confirm" id="todo-confirm-yes">Delete</button>
+                <button class="modal-btn cancel" onclick="closeTodoConfirm()">Cancel</button>
+            </div>
+        </div>`;
+        document.body.appendChild(ov);
+        ov.addEventListener('click', e => { if (e.target === ov) closeTodoConfirm(); });
+    }
+    ov.querySelector('#todo-confirm-text').textContent = `Delete “${text}”? This can’t be undone.`;
+    ov.querySelector('#todo-confirm-yes').onclick = () => deleteTodoItemConfirmed(text);
+    ov.classList.add('open');
+}
+function closeTodoConfirm() {
+    const ov = document.getElementById('todo-confirm-overlay');
+    if (ov) ov.classList.remove('open');
+}
+async function deleteTodoItemConfirmed(text) {
+    await fetch('/api/todos/remove', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item: text })
+    });
+    closeTodoConfirm();
+    hideEditorModal();
+    loadDashboard();
 }
 
 async function saveTodoNotes(ta) {

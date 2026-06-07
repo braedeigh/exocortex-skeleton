@@ -34,50 +34,38 @@ function renderHabits() {
         }
     }
 
-    // Evening — kitchen close-out (resets daily, no tracking)
+    // Evening — kitchen close-out: a quiet reference list of things to do if
+    // needed (no checkboxes / tracking — these are do-when-relevant, not habits).
     if (tod === 'evening') {
         const chores = ['Clean kitchen countertops', 'Clear dishwasher', 'Put away drying rack', 'Take out trash if full'];
-        const dayOfWeek = new Date().getDay();
-        if (dayOfWeek === 2) chores.push('Take trash to curb (for Sally)');
-        const choreLog = JSON.parse(localStorage.getItem('choreLog') || '{}');
-        const todayChores = choreLog[today] || {};
+        if (new Date().getDay() === 2) chores.push('Take trash to curb (for Sally)');
+        const choreItems = chores.map(c =>
+            `<div class="card-item" style="padding:4px 0">
+                <span class="item-text" style="color:var(--text-secondary)">${esc(c)}</span>
+            </div>`).join('');
 
-        const allChoresDone = chores.every(c => !!todayChores[c]);
-        if (allChoresDone && !expandedAll) {
-            html += `<div style="font-size:14px;color:var(--text-muted);padding:8px 0;margin-bottom:8px">
-                <span style="color:var(--ongoing)">&#10003;</span> Kitchen — all done
-            </div>`;
-        } else {
-            const choreItems = chores.map(c => {
-                const done = !!todayChores[c];
-                return `<div class="card-item">
-                    <span class="habit-check ${done?'done':''}" onclick="toggleChore('${esc(c)}')" title="Toggle">
-                        ${done ? '&#10003;' : '&#9675;'}
-                    </span>
-                    <span class="item-text" style="${done?'text-decoration:line-through;opacity:0.5':''}">${esc(c)}</span>
-                </div>`;
-            }).join('');
-
-            html += `<div class="card" style="border-left-color:var(--ongoing)">
-                <div class="card-title" style="color:var(--ongoing)">Kitchen close-out</div>
-                ${choreItems}
-            </div>`;
-        }
+        html += `<div class="card" style="border-left-color:var(--ongoing)">
+            <div class="card-title" style="color:var(--ongoing)">Kitchen close-out <span style="font-size:12px;font-weight:400;color:var(--text-muted)">— if needed</span></div>
+            ${choreItems}
+        </div>`;
     }
 
     // Growth Notes — collapsible aspirations tracker
     if (isFrosted(D.growth_notes)) {
         html += `<details style="margin-top:8px"><summary style="font-size:13px;font-weight:600;cursor:pointer;color:var(--text-muted)">Growth Notes</summary>${frostedCard('Working On', 3)}</details>`;
     } else if (D.growth_notes && D.growth_notes.length) {
-        const growthWasOpen = el.querySelector('details#growth-detail')?.open;
         const active = D.growth_notes.filter(g => g.status === 'active');
         const incorporated = D.growth_notes.filter(g => g.status === 'incorporated');
         const incWasOpen = el.querySelector('details#growth-incorporated')?.open;
 
-        let growthHTML = `<details id="growth-detail" ${growthWasOpen ? 'open' : ''} style="margin-top:8px">
-            <summary style="font-size:13px;font-weight:600;cursor:pointer;color:var(--text-muted)">Growth Notes (${active.length} active)</summary>
-            <div class="card" style="border-left-color:#9b59b6;margin-top:8px" id="card-growth">
-                <div class="card-title" style="color:#9b59b6">Working On<span class="edit-toggle" onclick="toggleEditMode('card-growth')">edit</span></div>`;
+        const growthOpen = todoCardOpen('Working On');
+        const growthCount = `<span style="font-size:12px;font-weight:600;color:var(--text-muted);background:var(--bg);border-radius:10px;padding:1px 8px;margin-left:8px">${active.length}</span>`;
+        let growthHTML = `<details class="card todo-card" id="card-growth" style="border-left-color:#9b59b6;margin-top:8px" ${growthOpen ? 'open' : ''} ontoggle="todoCardToggled(this,'Working On')">
+                <summary class="card-title" style="color:#9b59b6;cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px">
+                    <span class="kitchen-arrow" style="font-size:12px;transition:transform 0.15s;display:inline-block">&#9654;</span>
+                    <span style="flex:1">Working On${growthCount}</span>
+                    <span class="edit-toggle" onclick="event.preventDefault();event.stopPropagation();toggleEditMode('card-growth')">edit</span>
+                </summary>`;
 
         active.forEach((g, idx) => {
             const daysAgo = Math.floor((new Date() - new Date(g.added + 'T12:00:00')) / 86400000);
@@ -118,7 +106,7 @@ function renderHabits() {
             growthHTML += '</details>';
         }
 
-        growthHTML += '</div></details>';
+        growthHTML += '</details>';
         html += growthHTML;
     }
 

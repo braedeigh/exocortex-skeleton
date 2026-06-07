@@ -29,6 +29,10 @@ function renderTodos() {
     if (snoozed.length) html += snoozedCardHTML(snoozed);
 
     el.innerHTML = html;
+
+    // Keep the per-bucket edit modal in sync if it's open.
+    const pm = document.getElementById('panel-modal');
+    if (window._editBucket && pm && pm.classList.contains('open')) renderBucketEditModal();
 }
 
 function snoozedCardHTML(items) {

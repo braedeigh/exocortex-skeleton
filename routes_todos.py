@@ -87,18 +87,27 @@ def register(app):
 
     @app.route("/api/todos/details", methods=["POST"])
     def todo_details():
-        """Set optional detail notes on a to-do (empty clears)."""
+        """Set optional notes and/or due date on a to-do (empty clears). Only
+        the fields present in the payload are touched, so the inline notes
+        editor and the detail modal can each send just what they manage."""
         data = request.json or {}
         item_text = data.get("item", "")
-        notes = (data.get("notes") or "").strip()
         todos = load_todos()
         for key in todos:
             for item in todos[key].get("items", []):
                 if item.get("text") == item_text:
-                    if notes:
-                        item["notes"] = notes
-                    else:
-                        item.pop("notes", None)
+                    if "notes" in data:
+                        notes = (data.get("notes") or "").strip()
+                        if notes:
+                            item["notes"] = notes
+                        else:
+                            item.pop("notes", None)
+                    if "due_by" in data:
+                        due = (data.get("due_by") or "").strip()
+                        if due:
+                            item["due_by"] = due
+                        else:
+                            item.pop("due_by", None)
                     save_todos(todos)
                     return jsonify({"ok": True})
         return jsonify({"ok": True})

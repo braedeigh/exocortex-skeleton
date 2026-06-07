@@ -262,10 +262,11 @@ body {
     max-height: 86vh; display: flex; flex-direction: column;
 }
 .panel-modal-head {
-    display: flex; align-items: center; justify-content: space-between;
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
     padding: 14px 18px; border-bottom: 1px solid var(--border); flex: 0 0 auto;
 }
-.panel-modal-head h3 { margin: 0; font-size: 16px; color: var(--text); }
+.panel-modal-head h3 { margin: 0; font-size: 16px; color: var(--text); flex: 1 1 auto; min-width: 0; }
+.panel-modal-x { flex: 0 0 auto; }
 .panel-modal-x { background: none; border: none; font-size: 24px; line-height: 1; color: var(--text-muted); cursor: pointer; padding: 0 4px; }
 .panel-modal-body { padding: 16px 18px; overflow-y: auto; }
 .modal-buttons { display: flex; gap: var(--space-3); justify-content: center; }
@@ -340,23 +341,78 @@ textarea.todo-add-input { resize: vertical; min-height: 64px; }
 
 /* To-do detail modal (tap a to-do) — reuses the .panel-modal shell */
 .todo-modal-body { font-size: 15px; line-height: 1.5; }
-.todo-modal-body .todo-detail-added { display: block; font-size: 13px; margin-bottom: 8px; }
-.todo-modal-due {
-    display: inline-block; font-size: 13px; font-weight: 600; color: var(--accent);
-    margin-bottom: 8px;
-}
+/* due on the left, added pushed to the right */
+.todo-modal-meta { display: flex; align-items: baseline; gap: 12px; margin-bottom: 10px; }
+.todo-modal-due { font-size: 13px; font-weight: 600; color: var(--accent); }
 .todo-modal-due.overdue { color: var(--red); }
-.todo-modal-label {
-    display: block; font-size: 13px; font-weight: 600; color: var(--text-secondary);
-    margin-bottom: 4px;
+.todo-modal-added { margin-left: auto; font-size: 13px; color: var(--text-muted); }
+/* Header: "To-do" kicker + the item title, next to each other above the line */
+#panel-modal-title .todo-modal-kicker {
+    font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;
+    color: var(--accent); margin-right: 6px;
 }
-.todo-modal-desc {
+#panel-modal-title .todo-modal-htitle { font-weight: 600; color: var(--text); }
+/* Title becomes an editable box in place (in the header) */
+#panel-modal-title .todo-modal-htitle-edit {
+    display: block; width: 100%; box-sizing: border-box; min-height: 40px; margin-top: 6px;
+    padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
+    font-size: 16px; font-weight: 600; font-family: inherit; line-height: 1.35;
+    background: var(--bg); color: var(--text); resize: none; overflow: hidden;
+}
+#panel-modal-title .todo-modal-htitle-edit:focus { border-color: var(--accent); outline: none; }
+/* Due-by editor in the item modal */
+.todo-modal-due-edit { margin-bottom: 14px; }
+.todo-modal-due-edit .todo-modal-label { margin-bottom: 4px; }
+.todo-modal-due-input {
+    width: 100%; box-sizing: border-box; max-width: 100%; min-height: 40px;
+    padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
+    font-size: 15px; font-family: inherit; background: var(--bg); color: var(--text);
+    -webkit-appearance: none; appearance: none;
+}
+.todo-modal-due-input:focus { border-color: var(--accent); outline: none; }
+.todo-modal-desc-head {
+    display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;
+}
+.todo-modal-label { font-size: 13px; font-weight: 600; color: var(--text-secondary); }
+.todo-desc-editbtn {
+    min-height: 40px; padding: 8px 18px; border: 1px solid var(--accent);
+    border-radius: 8px; background: var(--bg); color: var(--accent);
+    font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.todo-desc-editbtn:hover { background: var(--accent); color: #fff; }
+.todo-modal-desc-read { white-space: pre-wrap; line-height: 1.45; }
+.todo-modal-desc-read.empty { color: var(--text-muted); font-style: italic; }
+.todo-modal-desc-edit {
     width: 100%; box-sizing: border-box; min-height: 80px;
     padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
     font-size: 15px; font-family: inherit; background: var(--bg); color: var(--text);
     resize: vertical;
 }
-.todo-modal-desc:focus { border-color: var(--accent); outline: none; }
+.todo-modal-desc-edit:focus { border-color: var(--accent); outline: none; }
+/* Footer + delete button in the item modal */
+.todo-modal-foot {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border);
+}
+.todo-modal-delete {
+    min-height: 40px; padding: 8px 18px; border: 1px solid var(--red);
+    border-radius: 8px; background: var(--bg); color: var(--red);
+    font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.todo-modal-delete:hover { background: var(--red); color: #fff; }
+/* Let a long title wrap instead of shoving the × off the header */
+#panel-modal-title { min-width: 0; overflow-wrap: break-word; }
+
+/* Per-bucket edit modal — a large, roomy editing surface */
+.modal-overlay.todo-bucket-modal .modal.panel-modal { width: 96vw; max-width: 820px; max-height: 92vh; }
+.todo-bucket-modal .edit-toggle,
+.todo-bucket-modal .kitchen-arrow,
+.todo-bucket-modal .add-trigger { display: none; }
+.todo-bucket-modal summary.card-title { cursor: default; list-style: none; }
+.bucket-edit-wrap .card {
+    border: none; box-shadow: none; margin: 0; padding: 0; border-radius: 0;
+}
+.bucket-edit-wrap .card-item { padding: 8px 0; font-size: 16px; }
 
 /* "Auto-sort" reset link — only on manually-ordered buckets, only in edit mode */
 .autosort-toggle {
