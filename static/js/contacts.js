@@ -105,13 +105,16 @@ function renderContacts() {
     const el = document.getElementById('contacts-area');
     if (!D.contacts || !D.contacts.length) { el.innerHTML = ''; return; }
 
-    let html = '<details open class="card-section"><summary style="font-size:18px;font-weight:700;margin-bottom:12px;cursor:pointer">Keep in Touch</summary>';
+    // Preserve open/closed state of the inner "Manage contacts" panel across
+    // re-renders so editing a contact doesn't collapse it. (The outer "Contacts"
+    // card is a static template <details>, so its state persists on its own.)
+    const manageOpen = document.getElementById('manage-contacts-details')?.open ?? false;
 
     // Calendar goes first (rendered by renderContactCalendar)
-    html += '<div id="contact-calendar-slot"></div>';
+    let html = '<div id="contact-calendar-slot"></div>';
 
     // Cards in a collapsible details
-    html += '<details style="margin-top:12px"><summary style="font-size:14px;font-weight:600;cursor:pointer;color:var(--text-secondary)">Manage contacts</summary>';
+    html += `<details id="manage-contacts-details" ${manageOpen ? 'open' : ''} style="margin-top:12px"><summary style="font-size:14px;font-weight:600;cursor:pointer;color:var(--text-secondary)">Manage contacts</summary>`;
     html += '<div class="contacts-grid" style="margin-top:12px">';
     D.contacts.forEach(c => {
         const days = c.days_since;
@@ -140,9 +143,14 @@ function renderContacts() {
         ).join('');
         const cardId = `contact-actions-${c.name.replace(/\s+/g,'-')}`;
 
+        const rbtn = 'background:none;border:1px solid var(--border);border-radius:4px;color:var(--text-muted);cursor:pointer;font-size:10px;line-height:1;padding:2px 5px';
         html += `<div class="contact-card" style="border-left-color:${color}">
             <button class="contact-remove" onclick="removeContact('${esc(c.name)}')" title="Remove">&times;</button>
-            <div class="contact-name">${esc(c.name)}</div>
+            <div style="position:absolute;top:8px;left:10px;display:flex;gap:3px">
+                <button onclick="moveContact('${escJs(c.name)}',-1)" title="Move up" style="${rbtn}">&#9650;</button>
+                <button onclick="moveContact('${escJs(c.name)}',1)" title="Move down" style="${rbtn}">&#9660;</button>
+            </div>
+            <div class="contact-name" style="margin-top:14px">${esc(c.name)}</div>
             <div class="contact-status" style="color:${color};font-weight:600">${statusText}</div>
             ${methodText ? `<div class="contact-method">${methodText}</div>` : ''}
             <div class="contact-cadence" style="font-size:12px;color:var(--text-muted);margin:4px 0">
@@ -164,7 +172,6 @@ function renderContacts() {
             <button onclick="addContact()">Add</button>
         </div>`;
     html += '</details>'; // manage contacts
-    html += '</details>'; // keep in touch
 
     el.innerHTML = html;
 }
@@ -199,17 +206,40 @@ async function addContact() {
     }
 }
 
+async function moveContact(name, dir) {
+    const arr = D.contacts || [];
+    const i = arr.findIndex(c => c.name === name);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= arr.length) return;
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+    renderContacts();
+    renderContactCalendar();
+    await fetch('/api/contacts/reorder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order: arr.map(c => c.name) })
+    });
+}
+
 async function updateContactThreshold(name, value) {
     const threshold_days = Number(value);
-    if (!threshold_days || threshold_days < 1) { loadDashboard(); return; }
+    const contact = (D.contacts || []).find(c => c.name === name);
+    if (!threshold_days || threshold_days < 1) {
+        // Restore the displayed value without collapsing the panel
+        renderContacts();
+        renderContactCalendar();
+        return;
+    }
+    // Update locally + re-render in place (preserves open panels), then persist.
+    if (contact) contact.threshold_days = threshold_days;
+    renderContacts();
+    renderContactCalendar();
     const res = await fetch('/api/contacts/update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, threshold_days })
     });
-    if (res.ok) {
-        loadDashboard();
-    } else {
+    if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         alert(data.error || 'Failed to update');
     }
@@ -309,6 +339,16 @@ function showLogPicker(name, date, dotEl) {
         picker.appendChild(btn);
     });
     wrap.appendChild(picker);
+    // Keep the picker on-screen — nudge horizontally if it's clipped at an edge
+    // (fixes the far-right column popup getting cut off).
+    requestAnimationFrame(() => {
+        const r = picker.getBoundingClientRect();
+        const pad = 8;
+        let shift = 0;
+        if (r.right > window.innerWidth - pad) shift = (window.innerWidth - pad) - r.right;
+        else if (r.left < pad) shift = pad - r.left;
+        if (shift) picker.style.transform = `translateX(calc(-50% + ${Math.round(shift)}px))`;
+    });
     // Close on outside click
     setTimeout(() => {
         document.addEventListener('click', function close(e) {

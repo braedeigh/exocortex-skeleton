@@ -87,22 +87,29 @@
     <!-- LIFE MAP TAB -->
     <div id="tab-map" style="display:none">
         <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
-            <button id="map-collapse-btn" onclick="toggleMapCollapse()" style="font-size:12px;color:var(--text-muted);cursor:pointer;border:1px solid var(--border);border-radius:6px;padding:5px 12px;background:none">Collapse all</button>
+            <button id="map-collapse-btn" onclick="toggleMapCollapse()" style="font-size:12px;color:var(--text-muted);cursor:pointer;border:1px solid var(--border);border-radius:6px;padding:5px 12px;background:none">Expand all</button>
         </div>
 
-        <details class="map-section" open>
-            <summary class="section-title" style="cursor:pointer">Habit Tracker</summary>
+        <details class="map-section kitchen-section" data-card="habit" ontoggle="mapCardToggled(this)">
+            <summary style="font-size:16px;font-weight:700;cursor:pointer;padding:8px 0;list-style:none;display:flex;align-items:center;gap:8px">
+                <span class="kitchen-arrow" style="font-size:12px;transition:transform 0.15s;display:inline-block">&#9654;</span>Habit Tracker
+                <button class="card-edit-btn habit-edit-btn" onclick="event.preventDefault();event.stopPropagation();toggleHabitTrackerEdit()">Edit</button>
+            </summary>
             <div id="habit-tracker"></div>
         </details>
 
-        <details class="map-section" open>
-            <summary class="section-title" style="cursor:pointer">Activity</summary>
+        <details class="map-section kitchen-section" data-card="activity" ontoggle="mapCardToggled(this)">
+            <summary style="font-size:16px;font-weight:700;cursor:pointer;padding:8px 0;list-style:none;display:flex;align-items:center;gap:8px">
+                <span class="kitchen-arrow" style="font-size:12px;transition:transform 0.15s;display:inline-block">&#9654;</span>Activity
+            </summary>
             <div id="activity-calendar"></div>
             <div id="reminder-manager" class="auth-only" style="margin-top:14px"></div>
         </details>
 
-        <details class="map-section auth-only" open>
-            <summary class="section-title" style="cursor:pointer">Contacts</summary>
+        <details class="map-section kitchen-section auth-only" data-card="contacts" ontoggle="mapCardToggled(this)">
+            <summary style="font-size:16px;font-weight:700;cursor:pointer;padding:8px 0;list-style:none;display:flex;align-items:center;gap:8px">
+                <span class="kitchen-arrow" style="font-size:12px;transition:transform 0.15s;display:inline-block">&#9654;</span>Keep in Touch
+            </summary>
             <div id="contacts-area"></div>
         </details>
 
@@ -194,17 +201,17 @@
         </details>
 
         <details class="map-section" open>
-            <summary class="section-title" style="cursor:pointer">Confirmed safe foods</summary>
+            <summary class="section-title" style="cursor:pointer">Confirmed safe foods<button class="safety-edit-btn" onclick="event.preventDefault();event.stopPropagation();toggleFoodSafetyEdit()">Edit</button></summary>
             <div id="safe-foods-area"></div>
         </details>
 
         <details class="map-section" open>
-            <summary class="section-title" style="cursor:pointer">Suspect foods</summary>
+            <summary class="section-title" style="cursor:pointer">Suspect foods<button class="safety-edit-btn" onclick="event.preventDefault();event.stopPropagation();toggleFoodSafetyEdit()">Edit</button></summary>
             <div id="suspect-foods-area"></div>
         </details>
 
         <details class="map-section" open>
-            <summary class="section-title" style="cursor:pointer">Inflammatory foods</summary>
+            <summary class="section-title" style="cursor:pointer">Inflammatory foods<button class="safety-edit-btn" onclick="event.preventDefault();event.stopPropagation();toggleFoodSafetyEdit()">Edit</button></summary>
             <div id="inflammatory-foods-area"></div>
         </details>
 
@@ -262,6 +269,17 @@
             <button class="modal-btn confirm" style="background:var(--ongoing)" onclick="companionYes()">Yes, did it</button>
             <button class="modal-btn cancel" onclick="companionNo()">Not this time</button>
         </div>
+    </div>
+</div>
+
+<!-- Generic editor modal (habit edit, manage reminders, manage contacts) -->
+<div class="modal-overlay" id="panel-modal">
+    <div class="modal panel-modal">
+        <div class="panel-modal-head">
+            <h3 id="panel-modal-title"></h3>
+            <button class="panel-modal-x" onclick="closeActiveEditor()" aria-label="Close">&times;</button>
+        </div>
+        <div id="panel-modal-body" class="panel-modal-body"></div>
     </div>
 </div>
 

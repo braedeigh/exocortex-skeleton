@@ -829,7 +829,7 @@ function removeCatalogItem(name) {
 async function cycleGrocerySafety(name) {
     const tags = D.kitchen_safety_tags || {};
     const current = tags[name.toLowerCase()] || '';
-    const next = current === '' ? 'safe' : current === 'safe' ? 'suspect' : '';
+    const next = current === '' ? 'safe' : current === 'safe' ? 'suspect' : current === 'suspect' ? 'inflammatory' : '';
     await fetch('/api/kitchen/safety-tag', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -3253,15 +3253,108 @@ function _renderPurchaseHistorySection(known, counts) {
 // Body tab: safe foods + suspect foods chip clouds
 // =====================================================
 
-function _renderSafetyChip(name, tag) {
+// Edit mode for the safety chip clouds — icons + drag only appear when on.
+let _foodSafetyEditing = false;
+
+function toggleFoodSafetyEdit() {
+    _foodSafetyEditing = !_foodSafetyEditing;
+    document.querySelectorAll('.safety-edit-btn').forEach(b => { b.textContent = _foodSafetyEditing ? 'Done' : 'Edit'; });
+    renderSafeFoods();
+    renderSuspectFoods();
+    renderInflammatoryFoods();
+}
+
+function _renderSafetyChip(name, tag, editing) {
     const label = (name || '').charAt(0).toUpperCase() + (name || '').slice(1);
     const color = tag === 'safe' ? 'var(--green)' : tag === 'inflammatory' ? '#c2185b' : 'var(--orange)';
     const bg = tag === 'safe' ? 'rgba(58,158,140,0.10)' : tag === 'inflammatory' ? 'rgba(194,24,91,0.10)' : 'rgba(212,140,68,0.10)';
     const border = tag === 'safe' ? 'rgba(58,158,140,0.35)' : tag === 'inflammatory' ? 'rgba(194,24,91,0.35)' : 'rgba(212,140,68,0.35)';
-    return `<span style="display:inline-flex;align-items:center;gap:4px;padding:5px 10px;border:1px solid ${border};border-radius:14px;background:${bg};color:${color};font-size:13px;margin:3px">
+    if (!editing) {
+        return `<span style="display:inline-flex;align-items:center;padding:5px 10px;border:1px solid ${border};border-radius:14px;background:${bg};color:${color};font-size:13px;margin:3px">${esc(label)}</span>`;
+    }
+    return `<span draggable="true" ondragstart="safetyDragStart(event,'${esc(name)}','${tag}')" ondragend="safetyDragEnd(event)" style="position:relative;display:inline-flex;align-items:center;gap:4px;padding:5px 10px;border:1px solid ${border};border-radius:14px;background:${bg};color:${color};font-size:13px;margin:3px;cursor:grab">
         ${esc(label)}
-        <button onclick="setSafetyTag('${esc(name)}','')" title="Clear tag" style="background:none;border:none;color:${color};opacity:0.65;font-size:14px;cursor:pointer;line-height:1;padding:0 2px">&times;</button>
+        <button onclick="showSafetyMoveMenu(this,'${esc(name)}','${tag}')" title="Move to another list" style="background:none;border:none;color:${color};opacity:0.65;font-size:13px;cursor:pointer;line-height:1;padding:0 2px">&#8645;</button>
+        <button onclick="reTagFood('${esc(name)}','')" title="Clear tag" style="background:none;border:none;color:${color};opacity:0.65;font-size:14px;cursor:pointer;line-height:1;padding:0 2px">&times;</button>
     </span>`;
+}
+
+// Shared renderer for the Safe / Suspect / Inflammatory chip clouds.
+function _renderSafetyCloud(elId, tag, items, emptyHtml) {
+    const el = document.getElementById(elId);
+    if (!el) return;
+    const editing = _foodSafetyEditing;
+    const inner = items.length
+        ? `<div style="display:flex;flex-wrap:wrap;gap:2px;padding:6px 0">${items.map(n => _renderSafetyChip(n, tag, editing)).join('')}</div>`
+        : emptyHtml;
+    const dropAttrs = editing ? `ondragover="safetyDragOver(event)" ondragleave="safetyDragLeave(event)" ondrop="safetyDrop(event,'${tag}')"` : '';
+    el.innerHTML = `<div class="safety-cloud" data-tag="${tag}" ${dropAttrs} style="${editing ? 'min-height:38px;border:1px dashed var(--border);border-radius:8px;padding:2px 8px' : ''}">${inner}</div>`;
+}
+
+// --- Drag tagged foods between clouds (desktop) ---
+let _safetyDragName = null;
+function safetyDragStart(e, name, tag) {
+    _safetyDragName = name;
+    e.dataTransfer.effectAllowed = 'move';
+    try { e.dataTransfer.setData('text/plain', name); } catch (_) {}
+}
+function safetyDragEnd(e) {
+    _safetyDragName = null;
+    document.querySelectorAll('.safety-cloud').forEach(c => { c.style.outline = ''; });
+}
+function safetyDragOver(e) {
+    e.preventDefault();
+    e.currentTarget.style.outline = '2px dashed var(--accent)';
+    e.currentTarget.style.outlineOffset = '-2px';
+}
+function safetyDragLeave(e) {
+    e.currentTarget.style.outline = '';
+}
+function safetyDrop(e, tag) {
+    e.preventDefault();
+    e.currentTarget.style.outline = '';
+    const name = _safetyDragName || (e.dataTransfer && e.dataTransfer.getData('text/plain'));
+    if (name) reTagFood(name, tag);
+}
+
+// Move a tagged food to another list (Safe / Suspect / Inflammatory) or clear it.
+function reTagFood(name, tag) {
+    document.querySelectorAll('.safety-move-menu').forEach(m => m.remove());
+    const key = (name || '').toLowerCase();
+    fetch('/api/kitchen/safety-tag', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, tag })
+    });
+    D.kitchen_safety_tags = D.kitchen_safety_tags || {};
+    if (tag) D.kitchen_safety_tags[key] = tag;
+    else delete D.kitchen_safety_tags[key];
+    renderFoodTriage();
+    renderSafeFoods();
+    renderSuspectFoods();
+    renderInflammatoryFoods();
+}
+
+function showSafetyMoveMenu(btn, name, currentTag) {
+    document.querySelectorAll('.safety-move-menu').forEach(m => m.remove());
+    const ALL = [['safe', '✓ Safe', 'var(--green)'], ['suspect', '⚠ Suspect', 'var(--orange)'], ['inflammatory', '🔥 Inflammatory', '#c2185b']];
+    const menu = document.createElement('div');
+    menu.className = 'safety-move-menu';
+    menu.style.cssText = 'position:absolute;top:100%;left:0;margin-top:4px;z-index:50;background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:4px;box-shadow:0 4px 12px rgba(0,0,0,0.25);display:flex;flex-direction:column;gap:2px';
+    ALL.filter(([t]) => t !== currentTag).forEach(([t, lbl, color]) => {
+        const b = document.createElement('button');
+        b.textContent = lbl;
+        b.style.cssText = `text-align:left;padding:6px 12px;font-size:12px;border:none;background:none;color:${color};cursor:pointer;border-radius:4px;white-space:nowrap;font-weight:600`;
+        b.onmouseover = () => b.style.background = 'var(--border)';
+        b.onmouseout = () => b.style.background = 'none';
+        b.onclick = (e) => { e.stopPropagation(); reTagFood(name, t); };
+        menu.appendChild(b);
+    });
+    btn.closest('span').appendChild(menu);
+    setTimeout(() => {
+        const close = (e) => { if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener('click', close); } };
+        document.addEventListener('click', close);
+    }, 0);
 }
 
 // =====================================================
@@ -3557,39 +3650,27 @@ async function triageMark(name, tag) {
 }
 
 function renderSafeFoods() {
-    const el = document.getElementById('safe-foods-area');
-    if (!el) return;
     const tags = D.kitchen_safety_tags || {};
     const items = Object.entries(tags).filter(([_, t]) => t === 'safe').map(([n, _]) => n).sort();
-    if (!items.length) {
-        el.innerHTML = `<div style="color:var(--text-muted);font-size:13px;padding:8px 0;font-style:italic">No foods marked safe yet. In <b>Edit Catalog</b>, tap the ✓ on a row to mark a food confirmed-safe.</div>`;
-        return;
-    }
-    el.innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:2px;padding:6px 0">${items.map(n => _renderSafetyChip(n, 'safe')).join('')}</div>`;
+    _renderSafetyCloud('safe-foods-area', 'safe',
+        items,
+        `<div style="color:var(--text-muted);font-size:13px;padding:8px 0;font-style:italic">No foods marked safe yet. Triage a food as ✓ Safe, or drag one here in Edit.</div>`);
 }
 
 function renderSuspectFoods() {
-    const el = document.getElementById('suspect-foods-area');
-    if (!el) return;
     const tags = D.kitchen_safety_tags || {};
     const items = Object.entries(tags).filter(([_, t]) => t === 'suspect').map(([n, _]) => n).sort();
-    if (!items.length) {
-        el.innerHTML = `<div style="color:var(--text-muted);font-size:13px;padding:8px 0;font-style:italic">No suspect foods flagged. In <b>Edit Catalog</b>, tap the ⚠ on a row when you spot a possible trigger.</div>`;
-        return;
-    }
-    el.innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:2px;padding:6px 0">${items.map(n => _renderSafetyChip(n, 'suspect')).join('')}</div>`;
+    _renderSafetyCloud('suspect-foods-area', 'suspect',
+        items,
+        `<div style="color:var(--text-muted);font-size:13px;padding:8px 0;font-style:italic">No suspect foods flagged. Triage a food as ⚠ Suspect, or drag one here in Edit.</div>`);
 }
 
 function renderInflammatoryFoods() {
-    const el = document.getElementById('inflammatory-foods-area');
-    if (!el) return;
     const tags = D.kitchen_safety_tags || {};
     const items = Object.entries(tags).filter(([_, t]) => t === 'inflammatory').map(([n, _]) => n).sort();
-    if (!items.length) {
-        el.innerHTML = `<div style="color:var(--text-muted);font-size:13px;padding:8px 0;font-style:italic">No inflammatory foods flagged. Tap <b style="color:#c2185b">🔥 Inflammatory</b> in Triage foods to flag a known trigger.</div>`;
-        return;
-    }
-    el.innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:2px;padding:6px 0">${items.map(n => _renderSafetyChip(n, 'inflammatory')).join('')}</div>`;
+    _renderSafetyCloud('inflammatory-foods-area', 'inflammatory',
+        items,
+        `<div style="color:var(--text-muted);font-size:13px;padding:8px 0;font-style:italic">No inflammatory foods flagged. Triage a food as 🔥 Inflammatory, or drag one here in Edit.</div>`);
 }
 
 async function setSafetyTag(name, tag) {

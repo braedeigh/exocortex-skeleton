@@ -142,6 +142,22 @@ def register(app):
         store.write("contacts.json", cdata)
         return jsonify({"ok": True})
 
+    @app.route("/api/contacts/reorder", methods=["POST"])
+    def reorder_contacts():
+        """Reorder the contacts list to match the given list of names."""
+        data = request.json or {}
+        order = data.get("order")
+        if not isinstance(order, list):
+            return jsonify({"error": "order list required"}), 400
+        cdata = store.read("contacts.json")
+        by_name = {c["name"]: c for c in cdata.get("contacts", [])}
+        reordered = [by_name[n] for n in order if n in by_name]
+        # Keep any contacts not mentioned in `order` (appended in original order)
+        reordered += [c for c in cdata.get("contacts", []) if c["name"] not in set(order)]
+        cdata["contacts"] = reordered
+        store.write("contacts.json", cdata)
+        return jsonify({"ok": True})
+
     @app.route("/api/contacts/remove", methods=["POST"])
     def remove_contact():
         data = request.json

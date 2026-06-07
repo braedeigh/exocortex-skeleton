@@ -1,6 +1,14 @@
 // activity.js — activity calendar, run tracker
 
 let _selectedActivityDate = null;
+let _activityMonthOffset = 0;   // 0 = current month, -1 = last month, etc.
+
+function activityMonthNav(delta) {
+    const next = _activityMonthOffset + delta;
+    if (next > 0) return;       // don't navigate into future months
+    _activityMonthOffset = next;
+    renderActivityCalendar();
+}
 
 function selectActivityDate(dateStr) {
     _selectedActivityDate = (dateStr === _selectedActivityDate || dateStr === todayStr()) ? null : dateStr;
@@ -26,10 +34,11 @@ function renderActivityCalendar() {
     (D.kitchen_trips || []).forEach(t => addEntry(t.date, 'kitchen'));
     (D.activity_log || []).forEach(e => addEntry(e.date, e.type));
 
-    // Build month grid
+    // Build month grid (offset lets you page back through months)
     const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth();
+    const base = new Date(now.getFullYear(), now.getMonth() + _activityMonthOffset, 1);
+    const year = base.getFullYear();
+    const month = base.getMonth();
     const firstDay = new Date(year, month, 1);
     const lastDay = new Date(year, month + 1, 0);
     const startDow = (firstDay.getDay() + 6) % 7; // Mon=0
@@ -37,7 +46,12 @@ function renderActivityCalendar() {
     const today = todayStr();
     const monthLabel = firstDay.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
-    let html = `<div class="section-title">${monthLabel}</div>`;
+    const navBtn = 'background:none;border:1px solid var(--border);border-radius:6px;color:var(--text-muted);cursor:pointer;font-size:14px;line-height:1;padding:2px 9px';
+    let html = `<div class="section-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <button onclick="activityMonthNav(-1)" title="Previous month" style="${navBtn}">&#8249;</button>
+        <span>${monthLabel}</span>
+        <button onclick="activityMonthNav(1)" title="Next month" style="${navBtn}${_activityMonthOffset >= 0 ? 'visibility:hidden' : ''}">&#8250;</button>
+    </div>`;
     html += '<div class="activity-cal"><table><thead><tr>';
     ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].forEach(d => { html += `<th>${d}</th>`; });
     html += '</tr></thead><tbody><tr>';
@@ -50,10 +64,11 @@ function renderActivityCalendar() {
         const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
         const isToday = dateStr === today;
         const isFuture = dateStr > today;
+        const isPast = dateStr < today;
         const entries = dateMap[dateStr] || [];
         const isSelected = _selectedActivityDate ? dateStr === _selectedActivityDate : isToday;
         const selStyle = isSelected ? 'outline:2px solid var(--orange);outline-offset:-2px;border-radius:4px;' : '';
-        const clickable = !isFuture ? `onclick="selectActivityDate('${dateStr}')" style="cursor:pointer;${selStyle}${isFuture ? 'opacity:0.4;' : ''}"` : `style="opacity:0.4;${selStyle}"`;
+        const clickable = !isFuture ? `onclick="selectActivityDate('${dateStr}')" style="cursor:pointer;${selStyle}${isPast ? 'opacity:0.78;' : ''}"` : `style="opacity:0.4;${selStyle}"`;
         html += `<td class="${isToday ? 'today' : ''}" ${clickable}>`;
         html += `<div class="cal-day">${day}</div>`;
         if (entries.length) {

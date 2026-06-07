@@ -75,9 +75,67 @@ function toggleExpandAll() {
 function toggleMapCollapse() {
     const sections = document.querySelectorAll('#tab-map details.map-section');
     const anyOpen = Array.from(sections).some(d => d.open);
-    sections.forEach(d => { d.open = !anyOpen; });
+    sections.forEach(d => { d.open = !anyOpen; if (d.open) mapCardToggled(d); });
     const btn = document.getElementById('map-collapse-btn');
     if (btn) btn.textContent = anyOpen ? 'Expand all' : 'Collapse all';
+}
+
+// When a Map card opens/closes: remember the state (so cards stay how you leave
+// them), and snap any horizontal trackers to the right edge on open.
+function mapCardToggled(d) {
+    if (!d) return;
+    if (d.dataset.card) {
+        try { localStorage.setItem('mapCardOpen:' + d.dataset.card, d.open ? '1' : '0'); } catch (e) {}
+    }
+    if (!d.open) return;
+    requestAnimationFrame(() => {
+        d.querySelectorAll('.dot-grid, .contact-calendar').forEach(g => { g.scrollLeft = g.scrollWidth; });
+    });
+}
+
+// --- Generic editor modal (habit edit / manage reminders / manage contacts) ---
+function showEditorModal(title, html) {
+    const m = document.getElementById('panel-modal');
+    if (!m) return;
+    document.getElementById('panel-modal-title').textContent = title;
+    document.getElementById('panel-modal-body').innerHTML = html;
+    m.classList.add('open');
+}
+function hideEditorModal() {
+    const m = document.getElementById('panel-modal');
+    if (m) m.classList.remove('open');
+}
+// Close whichever editor is open (the modal's × button).
+function closeActiveEditor() {
+    hideEditorModal();
+    if (typeof _habitTrackerEditing !== 'undefined' && _habitTrackerEditing) {
+        _habitTrackerEditing = false;
+        document.querySelectorAll('.habit-edit-btn').forEach(b => { b.textContent = 'Edit'; });
+        renderHabitTracker();
+    }
+    if (window._remMgrOpen) {
+        window._remMgrOpen = false; window._remindersDraft = null;
+        if (typeof renderReminderManager === 'function') renderReminderManager();
+    }
+    if (window._contactsManageOpen) {
+        window._contactsManageOpen = false;
+        if (typeof renderContacts === 'function') renderContacts();
+    }
+}
+
+// Restore each Map card's saved open/closed state on load.
+function restoreMapCards() {
+    document.querySelectorAll('#tab-map details.map-section[data-card]').forEach(d => {
+        let v = null;
+        try { v = localStorage.getItem('mapCardOpen:' + d.dataset.card); } catch (e) {}
+        if (v === '1') d.open = true;
+        else if (v === '0') d.open = false;
+    });
+}
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', restoreMapCards);
+} else {
+    restoreMapCards();
 }
 
 // --- App banner (loading / error states) ---

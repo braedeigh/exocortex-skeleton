@@ -127,6 +127,7 @@ function renderHabits() {
 
 // --- Habit Tracker ---
 let _habitTrackerEditing = false;
+let _buildingNextEditing = false;
 
 function renderHabitTracker() {
     const el = document.getElementById('habit-tracker');
@@ -178,7 +179,7 @@ function renderHabitTracker() {
         const total = habitCount(habit);
         const maxLen = 30;
         const shortName = habit.length > maxLen ? habit.slice(0, maxLen) + '...' : habit;
-        let row = `<tr><td class="metric-label">${esc(shortName)}<span style="font-size:10px;color:var(--text-muted);margin-left:6px">${total}/60</span></td>`;
+        let row = `<tr><td class="metric-label">${esc(shortName)}<span style="font-size:10px;color:var(--text-muted);margin-left:6px">${habitStartLabel(habit)}${total}/60</span></td>`;
         days.forEach(d => {
             const hit = log[d] && log[d][habit];
             const color = hit ? accentColor : '#2a2a4a';
@@ -192,51 +193,57 @@ function renderHabitTracker() {
         return row;
     }
 
-    let html = `<div style="display:flex;align-items:center;justify-content:flex-end;margin-bottom:4px">
-        <button onclick="toggleHabitTrackerEdit()" style="font-size:12px;background:none;border:1px solid var(--border);border-radius:6px;padding:4px 12px;cursor:pointer;color:var(--text-muted)">${_habitTrackerEditing ? 'Done' : 'Edit'}</button>
-    </div>`;
+    // Top Edit button now lives on the card's title line (see index.html);
+    // a second one is rendered below the habits.
+    let html = '';
 
-    // Edit panel — show/hide, rename, reorder
-    if (_habitTrackerEditing) {
-        html += '<div style="background:var(--card-bg);border-radius:8px;padding:12px 16px;margin-bottom:12px;border:1px solid var(--border)">';
-        html += '<div style="font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:8px">Edit habits — drag to reorder, click name to rename</div>';
-        // Find actual section names from D.habits
-        const sectionNames = {};
-        for (const section of D.habits) {
-            const n = section.name.toLowerCase();
-            if (n === 'morning') sectionNames.morning = section.name;
-            else if (n === 'midday') sectionNames.midday = section.name;
-            else if (n === 'night' || n === 'evening / night') sectionNames.night = section.name;
-        }
-        function editSection(title, color, habits, sectionName) {
-            let s = `<div style="font-size:12px;font-weight:600;color:${color};margin-top:8px;margin-bottom:4px">${title}</div>`;
-            s += `<div class="tracker-edit-list" data-section="${esc(sectionName)}">`;
-            habits.forEach((h, idx) => {
-                const isHidden = hidden.includes(h);
-                s += `<div class="tracker-edit-item" draggable="true" data-section="${esc(sectionName)}" data-idx="${idx}" data-habit="${esc(h)}"
-                      ondragstart="trackerDragStart(event)" ondragover="trackerDragOver(event)" ondrop="trackerDrop(event)" ondragend="trackerDragEnd(event)" ondragleave="trackerDragLeave(event)"
-                      style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:13px;color:${isHidden ? 'var(--text-muted)' : 'var(--text)'}">
-                    <span class="drag-handle" style="cursor:grab;color:var(--text-muted);font-size:14px;user-select:none">&#8942;&#8942;</span>
-                    <input type="checkbox" ${isHidden ? '' : 'checked'} onchange="toggleHabitVisibility('${escJs(h)}', this.checked)" style="width:16px;height:16px;cursor:pointer;flex-shrink:0">
-                    <span class="tracker-edit-name" onclick="startTrackerRename(this, '${escJs(h)}', '${escJs(sectionName)}')" style="cursor:text;flex:1;${isHidden ? 'text-decoration:line-through;opacity:0.5' : ''}" title="Click to rename">${esc(h)}</span>
-                    <button onclick="showTrackerMoveMenu(this, '${escJs(h)}', '${escJs(sectionName)}', [${Object.values(sectionNames).map(s => `'${escJs(s)}'`).join(',')}])" style="background:none;border:1px solid var(--border);border-radius:4px;color:var(--text-muted);cursor:pointer;font-size:11px;padding:2px 6px" title="Move to section">&#8595;</button>
-                    <button onclick="confirmDelete('${escJs(h)}','habit')" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;padding:0 4px" title="Remove">&times;</button>
-                </div>`;
-            });
-            s += '</div>';
-            const addId = `add-tracker-habit-${sectionName.replace(/\s+/g,'-').replace(/[^a-zA-Z0-9_-]/g,'')}`;
-            s += `<div class="add-trigger" style="font-size:12px;color:var(--text-muted);cursor:pointer;padding:4px 0 6px;margin-left:24px" onclick="toggleAdd('${addId}')">+ Add habit</div>
-                <div class="add-form" id="${addId}" style="margin-left:24px">
-                    <input type="text" placeholder="New habit..." onkeydown="if(event.key==='Enter')addItem('habit','${escJs(sectionName)}',this)">
-                    <button onclick="addItem('habit','${escJs(sectionName)}',this.previousElementSibling)">Add</button>
-                </div>`;
-            return s;
-        }
-        html += editSection('Morning', 'var(--morning)', allMorning, sectionNames.morning || 'Morning');
-        html += editSection('Midday', 'var(--ongoing)', allMidday, sectionNames.midday || 'Midday');
-        html += editSection('Evening', 'var(--evening)', allNight, sectionNames.night || 'Evening / Night');
-        html += '</div>';
+    // --- Shared inline editor (used by the daily-habits panel AND Building next) ---
+    // Find actual section names from D.habits
+    const sectionNames = {};
+    for (const section of D.habits) {
+        const n = section.name.toLowerCase();
+        if (n === 'morning') sectionNames.morning = section.name;
+        else if (n === 'midday') sectionNames.midday = section.name;
+        else if (n === 'night' || n === 'evening / night') sectionNames.night = section.name;
     }
+    const weeklySections = D.habits.filter(s => ['weekly', 'recurring', 'trying to add'].includes(s.name.toLowerCase()));
+    // Every section a habit can be moved into (drives the move-to-section menu).
+    const moveTargets = [sectionNames.morning || 'Morning', sectionNames.midday || 'Midday',
+        sectionNames.night || 'Evening / Night', ...weeklySections.map(s => s.name)];
+    const moveTargetsJs = '[' + moveTargets.map(s => `'${escJs(s)}'`).join(',') + ']';
+    function editSection(title, color, habits, sectionName) {
+        let s = title ? `<div style="font-size:12px;font-weight:600;color:${color};margin-top:8px;margin-bottom:4px">${title}</div>` : '';
+        s += `<div class="tracker-edit-list" data-section="${esc(sectionName)}">`;
+        habits.forEach((h, idx) => {
+            const isHidden = hidden.includes(h);
+            const btn = 'background:none;border:1px solid var(--border);border-radius:4px;color:var(--text-muted);cursor:pointer;font-size:11px;padding:2px 6px;flex-shrink:0';
+            s += `<div class="tracker-edit-item" draggable="true" data-section="${esc(sectionName)}" data-idx="${idx}" data-habit="${esc(h)}"
+                  ondragstart="trackerDragStart(event)" ondragover="trackerDragOver(event)" ondrop="trackerDrop(event)" ondragend="trackerDragEnd(event)" ondragleave="trackerDragLeave(event)"
+                  style="display:flex;align-items:center;gap:6px;padding:5px 0;font-size:13px;color:${isHidden ? 'var(--text-muted)' : 'var(--text)'}">
+                <span class="drag-handle" style="cursor:grab;color:var(--text-muted);font-size:14px;user-select:none">&#8942;&#8942;</span>
+                <input type="checkbox" ${isHidden ? '' : 'checked'} onchange="toggleHabitVisibility('${escJs(h)}', this.checked)" style="width:16px;height:16px;cursor:pointer;flex-shrink:0">
+                <span class="tracker-edit-name" onclick="startTrackerRename(this, '${escJs(h)}', '${escJs(sectionName)}')" style="cursor:text;flex:1;min-width:0;${isHidden ? 'text-decoration:line-through;opacity:0.5' : ''}" title="Click to rename">${esc(h)}</span>
+                <button onclick="moveHabitInSection('${escJs(sectionName)}','${escJs(h)}',-1)" style="${btn}" title="Move up">&#9650;</button>
+                <button onclick="moveHabitInSection('${escJs(sectionName)}','${escJs(h)}',1)" style="${btn}" title="Move down">&#9660;</button>
+                <button onclick="showTrackerMoveMenu(this, '${escJs(h)}', '${escJs(sectionName)}', ${moveTargetsJs})" style="${btn}" title="Move to section">&#8596;</button>
+                <button onclick="confirmDelete('${escJs(h)}','habit')" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;padding:0 4px;flex-shrink:0" title="Remove">&times;</button>
+            </div>`;
+        });
+        s += '</div>';
+        const addId = `add-tracker-habit-${sectionName.replace(/\s+/g,'-').replace(/[^a-zA-Z0-9_-]/g,'')}`;
+        s += `<div class="add-trigger" style="font-size:12px;color:var(--text-muted);cursor:pointer;padding:4px 0 6px;margin-left:24px" onclick="toggleAdd('${addId}')">+ Add habit</div>
+            <div class="add-form" id="${addId}" style="margin-left:24px">
+                <input type="text" placeholder="New habit..." onkeydown="if(event.key==='Enter')addItem('habit','${escJs(sectionName)}',this)">
+                <button onclick="addItem('habit','${escJs(sectionName)}',this.previousElementSibling)">Add</button>
+            </div>`;
+        return s;
+    }
+
+    // Daily-habits edit panel — rendered into the editor modal (see end of fn).
+    let editPanelHtml = '<div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">Drag to reorder, click a name to rename.</div>';
+    editPanelHtml += editSection('Morning', 'var(--morning)', allMorning, sectionNames.morning || 'Morning');
+    editPanelHtml += editSection('Midday', 'var(--ongoing)', allMidday, sectionNames.midday || 'Midday');
+    editPanelHtml += editSection('Evening', 'var(--evening)', allNight, sectionNames.night || 'Evening / Night');
 
     const symCount = D.health_data.filter(d => d.energy !== null).length;
 
@@ -271,12 +278,41 @@ function renderHabitTracker() {
         html += `<div style="font-size:12px;color:var(--text-muted);margin-top:4px">${hiddenCount} habit${hiddenCount !== 1 ? 's' : ''} hidden</div>`;
     }
 
-    // Weekly goals collapsed
-    if (weeklyGoals.length) {
-        html += `<details style="margin-top:12px"><summary style="font-size:13px;font-weight:600;cursor:pointer;color:var(--text-muted)">Building next (${weeklyGoals.length})</summary>
-            <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:8px">
+    // (Edit lives on the card's title line — see index.html.)
+
+    // Building next — collapsible, with its own Edit toggle
+    if (weeklySections.length || weeklyGoals.length) {
+        const editBtn = `<button onclick="event.preventDefault();event.stopPropagation();toggleBuildingNextEdit()" style="float:right;font-size:11px;background:none;border:1px solid var(--border);border-radius:6px;padding:2px 10px;cursor:pointer;color:var(--text-muted)">${_buildingNextEditing ? 'Done' : 'Edit'}</button>`;
+        html += `<details style="margin-top:12px" ${_buildingNextEditing ? 'open' : ''}>
+            <summary style="font-size:13px;font-weight:600;cursor:pointer;color:var(--text-muted)">Building next (${weeklyGoals.length})${editBtn}</summary>
+            <div style="margin-top:8px">`;
+        if (_buildingNextEditing) {
+            const routineTargetsJs = '[' + [sectionNames.morning || 'Morning', sectionNames.midday || 'Midday', sectionNames.night || 'Evening / Night'].map(s => `'${escJs(s)}'`).join(',') + ']';
+            html += '<div style="background:var(--card-bg);border-radius:8px;padding:10px 14px;border:1px solid var(--border)">';
+            html += '<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">Habits you want to build. Add them here, then “Add to routine” when you’re ready to start.</div>';
+            weeklySections.forEach(sec => {
+                const btn = 'background:none;border:1px solid var(--border);border-radius:5px;color:var(--text-muted);cursor:pointer;font-size:11px;padding:3px 8px;flex-shrink:0';
+                sec.items.forEach(h => {
+                    html += `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:13px">
+                        <span class="tracker-edit-name" onclick="startTrackerRename(this, '${escJs(h)}', '${escJs(sec.name)}')" style="cursor:text;flex:1;min-width:0" title="Click to edit wording">${esc(h)}</span>
+                        <button onclick="showTrackerMoveMenu(this,'${escJs(h)}','${escJs(sec.name)}',${routineTargetsJs})" style="${btn}" title="Move into a daily routine">Add to routine &#9662;</button>
+                        <button onclick="confirmDelete('${escJs(h)}','habit')" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;padding:0 4px;flex-shrink:0" title="Remove">&times;</button>
+                    </div>`;
+                });
+                const addId = `add-bn-${sec.name.replace(/\s+/g,'-').replace(/[^a-zA-Z0-9_-]/g,'')}`;
+                html += `<div class="add-trigger" style="font-size:12px;color:var(--text-muted);cursor:pointer;padding:6px 0 2px" onclick="toggleAdd('${addId}')">+ Add a habit to build</div>
+                    <div class="add-form" id="${addId}">
+                        <input type="text" placeholder="New habit to build toward..." onkeydown="if(event.key==='Enter')addItem('habit','${escJs(sec.name)}',this)">
+                        <button onclick="addItem('habit','${escJs(sec.name)}',this.previousElementSibling)">Add</button>
+                    </div>`;
+            });
+            html += '</div>';
+        } else {
+            html += `<div style="display:flex;flex-wrap:wrap;gap:8px">
                 ${weeklyGoals.map(g => `<span style="padding:5px 12px;background:var(--card-bg);border-left:3px solid var(--todo-1);border-radius:6px;font-size:13px;color:var(--text-secondary)">${esc(g)}</span>`).join('')}
-            </div></details>`;
+            </div>`;
+        }
+        html += `</div></details>`;
     }
 
     el.innerHTML = html;
@@ -285,11 +321,41 @@ function renderHabitTracker() {
     el.querySelectorAll('.dot-grid').forEach(g => {
         g.scrollLeft = g.scrollWidth;
     });
+
+    // The edit panel lives in the shared editor modal.
+    if (_habitTrackerEditing) showEditorModal('Edit habits', editPanelHtml);
+    document.querySelectorAll('.habit-edit-btn').forEach(b => { b.textContent = _habitTrackerEditing ? 'Done' : 'Edit'; });
 }
 
 function toggleHabitTrackerEdit() {
     _habitTrackerEditing = !_habitTrackerEditing;
+    if (_habitTrackerEditing) { window._remMgrOpen = false; window._contactsManageOpen = false; }
+    else hideEditorModal();
     renderHabitTracker();
+}
+
+function toggleBuildingNextEdit() {
+    _buildingNextEditing = !_buildingNextEditing;
+    renderHabitTracker();
+}
+
+// Move a habit up/down within its section (dir = -1 up, +1 down). Button-based
+// reorder for touch/PWA where drag is awkward.
+async function moveHabitInSection(section, habit, dir) {
+    const sec = (D.habits || []).find(s => s.name === section);
+    if (!sec) return;
+    const items = [...sec.items];
+    const i = items.indexOf(habit);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= items.length) return;
+    [items[i], items[j]] = [items[j], items[i]];
+    sec.items = items;            // optimistic local update
+    renderHabitTracker();
+    await fetch('/api/habits/reorder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ section, items })
+    });
 }
 
 async function toggleHabitVisibility(habit, visible) {

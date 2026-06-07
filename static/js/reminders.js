@@ -184,14 +184,14 @@ function companionNo() {
 // Edits a working draft; "Save" commits the whole registry at once.
 // =========================================================================
 function renderReminderManager() {
+    // The trigger now lives on the Activity card title line; the panel opens in
+    // the shared editor modal.
     const el = document.getElementById('reminder-manager');
-    if (!el) return;
+    if (el) el.innerHTML = '';
+    if (window._remMgrOpen) showEditorModal('Manage reminders', reminderManagerPanelHtml());
+}
 
-    if (!window._remMgrOpen) {
-        el.innerHTML = `<button onclick="toggleReminderManager()" style="background:none;border:1px solid var(--border);color:var(--text-muted);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:13px">&#9881; Manage reminders</button>`;
-        return;
-    }
-
+function reminderManagerPanelHtml() {
     // Seed the draft from live data the first time the panel opens (or after a save).
     if (!window._remindersDraft) {
         window._remindersDraft = _reminderList().map(r => ({
@@ -205,12 +205,7 @@ function renderReminderManager() {
 
     const numInp = 'padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px;box-sizing:border-box;width:52px;text-align:center';
 
-    let html = `<div style="border:1px solid var(--border);border-radius:10px;padding:14px;background:var(--bg-card)">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-            <b style="font-size:15px;color:var(--text)">Recurring reminders</b>
-            <button onclick="toggleReminderManager()" style="background:none;border:none;color:var(--text-muted);font-size:20px;cursor:pointer;line-height:1">&times;</button>
-        </div>
-        <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">
+    let html = `<div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">
             These drive the calendar dots, the quick-log buttons above, and the pops on your To-Do page.
             <b>tap-to-log</b> pops when due · <b>countdown</b> always shows time left · <b>track</b> just logs (no pop).
         </div>`;
@@ -228,8 +223,7 @@ function renderReminderManager() {
     html += `<div id="reminder-manager-rows">${_remDraftRowsHtml(numInp)}</div>`;
     html += `<button onclick="_remAdd()" style="padding:7px 14px;border-radius:6px;border:1px dashed var(--border);background:none;color:var(--text-muted);cursor:pointer;font-size:13px;margin-top:4px">+ Add reminder</button>`;
     html += `<div style="margin-top:14px">${actions}</div>`;
-    html += `</div>`;
-    el.innerHTML = html;
+    return html;
 }
 
 function _remEstradiolRow(numInp) {
@@ -325,12 +319,22 @@ function _remRerenderRows() {
 function toggleReminderManager() {
     window._remMgrOpen = !window._remMgrOpen;
     window._remindersDraft = null;  // re-seed from live data on next open
+    if (window._remMgrOpen) {
+        // Only one editor modal at a time.
+        if (typeof _habitTrackerEditing !== 'undefined') _habitTrackerEditing = false;
+        window._contactsManageOpen = false;
+        if (typeof renderHabitTracker === 'function') renderHabitTracker();
+        if (typeof renderContacts === 'function') renderContacts();
+    } else {
+        hideEditorModal();
+    }
     renderReminderManager();
 }
 
 function _remCancel() {
     window._remMgrOpen = false;
     window._remindersDraft = null;
+    hideEditorModal();
     renderReminderManager();
 }
 
@@ -414,8 +418,9 @@ async function saveReminders() {
         body: JSON.stringify({ reminders: rows }),
     });
     if (res.ok) {
-        window._remMgrOpen = false;     // leave edit mode, collapse back to the button
+        window._remMgrOpen = false;     // leave edit mode
         window._remindersDraft = null;  // re-seed from fresh data on next open
+        hideEditorModal();
         await loadDashboard();
     } else {
         alert('Save failed.');
