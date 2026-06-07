@@ -49,9 +49,13 @@
             markDirty();
         });
         document.getElementById('saveBtn').addEventListener('click', save);
-        document.getElementById('devNoteAdd').addEventListener('click', addDevNote);
+        document.getElementById('devNoteAdd').addEventListener('click', () => addDevNote('devNoteInput'));
         document.getElementById('devNoteInput').addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') addDevNote();
+            if (e.key === 'Enter') addDevNote('devNoteInput');
+        });
+        document.getElementById('devNoteAddBottom').addEventListener('click', () => addDevNote('devNoteInputBottom'));
+        document.getElementById('devNoteInputBottom').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') addDevNote('devNoteInputBottom');
         });
         const pwBtn = document.getElementById('pwChangeBtn');
         if (pwBtn) pwBtn.addEventListener('click', changePassword);
@@ -379,15 +383,21 @@
         });
     }
 
-    async function addDevNote() {
-        const inp = document.getElementById('devNoteInput');
+    async function addDevNote(inputId) {
+        const inp = document.getElementById(inputId || 'devNoteInput');
+        if (!inp) return;
         const text = inp.value.trim();
         if (!text) return;
         const r = await fetch('/api/devnote/add', {
             method: 'POST', headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({ tab: 'global', text }),
         });
-        if (r.ok) { inp.value = ''; renderDevNotes(); }
+        if (r.ok) {
+            inp.value = '';
+            const other = document.getElementById(inputId === 'devNoteInputBottom' ? 'devNoteInput' : 'devNoteInputBottom');
+            if (other) other.value = '';
+            renderDevNotes();
+        }
     }
 
     async function changePassword() {

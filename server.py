@@ -546,7 +546,8 @@ FOOD_GUIDE = {
     "safe": ["chicken", "white rice", "kale", "sweet potato", "carrots", "parsnips",
               "zucchini", "cucumber", "tahini", "rice cakes", "salad"],
     "hurts": ["chocolate covered coconut", "soy sauce", "olives", "pickled okra"],
-    "unsure": ["sunflower seeds", "pumpkin seeds", "sweet potato chips"]
+    "unsure": ["sunflower seeds", "pumpkin seeds", "sweet potato chips"],
+    "inflammatory": []
 }
 
 
@@ -851,6 +852,7 @@ def get_data_body():
     # Food experiments (elimination diet pacing)
     data["food_tests"] = store.read("food_tests.json", {}).get("tests", [])
     data["food_test_queue"] = store.read("test_queue.json", {}).get("queue", [])
+    data["symptom_definitions"] = store.read("symptom_definitions.json", {})
     data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("body", [])
     return jsonify(filter_for_view(data, request.view_mode))
   except Exception as e:

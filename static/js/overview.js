@@ -25,7 +25,7 @@ function renderDotGrid() {
         { name: 'Energy', fn: (d, i) => {
             if (d.energy == null) return [gray, 'No data'];
             return [{0:'var(--red)',1:'var(--orange)',2:'var(--yellow)',3:'var(--green)'}[d.energy]||gray,
-                    {0:'Crashed',1:'Low',2:'Okay',3:'Great'}[d.energy]||''];
+                    symptomTip('energy', d.energy)];
         }},
         ...['Nose','Brain Fog','Abdomen','Hands','Headache'].map(name => {
             const col = {Nose:'nose_congestion','Brain Fog':'brain_fog',Abdomen:'abdominal_pain',Hands:'hand_pain',Headache:'headache'}[name];
@@ -33,7 +33,7 @@ function renderDotGrid() {
                 const v = d[col];
                 if (v == null) return [gray, 'No data'];
                 return [{0:'var(--green)',1:'var(--yellow)',2:'var(--orange)',3:'var(--red)'}[v]||gray,
-                        {0:'None',1:'Mild',2:'Moderate',3:'Bad'}[v]||''];
+                        symptomTip(col, v)];
             }};
         }),
         { name: 'Nasal spray', toggle: true, fn: (d, i) => {
@@ -67,8 +67,10 @@ function renderDotGrid() {
 
     el.innerHTML = html;
 
-    // Auto-scroll to most recent
+    // Auto-scroll to most recent (right edge). Do it now and again next frame,
+    // since scrollWidth isn't final until layout settles.
     el.scrollLeft = el.scrollWidth;
+    requestAnimationFrame(() => { el.scrollLeft = el.scrollWidth; });
 
     // Render key to the right
     const keyEl = document.getElementById('dot-grid-key');
@@ -139,33 +141,98 @@ function selectGridCell(col, dateStr, row) {
         table.querySelectorAll(`td[data-col="${gridSelectedCol}"]`).forEach(td => td.classList.add('col-highlight'));
     }
 
-    // Show diet detail
-    const el = document.getElementById('diet-detail');
-    if (gridSelectedCol === null) { el.innerHTML = ''; return; }
+    if (gridSelectedCol === null) { closeDayEditor(); return; }
+    openDayEditor(dateStr);
+}
 
-    const data = D.health_data;
-    const idx = data.findIndex(d => d.date === dateStr);
-    if (idx === -1) { el.innerHTML = ''; return; }
+// --- Day editor: edit a past day's symptoms + food from the grid ---
+const SYM_FIELDS = [
+    ['energy', 'Energy'], ['nose_congestion', 'Nose Congestion'], ['brain_fog', 'Brain Fog'],
+    ['abdominal_pain', 'Abdominal Pain'], ['hand_pain', 'Hand Pain'], ['headache', 'Headache'],
+];
+let _daySel = {};
 
-    const start = Math.max(0, idx - 3);
-    const slice = data.slice(start, idx + 1).reverse();
+function closeDayEditor() {
+    const el = document.getElementById('symptom-editor');
+    if (el) el.innerHTML = '';
+}
 
-    let html = '<div style="margin-top:12px;padding:12px 16px;background:var(--card-bg);border-radius:8px;border-left:4px solid var(--ongoing);box-shadow:0 1px 3px rgba(0,0,0,0.06)">';
-    slice.forEach(d => {
-        const foods = d.food_notes ? d.food_notes.split(';').map(f => f.trim()).filter(Boolean) : [];
-        const label = new Date(d.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-        const isSel = d.date === dateStr;
-        html += `<div style="margin-bottom:8px;${isSel ? 'font-weight:600' : 'opacity:0.7'}">`;
-        html += `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:2px">${label}</div>`;
-        if (foods.length) {
-            html += `<div style="font-size:14px;color:var(--text)">${foods.join('; ')}</div>`;
-        } else {
-            html += `<div style="font-size:14px;color:var(--text-muted);font-style:italic">No food logged</div>`;
-        }
-        html += '</div>';
+function openDayEditor(dateStr) {
+    const el = document.getElementById('symptom-editor');
+    if (!el) return;
+    const day = (D.health_data || []).find(d => d.date === dateStr);
+    if (!day) { el.innerHTML = ''; return; }
+
+    // Seed selections from existing values so unchanged fields persist on save.
+    _daySel = {};
+    SYM_FIELDS.forEach(([col]) => { _daySel[col] = day[col]; });
+
+    const label = new Date(dateStr + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+
+    const btnGroup = (col) => {
+        const extra = col === 'energy' ? ' energy' : '';
+        return [0,1,2,3].map(v =>
+            `<button type="button" class="sym-btn${extra}${day[col] === v ? ' selected' : ''}" data-col="${col}" data-val="${v}" title="${esc(symptomTip(col, v))}" onclick="pickDaySymptom('${col}',${v},this)">${v}</button>`
+        ).join('');
+    };
+
+    el.innerHTML = `<div class="symptom-form" style="margin-top:14px;border-left:4px solid var(--ongoing)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+            <h3 style="color:var(--ongoing);margin:0">Edit ${label}</h3>
+            <button onclick="closeDayEditor()" title="Close" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:18px">&times;</button>
+        </div>
+        <div class="sym-key" style="margin-bottom:6px">
+            <span><span class="sk" style="background:var(--green)"></span> 0 None</span>
+            <span><span class="sk" style="background:var(--yellow)"></span> 1 Mild</span>
+            <span><span class="sk" style="background:var(--orange)"></span> 2 Moderate</span>
+            <span><span class="sk" style="background:var(--red)"></span> 3 Bad</span>
+        </div>
+        <div class="sym-key" style="margin-bottom:14px">
+            <span style="font-style:italic;color:var(--text-muted)">Energy: 0 Crashed &middot; 1 Low &middot; 2 Okay &middot; 3 Great</span>
+        </div>
+        <div class="symptom-grid">
+            ${SYM_FIELDS.map(([col, lbl]) =>
+                `<div class="symptom-field"><label>${lbl}</label>
+                <div class="sym-btn-group" id="day-sym-${col}">${btnGroup(col)}</div></div>`
+            ).join('')}
+        </div>
+        <div style="margin:12px 0;display:flex;align-items:center;gap:8px">
+            <label style="font-size:14px;font-weight:600;color:var(--text-secondary);cursor:pointer;display:flex;align-items:center;gap:8px">
+                <input type="checkbox" id="day-nose-spray" ${day.nose_spray ? 'checked' : ''} style="width:18px;height:18px;cursor:pointer"> Nose spray used?
+            </label>
+        </div>
+        <div style="margin-bottom:12px">
+            <label style="font-size:13px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px">Food this day</label>
+            <textarea id="day-food" placeholder="Foods, separated by ; " style="width:100%;box-sizing:border-box;min-height:60px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;font-family:inherit;background:var(--bg);color:var(--text);resize:vertical">${esc(day.food_notes || '')}</textarea>
+        </div>
+        <button class="submit-btn" onclick="saveDayEditor('${dateStr}')">Save ${label}</button>
+    </div>`;
+    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function pickDaySymptom(col, val, btn) {
+    _daySel[col] = val;
+    btn.parentElement.querySelectorAll('.sym-btn').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+}
+
+async function saveDayEditor(dateStr) {
+    const symptoms = {};
+    SYM_FIELDS.forEach(([col]) => {
+        if (_daySel[col] !== null && _daySel[col] !== undefined) symptoms[col] = _daySel[col];
     });
-    html += '</div>';
-    el.innerHTML = html;
+    symptoms['nose_spray'] = document.getElementById('day-nose-spray')?.checked ? 1 : 0;
+    await fetch('/api/symptoms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date: dateStr, symptoms })
+    });
+    await fetch('/api/food/set', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date: dateStr, food_notes: document.getElementById('day-food')?.value || '' })
+    });
+    loadDashboard();
 }
 
 function renderDayPicker() {

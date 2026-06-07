@@ -91,12 +91,12 @@ def register(app):
 
     @app.route("/api/kitchen/safety-tag", methods=["POST"])
     def set_safety_tag():
-        """Set safety_tag on a catalog item: 'safe' | 'suspect' | '' (clear)."""
+        """Set safety_tag on a catalog item: 'safe' | 'suspect' | 'inflammatory' | '' (clear)."""
         body = request.json or {}
         name = (body.get("name") or "").strip().lower()
         tag = (body.get("tag") or "").strip().lower()
-        if tag not in ("safe", "suspect", ""):
-            return jsonify({"error": "tag must be safe, suspect, or empty"}), 400
+        if tag not in ("safe", "suspect", "inflammatory", ""):
+            return jsonify({"error": "tag must be safe, suspect, inflammatory, or empty"}), 400
         if not name:
             return jsonify({"error": "missing name"}), 400
         gdata = store.read("kitchen.json", {"items": [], "category_map": {}})

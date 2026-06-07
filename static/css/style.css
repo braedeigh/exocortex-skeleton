@@ -179,6 +179,8 @@ body {
 }
 .habit-check.done { color: var(--green); }
 .habit-check:hover { color: var(--green); }
+/* In edit mode, the check is not toggleable — reordering/renaming only. */
+.card.editing .habit-check { pointer-events: none; opacity: 0.4; cursor: default; }
 
 /* Delete button */
 .delete-btn {
@@ -528,6 +530,12 @@ details summary {
     width: 100%;
 }
 .habit-rename:focus { border-bottom-color: var(--text-secondary); }
+/* textarea variant: wrap + grow instead of scrolling sideways */
+textarea.habit-rename {
+    resize: none; overflow: hidden; line-height: 1.4;
+    white-space: pre-wrap; word-break: break-word; min-height: 1.4em;
+    flex: 1; min-width: 0; width: auto;
+}
 
 /* Autocomplete */
 .autocomplete-wrap { position: relative; flex: 1; }

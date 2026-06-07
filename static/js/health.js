@@ -79,7 +79,7 @@ function renderSymptomForm() {
     function btnGroup(col) {
         const extra = col === 'energy' ? ' energy' : '';
         return [0,1,2,3].map(v =>
-            `<button type="button" class="sym-btn${extra}" data-col="${col}" data-val="${v}" onclick="pickSymptom('${col}',${v},this)">${v}</button>`
+            `<button type="button" class="sym-btn${extra}" data-col="${col}" data-val="${v}" title="${esc(symptomTip(col, v))}" onclick="pickSymptom('${col}',${v},this)">${v}</button>`
         ).join('');
     }
 
@@ -124,6 +124,68 @@ function renderSymptomForm() {
             <h3 style="color:var(--orange)">Log today's symptoms</h3>
             ${formInner('Log')}
         </div>`;
+    }
+}
+
+// --- Symptom tier definitions (shared) ---
+const SYMPTOM_DEF_FIELDS = [
+    ['energy', 'Energy', ['Crashed', 'Low', 'Okay', 'Great']],
+    ['nose_congestion', 'Nose Congestion', ['None', 'Mild', 'Moderate', 'Bad']],
+    ['brain_fog', 'Brain Fog', ['None', 'Mild', 'Moderate', 'Bad']],
+    ['abdominal_pain', 'Abdominal Pain', ['None', 'Mild', 'Moderate', 'Bad']],
+    ['hand_pain', 'Hand Pain', ['None', 'Mild', 'Moderate', 'Bad']],
+    ['headache', 'Headache', ['None', 'Mild', 'Moderate', 'Bad']],
+];
+
+// The user's custom definition for a symptom level, or the generic fallback.
+function symptomTip(col, v) {
+    const d = (D.symptom_definitions || {})[col];
+    if (d && d[String(v)]) return d[String(v)];
+    const generic = col === 'energy' ? ['Crashed', 'Low', 'Okay', 'Great'] : ['None', 'Mild', 'Moderate', 'Bad'];
+    return generic[v] || '';
+}
+
+function renderSymptomDefinitions() {
+    const el = document.getElementById('symptom-definitions-area');
+    if (!el) return;
+    const defs = D.symptom_definitions || {};
+    let html = '<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">What each 0–3 means for you. Saved and shown as tooltips on the symptom buttons.</div>';
+    html += '<div style="display:flex;flex-direction:column;gap:12px">';
+    SYMPTOM_DEF_FIELDS.forEach(([col, label, hints]) => {
+        html += `<div><div style="font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:4px">${label}</div>
+            <div style="display:flex;flex-direction:column;gap:4px">`;
+        [0, 1, 2, 3].forEach(v => {
+            const cur = (defs[col] || {})[String(v)] || '';
+            html += `<div style="display:flex;align-items:center;gap:8px">
+                <span style="width:18px;text-align:center;font-weight:600;color:var(--text-muted);font-size:12px">${v}</span>
+                <input type="text" data-symdef="${col}" data-level="${v}" value="${esc(cur)}" placeholder="${esc(hints[v])}" style="flex:1;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--bg);color:var(--text);outline:none">
+            </div>`;
+        });
+        html += '</div></div>';
+    });
+    html += '</div>';
+    html += `<button onclick="saveSymptomDefinitions()" style="margin-top:12px;padding:6px 14px;border:none;border-radius:6px;background:var(--text);color:var(--bg);font-size:12px;font-weight:600;cursor:pointer">Save definitions</button>`;
+    el.innerHTML = html;
+}
+
+async function saveSymptomDefinitions() {
+    const el = document.getElementById('symptom-definitions-area');
+    if (!el) return;
+    const definitions = {};
+    el.querySelectorAll('input[data-symdef]').forEach(inp => {
+        const val = inp.value.trim();
+        if (!val) return;
+        const col = inp.dataset.symdef;
+        (definitions[col] = definitions[col] || {})[inp.dataset.level] = val;
+    });
+    const res = await fetch('/api/symptom-definitions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ definitions })
+    });
+    if (res.ok) {
+        D.symptom_definitions = definitions;
+        renderSymptomDefinitions();
     }
 }
 

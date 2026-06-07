@@ -84,7 +84,7 @@ function renderHabits() {
             const daysLabel = daysAgo === 0 ? 'today' : `${daysAgo}d`;
             growthHTML += `<div class="card-item" draggable="true" data-section="growth" data-idx="${idx}" data-habit="${esc(g.text)}"
                   ondragstart="habitDragStart(event)" ondragover="habitDragOver(event)" ondrop="habitDrop(event,'growth')" ondragend="habitDragEnd(event)" ondragleave="habitDragLeave(event)">
-                <span class="drag-handle">&#8942;&#8942;</span>
+                <span class="drag-handle" onmousedown="dragFromHandle=true">&#8942;&#8942;</span>
                 <span class="item-text todo-view" style="color:var(--text-secondary)">${esc(g.text)}</span>
                 <span style="font-size:10px;color:var(--text-muted);margin-left:auto;margin-right:6px;white-space:nowrap">${daysLabel}</span>
                 <input class="habit-rename todo-edit" style="display:none" value="${esc(g.text)}" data-original="${esc(g.text)}" data-type="growth"

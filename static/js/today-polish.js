@@ -21,6 +21,7 @@
         try {
             var item = e.target.closest('.card-item');
             if (!item || !item.closest('#tab-today')) return;
+            if (item.closest('.card.editing')) return;  // edit mode: no tap-to-complete
             var check = item.querySelector('.habit-check');
             if (!check) return;               // rows without a checkbox (e.g. growth notes)
             if (isControl(e.target)) return;  // let real controls act

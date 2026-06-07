@@ -169,7 +169,8 @@ function render() {
             ],
             body: [
                 renderHeader, renderFoodExperiments, renderFoodTriage, renderSafeFoods, renderSuspectFoods,
-                renderDotGrid, renderFoodLog, renderDevNotes, restoreEditModes
+                renderInflammatoryFoods, renderDotGrid, renderSymptomDefinitions, renderFoodLog,
+                renderDevNotes, restoreEditModes
             ],
             kitchen: [
                 renderHeader, renderGroceryList, renderDevNotes, restoreEditModes
@@ -330,7 +331,18 @@ function applyEditMode(card, editing) {
     const toggle = card.querySelector('.edit-toggle');
     if (toggle) toggle.textContent = editing ? 'done' : 'edit';
     card.querySelectorAll('.habit-view, .todo-view').forEach(el => el.style.display = editing ? 'none' : '');
-    card.querySelectorAll('.habit-edit, .todo-edit').forEach(el => el.style.display = editing ? '' : 'none');
+    card.querySelectorAll('.habit-edit, .todo-edit').forEach(el => {
+        el.style.display = editing ? '' : 'none';
+        // Size the edit box to its content now that it's visible (scrollHeight
+        // is 0 while hidden), so long items wrap and grow instead of scrolling.
+        if (editing && el.tagName === 'TEXTAREA') autoGrow(el);
+    });
+}
+
+// Grow a textarea to fit its content (no inner scrollbar).
+function autoGrow(el) {
+    el.style.height = 'auto';
+    el.style.height = el.scrollHeight + 'px';
 }
 
 function restoreEditModes() {
@@ -364,7 +376,12 @@ async function commitRename(input) {
 
 // --- Drag and drop for habits ---
 let dragItem = null;
+// Only start a drag when it began from the dots handle (set on mousedown),
+// so selecting/highlighting text in an item doesn't trigger a reorder.
+let dragFromHandle = false;
+document.addEventListener('mouseup', () => { dragFromHandle = false; });
 function habitDragStart(e) {
+    if (!dragFromHandle) { e.preventDefault(); return; }
     dragItem = e.currentTarget;
     dragItem.classList.add('dragging');
     e.dataTransfer.effectAllowed = 'move';
@@ -380,7 +397,8 @@ function habitDragLeave(e) {
     e.currentTarget.classList.remove('drag-over');
 }
 function habitDragEnd(e) {
-    dragItem.classList.remove('dragging');
+    dragFromHandle = false;
+    if (dragItem) dragItem.classList.remove('dragging');
     document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
     dragItem = null;
 }
@@ -468,13 +486,13 @@ function cardHTML(title, items, color, type, sectionName, dim) {
         const done = item.done;
         return `<div class="card-item" draggable="true" data-section="${esc(sectionName)}" data-idx="${idx}" data-habit="${esc(text)}"
               ondragstart="habitDragStart(event)" ondragover="habitDragOver(event)" ondrop="habitDrop(event,'${type}')" ondragend="habitDragEnd(event)" ondragleave="habitDragLeave(event)">
-            <span class="drag-handle">&#8942;&#8942;</span>
+            <span class="drag-handle" onmousedown="dragFromHandle=true">&#8942;&#8942;</span>
             <span class="habit-check ${done?'done':''}" onclick="toggleTodo('${escJs(text)}')" style="cursor:pointer" title="Check off">
                 ${done ? '&#10003;' : '&#9675;'}
             </span>
             <span class="item-text todo-view" style="${done?'text-decoration:line-through;opacity:0.5':''}">${item.url ? `<a href="${esc(item.url)}" target="_blank" rel="noopener" style="color:inherit">${esc(text)}</a>` : esc(text)}</span>
-            <input class="habit-rename todo-edit" style="display:none" value="${esc(text)}" data-original="${esc(text)}" data-section="${esc(sectionName)}" data-type="${type}"
-                onblur="commitRename(this)" onkeydown="if(event.key==='Enter'){this.blur()}else if(event.key==='Escape'){this.value=this.dataset.original;this.blur()}">
+            <textarea class="habit-rename todo-edit" rows="1" style="display:none" data-original="${esc(text)}" data-section="${esc(sectionName)}" data-type="${type}"
+                oninput="autoGrow(this)" onblur="commitRename(this)" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur()}else if(event.key==='Escape'){this.value=this.dataset.original;this.blur()}">${esc(text)}</textarea>
             ${type === 'todo' ? `<button class="delete-btn" onclick="showMoveMenu(this,'${escJs(text)}')" title="Move" style="font-size:14px">&#8595;</button>` : ''}
             <button class="delete-btn" onclick="confirmDelete('${escJs(text)}','${type}')" title="Remove">&times;</button>
         </div>`;
@@ -529,13 +547,13 @@ function habitCardHTML(title, items, color, sectionName) {
 
         return `<div class="card-item" draggable="true" data-section="${esc(sectionName)}" data-idx="${idx}" data-habit="${esc(item)}"
                 ondragstart="habitDragStart(event)" ondragover="habitDragOver(event)" ondrop="habitDrop(event,'habit')" ondragend="habitDragEnd(event)" ondragleave="habitDragLeave(event)">
-            <span class="drag-handle">&#8942;&#8942;</span>
+            <span class="drag-handle" onmousedown="dragFromHandle=true">&#8942;&#8942;</span>
             <span class="habit-check ${done?'done':''}" onclick="toggleHabit('${esc(item)}')" title="Toggle today">
                 ${done ? '&#10003;' : '&#9675;'}
             </span>
             <span class="item-text habit-view" style="${done?'text-decoration:line-through;opacity:0.5':''}">${esc(item)}</span>
-            <input class="habit-rename habit-edit" style="display:none" value="${esc(item)}" data-original="${esc(item)}" data-section="${esc(sectionName)}"
-                onblur="commitRename(this)" onkeydown="if(event.key==='Enter'){this.blur()}else if(event.key==='Escape'){this.value=this.dataset.original;this.blur()}">
+            <textarea class="habit-rename habit-edit" rows="1" style="display:none" data-original="${esc(item)}" data-section="${esc(sectionName)}"
+                oninput="autoGrow(this)" onblur="commitRename(this)" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur()}else if(event.key==='Escape'){this.value=this.dataset.original;this.blur()}">${esc(item)}</textarea>
             <span style="font-size:11px;color:var(--text-muted);margin-left:auto">${habitStartLabel(item)}${total}/${target}</span>
             <button class="delete-btn" onclick="confirmDelete('${esc(item)}','habit')" title="Remove">&times;</button>
         </div>`;
@@ -926,22 +944,26 @@ function renderDevNotes() {
                 <button onclick="removeDevNote('${escJs(tab)}','${escJs(n.id)}')" title="Remove" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;padding:0 4px">&times;</button>
             </div>`;
         }).join('');
+        const addBox = (which) => `<div style="display:flex;gap:6px;margin-${which === 'top' ? 'bottom' : 'top'}:10px">
+                    <input type="text" id="devnote-input-${esc(tab)}-${which}" placeholder="What's bugging you about this page?" style="flex:1;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;outline:none;background:var(--bg)" onkeydown="if(event.key==='Enter')addDevNote('${escJs(tab)}','${which}')">
+                    <button onclick="addDevNote('${escJs(tab)}','${which}')" style="padding:6px 14px;border:none;border-radius:6px;background:var(--text);color:#fff;font-size:12px;font-weight:600;cursor:pointer">Add</button>
+                </div>`;
         el.innerHTML = `<details style="margin-top:24px"${wasOpen ? ' open' : ''}>
             <summary style="font-size:13px;font-weight:600;cursor:pointer;color:var(--text-muted)">Dev notes${notes.length ? ` (${notes.length})` : ''}</summary>
             <div class="card" style="border-left-color:var(--text-muted);margin-top:8px;padding:10px">
                 <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">Friction, change ideas, things to fix on this page.</div>
-                <div style="display:flex;gap:6px;margin-bottom:10px">
-                    <input type="text" id="devnote-input-${esc(tab)}" placeholder="What's bugging you about this page?" style="flex:1;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;outline:none;background:var(--bg)" onkeydown="if(event.key==='Enter')addDevNote('${escJs(tab)}')">
-                    <button onclick="addDevNote('${escJs(tab)}')" style="padding:6px 14px;border:none;border-radius:6px;background:var(--text);color:#fff;font-size:12px;font-weight:600;cursor:pointer">Add</button>
-                </div>
+                ${addBox('top')}
                 ${rows}
+                ${notes.length ? addBox('bottom') : ''}
             </div>
         </details>`;
     });
 }
 
-async function addDevNote(tab) {
-    const input = document.getElementById(`devnote-input-${tab}`);
+async function addDevNote(tab, which) {
+    const input = document.getElementById(`devnote-input-${tab}-${which || 'top'}`)
+        || document.getElementById(`devnote-input-${tab}`);
+    if (!input) return;
     const text = input.value.trim();
     if (!text) return;
     const res = await fetch('/api/devnote/add', {

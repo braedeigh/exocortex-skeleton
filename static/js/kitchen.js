@@ -3255,9 +3255,9 @@ function _renderPurchaseHistorySection(known, counts) {
 
 function _renderSafetyChip(name, tag) {
     const label = (name || '').charAt(0).toUpperCase() + (name || '').slice(1);
-    const color = tag === 'safe' ? 'var(--green)' : 'var(--orange)';
-    const bg = tag === 'safe' ? 'rgba(58,158,140,0.10)' : 'rgba(212,140,68,0.10)';
-    const border = tag === 'safe' ? 'rgba(58,158,140,0.35)' : 'rgba(212,140,68,0.35)';
+    const color = tag === 'safe' ? 'var(--green)' : tag === 'inflammatory' ? '#c2185b' : 'var(--orange)';
+    const bg = tag === 'safe' ? 'rgba(58,158,140,0.10)' : tag === 'inflammatory' ? 'rgba(194,24,91,0.10)' : 'rgba(212,140,68,0.10)';
+    const border = tag === 'safe' ? 'rgba(58,158,140,0.35)' : tag === 'inflammatory' ? 'rgba(194,24,91,0.35)' : 'rgba(212,140,68,0.35)';
     return `<span style="display:inline-flex;align-items:center;gap:4px;padding:5px 10px;border:1px solid ${border};border-radius:14px;background:${bg};color:${color};font-size:13px;margin:3px">
         ${esc(label)}
         <button onclick="setSafetyTag('${esc(name)}','')" title="Clear tag" style="background:none;border:none;color:${color};opacity:0.65;font-size:14px;cursor:pointer;line-height:1;padding:0 2px">&times;</button>
@@ -3517,7 +3517,7 @@ function renderFoodTriage() {
     }
 
     const intro = `<div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">
-        ${items.length} food${items.length === 1 ? '' : 's'} waiting to be triaged. Tap <b style="color:var(--green)">✓ Safe</b> when you've confirmed it doesn't bother you, <b style="color:var(--orange)">⚠ Suspect</b> when you think it might. Most-bought items first.
+        ${items.length} food${items.length === 1 ? '' : 's'} waiting to be triaged. Tap <b style="color:var(--green)">✓ Safe</b> when you've confirmed it doesn't bother you, <b style="color:var(--orange)">⚠ Suspect</b> when you think it might, <b style="color:#c2185b">🔥 Inflammatory</b> for known inflammatory triggers. Most-bought items first.
     </div>`;
 
     const rows = items.map(it => {
@@ -3534,6 +3534,7 @@ function renderFoodTriage() {
             <span style="flex:1;font-size:14px">${esc(label)}${metaText}</span>
             <button onclick="triageMark('${esc(it.name)}','safe')" title="Mark confirmed safe" style="padding:5px 12px;border:1px solid var(--green);background:none;color:var(--green);border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">&#10003; Safe</button>
             <button onclick="triageMark('${esc(it.name)}','suspect')" title="Mark suspect" style="padding:5px 12px;border:1px solid var(--orange);background:none;color:var(--orange);border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">&#9888; Suspect</button>
+            <button onclick="triageMark('${esc(it.name)}','inflammatory')" title="Mark known inflammatory" style="padding:5px 12px;border:1px solid #c2185b;background:none;color:#c2185b;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">&#128293; Inflammatory</button>
         </div>`;
     }).join('');
 
@@ -3552,6 +3553,7 @@ async function triageMark(name, tag) {
     renderFoodTriage();
     renderSafeFoods();
     renderSuspectFoods();
+    renderInflammatoryFoods();
 }
 
 function renderSafeFoods() {
@@ -3576,6 +3578,18 @@ function renderSuspectFoods() {
         return;
     }
     el.innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:2px;padding:6px 0">${items.map(n => _renderSafetyChip(n, 'suspect')).join('')}</div>`;
+}
+
+function renderInflammatoryFoods() {
+    const el = document.getElementById('inflammatory-foods-area');
+    if (!el) return;
+    const tags = D.kitchen_safety_tags || {};
+    const items = Object.entries(tags).filter(([_, t]) => t === 'inflammatory').map(([n, _]) => n).sort();
+    if (!items.length) {
+        el.innerHTML = `<div style="color:var(--text-muted);font-size:13px;padding:8px 0;font-style:italic">No inflammatory foods flagged. Tap <b style="color:#c2185b">🔥 Inflammatory</b> in Triage foods to flag a known trigger.</div>`;
+        return;
+    }
+    el.innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:2px;padding:6px 0">${items.map(n => _renderSafetyChip(n, 'inflammatory')).join('')}</div>`;
 }
 
 async function setSafetyTag(name, tag) {

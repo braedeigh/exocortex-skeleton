@@ -210,6 +210,26 @@ def register(app):
         df.to_csv(csv_path, index=False)
         return jsonify({"ok": True})
 
+    @app.route("/api/food/set", methods=["POST"])
+    def set_food():
+        # Replace (not append) the food notes for a given date — used by the
+        # day editor to correct/clear a past day's food log.
+        data = request.json
+        csv_path = CONTENT_DIR / "habits.csv"
+        target_date = data.get("date") or datetime.now().strftime("%Y-%m-%d")
+        food = (data.get("food_notes") or "").strip()
+        df = pd.read_csv(csv_path)
+        df["date"] = pd.to_datetime(df["date"], format="mixed")
+        target = pd.Timestamp(target_date)
+        mask = df["date"] == target
+        if mask.any():
+            df.loc[mask, "food_notes"] = food if food else pd.NA
+        elif food:
+            df = pd.concat([df, pd.DataFrame([{"date": target, "food_notes": food}])], ignore_index=True)
+        df["date"] = pd.to_datetime(df["date"], format="mixed").dt.strftime("%Y-%m-%d")
+        df.to_csv(csv_path, index=False)
+        return jsonify({"ok": True})
+
     # --- Symptoms ---
 
     @app.route("/api/symptoms", methods=["POST"])
@@ -231,6 +251,29 @@ def register(app):
             df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
         df["date"] = pd.to_datetime(df["date"], format="mixed").dt.strftime("%Y-%m-%d")
         df.to_csv(csv_path, index=False)
+        return jsonify({"ok": True})
+
+    # --- Symptom tier definitions (what 0/1/2/3 mean per symptom) ---
+
+    @app.route("/api/symptom-definitions", methods=["GET"])
+    def get_symptom_definitions():
+        return jsonify(store.read("symptom_definitions.json", {}))
+
+    @app.route("/api/symptom-definitions", methods=["POST"])
+    def save_symptom_definitions():
+        body = request.json or {}
+        defs = body.get("definitions")
+        if not isinstance(defs, dict):
+            return jsonify({"error": "definitions object required"}), 400
+        # Keep only non-empty strings, nested {symptom: {level: text}}
+        clean = {}
+        for sym, levels in defs.items():
+            if not isinstance(levels, dict):
+                continue
+            kept = {str(k): str(v).strip() for k, v in levels.items() if str(v).strip()}
+            if kept:
+                clean[sym] = kept
+        store.write("symptom_definitions.json", clean)
         return jsonify({"ok": True})
 
     # --- Runs ---

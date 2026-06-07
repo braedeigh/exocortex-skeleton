@@ -208,14 +208,17 @@ function devNotesHtml() {
             </div>`;
         }).join('') + '</div>';
     }
+    const addBox = (id) => `
+            <div class="dn-add">
+                <input type="text" id="${id}" placeholder="Add a note about this page…" onkeydown="if(event.key==='Enter')addDevNote('${id}')">
+                <button onclick="addDevNote('${id}')">Add</button>
+            </div>`;
     return `
         <div class="dev-notes-section">
             <div class="dn-title">Dev notes</div>
-            <div class="dn-add" style="margin-bottom:10px">
-                <input type="text" id="dnInput" placeholder="Add a note about this page…" onkeydown="if(event.key==='Enter')addDevNote()">
-                <button onclick="addDevNote()">Add</button>
-            </div>
+            <div style="margin-bottom:10px">${addBox('dnInput')}</div>
             ${notesHtml}
+            ${devNotes.length ? `<div style="margin-top:10px">${addBox('dnInputBottom')}</div>` : ''}
         </div>
     `;
 }
@@ -247,8 +250,8 @@ async function saveDevNote(id) {
     renderSections();
 }
 
-async function addDevNote() {
-    const input = document.getElementById('dnInput');
+async function addDevNote(inputId) {
+    const input = document.getElementById(inputId || 'dnInput');
     if (!input) return;
     const text = input.value.trim();
     if (!text) return;

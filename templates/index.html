@@ -165,6 +165,25 @@
         </div>
 
         <details class="map-section" open>
+            <summary class="section-title" style="cursor:pointer">Symptom Tracker</summary>
+            <div style="font-size:11px;color:var(--text-muted);margin:0 0 8px 0">Tap any day to edit its symptoms and food.</div>
+            <div style="display:flex;gap:16px;align-items:flex-start">
+                <div id="dot-grid" class="dot-grid" style="flex:1;overflow-x:auto"></div>
+                <div id="dot-grid-key"></div>
+            </div>
+            <div id="symptom-editor"></div>
+            <details style="margin-top:12px">
+                <summary style="font-size:12px;font-weight:600;cursor:pointer;color:var(--text-muted)">Symptom definitions (what 0–3 mean)</summary>
+                <div id="symptom-definitions-area" style="margin-top:8px"></div>
+            </details>
+        </details>
+
+        <details class="map-section" open>
+            <summary class="section-title" style="cursor:pointer">Food Log</summary>
+            <div id="food-log-area"></div>
+        </details>
+
+        <details class="map-section" open>
             <summary class="section-title" style="cursor:pointer">Food experiments</summary>
             <div id="food-experiments-area"></div>
         </details>
@@ -185,16 +204,8 @@
         </details>
 
         <details class="map-section" open>
-            <summary class="section-title" style="cursor:pointer">Symptom Tracker</summary>
-            <div style="display:flex;gap:16px;align-items:flex-start">
-                <div id="dot-grid" class="dot-grid" style="flex:1;overflow-x:auto"></div>
-                <div id="dot-grid-key"></div>
-            </div>
-        </details>
-
-        <details class="map-section" open>
-            <summary class="section-title" style="cursor:pointer">Food Log</summary>
-            <div id="food-log-area"></div>
+            <summary class="section-title" style="cursor:pointer">Inflammatory foods</summary>
+            <div id="inflammatory-foods-area"></div>
         </details>
 
         <div id="dev-notes-body" class="auth-only" data-tab="body"></div>
