@@ -43,7 +43,7 @@ function snoozedCardHTML(items) {
             const back = _fmtAddedDate(it.snoozed_until);
             return `<div class="card-item">
                 <span class="item-text" style="flex:1">${esc(it.text)}<span style="font-size:12px;color:var(--text-muted);margin-left:8px">💤 back ${esc(back)}</span></span>
-                <button class="delete-btn" onclick="snoozeTodo('${escJs(it.text)}',0)" title="Un-snooze now" style="font-size:12px">↩</button>
+                <button class="delete-btn" onclick="snoozeTodo('${escJs(it.id || it.text)}',0)" title="Un-snooze now" style="font-size:12px">↩</button>
             </div>`;
         }).join('');
     return `<details id="todo-snoozed" class="card todo-card" ${wasOpen ? 'open' : ''} style="border-left-color:var(--text-muted)" ontoggle="todoCardToggled(this,'__snoozed__')">

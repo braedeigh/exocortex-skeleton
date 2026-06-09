@@ -1,8 +1,9 @@
 """Todos and applications routes."""
 from flask import request, jsonify
 from datetime import datetime
-from data_helpers import load_todos, save_todos, find_section_key
+from data_helpers import find_section_key
 import store
+import uuid
 
 
 def _load_apps():
@@ -13,6 +14,12 @@ def _save_apps(apps):
     store.write("shrike_applied.json", apps)
 
 
+def _match(item, ident):
+    """A to-do is identified by its stable id; fall back to its text for any
+    legacy caller still sending the raw text."""
+    return item.get("id") == ident or item.get("text") == ident
+
+
 def register(app):
 
     @app.route("/api/todos/add", methods=["POST"])
@@ -20,69 +27,74 @@ def register(app):
         data = request.json
         item_text = data["item"].strip()
         item_text = item_text[0].upper() + item_text[1:] if len(item_text) > 1 else item_text.upper()
-        section_name = data["section"]
-        todos = load_todos()
-        key = find_section_key(section_name)
+        key = find_section_key(data["section"])
         if not key:
             return jsonify({"error": "Section not found"}), 404
-        sec = todos.get(key, {"items": []})
-        if item_text.lower() in {x["text"].lower() for x in sec.get("items", [])}:
+        new_id = uuid.uuid4().hex[:8]
+        dup = False
+        with store.mutate("todos", {}) as todos:
+            sec = todos.setdefault(key, {"items": []})
+            sec.setdefault("items", [])
+            if item_text.lower() in {x.get("text", "").lower() for x in sec["items"]}:
+                dup = True
+            else:
+                new_item = {
+                    "id": new_id, "text": item_text, "done": False,
+                    "created": datetime.now().strftime("%Y-%m-%d"),
+                }
+                due_by = (data.get("due_by") or "").strip()
+                if due_by:
+                    new_item["due_by"] = due_by
+                notes = (data.get("notes") or "").strip()
+                if notes:
+                    new_item["notes"] = notes
+                sec["items"].append(new_item)
+        if dup:
             return jsonify({"error": "Already exists in this section"}), 400
-        new_item = {
-            "text": item_text, "done": False,
-            "created": datetime.now().strftime("%Y-%m-%d"),
-        }
-        due_by = (data.get("due_by") or "").strip()
-        if due_by:
-            new_item["due_by"] = due_by
-        notes = (data.get("notes") or "").strip()
-        if notes:
-            new_item["notes"] = notes
-        sec.setdefault("items", []).append(new_item)
-        todos[key] = sec
-        save_todos(todos)
-        return jsonify({"ok": True})
+        return jsonify({"ok": True, "id": new_id})
 
     @app.route("/api/todos/snooze", methods=["POST"])
     def snooze_todo():
         """Kick a to-do down the road: hide it until `days` from now (days<=0 clears)."""
         from datetime import timedelta
         data = request.json or {}
-        item_text = data.get("item", "")
+        ident = data.get("id") or data.get("item", "")
         days = int(data.get("days", 0) or 0)
-        todos = load_todos()
-        for key in todos:
-            for item in todos[key].get("items", []):
-                if item.get("text") == item_text:
-                    if days > 0:
-                        item["snoozed_until"] = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
-                    else:
-                        item.pop("snoozed_until", None)
-                    save_todos(todos)
-                    return jsonify({"ok": True})
+        with store.mutate("todos", {}) as todos:
+            for key in todos:
+                if not isinstance(todos[key], dict):
+                    continue
+                for item in todos[key].get("items", []):
+                    if _match(item, ident):
+                        if days > 0:
+                            item["snoozed_until"] = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
+                        else:
+                            item.pop("snoozed_until", None)
+                        return jsonify({"ok": True})
         return jsonify({"ok": True})
 
     @app.route("/api/todos/move", methods=["POST"])
     def move_todo():
         data = request.json
-        item_text = data["item"]
-        to_section_name = data["to_section"]
-        todos = load_todos()
-        to_key = find_section_key(to_section_name)
+        ident = data.get("id") or data.get("item", "")
+        to_key = find_section_key(data["to_section"])
         if not to_key:
             return jsonify({"error": "Section not found"}), 404
-        moved = None
-        for key in todos:
-            sec = todos[key]
-            items = sec.get("items", [])
-            for i, item in enumerate(items):
-                if item["text"] == item_text:
-                    moved = items.pop(i)
+        with store.mutate("todos", {}) as todos:
+            moved = None
+            for key in todos:
+                if not isinstance(todos[key], dict):
+                    continue
+                items = todos[key].get("items", [])
+                for i, item in enumerate(items):
+                    if _match(item, ident):
+                        moved = items.pop(i)
+                        break
+                if moved:
                     break
-        if moved is None:
-            moved = {"text": item_text, "done": False}
-        todos.setdefault(to_key, {"items": []}).setdefault("items", []).append(moved)
-        save_todos(todos)
+            if moved is None:
+                moved = {"id": uuid.uuid4().hex[:8], "text": ident, "done": False}
+            todos.setdefault(to_key, {"items": []}).setdefault("items", []).append(moved)
         return jsonify({"ok": True})
 
     @app.route("/api/todos/details", methods=["POST"])
@@ -91,105 +103,109 @@ def register(app):
         the fields present in the payload are touched, so the inline notes
         editor and the detail modal can each send just what they manage."""
         data = request.json or {}
-        item_text = data.get("item", "")
-        todos = load_todos()
-        for key in todos:
-            for item in todos[key].get("items", []):
-                if item.get("text") == item_text:
-                    if "notes" in data:
-                        notes = (data.get("notes") or "").strip()
-                        if notes:
-                            item["notes"] = notes
-                        else:
-                            item.pop("notes", None)
-                    if "due_by" in data:
-                        due = (data.get("due_by") or "").strip()
-                        if due:
-                            item["due_by"] = due
-                        else:
-                            item.pop("due_by", None)
-                    save_todos(todos)
-                    return jsonify({"ok": True})
+        ident = data.get("id") or data.get("item", "")
+        with store.mutate("todos", {}) as todos:
+            for key in todos:
+                if not isinstance(todos[key], dict):
+                    continue
+                for item in todos[key].get("items", []):
+                    if _match(item, ident):
+                        if "notes" in data:
+                            notes = (data.get("notes") or "").strip()
+                            if notes:
+                                item["notes"] = notes
+                            else:
+                                item.pop("notes", None)
+                        if "due_by" in data:
+                            due = (data.get("due_by") or "").strip()
+                            if due:
+                                item["due_by"] = due
+                            else:
+                                item.pop("due_by", None)
+                        return jsonify({"ok": True})
         return jsonify({"ok": True})
 
     @app.route("/api/todos/remove", methods=["POST"])
     def remove_todo():
         data = request.json
-        item_text = data["item"]
-        todos = load_todos()
-        for key in todos:
-            items = todos[key].get("items", [])
-            for i, item in enumerate(items):
-                if item["text"] == item_text:
-                    items.pop(i)
-                    save_todos(todos)
-                    return jsonify({"ok": True})
+        ident = data.get("id") or data.get("item", "")
+        with store.mutate("todos", {}) as todos:
+            for key in todos:
+                if not isinstance(todos[key], dict):
+                    continue
+                items = todos[key].get("items", [])
+                for i, item in enumerate(items):
+                    if _match(item, ident):
+                        items.pop(i)
+                        return jsonify({"ok": True})
         return jsonify({"ok": True})
 
     @app.route("/api/todos/toggle", methods=["POST"])
     def toggle_todo():
         data = request.json
-        item_text = data["item"]
-        todos = load_todos()
-        for key in todos:
-            items = todos[key].get("items", [])
-            for item in items:
-                if item["text"] == item_text:
-                    item["done"] = not item["done"]
-                    if item["done"]:
+        ident = data.get("id") or data.get("item", "")
+        with store.mutate("todos", {}) as todos:
+            for key in todos:
+                if not isinstance(todos[key], dict):
+                    continue
+                items = todos[key].get("items", [])
+                for item in items:
+                    if _match(item, ident):
+                        item["done"] = not item["done"]
                         items.remove(item)
-                        items.append(item)
-                    else:
-                        items.remove(item)
-                        items.insert(0, item)
-                    save_todos(todos)
-                    return jsonify({"ok": True})
+                        if item["done"]:
+                            items.append(item)
+                        else:
+                            items.insert(0, item)
+                        return jsonify({"ok": True})
         return jsonify({"ok": True})
 
     @app.route("/api/todos/reorder", methods=["POST"])
     def reorder_todos():
         data = request.json
-        section_name = data["section"]
-        new_order = data["items"]
-        todos = load_todos()
-        key = find_section_key(section_name)
+        key = find_section_key(data["section"])
         if not key:
             return jsonify({"error": "Section not found"}), 404
-        sec = todos.get(key, {"items": []})
-        old_items = {item["text"]: item for item in sec.get("items", [])}
-        sec["items"] = [old_items.get(text, {"text": text, "done": False}) for text in new_order]
-        sec["manual_order"] = True  # a hand-dragged bucket sticks to manual order
-        todos[key] = sec
-        save_todos(todos)
+        new_order = data["items"]  # ids (text accepted as fallback)
+        with store.mutate("todos", {}) as todos:
+            sec = todos.get(key, {"items": []})
+            by_ident = {}
+            for item in sec.get("items", []):
+                if item.get("id"):
+                    by_ident[item["id"]] = item
+                by_ident.setdefault(item.get("text"), item)
+            sec["items"] = [by_ident.get(ident, {"id": ident, "text": ident, "done": False}) for ident in new_order]
+            sec["manual_order"] = True  # a hand-dragged bucket sticks to manual order
+            todos[key] = sec
         return jsonify({"ok": True})
 
     @app.route("/api/todos/autosort", methods=["POST"])
     def autosort_todo():
         """Drop a bucket's manual order so it auto-sorts (due date, then age) again."""
-        data = request.json or {}
-        key = find_section_key(data.get("section", ""))
+        key = find_section_key((request.json or {}).get("section", ""))
         if not key:
             return jsonify({"error": "Section not found"}), 404
-        todos = load_todos()
-        sec = todos.get(key)
-        if sec is not None and sec.pop("manual_order", None) is not None:
-            todos[key] = sec
-            save_todos(todos)
+        with store.mutate("todos", {}) as todos:
+            sec = todos.get(key)
+            if sec is not None:
+                sec.pop("manual_order", None)
         return jsonify({"ok": True})
 
     @app.route("/api/todos/rename", methods=["POST"])
     def rename_todo():
         data = request.json
-        old_name = data["old"]
-        new_name = data["new"].strip()
-        todos = load_todos()
-        for key in todos:
-            items = todos[key].get("items", [])
-            for item in items:
-                if item["text"] == old_name:
-                    item["text"] = new_name
-                    save_todos(todos)
-                    return jsonify({"ok": True})
+        ident = data.get("id") or data.get("old", "")
+        new_name = (data.get("new") or "").strip()
+        if not new_name:
+            return jsonify({"ok": True})
+        with store.mutate("todos", {}) as todos:
+            for key in todos:
+                if not isinstance(todos[key], dict):
+                    continue
+                for item in todos[key].get("items", []):
+                    if _match(item, ident):
+                        item["text"] = new_name
+                        return jsonify({"ok": True})
         return jsonify({"ok": True})
 
     # --- Applications ---

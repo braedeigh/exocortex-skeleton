@@ -218,17 +218,9 @@ body {
 }
 .streak-add:hover { color: var(--text-secondary); border-color: var(--text-muted); }
 
-/* Responsive tab overflow: more tabs in the bar as the pane widens (phone stays
-   at the core 3 + More; wider panes promote Body/Money, then Meditation/Media). */
-.tab-t1, .tab-t2 { display: none; }
-@media (min-width: 640px) {
-    .tab-t1 { display: inline-block; }
-    #more-menu .m-t1 { display: none; }
-}
-@media (min-width: 860px) {
-    .tab-t2 { display: inline-block; }
-    #more-menu .m-t2 { display: none; }
-}
+/* Responsive tab overflow is handled in JS (layoutTabs): optional tabs stay in
+   the bar while they fit and are moved into the More menu when the pane is too
+   narrow, so a tab is never shown in both places (and never highlighted twice). */
 
 .add-form { display: none; padding-top: var(--space-2); }
 .add-form.open { display: flex; gap: var(--space-2); }

@@ -20,6 +20,7 @@ const TAB_ENDPOINTS = {
     car: '/api/data/car',
     meditation: '/api/data/meditation',
     media: '/api/data/media',
+    movement: '/api/data/movement',
     body: '/api/data/body',
 };
 
@@ -40,6 +41,8 @@ function initTab() {
     if (medEl) medEl.style.display = currentTab === 'meditation' ? '' : 'none';
     const mediaEl = document.getElementById('tab-media');
     if (mediaEl) mediaEl.style.display = currentTab === 'media' ? '' : 'none';
+    const movementEl = document.getElementById('tab-movement');
+    if (movementEl) movementEl.style.display = currentTab === 'movement' ? '' : 'none';
     const bodyEl = document.getElementById('tab-body');
     if (bodyEl) bodyEl.style.display = currentTab === 'body' ? '' : 'none';
 
@@ -271,6 +274,9 @@ function render() {
             media: [
                 renderHeader, renderMedia
             ],
+            movement: [
+                renderHeader, renderMovement
+            ],
         };
     }
     const fns = TAB_RENDERERS[currentTab] || Object.values(TAB_RENDERERS).flat();
@@ -479,7 +485,9 @@ async function commitRename(input) {
         body = { old: oldName, new: newName };
     } else {
         endpoint = type === 'todo' ? '/api/todos/rename' : type === 'edge' ? '/api/edges/rename' : '/api/habits/rename';
-        body = { old: oldName, new: newName, section };
+        body = type === 'todo'
+            ? { id: input.dataset.id, old: oldName, new: newName }
+            : { old: oldName, new: newName, section };
     }
     await fetch(endpoint, {
         method: 'POST',
@@ -527,7 +535,7 @@ async function habitDrop(e, type) {
 
     // Cross-card move (todo only)
     if (fromSection !== toSection && type === 'todo') {
-        const item = dragItem.dataset.habit;
+        const item = dragItem.dataset.id || dragItem.dataset.habit;
         await fetch('/api/todos/move', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -545,7 +553,7 @@ async function habitDrop(e, type) {
     const fromIdx = allItems.indexOf(dragItem);
     const toIdx = allItems.indexOf(target);
 
-    const items = allItems.map(el => el.dataset.habit);
+    const items = allItems.map(el => (type === 'todo') ? (el.dataset.id || el.dataset.habit) : el.dataset.habit);
     const moved = items.splice(fromIdx, 1)[0];
     items.splice(toIdx, 0, moved);
 
@@ -583,7 +591,7 @@ async function cardDrop(e, sectionName) {
     if (!dragItem) return;
     const fromSection = dragItem.dataset.section;
     if (fromSection === sectionName) return;
-    const item = dragItem.dataset.habit;
+    const item = dragItem.dataset.id || dragItem.dataset.habit;
     await fetch('/api/todos/move', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -599,24 +607,25 @@ function cardHTML(title, items, color, type, sectionName, dim, manualOrder) {
         const item = typeof rawItem === 'string' ? { text: rawItem, done: false } : rawItem;
         const text = item.text;
         const done = item.done;
-        return `<div class="card-item" draggable="true" data-section="${esc(sectionName)}" data-idx="${idx}" data-habit="${esc(text)}" data-due="${type === 'todo' && item.due_by ? esc(item.due_by) : ''}"
+        const id = item.id || text;  // todos are identified by stable id (text is the fallback)
+        return `<div class="card-item" draggable="true" data-section="${esc(sectionName)}" data-idx="${idx}" data-habit="${esc(text)}" data-id="${type === 'todo' ? esc(id) : ''}" data-due="${type === 'todo' && item.due_by ? esc(item.due_by) : ''}"
               ondragstart="habitDragStart(event)" ondragover="habitDragOver(event)" ondrop="habitDrop(event,'${type}')" ondragend="habitDragEnd(event)" ondragleave="habitDragLeave(event)">
             <span class="drag-handle" onmousedown="dragFromHandle=true">&#8942;&#8942;</span>
-            <span class="habit-check ${done?'done':''}" onclick="toggleTodo('${escJs(text)}')" style="cursor:pointer" title="Check off">
+            <span class="habit-check ${done?'done':''}" onclick="toggleTodo('${escJs(id)}')" style="cursor:pointer" title="Check off">
                 ${done ? '&#10003;' : '&#9675;'}
             </span>
             <span class="item-text todo-view"${type === 'todo' ? ' onclick="openTodoDetail(this, event)"' : ''} style="${type === 'todo' ? 'cursor:pointer;' : ''}${done?'text-decoration:line-through;opacity:0.5':''}">${item.url ? `<a href="${esc(item.url)}" target="_blank" rel="noopener" style="color:inherit">${esc(text)}</a>` : esc(text)}${item.due_by ? `<span class="todo-due${_isOverdue(item.due_by) && !done ? ' overdue' : ''}" title="Due ${esc(item.due_by)}">${_isOverdue(item.due_by) && !done ? 'overdue · ' : 'due '}${esc(_fmtAddedDate(item.due_by))}</span>` : ''}${type === 'todo' ? `<span class="todo-expand" aria-hidden="true">&#8250;</span>` : ''}</span>
-            <textarea class="habit-rename todo-edit" rows="1" style="display:none" data-original="${esc(text)}" data-section="${esc(sectionName)}" data-type="${type}"
+            <textarea class="habit-rename todo-edit" rows="1" style="display:none" data-original="${esc(text)}" data-id="${esc(id)}" data-section="${esc(sectionName)}" data-type="${type}"
                 oninput="autoGrow(this)" onblur="commitRename(this)" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur()}else if(event.key==='Escape'){this.value=this.dataset.original;this.blur()}">${esc(text)}</textarea>
-            ${type === 'todo' ? `<button class="delete-btn todo-action" onclick="showMoveMenu(this,'${escJs(text)}')" title="Move / snooze" style="font-size:14px">&#8595;</button>` : ''}
-            <button class="delete-btn${type === 'todo' ? ' todo-action' : ''}" onclick="confirmDelete('${escJs(text)}','${type}')" title="Remove">&times;</button>
+            ${type === 'todo' ? `<button class="delete-btn todo-action" onclick="showMoveMenu(this,'${escJs(id)}')" title="Move / snooze" style="font-size:14px">&#8595;</button>` : ''}
+            <button class="delete-btn${type === 'todo' ? ' todo-action' : ''}" onclick="confirmDelete('${escJs(type === 'todo' ? id : text)}','${type}'${type === 'todo' ? `,'${escJs(text)}'` : ''})" title="Remove">&times;</button>
         </div>
         ${type === 'todo' ? `<div class="todo-detail">
             <div class="todo-detail-read">
                 ${item.created ? `<span class="todo-detail-added">Added ${esc(_fmtAddedDate(item.created))}</span>` : ''}
                 ${item.notes ? `<div class="todo-detail-desc">${esc(item.notes)}</div>` : `<div class="todo-detail-desc empty">No description</div>`}
             </div>
-            <textarea class="todo-notes-input" placeholder="Add a description…" data-item="${esc(text)}" oninput="autoGrow(this)" onblur="saveTodoNotes(this)" rows="1">${esc(item.notes || '')}</textarea>
+            <textarea class="todo-notes-input" placeholder="Add a description…" data-item="${esc(id)}" oninput="autoGrow(this)" onblur="saveTodoNotes(this)" rows="1">${esc(item.notes || '')}</textarea>
         </div>` : ''}`;
     }).join('');
 
@@ -736,9 +745,9 @@ function habitCardHTML(title, items, color, sectionName) {
 }
 
 // --- Modal system ---
-function confirmDelete(item, type) {
+function confirmDelete(item, type, label) {
     pendingDelete = { item, type };
-    document.getElementById('modal-text').innerHTML = `Remove <b>${esc(item)}</b>?`;
+    document.getElementById('modal-text').innerHTML = `Remove <b>${esc(label || item)}</b>?`;
     document.getElementById('modal').classList.add('open');
 }
 
@@ -874,6 +883,18 @@ async function executeDelete() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ id: pendingDelete.item })
+        });
+    } else if (pendingDelete.type === 'movement-routine') {
+        await fetch('/api/movement/routine/remove', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: pendingDelete.item })
+        });
+    } else if (pendingDelete.type === 'movement-move') {
+        await fetch('/api/movement/move/remove', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ routine_id: pendingDelete.routineId, id: pendingDelete.item })
         });
     } else if (pendingDelete.type === 'recipe-item') {
         await fetch('/api/kitchen/recipes/remove', {
@@ -1079,6 +1100,7 @@ function openTodoDetail(el, ev) {
     const row = el.closest('.card-item');
     if (!row) return;
     const text = row.dataset.habit || '';
+    const id = row.dataset.id || text;
     const dueIso = row.dataset.due || '';
     const detail = row.nextElementSibling;
     const addedEl = detail && detail.querySelector('.todo-detail-added');
@@ -1088,7 +1110,7 @@ function openTodoDetail(el, ev) {
     const dueText = dueIso ? `${overdue ? 'overdue · ' : 'due '}${_fmtAddedDate(dueIso)}` : '';
     const addedHTML = addedEl ? `<span class="todo-modal-added">${esc(addedEl.textContent.trim())}</span>` : '';
     const hasMeta = dueText || addedHTML;
-    const body = `<div class="todo-modal-body" data-item="${esc(text)}" data-due="${esc(dueIso)}">
+    const body = `<div class="todo-modal-body" data-item="${esc(text)}" data-id="${esc(id)}" data-due="${esc(dueIso)}">
         <div class="todo-modal-meta"${hasMeta ? '' : ' style="display:none"'}><span class="todo-modal-due${overdue ? ' overdue' : ''}">${esc(dueText)}</span>${addedHTML}</div>
         <div class="todo-modal-due-edit" style="display:none">
             <label class="todo-modal-label">Due by <span class="todo-add-opt">(optional)</span></label>
@@ -1097,7 +1119,7 @@ function openTodoDetail(el, ev) {
         <div class="todo-modal-desc-read${notes ? '' : ' empty'}">${notes ? esc(notes) : 'No description'}</div>
         <textarea class="todo-modal-desc-edit" placeholder="Add a description…" oninput="autoGrow(this)" style="display:none">${esc(notes)}</textarea>
         <div class="todo-modal-foot">
-            <button type="button" class="todo-modal-delete" onclick="confirmDeleteTodoItem(this.closest('.todo-modal-body').dataset.item)">Delete</button>
+            <button type="button" class="todo-modal-delete" onclick="confirmDeleteTodoItem(this.closest('.todo-modal-body').dataset.id, this.closest('.todo-modal-body').dataset.item)">Delete</button>
             <button type="button" class="todo-desc-editbtn" onclick="toggleTodoModalEdit(this)">Edit</button>
         </div>
     </div>`;
@@ -1137,6 +1159,7 @@ async function toggleTodoModalEdit(btn) {
     }
 
     // Save
+    const id = body.dataset.id || body.dataset.item;
     const oldText = body.dataset.item;
     const newText = titleEdit.value.trim() || oldText;
     const notes = descEdit.value.trim();
@@ -1144,13 +1167,13 @@ async function toggleTodoModalEdit(btn) {
     if (newText !== oldText) {
         await fetch('/api/todos/rename', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ old: oldText, new: newText })
+            body: JSON.stringify({ id, old: oldText, new: newText })
         });
         body.dataset.item = newText;
     }
     await fetch('/api/todos/details', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ item: newText, notes, due_by: due })
+        body: JSON.stringify({ id, notes, due_by: due })
     });
     body.dataset.due = due;
     if (headerTitle) headerTitle.textContent = newText;
@@ -1199,13 +1222,13 @@ function closeTodoConfirm() {
 }
 
 // To-do item delete (from the detail modal)
-function confirmDeleteTodoItem(text) {
-    _showDeleteConfirm(text, () => deleteTodoItemConfirmed(text));
+function confirmDeleteTodoItem(id, label) {
+    _showDeleteConfirm(label || id, () => deleteTodoItemConfirmed(id));
 }
-async function deleteTodoItemConfirmed(text) {
+async function deleteTodoItemConfirmed(id) {
     await fetch('/api/todos/remove', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ item: text })
+        body: JSON.stringify({ id })
     });
     closeTodoConfirm();
     hideEditorModal();
@@ -1295,19 +1318,19 @@ async function toggleGrowthModalEdit(btn) {
 
 async function saveTodoNotes(ta) {
     const notes = ta.value.trim();
-    const item = ta.dataset.item;
+    const id = ta.dataset.item;  // the inline notes editor carries the stable id
     await fetch('/api/todos/details', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ item, notes })
+        body: JSON.stringify({ id, notes })
     });
     // Keep every view of this item's description in sync (modal ↔ inline editor
     // ↔ read display) so reopening or entering edit mode shows the latest.
     document.querySelectorAll('.todo-notes-input, .todo-modal-desc').forEach(el => {
-        if (el !== ta && el.dataset.item === item) el.value = ta.value;
+        if (el !== ta && el.dataset.item === id) el.value = ta.value;
     });
     document.querySelectorAll('#tab-today .card-item').forEach(row => {
-        if (row.dataset.habit !== item) return;
+        if (row.dataset.id !== id) return;
         const detail = row.nextElementSibling;
         const desc = detail && detail.querySelector('.todo-detail-desc');
         if (!desc) return;

@@ -26,6 +26,7 @@ import routes_money
 import routes_car
 import routes_meditation
 import routes_media
+import routes_movement
 import routes_reminders
 import routes_food_test
 import routes_terminal
@@ -272,7 +273,7 @@ def api_change_password():
     return jsonify({"ok": True})
 
 
-VALID_TABS = ("today", "map", "kitchen", "inventory", "money", "car", "meditation", "media", "body")
+VALID_TABS = ("today", "map", "kitchen", "inventory", "money", "car", "meditation", "media", "movement", "body")
 
 # Path to the file that backs the public homepage fake-terminal intro.
 PUBLIC_INTRO_PATH = CONTENT_DIR / "public_intro.md"
@@ -371,6 +372,11 @@ def split_meditation():
 @app.route("/media")
 def split_media():
     return _split_response("media")
+
+
+@app.route("/movement")
+def split_movement():
+    return _split_response("movement")
 
 
 @app.route("/body")
@@ -644,6 +650,10 @@ def _load_media():
     return store.read("media.json", {"items": []})
 
 
+def _load_movement():
+    return store.read("movement.json", {"routines": []})
+
+
 def _load_reminders():
     return store.read("reminders.json", {}).get("reminders", [])
 
@@ -914,6 +924,19 @@ def get_data_media():
     return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/data/movement")
+def get_data_movement():
+  try:
+    data = _common_data()
+    data.update({
+        "movement": _load_movement(),
+    })
+    return jsonify(filter_for_view(data, request.view_mode))
+  except Exception as e:
+    app.logger.error(f"/api/data/movement failed: {e}\n{traceback.format_exc()}")
+    return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/data/item-buy")
 def get_data_item_buy():
   try:
@@ -1109,6 +1132,7 @@ routes_money.register(app)
 routes_car.register(app)
 routes_meditation.register(app)
 routes_media.register(app)
+routes_movement.register(app)
 routes_reminders.register(app)
 routes_food_test.register(app)
 routes_terminal.register(app)

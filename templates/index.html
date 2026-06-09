@@ -26,21 +26,20 @@
             <a href="/" class="time-btn" data-tab="today" style="text-decoration:none" onclick="switchTab(event,'today')">To Do</a>
             <a href="/map" class="time-btn" data-tab="map" style="text-decoration:none" onclick="switchTab(event,'map')">Life Map</a>
             <a href="/kitchen" class="time-btn" data-tab="kitchen" style="text-decoration:none" onclick="switchTab(event,'kitchen')">Kitchen</a>
-            <!-- These promote into the bar as the pane widens; otherwise they live in More. -->
-            <a href="/body" class="time-btn tab-t1" data-tab="body" style="text-decoration:none" onclick="switchTab(event,'body')">Body</a>
-            <a href="/money" class="time-btn tab-t1" data-tab="money" style="text-decoration:none" onclick="switchTab(event,'money')">Money</a>
-            <a href="/meditation" class="time-btn tab-t2" data-tab="meditation" style="text-decoration:none" onclick="switchTab(event,'meditation')">Meditation</a>
-            <a href="/media" class="time-btn tab-t2" data-tab="media" style="text-decoration:none" onclick="switchTab(event,'media')">Media</a>
+            <!-- Optional tabs: shown in the bar while they fit, auto-moved into More
+                 (by layoutTabs) when the pane is too narrow. Never duplicated. -->
+            <a href="/body" class="time-btn tab-opt" data-tab="body" style="text-decoration:none" onclick="switchTab(event,'body')">Body</a>
+            <a href="/money" class="time-btn tab-opt" data-tab="money" style="text-decoration:none" onclick="switchTab(event,'money')">Money</a>
+            <a href="/meditation" class="time-btn tab-opt" data-tab="meditation" style="text-decoration:none" onclick="switchTab(event,'meditation')">Meditation</a>
+            <a href="/media" class="time-btn tab-opt" data-tab="media" style="text-decoration:none" onclick="switchTab(event,'media')">Media</a>
+            <a href="/movement" class="time-btn tab-opt" data-tab="movement" style="text-decoration:none" onclick="switchTab(event,'movement')">Movement</a>
             <div style="position:relative;display:inline-block">
                 <button type="button" class="time-btn" id="more-btn" onclick="toggleMore(event)">More &#9662;</button>
+                <!-- Overflowed bar tabs are injected above these always-in-More items. -->
                 <div id="more-menu" class="more-menu" role="menu">
-                    <a href="/meditation" class="m-t2" data-tab="meditation" onclick="switchTab(event,'meditation')">Meditation</a>
-                    <a href="/media" class="m-t2" data-tab="media" onclick="switchTab(event,'media')">Media</a>
-                    <a href="/body" class="m-t1" data-tab="body" onclick="switchTab(event,'body')">Body</a>
                     <a href="/personality" class="auth-only" onclick="closeMore()">Personality</a>
                     <a href="/inventory" data-tab="inventory" onclick="switchTab(event,'inventory')">Inventory</a>
                     <a href="/car-maintenance" data-tab="car" onclick="switchTab(event,'car')">Car Maintenance</a>
-                    <a href="/money" class="m-t1" data-tab="money" onclick="switchTab(event,'money')">Money</a>
                 </div>
             </div>
         </div>
@@ -257,6 +256,15 @@
         <div id="media-area"></div>
     </div>
 
+    <!-- MOVEMENT TAB -->
+    <div id="tab-movement" style="display:none">
+        <div class="section-title" style="margin-top:0">Movement</div>
+        <div style="font-size:12px;color:var(--text-muted);margin:-2px 0 12px 0">
+            Stretch and movement routines. Tap a move to open its video. Edit to add moves, paste links, or reorder.
+        </div>
+        <div id="movement-area"></div>
+    </div>
+
     <div class="footer">{{ app_name }} v{{ app_version }}{% if owner_name %} &mdash; {{ owner_name }}{% endif %}</div>
 </div>
 
@@ -356,6 +364,7 @@
 <script src="{{ v_static('js/car.js') }}"></script>
 <script src="{{ v_static('js/meditation.js') }}"></script>
 <script src="{{ v_static('js/media.js') }}"></script>
+<script src="{{ v_static('js/movement.js') }}"></script>
 <script src="{{ v_static('js/reminders.js') }}"></script>
 <script src="{{ v_static('js/polling.js') }}"></script>
 <script src="{{ v_static('js/today-polish.js') }}"></script>

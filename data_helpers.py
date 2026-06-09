@@ -7,6 +7,7 @@ unchanged (and now get atomic writes for free)."""
 from pathlib import Path
 from datetime import datetime, timedelta
 import json
+import uuid
 import pandas as pd
 
 from store import (  # noqa: F401  (re-exported for backward compatibility)
@@ -165,14 +166,31 @@ TODO_SECTIONS = [
 ]
 
 
+def _ensure_todo_ids(data):
+    """Assign a stable short id to any to-do item that lacks one. Returns True if
+    anything changed, so the caller can persist the one-time migration."""
+    changed = False
+    for sec in data.values():
+        if not isinstance(sec, dict):
+            continue
+        for item in sec.get("items", []):
+            if isinstance(item, dict) and not item.get("id"):
+                item["id"] = uuid.uuid4().hex[:8]
+                changed = True
+    return changed
+
+
 def load_todos():
-    if TODOS_PATH.exists():
-        return json.loads(TODOS_PATH.read_text())
-    return {}
+    """Read todos through the atomic store layer, back-filling stable ids on the
+    way out so every item is addressable by id (text is no longer the identity)."""
+    data = read("todos", {})
+    if _ensure_todo_ids(data):
+        write("todos", data)
+    return data
 
 
 def save_todos(data):
-    TODOS_PATH.write_text(json.dumps(data, indent=2))
+    write("todos", data)
 
 
 def roll_todos(data):
