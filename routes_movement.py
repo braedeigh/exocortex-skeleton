@@ -95,6 +95,7 @@ def register(app):
             "id": _new_id(),
             "name": name,
             "url": (body.get("url") or "").strip(),
+            "dose": (body.get("dose") or "").strip(),
             "note": (body.get("note") or "").strip(),
         }
         r.setdefault("moves", []).append(move)
@@ -120,6 +121,8 @@ def register(app):
             move["name"] = name
         if "url" in body:
             move["url"] = (body.get("url") or "").strip()
+        if "dose" in body:
+            move["dose"] = (body.get("dose") or "").strip()
         if "note" in body:
             move["note"] = (body.get("note") or "").strip()
         _save(data)

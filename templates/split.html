@@ -528,7 +528,7 @@ body.public-mode #mobileFiles {
             <button data-dashview="files" onclick="switchDashView('files', this)">Files<span class="tab-close-x" onclick="closeVscodeFromTab(event)" title="Close VS Code (free memory)">&times;</span></button>
             <button data-dashview="settings" onclick="switchDashView('settings', this)" title="Settings" aria-label="Settings" style="flex:0;padding:11px 16px;font-size:18px;margin-left:auto">&#9881;</button>
         </div>
-        <iframe src="/tab/{{ active_tab }}{% if item_name %}?item={{ item_name }}{% endif %}" id="dashboardFrame"></iframe>
+        <iframe src="/tab/{{ active_tab }}{% if item_name %}?item={{ item_name }}{% endif %}" id="dashboardFrame" allow="fullscreen; autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
         <iframe id="journalFrame" style="display:none"></iframe>
         <iframe src="/files/" id="filesFrame" style="display:none"></iframe>
         <iframe id="settingsFrame" style="display:none"></iframe>
@@ -549,7 +549,7 @@ body.public-mode #mobileFiles {
             <iframe id="mobileTerminalFrame"></iframe>
         </div>
         <div class="tab-pane" id="mobileDashboard">
-            <iframe id="mobileDashboardFrame" src="/tab/{{ active_tab }}{% if item_name %}?item={{ item_name }}{% endif %}"></iframe>
+            <iframe id="mobileDashboardFrame" src="/tab/{{ active_tab }}{% if item_name %}?item={{ item_name }}{% endif %}" allow="fullscreen; autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
         </div>
         <div class="tab-pane" id="mobileJournal">
             <iframe id="mobileJournalFrame"></iframe>
@@ -1105,9 +1105,9 @@ function dashIframes() {
     return [document.getElementById('dashboardFrame'), document.getElementById('mobileDashboardFrame')].filter(Boolean);
 }
 
-function broadcastSwitchTo(name) {
+function broadcastSwitchTo(name, extra) {
     dashIframes().forEach(f => {
-        if (f && f.contentWindow) f.contentWindow.postMessage({ type: 'switchTo', name: name }, location.origin);
+        if (f && f.contentWindow) f.contentWindow.postMessage({ type: 'switchTo', name: name, extra: extra || null }, location.origin);
     });
 }
 
@@ -1123,7 +1123,7 @@ window.addEventListener('message', (e) => {
     if (location.pathname !== path) {
         history.pushState({ tab: name }, '', path);
     }
-    broadcastSwitchTo(name);
+    broadcastSwitchTo(name, e.data.extra);
 });
 
 window.addEventListener('popstate', () => {

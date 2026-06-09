@@ -20,6 +20,7 @@ import config
 import routes_kitchen
 import routes_habits
 import routes_todos
+import routes_places
 import routes_health
 import routes_inventory
 import routes_money
@@ -761,6 +762,7 @@ def get_data_today():
         "habit_starts": _load_habit_starts(),
         "growth_notes": growth_notes,
         "todos": todos_to_sections(todo_data),
+        "places": store.read("places", {}).get("places", []),
         "habits_log": _load_habits_log(),
         "health_data": load_health_data(),
         "contacts": _load_contacts(),
@@ -864,6 +866,7 @@ def get_data_car():
         "car_maintenance": _load_car(),
         "car_notes": _load_car_notes(),
     })
+    data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("car", [])
     return jsonify(filter_for_view(data, request.view_mode))
   except Exception as e:
     app.logger.error(f"/api/data/car failed: {e}\n{traceback.format_exc()}")
@@ -905,6 +908,7 @@ def get_data_meditation():
         "meditation_notes": _load_meditation_notes(),
         "deity_profiles": _load_deity_profiles(),
     })
+    data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("meditation", [])
     return jsonify(filter_for_view(data, request.view_mode))
   except Exception as e:
     app.logger.error(f"/api/data/meditation failed: {e}\n{traceback.format_exc()}")
@@ -918,6 +922,7 @@ def get_data_media():
     data.update({
         "media": _load_media(),
     })
+    data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("media", [])
     return jsonify(filter_for_view(data, request.view_mode))
   except Exception as e:
     app.logger.error(f"/api/data/media failed: {e}\n{traceback.format_exc()}")
@@ -931,6 +936,7 @@ def get_data_movement():
     data.update({
         "movement": _load_movement(),
     })
+    data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("movement", [])
     return jsonify(filter_for_view(data, request.view_mode))
   except Exception as e:
     app.logger.error(f"/api/data/movement failed: {e}\n{traceback.format_exc()}")
@@ -1126,6 +1132,7 @@ def vscode_stop():
 routes_kitchen.register(app)
 routes_habits.register(app)
 routes_todos.register(app)
+routes_places.register(app)
 routes_health.register(app)
 routes_inventory.register(app)
 routes_money.register(app)

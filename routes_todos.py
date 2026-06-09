@@ -97,11 +97,16 @@ def register(app):
             todos.setdefault(to_key, {"items": []}).setdefault("items", []).append(moved)
         return jsonify({"ok": True})
 
+    # Optional string attributes the detail editor can set/clear on a to-do.
+    # An empty value removes the key (we keep items lean — absent = unset).
+    TODO_STR_FIELDS = ("notes", "due_by", "due_time", "place_id", "category", "status")
+
     @app.route("/api/todos/details", methods=["POST"])
     def todo_details():
-        """Set optional notes and/or due date on a to-do (empty clears). Only
-        the fields present in the payload are touched, so the inline notes
-        editor and the detail modal can each send just what they manage."""
+        """Set optional attributes on a to-do (empty clears). Only the fields
+        present in the payload are touched, so the inline notes editor and the
+        detail modal can each send just what they manage. Handles notes/due_by
+        plus the scheduling/place/category/duration/status attributes."""
         data = request.json or {}
         ident = data.get("id") or data.get("item", "")
         with store.mutate("todos", {}) as todos:
@@ -110,18 +115,22 @@ def register(app):
                     continue
                 for item in todos[key].get("items", []):
                     if _match(item, ident):
-                        if "notes" in data:
-                            notes = (data.get("notes") or "").strip()
-                            if notes:
-                                item["notes"] = notes
+                        for f in TODO_STR_FIELDS:
+                            if f in data:
+                                val = (data.get(f) or "").strip()
+                                if val:
+                                    item[f] = val
+                                else:
+                                    item.pop(f, None)
+                        if "duration_min" in data:
+                            try:
+                                dm = int(data.get("duration_min") or 0)
+                            except (TypeError, ValueError):
+                                dm = 0
+                            if dm > 0:
+                                item["duration_min"] = dm
                             else:
-                                item.pop("notes", None)
-                        if "due_by" in data:
-                            due = (data.get("due_by") or "").strip()
-                            if due:
-                                item["due_by"] = due
-                            else:
-                                item.pop("due_by", None)
+                                item.pop("duration_min", None)
                         return jsonify({"ok": True})
         return jsonify({"ok": True})
 

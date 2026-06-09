@@ -265,17 +265,18 @@ function render() {
                 renderSubscriptions, renderBudgetConfig, renderDevNotes, restoreEditModes
             ],
             car: [
-                renderHeader, renderCarNotes, renderCarAddForm, renderCarLog
+                renderHeader, renderCarNotes, renderCarAddForm, renderCarLog,
+                renderDevNotes, restoreEditModes
             ],
             meditation: [
                 renderHeader, renderMeditationTimer, renderMeditationStream,
-                renderDeities, _applyMedView
+                renderDeities, _applyMedView, renderDevNotes, restoreEditModes
             ],
             media: [
-                renderHeader, renderMedia
+                renderHeader, renderMedia, renderDevNotes, restoreEditModes
             ],
             movement: [
-                renderHeader, renderMovement
+                renderHeader, renderMovement, renderDevNotes, restoreEditModes
             ],
         };
     }
@@ -353,20 +354,8 @@ function renderHeader() {
     document.querySelectorAll('#time-selector .time-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.time === getTime());
     });
-    document.querySelectorAll('#tab-selector .time-btn').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.tab === currentTab);
-    });
-    // More button: active when an overflow tab is current; label reflects which one
-    const moreBtn = document.getElementById('more-btn');
-    if (moreBtn) {
-        if (OVERFLOW_TAB_LABELS[currentTab]) {
-            moreBtn.textContent = `${OVERFLOW_TAB_LABELS[currentTab]} ▾`;
-            moreBtn.classList.add('active');
-        } else {
-            moreBtn.textContent = 'More ▾';
-            moreBtn.classList.remove('active');
-        }
-    }
+    // Lay out the tab bar (fit-as-many + overflow into More) and set active states.
+    layoutTabs();
 }
 
 // --- Utility functions ---
@@ -384,12 +373,13 @@ function escJs(s) {
 }
 
 // --- Tab navigation: post to parent (split.html) so URL updates without reloading the shell ---
-function switchTab(event, name) {
+function switchTab(event, name, extra) {
     if (event && (event.ctrlKey || event.metaKey || event.shiftKey || event.button !== 0)) return;  // let browser open in new tab
     closeMore();
     if (window.parent && window.parent !== window) {
         if (event) event.preventDefault();
-        window.parent.postMessage({ type: 'tab', name: name }, location.origin);
+        // `extra` is an optional deep-link payload (e.g. {routine:'evening-neck'}).
+        window.parent.postMessage({ type: 'tab', name: name, extra: extra || null }, location.origin);
     }
     // standalone (no parent shell): let the <a> href navigate normally
 }
@@ -399,7 +389,15 @@ window.addEventListener('message', (e) => {
     if (e.source !== window.parent) return;
     if (!e.data || e.data.type !== 'switchTo') return;
     const name = e.data.name;
-    if (name === currentTab) return;
+    const extra = e.data.extra || null;
+    // Deep-link target for Movement: open straight into a routine (or clear it on
+    // a plain tab switch so normal nav shows the routine list).
+    if (name === 'movement') window._movementRoutineView = (extra && extra.routine) ? extra.routine : null;
+    if (name === currentTab) {
+        // Already on this tab — just apply the deep-link by re-rendering.
+        if (name === 'movement' && typeof renderMovement === 'function') renderMovement();
+        return;
+    }
     currentTab = name;
     document.body.dataset.activeTab = name;
     if (name === 'today') resetTodoCollapseMemory();  // start the To-Do page fresh
@@ -428,6 +426,13 @@ function frostedCard(title, fauxCount) {
 function todayStr() {
     if (_serverDate) return _serverDate;
     const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+// Tomorrow as YYYY-MM-DD, derived from todayStr so it respects the server date.
+function tomorrowStr() {
+    const d = new Date(todayStr() + 'T12:00:00');
+    d.setDate(d.getDate() + 1);
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
@@ -703,6 +708,11 @@ function habitStartLabel(item) {
     return `${days}d · `;
 }
 
+// Habits with a companion page — a ↗ icon next to them jumps there. Keys are the
+// habit text lowercased; value is { tab, routine? } where routine deep-links into
+// a specific Movement routine. Extend as more habits get pages.
+const HABIT_LINKS = { 'stretch routine': { tab: 'movement', routine: 'evening-neck' } };
+
 function habitCardHTML(title, items, color, sectionName) {
     const today = todayStr();
     const todayLog = (D.habits_log || {})[today] || {};
@@ -712,6 +722,10 @@ function habitCardHTML(title, items, color, sectionName) {
         const done = !!todayLog[item];
         const total = habitCount(item);
         const target = 60;
+        const lnk = HABIT_LINKS[item.toLowerCase()];
+        const linkBtn = lnk
+            ? `<button class="habit-link-btn" onclick="switchTab(event,'${esc(lnk.tab)}'${lnk.routine ? `,{routine:'${escJs(lnk.routine)}'}` : ''})" title="Open routine" aria-label="Open linked page">&#8599;</button>`
+            : '';
 
         return `<div class="card-item" draggable="true" data-section="${esc(sectionName)}" data-idx="${idx}" data-habit="${esc(item)}"
                 ondragstart="habitDragStart(event)" ondragover="habitDragOver(event)" ondrop="habitDrop(event,'habit')" ondragend="habitDragEnd(event)" ondragleave="habitDragLeave(event)">
@@ -719,7 +733,7 @@ function habitCardHTML(title, items, color, sectionName) {
             <span class="habit-check ${done?'done':''}" onclick="toggleHabit('${esc(item)}')" title="Toggle today">
                 ${done ? '&#10003;' : '&#9675;'}
             </span>
-            <span class="item-text habit-view" style="${done?'text-decoration:line-through;opacity:0.5':''}">${esc(item)}</span>
+            <span class="item-text habit-view" style="${done?'text-decoration:line-through;opacity:0.5':''}">${esc(item)}${linkBtn}</span>
             <textarea class="habit-rename habit-edit" rows="1" style="display:none" data-original="${esc(item)}" data-section="${esc(sectionName)}"
                 oninput="autoGrow(this)" onblur="commitRename(this)" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur()}else if(event.key==='Escape'){this.value=this.dataset.original;this.blur()}">${esc(item)}</textarea>
             <span style="font-size:12px;color:var(--text-muted);margin-left:auto">${habitStartLabel(item)}${total}/${target}</span>
@@ -1095,26 +1109,168 @@ function renderBucketEditModal() {
 // Tap a to-do to pop up its details: due (left) / added (right), title, and
 // description — all read-only until the Edit button (which becomes Save) is
 // tapped. Ignores clicks on an inner link so URL to-dos still navigate.
+// --- To-do attribute vocabulary + helpers (Phase 1) --------------------------
+// Category mirrors the app's tab taxonomy ("tag a to-do by the tab it belongs
+// to"); status captures the "will it be ready?" question.
+const TODO_CATEGORIES = [
+    { key: 'body', label: 'Body' },
+    { key: 'kitchen', label: 'Kitchen' },
+    { key: 'money', label: 'Money' },
+    { key: 'car', label: 'Car' },
+    { key: 'inventory', label: 'Inventory' },
+    { key: 'meditation', label: 'Meditation' },
+    { key: 'media', label: 'Media' },
+    { key: 'movement', label: 'Movement' },
+    { key: 'map', label: 'Life Map' },
+];
+const TODO_STATUSES = [
+    { key: 'ready', label: 'Ready' },
+    { key: 'check_first', label: 'Check first' },
+    { key: 'waiting', label: 'Waiting' },
+];
+
+function findTodoById(id) {
+    for (const sec of (D.todos || [])) {
+        for (const it of (sec.items || [])) {
+            if (it && typeof it === 'object' && (it.id === id || it.text === id)) return it;
+        }
+    }
+    return null;
+}
+function placeById(pid) { return (D.places || []).find(p => p.id === pid) || null; }
+function _catLabel(key) { const c = TODO_CATEGORIES.find(c => c.key === key); return c ? c.label : (key || ''); }
+function _statusLabel(key) { const s = TODO_STATUSES.find(s => s.key === key); return s ? s.label : (key || ''); }
+function _fmtTime(hhmm) {
+    if (!hhmm) return '';
+    const [h, m] = String(hhmm).split(':').map(Number);
+    if (isNaN(h)) return hhmm;
+    const ap = h < 12 ? 'am' : 'pm';
+    const h12 = ((h + 11) % 12) + 1;
+    return `${h12}:${String(m || 0).padStart(2, '0')}${ap}`;
+}
+function _fmtDuration(min) {
+    min = parseInt(min, 10);
+    if (!min) return '';
+    if (min < 60) return `${min}m`;
+    const h = Math.floor(min / 60), m = min % 60;
+    return m ? `${h}h${m}` : `${h}h`;
+}
+// Read-only chip row summarizing a to-do's attributes (used in the detail modal;
+// reused by the day/itinerary views in Phase 2).
+function todoChipsHTML(item) {
+    const chips = [];
+    const pl = item.place_id && placeById(item.place_id);
+    if (pl) chips.push(`<span class="todo-chip chip-place">📍 ${esc(pl.name)}</span>`);
+    if (item.due_time) chips.push(`<span class="todo-chip chip-time">🕑 ${esc(_fmtTime(item.due_time))}</span>`);
+    if (item.duration_min) chips.push(`<span class="todo-chip chip-dur">⏱ ${esc(_fmtDuration(item.duration_min))}</span>`);
+    if (item.category) chips.push(`<span class="todo-chip chip-cat">${esc(_catLabel(item.category))}</span>`);
+    if (item.status) chips.push(`<span class="todo-chip chip-status status-${esc(item.status)}">${esc(_statusLabel(item.status))}</span>`);
+    return chips.join('');
+}
+
+// Edit-mode chip handlers (duration quick-picks + single-select status).
+function tmDurationChip(btn, mins) {
+    const wrap = btn.closest('.tm-chips');
+    wrap.querySelectorAll('.tm-chip').forEach(c => c.classList.remove('active'));
+    btn.classList.add('active');
+    const inp = wrap.querySelector('.todo-modal-duration');
+    if (inp) inp.value = mins;
+}
+function tmStatusChip(btn) {
+    const wrap = btn.closest('.tm-chips');
+    const wasActive = btn.classList.contains('active');
+    wrap.querySelectorAll('.tm-chip').forEach(c => c.classList.remove('active'));
+    if (!wasActive) btn.classList.add('active');   // tap an active chip again to clear
+}
+function tmPlaceChanged(sel) {
+    const np = sel.closest('.tm-field').querySelector('.tm-newplace');
+    if (np) np.style.display = sel.value === '__new__' ? 'flex' : 'none';
+}
+async function tmSaveNewPlace(btn) {
+    const wrap = btn.closest('.tm-newplace');
+    const nameEl = wrap.querySelector('.tm-newplace-name');
+    const name = nameEl.value.trim();
+    const addr = wrap.querySelector('.tm-newplace-addr').value.trim();
+    if (!name) { nameEl.focus(); return; }
+    const res = await fetch('/api/places/add', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, address: addr })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { alert(data.error || 'Could not add place'); return; }
+    D.places = D.places || [];
+    D.places.push({ id: data.id, name, address: addr, category: '', notes: '' });
+    const sel = btn.closest('.tm-field').querySelector('.todo-modal-place');
+    const opt = document.createElement('option');
+    opt.value = data.id; opt.textContent = name; opt.selected = true;
+    sel.insertBefore(opt, sel.querySelector('option[value="__new__"]'));
+    sel.value = data.id;
+    wrap.style.display = 'none';
+    nameEl.value = ''; wrap.querySelector('.tm-newplace-addr').value = '';
+}
+
+// Tap a to-do → its detail modal. Read mode shows attribute chips; Edit reveals
+// the date+time, place, category, duration and status controls.
 function openTodoDetail(el, ev) {
     if (ev && ev.target && ev.target.closest('a')) return;
     const row = el.closest('.card-item');
     if (!row) return;
     const text = row.dataset.habit || '';
     const id = row.dataset.id || text;
-    const dueIso = row.dataset.due || '';
-    const detail = row.nextElementSibling;
-    const addedEl = detail && detail.querySelector('.todo-detail-added');
-    const inlineNotes = detail && detail.querySelector('.todo-notes-input');
-    const notes = inlineNotes ? inlineNotes.value : '';
+    const item = findTodoById(id) || { text };
+    const dueIso = item.due_by || row.dataset.due || '';
+    const dueTime = item.due_time || '';
+    const notes = item.notes || '';
+    const added = item.created ? `Added ${_fmtAddedDate(item.created)}` : '';
     const overdue = dueIso && _isOverdue(dueIso);
-    const dueText = dueIso ? `${overdue ? 'overdue · ' : 'due '}${_fmtAddedDate(dueIso)}` : '';
-    const addedHTML = addedEl ? `<span class="todo-modal-added">${esc(addedEl.textContent.trim())}</span>` : '';
-    const hasMeta = dueText || addedHTML;
+    const dueText = dueIso
+        ? `${overdue ? 'overdue · ' : 'due '}${_fmtAddedDate(dueIso)}${dueTime ? ' · ' + _fmtTime(dueTime) : ''}`
+        : (dueTime ? _fmtTime(dueTime) : '');
+    const chips = todoChipsHTML(item);
+    const metaBits = [];
+    if (dueText) metaBits.push(`<span class="todo-modal-due${overdue ? ' overdue' : ''}">${esc(dueText)}</span>`);
+    if (chips) metaBits.push(`<span class="todo-modal-chips">${chips}</span>`);
+    if (added) metaBits.push(`<span class="todo-modal-added">${esc(added)}</span>`);
+
+    const placeOpts = ['<option value="">No place</option>']
+        .concat((D.places || []).map(p => `<option value="${esc(p.id)}"${p.id === item.place_id ? ' selected' : ''}>${esc(p.name)}</option>`))
+        .concat(['<option value="__new__">➕ Add a place…</option>']).join('');
+    const catOpts = ['<option value="">— none —</option>']
+        .concat(TODO_CATEGORIES.map(c => `<option value="${esc(c.key)}"${c.key === item.category ? ' selected' : ''}>${esc(c.label)}</option>`)).join('');
+    const durChips = [15, 30, 60].map(m => `<button type="button" class="tm-chip${item.duration_min === m ? ' active' : ''}" onclick="tmDurationChip(this, ${m})">${m}m</button>`).join('');
+    const statusChips = TODO_STATUSES.map(s => `<button type="button" class="tm-chip${item.status === s.key ? ' active' : ''}" data-val="${esc(s.key)}" onclick="tmStatusChip(this)">${esc(s.label)}</button>`).join('');
+
     const body = `<div class="todo-modal-body" data-item="${esc(text)}" data-id="${esc(id)}" data-due="${esc(dueIso)}">
-        <div class="todo-modal-meta"${hasMeta ? '' : ' style="display:none"'}><span class="todo-modal-due${overdue ? ' overdue' : ''}">${esc(dueText)}</span>${addedHTML}</div>
-        <div class="todo-modal-due-edit" style="display:none">
-            <label class="todo-modal-label">Due by <span class="todo-add-opt">(optional)</span></label>
-            <input type="date" class="todo-modal-due-input" value="${esc(dueIso)}">
+        <div class="todo-modal-meta"${metaBits.length ? '' : ' style="display:none"'}>${metaBits.join('')}</div>
+        <div class="todo-modal-edit" style="display:none">
+            <div class="tm-field">
+                <label class="todo-modal-label">Do on <span class="todo-add-opt">(date + time, optional)</span></label>
+                <div class="tm-row">
+                    <input type="date" class="todo-modal-due-input" value="${esc(dueIso)}">
+                    <input type="time" class="todo-modal-time-input" value="${esc(dueTime)}">
+                </div>
+            </div>
+            <div class="tm-field">
+                <label class="todo-modal-label">Place</label>
+                <select class="todo-modal-place" onchange="tmPlaceChanged(this)">${placeOpts}</select>
+                <div class="tm-newplace" style="display:none">
+                    <input type="text" class="tm-newplace-name" placeholder="Place name">
+                    <input type="text" class="tm-newplace-addr" placeholder="Address (optional)">
+                    <button type="button" class="modal-btn confirm" style="background:var(--accent)" onclick="tmSaveNewPlace(this)">Save place</button>
+                </div>
+            </div>
+            <div class="tm-field">
+                <label class="todo-modal-label">Category</label>
+                <select class="todo-modal-category">${catOpts}</select>
+            </div>
+            <div class="tm-field">
+                <label class="todo-modal-label">Duration <span class="todo-add-opt">(rough estimate)</span></label>
+                <div class="tm-chips">${durChips}<input type="number" min="0" step="5" class="todo-modal-duration" placeholder="min" value="${item.duration_min ? esc(item.duration_min) : ''}"></div>
+            </div>
+            <div class="tm-field">
+                <label class="todo-modal-label">Status</label>
+                <div class="tm-chips todo-modal-status">${statusChips}</div>
+            </div>
         </div>
         <div class="todo-modal-desc-read${notes ? '' : ' empty'}">${notes ? esc(notes) : 'No description'}</div>
         <textarea class="todo-modal-desc-edit" placeholder="Add a description…" oninput="autoGrow(this)" style="display:none">${esc(notes)}</textarea>
@@ -1136,10 +1292,7 @@ async function toggleTodoModalEdit(btn) {
     const headerTitle = document.querySelector('#panel-modal-title .todo-modal-htitle');
     const titleEdit = document.querySelector('#panel-modal-title .todo-modal-htitle-edit');
     const metaRow = body.querySelector('.todo-modal-meta');
-    const dueWrap = body.querySelector('.todo-modal-due-edit');
-    const dueInput = body.querySelector('.todo-modal-due-input');
-    const dueRead = body.querySelector('.todo-modal-due');
-    const addedRead = body.querySelector('.todo-modal-added');
+    const editPanel = body.querySelector('.todo-modal-edit');
     const descRead = body.querySelector('.todo-modal-desc-read');
     const descEdit = body.querySelector('.todo-modal-desc-edit');
 
@@ -1147,7 +1300,7 @@ async function toggleTodoModalEdit(btn) {
         headerTitle.style.display = 'none';
         titleEdit.style.display = '';
         autoGrow(titleEdit);
-        dueWrap.style.display = '';
+        if (editPanel) editPanel.style.display = '';
         if (metaRow) metaRow.style.display = 'none';
         descRead.style.display = 'none';
         descEdit.style.display = 'block';
@@ -1158,38 +1311,31 @@ async function toggleTodoModalEdit(btn) {
         return;
     }
 
-    // Save
+    // Save — title via rename, everything else via the generic details updater.
     const id = body.dataset.id || body.dataset.item;
     const oldText = body.dataset.item;
     const newText = titleEdit.value.trim() || oldText;
     const notes = descEdit.value.trim();
-    const due = dueInput.value;
+    const due = body.querySelector('.todo-modal-due-input').value;
+    const dueTime = body.querySelector('.todo-modal-time-input').value;
+    let placeSel = body.querySelector('.todo-modal-place').value;
+    if (placeSel === '__new__') placeSel = '';   // an unsaved "add place" choice → none
+    const category = body.querySelector('.todo-modal-category').value;
+    const duration = body.querySelector('.todo-modal-duration').value;
+    const statusBtn = body.querySelector('.todo-modal-status .tm-chip.active');
+    const status = statusBtn ? statusBtn.dataset.val : '';
+
     if (newText !== oldText) {
         await fetch('/api/todos/rename', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ id, old: oldText, new: newText })
         });
-        body.dataset.item = newText;
     }
     await fetch('/api/todos/details', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, notes, due_by: due })
+        body: JSON.stringify({ id, notes, due_by: due, due_time: dueTime, place_id: placeSel, category, duration_min: duration, status })
     });
-    body.dataset.due = due;
-    if (headerTitle) headerTitle.textContent = newText;
-    descRead.textContent = notes || 'No description';
-    descRead.classList.toggle('empty', !notes);
-    const overdue = due && _isOverdue(due);
-    dueRead.textContent = due ? `${overdue ? 'overdue · ' : 'due '}${_fmtAddedDate(due)}` : '';
-    dueRead.classList.toggle('overdue', !!overdue);
-    headerTitle.style.display = '';
-    titleEdit.style.display = 'none';
-    dueWrap.style.display = 'none';
-    // Show the meta row again only if there's now something in it.
-    if (metaRow) metaRow.style.display = (due || addedRead) ? '' : 'none';
-    descRead.style.display = '';
-    descEdit.style.display = 'none';
-    btn.textContent = 'Edit';
+    hideEditorModal();
     loadDashboard();
 }
 
@@ -1618,9 +1764,77 @@ function closeSettings() {
     } catch (e) { /* no-op */ }
 }
 
-// --- More dropdown (Priority+ nav overflow) ---
+// --- Tab bar auto-fit + overflow into More ------------------------------------
+// The bar shows the 3 core tabs plus as many optional tabs (.tab-opt) as fit the
+// pane; the rest are moved into the More menu. Because each optional tab lives in
+// exactly one place at a time, the active highlight can never land on both a bar
+// tab and the More button (the old CSS-media-query approach kept duplicates,
+// which is what caused the double-highlight). Re-runs on every render and resize.
+function setTabActive() {
+    document.querySelectorAll('#tab-selector .time-btn').forEach(btn => {
+        if (btn.id === 'more-btn') return;
+        btn.classList.toggle('active', btn.dataset.tab === currentTab);
+    });
+    let activeMenuLabel = null;
+    document.querySelectorAll('#more-menu a[data-tab]').forEach(a => {
+        const on = a.dataset.tab === currentTab;
+        a.classList.toggle('active', on);
+        if (on) activeMenuLabel = a.textContent.trim();
+    });
+    const moreBtn = document.getElementById('more-btn');
+    if (moreBtn) {
+        // More reflects the current tab ONLY when that tab actually lives in the
+        // menu; a tab visible in the bar never also lights up More.
+        moreBtn.textContent = `${activeMenuLabel || 'More'} ▾`;
+        moreBtn.classList.toggle('active', !!activeMenuLabel);
+    }
+}
 
-const OVERFLOW_TAB_LABELS = { inventory: 'Inventory', money: 'Money', car: 'Car', meditation: 'Meditation', media: 'Media', body: 'Body' };
+function layoutTabs() {
+    const sel = document.getElementById('tab-selector');
+    const menu = document.getElementById('more-menu');
+    if (!sel || !menu) { return; }
+    const row = sel.parentElement;  // flex row: selector pill + settings gear
+    // 1. Reset — every optional tab back in the bar, clear previously injected items.
+    const opt = [...sel.querySelectorAll('.time-btn.tab-opt')];
+    opt.forEach(b => { b.style.display = ''; });
+    menu.querySelectorAll('.tab-injected').forEach(n => n.remove());
+    // 2. Space available to the selector pill = the row minus the (optional) gear.
+    const gear = document.getElementById('settings-gear');
+    const gearW = (gear && gear.offsetParent !== null) ? gear.offsetWidth + 12 : 0;
+    const avail = (row ? row.clientWidth : 0) - gearW;
+    // 3. Hide optional tabs from the end until the pill fits (keep core 3 + More).
+    const overflowed = [];
+    if (avail > 0) {
+        for (let i = opt.length - 1; i >= 0; i--) {
+            if (sel.offsetWidth <= avail) break;
+            opt[i].style.display = 'none';
+            overflowed.unshift(opt[i]);
+        }
+    }
+    // 4. Inject the overflowed tabs above the always-in-More items, in bar order.
+    const anchor = menu.firstChild;
+    overflowed.forEach(b => {
+        const a = document.createElement('a');
+        a.className = 'tab-injected';
+        a.href = b.getAttribute('href');
+        a.dataset.tab = b.dataset.tab;
+        a.textContent = b.textContent.trim();
+        a.addEventListener('click', (e) => switchTab(e, b.dataset.tab));
+        menu.insertBefore(a, anchor);
+    });
+    setTabActive();
+}
+
+// Re-fit on viewport changes (debounced to one run per animation frame).
+let _tabLayoutPending = false;
+window.addEventListener('resize', () => {
+    if (_tabLayoutPending) return;
+    _tabLayoutPending = true;
+    requestAnimationFrame(() => { _tabLayoutPending = false; layoutTabs(); });
+});
+
+// --- More dropdown (Priority+ nav overflow) ---
 
 function toggleMore(e) {
     if (e) e.stopPropagation();

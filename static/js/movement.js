@@ -7,59 +7,138 @@
 if (!window._moveEdit) window._moveEdit = { routineId: null };
 // Whether the "new routine" form is showing
 if (!window._moveNewRoutine) window._moveNewRoutine = { open: false };
+// Which routine is opened into its detail view (recipe-style drill-in), or null.
+// Window-scoped so it survives the 5s polling re-render, like _kitchenRecipeView.
+if (!window._movementRoutineView) window._movementRoutineView = null;
 
 function _movementRoutines() {
     return (D.movement && D.movement.routines) || [];
 }
 
+// Pull the 11-char YouTube id out of watch / youtu.be / embed / shorts URLs.
+// Returns '' for non-YouTube or empty URLs (those fall back to a plain link).
+function _ytId(url) {
+    if (!url) return '';
+    const s = String(url).trim();
+    let m = s.match(/[?&]v=([A-Za-z0-9_-]{11})/);
+    if (m) return m[1];
+    m = s.match(/youtu\.be\/([A-Za-z0-9_-]{11})/);
+    if (m) return m[1];
+    m = s.match(/\/(?:embed|shorts)\/([A-Za-z0-9_-]{11})/);
+    if (m) return m[1];
+    return '';
+}
+
+// Swap a thumbnail placeholder for the real player (autoplay, fullscreen-capable).
+// Only called on tap, so the page stays light until you actually want to watch.
+function _moveLoadPlayer(elId, vidId) {
+    const el = document.getElementById(elId);
+    if (!el) return;
+    el.onclick = null;
+    el.style.cursor = 'default';
+    el.innerHTML = `<iframe src="https://www.youtube.com/embed/${vidId}?autoplay=1&rel=0&modestbranding=1&playsinline=1" style="position:absolute;inset:0;width:100%;height:100%;border:0" allow="autoplay; encrypted-media; fullscreen; picture-in-picture" allowfullscreen></iframe>`;
+}
+
 function renderMovement() {
     const el = document.getElementById('movement-area');
     if (!el) return;
-
+    const sub = document.getElementById('movement-subtitle');
     const routines = _movementRoutines();
+
+    // Detail view: one routine drilled into (recipe-style). If the open routine is
+    // gone (e.g. just deleted), null the state and fall through to the menu.
+    if (window._movementRoutineView) {
+        const r = routines.find(x => x.id === window._movementRoutineView);
+        if (r) {
+            if (sub) sub.style.display = 'none';   // hide the tab blurb inside a routine
+            el.innerHTML = _movementDetail(r);
+            return;
+        }
+        window._movementRoutineView = null;
+    }
+    if (sub) sub.style.display = '';
+
+    // List menu: a tappable card per routine, then the "new routine" affordance.
     let body;
     if (!routines.length) {
         body = `<div style="color:var(--text-muted);font-style:italic;padding:18px;border:1px dashed var(--border);border-radius:8px;text-align:center;font-size:14px">
             No routines yet. Add one below to start collecting movements and their videos.</div>`;
     } else {
-        body = routines.map(r =>
-            window._moveEdit.routineId === r.id ? _movementRoutineEditor(r) : _movementRoutineCard(r)
-        ).join('');
+        body = routines.map(r => _movementListCard(r)).join('');
     }
-
     el.innerHTML = body + _movementNewRoutine();
 }
 
-// --- Normal view: a clean card of big tappable video rows ---
-function _movementRoutineCard(r) {
+// --- List menu: a tappable summary card that drills into the routine ---
+function _movementListCard(r) {
+    const n = (r.moves || []).length;
+    const note = r.note
+        ? `<div style="font-size:13px;color:var(--text-muted);margin-top:4px;line-height:1.4">${esc(r.note)}</div>`
+        : '';
+    return `<div onclick="_moveOpenRoutine('${esc(r.id)}')" style="display:flex;align-items:center;gap:12px;border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:12px;background:var(--bg-card);cursor:pointer;min-height:44px">
+        <div style="flex:1;min-width:0">
+            <div style="font-size:18px;font-weight:700;color:var(--text)">${esc(r.name)}</div>
+            <div style="font-size:12px;color:var(--text-muted);margin-top:2px">${n} move${n === 1 ? '' : 's'}</div>
+            ${note}
+        </div>
+        <span style="flex:none;font-size:24px;color:var(--text-muted)">&#8250;</span>
+    </div>`;
+}
+
+// --- Detail view: the opened routine — Back/Edit header, then its moves ---
+function _movementDetail(r) {
+    const editing = window._moveEdit.routineId === r.id;
+    const header = `<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+        <button onclick="_moveCloseRoutine()" style="display:inline-flex;align-items:center;height:38px;padding:0 16px;border-radius:8px;border:1px solid var(--border);background:none;color:var(--text-muted);font-size:14px;font-weight:600;cursor:pointer">&#8592; Back</button>
+        ${editing ? '' : `<button onclick="_moveEditOpen('${esc(r.id)}')" style="margin-left:auto;height:38px;padding:0 16px;border-radius:8px;border:1px solid var(--border);background:none;color:var(--text-muted);font-size:14px;font-weight:600;cursor:pointer">Edit</button>`}
+    </div>`;
+    if (editing) {
+        return header + _movementRoutineEditor(r);
+    }
     const moves = r.moves || [];
     const rows = moves.length
         ? moves.map(m => _movementMoveRow(r, m)).join('')
         : `<div style="color:var(--text-muted);font-style:italic;padding:12px 2px;font-size:14px">No moves yet — tap Edit to add some.</div>`;
     const note = r.note
-        ? `<div style="font-size:13px;color:var(--text-muted);margin:2px 0 12px">${esc(r.note)}</div>`
-        : '<div style="height:6px"></div>';
-    return `<div style="border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:18px;background:var(--bg-card)">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:2px">
-            <div style="flex:1;min-width:0;font-size:18px;font-weight:700;color:var(--text)">${esc(r.name)}</div>
-            <button onclick="_moveEditOpen('${esc(r.id)}')" style="flex:none;height:36px;padding:0 16px;border-radius:18px;border:1px solid var(--border);background:none;color:var(--text-muted);font-size:14px;font-weight:600;cursor:pointer">Edit</button>
-        </div>
+        ? `<div style="font-size:13px;color:var(--text-muted);margin:0 0 14px;line-height:1.45">${esc(r.note)}</div>`
+        : '';
+    return `${header}
+        <div style="font-size:22px;font-weight:700;color:var(--text);margin-bottom:4px">${esc(r.name)}</div>
         ${note}
-        ${rows}
-    </div>`;
+        ${rows}`;
 }
 
 function _movementMoveRow(r, m) {
     const hasVid = !!(m.url && m.url.trim());
+    const dose = m.dose
+        ? `<span style="display:inline-block;padding:2px 9px;border-radius:11px;background:rgba(124,92,191,0.16);color:var(--accent);font-size:12px;font-weight:700;white-space:nowrap">${esc(m.dose)}</span>`
+        : '';
     const note = m.note
-        ? `<div style="font-size:12px;color:var(--text-muted);margin-top:2px">${esc(m.note)}</div>`
+        ? `<span style="font-size:12px;color:var(--text-muted)">${esc(m.note)}</span>`
+        : '';
+    const meta = (dose || note)
+        ? `<div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:4px">${dose}${note}</div>`
         : '';
     const label = `<div style="flex:1;min-width:0">
             <div style="font-size:15px;font-weight:600;color:var(--text)">${esc(m.name)}</div>
-            ${note}
+            ${meta}
         </div>`;
+    const vidId = _ytId(m.url);
+    if (vidId) {
+        // Inline click-to-load player — thumbnail until tapped, then plays in
+        // place with the native fullscreen button. Keeps the tab light.
+        const thumb = `https://i.ytimg.com/vi/${vidId}/hqdefault.jpg`;
+        return `<div style="border:1px solid var(--border);border-radius:11px;padding:12px;margin-bottom:10px;background:var(--bg)">
+            <div style="margin-bottom:10px">${label}</div>
+            <div id="move-vid-${esc(m.id)}" onclick="_moveLoadPlayer('move-vid-${esc(m.id)}','${esc(vidId)}')" style="position:relative;width:100%;padding-bottom:56.25%;border-radius:10px;overflow:hidden;cursor:pointer;background:#000">
+                <img src="${thumb}" loading="lazy" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0.82">
+                <span style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:60px;height:60px;border-radius:50%;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;color:#fff;font-size:24px;padding-left:4px;box-sizing:border-box">&#9654;</span>
+            </div>
+            <a href="${esc(m.url)}" target="_blank" rel="noopener" style="display:inline-block;margin-top:8px;font-size:12px;color:var(--text-muted);text-decoration:none">Open on YouTube &#8599;</a>
+        </div>`;
+    }
     if (hasVid) {
-        // Whole row is a link — big hit area, opens the demo video in a new tab.
+        // Non-YouTube URL — whole row is a link that opens in a new tab.
         return `<a href="${esc(m.url)}" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:12px;text-decoration:none;padding:11px 12px;margin-bottom:8px;border:1px solid var(--border);border-radius:10px;background:var(--bg);min-height:44px;box-sizing:border-box">
             <span style="flex:none;width:30px;height:30px;border-radius:50%;background:rgba(124,92,191,0.18);color:var(--accent);display:flex;align-items:center;justify-content:center;font-size:13px">&#9654;</span>
             ${label}
@@ -109,6 +188,7 @@ function _movementMoveEditRow(r, m, idx, total) {
             <input type="text" value="${esc(m.name)}" onchange="_moveUpdate('${esc(r.id)}','${esc(m.id)}','name', this.value)" placeholder="Move name" style="${inp};flex:1;font-weight:600">
             <button onclick="_moveRemove('${esc(r.id)}','${esc(m.id)}','${escJs(m.name)}')" title="Remove move" style="flex:none;width:40px;height:40px;border:none;background:none;color:#e07a7a;font-size:22px;cursor:pointer">&times;</button>
         </div>
+        <input type="text" value="${esc(m.dose || '')}" onchange="_moveUpdate('${esc(r.id)}','${esc(m.id)}','dose', this.value)" placeholder="Reps / hold (e.g. 20–30s · 1–2×/side)" style="${inp};width:100%;margin-bottom:7px">
         <input type="text" value="${esc(m.url || '')}" onchange="_moveUpdate('${esc(r.id)}','${esc(m.id)}','url', this.value)" placeholder="Video URL (paste a YouTube link — leave blank if none)" style="${inp};width:100%;margin-bottom:7px">
         <input type="text" value="${esc(m.note || '')}" onchange="_moveUpdate('${esc(r.id)}','${esc(m.id)}','note', this.value)" placeholder="Optional cue (e.g. nose toward armpit)" style="${inp};width:100%">
     </div>`;
@@ -117,6 +197,7 @@ function _movementMoveEditRow(r, m, idx, total) {
 function _movementAddMove(r, inp) {
     return `<div style="border:1px dashed var(--border);border-radius:9px;padding:10px;margin-top:4px">
         <input type="text" id="move-add-name-${esc(r.id)}" placeholder="New move name" style="${inp};width:100%;margin-bottom:7px">
+        <input type="text" id="move-add-dose-${esc(r.id)}" placeholder="Reps / hold (optional)" style="${inp};width:100%;margin-bottom:7px">
         <input type="text" id="move-add-url-${esc(r.id)}" placeholder="Video URL (optional)" style="${inp};width:100%;margin-bottom:7px">
         <div style="display:flex;gap:8px">
             <input type="text" id="move-add-note-${esc(r.id)}" placeholder="Cue (optional)" style="${inp};flex:1">
@@ -138,6 +219,20 @@ function _movementNewRoutine() {
             <button onclick="_moveNewRoutineToggle(false)" style="height:40px;padding:0 16px;border-radius:8px;border:1px solid var(--border);background:none;color:var(--text-muted);font-size:14px;font-weight:600;cursor:pointer">Cancel</button>
         </div>
     </div>`;
+}
+
+// --- Drill-in (recipe-style): open / close a routine's detail view ---
+function _moveOpenRoutine(id) {
+    window._movementRoutineView = id;
+    window._moveEdit = { routineId: null };
+    renderMovement();
+    window.scrollTo({ top: 0, behavior: 'instant' });
+}
+function _moveCloseRoutine() {
+    window._movementRoutineView = null;
+    window._moveEdit = { routineId: null };
+    renderMovement();
+    window.scrollTo({ top: 0, behavior: 'instant' });
 }
 
 // --- Edit-mode toggles ---
@@ -190,9 +285,10 @@ function _moveRemoveRoutine(id, name) {
 async function _moveAdd(routineId) {
     const name = (document.getElementById(`move-add-name-${routineId}`)?.value || '').trim();
     if (!name) { alert('Name the move first.'); return; }
+    const dose = (document.getElementById(`move-add-dose-${routineId}`)?.value || '').trim();
     const url = (document.getElementById(`move-add-url-${routineId}`)?.value || '').trim();
     const note = (document.getElementById(`move-add-note-${routineId}`)?.value || '').trim();
-    if (await _movePost('/api/movement/move/add', { routine_id: routineId, name, url, note })) await loadDashboard();
+    if (await _movePost('/api/movement/move/add', { routine_id: routineId, name, dose, url, note })) await loadDashboard();
 }
 
 async function _moveUpdate(routineId, id, field, value) {
