@@ -3,6 +3,7 @@ data/*
 !data/.gitkeep
 uploads/
 *.log
+*.log.*
 auth.json
 sessions.json
 .env

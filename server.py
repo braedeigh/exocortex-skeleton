@@ -323,55 +323,33 @@ def _split_response(active_tab, item_name=""):
     return resp
 
 
-@app.route("/")
-@app.route("/dashboard")
-def split_today():
-    return _split_response("today")
+# Page shells — each URL renders split.html with the right active tab.
+# The URL path can differ from the tab key (e.g. /car-maintenance → "car"),
+# and a tab can answer to several paths (today is both / and /dashboard).
+_SPLIT_PAGES = [
+    (("/", "/dashboard"), "today"),
+    ("/map", "map"),
+    ("/kitchen", "kitchen"),
+    ("/inventory", "inventory"),
+    ("/money", "money"),
+    ("/car-maintenance", "car"),
+    ("/meditation", "meditation"),
+    ("/media", "media"),
+    ("/movement", "movement"),
+    ("/body", "body"),
+]
 
 
-@app.route("/map")
-def split_map():
-    return _split_response("map")
+def _make_split_page(tab):
+    def view():
+        return _split_response(tab)
+    return view
 
 
-@app.route("/kitchen")
-def split_kitchen():
-    return _split_response("kitchen")
-
-
-@app.route("/inventory")
-def split_inventory():
-    return _split_response("inventory")
-
-
-@app.route("/money")
-def split_money():
-    return _split_response("money")
-
-
-@app.route("/car-maintenance")
-def split_car():
-    return _split_response("car")
-
-
-@app.route("/meditation")
-def split_meditation():
-    return _split_response("meditation")
-
-
-@app.route("/media")
-def split_media():
-    return _split_response("media")
-
-
-@app.route("/movement")
-def split_movement():
-    return _split_response("movement")
-
-
-@app.route("/body")
-def split_body():
-    return _split_response("body")
+for _rules, _tab in _SPLIT_PAGES:
+    _view = _make_split_page(_tab)
+    for _rule in ((_rules,) if isinstance(_rules, str) else _rules):
+        app.add_url_rule(_rule, endpoint=f"split_{_tab}", view_func=_view)
 
 
 @app.route("/personality")
