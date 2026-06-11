@@ -1,10 +1,10 @@
 # Exocortex — app code (Spark / skeleton repo)
 
-This is the **app code**: the live Flask site run by gunicorn (`server:app`). It's the shareable "skeleton" — generic, carries **no personal data**. Personal data + content live in the vault repo `/opt/exocortex` (wired in via `EXOCORTEX_DATA_DIR` / `EXOCORTEX_CONTENT_DIR`). See `/opt/exocortex/RESTORE.md` for the full wiring, and `/opt/exocortex/CLAUDE.md` for who Bradie is and the overall system.
+This is the **app code** (this repo, `/opt/exocortex-skeleton`, remote `exocortex-skeleton`): the live Flask site run by gunicorn (`server:app`). It's the shareable "skeleton" — generic, carries **no personal data**. Personal data + content are **her files**, in the separate vault repo `/opt/exocortex-personal` (remote `exocortex-personal`), wired in via `EXOCORTEX_DATA_DIR` / `EXOCORTEX_CONTENT_DIR`. **Code goes here; her files go there — never mix them.** See `/opt/exocortex-personal/RESTORE.md` for the full wiring, and `/opt/exocortex-personal/CLAUDE.md` for who Bradie is and the overall system. The live app is always `/opt/exocortex-skeleton` — there are no other working copies to confuse it with.
 
 ## Working here
 - After **Python** edits: `sudo systemctl restart exocortex.service`. Static files (JS/CSS) and templates reload on refresh — no restart.
-- Data layer goes through `store.py` (atomic JSON I/O, `EXOCORTEX_DATA_DIR`). Routes live in `server.py` + `routes_*.py`; frontend is vanilla JS in `static/js/` rendered into `templates/`.
+- Data layer goes through `store.py` (atomic JSON I/O, `EXOCORTEX_DATA_DIR`). Routes live in `server.py` + the `routes/` package (each module exposes `register(app)`, wired up at the bottom of `server.py`); frontend is vanilla JS in `static/js/` rendered into `templates/`.
 - Build/dev TODO list: `dev_todo.md`.
 
 ## UI guidelines (firm defaults — from Danielle, her designer friend)
@@ -31,7 +31,7 @@ Tests live in `tests/` and run with **pytest** (a dev-only dep — `./venv/bin/p
 ./venv/bin/python3 -m pytest -k toggle      # by name
 ```
 
-**Write a test whenever you touch behavior that can silently break** — a route's contract, a data migration, or the `store` layer. New `routes_*.py` endpoint → add a route test. Bug fix → add a test that fails before the fix and passes after. Don't chase coverage of trivial rendering glue.
+**Write a test whenever you touch behavior that can silently break** — a route's contract, a data migration, or the `store` layer. New `routes/` endpoint → add a route test. Bug fix → add a test that fails before the fix and passes after. Don't chase coverage of trivial rendering glue.
 
 **How tests are structured here** (mirror this):
 

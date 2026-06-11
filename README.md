@@ -21,4 +21,9 @@ clean general-purpose app, the items in **[SHARE_TODO.md](SHARE_TODO.md)** need 
 ## Architecture in one breath
 Flask + gunicorn backend, vanilla-JS frontend, all data as JSON behind `store.py` (one
 atomic read/write seam, `EXOCORTEX_DATA_DIR`-relocatable — the on-ramp to a database
-later). Routes are split per feature (`routes_*.py`).
+later). Routes are split per feature in the `routes/` package, each module exposing a
+`register(app)` wired up in `server.py`.
+
+Installable as a PWA — `static/manifest.json` + a network-first service worker
+(`static/sw.js`, online-fresh with offline fallback) + app icons, so it adds to your
+phone's home screen and runs full-screen.
