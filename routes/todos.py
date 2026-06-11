@@ -48,7 +48,10 @@ def register(app):
                 notes = (data.get("notes") or "").strip()
                 if notes:
                     new_item["notes"] = notes
-                sec["items"].append(new_item)
+                # New items land on top. In auto-sorted buckets the sort re-floats
+                # them anyway (created desc); in manually-ordered buckets this is
+                # what keeps a fresh add above the older + checked-off rows.
+                sec["items"].insert(0, new_item)
         if dup:
             return jsonify({"error": "Already exists in this section"}), 400
         return jsonify({"ok": True, "id": new_id})
@@ -163,8 +166,12 @@ def register(app):
                         item["done"] = not item["done"]
                         items.remove(item)
                         if item["done"]:
+                            # Stamp the completion day: it lingers struck-through
+                            # in place today, then load_todos sweeps it to Done.
+                            item["done_at"] = datetime.now().strftime("%Y-%m-%d")
                             items.append(item)
                         else:
+                            item.pop("done_at", None)
                             items.insert(0, item)
                         return jsonify({"ok": True})
         return jsonify({"ok": True})

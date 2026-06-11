@@ -6,6 +6,7 @@ This is the **app code** (this repo, `/opt/exocortex/skeleton`, remote `exocorte
 - After **Python** edits: `sudo systemctl restart exocortex.service`. Static files (JS/CSS) and templates reload on refresh — no restart.
 - Data layer goes through `store.py` (atomic JSON I/O, `EXOCORTEX_DATA_DIR`). Routes live in `server.py` + the `routes/` package (each module exposes `register(app)`, wired up at the bottom of `server.py`); frontend is vanilla JS in `static/js/` rendered into `templates/`.
 - Build/dev TODO list: `dev_todo.md`.
+- **Don't use the harness auto-memory store** (`~/.claude/.../memory/`). Bradie doesn't want a hidden memory context loading into her sessions (her call — same rule the Keeper follows). If something's worth persisting, talk to her and write it into a project markdown she owns (these `CLAUDE.md` files, `RESTORE.md`, `docs/IDEAS.md`, `tulku/` protocol files) — never the harness store.
 
 ## UI guidelines (firm defaults — from Danielle, her designer friend)
 Build **touch-first and legible**. These are defaults, not suggestions:
@@ -36,7 +37,7 @@ Tests live in `tests/` and run with **pytest** (a dev-only dep — `./venv/bin/p
 **How tests are structured here** (mirror this):
 
 - **Isolated data, always.** Everything reads/writes JSON through `store.py`, which resolves `store.DATA_DIR`. The `data_dir` fixture (`tests/conftest.py`) monkeypatches `store.DATA_DIR` to a fresh pytest `tmp_path` per test — so tests never touch real data and never collide. Any fixture/test that hits the store must depend on `data_dir` (directly or via `seed`/`client`).
-- **Test routes against a *minimal* app, not `server.py`.** The `client` fixture builds a bare `Flask` app and calls only `routes_todos.register(app)`. This skips `server.py`'s startup, the auth `before_request` gate, and unrelated data loads — tests stay fast and focused on the handler under test. (If you ever need the auth gate in a test, set it with `client.session_transaction()`.)
+- **Test routes against a *minimal* app, not `server.py`.** The `client` fixture builds a bare `Flask` app and calls only `todos.register(app)` (via `from routes import todos`). This skips `server.py`'s startup, the auth `before_request` gate, and unrelated data loads — tests stay fast and focused on the handler under test. (If you ever need the auth gate in a test, set it with `client.session_transaction()`.)
 - **Three layers, three files** — copy the nearest one:
   - `test_store.py` — the atomic JSON layer (round-trip, default-on-missing, `mutate` persists but rolls back on exception).
   - `test_todos_data.py` — pure data helpers (id back-fill, section mapping, the auto-sort vs `manual_order` logic in `todos_to_sections`).

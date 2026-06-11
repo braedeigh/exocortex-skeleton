@@ -88,6 +88,26 @@ def test_toggle_disambiguates_same_text(client, seed):
     assert by_id["b"]["done"] is True
 
 
+def test_toggle_stamps_and_clears_done_at(client, seed):
+    # done_at drives the overnight sweep: set on check, removed on un-check.
+    from datetime import datetime
+    today = datetime.now().strftime("%Y-%m-%d")
+    seed({"now": {"items": [{"id": "a", "text": "task", "done": False}]}})
+    _post(client, "/api/todos/toggle", {"id": "a"})
+    a = read_todos()["now"]["items"][0]
+    assert a["done"] is True and a["done_at"] == today
+    _post(client, "/api/todos/toggle", {"id": "a"})
+    a = read_todos()["now"]["items"][0]
+    assert a["done"] is False and "done_at" not in a
+
+
+def test_add_inserts_at_top(client, seed):
+    seed({"now": {"items": [{"id": "old", "text": "Existing", "done": False}]}})
+    _post(client, "/api/todos/add", {"item": "brand new", "section": "Now"})
+    items = read_todos()["now"]["items"]
+    assert items[0]["text"] == "Brand new"   # new item lands on top
+
+
 def test_toggle_text_fallback_still_works(client, seed):
     # Legacy clients that send {item: <text>} keep working.
     seed({"now": {"items": [{"id": "a", "text": "Water plants", "done": False}]}})

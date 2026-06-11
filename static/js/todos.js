@@ -24,8 +24,12 @@ function renderTodos() {
             if (hide.some(h => name.startsWith(h))) return;
             (section.items || []).forEach(it => { if (it && typeof it === 'object') all.push(it); });
         });
-        const todayItems = all.filter(it => !it.done && !isSnoozed(it) && it.due_by && it.due_by <= today);
-        const tomorrowItems = all.filter(it => !it.done && !isSnoozed(it) && it.due_by === tomorrow);
+        // Keep items checked off *today* visible (struck through) so completing
+        // one in a day view persists instead of vanishing; the overnight sweep
+        // clears them. Items done on an earlier day stay out.
+        const doneToday = it => it.done && it.done_at === today;
+        const todayItems = all.filter(it => (!it.done || doneToday(it)) && !isSnoozed(it) && it.due_by && it.due_by <= today);
+        const tomorrowItems = all.filter(it => (!it.done || doneToday(it)) && !isSnoozed(it) && it.due_by === tomorrow);
         pulledIds = new Set([...todayItems, ...tomorrowItems].map(it => it.id).filter(Boolean));
         dayHTML += dayViewHTML('Today', todayItems, 'var(--accent)');
         dayHTML += dayViewHTML('Tomorrow', tomorrowItems, 'var(--ongoing)');
@@ -66,6 +70,8 @@ function renderTodos() {
 function dayViewHTML(label, items, color) {
     if (!items.length) return '';
     const sorted = items.slice().sort((a, b) => {
+        // Checked-off items sink to the bottom; the rest sort by time.
+        if (!!a.done !== !!b.done) return a.done ? 1 : -1;
         const at = a.due_time || '99:99', bt = b.due_time || '99:99';
         return at < bt ? -1 : (at > bt ? 1 : 0);
     });
@@ -86,7 +92,7 @@ function dayViewHTML(label, items, color) {
     return `<details class="card todo-card todo-day" style="border-left-color:${color}" id="card-todo-${esc(label)}" ${open ? 'open' : ''} ontoggle="todoCardToggled(this,'${escJs(label)}')">
         <summary class="card-title" style="color:${color};cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px">
             <span class="kitchen-arrow" style="font-size:12px;transition:transform 0.15s;display:inline-block">&#9654;</span>
-            <span style="flex:1">${esc(label)}<span class="todo-day-count">${items.length}</span></span>
+            <span style="flex:1">${esc(label)}<span class="todo-day-count">${items.filter(it => !it.done).length}</span></span>
             ${totalBadge}
         </summary>
         ${stopsHTML}

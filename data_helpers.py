@@ -180,11 +180,43 @@ def _ensure_todo_ids(data):
     return changed
 
 
+def _sweep_done_todos(data):
+    """Archive completed items the morning after they were checked off.
+
+    A to-do checked off today carries `done_at == today`; it lingers struck-through
+    in its bucket for the rest of the day (the satisfaction + "it persisted" feel).
+    Once `done_at` is before today (or it's a legacy done item with no date), this
+    sweeps it into the Done bucket so the active ladder doesn't silently pile up.
+    Returns True if anything moved, so the caller can persist the change."""
+    today = datetime.now().strftime("%Y-%m-%d")
+    done_sec = data.setdefault("done", {"items": []})
+    done_sec.setdefault("items", [])
+    moved = False
+    for key, sec in data.items():
+        if key == "done" or not isinstance(sec, dict):
+            continue
+        kept = []
+        for item in sec.get("items", []):
+            if isinstance(item, dict) and item.get("done"):
+                done_at = item.get("done_at")
+                if done_at is None or done_at < today:
+                    done_sec["items"].append(item)
+                    moved = True
+                    continue
+            kept.append(item)
+        if "items" in sec:
+            sec["items"] = kept
+    return moved
+
+
 def load_todos():
     """Read todos through the atomic store layer, back-filling stable ids on the
-    way out so every item is addressable by id (text is no longer the identity)."""
+    way out so every item is addressable by id (text is no longer the identity),
+    and sweeping yesterday's completed items into Done."""
     data = read("todos", {})
-    if _ensure_todo_ids(data):
+    changed = _ensure_todo_ids(data)
+    changed = _sweep_done_todos(data) or changed
+    if changed:
         write("todos", data)
     return data
 
@@ -203,10 +235,10 @@ def todos_to_sections(data):
     """Convert todos.json structure to the section list the frontend expects.
 
     Buckets auto-sort: not-done before done, dated before undated, due date
-    ascending (overdue/soonest first), then created date ascending (oldest
-    first, so stale tasks bubble up). A bucket that's been manually dragged
-    carries `manual_order` and keeps its stored order verbatim (toggle already
-    sinks done items to the bottom there)."""
+    ascending (overdue/soonest first), then created date *descending* (newest
+    first, so a just-added item lands at the top of its group). A bucket that's
+    been manually dragged carries `manual_order` and keeps its stored order
+    verbatim (toggle already sinks done items to the bottom there)."""
     sections = []
     for key, label in TODO_SECTIONS:
         sec = data.get(key, {})
@@ -215,11 +247,13 @@ def todos_to_sections(data):
         if manual:
             ordered = list(items)
         else:
-            ordered = sorted(items, key=lambda x: (
+            # Two-pass stable sort: newest-first within each group, then the
+            # primary keys on top (stability preserves the created order).
+            ordered = sorted(items, key=lambda x: x.get("created") or "", reverse=True)
+            ordered = sorted(ordered, key=lambda x: (
                 x.get("done", False),
                 0 if x.get("due_by") else 1,
                 x.get("due_by") or "",
-                x.get("created") or "",
             ))
         sections.append({"name": label, "items": ordered, "manual_order": manual})
     return sections

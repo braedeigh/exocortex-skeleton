@@ -441,7 +441,9 @@ textarea.todo-add-input { resize: vertical; min-height: 64px; }
 .todo-chip.chip-place { background: rgba(124,92,191,0.12); color: var(--accent); }
 .todo-chip.chip-status.status-ready { background: rgba(58,158,140,0.15); color: var(--green); }
 .todo-chip.chip-status.status-check_first { background: rgba(212,112,10,0.16); color: var(--orange); }
-.todo-chip.chip-status.status-waiting { background: rgba(212,168,10,0.18); color: var(--yellow); }
+.todo-chip.chip-status.status-waiting { background: rgba(212,168,10,0.22); color: #8a6d00; }
+/* Status chip shown inline in the priority-ladder rows (not just the day views) */
+.item-text .todo-chip { margin-left: 8px; vertical-align: middle; }
 .todo-chip.chip-time.overdue { background: rgba(212,64,53,0.15); color: var(--red); }
 
 /* --- Day views (Today / Tomorrow) + place-grouped stops (Phase 2) --- */

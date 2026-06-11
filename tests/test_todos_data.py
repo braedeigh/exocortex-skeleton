@@ -47,6 +47,59 @@ def test_todos_to_sections_autosort_orders_by_due_then_age():
     assert order == ["2", "4", "1", "3"]
 
 
+def test_todos_to_sections_newest_undated_on_top():
+    # A freshly added (newer `created`) undated item floats above older ones.
+    data = {"now": {"items": [
+        {"id": "old", "text": "older", "done": False, "created": "2026-06-01"},
+        {"id": "new", "text": "just added", "done": False, "created": "2026-06-11"},
+        {"id": "mid", "text": "middle", "done": False, "created": "2026-06-05"},
+    ]}}
+    sections = {s["name"]: s for s in dh.todos_to_sections(data)}
+    assert [i["id"] for i in sections["Now"]["items"]] == ["new", "mid", "old"]
+
+
+def test_sweep_archives_yesterdays_done_keeps_todays(data_dir):
+    today = dh.datetime.now().strftime("%Y-%m-%d")
+    data = {
+        "now": {"items": [
+            {"id": "active", "text": "still going", "done": False},
+            {"id": "fresh", "text": "checked today", "done": True, "done_at": today},
+            {"id": "stale", "text": "checked before", "done": True, "done_at": "2020-01-01"},
+            {"id": "legacy", "text": "old done, no date", "done": True},
+        ]},
+        "done": {"items": []},
+    }
+    moved = dh._sweep_done_todos(data)
+    assert moved is True
+    now_ids = [i["id"] for i in data["now"]["items"]]
+    done_ids = [i["id"] for i in data["done"]["items"]]
+    # Today's check-off lingers in place; the active item stays; the rest file away.
+    assert now_ids == ["active", "fresh"]
+    assert set(done_ids) == {"stale", "legacy"}
+
+
+def test_sweep_is_noop_when_nothing_to_archive(data_dir):
+    today = dh.datetime.now().strftime("%Y-%m-%d")
+    data = {"now": {"items": [
+        {"id": "a", "text": "active", "done": False},
+        {"id": "b", "text": "done today", "done": True, "done_at": today},
+    ]}}
+    assert dh._sweep_done_todos(data) is False
+
+
+def test_load_todos_runs_the_sweep(data_dir):
+    store.write("todos", {
+        "now": {"items": [{"id": "x", "text": "old done", "done": True, "done_at": "2020-01-01"}]},
+        "done": {"items": []},
+    })
+    loaded = dh.load_todos()
+    assert [i["id"] for i in loaded["now"]["items"]] == []
+    assert [i["id"] for i in loaded["done"]["items"]] == ["x"]
+    # The sweep was persisted, so a second raw read already reflects it.
+    again = store.read("todos", {})
+    assert again["done"]["items"][0]["id"] == "x"
+
+
 def test_todos_to_sections_respects_manual_order():
     data = {"now": {"manual_order": True, "items": [
         {"id": "b", "text": "B", "done": False},
