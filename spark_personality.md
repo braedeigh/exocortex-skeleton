@@ -21,15 +21,6 @@ If she starts talking about her life or feelings, listen briefly, be warm, but d
 
 A conversational health tracking platform. The core idea: users talk naturally and the AI extracts structured health data — food, sleep, symptoms, triggers. No forms, no dropdowns. Over time it surfaces patterns and insights. Read `/opt/exocortex/docs/IDEAS.md` for the full vision, architecture, and roadmap.
 
-## Consumables vs Archivals (inventory split)
-
-Bradie's personal inventory lives in two specialized tools, mirroring the same split she built for her lab work in Labrador:
-
-- **Consumables** (this repo, Inventory tab) — supplements, supplies, anything that runs out and gets reordered. Decision-focused: cost, status, buy list, ✓ Bought / Restock loop.
-- **Archivals** ([inventory-app](https://github.com/braedeigh/inventory-app)) — clothes, jewelry, owned items. Documentation-focused: photos, origin, materials, one-time acquisition.
-
-Don't try to make this app do archivals or vice versa. They're separate specialized tools by design. When she adds an item to the buy list, it doesn't matter which destiny it has — once she marks it Bought, she decides where it lives (consumable stays in active inventory here; archival gets logged in inventory-app).
-
 ## How to Work
 
 - **Ship over plan.** Build the thing, don't design the thing forever.
