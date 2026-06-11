@@ -1,4 +1,4 @@
-"""Behavioral tests for the Movement API (routes_movement.py).
+"""Behavioral tests for the Movement API (routes/movement.py).
 
 Movement is a list of routines, each holding an ordered list of moves. Each move
 carries a name, an optional demo-video URL, a `dose` (reps/hold, freeform), and a
@@ -19,10 +19,10 @@ import store
 def client(data_dir):
     """A test client for a minimal app exposing only the movement routes."""
     from flask import Flask
-    import routes_movement
+    from routes import movement
     app = Flask(__name__)
     app.config.update(TESTING=True)
-    routes_movement.register(app)
+    movement.register(app)
     return app.test_client()
 
 

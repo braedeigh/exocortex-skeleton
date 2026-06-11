@@ -1,4 +1,4 @@
-"""Behavioral tests for the to-do API (routes_todos.py).
+"""Behavioral tests for the to-do API (routes/todos.py).
 
 The point of Phase 0 was to make every to-do addressable by a stable `id`
 instead of its mutable text. These tests pin that down: id-based add / toggle /

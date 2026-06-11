@@ -17,21 +17,10 @@ from data_helpers import (
 from public_config import filter_for_view, is_public_path
 import store
 import config
-import routes_kitchen
-import routes_habits
-import routes_todos
-import routes_places
-import routes_health
-import routes_inventory
-import routes_money
-import routes_car
-import routes_meditation
-import routes_media
-import routes_movement
-import routes_reminders
-import routes_food_test
-import routes_terminal
-import routes_settings
+from routes import (
+    kitchen, habits, todos, places, health, inventory, money, car,
+    meditation, media, movement, reminders, food_test, terminal, settings,
+)
 
 app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
@@ -174,7 +163,7 @@ def inject_app_version():
 
 @app.context_processor
 def inject_theme_overrides():
-    return {"theme_overrides_json": json.dumps(routes_settings.load_theme())}
+    return {"theme_overrides_json": json.dumps(settings.load_theme())}
 
 
 def get_code_hash():
@@ -1129,21 +1118,21 @@ def vscode_stop():
 
 
 # --- Register route modules ---
-routes_kitchen.register(app)
-routes_habits.register(app)
-routes_todos.register(app)
-routes_places.register(app)
-routes_health.register(app)
-routes_inventory.register(app)
-routes_money.register(app)
-routes_car.register(app)
-routes_meditation.register(app)
-routes_media.register(app)
-routes_movement.register(app)
-routes_reminders.register(app)
-routes_food_test.register(app)
-routes_terminal.register(app)
-routes_settings.register(app)
+kitchen.register(app)
+habits.register(app)
+todos.register(app)
+places.register(app)
+health.register(app)
+inventory.register(app)
+money.register(app)
+car.register(app)
+meditation.register(app)
+media.register(app)
+movement.register(app)
+reminders.register(app)
+food_test.register(app)
+terminal.register(app)
+settings.register(app)
 
 # --- Startup ---
 validate_on_startup(app)

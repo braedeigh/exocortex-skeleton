@@ -778,7 +778,7 @@ def register(app):
         # Create a Money-tab expense entry for this trip + link the receipt photo to it.
         # Future bank-statement CSV imports should match by (date, amount) within $0.10
         # against entries with category='Groceries' to dedup; that match logic lives in
-        # routes_money.py's CSV import handler (TODO).
+        # routes/money.py's CSV import handler (TODO).
         edata = store.read("expenses.json", {"items": []})
         # Idempotency: skip if an expense with same date+amount+receipt already exists
         receipt_rel = trip["receipt"]

@@ -44,12 +44,11 @@ def seed(data_dir):
 def client(data_dir):
     """A test client for a minimal app exposing the todo + places routes."""
     from flask import Flask
-    import routes_todos
-    import routes_places
+    from routes import todos, places
     app = Flask(__name__)
     app.config.update(TESTING=True)
-    routes_todos.register(app)
-    routes_places.register(app)
+    todos.register(app)
+    places.register(app)
     return app.test_client()
 
 

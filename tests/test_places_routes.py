@@ -1,4 +1,4 @@
-"""Tests for the Places store API (routes_places.py)."""
+"""Tests for the Places store API (routes/places.py)."""
 import json
 
 import store
