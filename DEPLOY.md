@@ -18,7 +18,7 @@ you — you mostly provide a domain name and change one password.
 
 ```bash
 # 1. Get the code
-sudo mkdir -p /opt/exocortex-personal && cd /opt/exocortex-personal
+sudo mkdir -p /opt/exocortex/personal && cd /opt/exocortex/personal
 git clone <this-repo-url> .
 
 # 2. Choose where DATA lives — kept separate from code on purpose.
@@ -52,10 +52,10 @@ Description=Exocortex
 After=network.target
 
 [Service]
-WorkingDirectory=/opt/exocortex-personal
+WorkingDirectory=/opt/exocortex/personal
 Environment=EXOCORTEX_DATA_DIR=/var/lib/exocortex-data
 Environment=TEMPLATES_AUTO_RELOAD=1
-ExecStart=/opt/exocortex-personal/venv/bin/gunicorn -k gevent -w 2 \
+ExecStart=/opt/exocortex/personal/venv/bin/gunicorn -k gevent -w 2 \
   --worker-connections 1000 --timeout 120 \
   --max-requests 1000 --max-requests-jitter 200 \
   -b 127.0.0.1:5000 server:app

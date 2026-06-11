@@ -138,7 +138,7 @@ async function sendToTerminal() {
     await fetch('/api/terminal/send', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({text: '[notes dump ready — read /opt/exocortex-personal/build/notes_dump.md]', enter: false})
+        body: JSON.stringify({text: '[notes dump ready — read /opt/exocortex/personal/build/notes_dump.md]', enter: false})
     });
     saveStatus.innerHTML = '<span class="saved">sent to terminal</span>';
     setTimeout(() => { saveStatus.textContent = ''; }, 3000);
