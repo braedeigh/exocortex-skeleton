@@ -753,7 +753,7 @@ function habitCardHTML(title, items, color, sectionName) {
             <button onclick="addItem('habit','${esc(sectionName)}',this.previousElementSibling)">Add</button>
         </div>`;
 
-    return `<div class="card" style="border-left-color:${color}" id="${listId}">
+    return `<div class="card habit-card" style="border-left-color:${color}" id="${listId}">
         <div class="card-title" style="color:${color}">${title}<span class="edit-toggle" onclick="toggleEditMode('${listId}')">edit</span></div>
         ${itemsHTML}${emptyHTML}${addForm}</div>`;
 }
@@ -969,7 +969,8 @@ function openAddTodoModal(section) {
         <form class="todo-add-form" onsubmit="event.preventDefault();submitAddTodoModal('${escJs(section)}')">
             <label class="todo-add-label">
                 <span class="todo-add-labeltext">To-do</span>
-                <input type="text" id="add-todo-text" class="todo-add-input" placeholder="What needs doing?" autocomplete="off">
+                <textarea id="add-todo-text" class="todo-add-input" rows="1" placeholder="What needs doing?" autocomplete="off"
+                    oninput="autoGrow(this)" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();submitAddTodoModal('${escJs(section)}')}"></textarea>
             </label>
             <label class="todo-add-label">
                 <span class="todo-add-labeltext">Due by <span class="todo-add-opt">(optional)</span></span>
@@ -977,7 +978,7 @@ function openAddTodoModal(section) {
             </label>
             <label class="todo-add-label">
                 <span class="todo-add-labeltext">Description <span class="todo-add-opt">(optional)</span></span>
-                <textarea id="add-todo-desc" class="todo-add-input" rows="3" placeholder="Any details…"></textarea>
+                <textarea id="add-todo-desc" class="todo-add-input" rows="2" placeholder="Any details…" oninput="autoGrow(this)"></textarea>
             </label>
             <div class="todo-add-actions">
                 <button type="button" class="modal-btn cancel" onclick="closeActiveEditor()">Cancel</button>
@@ -1230,7 +1231,7 @@ function openTodoDetail(el, ev) {
     const metaBits = [];
     if (dueText) metaBits.push(`<span class="todo-modal-due${overdue ? ' overdue' : ''}">${esc(dueText)}</span>`);
     if (chips) metaBits.push(`<span class="todo-modal-chips">${chips}</span>`);
-    if (added) metaBits.push(`<span class="todo-modal-added">${esc(added)}</span>`);
+    // `added` now lives in the footer between Delete and Edit (not the meta row).
 
     const placeOpts = ['<option value="">No place</option>']
         .concat((D.places || []).map(p => `<option value="${esc(p.id)}"${p.id === item.place_id ? ' selected' : ''}>${esc(p.name)}</option>`))
@@ -1242,7 +1243,12 @@ function openTodoDetail(el, ev) {
 
     const body = `<div class="todo-modal-body" data-item="${esc(text)}" data-id="${esc(id)}" data-due="${esc(dueIso)}">
         <div class="todo-modal-meta"${metaBits.length ? '' : ' style="display:none"'}>${metaBits.join('')}</div>
+        <div class="todo-modal-desc-read${notes ? '' : ' empty'}">${notes ? esc(notes) : 'No description'}</div>
         <div class="todo-modal-edit" style="display:none">
+            <div class="tm-field">
+                <label class="todo-modal-label">Description</label>
+                <textarea class="todo-modal-desc-edit" placeholder="Add a description…" oninput="autoGrow(this)">${esc(notes)}</textarea>
+            </div>
             <div class="tm-field">
                 <label class="todo-modal-label">Do on <span class="todo-add-opt">(date + time, optional)</span></label>
                 <div class="tm-row">
@@ -1272,10 +1278,9 @@ function openTodoDetail(el, ev) {
                 <div class="tm-chips todo-modal-status">${statusChips}</div>
             </div>
         </div>
-        <div class="todo-modal-desc-read${notes ? '' : ' empty'}">${notes ? esc(notes) : 'No description'}</div>
-        <textarea class="todo-modal-desc-edit" placeholder="Add a description…" oninput="autoGrow(this)" style="display:none">${esc(notes)}</textarea>
         <div class="todo-modal-foot">
             <button type="button" class="todo-modal-delete" onclick="confirmDeleteTodoItem(this.closest('.todo-modal-body').dataset.id, this.closest('.todo-modal-body').dataset.item)">Delete</button>
+            ${added ? `<span class="todo-modal-foot-added">${esc(added)}</span>` : ''}
             <button type="button" class="todo-desc-editbtn" onclick="toggleTodoModalEdit(this)">Edit</button>
         </div>
     </div>`;
