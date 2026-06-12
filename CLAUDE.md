@@ -4,6 +4,7 @@ This is the **app code** (this repo, `/opt/exocortex/skeleton`, remote `exocorte
 
 ## Working here
 - After **Python** edits: `sudo systemctl restart exocortex.service`. Static files (JS/CSS) and templates reload on refresh — no restart.
+- **Commit when a thing ships.** This repo gets deliberate, named commits — one per feature/fix/refactor, message saying what changed and why. The hourly backup cron only *pushes* this repo (it auto-commits the personal vault only), so uncommitted work here has no safety net: don't end a session with finished work sitting uncommitted.
 - Data layer goes through `store.py` (atomic JSON I/O, `EXOCORTEX_DATA_DIR`). Routes live in `server.py` + the `routes/` package (each module exposes `register(app)`, wired up at the bottom of `server.py`); frontend is vanilla JS in `static/js/` rendered into `templates/`.
 - Build/dev TODO list: `dev_todo.md`.
 - **Don't use the harness auto-memory store** (`~/.claude/.../memory/`). Bradie doesn't want a hidden memory context loading into her sessions (her call — same rule the Keeper follows). If something's worth persisting, talk to her and write it into a project markdown she owns (these `CLAUDE.md` files, `RESTORE.md`, `docs/IDEAS.md`, `tulku/` protocol files) — never the harness store.
