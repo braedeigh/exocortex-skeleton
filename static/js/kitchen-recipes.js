@@ -130,7 +130,6 @@ function renderRecipeCards(recipes) {
                 </div>
                 <div style="display:flex;gap:4px;flex-wrap:wrap" onclick="event.stopPropagation()">
                     <button onclick="event.stopPropagation();sendRecipeToGroceryList('${esc(r.id)}')" style="padding:5px 10px;background:var(--green);border:none;border-radius:6px;color:#fff;font-size:12px;font-weight:600;cursor:pointer" title="Pick ingredients (the ones you need are pre-checked) and add to your grocery list">Send to list</button>
-                    <button onclick="event.stopPropagation();removeRecipe('${esc(r.id)}','${esc(r.name || 'recipe')}')" style="background:none;border:none;color:var(--text-muted);font-size:16px;cursor:pointer" title="Delete">&times;</button>
                 </div>
                 <span class="recipe-card-chev" aria-hidden="true" style="color:var(--text-muted);font-size:20px;line-height:1;margin-left:2px;transition:transform 0.15s,color 0.15s">&rsaquo;</span>
             </div>
@@ -405,15 +404,15 @@ function renderRecipeDetailInto(el, id) {
 
     el.innerHTML = `
     <div style="margin-bottom:20px">
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px">
-            <button onclick="closeRecipeDetail()" style="display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);background:none;border:1px solid var(--border);border-radius:6px;padding:6px 12px;cursor:pointer">← Back</button>
-            <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
-                <button onclick="removeRecipe('${esc(recipe.id)}','${esc(recipe.name || 'recipe')}')" style="background:none;border:1px solid var(--border);color:var(--text-muted);font-size:12px;border-radius:6px;padding:6px 12px;cursor:pointer">Delete</button>
-                <button onclick="editRecipe('${esc(recipe.id)}')" style="padding:6px 14px;background:none;color:var(--text);border:1px solid var(--accent);border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">Edit</button>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+            <button onclick="closeRecipeDetail()" style="display:inline-flex;align-items:center;gap:6px;min-height:40px;font-size:13px;color:var(--text-muted);background:none;border:1px solid var(--border);border-radius:6px;padding:6px 12px;cursor:pointer">← Back</button>
+            <div style="flex:1 1 auto;display:flex;justify-content:center;min-width:120px">
+                <button onclick="sendRecipeToGroceryList('${esc(recipe.id)}')" style="min-height:40px;padding:6px 18px;background:var(--green);color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer" title="Pick ingredients (the ones you need are pre-checked) and add to your grocery list">Send to list</button>
             </div>
-        </div>
-        <div style="display:flex;justify-content:center;margin-bottom:14px">
-            <button onclick="sendRecipeToGroceryList('${esc(recipe.id)}')" style="padding:6px 18px;background:var(--green);color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer" title="Pick ingredients (the ones you need are pre-checked) and add to your grocery list">Send to list</button>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <button onclick="removeRecipe('${esc(recipe.id)}','${esc(recipe.name || 'recipe')}')" style="background:none;border:1px solid var(--border);color:var(--text-muted);min-height:40px;font-size:12px;border-radius:6px;padding:6px 12px;cursor:pointer">Delete</button>
+                <button onclick="editRecipe('${esc(recipe.id)}')" style="min-height:40px;padding:6px 14px;background:none;color:var(--text);border:1px solid var(--accent);border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">Edit</button>
+            </div>
         </div>
         <div style="font-size:22px;font-weight:700;margin-bottom:4px">${esc(recipe.name)}</div>
         ${metaBits.length ? `<div style="font-size:13px;color:var(--text-muted);margin-bottom:6px">${esc(metaBits.join(' · '))}</div>` : ''}
