@@ -787,8 +787,10 @@ details summary {
 .edit-toggle {
     float: right; font-size: var(--text-xs); color: var(--text-muted); cursor: pointer;
     font-weight: 400; text-transform: none; letter-spacing: 0;
+    border: 1px solid var(--border); border-radius: 6px; padding: 2px 10px;
+    background: rgba(124, 92, 191, 0.06);
 }
-.edit-toggle:hover { color: var(--text-secondary); }
+.edit-toggle:hover { color: var(--text-secondary); background: rgba(124, 92, 191, 0.12); border-color: var(--accent); }
 /* Safety-cloud Edit button — lives in the section header, only while open */
 .safety-edit-btn {
     float: right; font-size: var(--text-xs); background: none; border: 1px solid var(--border);
@@ -812,6 +814,10 @@ details.map-section.kitchen-section > summary:hover { background: transparent; }
 details.map-section.kitchen-section[open] > summary { border-bottom-color: var(--border); }
 /* Hover a closed card → preview the accent with a lighter purple on the left */
 details.map-section.kitchen-section:not([open]):hover { border-left-color: rgba(124, 92, 191, 0.45); }
+/* Habit Tracker card → evening-blue side accent instead of the purple --accent */
+details.map-section.kitchen-section[data-card="habit"],
+details.map-section.kitchen-section[data-card="habit"][open],
+details.map-section.kitchen-section[data-card="habit"]:not([open]):hover { border-left-color: var(--evening); }
 .habit-rename {
     border: none; border-bottom: 1px dashed var(--border); background: none;
     font-size: var(--text-base); color: var(--text); padding: 0; font-family: inherit;

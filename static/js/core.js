@@ -964,7 +964,12 @@ async function addItem(type, section, inputEl) {
 }
 
 // --- Add-to-do modal (text + due-by + description) ---
-function openAddTodoModal(section) {
+// opts.due prefills the due date (used by the Today/Tomorrow day-view "+ Add",
+// which drops the item into Now dated for that day so it lands in the day view).
+// opts.dayLabel retitles the modal ("Add to Today" instead of "Add to Now").
+function openAddTodoModal(section, opts) {
+    opts = opts || {};
+    const presetDue = opts.due || '';
     const html = `
         <form class="todo-add-form" onsubmit="event.preventDefault();submitAddTodoModal('${escJs(section)}')">
             <label class="todo-add-label">
@@ -974,7 +979,7 @@ function openAddTodoModal(section) {
             </label>
             <label class="todo-add-label">
                 <span class="todo-add-labeltext">Due by <span class="todo-add-opt">(optional)</span></span>
-                <input type="date" id="add-todo-due" class="todo-add-input">
+                <input type="date" id="add-todo-due" class="todo-add-input" value="${esc(presetDue)}">
             </label>
             <label class="todo-add-label">
                 <span class="todo-add-labeltext">Description <span class="todo-add-opt">(optional)</span></span>
@@ -985,8 +990,15 @@ function openAddTodoModal(section) {
                 <button type="submit" class="modal-btn confirm" style="background:var(--accent)">Add</button>
             </div>
         </form>`;
-    showEditorModal('Add to ' + section, html);
+    showEditorModal('Add to ' + (opts.dayLabel || section), html);
     setTimeout(() => { const el = document.getElementById('add-todo-text'); if (el) el.focus(); }, 50);
+}
+
+// The Today/Tomorrow day views are computed from due dates, so "add here" means
+// "add a to-do in Now dated for that day" — then it surfaces in the day view.
+function addToDay(label) {
+    const due = label === 'Tomorrow' ? tomorrowStr() : todayStr();
+    openAddTodoModal('Now', { due, dayLabel: label });
 }
 
 async function submitAddTodoModal(section) {

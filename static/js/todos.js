@@ -31,7 +31,7 @@ function renderTodos() {
         const todayItems = all.filter(it => (!it.done || doneToday(it)) && !isSnoozed(it) && it.due_by && it.due_by <= today);
         const tomorrowItems = all.filter(it => (!it.done || doneToday(it)) && !isSnoozed(it) && it.due_by === tomorrow);
         pulledIds = new Set([...todayItems, ...tomorrowItems].map(it => it.id).filter(Boolean));
-        dayHTML += dayViewHTML('Today', todayItems, 'var(--accent)');
+        dayHTML += dayViewHTML('Today', todayItems, 'var(--accent)', true);
         dayHTML += dayViewHTML('Tomorrow', tomorrowItems, 'var(--ongoing)');
     } catch (e) {
         console.error('day view render failed, falling back to ladder', e);
@@ -67,8 +67,10 @@ function renderTodos() {
 // One day's plan: items sorted time-first, then grouped by place into "stops"
 // (errands at the same place batched), with rough duration totals. Returns ''
 // when the day is empty so the card only appears when there's something in it.
-function dayViewHTML(label, items, color) {
-    if (!items.length) return '';
+function dayViewHTML(label, items, color, alwaysShow) {
+    // Tomorrow only appears once it has something; Today always shows so its
+    // "+ Add" is reachable even on an empty day (otherwise: nothing to add into).
+    if (!items.length && !alwaysShow) return '';
     const sorted = items.slice().sort((a, b) => {
         // Checked-off items sink to the bottom; the rest sort by time.
         if (!!a.done !== !!b.done) return a.done ? 1 : -1;
@@ -88,7 +90,9 @@ function dayViewHTML(label, items, color) {
     const totalBadge = totalMin ? `<span class="todo-day-total">~${esc(_fmtDuration(totalMin))}</span>` : '';
     let open = true;  // day views default open
     try { const v = localStorage.getItem('todoOpenV2:' + label); if (v !== null) open = v === '1'; } catch (e) {}
-    const stopsHTML = groups.map(g => stopHTML(g)).join('');
+    const stopsHTML = items.length
+        ? groups.map(g => stopHTML(g)).join('')
+        : '<div class="empty-state">Nothing scheduled yet</div>';
     return `<details class="card todo-card todo-day" style="border-left-color:${color}" id="card-todo-${esc(label)}" ${open ? 'open' : ''} ontoggle="todoCardToggled(this,'${escJs(label)}')">
         <summary class="card-title" style="color:${color};cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px">
             <span class="kitchen-arrow" style="font-size:12px;transition:transform 0.15s;display:inline-block">&#9654;</span>
@@ -96,6 +100,7 @@ function dayViewHTML(label, items, color) {
             ${totalBadge}
         </summary>
         ${stopsHTML}
+        <div class="add-trigger" onclick="addToDay('${escJs(label)}')">+ Add</div>
     </details>`;
 }
 

@@ -44,8 +44,8 @@ function renderHabits() {
                 <span class="item-text" style="color:var(--text-secondary)">${esc(c)}</span>
             </div>`).join('');
 
-        html += `<div class="card" style="border-left-color:var(--ongoing)">
-            <div class="card-title" style="color:var(--ongoing)">Kitchen close-out <span style="font-size:12px;font-weight:400;color:var(--text-muted)">— if needed</span></div>
+        html += `<div class="card" style="border-left-color:var(--evening)">
+            <div class="card-title" style="color:var(--evening)">Kitchen close-out <span style="font-size:12px;font-weight:400;color:var(--text-muted)">— if needed</span></div>
             ${choreItems}
         </div>`;
     }
