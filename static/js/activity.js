@@ -82,7 +82,7 @@ function renderActivityCalendar() {
             html += '<div class="cal-dots">';
             entries.forEach(type => {
                 const info = _typeMap[type] || { label: type, color: '#999' };
-                html += `<span class="cal-dot" style="background:${info.color}" title="${info.label} — ${dateStr}" onclick="confirmRemoveActivity('${dateStr}','${type}')"></span>`;
+                html += `<span class="cal-dot shape-${info.shape || 'circle'}" style="--dot-color:${info.color}" title="${info.label} — ${dateStr}" onclick="confirmRemoveActivity('${dateStr}','${type}')"></span>`;
             });
             html += '</div>';
         }
@@ -98,7 +98,7 @@ function renderActivityCalendar() {
     html += '<div class="activity-legend">';
     for (const [key, info] of Object.entries(activityTypeMap())) {
         if (_publicView && _privList.includes(key)) continue;
-        html += `<span><span class="ldot" style="background:${info.color}"></span>${esc(info.label)}</span>`;
+        html += `<span><span class="ldot shape-${info.shape || 'circle'}" style="--dot-color:${info.color}"></span>${esc(info.label)}</span>`;
     }
     html += '</div>';
 
@@ -113,13 +113,13 @@ function renderActivityCalendar() {
     const thisWeekRuns = runs.filter(r => r.date >= monStr && r.date <= today).length;
 
     html += '<div class="activity-stats">';
-    html += `<div><span class="stat-val" style="color:var(--green)">${thisWeekRuns}</span><span style="color:var(--text-muted)">/${runTarget} runs this week</span></div>`;
+    html += `<div><span class="stat-val act-tint" style="--act-color:var(--green)">${thisWeekRuns}</span><span style="color:var(--text-muted)">/${runTarget} runs this week</span></div>`;
 
     const trips = D.kitchen_trips || [];
     if (trips.length) {
         const lastTrip = new Date(trips[trips.length-1].date + 'T12:00:00');
         const daysAgo = Math.round((new Date().setHours(12,0,0,0) - lastTrip) / 86400000);
-        html += `<div><span class="stat-val" style="color:#4A90D9">${daysAgo === 0 ? 'today' : daysAgo + 'd'}</span> <span style="color:var(--text-muted)">since groceries</span></div>`;
+        html += `<div><span class="stat-val act-tint" style="--act-color:#4A90D9">${daysAgo === 0 ? 'today' : daysAgo + 'd'}</span> <span style="color:var(--text-muted)">since groceries</span></div>`;
     }
 
     // Last sheets wash
@@ -127,7 +127,7 @@ function renderActivityCalendar() {
     const lastSheets = [...allEntries].reverse().find(e => e.type === 'laundry-sheets');
     if (lastSheets) {
         const dAgo = Math.round((new Date().setHours(12,0,0,0) - new Date(lastSheets.date + 'T12:00:00')) / 86400000);
-        html += `<div><span class="stat-val" style="color:#E06060">${dAgo === 0 ? 'today' : dAgo + 'd'}</span> <span style="color:var(--text-muted)">since sheets</span></div>`;
+        html += `<div><span class="stat-val act-tint" style="--act-color:#E06060">${dAgo === 0 ? 'today' : dAgo + 'd'}</span> <span style="color:var(--text-muted)">since sheets</span></div>`;
     }
     html += '</div>';
 
@@ -142,11 +142,11 @@ function renderActivityCalendar() {
     // trip log); the rest are generated from the reminder registry (estradiol is
     // now a normal reminder, so it shows up here automatically too).
     html += '<div class="activity-btns">';
-    html += `<button onclick="showRunForm()" style="border-color:var(--green);color:var(--green)">+ Run</button>`;
-    html += `<button onclick="quickLogActivity('kitchen')" style="border-color:#4A90D9;color:#4A90D9">+ Grocery</button>`;
+    html += `<button onclick="showRunForm()" class="act-chip" style="--act-color:var(--green)">+ Run</button>`;
+    html += `<button onclick="quickLogActivity('kitchen')" class="act-chip" style="--act-color:#4A90D9">+ Grocery</button>`;
     for (const r of (D.reminders || [])) {
         const label = `${r.emoji ? r.emoji + ' ' : ''}${esc(r.label)}`;
-        html += `<button onclick="quickLogActivity('${escJs(r.type)}')" style="border-color:${r.color || '#9AA0B5'};color:${r.color || '#9AA0B5'}">+ ${label}</button>`;
+        html += `<button onclick="quickLogActivity('${escJs(r.type)}')" class="act-chip" style="--act-color:${r.color || '#9AA0B5'}">+ ${label}</button>`;
     }
     html += '</div>';
 

@@ -14,6 +14,11 @@ VALID_MODES = ("log", "countdown", "track")
 
 DEFAULT_COLOR = "#9AA0B5"
 
+# Calendar-dot shapes — shape carries the reminder's *family* (meds, linens,
+# body…) while color stays the individual identity, so similar hues no longer
+# have to do the disambiguating alone.
+VALID_SHAPES = ("circle", "square", "diamond", "triangle", "ring")
+
 
 def _load():
     return store.read("reminders.json", {"reminders": []})
@@ -90,6 +95,9 @@ def _coerce_reminder(raw):
     rid = str(raw.get("id", "")).strip() or ("rem_" + uuid.uuid4().hex[:8])
     rtype = str(raw.get("type", "")).strip() or _slug(label)
     color = str(raw.get("color", "")).strip() or DEFAULT_COLOR
+    shape = str(raw.get("shape", "")).strip().lower()
+    if shape not in VALID_SHAPES:
+        shape = "circle"
     # Optional paired reminder: logging this one prompts "did you also …?" for the
     # companion (referenced by its activity type, e.g. sheets → wash-eyemasks).
     companion = str(raw.get("companion", "")).strip()
@@ -99,6 +107,7 @@ def _coerce_reminder(raw):
         "label": label,
         "type": rtype,
         "color": color,
+        "shape": shape,
         "schedule": schedule,
         "every_days": every,
         "overdue_days": overdue,

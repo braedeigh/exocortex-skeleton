@@ -1596,15 +1596,17 @@ async function addEdge(inputEl) {
 }
 
 // --- Constants ---
+// Shape = family (movement circle, errands square, linens diamond, meds
+// triangle, body ring); color = the individual ritual within it.
 const ACT_TYPES = {
-    run:              { label: 'Run',     color: 'var(--green)' },
-    kitchen:          { label: 'Grocery', color: '#4A90D9' },
-    'laundry-sheets': { label: 'Sheets',  color: '#E06060' },
-    'wash-eyemasks':  { label: 'Eye masks', color: '#5BB8C9' },
-    'change-pillowcase': { label: 'Pillowcase', color: '#D4A0A0' },
-    'wash-hair':      { label: 'Hair wash', color: '#8B7EC8' },
-    estradiol:        { label: 'Estradiol', color: '#E091C7' },
-    peptides:         { label: 'Peptides', color: '#6FBF8B' },
+    run:              { label: 'Run',     color: 'var(--green)', shape: 'circle' },
+    kitchen:          { label: 'Grocery', color: '#4A90D9', shape: 'square' },
+    'laundry-sheets': { label: 'Sheets',  color: '#E06060', shape: 'diamond' },
+    'wash-eyemasks':  { label: 'Eye masks', color: '#5BB8C9', shape: 'diamond' },
+    'change-pillowcase': { label: 'Pillowcase', color: '#D4A0A0', shape: 'diamond' },
+    'wash-hair':      { label: 'Hair wash', color: '#8B7EC8', shape: 'ring' },
+    estradiol:        { label: 'Estradiol', color: '#E091C7', shape: 'triangle' },
+    peptides:         { label: 'Peptides', color: '#6FBF8B', shape: 'triangle' },
 };
 
 // Activity types hidden from the public legend (their entries are also stripped
@@ -1626,7 +1628,10 @@ function activityTypeMap() {
     const map = Object.assign({}, ACT_TYPES);
     ((typeof D !== 'undefined' && D && D.reminders) || []).forEach(r => {
         if (!r || !r.type) return;
-        map[r.type] = { label: r.label || r.type, color: r.color || '#9AA0B5', emoji: r.emoji || '' };
+        map[r.type] = {
+            label: r.label || r.type, color: r.color || '#9AA0B5', emoji: r.emoji || '',
+            shape: r.shape || (map[r.type] && map[r.type].shape) || 'circle',
+        };
     });
     return map;
 }

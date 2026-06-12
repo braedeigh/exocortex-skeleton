@@ -865,11 +865,40 @@ textarea.habit-rename {
 .activity-legend { display: flex; gap: var(--space-4); flex-wrap: wrap; margin: var(--space-2) 0 var(--space-3); font-size: var(--text-sm); color: var(--text-secondary); }
 .activity-legend span { display: flex; align-items: center; gap: var(--space-1); }
 .activity-legend .ldot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+/* ---- Activity dot shapes — shape carries the ritual's family, color the
+   individual. Hue arrives via --dot-color (set inline by activity.js). ---- */
+.activity-cal .cal-dot, .activity-legend .ldot { background: var(--dot-color, var(--text-muted)); }
+.activity-cal .cal-dot.shape-square, .activity-legend .ldot.shape-square { border-radius: 2px; }
+.activity-cal .cal-dot.shape-diamond, .activity-legend .ldot.shape-diamond {
+    border-radius: 2px; transform: rotate(45deg) scale(0.82);
+}
+.activity-cal .cal-dot.shape-diamond:hover { transform: rotate(45deg) scale(1.05); }
+.activity-cal .cal-dot.shape-triangle, .activity-legend .ldot.shape-triangle {
+    border-radius: 0; clip-path: polygon(50% 2%, 100% 98%, 0% 98%);
+}
+.activity-cal .cal-dot.shape-ring, .activity-legend .ldot.shape-ring {
+    background: transparent; border: 2px solid var(--dot-color, var(--text-muted));
+    box-sizing: border-box;
+}
+@media (max-width: 768px) {
+    .activity-cal .cal-dot.shape-ring, .activity-legend .ldot.shape-ring { border-width: 3px; }
+}
 .activity-stats { display: flex; gap: var(--space-5); flex-wrap: wrap; margin-bottom: var(--space-3); font-size: var(--text-base); }
 .activity-stats .stat-val { font-size: var(--text-2xl); font-weight: 700; }
 .activity-btns { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-3); }
-.activity-btns button { padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--card-bg); font-size: var(--text-sm); font-weight: 600; cursor: pointer; color: var(--text-secondary); }
+.activity-btns button { padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--card-bg); font-size: var(--text-sm); font-weight: 600; cursor: pointer; color: var(--text-secondary); min-height: 40px; }
 .activity-btns button:hover { background: var(--bg); border-color: #aaa; }
+/* Per-type hue arrives via --act-color and is blended toward the theme's own
+   text/border, so one stored hex stays legible on every sky phase — a raw hue
+   can't be readable as text on both cream (day) and indigo (night). */
+.act-chip {
+    --act-color: var(--accent);
+    color: color-mix(in srgb, var(--act-color) 55%, var(--text));
+    border-color: color-mix(in srgb, var(--act-color) 45%, var(--border));
+    background: color-mix(in srgb, var(--act-color) 10%, var(--card-bg));
+}
+.act-chip:hover { background: color-mix(in srgb, var(--act-color) 18%, var(--card-bg)); border-color: color-mix(in srgb, var(--act-color) 60%, var(--border)); }
+.stat-val.act-tint { color: color-mix(in srgb, var(--act-color) 60%, var(--text)); }
 .run-log-item {
     display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) 0;
     font-size: var(--text-base); border-bottom: 1px solid var(--border);

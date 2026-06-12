@@ -248,7 +248,7 @@ function reminderManagerPanelHtml() {
     if (!window._remindersDraft) {
         window._remindersDraft = _reminderList().map(r => ({
             id: r.id, emoji: r.emoji || '', label: r.label || '', type: r.type || '',
-            color: r.color || '#9AA0B5', schedule: r.schedule || 'interval',
+            color: r.color || '#9AA0B5', shape: r.shape || 'circle', schedule: r.schedule || 'interval',
             every_days: r.every_days, overdue_days: r.overdue_days,
             weekdays: Array.isArray(r.weekdays) ? r.weekdays.slice() : [],
             mode: r.mode || 'log', companion: r.companion || '',
@@ -360,6 +360,16 @@ function _remDraftRowsHtml(numInp) {
                 ${chip(`_remSetMode(${i},'countdown')`, 'countdown', r.mode === 'countdown')}
                 ${chip(`_remSetMode(${i},'track')`, 'track', r.mode === 'track')}
             </div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13px;color:var(--text-muted);margin-top:8px">
+                <span title="Shape groups a family of rituals (meds, linens, body…); color names the individual">calendar shape</span>
+                <span style="display:flex;gap:4px">
+                    ${chip(`_remSetShape(${i},'circle')`, '●', (r.shape || 'circle') === 'circle')}
+                    ${chip(`_remSetShape(${i},'square')`, '■', r.shape === 'square')}
+                    ${chip(`_remSetShape(${i},'diamond')`, '◆', r.shape === 'diamond')}
+                    ${chip(`_remSetShape(${i},'triangle')`, '▲', r.shape === 'triangle')}
+                    ${chip(`_remSetShape(${i},'ring')`, '○', r.shape === 'ring')}
+                </span>
+            </div>
             ${cadence}
             ${dueWording}
             ${timeRow}
@@ -410,6 +420,13 @@ function _remField(i, field, value) {
     }
 }
 
+function _remSetShape(i, shape) {
+    const a = window._remindersDraft;
+    if (!a || !a[i]) return;
+    a[i].shape = shape;
+    _remRerenderRows();
+}
+
 function _remSetMode(i, mode) {
     const a = window._remindersDraft;
     if (a && a[i]) { a[i].mode = mode; _remRerenderRows(); }
@@ -450,7 +467,7 @@ function _remDel(i) {
 
 function _remAdd() {
     (window._remindersDraft = window._remindersDraft || []).push({
-        id: '', emoji: '', label: '', type: '', color: '#9AA0B5', schedule: 'interval',
+        id: '', emoji: '', label: '', type: '', color: '#9AA0B5', shape: 'circle', schedule: 'interval',
         every_days: 3, overdue_days: 7, weekdays: [], mode: 'log', companion: '',
         times: [], private: false, due_text: '',
     });
@@ -466,6 +483,7 @@ async function saveReminders() {
             label: (r.label || '').trim(),
             type: (r.type || '').trim() || undefined,
             color: (r.color || '').trim() || undefined,
+            shape: r.shape || 'circle',
             schedule: r.schedule === 'weekly' ? 'weekly' : 'interval',
             every_days: Number(r.every_days) || 1,
             overdue_days: Number(r.overdue_days) || 1,
