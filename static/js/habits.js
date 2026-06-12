@@ -60,8 +60,8 @@ function renderHabits() {
 
         const growthOpen = todoCardOpen('Working On');
         const growthCount = `<span style="font-size:12px;font-weight:600;color:var(--text-muted);background:var(--bg);border-radius:10px;padding:1px 8px;margin-left:8px">${active.length}</span>`;
-        let growthHTML = `<details class="card todo-card" id="card-growth" style="border-left-color:#9b59b6;margin-top:8px" ${growthOpen ? 'open' : ''} ontoggle="todoCardToggled(this,'Working On')">
-                <summary class="card-title" style="color:#9b59b6;cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px">
+        let growthHTML = `<details class="card todo-card" id="card-growth" style="border-left-color:var(--text-muted);margin-top:8px" ${growthOpen ? 'open' : ''} ontoggle="todoCardToggled(this,'Working On')">
+                <summary class="card-title" style="color:var(--text-muted);cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px">
                     <span class="kitchen-arrow" style="font-size:12px;transition:transform 0.15s;display:inline-block">&#9654;</span>
                     <span style="flex:1">Working On${growthCount}</span>
                     <span class="edit-toggle" onclick="event.preventDefault();event.stopPropagation();toggleEditMode('card-growth')">edit</span>

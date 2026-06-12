@@ -76,10 +76,46 @@ function showContactMethodPicker(btn, name) {
     document.querySelectorAll('.contact-method-picker').forEach(p => p.remove());
     const picker = document.createElement('div');
     picker.className = 'contact-method-picker';
+    picker.style.flexWrap = 'wrap';
+    picker.style.maxWidth = '280px';
+    picker.style.justifyContent = 'flex-end';
+    // When-row: log for today (default) or backdate to yesterday — for the
+    // "called dad yesterday, forgot to log it" case. Older days: tap that day
+    // on the Keep in Touch calendar.
+    let daysAgo = 0;
+    const whenRow = document.createElement('div');
+    whenRow.style.cssText = 'display:flex;gap:6px;width:100%;justify-content:flex-end';
+    const whenBtns = [];
+    [['Today', 0], ['Yesterday', 1]].forEach(([label, n]) => {
+        const b = document.createElement('button');
+        b.textContent = label;
+        b.style.fontSize = '12px';
+        b.style.opacity = n === 0 ? '1' : '0.5';
+        b.onclick = (e) => {
+            e.stopPropagation();
+            daysAgo = n;
+            whenBtns.forEach(x => x.style.opacity = '0.5');
+            b.style.opacity = '1';
+        };
+        whenBtns.push(b);
+        whenRow.appendChild(b);
+    });
+    picker.appendChild(whenRow);
     ['Call', 'Text', 'FaceTime', 'Visit'].forEach(m => {
         const b = document.createElement('button');
         b.textContent = m;
-        b.onclick = (e) => { e.stopPropagation(); picker.remove(); quickLogContact(name, m.toLowerCase()); };
+        b.onclick = (e) => {
+            e.stopPropagation();
+            picker.remove();
+            if (daysAgo) {
+                const d = new Date(todayStr() + 'T12:00:00');
+                d.setDate(d.getDate() - daysAgo);
+                const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                logContactOnDate(name, date, m.toLowerCase());
+            } else {
+                quickLogContact(name, m.toLowerCase());
+            }
+        };
         picker.appendChild(b);
     });
     btn.parentElement.style.position = 'relative';

@@ -76,6 +76,7 @@ STREAMS = {
     "idea_notes": "hidden",
     "idea_notes_all": "hidden",
     "ideas_md": "hidden",           # the private vision doc
+    "tab_todos": "hidden",          # per-tab to-do strip (todos are personal)
     "receipts_map": "hidden",       # photo paths to receipts
     "reminders": "hidden",          # personal cadence pops (peptides, linen, …)
 }

@@ -298,6 +298,28 @@ def todos_to_sections(data):
     return sections
 
 
+def todos_for_tab(tab, data=None):
+    """Not-done to-dos category-tagged for a tab — surfaced in a strip at the
+    top of that tab. Category values mirror the tab keys (set in the to-do
+    detail modal). Done items drop out; ladder order is preserved."""
+    if data is None:
+        data = read("todos", {})
+    out = []
+    for key, sec in data.items():
+        if key == "done" or not isinstance(sec, dict):
+            continue
+        for item in sec.get("items", []):
+            if not isinstance(item, dict) or item.get("done"):
+                continue
+            if item.get("category") == tab:
+                out.append({
+                    "id": item.get("id"),
+                    "text": item.get("text", ""),
+                    "due_by": item.get("due_by", ""),
+                })
+    return out
+
+
 def find_section_key(name):
     """Map a frontend section name back to a todos.json key."""
     name_lower = name.lower().split("—")[0].strip()

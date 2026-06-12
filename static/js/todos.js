@@ -31,7 +31,9 @@ function renderTodos() {
         const todayItems = all.filter(it => (!it.done || doneToday(it)) && !isSnoozed(it) && it.due_by && it.due_by <= today);
         const tomorrowItems = all.filter(it => (!it.done || doneToday(it)) && !isSnoozed(it) && it.due_by === tomorrow);
         pulledIds = new Set([...todayItems, ...tomorrowItems].map(it => it.id).filter(Boolean));
-        dayHTML += dayViewHTML('Today', todayItems, 'var(--accent)', true);
+        // Today wears the current part of day (same palette as the habit cards).
+        const todColor = { morning: 'var(--morning)', afternoon: 'var(--ongoing)', evening: 'var(--evening)' }[getTime()] || 'var(--accent)';
+        dayHTML += dayViewHTML('Today', todayItems, todColor, true);
         dayHTML += dayViewHTML('Tomorrow', tomorrowItems, 'var(--ongoing)');
     } catch (e) {
         console.error('day view render failed, falling back to ladder', e);
@@ -147,6 +149,33 @@ function snoozedCardHTML(items) {
         </summary>
         ${rows}
     </details>`;
+}
+
+// --- Tab to-dos strip ---
+// To-dos category-tagged for a page (the detail modal's Category field) show
+// in a strip at the top of that page. Data: D.tab_todos, served per-tab.
+function renderTabTodos() {
+    const el = document.getElementById(`tab-todos-${currentTab}`);
+    if (!el) return;
+    const items = D.tab_todos || [];
+    if (!items.length) { el.innerHTML = ''; return; }
+    const rows = items.map(it => `<div class="card-item">
+        <span class="habit-check" onclick="toggleTabTodo('${escJs(it.id || it.text)}')" style="cursor:pointer" title="Check off">&#9675;</span>
+        <span class="item-text">${esc(it.text)}${it.due_by ? `<span class="todo-due${_isOverdue(it.due_by) ? ' overdue' : ''}" title="Due ${esc(it.due_by)}">${_isOverdue(it.due_by) ? 'overdue · ' : 'due '}${esc(_fmtAddedDate(it.due_by))}</span>` : ''}</span>
+    </div>`).join('');
+    el.innerHTML = `<div class="card" style="border-left-color:var(--accent);margin-bottom:14px">
+        <div class="card-title" style="color:var(--accent)">To-dos for this page</div>
+        ${rows}
+    </div>`;
+}
+
+async function toggleTabTodo(id) {
+    await fetch('/api/todos/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id })
+    });
+    loadDashboard();
 }
 
 // --- Applications ---

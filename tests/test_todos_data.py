@@ -108,3 +108,23 @@ def test_todos_to_sections_respects_manual_order():
     sections = {s["name"]: s for s in dh.todos_to_sections(data)}
     assert [i["id"] for i in sections["Now"]["items"]] == ["b", "a"]
     assert sections["Now"]["manual_order"] is True
+
+
+def test_todos_for_tab_filters_by_category_and_skips_done():
+    data = {
+        "now": {"items": [
+            {"id": "a", "text": "buy lemons", "done": False, "category": "kitchen"},
+            {"id": "b", "text": "call mechanic", "done": False, "category": "car"},
+            {"id": "c", "text": "old kitchen chore", "done": True, "category": "kitchen"},
+        ]},
+        "later": {"items": [
+            {"id": "d", "text": "deep-clean fridge", "done": False, "category": "kitchen", "due_by": "2026-07-01"},
+        ]},
+        "done": {"items": [
+            {"id": "e", "text": "archived", "done": True, "category": "kitchen"},
+        ]},
+    }
+    out = dh.todos_for_tab("kitchen", data)
+    assert [i["id"] for i in out] == ["a", "d"]
+    assert out[1]["due_by"] == "2026-07-01"
+    assert dh.todos_for_tab("body", data) == []

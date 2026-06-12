@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from data_helpers import (
     BUILD_DIR, DATA_DIR, CONTENT_DIR,
     parse_md_sections, load_health_data,
-    load_todos, roll_todos, todos_to_sections,
+    load_todos, roll_todos, todos_to_sections, todos_for_tab,
     validate_on_startup, sweep_uploads_throttled,
 )
 from public_config import filter_for_view, is_public_path
@@ -721,6 +721,7 @@ def get_data_map():
     })
     data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("map", [])
     data["idea_notes"] = _load_idea_notes().get("tabs", {}).get("map", [])
+    data["tab_todos"] = todos_for_tab("map")
     return jsonify(filter_for_view(data, request.view_mode))
   except Exception as e:
     app.logger.error(f"/api/data/map failed: {e}\n{traceback.format_exc()}")
@@ -743,6 +744,7 @@ def get_data_inventory():
     })
     data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("inventory", [])
     data["idea_notes"] = _load_idea_notes().get("tabs", {}).get("inventory", [])
+    data["tab_todos"] = todos_for_tab("inventory")
     return jsonify(filter_for_view(data, request.view_mode))
   except Exception as e:
     app.logger.error(f"/api/data/inventory failed: {e}\n{traceback.format_exc()}")
@@ -769,6 +771,7 @@ def get_data_money():
     })
     data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("money", [])
     data["idea_notes"] = _load_idea_notes().get("tabs", {}).get("money", [])
+    data["tab_todos"] = todos_for_tab("money")
     return jsonify(filter_for_view(data, request.view_mode))
   except Exception as e:
     app.logger.error(f"/api/data/money failed: {e}\n{traceback.format_exc()}")
@@ -785,6 +788,7 @@ def get_data_car():
     })
     data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("car", [])
     data["idea_notes"] = _load_idea_notes().get("tabs", {}).get("car", [])
+    data["tab_todos"] = todos_for_tab("car")
     return jsonify(filter_for_view(data, request.view_mode))
   except Exception as e:
     app.logger.error(f"/api/data/car failed: {e}\n{traceback.format_exc()}")
@@ -812,6 +816,7 @@ def get_data_body():
     data["symptom_definitions"] = store.read("symptom_definitions.json", {})
     data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("body", [])
     data["idea_notes"] = _load_idea_notes().get("tabs", {}).get("body", [])
+    data["tab_todos"] = todos_for_tab("body")
     return jsonify(filter_for_view(data, request.view_mode))
   except Exception as e:
     app.logger.error(f"/api/data/body failed: {e}\n{traceback.format_exc()}")
@@ -829,6 +834,7 @@ def get_data_meditation():
     })
     data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("meditation", [])
     data["idea_notes"] = _load_idea_notes().get("tabs", {}).get("meditation", [])
+    data["tab_todos"] = todos_for_tab("meditation")
     return jsonify(filter_for_view(data, request.view_mode))
   except Exception as e:
     app.logger.error(f"/api/data/meditation failed: {e}\n{traceback.format_exc()}")
@@ -844,6 +850,7 @@ def get_data_media():
     })
     data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("media", [])
     data["idea_notes"] = _load_idea_notes().get("tabs", {}).get("media", [])
+    data["tab_todos"] = todos_for_tab("media")
     return jsonify(filter_for_view(data, request.view_mode))
   except Exception as e:
     app.logger.error(f"/api/data/media failed: {e}\n{traceback.format_exc()}")
@@ -859,6 +866,7 @@ def get_data_movement():
     })
     data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("movement", [])
     data["idea_notes"] = _load_idea_notes().get("tabs", {}).get("movement", [])
+    data["tab_todos"] = todos_for_tab("movement")
     return jsonify(filter_for_view(data, request.view_mode))
   except Exception as e:
     app.logger.error(f"/api/data/movement failed: {e}\n{traceback.format_exc()}")
@@ -920,6 +928,7 @@ def get_data_kitchen():
     data["meal_defaults"] = _load_meal_defaults()
     data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("kitchen", [])
     data["idea_notes"] = _load_idea_notes().get("tabs", {}).get("kitchen", [])
+    data["tab_todos"] = todos_for_tab("kitchen")
 
     data["kitchen_trips"] = store.read("kitchen_trips.json", {}).get("trips", [])
     data["recipes"] = store.read("recipes.json", {}).get("recipes", [])

@@ -42,7 +42,7 @@ async function pollForUpdates() {
             lastDataHash = text;
             D = JSON.parse(text);
             D.habits.forEach(s => { s.items = s.items.map(i => typeof i === 'string' ? i : i.text); });
-            if (!selectedTime) selectedTime = D.time_of_day;
+            syncTimeOfDay(D.time_of_day);
             if (_inputFocused) {
                 _pendingRender = true; // render when they leave the input
             } else {

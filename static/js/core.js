@@ -4,9 +4,24 @@
 let D = null; // dashboard data
 let _serverDate = null;
 let selectedTime = null;
+let _serverTodLast = null;   // last server time-of-day, to detect boundary crossings
 let pendingDelete = null;
 let expandedAll = false;
 let currentTab = document.body.dataset.activeTab || 'today';
+
+// Keep the time-of-day display rolling with the actual day. A manual pick on
+// the Morning/Midday/Evening selector holds — but only until the server's part
+// of day next changes, then the roll resumes. (Before this, selectedTime was
+// set once and a PWA left open simply froze on its load-time part of day.)
+function syncTimeOfDay(tod) {
+    if (!tod) return;
+    if (_serverTodLast === null) _serverTodLast = tod;
+    if (tod !== _serverTodLast) {
+        _serverTodLast = tod;
+        selectedTime = tod;
+    }
+    if (!selectedTime) selectedTime = tod;
+}
 
 const TAB_ENDPOINTS = {
     today: '/api/data/today',
@@ -68,13 +83,28 @@ function initTab() {
 }
 
 // --- toggleExpandAll ---
+// While the programmatic open/close sweep runs, card-memory writes are
+// suppressed — otherwise "show hidden" stamps open=1 into every card's saved
+// state and "hide" has nothing to restore (the bug where collapsing left all
+// the to-do and habit cards open).
+let _suppressCardMemory = false;
+
 function toggleExpandAll() {
     expandedAll = !expandedAll;
     document.getElementById('expand-btn').textContent = expandedAll ? 'Hide prompts' : 'Show hidden prompts';
-    render();
+    _suppressCardMemory = true;
     if (expandedAll) {
+        render();
         document.querySelectorAll('details').forEach(d => { d.open = true; });
+    } else {
+        // Back to the page's usual layout: wipe the visit's collapse memory and
+        // re-render so defaults apply (only "Now", the day views, the active
+        // habit card) instead of leaving everything the sweep opened.
+        resetTodoCollapseMemory();
+        document.querySelectorAll('#tab-today details').forEach(d => { d.open = false; });
+        render();
     }
+    setTimeout(() => { _suppressCardMemory = false; }, 100);
 }
 
 // --- toggleMapCollapse ---
@@ -90,6 +120,7 @@ function toggleMapCollapse() {
 // them), and snap any horizontal trackers to the right edge on open.
 function mapCardToggled(d) {
     if (!d) return;
+    if (_suppressCardMemory) return;   // programmatic show/hide-all sweeps don't count
     if (d.dataset.card) {
         try { localStorage.setItem('mapCardOpen:' + d.dataset.card, d.open ? '1' : '0'); } catch (e) {}
     }
@@ -208,7 +239,7 @@ async function loadDashboard() {
         if (isFrosted(D.streaks)) D._frost.streaks = true;
         // Normalize: habits items → strings (they use habits_log for done state)
         if (D.habits) D.habits.forEach(s => { s.items = s.items.map(i => typeof i === 'string' ? i : i.text); });
-        if (!selectedTime) selectedTime = D.time_of_day;
+        syncTimeOfDay(D.time_of_day);
         // Use server time for all time-dependent displays
         if (D.server_date) _serverDate = D.server_date;
         if (typeof _serverHour !== 'undefined' && D.server_hour !== undefined) {
@@ -290,6 +321,8 @@ function render() {
     for (const fn of fns) {
         try { fn(); } catch(e) { console.error(fn.name + ' failed:', e); }
     }
+    // Category-tagged to-dos strip — no-ops on tabs without a container.
+    try { renderTabTodos(); } catch(e) { console.error('renderTabTodos failed:', e); }
 }
 
 // --- Time selector ---
@@ -681,6 +714,7 @@ function todoCardOpen(sectionName) {
     return (sectionName || '').toLowerCase() === 'now';
 }
 function todoCardToggled(d, sectionName) {
+    if (_suppressCardMemory) return;   // programmatic show/hide-all sweeps don't count
     try { localStorage.setItem('todoOpenV2:' + sectionName, d.open ? '1' : '0'); } catch (e) {}
 }
 
