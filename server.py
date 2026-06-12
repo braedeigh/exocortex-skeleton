@@ -12,7 +12,7 @@ from data_helpers import (
     BUILD_DIR, DATA_DIR, CONTENT_DIR,
     parse_md_sections, load_health_data,
     load_todos, roll_todos, todos_to_sections,
-    validate_on_startup,
+    validate_on_startup, sweep_uploads_throttled,
 )
 from public_config import filter_for_view, is_public_path
 import store
@@ -20,6 +20,7 @@ import config
 from routes import (
     kitchen, habits, todos, places, health, inventory, money, car,
     meditation, media, movement, reminders, food_test, terminal, settings,
+    devnotes,
 )
 
 app = Flask(__name__)
@@ -383,69 +384,9 @@ def about_page():
     return render_template("about.html")
 
 
-# --- Dev Notes (per-tab friction log) ---
+# --- Dev Notes (per-tab friction log) — routes live in routes/devnotes.py ---
 
-def _load_dev_notes():
-    return store.read("dev_notes.json", {"tabs": {}})
-
-
-def _save_dev_notes(d):
-    store.write("dev_notes.json", d)
-
-
-@app.route("/api/devnote/add", methods=["POST"])
-def add_devnote():
-    data = request.json
-    tab = (data.get("tab") or "").strip()
-    text = (data.get("text") or "").strip()
-    if not tab or not text:
-        return jsonify({"error": "tab and text required"}), 400
-    d = _load_dev_notes()
-    d.setdefault("tabs", {}).setdefault(tab, []).append({
-        "id": secrets.token_hex(4),
-        "text": text,
-        "created": datetime.now().strftime("%Y-%m-%d %H:%M"),
-    })
-    _save_dev_notes(d)
-    return jsonify({"ok": True})
-
-
-@app.route("/api/devnotes/<tab>", methods=["GET"])
-def get_devnotes(tab):
-    notes = _load_dev_notes().get("tabs", {}).get(tab, [])
-    return jsonify({"tab": tab, "notes": notes})
-
-
-@app.route("/api/devnote/remove", methods=["POST"])
-def remove_devnote():
-    data = request.json
-    tab = data.get("tab", "")
-    nid = data.get("id", "")
-    d = _load_dev_notes()
-    notes = d.get("tabs", {}).get(tab, [])
-    d["tabs"][tab] = [n for n in notes if n.get("id") != nid]
-    _save_dev_notes(d)
-    return jsonify({"ok": True})
-
-
-@app.route("/api/devnote/edit", methods=["POST"])
-def edit_devnote():
-    data = request.json
-    tab = (data.get("tab") or "").strip()
-    nid = data.get("id", "")
-    text = (data.get("text") or "").strip()
-    if not tab or not nid or not text:
-        return jsonify({"error": "tab, id and text required"}), 400
-    d = _load_dev_notes()
-    notes = d.get("tabs", {}).get(tab, [])
-    for n in notes:
-        if n.get("id") == nid:
-            n["text"] = text
-            break
-    else:
-        return jsonify({"error": "note not found"}), 404
-    _save_dev_notes(d)
-    return jsonify({"ok": True})
+_load_dev_notes = devnotes.load_dev_notes
 
 
 # --- Journal ---
@@ -715,6 +656,9 @@ def _load_kitchen_data():
 def get_data_today():
   try:
     data = _common_data()
+    # Transient terminal uploads self-clean after 24h; this hot path is the
+    # reliable trigger (throttled to once an hour).
+    sweep_uploads_throttled()
 
     habits = _load_habits()
     todo_data = load_todos()
@@ -1111,6 +1055,7 @@ reminders.register(app)
 food_test.register(app)
 terminal.register(app)
 settings.register(app)
+devnotes.register(app)
 
 # --- Startup ---
 validate_on_startup(app)

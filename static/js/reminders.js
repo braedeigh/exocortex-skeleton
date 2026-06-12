@@ -138,19 +138,62 @@ function renderReminders() {
         // Time-of-day filter: a reminder with `times` only pops in those windows.
         // Skipped when "show hidden" is on so nothing is ever truly lost.
         if (!expandedAll && Array.isArray(r.times) && r.times.length && !r.times.includes(now)) continue;
+        // Snoozed ("kick the can"): hidden until the date passes — but still
+        // reachable under "Show hidden prompts", marked as snoozed.
+        const snoozed = r.snoozed_until && r.snoozed_until > todayStr();
+        if (snoozed && !expandedAll) continue;
         const emoji = r.emoji ? `${r.emoji} ` : '';
-        html += `<div class="hrt-bar" style="border-left-color:${s.color};background:${s.color};${s.pulse}margin-bottom:12px">
+        const sub = snoozed ? `💤 snoozed — back ${_fmtAddedDate(r.snoozed_until)}` : s.sub;
+        html += `<div class="hrt-bar" style="border-left-color:${s.color};background:${s.color};${s.pulse}margin-bottom:12px${snoozed ? ';opacity:0.6' : ''}">
             <div>
                 <div style="font-size:18px">${emoji}${esc(r.label)} — ${s.daysText}</div>
-                <div style="font-size:13px;opacity:0.8;font-weight:400;margin-top:2px">${s.sub}</div>
+                <div style="font-size:13px;opacity:0.8;font-weight:400;margin-top:2px">${sub}</div>
             </div>
             <div style="display:flex;gap:8px;align-items:center;flex:none">
+                <button class="hrt-done-btn" onclick="showReminderSnoozeMenu(this,'${escJs(r.id || r.type)}',${snoozed ? 'true' : 'false'})" title="Remind me later" style="opacity:0.85;min-width:40px">&#128164;</button>
                 <button class="hrt-done-btn" onclick="logReminderDone('${escJs(r.type)}',{daysAgo:1})" title="Log it for yesterday" style="opacity:0.85">Yesterday</button>
                 <button class="hrt-done-btn" onclick="logReminderDone('${escJs(r.type)}')">&#10003; Done</button>
             </div>
         </div>`;
     }
     el.innerHTML = html;
+}
+
+// "Kick the can down the road" — small menu of snooze lengths on a pop bar.
+function showReminderSnoozeMenu(btn, ident, isSnoozed) {
+    document.querySelectorAll('.move-menu').forEach(m => m.remove());
+    const menu = document.createElement('div');
+    menu.className = 'move-menu';
+    menu.style.cssText = 'position:absolute;right:0;top:100%;background:var(--card-bg);border:1px solid var(--border);border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.12);z-index:100;min-width:170px;padding:4px 0;font-size:13px;color:var(--text)';
+    const lbl = document.createElement('div');
+    lbl.textContent = 'Remind me again in';
+    lbl.style.cssText = 'padding:4px 14px;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)';
+    menu.appendChild(lbl);
+    const opts = [['3 days', 3], ['1 week', 7], ['2 weeks', 14]];
+    if (isSnoozed) opts.push(['Un-snooze now', 0]);
+    opts.forEach(([label, days]) => {
+        const opt = document.createElement('div');
+        opt.textContent = days ? `💤 ${label}` : `↩ ${label}`;
+        opt.style.cssText = 'padding:9px 14px;cursor:pointer;color:var(--text)';
+        opt.onmouseenter = () => opt.style.background = 'var(--bg)';
+        opt.onmouseleave = () => opt.style.background = 'none';
+        opt.onclick = () => { menu.remove(); snoozeReminder(ident, days); };
+        menu.appendChild(opt);
+    });
+    btn.parentElement.style.position = 'relative';
+    btn.parentElement.appendChild(menu);
+    setTimeout(() => document.addEventListener('click', function close(e) {
+        if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener('click', close); }
+    }), 0);
+}
+
+async function snoozeReminder(ident, days) {
+    await fetch('/api/reminders/snooze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: ident, days })
+    });
+    loadDashboard();
 }
 
 // Log a reminder. opts.daysAgo backdates (e.g. {daysAgo:1} = yesterday, for a

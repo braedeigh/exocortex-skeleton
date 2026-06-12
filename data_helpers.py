@@ -59,6 +59,45 @@ def remove_item_from_file(item, filepath):
     filepath.write_text(text)
 
 
+# --- Uploads hygiene ---
+
+import time as _time
+import store as _store
+
+_UPLOAD_SWEEP_INTERVAL = 3600   # throttle: sweep at most once an hour
+_last_upload_sweep = 0.0
+
+
+def sweep_uploads(max_age_hours=24, upload_dir=None):
+    """Delete terminal-upload files (pasted photos/text dumps) older than
+    `max_age_hours`. They're transient hand-offs into the terminal session —
+    anything worth keeping gets moved out by whoever consumed it. Returns the
+    number of files removed."""
+    target = Path(upload_dir) if upload_dir else _store.UPLOAD_DIR
+    if not target.is_dir():
+        return 0
+    cutoff = _time.time() - max_age_hours * 3600
+    removed = 0
+    for f in target.iterdir():
+        try:
+            if f.is_file() and f.stat().st_mtime < cutoff:
+                f.unlink()
+                removed += 1
+        except OSError:
+            continue   # vanished mid-sweep or unreadable — never break a request over cleanup
+    return removed
+
+
+def sweep_uploads_throttled():
+    """Hourly-throttled sweep, cheap enough to hang off a hot request path."""
+    global _last_upload_sweep
+    now = _time.time()
+    if now - _last_upload_sweep < _UPLOAD_SWEEP_INTERVAL:
+        return 0
+    _last_upload_sweep = now
+    return sweep_uploads()
+
+
 # --- Health data ---
 
 def load_health_data():

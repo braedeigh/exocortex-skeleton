@@ -36,6 +36,9 @@ CONTENT_DIR = Path(os.environ.get("EXOCORTEX_CONTENT_DIR", DATA_DIR))
 # CONTENT_DIR. (Defaulting them next to the *code* is what orphaned them on migration.)
 RECEIPTS_DIR = Path(os.environ.get("EXOCORTEX_RECEIPTS_DIR", DATA_DIR / "receipts"))
 RECIPES_DIR = Path(os.environ.get("EXOCORTEX_RECIPES_DIR", DATA_DIR / "recipes"))
+# The ideas/vision doc that "send to ideas" (dev notes) appends to. Defaults
+# inside the content store; point it at an existing ideas doc via env.
+IDEAS_FILE = Path(os.environ.get("EXOCORTEX_IDEAS_FILE", CONTENT_DIR / "IDEAS.md"))
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)

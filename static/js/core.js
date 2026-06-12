@@ -1153,6 +1153,16 @@ function findTodoById(id) {
     }
     return null;
 }
+// Which bucket (section name) a to-do currently lives in — for the detail
+// modal's "List" mover.
+function findTodoSectionName(id) {
+    for (const sec of (D.todos || [])) {
+        for (const it of (sec.items || [])) {
+            if (it && typeof it === 'object' && (it.id === id || it.text === id)) return sec.name;
+        }
+    }
+    return null;
+}
 function placeById(pid) { return (D.places || []).find(p => p.id === pid) || null; }
 function _catLabel(key) { const c = TODO_CATEGORIES.find(c => c.key === key); return c ? c.label : (key || ''); }
 function _statusLabel(key) { const s = TODO_STATUSES.find(s => s.key === key); return s ? s.label : (key || ''); }
@@ -1255,6 +1265,11 @@ function openTodoDetail(el, ev) {
         .concat(TODO_CATEGORIES.map(c => `<option value="${esc(c.key)}"${c.key === item.category ? ' selected' : ''}>${esc(c.label)}</option>`)).join('');
     const durChips = [15, 30, 60].map(m => `<button type="button" class="tm-chip${item.duration_min === m ? ' active' : ''}" onclick="tmDurationChip(this, ${m})">${m}m</button>`).join('');
     const statusChips = TODO_STATUSES.map(s => `<button type="button" class="tm-chip${item.status === s.key ? ' active' : ''}" data-val="${esc(s.key)}" onclick="tmStatusChip(this)">${esc(s.label)}</button>`).join('');
+    // "List" mover: every bucket except Done (checking off handles Done).
+    const curSection = findTodoSectionName(id) || '';
+    const bucketOpts = (D.todos || [])
+        .filter(s => !s.name.toLowerCase().startsWith('done'))
+        .map(s => `<option value="${esc(s.name)}"${s.name === curSection ? ' selected' : ''}>${esc(s.name)}</option>`).join('');
 
     const body = `<div class="todo-modal-body" data-item="${esc(text)}" data-id="${esc(id)}" data-due="${esc(dueIso)}">
         <div class="todo-modal-meta"${metaBits.length ? '' : ' style="display:none"'}>${metaBits.join('')}</div>
@@ -1292,6 +1307,10 @@ function openTodoDetail(el, ev) {
                 <label class="todo-modal-label">Status</label>
                 <div class="tm-chips todo-modal-status">${statusChips}</div>
             </div>
+            ${bucketOpts ? `<div class="tm-field">
+                <label class="todo-modal-label">List <span class="todo-add-opt">(move to another section)</span></label>
+                <select class="todo-modal-bucket" data-original="${esc(curSection)}">${bucketOpts}</select>
+            </div>` : ''}
         </div>
         <div class="todo-modal-foot">
             <button type="button" class="todo-modal-delete" onclick="confirmDeleteTodoItem(this.closest('.todo-modal-body').dataset.id, this.closest('.todo-modal-body').dataset.item)">Delete</button>
@@ -1355,6 +1374,15 @@ async function toggleTodoModalEdit(btn) {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, notes, due_by: due, due_time: dueTime, place_id: placeSel, category, duration_min: duration, status })
     });
+    // Moved to a different list? Do it last so rename/details found the item
+    // in place first.
+    const bucketSel = body.querySelector('.todo-modal-bucket');
+    if (bucketSel && bucketSel.value && bucketSel.value !== bucketSel.dataset.original) {
+        await fetch('/api/todos/move', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id, item: oldText, to_section: bucketSel.value })
+        });
+    }
     hideEditorModal();
     loadDashboard();
 }
@@ -1668,22 +1696,23 @@ function renderDevNotes() {
         const rows = notes.map(n => {
             const editing = _devNoteEditing && _devNoteEditing.tab === tab && _devNoteEditing.id === n.id;
             if (editing) {
-                return `<div style="padding:8px 0;border-top:1px solid var(--border)">
-                    <textarea id="devnote-edit-${esc(tab)}-${esc(n.id)}" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'" style="width:100%;box-sizing:border-box;min-height:72px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;line-height:1.4;font-family:inherit;background:var(--bg);color:var(--text);resize:none;overflow:hidden">${esc(n.text)}</textarea>
-                    <div style="display:flex;gap:6px;margin-top:6px;justify-content:flex-end">
-                        <button onclick="saveDevNote('${escJs(tab)}','${escJs(n.id)}')" style="padding:5px 12px;border:none;border-radius:6px;background:var(--text);color:#fff;font-size:12px;font-weight:600;cursor:pointer">Save</button>
-                        <button onclick="cancelDevNoteEdit()" style="padding:5px 12px;border:1px solid var(--border);border-radius:6px;background:none;color:var(--text-muted);font-size:12px;cursor:pointer">Cancel</button>
+                return `<div style="display:flex;gap:6px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--border)">
+                    <textarea id="devnote-edit-${esc(tab)}-${esc(n.id)}" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'" style="flex:1;box-sizing:border-box;min-height:72px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;line-height:1.4;font-family:inherit;background:var(--bg);color:var(--text);resize:none;overflow:hidden">${esc(n.text)}</textarea>
+                    <div style="display:flex;flex-direction:column;gap:6px">
+                        <button onclick="saveDevNote('${escJs(tab)}','${escJs(n.id)}')" style="padding:8px 12px;border:none;border-radius:6px;background:var(--text);color:#fff;font-size:12px;font-weight:600;cursor:pointer">Save</button>
+                        <button onclick="cancelDevNoteEdit()" style="padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:none;color:var(--text-muted);font-size:12px;cursor:pointer">Cancel</button>
                     </div>
                 </div>`;
             }
             return `<div style="display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-top:1px solid var(--border);font-size:13px">
                 <div style="flex:1">${esc(n.text)}</div>
                 <div style="font-size:12px;color:var(--text-muted);white-space:nowrap">${esc(n.created || '')}</div>
+                <button onclick="sendDevNoteToIdeas('${escJs(tab)}','${escJs(n.id)}')" title="Send to Ideas (moves this note into the ideas doc)" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:13px;padding:0 4px">&#128161;</button>
                 <button onclick="editDevNote('${escJs(tab)}','${escJs(n.id)}')" title="Edit" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:13px;padding:0 4px">&#9998;</button>
                 <button onclick="removeDevNote('${escJs(tab)}','${escJs(n.id)}')" title="Remove" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;padding:0 4px">&times;</button>
             </div>`;
         }).join('');
-        const addBox = (which) => `<div style="display:flex;gap:6px;align-items:flex-end;margin-${which === 'top' ? 'bottom' : 'top'}:10px">
+        const addBox = (which) => `<div style="display:flex;gap:6px;align-items:flex-start;margin-${which === 'top' ? 'bottom' : 'top'}:10px">
                     <textarea rows="1" id="devnote-input-${esc(tab)}-${which}" placeholder="What's bugging you about this page?" style="flex:1;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;line-height:1.4;font-family:inherit;outline:none;background:var(--bg);color:var(--text);resize:none;overflow:hidden" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();addDevNote('${escJs(tab)}','${which}')}"></textarea>
                     <button onclick="addDevNote('${escJs(tab)}','${which}')" style="padding:6px 14px;border:none;border-radius:6px;background:var(--text);color:#fff;font-size:12px;font-weight:600;cursor:pointer">Add</button>
                 </div>`;
@@ -1715,6 +1744,18 @@ async function addDevNote(tab, which) {
         input.style.height = '';
         await refreshDevNotes(tab);
     }
+}
+
+// A dev note that's really a product idea: append it to the ideas doc and take
+// it off the page's queue.
+async function sendDevNoteToIdeas(tab, id) {
+    const res = await fetch('/api/devnote/to_ideas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tab, id })
+    });
+    if (res.ok) await refreshDevNotes(tab);
+    else alert('Could not send to ideas');
 }
 
 function editDevNote(tab, id) {
@@ -1829,12 +1870,28 @@ function layoutTabs() {
     const gearW = (gear && gear.offsetParent !== null) ? gear.offsetWidth + 12 : 0;
     const avail = (row ? row.clientWidth : 0) - gearW;
     // 3. Hide optional tabs from the end until the pill fits (keep core 3 + More).
+    // The ACTIVE tab is hidden last — it stays visible in the bar whenever any
+    // arrangement allows it, so the current page never reads as "More ▾"-only.
     const overflowed = [];
     if (avail > 0) {
         for (let i = opt.length - 1; i >= 0; i--) {
             if (sel.offsetWidth <= avail) break;
+            if (opt[i].dataset.tab === currentTab) continue;
             opt[i].style.display = 'none';
             overflowed.unshift(opt[i]);
+        }
+        // Still doesn't fit even with every other optional tab hidden → the
+        // active one overflows too (tiny panes), and More correctly shows it.
+        if (sel.offsetWidth > avail) {
+            const act = opt.find(b => b.dataset.tab === currentTab && b.style.display !== 'none');
+            if (act) {
+                act.style.display = 'none';
+                // Keep bar order in the menu: insert at its original position.
+                const idx = opt.indexOf(act);
+                let at = overflowed.findIndex(b => opt.indexOf(b) > idx);
+                if (at === -1) at = overflowed.length;
+                overflowed.splice(at, 0, act);
+            }
         }
     }
     // 4. Inject the overflowed tabs above the always-in-More items, in bar order.

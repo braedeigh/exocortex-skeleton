@@ -101,7 +101,7 @@ def _coerce_reminder(raw):
     # Optional paired reminder: logging this one prompts "did you also …?" for the
     # companion (referenced by its activity type, e.g. sheets → wash-eyemasks).
     companion = str(raw.get("companion", "")).strip()
-    return {
+    out = {
         "id": rid,
         "emoji": str(raw.get("emoji", "")).strip()[:4],
         "label": label,
@@ -118,6 +118,13 @@ def _coerce_reminder(raw):
         "private": bool(raw.get("private")),
         "due_text": str(raw.get("due_text", "")).strip()[:60],
     }
+    # "Kick the can": a snoozed reminder keeps its schedule but doesn't pop
+    # until this date. Set via /api/reminders/snooze; preserved through the
+    # manage-modal's whole-list save.
+    snoozed = str(raw.get("snoozed_until", "")).strip()
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", snoozed):
+        out["snoozed_until"] = snoozed
+    return out
 
 
 def register(app):
@@ -131,3 +138,27 @@ def register(app):
         cleaned = [r for r in (_coerce_reminder(x) for x in incoming) if r]
         _save({"reminders": cleaned})
         return jsonify({"ok": True, "reminders": cleaned})
+
+    @app.route("/api/reminders/snooze", methods=["POST"])
+    def snooze_reminder():
+        """Kick a reminder down the road: hide its pop for `days` (days<=0 clears).
+        The underlying schedule is untouched — when the snooze lapses, the pop
+        comes back with its real due/overdue state."""
+        from datetime import datetime, timedelta
+        body = request.json or {}
+        ident = str(body.get("id") or body.get("type") or "").strip()
+        try:
+            days = int(body.get("days", 0) or 0)
+        except (TypeError, ValueError):
+            days = 0
+        if not ident:
+            return jsonify({"error": "id or type required"}), 400
+        with store.mutate("reminders", {"reminders": []}) as data:
+            for r in data.get("reminders", []):
+                if r.get("id") == ident or r.get("type") == ident:
+                    if days > 0:
+                        r["snoozed_until"] = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
+                    else:
+                        r.pop("snoozed_until", None)
+                    return jsonify({"ok": True, "snoozed_until": r.get("snoozed_until")})
+        return jsonify({"error": "reminder not found"}), 404

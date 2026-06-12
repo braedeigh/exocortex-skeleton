@@ -2,7 +2,7 @@
 from flask import request, jsonify, render_template, Response
 from pathlib import Path
 from datetime import datetime
-from data_helpers import DATA_DIR, UPLOAD_DIR
+from data_helpers import DATA_DIR, UPLOAD_DIR, sweep_uploads
 import json
 import subprocess
 import re
@@ -203,6 +203,7 @@ def register(app):
 
     @app.route("/api/terminal/upload", methods=["POST"])
     def terminal_upload():
+        sweep_uploads()   # uploads are transient: anything older than 24h goes
         files = [f for f in request.files.getlist("photo") if f and f.filename]
         if not files:
             return jsonify({"error": "no file"}), 400
@@ -215,4 +216,5 @@ def register(app):
             dest = UPLOAD_DIR / f"{ts}_{safe_stem}{ext}"
             f.save(dest)
             paths.append(str(dest))
-        return jsonify({"paths": paths})
+        # `path` kept for the split.html uploader, which reads the single-file key.
+        return jsonify({"paths": paths, "path": paths[0]})
