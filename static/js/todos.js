@@ -1,5 +1,26 @@
 // todos.js — todo cards, applications
 
+// All not-done (or done-today) unsnoozed items that belong to a day view.
+// 'Today' = due today or overdue; 'Tomorrow' = due tomorrow. Shared by the
+// page render and the day-card edit modal.
+function dayViewItems(label) {
+    const today = todayStr();
+    const isSnoozed = it => it && typeof it === 'object' && it.snoozed_until && it.snoozed_until > today && !it.done;
+    // Keep items checked off *today* visible (struck through) so completing
+    // one in a day view persists instead of vanishing; the overnight sweep
+    // clears them. Items done on an earlier day stay out.
+    const doneToday = it => it.done && it.done_at === today;
+    const all = [];
+    (D.todos || []).forEach(section => {
+        const name = section.name.toLowerCase().replace(/\s*—.*/, '').trim();
+        if (name.startsWith('done')) return;
+        (section.items || []).forEach(it => { if (it && typeof it === 'object') all.push(it); });
+    });
+    const live = all.filter(it => (!it.done || doneToday(it)) && !isSnoozed(it));
+    if (label === 'Tomorrow') return live.filter(it => it.due_by === tomorrowStr());
+    return live.filter(it => it.due_by && it.due_by <= today);
+}
+
 function renderTodos() {
     const el = document.getElementById('todo-cards');
     if (isFrosted(D.todos)) {
@@ -17,19 +38,8 @@ function renderTodos() {
     let dayHTML = '';
     let pulledIds = new Set();
     try {
-        const tomorrow = tomorrowStr();
-        const all = [];
-        D.todos.forEach(section => {
-            const name = section.name.toLowerCase().replace(/\s*—.*/, '').trim();
-            if (hide.some(h => name.startsWith(h))) return;
-            (section.items || []).forEach(it => { if (it && typeof it === 'object') all.push(it); });
-        });
-        // Keep items checked off *today* visible (struck through) so completing
-        // one in a day view persists instead of vanishing; the overnight sweep
-        // clears them. Items done on an earlier day stay out.
-        const doneToday = it => it.done && it.done_at === today;
-        const todayItems = all.filter(it => (!it.done || doneToday(it)) && !isSnoozed(it) && it.due_by && it.due_by <= today);
-        const tomorrowItems = all.filter(it => (!it.done || doneToday(it)) && !isSnoozed(it) && it.due_by === tomorrow);
+        const todayItems = dayViewItems('Today');
+        const tomorrowItems = dayViewItems('Tomorrow');
         pulledIds = new Set([...todayItems, ...tomorrowItems].map(it => it.id).filter(Boolean));
         // Today wears the current part of day (same palette as the habit cards).
         const todColor = { morning: 'var(--morning)', afternoon: 'var(--ongoing)', evening: 'var(--evening)' }[getTime()] || 'var(--accent)';
@@ -100,7 +110,7 @@ function dayViewHTML(label, items, color, alwaysShow) {
             <span class="kitchen-arrow" style="font-size:12px;transition:transform 0.15s;display:inline-block">&#9654;</span>
             <span style="flex:1">${esc(label)}<span class="todo-day-count">${items.filter(it => !it.done).length}</span></span>
             ${totalBadge}
-            <span class="edit-toggle" onclick="event.preventDefault();event.stopPropagation();toggleEditMode('card-todo-${escJs(label)}')">edit</span>
+            <span class="edit-toggle" onclick="event.preventDefault();event.stopPropagation();openBucketEdit('${escJs(label)}')">edit</span>
         </summary>
         ${stopsHTML}
         <div class="add-trigger" onclick="addToDay('${escJs(label)}')">+ Add</div>
@@ -129,8 +139,6 @@ function dayItemHTML(it) {
     return `<div class="card-item todo-day-item" data-id="${esc(id)}" data-habit="${esc(it.text)}" data-due="${esc(it.due_by || '')}">
         <span class="habit-check ${done ? 'done' : ''}" onclick="toggleTodo('${escJs(id)}')" style="cursor:pointer" title="Check off">${done ? '&#10003;' : '&#9675;'}</span>
         <span class="item-text" onclick="openTodoDetail(this, event)" style="cursor:pointer;${done ? 'text-decoration:line-through;opacity:0.5' : ''}">${esc(it.text)}${chips.length ? `<span class="todo-chips-inline">${chips.join('')}</span>` : ''}</span>
-        <button class="delete-btn todo-action" onclick="showMoveMenu(this,'${escJs(id)}')" title="Move / snooze" style="font-size:14px">&#8595;</button>
-        <button class="delete-btn todo-action" onclick="confirmDelete('${escJs(id)}','todo','${escJs(it.text)}')" title="Remove">&times;</button>
     </div>`;
 }
 

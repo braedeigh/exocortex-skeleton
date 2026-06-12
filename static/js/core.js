@@ -695,6 +695,7 @@ function cardHTML(title, items, color, type, sectionName, dim, manualOrder) {
             <span class="item-text todo-view"${type === 'todo' ? ' onclick="openTodoDetail(this, event)"' : ''} style="${type === 'todo' ? 'cursor:pointer;' : ''}${done?'text-decoration:line-through;opacity:0.5':''}">${item.url ? `<a href="${esc(item.url)}" target="_blank" rel="noopener" style="color:inherit">${esc(text)}</a>` : esc(text)}${item.due_by ? `<span class="todo-due${_isOverdue(item.due_by) && !done ? ' overdue' : ''}" title="Due ${esc(item.due_by)}">${_isOverdue(item.due_by) && !done ? 'overdue · ' : 'due '}${esc(_fmtAddedDate(item.due_by))}</span>` : ''}${type === 'todo' && item.status && !done ? `<span class="todo-chip chip-status status-${esc(item.status)}">${esc(_statusLabel(item.status))}</span>` : ''}${type === 'todo' ? `<span class="todo-expand" aria-hidden="true">&#8250;</span>` : ''}</span>
             <textarea class="habit-rename todo-edit" rows="1" style="display:none" data-original="${esc(text)}" data-id="${esc(id)}" data-section="${esc(sectionName)}" data-type="${type}"
                 oninput="autoGrow(this)" onblur="commitRename(this)" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur()}else if(event.key==='Escape'){this.value=this.dataset.original;this.blur()}">${esc(text)}</textarea>
+            ${type === 'todo' ? `<button class="delete-btn todo-action" onclick="todoEditDetails('${escJs(id)}')" title="All details (time, place, category…)" style="font-size:15px">&#8943;</button>` : ''}
             ${type === 'todo' ? `<button class="delete-btn todo-action" onclick="showMoveMenu(this,'${escJs(id)}')" title="Move / snooze" style="font-size:14px">&#8595;</button>` : ''}
             <button class="delete-btn${type === 'todo' ? ' todo-action' : ''}" onclick="confirmDelete('${escJs(type === 'todo' ? id : text)}','${type}'${type === 'todo' ? `,'${escJs(text)}'` : ''})" title="Remove">&times;</button>
         </div>
@@ -1202,15 +1203,24 @@ function renderBucketEditModal() {
     const m = document.getElementById('panel-modal');
     const bodyEl = document.getElementById('panel-modal-body');
     if (!m || !bodyEl) return;
-    const section = (D.todos || []).find(s => s.name === sectionName);
-    if (!section) { window._editBucket = null; return; }
-    const today = (typeof todayStr === 'function') ? todayStr() : '';
-    const visible = (section.items || []).filter(it => {
-        const su = (it && typeof it === 'object') ? it.snoozed_until : null;
-        return !(su && su > today && !it.done);
-    });
+    // Day views (Today / Tomorrow) edit in the same big modal as the ladder
+    // buckets — their item list is computed over due dates (todos.js).
+    const isDay = sectionName === 'Today' || sectionName === 'Tomorrow';
+    let visible, manualOrder = false;
+    if (isDay) {
+        visible = (typeof dayViewItems === 'function') ? dayViewItems(sectionName) : [];
+    } else {
+        const section = (D.todos || []).find(s => s.name === sectionName);
+        if (!section) { window._editBucket = null; return; }
+        manualOrder = section.manual_order;
+        const today = (typeof todayStr === 'function') ? todayStr() : '';
+        visible = (section.items || []).filter(it => {
+            const su = (it && typeof it === 'object') ? it.snoozed_until : null;
+            return !(su && su > today && !it.done);
+        });
+    }
     const slug = sectionName.replace(/\s+/g, '-');
-    let html = cardHTML(sectionName, visible, 'var(--accent)', 'todo', sectionName, false, section.manual_order);
+    let html = cardHTML(sectionName, visible, 'var(--accent)', 'todo', sectionName, false, manualOrder);
     // Unique id so it never collides with the same bucket's card on the page.
     html = html.replace(`id="card-todo-${slug}"`, `id="modal-card-todo-${slug}"`);
     document.getElementById('panel-modal-title').innerHTML =
@@ -1377,10 +1387,18 @@ function openTodoDetail(el, ev) {
     if (ev && ev.target && ev.target.closest('a')) return;
     const row = el.closest('.card-item');
     if (!row) return;
-    const text = row.dataset.habit || '';
-    const id = row.dataset.id || text;
-    const item = findTodoById(id) || { text };
-    const dueIso = item.due_by || row.dataset.due || '';
+    const rowText = row.dataset.habit || '';
+    openTodoDetailById(row.dataset.id || rowText, { fallbackText: rowText, fallbackDue: row.dataset.due || '' });
+}
+
+// Same modal, addressed by id — used by edit-mode rows (incl. the big bucket
+// modal) where there's no tappable view-mode row. opts.edit opens straight
+// into edit mode.
+function openTodoDetailById(id, opts) {
+    opts = opts || {};
+    const item = findTodoById(id) || { text: opts.fallbackText || String(id) };
+    const text = item.text || opts.fallbackText || '';
+    const dueIso = item.due_by || opts.fallbackDue || '';
     const dueTime = item.due_time || '';
     const notes = item.notes || '';
     const added = item.created ? `Added ${_fmtAddedDate(item.created)}` : '';
@@ -1430,6 +1448,17 @@ function openTodoDetail(el, ev) {
     showEditorModal('To-do', body);
     const h3 = document.getElementById('panel-modal-title');
     if (h3) h3.innerHTML = `<span class="todo-modal-kicker">To-do:</span> <span class="todo-modal-htitle">${esc(text)}</span><textarea class="todo-modal-htitle-edit" rows="1" placeholder="To-do" oninput="autoGrow(this)" style="display:none">${esc(text)}</textarea>`;
+    if (opts.edit) {
+        const b = document.querySelector('#panel-modal .todo-desc-editbtn');
+        if (b) toggleTodoModalEdit(b);
+    }
+}
+
+// From an edit-mode row (incl. the bucket/day edit modal) into the full
+// attribute editor — time, place, category, duration, status, list.
+function todoEditDetails(id) {
+    closeActiveEditor();
+    openTodoDetailById(id, { edit: true });
 }
 
 // Edit/Save toggle inside the item detail modal — flips title, due date and
