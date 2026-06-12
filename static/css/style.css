@@ -1283,13 +1283,22 @@ details.card-section > summary > span[style*="color:var(--text-muted)"] {
 /* Section headers ("Habits" / "To Do") — warm system serif, more air.
    .col-header only appears inside the To Do tab. */
 #tab-today .col-header {
-    font-size: 21px;
+    font-size: 24px;
     font-weight: 600;
     letter-spacing: 0.1px;
     color: var(--text);
     margin-bottom: var(--space-4);
     padding-bottom: var(--space-2);
     border-bottom: 1px solid var(--border);
+}
+/* Both column headers share one height (the Habits side is as tall as its
+   time-selector pills), so the underline beneath "Habits" and the one
+   beneath "To Do" land on the same line. */
+#tab-today .habits-head,
+#tab-today .two-col > div > .col-header {
+    min-height: 46px;
+    display: flex;
+    align-items: center;
 }
 
 /* Breathing room between + below the two columns */
@@ -1388,7 +1397,9 @@ details.card-section > summary > span[style*="color:var(--text-muted)"] {
 /* ---- Mobile (≤700px) ---- */
 @media (max-width: 700px) {
     #tab-today .two-col { gap: var(--space-6); }
-    #tab-today .col-header { font-size: 19px; }
+    #tab-today .col-header { font-size: 21px; }
+    /* Stacked layout — no second column to align with, so headers size naturally */
+    #tab-today .two-col > div > .col-header { min-height: 0; }
     #tab-today .card { padding: var(--space-4); border-radius: var(--radius-lg); }
     #tab-today .card-item { padding: 10px 0; }            /* taller rows for thumbs */
     #tab-today .time-selector { display: flex; flex: 1; } /* fill the row */

@@ -93,7 +93,7 @@ function renderGroceryInto(el) {
             <label style="cursor:pointer;font-size:12px;color:var(--ongoing);background:none;border:1px solid var(--ongoing);border-radius:6px;padding:2px 8px;margin-left:auto">📷 Scan receipt
                 <input type="file" accept="image/*,.heic,.heif,.pdf" style="display:none" onchange="uploadKitchenReceipt(this.files[0])">
             </label>
-            <button onclick="openCategoryOrder()" style="font-size:12px;color:var(--text-muted);background:none;border:1px solid var(--border);border-radius:6px;padding:2px 8px;cursor:pointer">Reorder</button>
+            <button onclick="openCategoryOrder()" style="font-size:12px;color:var(--text-muted);background:none;border:1px solid var(--border);border-radius:6px;padding:2px 8px;cursor:pointer">Edit order</button>
         </div>
 
         <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">
@@ -687,7 +687,7 @@ function openCategoriesEditor() {
             <div style="font-size:16px;font-weight:700;color:var(--text)">Manage Categories</div>
             <button onclick="closeCategoriesEditor()" style="background:none;border:none;color:var(--text-muted);font-size:20px;cursor:pointer">&times;</button>
         </div>
-        <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">Edit name in the field then ✓ to rename. × deletes (items reassign to "other"). Use Reorder for ordering.</div>
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">Edit name in the field then ✓ to rename. × deletes (items reassign to "other"). Use Edit order for ordering.</div>
         <div style="flex:1;overflow-y:auto;min-height:0">${rows}</div>
         <div style="display:flex;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
             <input type="text" id="cat-add-name" placeholder="New category…" style="flex:1;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--bg);color:var(--text)" onkeydown="if(event.key==='Enter')addCategoryFromEditor()">
