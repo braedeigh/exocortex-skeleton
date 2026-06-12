@@ -621,6 +621,37 @@ async function habitDrop(e, type) {
     loadDashboard();
 }
 
+// Edit-mode ▲▼ reorder — the touch-friendly counterpart of drag-and-drop
+// (drag doesn't work on the PWA). Same DOM-order → endpoint logic as
+// habitDrop's same-card branch.
+async function moveCardItem(btn, type, dir) {
+    const row = btn.closest('.card-item');
+    const card = btn.closest('.card');
+    if (!row || !card) return;
+    const allItems = [...card.querySelectorAll('.card-item[draggable]')];
+    const fromIdx = allItems.indexOf(row);
+    const toIdx = fromIdx + dir;
+    if (fromIdx === -1 || toIdx < 0 || toIdx >= allItems.length) return;
+    const items = allItems.map(el => (type === 'todo') ? (el.dataset.id || el.dataset.habit) : el.dataset.habit);
+    const moved = items.splice(fromIdx, 1)[0];
+    items.splice(toIdx, 0, moved);
+    if (type === 'growth') {
+        await fetch('/api/growth/reorder', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ order: items })
+        });
+    } else {
+        const endpoint = (type === 'todo') ? '/api/todos/reorder' : '/api/habits/reorder';
+        await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ section: row.dataset.section, items })
+        });
+    }
+    loadDashboard();
+}
+
 // Card-level drop zone for dragging items into empty areas of a card
 function cardDragOver(e) {
     e.preventDefault();
@@ -773,6 +804,10 @@ function habitCardHTML(title, items, color, sectionName) {
         return `<div class="card-item" draggable="true" data-section="${esc(sectionName)}" data-idx="${idx}" data-habit="${esc(item)}"
                 ondragstart="habitDragStart(event)" ondragover="habitDragOver(event)" ondrop="habitDrop(event,'habit')" ondragend="habitDragEnd(event)" ondragleave="habitDragLeave(event)">
             <span class="drag-handle" onmousedown="dragFromHandle=true">&#8942;&#8942;</span>
+            <span class="reorder-arrows">
+                <button onclick="moveCardItem(this,'habit',-1)" title="Move up">&#9650;</button>
+                <button onclick="moveCardItem(this,'habit',1)" title="Move down">&#9660;</button>
+            </span>
             <span class="habit-check ${done?'done':''}" onclick="toggleHabit('${esc(item)}')" title="Toggle today">
                 ${done ? '&#10003;' : '&#9675;'}
             </span>

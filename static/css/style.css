@@ -1506,3 +1506,18 @@ details.card-section > summary > span[style*="color:var(--text-muted)"] {
 .ideas-doc-body blockquote { border-left: 3px solid var(--accent); padding-left: 12px; color: var(--text-muted); margin: 8px 0; }
 .ideas-doc-body a { color: var(--accent); }
 .ideas-doc-body hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
+
+/* --- Edit-mode ▲▼ reorder arrows (touch counterpart of drag handles) --- */
+.reorder-arrows { display: none; gap: 4px; flex-shrink: 0; }
+.card.editing .reorder-arrows { display: inline-flex; }
+.reorder-arrows button {
+    min-width: 40px; min-height: 40px;
+    border: 1px solid var(--border); border-radius: 8px;
+    background: var(--bg); color: var(--text-muted);
+    font-size: 13px; cursor: pointer; padding: 0;
+}
+.reorder-arrows button:active { background: var(--border); }
+/* Edit mode shows the big arrows; the mouse-only drag handle can yield space */
+@media (hover: none) {
+    .card.editing .drag-handle { display: none; }
+}

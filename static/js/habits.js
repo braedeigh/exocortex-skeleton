@@ -73,6 +73,10 @@ function renderHabits() {
             growthHTML += `<div class="card-item" draggable="true" data-section="growth" data-idx="${idx}" data-habit="${esc(g.text)}" data-notes="${esc(g.notes || '')}"
                   ondragstart="habitDragStart(event)" ondragover="habitDragOver(event)" ondrop="habitDrop(event,'growth')" ondragend="habitDragEnd(event)" ondragleave="habitDragLeave(event)">
                 <span class="drag-handle" onmousedown="dragFromHandle=true">&#8942;&#8942;</span>
+                <span class="reorder-arrows">
+                    <button onclick="moveCardItem(this,'growth',-1)" title="Move up">&#9650;</button>
+                    <button onclick="moveCardItem(this,'growth',1)" title="Move down">&#9660;</button>
+                </span>
                 <span class="item-text todo-view" onclick="openGrowthDetail(this, event)" style="color:var(--text-secondary);cursor:pointer">${esc(g.text)}</span>
                 <span style="font-size:12px;color:var(--text-muted);margin-left:auto;margin-right:6px;white-space:nowrap">${daysLabel}</span>
                 <input class="habit-rename todo-edit" style="display:none" value="${esc(g.text)}" data-original="${esc(g.text)}" data-type="growth"
