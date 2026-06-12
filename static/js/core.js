@@ -317,12 +317,43 @@ function render() {
             ],
         };
     }
+    // Preserve an in-progress input across the DOM rebuild (the PWA
+    // "my half-typed note vanished" bug): snapshot the focused field, restore
+    // value + focus + caret after re-render. Keyed by the field's id, or by
+    // its parent's id for the id-less add-form inputs.
+    let snap = null;
+    const ae = document.activeElement;
+    if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) {
+        const key = ae.id || (ae.parentElement && ae.parentElement.id ? ae.parentElement.id : '');
+        if (key) {
+            snap = {
+                byParent: !ae.id, key, tag: ae.tagName, value: ae.value,
+                start: ae.selectionStart, end: ae.selectionEnd,
+            };
+        }
+    }
+
     const fns = TAB_RENDERERS[currentTab] || Object.values(TAB_RENDERERS).flat();
     for (const fn of fns) {
         try { fn(); } catch(e) { console.error(fn.name + ' failed:', e); }
     }
     // Category-tagged to-dos strip — no-ops on tabs without a container.
     try { renderTabTodos(); } catch(e) { console.error('renderTabTodos failed:', e); }
+
+    if (snap && snap.value) {
+        const host = document.getElementById(snap.key);
+        const el = snap.byParent ? (host && host.querySelector(snap.tag)) : host;
+        if (el && el.tagName === snap.tag && el.value !== snap.value) {
+            el.value = snap.value;
+            if (el.tagName === 'TEXTAREA' && typeof autoGrow === 'function') autoGrow(el);
+        }
+        if (el) {
+            try {
+                el.focus({ preventScroll: true });
+                el.setSelectionRange(snap.start, snap.end);
+            } catch (e) { /* date/number inputs don't support selection — fine */ }
+        }
+    }
 }
 
 // --- Time selector ---
