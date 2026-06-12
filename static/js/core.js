@@ -1068,6 +1068,16 @@ function openAddTodoModal(section, opts) {
                 <span class="todo-add-labeltext">Description <span class="todo-add-opt">(optional)</span></span>
                 <textarea id="add-todo-desc" class="todo-add-input" rows="2" placeholder="Any details…" oninput="autoGrow(this)"></textarea>
             </label>
+            <details class="todo-add-more">
+                <summary class="todo-add-labeltext" style="cursor:pointer;min-height:40px;display:flex;align-items:center;font-size:var(--text-md);font-weight:600;color:var(--text-secondary)">More details <span class="todo-add-opt" style="margin-left:6px">(time, place, category…)</span></summary>
+                <div class="todo-modal-edit">
+                    <div class="tm-field">
+                        <label class="todo-modal-label">Time <span class="todo-add-opt">(optional)</span></label>
+                        <input type="time" id="add-todo-time" class="todo-modal-time-input">
+                    </div>
+                    ${todoAttrFieldsHTML({})}
+                </div>
+            </details>
             <div class="todo-add-actions">
                 <button type="button" class="modal-btn cancel" onclick="closeActiveEditor()">Cancel</button>
                 <button type="submit" class="modal-btn confirm" style="background:var(--accent)">Add</button>
@@ -1090,10 +1100,19 @@ async function submitAddTodoModal(section) {
     if (!text) { textEl.focus(); return; }
     const due_by = document.getElementById('add-todo-due').value;
     const notes = document.getElementById('add-todo-desc').value.trim();
+    // "More details" section (same selectors as the detail modal's edit panel).
+    const form = textEl.closest('form');
+    const due_time = document.getElementById('add-todo-time')?.value || '';
+    let place_id = form.querySelector('.todo-modal-place')?.value || '';
+    if (place_id === '__new__') place_id = '';
+    const category = form.querySelector('.todo-modal-category')?.value || '';
+    const duration_min = form.querySelector('.todo-modal-duration')?.value || '';
+    const statusBtn = form.querySelector('.todo-modal-status .tm-chip.active');
+    const status = statusBtn ? statusBtn.dataset.val : '';
     const res = await fetch('/api/todos/add', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ item: text, section, due_by, notes })
+        body: JSON.stringify({ item: text, section, due_by, notes, due_time, place_id, category, duration_min, status })
     });
     if (res.ok) {
         hideEditorModal();
@@ -1315,6 +1334,43 @@ async function tmSaveNewPlace(btn) {
     nameEl.value = ''; wrap.querySelector('.tm-newplace-addr').value = '';
 }
 
+// Shared attribute-field markup (place / category / duration / status) for the
+// to-do editors — used by both the detail modal's edit panel and the add
+// modal's "More details" section. Selectors (.todo-modal-*) are shared too, so
+// the same readers work in both places.
+function todoAttrFieldsHTML(item) {
+    item = item || {};
+    const placeOpts = ['<option value="">No place</option>']
+        .concat((D.places || []).map(p => `<option value="${esc(p.id)}"${p.id === item.place_id ? ' selected' : ''}>${esc(p.name)}</option>`))
+        .concat(['<option value="__new__">➕ Add a place…</option>']).join('');
+    const catOpts = ['<option value="">— none —</option>']
+        .concat(TODO_CATEGORIES.map(c => `<option value="${esc(c.key)}"${c.key === item.category ? ' selected' : ''}>${esc(c.label)}</option>`)).join('');
+    const durChips = [15, 30, 60].map(m => `<button type="button" class="tm-chip${item.duration_min === m ? ' active' : ''}" onclick="tmDurationChip(this, ${m})">${m}m</button>`).join('');
+    const statusChips = TODO_STATUSES.map(s => `<button type="button" class="tm-chip${item.status === s.key ? ' active' : ''}" data-val="${esc(s.key)}" onclick="tmStatusChip(this)">${esc(s.label)}</button>`).join('');
+    return `
+            <div class="tm-field">
+                <label class="todo-modal-label">Place</label>
+                <select class="todo-modal-place" onchange="tmPlaceChanged(this)">${placeOpts}</select>
+                <div class="tm-newplace" style="display:none">
+                    <input type="text" class="tm-newplace-name" placeholder="Place name">
+                    <input type="text" class="tm-newplace-addr" placeholder="Address (optional)">
+                    <button type="button" class="modal-btn confirm" style="background:var(--accent)" onclick="tmSaveNewPlace(this)">Save place</button>
+                </div>
+            </div>
+            <div class="tm-field">
+                <label class="todo-modal-label">Category</label>
+                <select class="todo-modal-category">${catOpts}</select>
+            </div>
+            <div class="tm-field">
+                <label class="todo-modal-label">Duration <span class="todo-add-opt">(rough estimate)</span></label>
+                <div class="tm-chips">${durChips}<input type="number" min="0" step="5" class="todo-modal-duration" placeholder="min" value="${item.duration_min ? esc(item.duration_min) : ''}"></div>
+            </div>
+            <div class="tm-field">
+                <label class="todo-modal-label">Status</label>
+                <div class="tm-chips todo-modal-status">${statusChips}</div>
+            </div>`;
+}
+
 // Tap a to-do → its detail modal. Read mode shows attribute chips; Edit reveals
 // the date+time, place, category, duration and status controls.
 function openTodoDetail(el, ev) {
@@ -1338,13 +1394,6 @@ function openTodoDetail(el, ev) {
     if (chips) metaBits.push(`<span class="todo-modal-chips">${chips}</span>`);
     // `added` now lives in the footer between Delete and Edit (not the meta row).
 
-    const placeOpts = ['<option value="">No place</option>']
-        .concat((D.places || []).map(p => `<option value="${esc(p.id)}"${p.id === item.place_id ? ' selected' : ''}>${esc(p.name)}</option>`))
-        .concat(['<option value="__new__">➕ Add a place…</option>']).join('');
-    const catOpts = ['<option value="">— none —</option>']
-        .concat(TODO_CATEGORIES.map(c => `<option value="${esc(c.key)}"${c.key === item.category ? ' selected' : ''}>${esc(c.label)}</option>`)).join('');
-    const durChips = [15, 30, 60].map(m => `<button type="button" class="tm-chip${item.duration_min === m ? ' active' : ''}" onclick="tmDurationChip(this, ${m})">${m}m</button>`).join('');
-    const statusChips = TODO_STATUSES.map(s => `<button type="button" class="tm-chip${item.status === s.key ? ' active' : ''}" data-val="${esc(s.key)}" onclick="tmStatusChip(this)">${esc(s.label)}</button>`).join('');
     // "List" mover: every bucket except Done (checking off handles Done).
     const curSection = findTodoSectionName(id) || '';
     const bucketOpts = (D.todos || [])
@@ -1366,27 +1415,7 @@ function openTodoDetail(el, ev) {
                     <input type="time" class="todo-modal-time-input" value="${esc(dueTime)}">
                 </div>
             </div>
-            <div class="tm-field">
-                <label class="todo-modal-label">Place</label>
-                <select class="todo-modal-place" onchange="tmPlaceChanged(this)">${placeOpts}</select>
-                <div class="tm-newplace" style="display:none">
-                    <input type="text" class="tm-newplace-name" placeholder="Place name">
-                    <input type="text" class="tm-newplace-addr" placeholder="Address (optional)">
-                    <button type="button" class="modal-btn confirm" style="background:var(--accent)" onclick="tmSaveNewPlace(this)">Save place</button>
-                </div>
-            </div>
-            <div class="tm-field">
-                <label class="todo-modal-label">Category</label>
-                <select class="todo-modal-category">${catOpts}</select>
-            </div>
-            <div class="tm-field">
-                <label class="todo-modal-label">Duration <span class="todo-add-opt">(rough estimate)</span></label>
-                <div class="tm-chips">${durChips}<input type="number" min="0" step="5" class="todo-modal-duration" placeholder="min" value="${item.duration_min ? esc(item.duration_min) : ''}"></div>
-            </div>
-            <div class="tm-field">
-                <label class="todo-modal-label">Status</label>
-                <div class="tm-chips todo-modal-status">${statusChips}</div>
-            </div>
+            ${todoAttrFieldsHTML(item)}
             ${bucketOpts ? `<div class="tm-field">
                 <label class="todo-modal-label">List <span class="todo-add-opt">(move to another section)</span></label>
                 <select class="todo-modal-bucket" data-original="${esc(curSection)}">${bucketOpts}</select>

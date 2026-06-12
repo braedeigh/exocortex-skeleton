@@ -503,7 +503,10 @@ body.public-mode #mobileFiles {
         <div class="drag-overlay"></div>
         {% if view_mode == 'authed' %}
         <div class="session-bar" id="desktopSessionBar"></div>
-        <iframe id="terminalFrame"></iframe>
+        <!-- scrolling="no": xterm scrolls its own buffer; the iframe document
+             otherwise overflows by a few px and paints a stray scrollbar
+             against the divider. -->
+        <iframe id="terminalFrame" scrolling="no"></iframe>
         {% else %}
         <div class="cc-fake" id="ccFake">
             <div class="cc-fake-content">

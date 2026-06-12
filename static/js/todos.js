@@ -100,6 +100,7 @@ function dayViewHTML(label, items, color, alwaysShow) {
             <span class="kitchen-arrow" style="font-size:12px;transition:transform 0.15s;display:inline-block">&#9654;</span>
             <span style="flex:1">${esc(label)}<span class="todo-day-count">${items.filter(it => !it.done).length}</span></span>
             ${totalBadge}
+            <span class="edit-toggle" onclick="event.preventDefault();event.stopPropagation();toggleEditMode('card-todo-${escJs(label)}')">edit</span>
         </summary>
         ${stopsHTML}
         <div class="add-trigger" onclick="addToDay('${escJs(label)}')">+ Add</div>
@@ -128,6 +129,8 @@ function dayItemHTML(it) {
     return `<div class="card-item todo-day-item" data-id="${esc(id)}" data-habit="${esc(it.text)}" data-due="${esc(it.due_by || '')}">
         <span class="habit-check ${done ? 'done' : ''}" onclick="toggleTodo('${escJs(id)}')" style="cursor:pointer" title="Check off">${done ? '&#10003;' : '&#9675;'}</span>
         <span class="item-text" onclick="openTodoDetail(this, event)" style="cursor:pointer;${done ? 'text-decoration:line-through;opacity:0.5' : ''}">${esc(it.text)}${chips.length ? `<span class="todo-chips-inline">${chips.join('')}</span>` : ''}</span>
+        <button class="delete-btn todo-action" onclick="showMoveMenu(this,'${escJs(id)}')" title="Move / snooze" style="font-size:14px">&#8595;</button>
+        <button class="delete-btn todo-action" onclick="confirmDelete('${escJs(id)}','todo','${escJs(it.text)}')" title="Remove">&times;</button>
     </div>`;
 }
 
