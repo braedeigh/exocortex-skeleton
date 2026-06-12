@@ -14,20 +14,17 @@ import store
 from . import shared
 
 GROCERY_RECEIPTS_DIR = RECEIPTS_DIR / "grocery"
-# Fallback location for parsed receipts when grocery/ is unwriteable for Claude
-# (older root-owned uploads). Both dirs are scanned by the list/preview/import endpoints.
-GROCERY_RECEIPTS_DIRS = [RECEIPTS_DIR / "grocery", RECEIPTS_DIR / "grocery_parsed"]
 
 
 def _find_parsed_receipt(filename):
-    """Locate a .parsed.json across the search dirs. Returns Path or None."""
-    for d in GROCERY_RECEIPTS_DIRS:
-        p = d / filename
-        try:
-            if p.exists() and str(p.resolve()).startswith(str(d.resolve())):
-                return p
-        except OSError:
-            continue
+    """Locate a .parsed.json in the grocery receipts dir (path-traversal safe).
+    Returns Path or None."""
+    p = GROCERY_RECEIPTS_DIR / filename
+    try:
+        if p.exists() and str(p.resolve()).startswith(str(GROCERY_RECEIPTS_DIR.resolve())):
+            return p
+    except OSError:
+        pass
     return None
 
 
@@ -76,29 +73,24 @@ def register(app):
     def list_parsed_receipts():
         """Return parsed-but-not-yet-imported grocery receipts."""
         results = []
-        seen = set()
-        for d in GROCERY_RECEIPTS_DIRS:
-            if not d.exists():
+        if not GROCERY_RECEIPTS_DIR.exists():
+            return jsonify({"receipts": results})
+        for parsed in sorted(GROCERY_RECEIPTS_DIR.glob("*.parsed.json")):
+            marker = parsed.with_suffix(".imported")
+            if marker.exists():
                 continue
-            for parsed in sorted(d.glob("*.parsed.json")):
-                if parsed.name in seen:
-                    continue
-                seen.add(parsed.name)
-                marker = parsed.with_suffix(".imported")
-                if marker.exists():
-                    continue
-                try:
-                    pdata = json.loads(parsed.read_text())
-                except (json.JSONDecodeError, OSError):
-                    continue
-                results.append({
-                    "filename": parsed.name,
-                    "photo": parsed.name.replace(".parsed.json", ""),
-                    "store": pdata.get("store", ""),
-                    "date": pdata.get("date", ""),
-                    "total": pdata.get("total", 0),
-                    "items_count": len(pdata.get("line_items", [])),
-                })
+            try:
+                pdata = json.loads(parsed.read_text())
+            except (json.JSONDecodeError, OSError):
+                continue
+            results.append({
+                "filename": parsed.name,
+                "photo": parsed.name.replace(".parsed.json", ""),
+                "store": pdata.get("store", ""),
+                "date": pdata.get("date", ""),
+                "total": pdata.get("total", 0),
+                "items_count": len(pdata.get("line_items", [])),
+            })
         return jsonify({"receipts": results})
 
     @app.route("/api/kitchen/parsed-receipts/preview", methods=["POST"])
