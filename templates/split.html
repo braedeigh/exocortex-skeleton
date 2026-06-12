@@ -507,6 +507,16 @@ body.public-mode #mobileFiles {
              otherwise overflows by a few px and paints a stray scrollbar
              against the divider. -->
         <iframe id="terminalFrame" scrolling="no"></iframe>
+        <!-- Terminal notes — bugs/ideas for the terminal, filed to dev notes
+             under the 'terminal' tab (same store the PWA 📝 writes to). -->
+        <button id="termNotesBtn" title="Terminal notes" style="position:absolute;top:46px;right:12px;width:34px;height:34px;border-radius:8px;border:1px solid var(--border);background:rgba(26,26,46,0.85);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);color:var(--text-muted);font-size:16px;cursor:pointer;z-index:50">&#128221;</button>
+        <div id="termNotesPanel" style="display:none;position:absolute;top:86px;right:12px;z-index:51;width:min(340px,80%);background:#16162a;border:1px solid rgba(124,92,191,0.5);border-radius:12px;padding:10px;box-shadow:0 8px 30px rgba(0,0,0,0.5)">
+            <div style="display:flex;gap:6px;align-items:flex-start">
+                <textarea id="termNoteInput" rows="2" placeholder="Bug or idea for the terminal…" style="flex:1;padding:8px 10px;border:1px solid #2a2a4a;border-radius:8px;background:#0d0d1a;color:#e0d0ff;font-size:13px;font-family:inherit;resize:none"></textarea>
+                <button onclick="addTermNote()" style="min-height:40px;padding:0 14px;border:none;border-radius:8px;background:#7c5cbf;color:#fff;font-size:13px;font-weight:600;cursor:pointer">Add</button>
+            </div>
+            <div id="termNotesList" style="max-height:40vh;overflow-y:auto;margin-top:8px;font-size:13px;color:#e0d0ff"></div>
+        </div>
         {% else %}
         <div class="cc-fake" id="ccFake">
             <div class="cc-fake-content">
@@ -1016,6 +1026,48 @@ function pickSession(session, btn) {
 
 // Kick off session init
 initSessions();
+
+// === Terminal notes (desktop) — same dev-notes 'terminal' tab as the PWA ===
+const _tnBtn = document.getElementById('termNotesBtn');
+if (_tnBtn) {
+    const panel = document.getElementById('termNotesPanel');
+    _tnBtn.addEventListener('click', () => {
+        const open = panel.style.display !== 'none';
+        panel.style.display = open ? 'none' : 'block';
+        if (!open) {
+            loadTermNotes();
+            document.getElementById('termNoteInput').focus();
+        }
+    });
+}
+
+async function loadTermNotes() {
+    const list = document.getElementById('termNotesList');
+    if (!list) return;
+    try {
+        const r = await fetch('/api/devnotes/terminal');
+        const data = await r.json();
+        const escN = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        list.innerHTML = (data.notes || []).map(n =>
+            `<div style="padding:6px 0;border-top:1px solid #2a2a4a;display:flex;gap:8px">
+                <div style="flex:1">${escN(n.text)}</div>
+                <div style="font-size:11px;color:rgba(180,160,220,0.6);white-space:nowrap">${escN(n.created || '')}</div>
+            </div>`).join('') || '<div style="color:rgba(180,160,220,0.6);font-style:italic;padding:4px 0">No terminal notes yet</div>';
+    } catch (e) { list.textContent = 'Could not load notes'; }
+}
+
+async function addTermNote() {
+    const input = document.getElementById('termNoteInput');
+    if (!input) return;
+    const text = input.value.trim();
+    if (!text) return;
+    const r = await fetch('/api/devnote/add', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({tab: 'terminal', text}),
+    });
+    if (r.ok) { input.value = ''; loadTermNotes(); }
+}
 
 // === Draggable divider (desktop) ===
 const split = document.getElementById('splitContainer');
