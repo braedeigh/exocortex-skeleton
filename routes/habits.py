@@ -1,8 +1,25 @@
 """Habits, edges, and growth notes routes."""
 from flask import request, jsonify
 from datetime import datetime
-from data_helpers import DATA_DIR, CONTENT_DIR, load_json, save_json, parse_md_sections, add_item_to_file, remove_item_from_file
+from data_helpers import (
+    DATA_DIR, CONTENT_DIR, load_json, save_json, parse_md_sections,
+    add_item_to_file, remove_item_from_file, habit_log_key,
+)
 import store
+
+
+def _rewrite_log_keys(old_key, new_key, also_bare=None):
+    """Move every dated entry under old_key (or the legacy bare key) to
+    new_key — keeps history attached through renames and section moves."""
+    with store.mutate("habits_log.json", {}) as log:
+        for date in log:
+            day = log[date]
+            if not isinstance(day, dict):
+                continue
+            if old_key in day:
+                day[new_key] = day.pop(old_key)
+            elif also_bare and also_bare in day:
+                day[new_key] = day.pop(also_bare)
 
 
 def _load_growth():
@@ -42,24 +59,39 @@ def register(app):
         item = data["item"]
         to_section = data["to_section"]
         filepath = CONTENT_DIR / "HABITS.md"
+        # Where it lives now — the log history follows it to the new section.
+        from_section = next(
+            (s["name"] for s in parse_md_sections(filepath)
+             if any(x["text"] == item for x in s["items"])),
+            None,
+        ) if filepath.exists() else None
         remove_item_from_file(item, filepath)
         add_item_to_file(item, to_section, filepath)
+        if from_section and from_section != to_section:
+            _rewrite_log_keys(habit_log_key(from_section, item),
+                              habit_log_key(to_section, item), also_bare=item)
         return jsonify({"ok": True})
 
     @app.route("/api/habits/toggle", methods=["POST"])
     def toggle_habit():
         data = request.json
         habit = data["habit"]
+        section = (data.get("section") or "").strip()
+        # Section-qualified key so identical texts in different sections track
+        # independently; bare text accepted for any legacy caller.
+        key = habit_log_key(section, habit) if section else habit
         date = data.get("date") or datetime.now().strftime("%Y-%m-%d")
         with store.mutate("habits_log.json", {}) as log:
             if date not in log:
                 log[date] = {}
-            if log[date].get(habit):
-                del log[date][habit]
+            if log[date].get(key):
+                del log[date][key]
                 if not log[date]:
                     del log[date]
             else:
-                log[date][habit] = True
+                log[date][key] = True
+                if section:
+                    log[date].pop(habit, None)   # absorb any legacy bare entry
         return jsonify({"ok": True})
 
     @app.route("/api/habits/reorder", methods=["POST"])
@@ -108,12 +140,9 @@ def register(app):
         text = text.replace(f"- [ ] {old_name}\n", f"- [ ] {new_name}\n", 1)
         text = text.replace(f"- [x] {old_name}\n", f"- [x] {new_name}\n", 1)
         filepath.write_text(text)
-        log_path = DATA_DIR / "habits_log.json"
-        if log_path.exists():
-            with store.mutate("habits_log.json") as log:
-                for date in log:
-                    if old_name in log[date]:
-                        log[date][new_name] = log[date].pop(old_name)
+        # History follows the rename (qualified key; legacy bare as fallback).
+        _rewrite_log_keys(habit_log_key(section, old_name),
+                          habit_log_key(section, new_name), also_bare=old_name)
         return jsonify({"ok": True})
 
     # --- Edges ---

@@ -6,7 +6,7 @@ function renderFoodBanner() {
     if (getTime() !== 'evening' && !expandedAll) { el.innerHTML = ''; return; }
     const today = todayStr();
     const todayLog = (D.habits_log || {})[today] || {};
-    if (todayLog['Log new or flagged foods'] && !expandedAll) { el.innerHTML = ''; return; }
+    if (todayLog[habitKey(habitSectionOf('Log new or flagged foods'), 'Log new or flagged foods')] && !expandedAll) { el.innerHTML = ''; return; }
 
     el.innerHTML = `<div class="hrt-bar" style="border-left-color:var(--ongoing);background:var(--ongoing);margin-bottom:8px;padding:10px 16px;">
         <div>
@@ -148,11 +148,12 @@ async function addFood() {
 async function markFoodLogDone() {
     const today = todayStr();
     const todayLog = (D.habits_log || {})[today] || {};
-    if (!todayLog['Log new or flagged foods']) {
+    const section = habitSectionOf('Log new or flagged foods');
+    if (!todayLog[habitKey(section, 'Log new or flagged foods')]) {
         await fetch('/api/habits/toggle', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ habit: 'Log new or flagged foods' })
+            body: JSON.stringify({ habit: 'Log new or flagged foods', section })
         });
     }
 }

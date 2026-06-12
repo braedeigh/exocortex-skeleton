@@ -192,6 +192,45 @@ def load_meetings():
     return meetings
 
 
+# --- Habits log ---
+
+def habit_log_key(section, text):
+    """Done-state key for a habit: 'section|text' (section lowercased). Keyed
+    per-section so the same habit text can live in Morning AND Evening without
+    sharing a checkbox — the reason for the old 'chew food m/n/e' suffix hacks."""
+    return f"{(section or '').strip().lower()}|{text}"
+
+
+def load_habits_log():
+    """Read habits_log.json, migrating any legacy bare-text keys to the
+    section-qualified form ('morning|Water upon waking') using each habit's
+    current section in HABITS.md. Texts that no longer exist anywhere keep
+    their bare key — dead history, harmless. Persists once, like the todos
+    id back-fill."""
+    log = read("habits_log.json", {})
+    days = [d for d in log.values() if isinstance(d, dict)]
+    if not any("|" not in k for day in days for k in day):
+        return log
+    habits_path = _store.CONTENT_DIR / "HABITS.md"
+    text_to_sec = {}
+    if habits_path.exists():
+        for sec in parse_md_sections(habits_path):
+            for item in sec["items"]:
+                text_to_sec.setdefault(item["text"], sec["name"])
+    changed = False
+    for day in days:
+        for k in list(day.keys()):
+            if "|" in k:
+                continue
+            sec = text_to_sec.get(k)
+            if sec:
+                day[habit_log_key(sec, k)] = day.pop(k)
+                changed = True
+    if changed:
+        write("habits_log.json", log)
+    return log
+
+
 # --- Todos ---
 
 TODOS_PATH = DATA_DIR / "todos.json"

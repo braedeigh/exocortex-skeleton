@@ -765,10 +765,26 @@ function resetTodoCollapseMemory() {
 }
 
 // --- habitCount, habitStartLabel, habitCardHTML ---
-function habitCount(habit) {
+
+// Done-state key for a habit: 'section|text' (mirrors data_helpers.habit_log_key)
+// so the same text can live in Morning AND Evening with independent checkboxes.
+function habitKey(section, text) {
+    return (section || '').trim().toLowerCase() + '|' + text;
+}
+
+// Which HABITS.md section a habit text currently lives in (first match).
+function habitSectionOf(text) {
+    for (const s of (D.habits || [])) {
+        if ((s.items || []).includes(text)) return s.name;
+    }
+    return '';
+}
+
+function habitCount(habit, section) {
+    const key = habitKey(section !== undefined ? section : habitSectionOf(habit), habit);
     let count = 0;
     for (const date in D.habits_log) {
-        if (D.habits_log[date][habit]) count++;
+        if (D.habits_log[date][key]) count++;
     }
     return count;
 }
@@ -794,8 +810,8 @@ function habitCardHTML(title, items, color, sectionName) {
 
     const listId = `habit-list-${sectionName.replace(/\s+/g,'-')}`;
     const itemsHTML = items.map((item, idx) => {
-        const done = !!todayLog[item];
-        const total = habitCount(item);
+        const done = !!todayLog[habitKey(sectionName, item)];
+        const total = habitCount(item, sectionName);
         const target = 60;
         const lnk = HABIT_LINKS[item.toLowerCase()];
         const linkBtn = lnk
@@ -809,7 +825,7 @@ function habitCardHTML(title, items, color, sectionName) {
                 <button onclick="moveCardItem(this,'habit',-1)" title="Move up">&#9650;</button>
                 <button onclick="moveCardItem(this,'habit',1)" title="Move down">&#9660;</button>
             </span>
-            <span class="habit-check ${done?'done':''}" onclick="toggleHabit('${esc(item)}')" title="Toggle today">
+            <span class="habit-check ${done?'done':''}" onclick="toggleHabit('${escJs(item)}','${escJs(sectionName)}')" title="Toggle today">
                 ${done ? '&#10003;' : '&#9675;'}
             </span>
             <span class="item-text habit-view" style="${done?'text-decoration:line-through;opacity:0.5':''}">${esc(item)}${linkBtn}</span>
@@ -877,7 +893,7 @@ async function executeDelete() {
         await fetch('/api/habits/toggle', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ habit: pendingDelete.habit, date: pendingDelete.date })
+            body: JSON.stringify({ habit: pendingDelete.habit, date: pendingDelete.date, section: pendingDelete.section || '' })
         });
     } else if (pendingDelete.type === 'streak') {
         await fetch('/api/streaks/remove', {
@@ -1706,26 +1722,26 @@ async function toggleTodo(item) {
     loadDashboard();
 }
 
-async function toggleHabit(habit) {
+async function toggleHabit(habit, section) {
     await fetch('/api/habits/toggle', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ habit })
+        body: JSON.stringify({ habit, section: section !== undefined ? section : habitSectionOf(habit) })
     });
     loadDashboard();
 }
 
-async function toggleHabitDate(habit, date) {
+async function toggleHabitDate(habit, date, section) {
     await fetch('/api/habits/toggle', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ habit, date })
+        body: JSON.stringify({ habit, date, section: section !== undefined ? section : habitSectionOf(habit) })
     });
     loadDashboard();
 }
 
-function confirmHabitDot(habit, date) {
-    pendingDelete = { type: 'habit-dot', habit, date };
+function confirmHabitDot(habit, date, section) {
+    pendingDelete = { type: 'habit-dot', habit, date, section: section !== undefined ? section : habitSectionOf(habit) };
     document.getElementById('modal-text').innerHTML = `Remove <b>${esc(habit)}</b> on ${date}?`;
     document.getElementById('modal').classList.add('open');
 }

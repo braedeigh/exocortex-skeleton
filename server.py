@@ -594,7 +594,10 @@ def _load_contacts():
 
 
 def _load_habits_log():
-    return store.read("habits_log.json", {})
+    # data_helpers.load_habits_log migrates legacy bare-text keys to the
+    # section-qualified form on the way out.
+    from data_helpers import load_habits_log
+    return load_habits_log()
 
 
 def _load_habits():

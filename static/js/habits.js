@@ -24,7 +24,7 @@ function renderHabits() {
         const visibleItems = section.items.filter(item => !hidden.includes(item));
         if (!visibleItems.length) continue;
 
-        const allDone = visibleItems.every(item => !!todayLog[item]);
+        const allDone = visibleItems.every(item => !!todayLog[habitKey(section.name, item)]);
         if (allDone && !expandedAll) {
             html += `<div style="font-size:14px;color:var(--text-muted);padding:8px 0;margin-bottom:8px">
                 <span style="color:${cfg.color}">&#10003;</span> ${cfg.label} — all done
@@ -166,18 +166,19 @@ function renderHabitTracker() {
         return row + '</tr>';
     }
 
-    function habitRow(habit, accentColor) {
-        const total = habitCount(habit);
+    function habitRow(habit, accentColor, sectionName) {
+        const total = habitCount(habit, sectionName);
+        const key = habitKey(sectionName, habit);
         const maxLen = 30;
         const shortName = habit.length > maxLen ? habit.slice(0, maxLen) + '...' : habit;
         let row = `<tr><td class="metric-label">${esc(shortName)}<span style="font-size:12px;color:var(--text-muted);margin-left:6px">${habitStartLabel(habit)}${total}/60</span></td>`;
         days.forEach(d => {
-            const hit = log[d] && log[d][habit];
+            const hit = log[d] && log[d][key];
             const color = hit ? accentColor : '#2a2a4a';
             if (hit) {
-                row += `<td><div class="dot" style="background:${color};cursor:pointer" title="Click to remove" onclick="confirmHabitDot('${esc(habit)}','${d}')"></div></td>`;
+                row += `<td><div class="dot" style="background:${color};cursor:pointer" title="Click to remove" onclick="confirmHabitDot('${escJs(habit)}','${d}','${escJs(sectionName)}')"></div></td>`;
             } else {
-                row += `<td><div class="dot" style="background:${color};cursor:pointer" title="Click to log" onclick="toggleHabitDate('${esc(habit)}','${d}')"></div></td>`;
+                row += `<td><div class="dot" style="background:${color};cursor:pointer" title="Click to log" onclick="toggleHabitDate('${escJs(habit)}','${d}','${escJs(sectionName)}')"></div></td>`;
             }
         });
         row += '</tr>';
@@ -238,11 +239,11 @@ function renderHabitTracker() {
 
     const symCount = D.health_data.filter(d => d.energy !== null).length;
 
-    function sectionBlock(title, color, habits, accentColor, extra) {
+    function sectionBlock(title, color, habits, accentColor, extra, sectionName) {
         if (!habits.length && !extra) return '';
         let s = `<div class="habit-section-header" style="color:${color}">${title}</div>`;
         s += '<div class="dot-grid"><table>' + dateHeaderRow();
-        habits.forEach(h => { s += habitRow(h, accentColor); });
+        habits.forEach(h => { s += habitRow(h, accentColor, sectionName); });
         if (extra) s += extra;
         s += '</table></div>';
         return s;
@@ -257,11 +258,11 @@ function renderHabitTracker() {
     });
     symRow += '</tr>';
 
-    html += sectionBlock('Morning', 'var(--morning)', morningHabits, 'var(--morning)', symRow);
+    html += sectionBlock('Morning', 'var(--morning)', morningHabits, 'var(--morning)', symRow, sectionNames.morning || 'Morning');
     if (middayHabits.length) {
-        html += sectionBlock('Midday', 'var(--ongoing)', middayHabits, 'var(--ongoing)');
+        html += sectionBlock('Midday', 'var(--ongoing)', middayHabits, 'var(--ongoing)', '', sectionNames.midday || 'Midday');
     }
-    html += sectionBlock('Evening', 'var(--evening)', nightHabits, 'var(--evening)');
+    html += sectionBlock('Evening', 'var(--evening)', nightHabits, 'var(--evening)', '', sectionNames.night || 'Evening / Night');
 
     // Hidden count
     const hiddenCount = hidden.length;
