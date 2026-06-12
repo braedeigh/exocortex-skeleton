@@ -73,6 +73,9 @@ STREAMS = {
     "contacts": "hidden",
     "applications": "hidden",       # shrike_applied
     "dev_notes": "hidden",
+    "idea_notes": "hidden",
+    "idea_notes_all": "hidden",
+    "ideas_md": "hidden",           # the private vision doc
     "receipts_map": "hidden",       # photo paths to receipts
     "reminders": "hidden",          # personal cadence pops (peptides, linen, …)
 }

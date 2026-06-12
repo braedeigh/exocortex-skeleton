@@ -414,7 +414,6 @@ body { height: 100%; overflow: hidden; background: var(--bg); }
 body.public-mode .dash-bar,
 body.public-mode .upload-btn,
 body.public-mode #journalFrame,
-body.public-mode #ideasFrame,
 body.public-mode #filesFrame {
     display: none !important;
 }
@@ -422,7 +421,6 @@ body.public-mode .tab-bar { display: none; }
 body.public-mode .tab-content { margin-top: 0; }
 body.public-mode #mobileDashboard { display: block; }
 body.public-mode #mobileTerminal,
-body.public-mode #mobileIdeas,
 body.public-mode #mobileFiles {
     display: none !important;
 }
@@ -527,13 +525,11 @@ body.public-mode #mobileFiles {
         <div class="dash-bar" id="desktopDashBar">
             <button class="active" data-dashview="dashboard" onclick="switchDashView('dashboard', this)">Dashboard</button>
             <button data-dashview="journal" onclick="switchDashView('journal', this)">Journal</button>
-            <button data-dashview="ideas" onclick="switchDashView('ideas', this)">Ideas</button>
             <button data-dashview="files" onclick="switchDashView('files', this)">Files<span class="tab-close-x" onclick="closeVscodeFromTab(event)" title="Close VS Code (free memory)">&times;</span></button>
             <button data-dashview="settings" onclick="switchDashView('settings', this)" title="Settings" aria-label="Settings" style="flex:0;padding:11px 16px;font-size:18px;margin-left:auto">&#9881;</button>
         </div>
         <iframe src="/tab/{{ active_tab }}{% if item_name %}?item={{ item_name }}{% endif %}" id="dashboardFrame" allow="fullscreen; autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
         <iframe id="journalFrame" style="display:none"></iframe>
-        <iframe id="ideasFrame" style="display:none"></iframe>
         <iframe src="/files/" id="filesFrame" style="display:none"></iframe>
         <iframe id="settingsFrame" style="display:none"></iframe>
     </div>
@@ -544,7 +540,6 @@ body.public-mode #mobileFiles {
     <div class="tab-bar">
         <button class="tab-btn active" data-tab="terminal" id="termTabBtn" onclick="switchTab('terminal')">Chat</button>
         <button class="tab-btn" data-tab="journal" onclick="switchTab('journal')">Journal</button>
-        <button class="tab-btn" data-tab="ideas" onclick="switchTab('ideas')">Ideas</button>
         <button class="tab-btn" data-tab="dashboard" onclick="switchTab('dashboard')">Dashboard</button>
         <button class="tab-btn" data-tab="files" onclick="switchTab('files')">Files<span class="tab-close-x" onclick="closeVscodeFromTab(event)" title="Close VS Code (free memory)">&times;</span></button>
     </div>
@@ -558,9 +553,6 @@ body.public-mode #mobileFiles {
         </div>
         <div class="tab-pane" id="mobileJournal">
             <iframe id="mobileJournalFrame"></iframe>
-        </div>
-        <div class="tab-pane" id="mobileIdeas">
-            <iframe id="mobileIdeasFrame"></iframe>
         </div>
         <div class="tab-pane" id="mobileFiles">
             <iframe src="/files/"></iframe>
@@ -800,11 +792,6 @@ function switchDashView(view, btn) {
     if (view === 'journal' && !jf.src.includes('/journal-view')) {
         jf.src = '/journal-view';
     }
-    const idf = document.getElementById('ideasFrame');
-    idf.style.display = view === 'ideas' ? 'block' : 'none';
-    if (view === 'ideas' && !idf.src.includes('/ideas-view')) {
-        idf.src = '/ideas-view';
-    }
     document.getElementById('filesFrame').style.display = view === 'files' ? 'block' : 'none';
     const sf = document.getElementById('settingsFrame');
     sf.style.display = view === 'settings' ? 'block' : 'none';
@@ -838,8 +825,8 @@ window.addEventListener('message', (e) => {
     const msg = e.data;
     if (!msg || msg.type !== 'theme-changed' || !msg.overrides) return;
     const frames = [
-        'dashboardFrame', 'journalFrame', 'ideasFrame', 'filesFrame', 'settingsFrame',
-        'mobileTerminalFrame', 'mobileDashboardFrame', 'mobileJournalFrame', 'mobileIdeasFrame', 'mobileSettingsFrame',
+        'dashboardFrame', 'journalFrame', 'filesFrame', 'settingsFrame',
+        'mobileTerminalFrame', 'mobileDashboardFrame', 'mobileJournalFrame', 'mobileSettingsFrame',
     ];
     for (const id of frames) {
         const f = document.getElementById(id);
@@ -983,7 +970,6 @@ function switchTab(tab) {
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
     document.getElementById('mobileTerminal').classList.toggle('active', tab === 'terminal');
     document.getElementById('mobileJournal').classList.toggle('active', tab === 'journal');
-    document.getElementById('mobileIdeas').classList.toggle('active', tab === 'ideas');
     document.getElementById('mobileDashboard').classList.toggle('active', tab === 'dashboard');
     document.getElementById('mobileFiles').classList.toggle('active', tab === 'files');
     document.getElementById('mobileSettings').classList.toggle('active', tab === 'settings');
@@ -992,10 +978,6 @@ function switchTab(tab) {
     if (tab === 'journal') {
         const jf = document.getElementById('mobileJournalFrame');
         if (jf && !jf.src) jf.src = '/journal-view';
-    }
-    if (tab === 'ideas') {
-        const idf = document.getElementById('mobileIdeasFrame');
-        if (idf && !idf.src) idf.src = '/ideas-view';
     }
     if (tab === 'settings') {
         const sf = document.getElementById('mobileSettingsFrame');
@@ -1110,7 +1092,7 @@ divider.addEventListener('dblclick', () => {
 });
 
 // === Tab nav: keep URL in sync with the active dashboard tab without reloading the shell ===
-const TAB_PATHS = { today: '/', map: '/map', kitchen: '/kitchen', inventory: '/inventory', money: '/money', car: '/car-maintenance', meditation: '/meditation', media: '/media', movement: '/movement', body: '/body' };
+const TAB_PATHS = { today: '/', map: '/map', kitchen: '/kitchen', inventory: '/inventory', money: '/money', car: '/car-maintenance', meditation: '/meditation', media: '/media', movement: '/movement', body: '/body', ideas: '/ideas' };
 
 function tabFromPath(path) {
     if (path.startsWith('/item/buy/')) return 'inventory';

@@ -1,8 +1,12 @@
-"""Per-tab dev notes (the friction log at the bottom of every page).
+"""Per-tab dev notes + idea notes (the two capture panels at the bottom of
+every page).
 
-Also home to "send to ideas": a dev note that turns out to be a product/vision
-idea rather than a page tweak gets appended to the ideas doc (store.IDEAS_FILE)
-and removed from the notes panel — capture without losing it in the queue.
+Dev notes are friction ("this page is bugging me"); idea notes are wants
+("this page could…"). Same shape, two files: dev_notes.json / idea_notes.json,
+both {"tabs": {<tab>: [{id, text, created}, ...]}}. A dev note that turns out
+to be an idea moves between them verbatim via /api/devnote/to_ideas (id and
+created survive, so undo is exact). The Ideas tab reads idea_notes across all
+tabs to show them sorted by page.
 """
 from flask import request, jsonify
 from datetime import datetime
@@ -19,55 +23,56 @@ def save_dev_notes(d):
     store.write("dev_notes.json", d)
 
 
-IDEAS_INBOX_HEADER = "## Inbox — sent from dev notes"
+def load_idea_notes():
+    return store.read("idea_notes.json", {"tabs": {}})
 
 
-def _ideas_entry(note, tab):
-    """The exact line a note becomes in the ideas doc — shared by append (send)
-    and remove (undo) so they can never drift apart."""
-    return f"- **(from {tab} dev notes, {note.get('created', '')})** {note.get('text', '').strip()}"
+def save_idea_notes(d):
+    store.write("idea_notes.json", d)
 
 
-def _remove_from_ideas(note, tab):
-    """Inverse of _append_to_ideas: drop the note's line (first match) from the
-    ideas doc. Quietly does nothing if the line was hand-edited away."""
-    ideas = store.IDEAS_FILE
-    if not ideas.exists():
-        return False
-    entry = _ideas_entry(note, tab)
-    lines = ideas.read_text().split("\n")
-    if entry not in lines:
-        return False
-    lines.remove(entry)
-    ideas.write_text("\n".join(lines))
-    return True
+def _new_note(text):
+    return {
+        "id": secrets.token_hex(4),
+        "text": text,
+        "created": datetime.now().strftime("%Y-%m-%d %H:%M"),
+    }
 
 
-def _append_to_ideas(note, tab):
-    """Append a dev note under the inbox header of the ideas doc (newest first),
-    creating the file/section on first use."""
-    ideas = store.IDEAS_FILE
-    entry = _ideas_entry(note, tab)
-    if ideas.exists():
-        text = ideas.read_text()
-    else:
-        ideas.parent.mkdir(parents=True, exist_ok=True)
-        text = "# Ideas\n"
-    if IDEAS_INBOX_HEADER not in text:
-        if not text.endswith("\n"):
-            text += "\n"
-        text += f"\n---\n\n{IDEAS_INBOX_HEADER}\n"
-    lines = text.split("\n")
-    at = lines.index(IDEAS_INBOX_HEADER) + 1
-    while at < len(lines) and lines[at].strip() == "":
-        at += 1
-    lines.insert(at, entry)
-    if at + 1 == len(lines):
-        lines.append("")
-    ideas.write_text("\n".join(lines))
+def _restore_note(data, load, save):
+    """Shared undo-restore: re-insert a full note (id/created intact) at its
+    original index. Inserting twice can't duplicate."""
+    tab = (data.get("tab") or "").strip()
+    note = data.get("note") or {}
+    nid = str(note.get("id") or "").strip()
+    text = str(note.get("text") or "").strip()
+    if not tab or not nid or not text:
+        return None, (jsonify({"error": "tab and note {id, text} required"}), 400)
+    clean = {"id": nid, "text": text, "created": str(note.get("created") or "")}
+    d = load()
+    notes = d.setdefault("tabs", {}).setdefault(tab, [])
+    if not any(n.get("id") == nid for n in notes):
+        try:
+            idx = int(data.get("index"))
+        except (TypeError, ValueError):
+            idx = len(notes)
+        notes.insert(max(0, min(idx, len(notes))), clean)
+        save(d)
+    return clean, None
+
+
+def _remove_note(d, tab, nid):
+    """Drop a note by id from a loaded notes dict. Returns the removed note."""
+    notes = d.get("tabs", {}).get(tab, [])
+    note = next((n for n in notes if n.get("id") == nid), None)
+    if note is not None:
+        d["tabs"][tab] = [n for n in notes if n.get("id") != nid]
+    return note
 
 
 def register(app):
+
+    # --- Dev notes ---
 
     @app.route("/api/devnote/add", methods=["POST"])
     def add_devnote():
@@ -77,11 +82,7 @@ def register(app):
         if not tab or not text:
             return jsonify({"error": "tab and text required"}), 400
         d = load_dev_notes()
-        d.setdefault("tabs", {}).setdefault(tab, []).append({
-            "id": secrets.token_hex(4),
-            "text": text,
-            "created": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        })
+        d.setdefault("tabs", {}).setdefault(tab, []).append(_new_note(text))
         save_dev_notes(d)
         return jsonify({"ok": True})
 
@@ -93,11 +94,8 @@ def register(app):
     @app.route("/api/devnote/remove", methods=["POST"])
     def remove_devnote():
         data = request.json
-        tab = data.get("tab", "")
-        nid = data.get("id", "")
         d = load_dev_notes()
-        notes = d.get("tabs", {}).get(tab, [])
-        d["tabs"][tab] = [n for n in notes if n.get("id") != nid]
+        _remove_note(d, data.get("tab", ""), data.get("id", ""))
         save_dev_notes(d)
         return jsonify({"ok": True})
 
@@ -122,41 +120,89 @@ def register(app):
 
     @app.route("/api/devnote/restore", methods=["POST"])
     def restore_devnote():
-        """Put a note back (undo of delete / send-to-ideas). Takes the full note
-        so id + created survive the round trip; `index` restores its position;
-        `remove_from_ideas` also pulls the line back out of the ideas doc."""
+        """Undo of delete / send-to-ideas: put the note back in dev notes.
+        `remove_from_ideas` also pulls it back out of idea_notes (the inverse
+        of to_ideas)."""
         data = request.json or {}
-        tab = (data.get("tab") or "").strip()
-        note = data.get("note") or {}
-        nid = str(note.get("id") or "").strip()
-        text = str(note.get("text") or "").strip()
-        if not tab or not nid or not text:
-            return jsonify({"error": "tab and note {id, text} required"}), 400
-        clean = {"id": nid, "text": text, "created": str(note.get("created") or "")}
-        d = load_dev_notes()
-        notes = d.setdefault("tabs", {}).setdefault(tab, [])
-        if not any(n.get("id") == nid for n in notes):   # double-undo can't duplicate
-            try:
-                idx = int(data.get("index"))
-            except (TypeError, ValueError):
-                idx = len(notes)
-            notes.insert(max(0, min(idx, len(notes))), clean)
-            save_dev_notes(d)
+        clean, err = _restore_note(data, load_dev_notes, save_dev_notes)
+        if err:
+            return err
         if data.get("remove_from_ideas"):
-            _remove_from_ideas(clean, tab)
+            tab = (data.get("tab") or "").strip()
+            di = load_idea_notes()
+            if _remove_note(di, tab, clean["id"]) is not None:
+                save_idea_notes(di)
         return jsonify({"ok": True})
 
     @app.route("/api/devnote/to_ideas", methods=["POST"])
     def devnote_to_ideas():
+        """Move a dev note (verbatim — id and created survive) into the same
+        tab's idea notes."""
         data = request.json or {}
         tab = (data.get("tab") or "").strip()
         nid = (data.get("id") or "").strip()
         d = load_dev_notes()
-        notes = d.get("tabs", {}).get(tab, [])
-        note = next((n for n in notes if n.get("id") == nid), None)
+        note = _remove_note(d, tab, nid)
         if note is None:
             return jsonify({"error": "note not found"}), 404
-        _append_to_ideas(note, tab)
-        d["tabs"][tab] = [n for n in notes if n.get("id") != nid]
+        di = load_idea_notes()
+        ideas = di.setdefault("tabs", {}).setdefault(tab, [])
+        if not any(n.get("id") == nid for n in ideas):   # redo after undo can't dup
+            ideas.append(note)
+        save_idea_notes(di)
         save_dev_notes(d)
+        return jsonify({"ok": True})
+
+    # --- Idea notes (same component, second file) ---
+
+    @app.route("/api/ideanote/add", methods=["POST"])
+    def add_ideanote():
+        data = request.json
+        tab = (data.get("tab") or "").strip() or "general"
+        text = (data.get("text") or "").strip()
+        if not text:
+            return jsonify({"error": "text required"}), 400
+        d = load_idea_notes()
+        d.setdefault("tabs", {}).setdefault(tab, []).append(_new_note(text))
+        save_idea_notes(d)
+        return jsonify({"ok": True})
+
+    @app.route("/api/ideanotes/<tab>", methods=["GET"])
+    def get_ideanotes(tab):
+        notes = load_idea_notes().get("tabs", {}).get(tab, [])
+        return jsonify({"tab": tab, "notes": notes})
+
+    @app.route("/api/ideanote/remove", methods=["POST"])
+    def remove_ideanote():
+        data = request.json
+        d = load_idea_notes()
+        _remove_note(d, data.get("tab", ""), data.get("id", ""))
+        save_idea_notes(d)
+        return jsonify({"ok": True})
+
+    @app.route("/api/ideanote/edit", methods=["POST"])
+    def edit_ideanote():
+        data = request.json
+        tab = (data.get("tab") or "").strip()
+        nid = data.get("id", "")
+        text = (data.get("text") or "").strip()
+        if not tab or not nid or not text:
+            return jsonify({"error": "tab, id and text required"}), 400
+        d = load_idea_notes()
+        notes = d.get("tabs", {}).get(tab, [])
+        for n in notes:
+            if n.get("id") == nid:
+                n["text"] = text
+                break
+        else:
+            return jsonify({"error": "note not found"}), 404
+        save_idea_notes(d)
+        return jsonify({"ok": True})
+
+    @app.route("/api/ideanote/restore", methods=["POST"])
+    def restore_ideanote():
+        data = request.json or {}
+        _, err = _restore_note(data, load_idea_notes, save_idea_notes)
+        if err:
+            return err
         return jsonify({"ok": True})

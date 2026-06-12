@@ -22,6 +22,7 @@ const TAB_ENDPOINTS = {
     media: '/api/data/media',
     movement: '/api/data/movement',
     body: '/api/data/body',
+    ideas: '/api/data/ideas',
 };
 
 // TAB_RENDERERS is built lazily in render() because the functions
@@ -45,6 +46,8 @@ function initTab() {
     if (movementEl) movementEl.style.display = currentTab === 'movement' ? '' : 'none';
     const bodyEl = document.getElementById('tab-body');
     if (bodyEl) bodyEl.style.display = currentTab === 'body' ? '' : 'none';
+    const ideasEl = document.getElementById('tab-ideas');
+    if (ideasEl) ideasEl.style.display = currentTab === 'ideas' ? '' : 'none';
 
     // Inside inventory: show list OR item detail based on data-item-name
     const itemName = document.body.dataset.itemName || '';
@@ -277,6 +280,9 @@ function render() {
             ],
             movement: [
                 renderHeader, renderMovement, renderDevNotes, restoreEditModes
+            ],
+            ideas: [
+                renderHeader, renderIdeasByPage, renderIdeasDoc, renderDevNotes, restoreEditModes
             ],
         };
     }
@@ -809,19 +815,20 @@ async function executeDelete() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ label: pendingDelete.label, since: pendingDelete.since })
         });
-    } else if (pendingDelete.type === 'devnote') {
-        const tab = pendingDelete.tab;
-        const notes = D.dev_notes || [];
+    } else if (pendingDelete.type === 'devnote' || pendingDelete.type === 'ideanote') {
+        const { kind, tab } = pendingDelete;
+        const cfg = NOTE_KINDS[kind];
+        const notes = D[cfg.dataKey] || [];
         const index = notes.findIndex(n => n.id === pendingDelete.id);
         const note = notes[index];
-        await fetch('/api/devnote/remove', {
+        await fetch(`${cfg.api}/remove`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ tab, id: pendingDelete.id })
         });
-        if (note) _devNotePush(tab, { kind: 'delete', note, index });
+        if (note) _notePush(kind, tab, { kind: 'delete', note, index });
         closeModal();
-        await refreshDevNotes(tab);
+        await refreshNotes(kind, tab);
         return;
     } else if (pendingDelete.type === 'buy') {
         await fetch('/api/buy/remove', {
@@ -1681,105 +1688,140 @@ const APP_STATUS_CLASS = (s) => {
     return 'applied';
 };
 
-// --- Dev Notes (per-tab friction log) ---
-// Lives at the bottom of any page that has a div with class "dev-notes-area"
-// or a div whose id starts with "dev-notes-". The div needs `data-tab="<key>"`.
-// Notes are loaded from D.dev_notes (the page's data endpoint must populate it).
+// --- Dev Notes + Idea Notes (the two per-tab capture panels) ---
+// Every page bottom hosts two collapsible panels over the same component:
+//   Dev notes — friction, fixes ("what's bugging you about this page?")
+//   Ideas     — wants, features, what-ifs for this page
+// Containers: <div id="dev-notes-<tab>"> / <div id="idea-notes-<tab>"> with
+// data-tab. Data arrives as D.dev_notes / D.idea_notes (the page's tab only).
+// A dev note that's really an idea moves down a panel via the 💡 button.
 
-// Which note (if any) is currently being inline-edited: { tab, id } or null.
-let _devNoteEditing = null;
+const NOTE_KINDS = {
+    dev: {
+        label: 'Dev notes',
+        blurb: 'Friction, change ideas, things to fix on this page.',
+        placeholder: "What's bugging you about this page?",
+        prefix: 'dev-notes-',
+        api: '/api/devnote',
+        listUrl: tab => `/api/devnotes/${tab}`,
+        dataKey: 'dev_notes',
+        deleteType: 'devnote',
+        accent: 'var(--text-muted)',
+    },
+    idea: {
+        label: 'Ideas',
+        blurb: 'Ideas for this page — features, wants, what-ifs.',
+        placeholder: 'What could this page become?',
+        prefix: 'idea-notes-',
+        api: '/api/ideanote',
+        listUrl: tab => `/api/ideanotes/${tab}`,
+        dataKey: 'idea_notes',
+        deleteType: 'ideanote',
+        accent: 'var(--green)',
+    },
+};
 
-// --- Dev-note undo/redo --------------------------------------------------
-// Per-tab history of destructive panel actions (delete / send-to-ideas / edit),
-// kept in memory for the page session. Each action knows how to invert itself,
-// so Undo plays the inverse and Redo replays the original.
+// Which note (if any) is currently being inline-edited: {kind, tab, id} or null.
+let _noteEditing = null;
+
+// --- Undo/redo --------------------------------------------------------------
+// Per-(kind,tab) history of destructive panel actions, kept in memory for the
+// page session. Each action knows how to invert itself: Undo plays the inverse,
+// Redo replays the original.
 // Action shapes: {kind:'delete'|'ideas', note, index} | {kind:'edit', id, before, after}
-window._devNoteHistory = window._devNoteHistory || {};
+window._noteHistory = window._noteHistory || {};
 
-function _devNoteHist(tab) {
-    return window._devNoteHistory[tab] = window._devNoteHistory[tab] || { undo: [], redo: [] };
+function _noteHist(kind, tab) {
+    const key = kind + ':' + tab;
+    return window._noteHistory[key] = window._noteHistory[key] || { undo: [], redo: [] };
 }
 
 // A fresh user action starts a new timeline: push to undo, clear redo.
-function _devNotePush(tab, action) {
-    const h = _devNoteHist(tab);
+function _notePush(kind, tab, action) {
+    const h = _noteHist(kind, tab);
     h.undo.push(action);
     if (h.undo.length > 20) h.undo.shift();
     h.redo.length = 0;
 }
 
-async function _devNoteApply(tab, a, dir) {
+async function _noteApply(kind, tab, a, dir) {
+    const cfg = NOTE_KINDS[kind];
     const post = (url, body) => fetch(url, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
     });
     if (a.kind === 'delete') {
-        if (dir === 'undo') await post('/api/devnote/restore', { tab, note: a.note, index: a.index });
-        else await post('/api/devnote/remove', { tab, id: a.note.id });
-    } else if (a.kind === 'ideas') {
+        if (dir === 'undo') await post(`${cfg.api}/restore`, { tab, note: a.note, index: a.index });
+        else await post(`${cfg.api}/remove`, { tab, id: a.note.id });
+    } else if (a.kind === 'ideas') {   // dev-only: the 💡 move and its inverse
         if (dir === 'undo') await post('/api/devnote/restore', { tab, note: a.note, index: a.index, remove_from_ideas: true });
         else await post('/api/devnote/to_ideas', { tab, id: a.note.id });
     } else if (a.kind === 'edit') {
-        await post('/api/devnote/edit', { tab, id: a.id, text: dir === 'undo' ? a.before : a.after });
+        await post(`${cfg.api}/edit`, { tab, id: a.id, text: dir === 'undo' ? a.before : a.after });
     }
 }
 
-async function devNoteHistoryStep(tab, dir) {
-    const h = _devNoteHist(tab);
+async function noteHistoryStep(kind, tab, dir) {
+    const h = _noteHist(kind, tab);
     const from = dir === 'undo' ? h.undo : h.redo;
     const to = dir === 'undo' ? h.redo : h.undo;
     const a = from.pop();
     if (!a) return;
-    await _devNoteApply(tab, a, dir);
+    await _noteApply(kind, tab, a, dir);
     to.push(a);
-    await refreshDevNotes(tab);
+    await refreshNotes(kind, tab, a.kind === 'ideas');
 }
 
-const _DEVNOTE_KIND_LABEL = { delete: 'delete', ideas: 'send to ideas', edit: 'edit' };
+const _NOTE_ACTION_LABEL = { delete: 'delete', ideas: 'send to ideas', edit: 'edit' };
 
-function renderDevNotes() {
-    const els = document.querySelectorAll('[id^="dev-notes-"]');
-    els.forEach(el => {
-        const tab = el.dataset.tab || el.id.replace('dev-notes-', '');
+// --- Rendering ---------------------------------------------------------------
+
+function renderNotePanels(kind) {
+    const cfg = NOTE_KINDS[kind];
+    document.querySelectorAll(`[id^="${cfg.prefix}"]`).forEach(el => {
+        const tab = el.dataset.tab || el.id.replace(cfg.prefix, '');
         // Preserve open/closed state across re-renders so adding/deleting a
         // note doesn't collapse the panel.
         const wasOpen = el.querySelector('details')?.open;
-        const notes = D.dev_notes || [];
+        const notes = D[cfg.dataKey] || [];
         const rows = notes.map(n => {
-            const editing = _devNoteEditing && _devNoteEditing.tab === tab && _devNoteEditing.id === n.id;
+            const editing = _noteEditing && _noteEditing.kind === kind && _noteEditing.tab === tab && _noteEditing.id === n.id;
             if (editing) {
                 return `<div style="display:flex;gap:6px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--border)">
-                    <textarea id="devnote-edit-${esc(tab)}-${esc(n.id)}" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'" style="flex:1;box-sizing:border-box;min-height:72px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;line-height:1.4;font-family:inherit;background:var(--bg);color:var(--text);resize:none;overflow:hidden">${esc(n.text)}</textarea>
+                    <textarea id="${kind}note-edit-${esc(tab)}-${esc(n.id)}" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'" style="flex:1;box-sizing:border-box;min-height:72px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;line-height:1.4;font-family:inherit;background:var(--bg);color:var(--text);resize:none;overflow:hidden">${esc(n.text)}</textarea>
                     <div style="display:flex;flex-direction:column;gap:6px">
-                        <button onclick="saveDevNote('${escJs(tab)}','${escJs(n.id)}')" style="padding:8px 12px;border:none;border-radius:6px;background:var(--text);color:#fff;font-size:12px;font-weight:600;cursor:pointer">Save</button>
-                        <button onclick="cancelDevNoteEdit()" style="padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:none;color:var(--text-muted);font-size:12px;cursor:pointer">Cancel</button>
+                        <button onclick="saveNote('${kind}','${escJs(tab)}','${escJs(n.id)}')" style="padding:8px 12px;border:none;border-radius:6px;background:var(--text);color:#fff;font-size:12px;font-weight:600;cursor:pointer">Save</button>
+                        <button onclick="cancelNoteEdit()" style="padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:none;color:var(--text-muted);font-size:12px;cursor:pointer">Cancel</button>
                     </div>
                 </div>`;
             }
+            const ideaBtn = kind === 'dev'
+                ? `<button onclick="sendDevNoteToIdeas('${escJs(tab)}','${escJs(n.id)}')" title="Send to Ideas (moves this note into the Ideas panel)" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:13px;padding:0 4px">&#128161;</button>`
+                : '';
             return `<div style="display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-top:1px solid var(--border);font-size:13px">
                 <div style="flex:1">${esc(n.text)}</div>
                 <div style="font-size:12px;color:var(--text-muted);white-space:nowrap">${esc(n.created || '')}</div>
-                <button onclick="sendDevNoteToIdeas('${escJs(tab)}','${escJs(n.id)}')" title="Send to Ideas (moves this note into the ideas doc)" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:13px;padding:0 4px">&#128161;</button>
-                <button onclick="editDevNote('${escJs(tab)}','${escJs(n.id)}')" title="Edit" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:13px;padding:0 4px">&#9998;</button>
-                <button onclick="removeDevNote('${escJs(tab)}','${escJs(n.id)}')" title="Remove" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;padding:0 4px">&times;</button>
+                ${ideaBtn}
+                <button onclick="editNote('${kind}','${escJs(tab)}','${escJs(n.id)}')" title="Edit" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:13px;padding:0 4px">&#9998;</button>
+                <button onclick="removeNote('${kind}','${escJs(tab)}','${escJs(n.id)}')" title="Remove" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;padding:0 4px">&times;</button>
             </div>`;
         }).join('');
         const addBox = (which) => `<div style="display:flex;gap:6px;align-items:flex-start;margin-${which === 'top' ? 'bottom' : 'top'}:10px">
-                    <textarea rows="1" id="devnote-input-${esc(tab)}-${which}" placeholder="What's bugging you about this page?" style="flex:1;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;line-height:1.4;font-family:inherit;outline:none;background:var(--bg);color:var(--text);resize:none;overflow:hidden" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();addDevNote('${escJs(tab)}','${which}')}"></textarea>
-                    <button onclick="addDevNote('${escJs(tab)}','${which}')" style="padding:6px 14px;border:none;border-radius:6px;background:var(--text);color:#fff;font-size:12px;font-weight:600;cursor:pointer">Add</button>
+                    <textarea rows="1" id="${kind}note-input-${esc(tab)}-${which}" placeholder="${esc(cfg.placeholder)}" style="flex:1;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;line-height:1.4;font-family:inherit;outline:none;background:var(--bg);color:var(--text);resize:none;overflow:hidden" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();addNote('${kind}','${escJs(tab)}','${which}')}"></textarea>
+                    <button onclick="addNote('${kind}','${escJs(tab)}','${which}')" style="padding:6px 14px;border:none;border-radius:6px;background:var(--text);color:#fff;font-size:12px;font-weight:600;cursor:pointer">Add</button>
                 </div>`;
-        const h = _devNoteHist(tab);
+        const h = _noteHist(kind, tab);
         const histBtn = (dir, stack, glyph) => {
             const top = stack[stack.length - 1];
-            const label = top ? `${dir === 'undo' ? 'Undo' : 'Redo'} ${_DEVNOTE_KIND_LABEL[top.kind] || ''}` : (dir === 'undo' ? 'Nothing to undo' : 'Nothing to redo');
-            return `<button onclick="devNoteHistoryStep('${escJs(tab)}','${dir}')" ${top ? '' : 'disabled'} title="${esc(label)}"
+            const label = top ? `${dir === 'undo' ? 'Undo' : 'Redo'} ${_NOTE_ACTION_LABEL[top.kind] || ''}` : (dir === 'undo' ? 'Nothing to undo' : 'Nothing to redo');
+            return `<button onclick="noteHistoryStep('${kind}','${escJs(tab)}','${dir}')" ${top ? '' : 'disabled'} title="${esc(label)}"
                 style="background:none;border:1px solid var(--border);border-radius:6px;color:var(--text-muted);font-size:12px;padding:5px 10px;cursor:${top ? 'pointer' : 'default'};opacity:${top ? 1 : 0.4};white-space:nowrap">${glyph} ${dir === 'undo' ? 'Undo' : 'Redo'}</button>`;
         };
-        el.innerHTML = `<details style="margin-top:24px"${wasOpen ? ' open' : ''}>
-            <summary style="font-size:13px;font-weight:600;cursor:pointer;color:var(--text-muted)">Dev notes${notes.length ? ` (${notes.length})` : ''}</summary>
-            <div class="card" style="border-left-color:var(--text-muted);margin-top:8px;padding:10px">
+        el.innerHTML = `<details style="margin-top:${kind === 'dev' ? 24 : 10}px"${wasOpen ? ' open' : ''}>
+            <summary style="font-size:13px;font-weight:600;cursor:pointer;color:var(--text-muted)">${esc(cfg.label)}${notes.length ? ` (${notes.length})` : ''}</summary>
+            <div class="card" style="border-left-color:${cfg.accent};margin-top:8px;padding:10px">
                 <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
-                    <div style="font-size:12px;color:var(--text-muted);flex:1">Friction, change ideas, things to fix on this page.</div>
+                    <div style="font-size:12px;color:var(--text-muted);flex:1">${esc(cfg.blurb)}</div>
                     ${histBtn('undo', h.undo, '&#8617;')}
                     ${histBtn('redo', h.redo, '&#8618;')}
                 </div>
@@ -1791,13 +1833,22 @@ function renderDevNotes() {
     });
 }
 
-async function addDevNote(tab, which) {
-    const input = document.getElementById(`devnote-input-${tab}-${which || 'top'}`)
-        || document.getElementById(`devnote-input-${tab}`);
+// Kept under the old name — it's wired into every tab's renderer list.
+// Renders BOTH panels (dev notes + ideas) for the current page.
+function renderDevNotes() {
+    renderNotePanels('dev');
+    renderNotePanels('idea');
+}
+
+// --- Actions -----------------------------------------------------------------
+
+async function addNote(kind, tab, which) {
+    const cfg = NOTE_KINDS[kind];
+    const input = document.getElementById(`${kind}note-input-${tab}-${which || 'top'}`);
     if (!input) return;
     const text = input.value.trim();
     if (!text) return;
-    const res = await fetch('/api/devnote/add', {
+    const res = await fetch(`${cfg.api}/add`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tab, text })
@@ -1805,12 +1856,12 @@ async function addDevNote(tab, which) {
     if (res.ok) {
         input.value = '';
         input.style.height = '';
-        await refreshDevNotes(tab);
+        await refreshNotes(kind, tab);
     }
 }
 
-// A dev note that's really a product idea: append it to the ideas doc and take
-// it off the page's queue.
+// A dev note that's really an idea: move it down into the same page's Ideas
+// panel (id + created survive, so Undo is exact).
 async function sendDevNoteToIdeas(tab, id) {
     const notes = D.dev_notes || [];
     const index = notes.findIndex(n => n.id === id);
@@ -1821,58 +1872,66 @@ async function sendDevNoteToIdeas(tab, id) {
         body: JSON.stringify({ tab, id })
     });
     if (res.ok) {
-        if (note) _devNotePush(tab, { kind: 'ideas', note, index });
-        await refreshDevNotes(tab);
+        if (note) _notePush('dev', tab, { kind: 'ideas', note, index });
+        await refreshNotes('dev', tab, true);
     } else alert('Could not send to ideas');
 }
 
-function editDevNote(tab, id) {
-    _devNoteEditing = { tab, id };
+function editNote(kind, tab, id) {
+    _noteEditing = { kind, tab, id };
     renderDevNotes();
-    const ta = document.getElementById(`devnote-edit-${tab}-${id}`);
+    const ta = document.getElementById(`${kind}note-edit-${tab}-${id}`);
     if (ta) { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
 }
 
-function cancelDevNoteEdit() {
-    _devNoteEditing = null;
+function cancelNoteEdit() {
+    _noteEditing = null;
     renderDevNotes();
 }
 
-async function saveDevNote(tab, id) {
-    const ta = document.getElementById(`devnote-edit-${tab}-${id}`);
+async function saveNote(kind, tab, id) {
+    const cfg = NOTE_KINDS[kind];
+    const ta = document.getElementById(`${kind}note-edit-${tab}-${id}`);
     if (!ta) return;
     const text = ta.value.trim();
     if (!text) return;
-    const before = ((D.dev_notes || []).find(n => n.id === id) || {}).text;
-    const res = await fetch('/api/devnote/edit', {
+    const before = ((D[cfg.dataKey] || []).find(n => n.id === id) || {}).text;
+    const res = await fetch(`${cfg.api}/edit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tab, id, text })
     });
     if (res.ok) {
-        if (before !== undefined && before !== text) _devNotePush(tab, { kind: 'edit', id, before, after: text });
-        _devNoteEditing = null;
-        await refreshDevNotes(tab);
+        if (before !== undefined && before !== text) _notePush(kind, tab, { kind: 'edit', id, before, after: text });
+        _noteEditing = null;
+        await refreshNotes(kind, tab);
     }
 }
 
-function removeDevNote(tab, id) {
-    const note = (D.dev_notes || []).find(n => n.id === id);
-    confirmDelete(note ? note.text : 'this note', 'devnote');
-    pendingDelete = { type: 'devnote', tab, id, item: note ? note.text : 'this note' };
+function removeNote(kind, tab, id) {
+    const cfg = NOTE_KINDS[kind];
+    const note = (D[cfg.dataKey] || []).find(n => n.id === id);
+    confirmDelete(note ? note.text : 'this note', cfg.deleteType);
+    pendingDelete = { type: cfg.deleteType, kind, tab, id, item: note ? note.text : 'this note' };
 }
 
-// Refresh just the dev-notes panel from the server without a full dashboard
-// reload, so the open panel and scroll position are preserved.
-async function refreshDevNotes(tab) {
+// Refresh the panels from the server without a full dashboard reload, so the
+// open panel and scroll position are preserved. `both` refetches the other
+// panel too (a 💡 move touches dev AND idea). On the Ideas tab the by-page
+// overview also needs the new state, so fall back to a full reload there.
+async function refreshNotes(kind, tab, both) {
+    if (currentTab === 'ideas') { loadDashboard(); return; }
     try {
-        const r = await fetch(`/api/devnotes/${tab}`);
-        if (r.ok) {
+        const kinds = both ? ['dev', 'idea'] : [kind];
+        for (const k of kinds) {
+            const cfg = NOTE_KINDS[k];
+            const r = await fetch(cfg.listUrl(tab));
+            if (!r.ok) throw new Error(r.status);
             const data = await r.json();
-            D.dev_notes = data.notes || [];
-            renderDevNotes();
-            return;
+            D[cfg.dataKey] = data.notes || [];
         }
+        renderDevNotes();
+        return;
     } catch (e) { /* fall through to full reload */ }
     loadDashboard();
 }

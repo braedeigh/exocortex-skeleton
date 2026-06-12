@@ -1,19 +1,16 @@
-"""The ideas doc (store.IDEAS_FILE) as its own page — view + edit.
+"""The ideas vision doc (store.IDEAS_FILE) — raw content in, raw content out.
 
-The doc is one markdown file owned by the user (dev-note 💡-sends append to
-it; see routes/devnotes.py). This serves it raw; ideas.html renders sections
-as collapsible cards with a jump-to TOC.
+The doc is one markdown file owned by the user (her + the Keeper's vision
+scratchpad). The Ideas dashboard tab renders it as collapsible section cards
+(static/js/ideas.js) and edits it through these routes. Quick idea *entries*
+are a separate store — see routes/devnotes.py (idea_notes.json).
 """
-from flask import request, jsonify, render_template
+from flask import request, jsonify
 
 import store
 
 
 def register(app):
-
-    @app.route("/ideas-view")
-    def ideas_view():
-        return render_template("ideas.html")
 
     @app.route("/api/ideas")
     def ideas_get():

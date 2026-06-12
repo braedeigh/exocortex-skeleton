@@ -1480,3 +1480,29 @@ details.card-section > summary > span[style*="color:var(--text-muted)"] {
     border-radius: var(--radius-sm);
 }
 .tt-toast button:hover { background: rgba(124,92,191,0.12); }
+
+/* --- Ideas tab: vision-doc section cards --- */
+.ideas-doc-section {
+    background: var(--card-bg); border: 1px solid var(--border);
+    border-left: 3px solid var(--accent); border-radius: 10px;
+    margin: 10px 0; overflow: hidden;
+}
+.ideas-doc-section summary {
+    list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px;
+    padding: 12px 14px; font-size: 15px; font-weight: 600; min-height: 44px; box-sizing: border-box;
+}
+.ideas-doc-section summary::-webkit-details-marker { display: none; }
+.ideas-doc-section[open] .kitchen-arrow { transform: rotate(90deg); }
+.ideas-doc-count {
+    font-size: 12px; font-weight: 600; color: var(--text-muted);
+    background: var(--bg); border-radius: 10px; padding: 1px 8px;
+}
+.ideas-doc-body { padding: 0 16px 14px; font-size: 14px; line-height: 1.55; }
+.ideas-doc-body h3 { font-size: 14.5px; margin: 14px 0 6px; }
+.ideas-doc-body p { margin: 8px 0; }
+.ideas-doc-body ul { padding-left: 20px; margin: 8px 0; }
+.ideas-doc-body li { margin: 4px 0; }
+.ideas-doc-body code { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; font-size: 12.5px; }
+.ideas-doc-body blockquote { border-left: 3px solid var(--accent); padding-left: 12px; color: var(--text-muted); margin: 8px 0; }
+.ideas-doc-body a { color: var(--accent); }
+.ideas-doc-body hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }

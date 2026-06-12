@@ -28,6 +28,7 @@
             <a href="/kitchen" class="time-btn" data-tab="kitchen" style="text-decoration:none" onclick="switchTab(event,'kitchen')">Kitchen</a>
             <!-- Optional tabs: shown in the bar while they fit, auto-moved into More
                  (by layoutTabs) when the pane is too narrow. Never duplicated. -->
+            <a href="/ideas" class="time-btn tab-opt auth-only" data-tab="ideas" style="text-decoration:none" onclick="switchTab(event,'ideas')">Ideas</a>
             <a href="/body" class="time-btn tab-opt" data-tab="body" style="text-decoration:none" onclick="switchTab(event,'body')">Body</a>
             <a href="/money" class="time-btn tab-opt" data-tab="money" style="text-decoration:none" onclick="switchTab(event,'money')">Money</a>
             <a href="/meditation" class="time-btn tab-opt" data-tab="meditation" style="text-decoration:none" onclick="switchTab(event,'meditation')">Meditation</a>
@@ -83,12 +84,14 @@
         </div>
 
         <div id="dev-notes-today" class="auth-only" data-tab="today"></div>
+        <div id="idea-notes-today" class="auth-only" data-tab="today"></div>
     </div>
 
     <!-- GROCERY TAB -->
     <div id="tab-kitchen" style="display:none">
         <div id="kitchen-tab-area"></div>
         <div id="dev-notes-kitchen" class="auth-only" data-tab="kitchen"></div>
+        <div id="idea-notes-kitchen" class="auth-only" data-tab="kitchen"></div>
     </div>
 
     <!-- LIFE MAP TAB -->
@@ -123,6 +126,7 @@
 
 
         <div id="dev-notes-map" class="auth-only" data-tab="map"></div>
+        <div id="idea-notes-map" class="auth-only" data-tab="map"></div>
     </div>
 
     <!-- MONEY TAB -->
@@ -138,6 +142,7 @@
         <div id="budget-config-area" class="auth-only"></div>
 
         <div id="dev-notes-money" class="auth-only" data-tab="money"></div>
+        <div id="idea-notes-money" class="auth-only" data-tab="money"></div>
     </div>
 
     <!-- INVENTORY TAB -->
@@ -157,6 +162,7 @@
         <div id="item-buy-area" style="display:none"></div>
 
         <div id="dev-notes-inventory" class="auth-only" data-tab="inventory"></div>
+        <div id="idea-notes-inventory" class="auth-only" data-tab="inventory"></div>
     </div>
 
     <!-- CAR MAINTENANCE TAB -->
@@ -169,6 +175,7 @@
         <div id="car-add-form-area"></div>
         <div id="car-log-area"></div>
         <div id="dev-notes-car" class="auth-only" data-tab="car"></div>
+        <div id="idea-notes-car" class="auth-only" data-tab="car"></div>
     </div>
 
     <!-- BODY TAB -->
@@ -228,6 +235,7 @@
         </details>
 
         <div id="dev-notes-body" class="auth-only" data-tab="body"></div>
+        <div id="idea-notes-body" class="auth-only" data-tab="body"></div>
     </div>
 
     <!-- MEDITATION TAB -->
@@ -248,6 +256,7 @@
             <div id="meditation-deities-area"></div>
         </div>
         <div id="dev-notes-meditation" class="auth-only" data-tab="meditation"></div>
+        <div id="idea-notes-meditation" class="auth-only" data-tab="meditation"></div>
     </div>
 
     <!-- MEDIA TAB -->
@@ -258,6 +267,7 @@
         </div>
         <div id="media-area"></div>
         <div id="dev-notes-media" class="auth-only" data-tab="media"></div>
+        <div id="idea-notes-media" class="auth-only" data-tab="media"></div>
     </div>
 
     <!-- MOVEMENT TAB -->
@@ -268,6 +278,15 @@
         </div>
         <div id="movement-area"></div>
         <div id="dev-notes-movement" class="auth-only" data-tab="movement"></div>
+        <div id="idea-notes-movement" class="auth-only" data-tab="movement"></div>
+    </div>
+
+    <!-- IDEAS TAB -->
+    <div id="tab-ideas" style="display:none">
+        <div id="ideas-by-page"></div>
+        <div id="ideas-doc"></div>
+        <div id="dev-notes-ideas" class="auth-only" data-tab="ideas"></div>
+        <div id="idea-notes-ideas" class="auth-only" data-tab="ideas"></div>
     </div>
 
     <div class="footer">{{ app_name }} v{{ app_version }}{% if owner_name %} &mdash; {{ owner_name }}{% endif %}</div>
@@ -371,6 +390,7 @@
 <script src="{{ v_static('js/meditation.js') }}"></script>
 <script src="{{ v_static('js/media.js') }}"></script>
 <script src="{{ v_static('js/movement.js') }}"></script>
+<script src="{{ v_static('js/ideas.js') }}"></script>
 <script src="{{ v_static('js/reminders.js') }}"></script>
 <script src="{{ v_static('js/polling.js') }}"></script>
 <script src="{{ v_static('js/today-polish.js') }}"></script>

@@ -264,7 +264,7 @@ def api_change_password():
     return jsonify({"ok": True})
 
 
-VALID_TABS = ("today", "map", "kitchen", "inventory", "money", "car", "meditation", "media", "movement", "body")
+VALID_TABS = ("today", "map", "kitchen", "inventory", "money", "car", "meditation", "media", "movement", "body", "ideas")
 
 # Path to the file that backs the public homepage fake-terminal intro.
 PUBLIC_INTRO_PATH = CONTENT_DIR / "public_intro.md"
@@ -338,6 +338,7 @@ _SPLIT_PAGES = [
     ("/media", "media"),
     ("/movement", "movement"),
     ("/body", "body"),
+    ("/ideas", "ideas"),
 ]
 
 
@@ -384,9 +385,10 @@ def about_page():
     return render_template("about.html")
 
 
-# --- Dev Notes (per-tab friction log) — routes live in routes/devnotes.py ---
+# --- Dev Notes + Idea Notes (per-tab panels) — routes live in routes/devnotes.py ---
 
 _load_dev_notes = devnotes.load_dev_notes
+_load_idea_notes = devnotes.load_idea_notes
 
 
 # --- Journal ---
@@ -685,6 +687,7 @@ def get_data_today():
         "private_act_types": _private_act_types(),
     })
     data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("today", [])
+    data["idea_notes"] = _load_idea_notes().get("tabs", {}).get("today", [])
     return jsonify(filter_for_view(data, request.view_mode))
   except Exception as e:
     app.logger.error(f"/api/data/today failed: {e}\n{traceback.format_exc()}")
@@ -717,6 +720,7 @@ def get_data_map():
         "private_act_types": _private_act_types(),
     })
     data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("map", [])
+    data["idea_notes"] = _load_idea_notes().get("tabs", {}).get("map", [])
     return jsonify(filter_for_view(data, request.view_mode))
   except Exception as e:
     app.logger.error(f"/api/data/map failed: {e}\n{traceback.format_exc()}")
@@ -738,6 +742,7 @@ def get_data_inventory():
         "priority_notes": priority_notes,
     })
     data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("inventory", [])
+    data["idea_notes"] = _load_idea_notes().get("tabs", {}).get("inventory", [])
     return jsonify(filter_for_view(data, request.view_mode))
   except Exception as e:
     app.logger.error(f"/api/data/inventory failed: {e}\n{traceback.format_exc()}")
@@ -763,6 +768,7 @@ def get_data_money():
         "tax_setaside": tax_setaside,
     })
     data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("money", [])
+    data["idea_notes"] = _load_idea_notes().get("tabs", {}).get("money", [])
     return jsonify(filter_for_view(data, request.view_mode))
   except Exception as e:
     app.logger.error(f"/api/data/money failed: {e}\n{traceback.format_exc()}")
@@ -778,6 +784,7 @@ def get_data_car():
         "car_notes": _load_car_notes(),
     })
     data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("car", [])
+    data["idea_notes"] = _load_idea_notes().get("tabs", {}).get("car", [])
     return jsonify(filter_for_view(data, request.view_mode))
   except Exception as e:
     app.logger.error(f"/api/data/car failed: {e}\n{traceback.format_exc()}")
@@ -804,6 +811,7 @@ def get_data_body():
     data["food_test_queue"] = store.read("test_queue.json", {}).get("queue", [])
     data["symptom_definitions"] = store.read("symptom_definitions.json", {})
     data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("body", [])
+    data["idea_notes"] = _load_idea_notes().get("tabs", {}).get("body", [])
     return jsonify(filter_for_view(data, request.view_mode))
   except Exception as e:
     app.logger.error(f"/api/data/body failed: {e}\n{traceback.format_exc()}")
@@ -820,6 +828,7 @@ def get_data_meditation():
         "deity_profiles": _load_deity_profiles(),
     })
     data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("meditation", [])
+    data["idea_notes"] = _load_idea_notes().get("tabs", {}).get("meditation", [])
     return jsonify(filter_for_view(data, request.view_mode))
   except Exception as e:
     app.logger.error(f"/api/data/meditation failed: {e}\n{traceback.format_exc()}")
@@ -834,6 +843,7 @@ def get_data_media():
         "media": _load_media(),
     })
     data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("media", [])
+    data["idea_notes"] = _load_idea_notes().get("tabs", {}).get("media", [])
     return jsonify(filter_for_view(data, request.view_mode))
   except Exception as e:
     app.logger.error(f"/api/data/media failed: {e}\n{traceback.format_exc()}")
@@ -848,9 +858,27 @@ def get_data_movement():
         "movement": _load_movement(),
     })
     data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("movement", [])
+    data["idea_notes"] = _load_idea_notes().get("tabs", {}).get("movement", [])
     return jsonify(filter_for_view(data, request.view_mode))
   except Exception as e:
     app.logger.error(f"/api/data/movement failed: {e}\n{traceback.format_exc()}")
+    return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/data/ideas")
+def get_data_ideas():
+  try:
+    data = _common_data()
+    data.update({
+        # The by-page overview needs every tab's entries, not just one tab's.
+        "idea_notes_all": _load_idea_notes().get("tabs", {}),
+        "ideas_md": store.IDEAS_FILE.read_text() if store.IDEAS_FILE.exists() else "",
+    })
+    data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("ideas", [])
+    data["idea_notes"] = _load_idea_notes().get("tabs", {}).get("ideas", [])
+    return jsonify(filter_for_view(data, request.view_mode))
+  except Exception as e:
+    app.logger.error(f"/api/data/ideas failed: {e}\n{traceback.format_exc()}")
     return jsonify({"error": str(e)}), 500
 
 
@@ -891,6 +919,7 @@ def get_data_kitchen():
     data["meal_notes"] = meal_notes
     data["meal_defaults"] = _load_meal_defaults()
     data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("kitchen", [])
+    data["idea_notes"] = _load_idea_notes().get("tabs", {}).get("kitchen", [])
 
     data["kitchen_trips"] = store.read("kitchen_trips.json", {}).get("trips", [])
     data["recipes"] = store.read("recipes.json", {}).get("recipes", [])
