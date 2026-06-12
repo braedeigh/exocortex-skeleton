@@ -184,9 +184,7 @@ def register(app):
     @app.route("/api/subscription/auto-detect", methods=["POST"])
     def auto_detect_subscriptions():
         """Scan expenses with category 'Subscriptions', group by merchant, add recurring ones."""
-        if not (DATA_DIR / "expenses.json").exists():
-            return jsonify({"added": 0, "skipped": 0})
-        expenses = store.read("expenses.json").get("items", [])
+        expenses = store.read("expenses.json", {"items": []}).get("items", [])
         sub_expenses = [e for e in expenses if (e.get("category", "").lower() == "subscriptions")]
         if not sub_expenses:
             return jsonify({"added": 0, "skipped": 0})
@@ -312,9 +310,7 @@ def register(app):
         """Return a saved label (title) for this merchant, if any."""
         if not desc:
             return ""
-        if not (DATA_DIR / "merchant_labels.json").exists():
-            return ""
-        ldata = store.read("merchant_labels.json")
+        ldata = store.read("merchant_labels.json", {"patterns": []})
         d = desc.lower()
         for p in ldata.get("patterns", []):
             if p["match"].lower() in d:
@@ -388,9 +384,7 @@ def register(app):
             else:
                 r["include"] = False
         # Detect already-imported rows (match by date+amount+desc)
-        existing = []
-        if (DATA_DIR / "expenses.json").exists():
-            existing = store.read("expenses.json").get("items", [])
+        existing = store.read("expenses.json", {"items": []}).get("items", [])
         existing_keys = {(e.get("date"), abs(e.get("amount", 0)), e.get("comments", "")) for e in existing}
         for r in rows:
             key = (r["date"], abs(r["amount"]), r["desc"])
@@ -398,9 +392,7 @@ def register(app):
             if r["already_imported"]:
                 r["include"] = False
         # Get list of all known categories (from budget + existing rules + observed)
-        budget_cats = []
-        if (DATA_DIR / "budget.json").exists():
-            budget_cats = [c["name"] for c in store.read("budget.json").get("categories", [])]
+        budget_cats = [c["name"] for c in store.read("budget.json", {"categories": []}).get("categories", [])]
         rule_cats = sorted({p["category"] for p in rules.get("patterns", [])})
         all_cats = sorted(set(budget_cats) | set(rule_cats) | {r["category"] for r in rows})
         return jsonify({"rows": rows, "categories": all_cats})

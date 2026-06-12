@@ -52,8 +52,10 @@ STREAMS = {
     "priority_notes": "public",
 
     # ---- money ----
-    # Visible to the public, but dollar figures are masked client-side ($•••).
-    # The raw amounts still travel in this response to drive the bars/percentages.
+    # Visible to the public, but RESCALED server-side (see _scale_money_streams):
+    # every dollar figure is multiplied by one private factor before it leaves
+    # the server, so the bars/percentages render identically while the real
+    # amounts never travel. The client additionally masks displayed figures ($•••).
     "budget": "public",
     "expenses": "public",
     "subscriptions": "public",
@@ -122,6 +124,68 @@ def is_public_path(path: str) -> bool:
     return False
 
 
+def _money_f(v):
+    try:
+        return float(v or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _scale_money_streams(out):
+    """Public money view: ship RELATIVE numbers, never dollars.
+
+    The public money tab only renders ratios (budget bars = spent/planned,
+    expense bars = amount/max, income-vs-spent fractions), and the client masks
+    every displayed figure as $•••. But client-side masking means the real
+    amounts still travel in the response — open devtools and read them. So:
+    rescale every dollar figure by ONE private factor (largest value → 100)
+    before the response leaves the server. All ratio math renders identically;
+    the absolute dollars are unrecoverable. Also drops fields with no business
+    in a public response: the bank CSV deep-link and receipt file paths.
+
+    Returns new dicts/lists — never mutates the caller's data (the
+    filter_for_view contract).
+    """
+    budget = out.get("budget")
+    expenses = out.get("expenses")
+    subs = out.get("subscriptions")
+
+    vals = []
+    if isinstance(budget, dict):
+        vals.append(abs(_money_f(budget.get("income_monthly"))))
+        vals += [abs(_money_f(c.get("planned"))) for c in budget.get("categories") or []]
+    if isinstance(expenses, list):
+        vals += [abs(_money_f(e.get("amount"))) for e in expenses if isinstance(e, dict)]
+    if isinstance(subs, list):
+        vals += [abs(_money_f(s.get("amount"))) for s in subs if isinstance(s, dict)]
+    peak = max(vals, default=0)
+    k = (100.0 / peak) if peak > 0 else 0.0
+
+    def scale(v):
+        return round(_money_f(v) * k, 2)
+
+    if isinstance(budget, dict):
+        budget = dict(budget)
+        budget.pop("bank_csv_url", None)  # bank deep-link: owner-only, full stop
+        budget["income_monthly"] = scale(budget.get("income_monthly"))
+        budget["categories"] = [
+            {**c, "planned": scale(c.get("planned"))}
+            for c in budget.get("categories") or [] if isinstance(c, dict)
+        ]
+        out["budget"] = budget
+    if isinstance(expenses, list):
+        out["expenses"] = [
+            {**{key: v for key, v in e.items() if key not in ("receipt", "source")},
+             "amount": scale(e.get("amount"))}
+            for e in expenses if isinstance(e, dict)
+        ]
+    if isinstance(subs, list):
+        out["subscriptions"] = [
+            {**s, "amount": scale(s.get("amount"))}
+            for s in subs if isinstance(s, dict)
+        ]
+
+
 def _frost_placeholder(value):
     if isinstance(value, list):
         return {"_frosted": True, "shape": "list", "count": len(value)}
@@ -154,4 +218,6 @@ def filter_for_view(data, view_mode):
             e for e in out["activity_log"]
             if not (isinstance(e, dict) and e.get("type") in private_types)
         ]
+    # Money: replace absolute dollar figures with relative values (see docstring)
+    _scale_money_streams(out)
     return out
