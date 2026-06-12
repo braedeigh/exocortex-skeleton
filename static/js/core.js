@@ -1604,7 +1604,7 @@ const ACT_TYPES = {
     'laundry-sheets': { label: 'Sheets',  color: '#E06060', shape: 'diamond' },
     'wash-eyemasks':  { label: 'Eye masks', color: '#5BB8C9', shape: 'diamond' },
     'change-pillowcase': { label: 'Pillowcase', color: '#D4A0A0', shape: 'diamond' },
-    'wash-hair':      { label: 'Hair wash', color: '#8B7EC8', shape: 'ring' },
+    'wash-hair':      { label: 'Hair wash', color: '#8B7EC8', shape: 'circle' },
     estradiol:        { label: 'Estradiol', color: '#E091C7', shape: 'triangle' },
     peptides:         { label: 'Peptides', color: '#6FBF8B', shape: 'triangle' },
 };
