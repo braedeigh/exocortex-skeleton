@@ -409,10 +409,7 @@ function renderRecipeDetailInto(el, id) {
             <div style="flex:1 1 auto;display:flex;justify-content:center;min-width:120px">
                 <button onclick="sendRecipeToGroceryList('${esc(recipe.id)}')" style="min-height:40px;padding:6px 18px;background:var(--green);color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer" title="Pick ingredients (the ones you need are pre-checked) and add to your grocery list">Send to list</button>
             </div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap">
-                <button onclick="removeRecipe('${esc(recipe.id)}','${esc(recipe.name || 'recipe')}')" style="background:none;border:1px solid var(--border);color:var(--text-muted);min-height:40px;font-size:12px;border-radius:6px;padding:6px 12px;cursor:pointer">Delete</button>
-                <button onclick="editRecipe('${esc(recipe.id)}')" style="min-height:40px;padding:6px 14px;background:none;color:var(--text);border:1px solid var(--accent);border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">Edit</button>
-            </div>
+            <button onclick="editRecipe('${esc(recipe.id)}')" style="min-height:40px;padding:6px 14px;background:none;color:var(--text);border:1px solid var(--accent);border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">Edit</button>
         </div>
         <div style="font-size:22px;font-weight:700;margin-bottom:4px">${esc(recipe.name)}</div>
         ${metaBits.length ? `<div style="font-size:13px;color:var(--text-muted);margin-bottom:6px">${esc(metaBits.join(' · '))}</div>` : ''}
@@ -427,10 +424,14 @@ function renderRecipeDetailInto(el, id) {
                 <div style="font-weight:700;font-size:15px">My notes</div>
                 <div id="recipe-my-notes-status" style="font-size:12px;color:var(--text-muted)"></div>
             </div>
-            <textarea id="recipe-my-notes-text" data-id="${esc(recipe.id)}" rows="4" placeholder="What you tweaked, how it turned out, who liked it…" oninput="_recipeMyNotesDirty()" onblur="_recipeMyNotesSave()" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px;font-family:inherit;resize:vertical;box-sizing:border-box">${esc(recipe.my_notes || '')}</textarea>
+            <textarea id="recipe-my-notes-text" data-id="${esc(recipe.id)}" rows="4" placeholder="What you tweaked, how it turned out, who liked it…" oninput="_recipeMyNotesDirty();autoGrow(this)" onblur="_recipeMyNotesSave()" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5;font-family:inherit;resize:vertical;box-sizing:border-box;max-height:300px;overflow-y:auto">${esc(recipe.my_notes || '')}</textarea>
         </div>
         ${_renderRecipePastVersions(recipe)}
     </div>`;
+    // Open "My notes" at the height of what's already written (it also grows as
+    // she types — a drag-resize handle doesn't exist on touch).
+    const mn = document.getElementById('recipe-my-notes-text');
+    if (mn && mn.value) autoGrow(mn);
 }
 
 function _walkRecipeChain(recipe) {
@@ -633,10 +634,11 @@ function _renderRecipeEditInto(el, r) {
         </label>
         <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--text-muted);margin-bottom:10px">
             My notes
-            <textarea id="recipe-edit-my-notes" rows="3" placeholder="What you tweaked, how it turned out…" style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px;resize:vertical;font-family:inherit">${esc(r.my_notes || '')}</textarea>
+            <textarea id="recipe-edit-my-notes" rows="3" placeholder="What you tweaked, how it turned out…" oninput="autoGrow(this)" style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5;resize:vertical;font-family:inherit;max-height:300px;overflow-y:auto">${esc(r.my_notes || '')}</textarea>
         </label>
         <div style="font-size:12px;color:var(--text-muted)">Source: ${r.source_url ? `<a href="${esc(r.source_url)}" target="_blank" style="color:var(--ongoing);text-decoration:none">${esc(r.source_url)}</a>` : r.source_image ? esc(r.source_image) : '—'}</div>
         <div style="display:flex;align-items:center;gap:10px;margin-top:18px;padding-top:14px;border-top:1px solid var(--border);flex-wrap:wrap">
+            <button onclick="removeRecipe('${esc(r.id)}','${esc(r.name || 'recipe')}')" style="min-height:40px;background:none;border:1px solid var(--red);color:var(--red);font-size:13px;font-weight:600;border-radius:6px;padding:6px 14px;cursor:pointer">Delete</button>
             <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
                 <button onclick="cancelRecipeEdit()" style="padding:6px 14px;background:none;color:var(--text-muted);border:1px solid var(--border);border-radius:6px;font-size:13px;cursor:pointer">Cancel</button>
                 <button onclick="saveRecipeEdit()" style="padding:6px 14px;background:var(--ongoing);color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer" title="Overwrite this recipe in place">Save</button>
@@ -644,6 +646,8 @@ function _renderRecipeEditInto(el, r) {
             </div>
         </div>
     </div>`;
+    const emn = document.getElementById('recipe-edit-my-notes');
+    if (emn && emn.value) autoGrow(emn);
 }
 
 function _readRecipeFromEditForm() {
