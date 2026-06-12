@@ -67,7 +67,7 @@ function initTab() {
 // --- toggleExpandAll ---
 function toggleExpandAll() {
     expandedAll = !expandedAll;
-    document.getElementById('expand-btn').textContent = expandedAll ? 'Show less' : 'Show hidden';
+    document.getElementById('expand-btn').textContent = expandedAll ? 'Hide prompts' : 'Show hidden prompts';
     render();
     if (expandedAll) {
         document.querySelectorAll('details').forEach(d => { d.open = true; });
@@ -340,7 +340,10 @@ function renderHeader() {
     if (currentTab === 'today') {
         const greetings = { morning: 'Good morning', afternoon: 'Good afternoon', evening: 'Good evening' };
         greetingEl.textContent = greetings[getTime()];
-        dateEl.textContent = D.date;
+        // The date line also carries the "Show hidden prompts" toggle — write the
+        // date into its own span so the button (a sibling) survives re-renders.
+        const dateText = document.getElementById('date-text');
+        if (dateText) dateText.textContent = D.date; else dateEl.textContent = D.date;
         greetingEl.style.display = '';
         dateEl.style.display = '';
         renderStreaks();

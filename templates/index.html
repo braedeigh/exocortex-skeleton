@@ -49,12 +49,13 @@
     <!-- TODAY TAB -->
     <div id="tab-today">
         <div id="greeting" class="greeting"></div>
-        <div id="date-info" class="date-info"></div>
-        <div id="streaks-area" class="auth-only"></div>
-
-        <div style="margin:0 0 12px">
-            <button id="expand-btn" onclick="toggleExpandAll()" style="font-size:12px;color:var(--text-muted);cursor:pointer;border:none;background:none;padding:2px 0;text-decoration:underline;text-underline-offset:3px">Show hidden</button>
+        <div id="date-info" class="date-info">
+            <span id="date-text"></span>
+            <span aria-hidden="true" style="margin:0 6px;color:var(--text-muted)">·</span>
+            <!-- padding+negative margin = comfortable tap area without shifting the line -->
+            <button id="expand-btn" onclick="toggleExpandAll()" style="font-size:13px;color:var(--text-muted);cursor:pointer;border:none;background:none;padding:10px 2px;margin:-10px 0;text-decoration:underline;text-underline-offset:3px">Show hidden prompts</button>
         </div>
+        <div id="streaks-area" class="auth-only"></div>
 
         <div id="food-log-banner"></div>
         <div id="linen-reminders"></div>
