@@ -119,6 +119,10 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
         <button class="active" id="editBtn" onclick="setMode('edit')">Edit</button>
         <button id="readBtn" onclick="setMode('read')">Read</button>
     </div>
+    <!-- Empty today → start the page yourself, no keeper required -->
+    <div id="startDay" style="display:none;padding:10px 0">
+        <button onclick="startToday()" style="width:100%;min-height:44px;border:1px solid var(--accent);border-radius:10px;background:var(--accent-light);color:var(--accent);font-size:15px;font-weight:600;cursor:pointer">&#9999;&#65039; Start today's page</button>
+    </div>
     <div class="content">
         <textarea id="editor" spellcheck="false"></textarea>
         <div class="preview" id="preview"></div>
@@ -173,6 +177,9 @@ async function loadDate(date) {
         currentDate = data.date;
         editor.value = data.content;
         lastSaved = data.content;
+        // Offer to seed today's page when it doesn't exist yet.
+        const sd = document.getElementById('startDay');
+        if (sd) sd.style.display = (data.date === localToday() && !data.content.trim()) ? '' : 'none';
         document.getElementById('dateLabel').textContent = formatDate(data.date);
         document.getElementById('prevBtn').disabled = !data.prev;
         document.getElementById('prevBtn').dataset.date = data.prev || '';
@@ -198,6 +205,17 @@ function nav(dir) {
 }
 
 function goToday() { loadDate(null); }
+
+// Seed today's page with the standard header (what the keeper would write)
+// so a journal day can start without a keeper session.
+function startToday() {
+    editor.value = `# ${currentDate}\n\n\`B = Bradie | K = Keeper\`\n\n---\n\n`;
+    document.getElementById('startDay').style.display = 'none';
+    setMode('edit');
+    save();
+    editor.focus();
+    editor.setSelectionRange(editor.value.length, editor.value.length);
+}
 
 // --- Edit / Read toggle ---
 function setMode(mode) {
