@@ -68,3 +68,40 @@ def test_to_ideas_unknown_note_404s_and_keeps_notes(client):
     assert res.status_code == 404
     assert len(read_notes("today")) == 1
     assert nid == read_notes("today")[0]["id"]
+
+
+# --- /api/devnote/restore (undo of delete / send-to-ideas) ---
+
+def test_restore_reinserts_deleted_note_at_its_index(client):
+    _add(client, "today", "first")
+    nid = _add(client, "today", "second")
+    _add(client, "today", "third")
+    note = read_notes("today")[1]
+    client.post("/api/devnote/remove", json={"tab": "today", "id": nid})
+    res = client.post("/api/devnote/restore", json={"tab": "today", "note": note, "index": 1})
+    assert res.status_code == 200
+    restored = read_notes("today")
+    assert [n["text"] for n in restored] == ["first", "second", "third"]
+    assert restored[1]["id"] == nid
+    assert restored[1]["created"] == note["created"]   # timestamp survives the round trip
+
+
+def test_restore_undoes_send_to_ideas_completely(client):
+    nid = _add(client, "today", "actually still a bug")
+    note = read_notes("today")[0]
+    client.post("/api/devnote/to_ideas", json={"tab": "today", "id": nid})
+    assert "actually still a bug" in store.IDEAS_FILE.read_text()
+    res = client.post("/api/devnote/restore",
+                      json={"tab": "today", "note": note, "index": 0, "remove_from_ideas": True})
+    assert res.status_code == 200
+    assert read_notes("today")[0]["id"] == nid
+    assert "actually still a bug" not in store.IDEAS_FILE.read_text()
+
+
+def test_restore_twice_does_not_duplicate(client):
+    nid = _add(client, "today", "only once")
+    note = read_notes("today")[0]
+    client.post("/api/devnote/remove", json={"tab": "today", "id": nid})
+    client.post("/api/devnote/restore", json={"tab": "today", "note": note, "index": 0})
+    client.post("/api/devnote/restore", json={"tab": "today", "note": note, "index": 0})
+    assert len(read_notes("today")) == 1

@@ -811,11 +811,15 @@ async function executeDelete() {
         });
     } else if (pendingDelete.type === 'devnote') {
         const tab = pendingDelete.tab;
+        const notes = D.dev_notes || [];
+        const index = notes.findIndex(n => n.id === pendingDelete.id);
+        const note = notes[index];
         await fetch('/api/devnote/remove', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ tab, id: pendingDelete.id })
         });
+        if (note) _devNotePush(tab, { kind: 'delete', note, index });
         closeModal();
         await refreshDevNotes(tab);
         return;
@@ -1685,6 +1689,54 @@ const APP_STATUS_CLASS = (s) => {
 // Which note (if any) is currently being inline-edited: { tab, id } or null.
 let _devNoteEditing = null;
 
+// --- Dev-note undo/redo --------------------------------------------------
+// Per-tab history of destructive panel actions (delete / send-to-ideas / edit),
+// kept in memory for the page session. Each action knows how to invert itself,
+// so Undo plays the inverse and Redo replays the original.
+// Action shapes: {kind:'delete'|'ideas', note, index} | {kind:'edit', id, before, after}
+window._devNoteHistory = window._devNoteHistory || {};
+
+function _devNoteHist(tab) {
+    return window._devNoteHistory[tab] = window._devNoteHistory[tab] || { undo: [], redo: [] };
+}
+
+// A fresh user action starts a new timeline: push to undo, clear redo.
+function _devNotePush(tab, action) {
+    const h = _devNoteHist(tab);
+    h.undo.push(action);
+    if (h.undo.length > 20) h.undo.shift();
+    h.redo.length = 0;
+}
+
+async function _devNoteApply(tab, a, dir) {
+    const post = (url, body) => fetch(url, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+    });
+    if (a.kind === 'delete') {
+        if (dir === 'undo') await post('/api/devnote/restore', { tab, note: a.note, index: a.index });
+        else await post('/api/devnote/remove', { tab, id: a.note.id });
+    } else if (a.kind === 'ideas') {
+        if (dir === 'undo') await post('/api/devnote/restore', { tab, note: a.note, index: a.index, remove_from_ideas: true });
+        else await post('/api/devnote/to_ideas', { tab, id: a.note.id });
+    } else if (a.kind === 'edit') {
+        await post('/api/devnote/edit', { tab, id: a.id, text: dir === 'undo' ? a.before : a.after });
+    }
+}
+
+async function devNoteHistoryStep(tab, dir) {
+    const h = _devNoteHist(tab);
+    const from = dir === 'undo' ? h.undo : h.redo;
+    const to = dir === 'undo' ? h.redo : h.undo;
+    const a = from.pop();
+    if (!a) return;
+    await _devNoteApply(tab, a, dir);
+    to.push(a);
+    await refreshDevNotes(tab);
+}
+
+const _DEVNOTE_KIND_LABEL = { delete: 'delete', ideas: 'send to ideas', edit: 'edit' };
+
 function renderDevNotes() {
     const els = document.querySelectorAll('[id^="dev-notes-"]');
     els.forEach(el => {
@@ -1716,10 +1768,21 @@ function renderDevNotes() {
                     <textarea rows="1" id="devnote-input-${esc(tab)}-${which}" placeholder="What's bugging you about this page?" style="flex:1;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;line-height:1.4;font-family:inherit;outline:none;background:var(--bg);color:var(--text);resize:none;overflow:hidden" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();addDevNote('${escJs(tab)}','${which}')}"></textarea>
                     <button onclick="addDevNote('${escJs(tab)}','${which}')" style="padding:6px 14px;border:none;border-radius:6px;background:var(--text);color:#fff;font-size:12px;font-weight:600;cursor:pointer">Add</button>
                 </div>`;
+        const h = _devNoteHist(tab);
+        const histBtn = (dir, stack, glyph) => {
+            const top = stack[stack.length - 1];
+            const label = top ? `${dir === 'undo' ? 'Undo' : 'Redo'} ${_DEVNOTE_KIND_LABEL[top.kind] || ''}` : (dir === 'undo' ? 'Nothing to undo' : 'Nothing to redo');
+            return `<button onclick="devNoteHistoryStep('${escJs(tab)}','${dir}')" ${top ? '' : 'disabled'} title="${esc(label)}"
+                style="background:none;border:1px solid var(--border);border-radius:6px;color:var(--text-muted);font-size:12px;padding:5px 10px;cursor:${top ? 'pointer' : 'default'};opacity:${top ? 1 : 0.4};white-space:nowrap">${glyph} ${dir === 'undo' ? 'Undo' : 'Redo'}</button>`;
+        };
         el.innerHTML = `<details style="margin-top:24px"${wasOpen ? ' open' : ''}>
             <summary style="font-size:13px;font-weight:600;cursor:pointer;color:var(--text-muted)">Dev notes${notes.length ? ` (${notes.length})` : ''}</summary>
             <div class="card" style="border-left-color:var(--text-muted);margin-top:8px;padding:10px">
-                <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">Friction, change ideas, things to fix on this page.</div>
+                <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+                    <div style="font-size:12px;color:var(--text-muted);flex:1">Friction, change ideas, things to fix on this page.</div>
+                    ${histBtn('undo', h.undo, '&#8617;')}
+                    ${histBtn('redo', h.redo, '&#8618;')}
+                </div>
                 ${addBox('top')}
                 ${rows}
                 ${notes.length ? addBox('bottom') : ''}
@@ -1749,13 +1812,18 @@ async function addDevNote(tab, which) {
 // A dev note that's really a product idea: append it to the ideas doc and take
 // it off the page's queue.
 async function sendDevNoteToIdeas(tab, id) {
+    const notes = D.dev_notes || [];
+    const index = notes.findIndex(n => n.id === id);
+    const note = notes[index];
     const res = await fetch('/api/devnote/to_ideas', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tab, id })
     });
-    if (res.ok) await refreshDevNotes(tab);
-    else alert('Could not send to ideas');
+    if (res.ok) {
+        if (note) _devNotePush(tab, { kind: 'ideas', note, index });
+        await refreshDevNotes(tab);
+    } else alert('Could not send to ideas');
 }
 
 function editDevNote(tab, id) {
@@ -1775,12 +1843,14 @@ async function saveDevNote(tab, id) {
     if (!ta) return;
     const text = ta.value.trim();
     if (!text) return;
+    const before = ((D.dev_notes || []).find(n => n.id === id) || {}).text;
     const res = await fetch('/api/devnote/edit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tab, id, text })
     });
     if (res.ok) {
+        if (before !== undefined && before !== text) _devNotePush(tab, { kind: 'edit', id, before, after: text });
         _devNoteEditing = null;
         await refreshDevNotes(tab);
     }
