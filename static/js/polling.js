@@ -43,6 +43,9 @@ async function pollForUpdates() {
             D = JSON.parse(text);
             D.habits.forEach(s => { s.items = s.items.map(i => typeof i === 'string' ? i : i.text); });
             syncTimeOfDay(D.time_of_day);
+            // Keep the date global fresh too — otherwise "today's" forms can log to
+            // yesterday after a midnight rollover (guarded: tab endpoints may omit it).
+            if (D.server_date) _serverDate = D.server_date;
             if (_inputFocused) {
                 _pendingRender = true; // render when they leave the input
             } else {
@@ -52,6 +55,14 @@ async function pollForUpdates() {
     } catch(e) { console.error('Poll failed:', e); }
 }
 setInterval(pollForUpdates, 5000);
+
+// When the PWA returns from the background (phone wake / tab refocus), the in-memory
+// _serverDate can be stale — setInterval is throttled while hidden, so no poll ran and
+// the date is frozen at whenever the app last loaded. A stale date silently logs
+// "today's" symptoms/food to yesterday. Re-sync from the server the moment we're visible.
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') loadDashboard();
+});
 
 // --- Go ---
 // Fresh page load → start the To-Do ladder in its default layout (only "Now" open).
