@@ -888,6 +888,8 @@ def get_data_ecosystem():
     data.update({
         "ecosystem": _load_ecosystem(),
     })
+    _eco_cfg = store.read("ecosystem_config", {})
+    data["usda_key_set"] = bool((_eco_cfg.get("usda_key") or os.environ.get("EXOCORTEX_USDA_KEY") or "").strip())
     data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("ecosystem", [])
     data["idea_notes"] = _load_idea_notes().get("tabs", {}).get("ecosystem", [])
     data["tab_todos"] = todos_for_tab("ecosystem")

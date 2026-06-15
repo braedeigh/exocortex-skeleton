@@ -159,3 +159,158 @@ def test_remove_leaves_siblings(client, data_dir):
     _post(client, "/api/ecosystem/source/remove", {"id": a})
     names = [s["name"] for s in read_eco()["sources"]]
     assert names == ["B"]
+
+
+# --- transparency (the Proper axis) ------------------------------------------
+
+def test_add_defaults_transparency_unrated(client, data_dir):
+    _add(client)
+    assert _source(client)["transparency"] == "unrated"
+
+
+def test_add_accepts_valid_transparency(client, data_dir):
+    _add(client, name="HEB beef", transparency="opaque")
+    assert _source(client)["transparency"] == "opaque"
+
+
+def test_add_coerces_bogus_transparency_to_unrated(client, data_dir):
+    _add(client, transparency="super-clear")
+    assert _source(client)["transparency"] == "unrated"
+
+
+def test_update_transparency(client, data_dir):
+    sid = _add(client, transparency="unrated")
+    _post(client, "/api/ecosystem/source/update", {"id": sid, "transparency": "disclosed"})
+    assert _source(client)["transparency"] == "disclosed"
+
+
+# --- USDA suggest parsing (no network — feed fixture rows) --------------------
+
+def test_usda_top_state_picks_biggest_in_latest_year():
+    from routes import ecosystem as eco
+    rows = [
+        {"state_name": "NORTH CAROLINA", "year": "2023", "Value": "1,000,000"},
+        {"state_name": "CALIFORNIA", "year": "2023", "Value": "400,000"},
+        {"state_name": "NORTH CAROLINA", "year": "2019", "Value": "9,000,000"},  # older year ignored
+    ]
+    assert eco._usda_top_state(rows) == ("NORTH CAROLINA", 1000000.0)
+
+
+def test_usda_top_state_skips_suppressed_values():
+    from routes import ecosystem as eco
+    rows = [
+        {"state_name": "TEXAS", "year": "2023", "Value": "(D)"},
+        {"state_name": "IOWA", "year": "2023", "Value": "500"},
+    ]
+    assert eco._usda_top_state(rows) == ("IOWA", 500.0)
+
+
+def test_usda_top_state_none_when_no_usable_rows():
+    from routes import ecosystem as eco
+    assert eco._usda_top_state([]) is None
+    assert eco._usda_top_state([{"state_name": "MARS", "year": "2023", "Value": "5"}]) is None
+
+
+def test_usda_suggestion_uses_state_centroid():
+    from routes import ecosystem as eco
+    rows = [{"state_name": "NORTH CAROLINA", "year": "2023", "Value": "1000"}]
+    sug = eco._usda_suggestion("sweet potatoes", rows)
+    assert sug["state"] == "NORTH CAROLINA"
+    assert sug["precision"] == "area" and sug["radius_km"] > 0
+    assert sug["lat"] == eco.STATE_CENTROIDS["NORTH CAROLINA"][0]
+
+
+def test_usda_commodity_synonyms():
+    from routes import ecosystem as eco
+    assert eco._usda_commodity("HEB chuck roast") == "CATTLE"
+    assert eco._usda_commodity("Sweet potatoes") == "SWEET POTATOES"
+    assert eco._usda_commodity("HEB eggs") == "CHICKENS"
+    assert eco._usda_commodity("quinoa") is None       # imported — honest no-match
+
+
+def test_add_stores_county_region(client, data_dir):
+    _add(client, name="Sweet potatoes", precision="area",
+         area_kind="counties", counties=["37163", "37101"])
+    s = _source(client)
+    assert s["area_kind"] == "counties"
+    assert s["counties"] == ["37163", "37101"]
+
+
+def test_fips_list_pads_and_filters(client, data_dir):
+    _add(client, area_kind="counties", counties=["6019", "abc", "37163", ""])
+    # 4-digit padded to 5, non-digit dropped.
+    assert _source(client)["counties"] == ["06019", "37163"]
+
+
+def test_area_kind_coerces_bogus_to_circle(client, data_dir):
+    _add(client, precision="area", area_kind="blobs")
+    assert _source(client)["area_kind"] == "circle"
+
+
+def test_usda_fips_builds_and_skips_combined():
+    from routes import ecosystem as eco
+    assert eco._usda_fips({"state_fips_code": "37", "county_code": "163"}) == "37163"
+    assert eco._usda_fips({"state_fips_code": "06", "county_code": "19"}) == "06019"
+    assert eco._usda_fips({"state_fips_code": "37", "county_code": "998"}) is None  # combined
+    assert eco._usda_fips({"state_fips_code": "37", "county_code": "x"}) is None
+
+
+def test_usda_top_counties_ranks_within_one_statistic():
+    from routes import ecosystem as eco
+    rows = [
+        {"state_fips_code": "37", "county_code": "163", "county_name": "SAMPSON",
+         "state_name": "NORTH CAROLINA", "year": "2022",
+         "statisticcat_desc": "AREA HARVESTED", "Value": "9,000"},
+        {"state_fips_code": "37", "county_code": "101", "county_name": "JOHNSTON",
+         "state_name": "NORTH CAROLINA", "year": "2022",
+         "statisticcat_desc": "AREA HARVESTED", "Value": "5,000"},
+        # a different statistic (operations) — should not be mixed in
+        {"state_fips_code": "37", "county_code": "127", "county_name": "NASH",
+         "state_name": "NORTH CAROLINA", "year": "2022",
+         "statisticcat_desc": "OPERATIONS", "Value": "12"},
+    ]
+    top = eco._usda_top_counties(rows)
+    assert top["year"] == "2022"
+    fips = [c["fips"] for c in top["counties"]]
+    assert fips == ["37163", "37101"]   # ranked by acreage, ops-row excluded
+
+
+def test_usda_top_counties_dedupes_by_fips():
+    from routes import ecosystem as eco
+    # USDA returns several rows per county (class/practice splits); they must
+    # collapse to one entry per FIPS, not appear 3-4 times.
+    rows = [
+        {"state_fips_code": "06", "county_code": "053", "county_name": "MONTEREY",
+         "state_name": "CALIFORNIA", "year": "2022", "statisticcat_desc": "AREA HARVESTED", "Value": "100"},
+        {"state_fips_code": "06", "county_code": "053", "county_name": "MONTEREY",
+         "state_name": "CALIFORNIA", "year": "2022", "statisticcat_desc": "AREA HARVESTED", "Value": "50"},
+        {"state_fips_code": "06", "county_code": "083", "county_name": "SANTA BARBARA",
+         "state_name": "CALIFORNIA", "year": "2022", "statisticcat_desc": "AREA HARVESTED", "Value": "40"},
+    ]
+    top = eco._usda_top_counties(rows)
+    fips = [c["fips"] for c in top["counties"]]
+    assert fips == ["06053", "06083"]              # Monterey once, summed (150)
+    assert top["counties"][0]["value"] == 150.0
+
+
+def test_usda_error_reason_messages():
+    from routes import ecosystem as eco
+    assert "invalid" in eco._usda_error_reason((401, "unauthorized")).lower()
+    assert "broad" in eco._usda_error_reason((400, "query exceeds 50,000 records")).lower()
+    assert "by hand" in eco._usda_error_reason((400, "bad request - invalid query")).lower()
+    assert "timed out" in eco._usda_error_reason((None, "<urlopen error timed out>")).lower()
+    assert "try again" in eco._usda_error_reason((None, "connection refused")).lower()
+
+
+def test_usda_suggest_route_without_key_asks_for_one(client, data_dir):
+    r = _post(client, "/api/ecosystem/usda/suggest", {"name": "rice"})
+    body = r.get_json()
+    assert body["ok"] is False and body.get("need_key") is True
+
+
+def test_usda_key_save_and_clear(client, data_dir):
+    assert _post(client, "/api/ecosystem/usda/key", {"key": "abc123"}).get_json()["key_set"] is True
+    assert store.read("ecosystem_config", {})["usda_key"] == "abc123"
+    # A blank key clears it.
+    assert _post(client, "/api/ecosystem/usda/key", {"key": ""}).get_json()["key_set"] is False
+    assert "usda_key" not in store.read("ecosystem_config", {})
