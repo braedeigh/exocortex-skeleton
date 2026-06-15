@@ -38,6 +38,7 @@ const TAB_ENDPOINTS = {
     movement: '/api/data/movement',
     body: '/api/data/body',
     ideas: '/api/data/ideas',
+    ecosystem: '/api/data/ecosystem',
 };
 
 // TAB_RENDERERS is built lazily in render() because the functions
@@ -63,6 +64,8 @@ function initTab() {
     if (bodyEl) bodyEl.style.display = currentTab === 'body' ? '' : 'none';
     const ideasEl = document.getElementById('tab-ideas');
     if (ideasEl) ideasEl.style.display = currentTab === 'ideas' ? '' : 'none';
+    const ecoEl = document.getElementById('tab-ecosystem');
+    if (ecoEl) ecoEl.style.display = currentTab === 'ecosystem' ? '' : 'none';
 
     // Inside inventory: show list OR item detail based on data-item-name
     const itemName = document.body.dataset.itemName || '';
@@ -314,6 +317,9 @@ function render() {
             ],
             ideas: [
                 renderHeader, renderIdeasByPage, renderIdeasDoc, renderDevNotes, restoreEditModes
+            ],
+            ecosystem: [
+                renderHeader, renderEcosystem, renderDevNotes, restoreEditModes
             ],
         };
     }
@@ -1040,6 +1046,12 @@ async function executeDelete() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ routine_id: pendingDelete.routineId, id: pendingDelete.item })
+        });
+    } else if (pendingDelete.type === 'ecosystem-source') {
+        await fetch('/api/ecosystem/source/remove', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: pendingDelete.item })
         });
     } else if (pendingDelete.type === 'recipe-item') {
         await fetch('/api/kitchen/recipes/remove', {

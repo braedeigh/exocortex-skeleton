@@ -20,7 +20,7 @@ import config
 from routes import (
     kitchen, habits, todos, places, health, inventory, money, car,
     meditation, media, movement, reminders, food_test, terminal, settings,
-    devnotes, ideas,
+    devnotes, ideas, ecosystem,
 )
 
 app = Flask(__name__)
@@ -264,7 +264,7 @@ def api_change_password():
     return jsonify({"ok": True})
 
 
-VALID_TABS = ("today", "map", "kitchen", "inventory", "money", "car", "meditation", "media", "movement", "body", "ideas")
+VALID_TABS = ("today", "map", "kitchen", "inventory", "money", "car", "meditation", "media", "movement", "body", "ideas", "ecosystem")
 
 # Path to the file that backs the public homepage fake-terminal intro.
 PUBLIC_INTRO_PATH = CONTENT_DIR / "public_intro.md"
@@ -339,6 +339,7 @@ _SPLIT_PAGES = [
     ("/movement", "movement"),
     ("/body", "body"),
     ("/ideas", "ideas"),
+    ("/ecosystem", "ecosystem"),
 ]
 
 
@@ -563,6 +564,10 @@ def _load_media():
 
 def _load_movement():
     return store.read("movement.json", {"routines": []})
+
+
+def _load_ecosystem():
+    return store.read("ecosystem.json", {"sources": []})
 
 
 def _load_reminders():
@@ -876,6 +881,22 @@ def get_data_movement():
     return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/data/ecosystem")
+def get_data_ecosystem():
+  try:
+    data = _common_data()
+    data.update({
+        "ecosystem": _load_ecosystem(),
+    })
+    data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("ecosystem", [])
+    data["idea_notes"] = _load_idea_notes().get("tabs", {}).get("ecosystem", [])
+    data["tab_todos"] = todos_for_tab("ecosystem")
+    return jsonify(filter_for_view(data, request.view_mode))
+  except Exception as e:
+    app.logger.error(f"/api/data/ecosystem failed: {e}\n{traceback.format_exc()}")
+    return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/data/ideas")
 def get_data_ideas():
   try:
@@ -1098,6 +1119,7 @@ terminal.register(app)
 settings.register(app)
 devnotes.register(app)
 ideas.register(app)
+ecosystem.register(app)
 
 # --- Startup ---
 validate_on_startup(app)
