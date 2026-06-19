@@ -50,7 +50,7 @@ def register(app):
                     new_item["notes"] = notes
                 # Optional attributes from the add modal's "More details" —
                 # same vocabulary the detail editor manages.
-                for f in ("due_time", "place_id", "category", "status"):
+                for f in ("due_time", "place_id", "category", "status", "theme"):
                     val = (data.get(f) or "").strip()
                     if val:
                         new_item[f] = val
@@ -114,7 +114,7 @@ def register(app):
 
     # Optional string attributes the detail editor can set/clear on a to-do.
     # An empty value removes the key (we keep items lean — absent = unset).
-    TODO_STR_FIELDS = ("notes", "due_by", "due_time", "place_id", "category", "status")
+    TODO_STR_FIELDS = ("notes", "due_by", "due_time", "place_id", "category", "status", "theme")
 
     @app.route("/api/todos/details", methods=["POST"])
     def todo_details():

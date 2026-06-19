@@ -166,6 +166,13 @@ function closeActiveEditor() {
         window._contactsManageOpen = false;
         if (typeof renderContacts === 'function') renderContacts();
     }
+    if (window._ecoModalOpen) {
+        // Editing an ecosystem source in the modal — drop the draft and refresh.
+        window._ecoModalOpen = false;
+        window._ecoDraft = null;
+        window._ecoPanelState = null;
+        if (typeof renderEcosystem === 'function') renderEcosystem();
+    }
 }
 
 // Restore each collapsible card's saved open/closed state on load (Map + Body).
@@ -472,9 +479,17 @@ window.addEventListener('message', (e) => {
     // Deep-link target for Movement: open straight into a routine (or clear it on
     // a plain tab switch so normal nav shows the routine list).
     if (name === 'movement') window._movementRoutineView = (extra && extra.routine) ? extra.routine : null;
+    // Ecosystem deep-link: open straight into tracing a recipe (from the kitchen
+    // tab's "View on map" button), or clear it on a plain tab switch.
+    if (name === 'ecosystem') {
+        window._ecoRecipeView = (extra && extra.recipe) ? extra.recipe : null;
+        window._ecoFittedRecipe = null;
+        window._ecoLastSources = null;
+    }
     if (name === currentTab) {
         // Already on this tab — just apply the deep-link by re-rendering.
         if (name === 'movement' && typeof renderMovement === 'function') renderMovement();
+        if (name === 'ecosystem' && typeof renderEcosystem === 'function') renderEcosystem();
         return;
     }
     currentTab = name;
@@ -1166,13 +1181,16 @@ async function submitAddTodoModal(section) {
     let place_id = form.querySelector('.todo-modal-place')?.value || '';
     if (place_id === '__new__') place_id = '';
     const category = form.querySelector('.todo-modal-category')?.value || '';
+    // Inherit the active focus when one is set and the user didn't pick a theme,
+    // so adding while focused on "Move" tags the new item "Move" automatically.
+    const theme = (form.querySelector('.todo-modal-theme')?.value) || getFocusTheme() || '';
     const duration_min = form.querySelector('.todo-modal-duration')?.value || '';
     const statusBtn = form.querySelector('.todo-modal-status .tm-chip.active');
     const status = statusBtn ? statusBtn.dataset.val : '';
     const res = await fetch('/api/todos/add', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ item: text, section, due_by, notes, due_time, place_id, category, duration_min, status })
+        body: JSON.stringify({ item: text, section, due_by, notes, due_time, place_id, category, theme, duration_min, status })
     });
     if (res.ok) {
         hideEditorModal();
@@ -1312,6 +1330,17 @@ const TODO_STATUSES = [
     { key: 'check_first', label: 'Check first' },
     { key: 'waiting', label: 'Waiting' },
 ];
+// Focus themes — the "what project is this part of" axis (separate from
+// `category`, which routes a to-do to a page tab). Drives the Focus chip strip
+// at the top of the To Do page: pick one and the ladder collapses to just it.
+const TODO_THEMES = [
+    { key: 'move', label: 'Move', emoji: '🏠' },
+    { key: 'job', label: 'Job', emoji: '💼' },
+    { key: 'health', label: 'Health', emoji: '🩺' },
+    { key: 'admin', label: 'Admin', emoji: '📋' },
+    { key: 'life', label: 'Life', emoji: '🌱' },
+];
+function _themeLabel(key) { if (key === '__none__') return '🏷️ Other'; const t = TODO_THEMES.find(t => t.key === key); return t ? `${t.emoji} ${t.label}` : (key || ''); }
 
 function findTodoById(id) {
     for (const sec of (D.todos || [])) {
@@ -1414,6 +1443,8 @@ function todoAttrFieldsHTML(item) {
         .concat(['<option value="__new__">➕ Add a place…</option>']).join('');
     const catOpts = ['<option value="">— none —</option>']
         .concat(TODO_CATEGORIES.map(c => `<option value="${esc(c.key)}"${c.key === item.category ? ' selected' : ''}>${esc(c.label)}</option>`)).join('');
+    const themeOpts = ['<option value="">— none —</option>']
+        .concat(TODO_THEMES.map(t => `<option value="${esc(t.key)}"${t.key === item.theme ? ' selected' : ''}>${t.emoji} ${esc(t.label)}</option>`)).join('');
     const durChips = [15, 30, 60].map(m => `<button type="button" class="tm-chip${item.duration_min === m ? ' active' : ''}" onclick="tmDurationChip(this, ${m})">${m}m</button>`).join('');
     const statusChips = TODO_STATUSES.map(s => `<button type="button" class="tm-chip${item.status === s.key ? ' active' : ''}" data-val="${esc(s.key)}" onclick="tmStatusChip(this)">${esc(s.label)}</button>`).join('');
     return `
@@ -1425,6 +1456,10 @@ function todoAttrFieldsHTML(item) {
                     <input type="text" class="tm-newplace-addr" placeholder="Address (optional)">
                     <button type="button" class="modal-btn confirm" style="background:var(--accent)" onclick="tmSaveNewPlace(this)">Save place</button>
                 </div>
+            </div>
+            <div class="tm-field">
+                <label class="todo-modal-label">Focus</label>
+                <select class="todo-modal-theme">${themeOpts}</select>
             </div>
             <div class="tm-field">
                 <label class="todo-modal-label">Category</label>
@@ -1557,6 +1592,7 @@ async function toggleTodoModalEdit(btn) {
     let placeSel = body.querySelector('.todo-modal-place').value;
     if (placeSel === '__new__') placeSel = '';   // an unsaved "add place" choice → none
     const category = body.querySelector('.todo-modal-category').value;
+    const theme = body.querySelector('.todo-modal-theme').value;
     const duration = body.querySelector('.todo-modal-duration').value;
     const statusBtn = body.querySelector('.todo-modal-status .tm-chip.active');
     const status = statusBtn ? statusBtn.dataset.val : '';
@@ -1569,7 +1605,7 @@ async function toggleTodoModalEdit(btn) {
     }
     await fetch('/api/todos/details', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, notes, due_by: due, due_time: dueTime, place_id: placeSel, category, duration_min: duration, status })
+        body: JSON.stringify({ id, notes, due_by: due, due_time: dueTime, place_id: placeSel, category, theme, duration_min: duration, status })
     });
     // Moved to a different list? Do it last so rename/details found the item
     // in place first.

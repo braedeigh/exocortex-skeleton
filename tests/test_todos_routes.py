@@ -221,6 +221,16 @@ def test_details_only_touches_present_fields(client, seed):
     assert it["notes"] == "new note"
 
 
+def test_details_sets_then_clears_theme(client, seed):
+    """The Focus chip strip filters on `theme`; details sets it and an empty
+    value clears it (absent = no theme), same contract as the other attrs."""
+    seed({"now": {"items": [{"id": "a", "text": "A", "done": False}]}})
+    _post(client, "/api/todos/details", {"id": "a", "theme": "move"})
+    assert read_todos()["now"]["items"][0]["theme"] == "move"
+    _post(client, "/api/todos/details", {"id": "a", "theme": ""})
+    assert "theme" not in read_todos()["now"]["items"][0]
+
+
 # --- snooze ------------------------------------------------------------------
 
 def test_snooze_sets_and_clears(client, seed):
@@ -236,13 +246,14 @@ def test_add_with_more_details_persists_attributes(client):
         "item": "drop off package", "section": "Now",
         "due_by": "2026-06-13", "due_time": "14:30",
         "category": "car", "duration_min": "15", "status": "ready",
-        "notes": "the UPS one",
+        "theme": "admin", "notes": "the UPS one",
     })
     assert res.status_code == 200
     from tests.conftest import read_todos
     item = read_todos()["now"]["items"][0]
     assert item["due_time"] == "14:30"
     assert item["category"] == "car"
+    assert item["theme"] == "admin"
     assert item["duration_min"] == 15
     assert item["status"] == "ready"
     assert item["notes"] == "the UPS one"

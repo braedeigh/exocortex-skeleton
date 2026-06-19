@@ -21,6 +21,47 @@ function dayViewItems(label) {
     return live.filter(it => it.due_by && it.due_by <= today);
 }
 
+// --- Focus themes: filter the To Do page to one project area at a time. The
+// selection lives in localStorage so the page reopens already focused.
+function getFocusTheme() { try { return localStorage.getItem('todoFocusTheme') || ''; } catch (e) { return ''; } }
+function setFocusTheme(t) { try { localStorage.setItem('todoFocusTheme', t || ''); } catch (e) {} renderTodos(); }
+// '' = All; '__none__' = untagged only; else exact theme match.
+function _focusMatch(it, theme) {
+    if (!theme) return true;
+    if (!it || typeof it !== 'object') return false;
+    if (theme === '__none__') return !it.theme;
+    return it.theme === theme;
+}
+
+// The chip strip: "All" + one chip per theme that has live items (plus the
+// active one even if it just emptied). Count = not-done, not-snoozed items.
+function focusBarHTML(activeTheme) {
+    const today = todayStr();
+    const counts = {}; let total = 0, none = 0;
+    (D.todos || []).forEach(section => {
+        const name = section.name.toLowerCase().replace(/\s*—.*/, '').trim();
+        if (name.startsWith('done')) return;
+        (section.items || []).forEach(it => {
+            if (!it || typeof it !== 'object' || it.done) return;
+            if (it.snoozed_until && it.snoozed_until > today) return;
+            total++;
+            if (it.theme) counts[it.theme] = (counts[it.theme] || 0) + 1;
+            else none++;
+        });
+    });
+    let chips = `<button type="button" class="focus-chip${!activeTheme ? ' active' : ''}" onclick="setFocusTheme('')">All<span class="focus-count">${total}</span></button>`;
+    TODO_THEMES.forEach(t => {
+        const c = counts[t.key] || 0;
+        if (!c && t.key !== activeTheme) return;
+        chips += `<button type="button" class="focus-chip${t.key === activeTheme ? ' active' : ''}" onclick="setFocusTheme('${escJs(t.key)}')">${t.emoji} ${esc(t.label)}<span class="focus-count">${c}</span></button>`;
+    });
+    // "Other" = untagged items, so nothing hides for lack of a theme.
+    if (none || activeTheme === '__none__') {
+        chips += `<button type="button" class="focus-chip${activeTheme === '__none__' ? ' active' : ''}" onclick="setFocusTheme('__none__')">🏷️ Other<span class="focus-count">${none}</span></button>`;
+    }
+    return `<div class="focus-bar">${chips}</div>`;
+}
+
 function renderTodos() {
     const el = document.getElementById('todo-cards');
     if (isFrosted(D.todos)) {
@@ -31,6 +72,7 @@ function renderTodos() {
     const hide = ['done'];
     const today = todayStr();
     const isSnoozed = it => it && typeof it === 'object' && it.snoozed_until && it.snoozed_until > today && !it.done;
+    const theme = getFocusTheme();   // '' = All; otherwise show only this focus
 
     // --- Computed day views (Today / Tomorrow) over due_by, across all buckets.
     // Scheduled items that land in a day view are pulled out of the ladder below
@@ -38,8 +80,8 @@ function renderTodos() {
     let dayHTML = '';
     let pulledIds = new Set();
     try {
-        const todayItems = dayViewItems('Today');
-        const tomorrowItems = dayViewItems('Tomorrow');
+        const todayItems = dayViewItems('Today').filter(it => _focusMatch(it, theme));
+        const tomorrowItems = dayViewItems('Tomorrow').filter(it => _focusMatch(it, theme));
         pulledIds = new Set([...todayItems, ...tomorrowItems].map(it => it.id).filter(Boolean));
         // Today wears the current part of day (same palette as the habit cards).
         const todColor = { morning: 'var(--morning)', afternoon: 'var(--ongoing)', evening: 'var(--evening)' }[getTime()] || 'var(--accent)';
@@ -51,8 +93,10 @@ function renderTodos() {
         pulledIds = new Set();
     }
 
-    let html = dayHTML;
+    // Focus chip strip sits above everything; tapping a chip re-renders in place.
+    let html = focusBarHTML(theme) + dayHTML;
     const snoozed = [];
+    let shownCount = pulledIds.size;   // day-view items already count as shown
     // The priority ladder below now holds floating + far-dated items; near-term
     // scheduled items live in the day views above.
     D.todos.forEach((section, i) => {
@@ -60,12 +104,21 @@ function renderTodos() {
         if (hide.some(h => name.startsWith(h))) return;
         const visible = [];
         (section.items || []).forEach(it => {
+            if (!_focusMatch(it, theme)) return;
             if (isSnoozed(it)) { snoozed.push(it); return; }
             if (it && typeof it === 'object' && it.id && pulledIds.has(it.id)) return;
             visible.push(it);
         });
+        shownCount += visible.length;
+        // When focused, hide buckets empty in this theme (no empty cards). With
+        // no focus, keep the full ladder visible as before.
+        if (theme && !visible.length) return;
         html += cardHTML(section.name, visible, colors[Math.min(i, 2)], 'todo', section.name, false, section.manual_order);
     });
+
+    if (theme && shownCount === 0) {
+        html += `<div class="empty-state" style="padding:24px 12px">Nothing in ${esc(_themeLabel(theme))} right now. 🎉</div>`;
+    }
 
     if (snoozed.length) html += snoozedCardHTML(snoozed);
 

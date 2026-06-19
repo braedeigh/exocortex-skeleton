@@ -439,6 +439,28 @@ textarea.todo-add-input { resize: none; overflow: hidden; min-height: 44px; }
 }
 .tm-chip.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
+/* Focus chip strip — pick one project area; the To Do list collapses to it. */
+.focus-bar {
+    display: flex; gap: 8px; flex-wrap: wrap;
+    margin: 0 0 14px; padding-bottom: 2px;
+}
+.focus-chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    min-height: 40px; padding: 0 15px;
+    border: 1px solid var(--border); border-radius: var(--radius-pill);
+    background: var(--card-bg); color: var(--text-secondary);
+    font-size: var(--text-md); font-weight: 600; cursor: pointer;
+    transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.focus-chip:hover { border-color: var(--accent); }
+.focus-chip.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.focus-chip .focus-count {
+    font-size: 12px; font-weight: 700; min-width: 20px; text-align: center;
+    padding: 1px 6px; border-radius: var(--radius-pill);
+    background: var(--bg); color: var(--text-muted);
+}
+.focus-chip.active .focus-count { background: rgba(255,255,255,0.22); color: #fff; }
+
 /* Read-mode chip row (also reused by the day/itinerary views) */
 .todo-modal-chips { display: inline-flex; flex-wrap: wrap; gap: 6px; }
 .todo-chip {
