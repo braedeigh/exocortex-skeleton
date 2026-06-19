@@ -10,7 +10,7 @@ The high-stakes behaviors pinned here:
   - private activity types are redacted row-level from the activity log
   - the caller's data is never mutated
 """
-from public_config import filter_for_view
+from public_config import filter_for_view, is_public_path
 
 
 def _money_data():
@@ -101,6 +101,20 @@ def test_public_money_handles_all_zero_amounts():
 def test_public_ecosystem_map_is_exposed():
     out = filter_for_view({"ecosystem": {"sources": [{"name": "Kale"}]}}, "public")
     assert out["ecosystem"] == {"sources": [{"name": "Kale"}]}
+
+
+def test_ecosystem_tab_is_reachable_logged_out():
+    # The /ecosystem dashboard tab must be public like /map, /kitchen, etc. — its
+    # data stream and the standalone /food-map are both public, so the tab URL
+    # itself must not bounce logged-out visitors to /login.
+    assert is_public_path("/ecosystem")
+    assert is_public_path("/food-map")
+
+
+def test_ecosystem_write_endpoints_stay_gated():
+    # Read is public; editing is owner-only. The write endpoints must NOT be public.
+    assert not is_public_path("/api/ecosystem/source/add")
+    assert not is_public_path("/api/ecosystem/source/remove")
 
 
 def test_public_map_exposes_light_recipes_but_hides_full_recipes():

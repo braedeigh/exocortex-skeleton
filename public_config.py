@@ -105,6 +105,7 @@ PUBLIC_PATHS = (
     "/",
     "/dashboard",
     "/food-map",
+    "/ecosystem",
     "/map",
     "/kitchen",
     "/inventory",
