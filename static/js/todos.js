@@ -55,7 +55,8 @@ function focusBarHTML(activeTheme) {
         if (!c && t.key !== activeTheme) return;
         chips += `<button type="button" class="focus-chip${t.key === activeTheme ? ' active' : ''}" onclick="setFocusTheme('${escJs(t.key)}')">${t.emoji} ${esc(t.label)}<span class="focus-count">${c}</span></button>`;
     });
-    // "Other" = untagged items, so nothing hides for lack of a theme.
+    // "Other" = untagged items. Only shown when there's something untagged (or
+    // you're currently in it) — no empty chip cluttering the bar.
     if (none || activeTheme === '__none__') {
         chips += `<button type="button" class="focus-chip${activeTheme === '__none__' ? ' active' : ''}" onclick="setFocusTheme('__none__')">🏷️ Other<span class="focus-count">${none}</span></button>`;
     }
@@ -85,7 +86,7 @@ function renderTodos() {
         pulledIds = new Set([...todayItems, ...tomorrowItems].map(it => it.id).filter(Boolean));
         // Today wears the current part of day (same palette as the habit cards).
         const todColor = { morning: 'var(--morning)', afternoon: 'var(--ongoing)', evening: 'var(--evening)' }[getTime()] || 'var(--accent)';
-        dayHTML += dayViewHTML('Today', todayItems, todColor, true);
+        dayHTML += dayViewHTML('Today', todayItems, todColor, false);
         dayHTML += dayViewHTML('Tomorrow', tomorrowItems, 'var(--ongoing)');
     } catch (e) {
         console.error('day view render failed, falling back to ladder', e);

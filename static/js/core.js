@@ -795,7 +795,14 @@ function cardHTML(title, items, color, type, sectionName, dim, manualOrder) {
 // of that visit.
 function todoCardOpen(sectionName) {
     try { const v = localStorage.getItem('todoOpenV2:' + sectionName); if (v !== null) return v === '1'; } catch (e) {}
-    return (sectionName || '').toLowerCase() === 'now';
+    const name = (sectionName || '').toLowerCase();
+    // Default open: always "Now". When ANY Focus filter is active (a theme or
+    // Other — i.e. not "All"), also open "Up Next": a filtered view is short, so
+    // showing the next tier helps rather than clutters. On "All" it stays shut.
+    let theme = '';
+    try { theme = (typeof getFocusTheme === 'function') ? getFocusTheme() : ''; } catch (e) {}
+    if (theme && name === 'up next') return true;
+    return name === 'now';
 }
 function todoCardToggled(d, sectionName) {
     if (_suppressCardMemory) return;   // programmatic show/hide-all sweeps don't count
@@ -1128,6 +1135,10 @@ async function addItem(type, section, inputEl) {
 function openAddTodoModal(section, opts) {
     opts = opts || {};
     const presetDue = opts.due || '';
+    // If a Focus filter is active, pre-tag the new to-do with that theme so it
+    // lands inside the view you're looking at. ('Other'/__none__ → stays blank.)
+    const ft = getFocusTheme();
+    const presetTheme = (ft && ft !== '__none__') ? ft : '';
     const html = `
         <form class="todo-add-form" onsubmit="event.preventDefault();submitAddTodoModal('${escJs(section)}')">
             <label class="todo-add-label">
@@ -1150,7 +1161,7 @@ function openAddTodoModal(section, opts) {
                         <label class="todo-modal-label">Time <span class="todo-add-opt">(optional)</span></label>
                         <input type="time" id="add-todo-time" class="todo-modal-time-input">
                     </div>
-                    ${todoAttrFieldsHTML({})}
+                    ${todoAttrFieldsHTML({ theme: presetTheme })}
                 </div>
             </details>
             <div class="todo-add-actions">
@@ -1181,9 +1192,9 @@ async function submitAddTodoModal(section) {
     let place_id = form.querySelector('.todo-modal-place')?.value || '';
     if (place_id === '__new__') place_id = '';
     const category = form.querySelector('.todo-modal-category')?.value || '';
-    // Inherit the active focus when one is set and the user didn't pick a theme,
-    // so adding while focused on "Move" tags the new item "Move" automatically.
-    const theme = (form.querySelector('.todo-modal-theme')?.value) || getFocusTheme() || '';
+    // Pre-selected from the active Focus filter (see openAddTodoModal), so a plain
+    // read keeps the new to-do inside the view you added it from.
+    const theme = form.querySelector('.todo-modal-theme')?.value || '';
     const duration_min = form.querySelector('.todo-modal-duration')?.value || '';
     const statusBtn = form.querySelector('.todo-modal-status .tm-chip.active');
     const status = statusBtn ? statusBtn.dataset.val : '';
@@ -1339,6 +1350,7 @@ const TODO_THEMES = [
     { key: 'health', label: 'Health', emoji: '🩺' },
     { key: 'admin', label: 'Admin', emoji: '📋' },
     { key: 'life', label: 'Life', emoji: '🌱' },
+    { key: 'exocortex', label: 'Exocortex', emoji: '🧠' },
 ];
 function _themeLabel(key) { if (key === '__none__') return '🏷️ Other'; const t = TODO_THEMES.find(t => t.key === key); return t ? `${t.emoji} ${t.label}` : (key || ''); }
 
@@ -1443,7 +1455,9 @@ function todoAttrFieldsHTML(item) {
         .concat(['<option value="__new__">➕ Add a place…</option>']).join('');
     const catOpts = ['<option value="">— none —</option>']
         .concat(TODO_CATEGORIES.map(c => `<option value="${esc(c.key)}"${c.key === item.category ? ' selected' : ''}>${esc(c.label)}</option>`)).join('');
-    const themeOpts = ['<option value="">— none —</option>']
+    // Blank = "Other": untagged items surface under the Other chip, so leaving a
+    // to-do without a theme is a real (named) choice, not a forgotten one.
+    const themeOpts = ['<option value="">🏷️ Other</option>']
         .concat(TODO_THEMES.map(t => `<option value="${esc(t.key)}"${t.key === item.theme ? ' selected' : ''}>${t.emoji} ${esc(t.label)}</option>`)).join('');
     const durChips = [15, 30, 60].map(m => `<button type="button" class="tm-chip${item.duration_min === m ? ' active' : ''}" onclick="tmDurationChip(this, ${m})">${m}m</button>`).join('');
     const statusChips = TODO_STATUSES.map(s => `<button type="button" class="tm-chip${item.status === s.key ? ' active' : ''}" data-val="${esc(s.key)}" onclick="tmStatusChip(this)">${esc(s.label)}</button>`).join('');
