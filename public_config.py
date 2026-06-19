@@ -65,6 +65,13 @@ STREAMS = {
     # to expose — just type strings, no cadence/personal detail.
     "private_act_types": "public",
 
+    # ---- ecosystem (the shareable food-sourcing map at /food-map) ----
+    "ecosystem": "public",
+    # Light recipe list (id / name / ingredients only) for the map's "trace a
+    # recipe" picker. Distinct from the full "recipes" stream, which stays hidden
+    # (it carries instructions and rides the public kitchen tab too).
+    "eco_recipes": "public",
+
     # ---- frosted (visible as existing, content blurred) ----
     "todos": "frosted",
     "growth_notes": "frosted",
@@ -97,6 +104,7 @@ PUBLIC_PATHS = (
     "/static/",
     "/",
     "/dashboard",
+    "/food-map",
     "/map",
     "/kitchen",
     "/inventory",
@@ -109,6 +117,7 @@ PUBLIC_PATHS = (
     "/api/data/inventory",
     "/api/data/money",
     "/api/data/item-buy",
+    "/api/data/ecosystem",
     "/api/auth-check",
     "/api/version",
 )

@@ -314,3 +314,41 @@ def test_usda_key_save_and_clear(client, data_dir):
     # A blank key clears it.
     assert _post(client, "/api/ecosystem/usda/key", {"key": ""}).get_json()["key_set"] is False
     assert "usda_key" not in store.read("ecosystem_config", {})
+
+
+# --- geocode (address → lat/lng, Nominatim mocked) ---------------------------
+
+class _FakeResp:
+    """Minimal stand-in for urlopen's context-manager response."""
+    def __init__(self, payload):
+        self._b = json.dumps(payload).encode("utf-8")
+    def read(self):
+        return self._b
+    def __enter__(self):
+        return self
+    def __exit__(self, *a):
+        return False
+
+
+def test_geocode_returns_latlng(client, data_dir, monkeypatch):
+    import routes.ecosystem as eco
+    monkeypatch.setattr(eco.urllib.request, "urlopen",
+                        lambda req, timeout=0: _FakeResp([
+                            {"lat": "30.27", "lon": "-97.74", "display_name": "Austin, TX, USA"}]))
+    body = _post(client, "/api/ecosystem/geocode", {"address": "Austin TX"}).get_json()
+    assert body["ok"] is True
+    assert body["lat"] == 30.27 and body["lng"] == -97.74
+    assert "Austin" in body["label"]
+
+
+def test_geocode_no_match_is_honest(client, data_dir, monkeypatch):
+    import routes.ecosystem as eco
+    monkeypatch.setattr(eco.urllib.request, "urlopen",
+                        lambda req, timeout=0: _FakeResp([]))
+    body = _post(client, "/api/ecosystem/geocode", {"address": "zzzzzz nowhere"}).get_json()
+    assert body["ok"] is False and body.get("reason")
+
+
+def test_geocode_blank_address_rejected(client, data_dir):
+    body = _post(client, "/api/ecosystem/geocode", {"address": "   "}).get_json()
+    assert body["ok"] is False

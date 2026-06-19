@@ -395,6 +395,40 @@ def register(app):
         _save(data)
         return jsonify({"ok": True})
 
+    # --- Address geocoding (for placing an exact spot by address) ---
+
+    @app.route("/api/ecosystem/geocode", methods=["POST"])
+    def ecosystem_geocode():
+        """Resolve a typed address/place to lat/lng via OpenStreetMap Nominatim.
+        Proxied server-side so we send a proper User-Agent (their usage policy)
+        and avoid browser CORS. Low volume / personal use."""
+        body = request.json or {}
+        q = (body.get("address") or "").strip()
+        if not q:
+            return jsonify({"ok": False, "reason": "Type an address or place first."})
+        url = "https://nominatim.openstreetmap.org/search?" + urllib.parse.urlencode(
+            {"q": q, "format": "json", "limit": 1}
+        )
+        req = urllib.request.Request(url, headers={"User-Agent": "exocortex/ecosystem (personal use)"})
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                rows = json.loads(resp.read().decode("utf-8"))
+        except Exception as e:
+            app.logger.warning(f"geocode failed for {q!r}: {e}")
+            return jsonify({"ok": False, "reason": "Couldn't reach the geocoder — try again."})
+        if not rows:
+            return jsonify({"ok": False, "reason": "No place matched that — try a fuller address."})
+        top = rows[0]
+        try:
+            return jsonify({
+                "ok": True,
+                "lat": float(top["lat"]),
+                "lng": float(top["lon"]),
+                "label": top.get("display_name", ""),
+            })
+        except (KeyError, ValueError, TypeError):
+            return jsonify({"ok": False, "reason": "Geocoder returned something unexpected — try again."})
+
     # --- USDA assist ---
 
     @app.route("/api/ecosystem/usda/key", methods=["POST"])

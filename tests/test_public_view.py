@@ -96,6 +96,25 @@ def test_public_money_handles_all_zero_amounts():
     assert out["budget"]["income_monthly"] == 0
 
 
+# --- ecosystem food map (the shareable /food-map page) ------------------------
+
+def test_public_ecosystem_map_is_exposed():
+    out = filter_for_view({"ecosystem": {"sources": [{"name": "Kale"}]}}, "public")
+    assert out["ecosystem"] == {"sources": [{"name": "Kale"}]}
+
+
+def test_public_map_exposes_light_recipes_but_hides_full_recipes():
+    # The map's trace picker needs id/name/ingredients (eco_recipes, public), but
+    # the full recipes stream carries instructions and also rides the public
+    # kitchen tab — it must stay hidden so cooking instructions never leak.
+    out = filter_for_view({
+        "eco_recipes": [{"id": "r1", "name": "Soup", "ingredients": ["kale"]}],
+        "recipes": [{"id": "r1", "name": "Soup", "instructions": "secret steps"}],
+    }, "public")
+    assert out["eco_recipes"] == [{"id": "r1", "name": "Soup", "ingredients": ["kale"]}]
+    assert "recipes" not in out
+
+
 # --- activity log row-level redaction ---------------------------------------------
 
 def test_private_activity_types_are_redacted_from_public_log():

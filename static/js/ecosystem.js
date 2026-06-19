@@ -23,8 +23,22 @@ const ECO_TX = {
 const ECO_TX_ORDER = ['disclosed', 'partial', 'opaque', 'unrated'];   // most → least Proper
 function _ecoTx(s) { return ECO_TX[s && s.transparency] || ECO_TX.unrated; }
 
+// Editing is owner-only. On the public standalone map (/food-map) VIEW_MODE is
+// "public", so the Add button and per-source Edit/Delete are withheld — viewers
+// still get the map, legend, transparency filters and recipe tracing, read-only.
+function _ecoCanEdit() { return !window.VIEW_MODE || window.VIEW_MODE === 'authed'; }
+
 function _ecoSources() {
     return (D && D.ecosystem && D.ecosystem.sources) || [];
+}
+
+// --- Recipe tracing (the kitchen ↔ map bridge) -------------------------------
+// When a recipe is "traced", its matched sources are emphasized on the map and
+// the rest dim. Matching lives in eco-match.js (shared with the kitchen tab).
+function _ecoRecipes() { return (D && (D.eco_recipes || D.recipes)) || []; }
+function _ecoActiveRecipe() {
+    if (!window._ecoRecipeView) return null;
+    return _ecoRecipes().find(r => r.id === window._ecoRecipeView) || null;
 }
 
 // --- Boundary GeoJSON (lazy: the counties file is ~3MB, so only fetch it once,
@@ -115,7 +129,10 @@ function _ecoSyncTiles() {
 function _ecoSyncMarkers() {
     const map = window._ecomap; if (!map || !window._ecoLayer) return;
     const src = _ecoSources();
-    const key = JSON.stringify(src);
+    // A filter (a traced recipe, or a single item picked from the list) hides
+    // every source outside it — only what's in `visible` is drawn at all.
+    const visible = _ecoVisibleIds();
+    const key = JSON.stringify(src) + '|' + (visible ? [...visible].sort().join(',') : '');
     if (window._ecoLastSources === key) return;
     window._ecoLastSources = key;
     window._ecoLayer.clearLayers();
@@ -126,31 +143,59 @@ function _ecoSyncMarkers() {
     }
     src.forEach(s => {
         if (typeof s.lat !== 'number' || typeof s.lng !== 'number') return;
+        if (visible && !visible.has(s.id)) return;          // filtered out — don't draw it
         const col = _ecoTx(s).color;
+        const dot = () => L.circleMarker([s.lat, s.lng], {
+            radius: 7, color: '#fff', weight: 2, fillColor: col, fillOpacity: 0.95,
+        }).addTo(window._ecoLayer);
         let host = null;
         if (s.precision === 'area') {
             const feats = _ecoIsShape(s) ? _ecoFeatures(s) : [];
+            let shape = null;
             if (feats.length) {
-                // Real county / state outlines, colored by transparency. The
-                // outline carries the popup itself — no separate dot on top.
-                host = L.geoJSON(feats, { style: { color: col, weight: 1, fillColor: col, fillOpacity: 0.2, opacity: 0.6 } }).addTo(window._ecoLayer);
+                // Real county / state outlines, colored by transparency.
+                shape = L.geoJSON(feats, { style: { color: col, weight: 1, fillColor: col, fillOpacity: 0.2, opacity: 0.6 } }).addTo(window._ecoLayer);
             } else if (s.radius_km > 0) {
-                // Plain circle, or a temporary stand-in until the shapes load.
-                L.circle([s.lat, s.lng], {
+                shape = L.circle([s.lat, s.lng], {
                     radius: s.radius_km * 1000, color: col, weight: 1,
                     fillColor: col, fillOpacity: 0.12, opacity: 0.45, dashArray: '4 4',
                 }).addTo(window._ecoLayer);
             }
+            if (shape) {
+                // The shape itself is the whole marker — no centroid dot. Clicking
+                // anywhere in the region opens its popup.
+                shape.bindPopup(_ecoPopupHtml(s));
+                host = shape;
+            } else {
+                host = dot();   // shapes not loaded yet / no radius: a dot stands in
+                host.bindPopup(_ecoPopupHtml(s));
+            }
         }
         if (!host) {
-            // Exact spots, circles, and not-yet-loaded shapes keep the dot.
-            host = L.circleMarker([s.lat, s.lng], {
-                radius: 7, color: '#fff', weight: 2, fillColor: col, fillOpacity: 0.95,
-            }).addTo(window._ecoLayer);
+            // Exact spots keep a permanent dot.
+            host = dot();
+            host.bindPopup(_ecoPopupHtml(s));
         }
-        host.bindPopup(_ecoPopupHtml(s));
         window._ecoMarkers[s.id] = host;
     });
+}
+
+// The set of source ids allowed on the map, or null for "show all". Active
+// filters STACK (intersect): transparency chip ∩ traced recipe ∩ single-item
+// pick. So "partial" narrows the map to partial sources, and then clicking a row
+// drills into that one within the chip's filter.
+function _ecoVisibleIds() {
+    const all = _ecoSources();
+    let ids = null;   // null = unconstrained
+    const intersect = (set) => { ids = ids ? new Set([...ids].filter(x => set.has(x))) : set; };
+    if (window._ecoTxFilter) {
+        const txOf = s => (s.transparency in ECO_TX) ? s.transparency : 'unrated';
+        intersect(new Set(all.filter(s => txOf(s) === window._ecoTxFilter).map(s => s.id)));
+    }
+    const recipe = _ecoActiveRecipe();
+    if (recipe) intersect(ecoRecipeSourceIds(recipe, all));
+    if (window._ecoSoloSource) intersect(new Set([window._ecoSoloSource]));
+    return ids;
 }
 // A short human label for what a source's footprint is.
 function _ecoMetaLabel(s) {
@@ -170,10 +215,10 @@ function _ecoPopupHtml(s) {
         <div style="font-size:14px;font-weight:700;margin-bottom:2px">${esc(s.name)}</div>
         ${s.note ? `<div style="font-size:12px;color:#555;margin-bottom:4px">${esc(s.note)}</div>` : ''}
         <div style="font-size:11px;color:#888;margin-bottom:8px">${chip} &middot; ${meta}</div>
-        <div style="display:flex;gap:6px">
+        ${_ecoCanEdit() ? `<div style="display:flex;gap:6px">
             <button onclick="_ecoEditOpen('${esc(s.id)}')" style="flex:1;height:30px;border-radius:6px;border:1px solid #ccc;background:#fff;font-size:12px;font-weight:600;cursor:pointer">Edit</button>
             <button onclick="_ecoDelete('${esc(s.id)}','${escJs(s.name)}')" style="flex:1;height:30px;border-radius:6px;border:1px solid #e0b4b4;background:#fff;color:#c0392b;font-size:12px;font-weight:600;cursor:pointer">Delete</button>
-        </div>
+        </div>` : ''}
     </div>`;
 }
 
@@ -222,10 +267,49 @@ function _ecoMapClick(e) {
 function _ecoUpdateLocReadout() {
     const d = window._ecoDraft;
     const el = document.getElementById('eco-loc-readout');
-    if (el && d && typeof d.lat === 'number') {
+    if (el && d && typeof d.lat === 'number' && typeof d.lng === 'number') {
         el.style.color = 'var(--green)';
         el.textContent = '📍 ' + d.lat.toFixed(3) + ', ' + d.lng.toFixed(3);
     }
+}
+// Typed-in coordinates (one field at a time). Syncs the pin/readout once both are
+// valid numbers, leaving the map alone while only one is filled in.
+function _ecoSetCoord(field, val) {
+    const d = window._ecoDraft; if (!d) return;
+    const n = parseFloat(val);
+    d[field] = isNaN(n) ? null : n;
+    _ecoSyncDraftMarker();
+    if (typeof d.lat === 'number' && typeof d.lng === 'number') {
+        _ecoUpdateLocReadout();
+        if (window._ecomap) window._ecomap.panTo([d.lat, d.lng]);
+    }
+}
+// Geocode a typed address → pin (server-side, via the /geocode endpoint), then
+// drop the spot there and reflect it into the coord fields + readout.
+async function _ecoGeocode() {
+    const d = window._ecoDraft; if (!d) return;
+    const inp = document.getElementById('eco-addr');
+    const msg = document.getElementById('eco-addr-msg');
+    const q = (inp && inp.value || '').trim();
+    if (!q) { if (msg) msg.textContent = 'Type an address or place first.'; return; }
+    if (msg) msg.textContent = 'Searching…';
+    let j = {};
+    try {
+        const res = await fetch('/api/ecosystem/geocode', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ address: q }),
+        });
+        j = await res.json();
+    } catch (e) { if (msg) msg.textContent = 'Network error reaching the geocoder.'; return; }
+    if (!j || !j.ok) { if (msg) msg.textContent = (j && j.reason) || 'No match found.'; return; }
+    d.precision = 'point'; d.lat = j.lat; d.lng = j.lng;
+    _ecoSyncDraftMarker();
+    if (window._ecomap) window._ecomap.setView([d.lat, d.lng], 13);
+    _ecoUpdateLocReadout();
+    const la = document.getElementById('eco-lat'), lo = document.getElementById('eco-lng');
+    if (la) la.value = d.lat;
+    if (lo) lo.value = d.lng;
+    if (msg) msg.textContent = j.label ? ('Found: ' + j.label) : 'Found it — adjust or save.';
 }
 
 // --- Toolbar: Add button + region/world toggle -------------------------------
@@ -235,8 +319,15 @@ function _ecoControls() {
     const adding = !!window._ecoDraft;
     const btn = 'height:38px;padding:0 14px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer';
     const seg = (v, label) => `<button onclick="_ecoSetView('${v}')" style="${btn};border:1px solid ${view === v ? 'var(--accent)' : 'var(--border)'};background:${view === v ? 'rgba(124,92,191,0.12)' : 'none'};color:var(--text)">${label}</button>`;
+    const recipes = _ecoRecipes();
+    const rv = window._ecoRecipeView || '';
+    const recipePicker = recipes.length ? `<select onchange="_ecoSetRecipe(this.value)" title="Trace where a recipe's ingredients come from" style="height:38px;border-radius:8px;border:1px solid ${rv ? 'var(--accent)' : 'var(--border)'};background:var(--bg);color:var(--text);font-size:13px;padding:0 10px;max-width:220px;cursor:pointer">
+        <option value="">&#127858; Trace a recipe&hellip;</option>
+        ${recipes.map(r => `<option value="${esc(r.id)}"${r.id === rv ? ' selected' : ''}>${esc(r.name)}</option>`).join('')}
+    </select>` : '';
     el.innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
-        ${adding ? '' : `<button onclick="_ecoAddNew()" style="${btn};border:none;background:var(--green);color:#fff">&#65291; Add food</button>`}
+        ${(adding || !_ecoCanEdit()) ? '' : `<button onclick="_ecoAddNew()" style="${btn};border:none;background:var(--green);color:#fff">&#65291; Add food</button>`}
+        ${recipePicker}
         <div style="display:flex;gap:6px;margin-left:auto">${seg('region', 'My region')}${seg('world', 'Whole world')}</div>
     </div>`;
 }
@@ -253,6 +344,76 @@ function _ecoSetView(v) {
         }
     }
     _ecoControls();
+}
+
+// --- Recipe sourcing panel (shown when a recipe is being traced) -------------
+function _ecoSetRecipe(id) {
+    window._ecoRecipeView = id || null;
+    window._ecoSoloSource = null;       // a recipe pick clears any single-item filter
+    window._ecoFittedRecipe = null;     // re-frame the map on the next render
+    window._ecoLastSources = null;      // re-filter markers
+    renderEcosystem();
+}
+// Single-item filter: clicking a source in the list below shows only that one on
+// the map (click it again, or "Show all", to clear). Independent of recipe tracing.
+function _ecoSetSolo(id) {
+    window._ecoSoloSource = (window._ecoSoloSource === id) ? null : (id || null);
+    window._ecoLastSources = null;      // re-filter markers
+    if (!window._ecoSoloSource) window._ecoFittedRecipe = null;     // re-frame recipe/all on clear
+    renderEcosystem();
+    if (window._ecoSoloSource) _ecoFocus(window._ecoSoloSource);   // zoom + open its popup
+}
+// Frame the map on a traced recipe's matched sources (once per selection).
+function _ecoFitRecipe(recipe) {
+    const map = window._ecomap; if (!map || !recipe) return;
+    map.invalidateSize(false);   // tab may have been hidden — refresh cached size so the fit centers right
+    const ids = ecoRecipeSourceIds(recipe, _ecoSources());
+    const pts = _ecoSources().filter(s => ids.has(s.id) && typeof s.lat === 'number').map(s => [s.lat, s.lng]);
+    if (pts.length === 1) map.setView(pts[0], 7);
+    else if (pts.length > 1) map.fitBounds(L.latLngBounds(pts).pad(0.3), { maxZoom: 7 });
+}
+// Open the add-source form pre-filled with an untraced ingredient's name, so
+// placing it is one tap → name already typed → "Suggest region" or tap the map.
+function _ecoPlaceIngredient(name) {
+    _ecoAddNew();
+    if (window._ecoDraft) window._ecoDraft.name = name || '';
+    _ecoControls(); _ecoRecipePanel(); _ecoPanel(true);
+    const p = document.getElementById('ecosystem-panel');
+    if (p) p.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+function _ecoRecipePanel() {
+    const el = document.getElementById('ecosystem-recipe'); if (!el) return;
+    const recipe = _ecoActiveRecipe();
+    // Hidden while adding/editing a source, or while a single item is isolated
+    // from the list below — reappears when that single-item filter is cleared.
+    if (!recipe || window._ecoDraft || window._ecoSoloSource) { el.innerHTML = ''; return; }
+    const s = ecoRecipeSourcing(recipe, _ecoSources());
+    const dot = (c) => `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${c};border:2px solid #fff;box-shadow:0 0 0 1px var(--border);flex:none"></span>`;
+    const tracedRows = s.traced.map(t => {
+        const tx = _ecoTx(t.source);
+        return `<button onclick="_ecoFocus('${esc(t.source.id)}')" style="display:flex;width:100%;align-items:center;gap:10px;border:1px solid var(--border);border-radius:9px;padding:9px 11px;margin-bottom:6px;background:var(--bg);cursor:pointer;text-align:left;min-height:40px">
+            ${dot(tx.color)}
+            <span style="flex:1;font-size:14px;color:var(--text)">${esc(t.ing.item)}</span>
+            <span style="font-size:12px;color:var(--text-muted)">${esc(t.source.name)} &rsaquo;</span>
+        </button>`;
+    }).join('');
+    const placeRows = s.place.map(p => `<div style="display:flex;align-items:center;gap:10px;border:1px dashed var(--border);border-radius:9px;padding:9px 11px;margin-bottom:6px;min-height:40px">
+        <span style="flex:1;font-size:14px;color:var(--text-muted)">${esc(p.ing.item)}</span>
+        <button onclick="_ecoPlaceIngredient('${escJs(p.ing.item)}')" style="height:34px;padding:0 13px;border-radius:7px;border:1px solid var(--green);background:none;color:var(--green);font-size:12px;font-weight:700;cursor:pointer">&#65291; Place</button>
+    </div>`).join('');
+    const pantry = s.pantry.length
+        ? `<div style="font-size:12px;color:var(--text-muted);opacity:.75;margin-top:8px">+ ${s.pantry.length} pantry staple${s.pantry.length === 1 ? '' : 's'} (salt, water, spices &mdash; not traced)</div>`
+        : '';
+    el.innerHTML = `<div style="border:1px solid var(--accent);border-radius:12px;padding:14px 16px;margin-bottom:14px;background:var(--card-bg)">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+            <div style="flex:1;min-width:120px;font-size:16px;font-weight:700">${esc(recipe.name)}</div>
+            <span style="font-size:12px;color:var(--text-muted)">traced ${s.traced.length}/${s.total}</span>
+            <button onclick="_ecoSetRecipe('')" style="height:34px;padding:0 12px;border-radius:7px;border:1px solid var(--border);background:none;color:var(--text-muted);font-size:12px;font-weight:600;cursor:pointer">Show all</button>
+        </div>
+        ${tracedRows || '<div style="font-size:13px;color:var(--text-muted);margin-bottom:6px">Nothing traced yet &mdash; place these foods below.</div>'}
+        ${s.place.length ? `<div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin:12px 0 6px">Not yet on the map</div>${placeRows}` : ''}
+        ${pantry}
+    </div>`;
 }
 
 // --- Legend ------------------------------------------------------------------
@@ -274,7 +435,7 @@ function _ecoLegend() {
 function _ecoAddNew() {
     window._ecoDraft = { name: '', note: '', precision: 'point', radius_km: 0, lat: null, lng: null, transparency: 'unrated', area_kind: 'circle', counties: [], region_name: '' };
     window._ecoKeyPrompt = false;
-    _ecoSyncDraftMarker(); _ecoControls(); _ecoPanel();
+    _ecoSyncDraftMarker(); _ecoControls(); _ecoPanel(true);
 }
 function _ecoEditOpen(id) {
     const s = _ecoSources().find(x => x.id === id); if (!s) return;
@@ -289,13 +450,11 @@ function _ecoEditOpen(id) {
     };
     _ecoSyncDraftMarker();
     if (window._ecomap && typeof s.lat === 'number') window._ecomap.panTo([s.lat, s.lng]);
-    _ecoControls(); _ecoPanel();
-    const p = document.getElementById('ecosystem-panel');
-    if (p) p.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    _ecoControls(); _ecoRecipePanel(); _ecoPanel(true);
 }
 function _ecoCancel() {
     window._ecoDraft = null;
-    _ecoSyncDraftMarker(); _ecoControls(); _ecoPanel();
+    _ecoSyncDraftMarker(); _ecoControls(); _ecoRecipePanel(); _ecoPanel(true);
 }
 function _ecoDraftSet(field, val) {
     const d = window._ecoDraft; if (!d) return;
@@ -310,12 +469,12 @@ function _ecoDraftSet(field, val) {
             if (['circle', 'counties', 'state'].indexOf(d.area_kind) < 0) d.area_kind = 'circle';
             if (d.area_kind === 'circle' && !(d.radius_km > 0)) d.radius_km = 100;
         }
-        _ecoPanel(); _ecoSyncDraftMarker();
+        _ecoPanel(true); _ecoSyncDraftMarker();
         return;
     }
     if (field === 'transparency') {
         d.transparency = ECO_TX[val] ? val : 'unrated';
-        _ecoPanel();        // re-render to move the selected highlight
+        _ecoPanel(true);        // re-render to move the selected highlight
         return;
     }
     d[field] = val;
@@ -343,7 +502,7 @@ async function _ecoSuggestUSDA() {
         if ((d.transparency || 'unrated') === 'unrated') d.transparency = 'partial';
         window._ecoKeyPrompt = false;
         _ecoFitDraftShapes(d);
-        _ecoSyncDraftMarker(); _ecoPanel();
+        _ecoSyncDraftMarker(); _ecoPanel(true);
         _ecoUsdaMsg('Placed ' + (j.label || 'counties') + '. Adjust or save.');
         return;
     }
@@ -356,11 +515,11 @@ async function _ecoSuggestUSDA() {
         if ((d.transparency || 'unrated') === 'unrated') d.transparency = 'partial';
         window._ecoKeyPrompt = false;
         if (!_ecoFitDraftShapes(d) && window._ecomap) window._ecomap.setView([d.lat, d.lng], 6);
-        _ecoSyncDraftMarker(); _ecoPanel();
+        _ecoSyncDraftMarker(); _ecoPanel(true);
         _ecoUsdaMsg('Placed ' + (j.label || 'state') + '. Adjust or save.');
         return;
     }
-    if (j && j.need_key) { window._ecoKeyPrompt = true; _ecoPanel(); _ecoUsdaMsg(j.reason || 'Add a free USDA key.'); return; }
+    if (j && j.need_key) { window._ecoKeyPrompt = true; _ecoPanel(true); _ecoUsdaMsg(j.reason || 'Add a free USDA key.'); return; }
     _ecoUsdaMsg((j && j.reason) || 'No suggestion available.');
 }
 // Set the draft anchor to the center of its shapes and frame them. Returns true
@@ -379,7 +538,7 @@ function _ecoUseCircle() {
     const d = window._ecoDraft; if (!d) return;
     d.area_kind = 'circle'; d.counties = []; d.region_name = '';
     if (!(d.radius_km > 0)) d.radius_km = 100;
-    _ecoSyncDraftMarker(); _ecoPanel();
+    _ecoSyncDraftMarker(); _ecoPanel(true);
 }
 async function _ecoSaveKey() {
     const inp = document.getElementById('eco-usda-key-input');
@@ -393,22 +552,33 @@ async function _ecoSaveKey() {
         if (!res.ok) throw new Error();
         if (D) D.usda_key_set = true;
         window._ecoKeyPrompt = false;
-        _ecoPanel();
+        _ecoPanel(true);
         _ecoUsdaMsg('Key saved — tap “Suggest region” again.');
     } catch (e) { _ecoUsdaMsg('Could not save the key.'); }
 }
-function _ecoPanel() {
-    const el = document.getElementById('ecosystem-panel'); if (!el) return;
+// Adding renders inline (below the map, so you can tap to place a pin); editing
+// opens the shared focused-editor modal (panel-modal), like other pages. `force`
+// re-renders even when the open state is unchanged — the 5s poll passes nothing,
+// so it skips and an in-progress edit keeps its focus.
+function _ecoPanel(force) {
     const d = window._ecoDraft;
-    if (!d) { el.innerHTML = ''; return; }
-    const editing = !!d.id;
+    const editing = !!(d && d.id);
+    const desired = !d ? null : (editing ? ('edit:' + d.id) : 'add');
+    if (!force && window._ecoPanelState === desired) return;
+    window._ecoPanelState = desired;
+    const inlineEl = document.getElementById('ecosystem-panel');
+    if (!d) {
+        if (inlineEl) inlineEl.innerHTML = '';
+        if (window._ecoModalOpen) { window._ecoModalOpen = false; hideEditorModal(); }
+        return;
+    }
     const area = d.precision === 'area';
     const inp = 'padding:9px 11px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:14px;box-sizing:border-box;width:100%';
     const segBtn = (on) => `height:38px;border-radius:8px;border:1px solid ${on ? 'var(--accent)' : 'var(--border)'};background:${on ? 'rgba(124,92,191,0.12)' : 'none'};color:var(--text);font-size:13px;font-weight:600;cursor:pointer;flex:1`;
     const hasLoc = typeof d.lat === 'number' && typeof d.lng === 'number';
     const loc = hasLoc
         ? `<span id="eco-loc-readout" style="color:var(--green)">📍 ${d.lat.toFixed(3)}, ${d.lng.toFixed(3)}</span>`
-        : `<span id="eco-loc-readout" style="color:var(--text-muted)">Tap the map to set the location</span>`;
+        : `<span id="eco-loc-readout" style="color:var(--text-muted)">No location set yet</span>`;
     const txCur = d.transparency || 'unrated';
     const txButtons = ECO_TX_ORDER.map(k => {
         const t = ECO_TX[k]; const on = txCur === k;
@@ -428,8 +598,27 @@ function _ecoPanel() {
             <input type="range" min="5" max="2000" step="5" value="${d.radius_km || 100}" oninput="_ecoDraftSet('radius_km',this.value);document.getElementById('eco-r-label').textContent=Math.round(this.value)" style="width:100%">
         </div>`;
     }
-    el.innerHTML = `<div style="border:1px solid var(--accent);border-radius:12px;padding:16px;margin-bottom:14px;background:var(--card-bg)">
-        <div style="font-size:16px;font-weight:700;margin-bottom:10px">${editing ? 'Edit source' : 'New food source'}</div>
+    // Exact-spot mode: type an address (geocoded to a pin) or raw coordinates, in
+    // addition to tapping the map.
+    let pointUi = '';
+    if (!area) {
+        pointUi = `<div style="margin-bottom:10px">
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">Set the spot — tap the map, search an address, or type coordinates:</div>
+            <div style="display:flex;gap:6px;margin-bottom:8px">
+                <input id="eco-addr" type="text" placeholder="Address or place (e.g. 1100 Congress Ave, Austin TX)" onkeydown="if(event.key==='Enter'){event.preventDefault();_ecoGeocode()}" style="${inp};flex:1">
+                <button onclick="_ecoGeocode()" style="height:38px;padding:0 16px;border-radius:8px;border:1px solid var(--border);background:none;color:var(--accent);font-size:13px;font-weight:600;cursor:pointer;flex:none">Find</button>
+            </div>
+            <div id="eco-addr-msg" style="font-size:12px;color:var(--text-muted);margin-bottom:8px"></div>
+            <div style="display:flex;gap:6px">
+                <input id="eco-lat" type="number" step="any" value="${typeof d.lat === 'number' ? d.lat : ''}" placeholder="latitude" oninput="_ecoSetCoord('lat',this.value)" style="${inp};flex:1">
+                <input id="eco-lng" type="number" step="any" value="${typeof d.lng === 'number' ? d.lng : ''}" placeholder="longitude" oninput="_ecoSetCoord('lng',this.value)" style="${inp};flex:1">
+            </div>
+        </div>`;
+    }
+    const deleteBtn = editing
+        ? `<button onclick="_ecoDeleteFromEdit('${esc(d.id)}','${escJs(d.name || '')}')" style="height:40px;padding:0 16px;border-radius:8px;border:1px solid #e0b4b4;background:none;color:#c0392b;font-size:14px;font-weight:700;cursor:pointer;margin-left:auto">Delete</button>`
+        : '';
+    const inner = `
         <input id="eco-f-name" type="text" value="${esc(d.name || '')}" oninput="_ecoDraftSet('name',this.value)" placeholder="What food? (e.g. HEB chuck roast)" style="${inp};margin-bottom:8px">
         <input id="eco-f-note" type="text" value="${esc(d.note || '')}" oninput="_ecoDraftSet('note',this.value)" placeholder="Sourcing note (vendor, what's known…)" style="${inp};margin-bottom:12px">
 
@@ -440,7 +629,7 @@ function _ecoPanel() {
             <button onclick="_ecoDraftSet('precision','point')" style="${segBtn(!area)}">&#9679; Exact spot</button>
             <button onclick="_ecoDraftSet('precision','area')" style="${segBtn(area)}">&#9711; Rough region</button>
         </div>
-        ${regionUi}
+        ${regionUi}${pointUi}
 
         <div style="margin-bottom:10px">
             <button onclick="_ecoSuggestUSDA()" style="height:36px;padding:0 12px;border-radius:8px;border:1px solid var(--border);background:none;color:var(--accent);font-size:13px;font-weight:600;cursor:pointer">📍 Suggest region from USDA</button>
@@ -455,11 +644,31 @@ function _ecoPanel() {
         </div>
 
         <div style="font-size:12px;margin-bottom:12px">${loc}</div>
-        <div style="display:flex;gap:8px">
+        <div style="display:flex;gap:8px;align-items:center">
             <button onclick="_ecoSave()" style="height:40px;padding:0 20px;border-radius:8px;border:none;background:var(--green);color:#fff;font-size:14px;font-weight:700;cursor:pointer">${editing ? 'Save' : 'Add to map'}</button>
             <button onclick="_ecoCancel()" style="height:40px;padding:0 16px;border-radius:8px;border:1px solid var(--border);background:none;color:var(--text-muted);font-size:14px;font-weight:600;cursor:pointer">Cancel</button>
-        </div>
-    </div>`;
+            ${deleteBtn}
+        </div>`;
+    if (editing) {
+        // Focused editing in the shared modal; the inline slot stays empty.
+        if (inlineEl) inlineEl.innerHTML = '';
+        window._ecoModalOpen = true;
+        showEditorModal('Edit source', inner);
+    } else {
+        if (window._ecoModalOpen) { window._ecoModalOpen = false; hideEditorModal(); }
+        if (inlineEl) inlineEl.innerHTML = `<div style="border:1px solid var(--accent);border-radius:12px;padding:16px;margin-bottom:14px;background:var(--card-bg)">
+            <div style="font-size:16px;font-weight:700;margin-bottom:10px">New food source</div>
+            ${inner}
+        </div>`;
+    }
+}
+// Delete from inside the edit modal: close it first, then run the shared confirm
+// flow (the two modals would otherwise stack).
+function _ecoDeleteFromEdit(id, name) {
+    window._ecoDraft = null;
+    _ecoPanel(true);
+    _ecoControls(); _ecoRecipePanel();
+    _ecoDelete(id, name);
 }
 
 async function _ecoPost(url, payload) {
@@ -492,6 +701,7 @@ async function _ecoSave() {
     if (d.id) payload.id = d.id;
     if (await _ecoPost(url, payload)) {
         window._ecoDraft = null;
+        _ecoPanel(true);                   // close the editor (modal or inline) immediately
         _ecoSyncDraftMarker();
         window._ecoLastSources = null;     // force a marker re-sync after the change
         await loadDashboard();
@@ -504,28 +714,94 @@ function _ecoDelete(id, name) {
     document.getElementById('modal').classList.add('open');
 }
 
-// --- List under the map ------------------------------------------------------
+// --- List under the map (a card with search + transparency filter) -----------
+// The card shell is built ONCE (so the search box keeps focus across the 5s
+// poll); only the chips + rows + count are refreshed on each render.
 function _ecoList() {
     const el = document.getElementById('ecosystem-area'); if (!el) return;
     const src = _ecoSources();
     if (!src.length) {
         el.innerHTML = `<div style="color:var(--text-muted);font-style:italic;padding:16px;border:1px dashed var(--border);border-radius:8px;text-align:center;font-size:14px">No food sources yet. Tap &#65291; Add food, then tap the map to place it.</div>`;
+        el._ecoScaffolded = false;
         return;
     }
-    // Sort most → least Proper (disclosed first, unrated last), then by name.
-    const rank = s => ECO_TX_ORDER.indexOf((s.transparency in ECO_TX) ? s.transparency : 'unrated');
-    const ranked = src.slice().sort((a, b) => {
-        const ra = rank(a), rb = rank(b);
-        return ra !== rb ? ra - rb : String(a.name).localeCompare(String(b.name));
-    });
-    el.innerHTML = `<div style="font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin:4px 0 10px">${src.length} source${src.length === 1 ? '' : 's'} &middot; most → least Proper</div>`
-        + ranked.map(_ecoListRow).join('');
+    if (!el._ecoScaffolded) {
+        el.innerHTML = `<div style="border:1px solid var(--border);border-radius:12px;padding:12px 14px;background:var(--card-bg)">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+                <span style="font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;flex:1">Sources</span>
+                <span id="eco-list-count" style="font-size:12px;color:var(--text-muted)"></span>
+            </div>
+            <input id="eco-search" type="text" value="${esc(window._ecoSearch || '')}" oninput="_ecoSearchInput(this.value)" placeholder="Search by name or note…" style="width:100%;box-sizing:border-box;height:40px;padding:0 12px;border:1px solid var(--border);border-radius:9px;background:var(--bg);color:var(--text);font-size:14px;margin-bottom:10px">
+            <div id="eco-tx-filter" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px"></div>
+            <div id="eco-list-banner"></div>
+            <div id="eco-list-rows"></div>
+        </div>`;
+        el._ecoScaffolded = true;
+    }
+    _ecoRenderFilterChips();
+    _ecoRenderRows();
+}
+// Filter chips along the transparency axis (All + each level).
+function _ecoRenderFilterChips() {
+    const el = document.getElementById('eco-tx-filter'); if (!el) return;
+    const cur = window._ecoTxFilter || '';
+    const chip = (key, label, color) => {
+        const on = cur === key;
+        const dot = color ? `<span style="width:9px;height:9px;border-radius:50%;background:${color};flex:none"></span>` : '';
+        return `<button onclick="_ecoSetTxFilter('${key}')" style="display:inline-flex;align-items:center;gap:5px;height:32px;padding:0 12px;border-radius:16px;border:1px solid ${on ? 'var(--accent)' : 'var(--border)'};background:${on ? 'rgba(124,92,191,0.12)' : 'none'};color:var(--text);font-size:12px;font-weight:600;cursor:pointer">${dot}${label}</button>`;
+    };
+    el.innerHTML = chip('', 'All', null) + ECO_TX_ORDER.map(k => chip(k, ECO_TX[k].label, ECO_TX[k].color)).join('');
+}
+// Filtered + sorted rows, plus the count and the single-item "Show all" banner.
+function _ecoRenderRows() {
+    const rowsEl = document.getElementById('eco-list-rows'); if (!rowsEl) return;
+    const all = _ecoSources();
+    const q = (window._ecoSearch || '').trim().toLowerCase();
+    const txf = window._ecoTxFilter || null;
+    const txOf = s => (s.transparency in ECO_TX) ? s.transparency : 'unrated';
+    let list = all.slice();
+    if (txf) list = list.filter(s => txOf(s) === txf);
+    if (q) list = list.filter(s => (s.name || '').toLowerCase().includes(q) || (s.note || '').toLowerCase().includes(q));
+    const rank = s => ECO_TX_ORDER.indexOf(txOf(s));
+    list.sort((a, b) => { const ra = rank(a), rb = rank(b); return ra !== rb ? ra - rb : String(a.name).localeCompare(String(b.name)); });
+
+    const countEl = document.getElementById('eco-list-count');
+    if (countEl) countEl.textContent = (q || txf) ? `${list.length} of ${all.length}` : `${all.length} source${all.length === 1 ? '' : 's'}`;
+
+    const bEl = document.getElementById('eco-list-banner');
+    if (bEl) {
+        const soloSrc = window._ecoSoloSource && all.find(s => s.id === window._ecoSoloSource);
+        bEl.innerHTML = soloSrc
+            ? `<div style="display:flex;align-items:center;gap:10px;border:1px solid var(--accent);background:rgba(124,92,191,0.08);border-radius:10px;padding:10px 12px;margin-bottom:10px">
+                <span style="flex:1;font-size:13px;color:var(--text)">Showing only <b>${esc(soloSrc.name)}</b> on the map</span>
+                <button onclick="_ecoSetSolo('')" style="height:34px;padding:0 12px;border-radius:7px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:12px;font-weight:600;cursor:pointer">Show all</button>
+            </div>`
+            : '';
+    }
+    rowsEl.innerHTML = list.length
+        ? list.map(_ecoListRow).join('')
+        : `<div style="color:var(--text-muted);font-style:italic;padding:14px;text-align:center;font-size:14px">No sources match.</div>`;
+}
+function _ecoSearchInput(v) { window._ecoSearch = v; _ecoRenderRows(); }
+// The transparency chip filters the MAP too (not just the list). Changing it
+// resets any single-item pick — you re-stack one by clicking a row afterward.
+function _ecoSetTxFilter(key) {
+    window._ecoTxFilter = key || null;
+    window._ecoSoloSource = null;
+    window._ecoLastSources = null;     // map visibility changed → re-sync markers
+    window._ecoFittedRecipe = null;
+    _ecoRenderFilterChips();
+    _ecoRenderRows();
+    _ecoRecipePanel();                 // may reappear now that solo is cleared
+    _ecoSyncMarkers();
+    _ecoFitVisible();                  // zoom + center over the filtered group
 }
 function _ecoListRow(s) {
     const tx = _ecoTx(s);
+    const active = window._ecoSoloSource === s.id;
     const tag = `<span style="flex:none;font-size:11px;color:var(--text-muted);white-space:nowrap;text-align:right">${tx.label}<br>${esc(_ecoMetaLabel(s))}</span>`;
     const note = s.note ? `<div style="font-size:12px;color:var(--text-muted);margin-top:2px">${esc(s.note)}</div>` : '';
-    return `<div onclick="_ecoFocus('${esc(s.id)}')" style="display:flex;align-items:center;gap:12px;border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:8px;cursor:pointer;min-height:44px;background:var(--card-bg)">
+    return `<div onclick="_ecoSetSolo('${esc(s.id)}')" style="display:flex;align-items:center;gap:12px;border:1px solid ${active ? 'var(--accent)' : 'var(--border)'};border-radius:10px;padding:12px;margin-bottom:8px;cursor:pointer;min-height:44px;background:${active ? 'rgba(124,92,191,0.08)' : 'var(--card-bg)'}">
         <span style="flex:none;width:12px;height:12px;border-radius:50%;background:${tx.color};border:2px solid #fff;box-shadow:0 0 0 1px var(--border)"></span>
         <div style="flex:1;min-width:0">
             <div style="font-size:15px;font-weight:600;color:var(--text)">${esc(s.name)}</div>
@@ -535,19 +811,48 @@ function _ecoListRow(s) {
         <button onclick="event.stopPropagation();_ecoEditOpen('${esc(s.id)}')" style="flex:none;height:34px;padding:0 12px;border-radius:7px;border:1px solid var(--border);background:none;color:var(--text-muted);font-size:13px;font-weight:600;cursor:pointer">Edit</button>
     </div>`;
 }
+// Zoom + center the map tightly on one source: frame its shape/region exactly,
+// or zoom in close on an exact spot.
 function _ecoFocus(id) {
     const s = _ecoSources().find(x => x.id === id);
-    if (!s || typeof s.lat !== 'number') return;
+    if (!s || typeof s.lat !== 'number' || typeof s.lng !== 'number') return;
     const map = window._ecomap;
     if (map) {
+        map.invalidateSize(false);   // refresh cached size first, else the fit lands off-center
         const feats = _ecoIsShape(s) ? _ecoFeatures(s) : [];
-        if (feats.length) map.fitBounds(L.geoJSON(feats).getBounds().pad(0.2));
-        else map.setView([s.lat, s.lng], s.precision === 'area' ? 6 : 9);
+        if (feats.length) {
+            map.fitBounds(L.geoJSON(feats).getBounds().pad(0.15));        // county/state outline
+        } else if (s.precision === 'area' && s.radius_km > 0) {
+            map.fitBounds(L.latLng(s.lat, s.lng).toBounds(s.radius_km * 2000).pad(0.15));  // circle region
+        } else {
+            map.setView([s.lat, s.lng], 13);                              // exact spot — close + centered
+        }
         const m = window._ecoMarkers && window._ecoMarkers[s.id];
         if (m) m.openPopup();
     }
     const top = document.getElementById('ecomap');
     if (top) top.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+// Zoom + center the map over the whole currently-visible set (e.g. after a
+// transparency chip). One match → the tight single-item framing; several → fit
+// them all; none → leave the view be.
+function _ecoFitVisible() {
+    const map = window._ecomap; if (!map) return;
+    map.invalidateSize(false);   // refresh cached size first, else the fit lands off-center
+    const visible = _ecoVisibleIds();
+    const src = _ecoSources().filter(s => typeof s.lat === 'number' && typeof s.lng === 'number' && (!visible || visible.has(s.id)));
+    if (!src.length) return;
+    if (src.length === 1) { _ecoFocus(src[0].id); return; }
+    let bounds = null;
+    src.forEach(s => {
+        const feats = _ecoIsShape(s) ? _ecoFeatures(s) : [];
+        let b;
+        if (feats.length) b = L.geoJSON(feats).getBounds();
+        else if (s.precision === 'area' && s.radius_km > 0) b = L.latLng(s.lat, s.lng).toBounds(s.radius_km * 2000);
+        else b = L.latLngBounds([s.lat, s.lng], [s.lat, s.lng]);
+        bounds = bounds ? bounds.extend(b) : b;
+    });
+    if (bounds) map.fitBounds(bounds.pad(0.15));
 }
 
 // --- Entry point (called by the render loop, incl. the 5s poll) --------------
@@ -558,9 +863,21 @@ function renderEcosystem() {
     _ecoSyncMarkers();
     _ecoControls();
     _ecoLegend();
+    _ecoRecipePanel();
     _ecoPanel();
     _ecoList();
+    // Frame a freshly-selected recipe's sources once (not on every 5s poll).
+    const rec = _ecoActiveRecipe();
+    if (rec) { if (window._ecoFittedRecipe !== rec.id) { window._ecoFittedRecipe = rec.id; _ecoFitRecipe(rec); } }
+    else window._ecoFittedRecipe = null;
     // The host div was display:none until the tab opened — let Leaflet recompute
-    // its size now that it's visible (otherwise tiles render into a 0×0 box).
-    setTimeout(() => { try { map.invalidateSize(); } catch (e) {} }, 0);
+    // its size now that it's visible (otherwise tiles render into a 0×0 box), THEN
+    // frame all her sources once. Without this the map opens on the fixed Austin
+    // view and far-flung sources (e.g. a California circle) sit off the edge.
+    setTimeout(() => {
+        try {
+            map.invalidateSize();
+            if (!window._ecoDidInitialFit) { window._ecoDidInitialFit = true; _ecoFitVisible(); }
+        } catch (e) {}
+    }, 0);
 }

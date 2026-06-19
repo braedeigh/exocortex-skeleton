@@ -386,6 +386,14 @@ def about_page():
     return render_template("about.html")
 
 
+@app.route("/food-map")
+def food_map_page():
+    """Standalone, shareable food-sourcing map — no dashboard chrome. Public; the
+    map renders read-only for visitors (no Add/Edit/Delete) and pulls its data
+    from the public /api/data/ecosystem stream."""
+    return render_template("food_map.html")
+
+
 # --- Dev Notes + Idea Notes (per-tab panels) — routes live in routes/devnotes.py ---
 
 _load_dev_notes = devnotes.load_dev_notes
@@ -888,6 +896,16 @@ def get_data_ecosystem():
     data.update({
         "ecosystem": _load_ecosystem(),
     })
+    # A light recipe list (no instructions) powers the map's "trace a recipe"
+    # picker — ingredients are all the matcher needs. Kept under its OWN key
+    # (eco_recipes), not "recipes": the public map exposes this safe subset, while
+    # the full "recipes" stream (with instructions, also sent on the public kitchen
+    # tab) stays hidden. See public_config.STREAMS.
+    data["eco_recipes"] = [
+        {"id": r.get("id"), "name": r.get("name"), "ingredients": r.get("ingredients", [])}
+        for r in store.read("recipes.json", {}).get("recipes", [])
+        if not r.get("is_archived")
+    ]
     _eco_cfg = store.read("ecosystem_config", {})
     data["usda_key_set"] = bool((_eco_cfg.get("usda_key") or os.environ.get("EXOCORTEX_USDA_KEY") or "").strip())
     data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("ecosystem", [])
@@ -958,6 +976,9 @@ def get_data_kitchen():
 
     data["kitchen_trips"] = store.read("kitchen_trips.json", {}).get("trips", [])
     data["recipes"] = store.read("recipes.json", {}).get("recipes", [])
+    # Ecosystem sources ride along so a recipe can show where its food comes from
+    # (the kitchen "where it comes from" card matches ingredients → placed sources).
+    data["ecosystem"] = _load_ecosystem()
 
     return jsonify(filter_for_view(data, request.view_mode))
   except Exception as e:

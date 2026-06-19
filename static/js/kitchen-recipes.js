@@ -416,6 +416,7 @@ function renderRecipeDetailInto(el, id) {
         <div style="margin-bottom:18px">${tags}${recipe.source_url ? `<a href="${esc(recipe.source_url)}" target="_blank" rel="noopener" style="color:var(--ongoing);font-size:12px;text-decoration:none">source ↗</a>` : ''}</div>
         <div style="font-weight:700;margin-bottom:6px;font-size:16px">Ingredients</div>
         <ul style="margin:0 0 18px 18px;padding:0">${ingredients}</ul>
+        ${_renderRecipeSourcing(recipe)}
         <div style="font-weight:700;margin-bottom:6px;font-size:16px">Instructions</div>
         ${instructionsHtml}
         ${recipe.notes ? `<div style="font-style:italic;color:var(--text-muted);font-size:13px;padding:10px 0;border-top:1px solid var(--border)">${esc(recipe.notes)}</div>` : ''}
@@ -432,6 +433,47 @@ function renderRecipeDetailInto(el, id) {
     // she types — a drag-resize handle doesn't exist on touch).
     const mn = document.getElementById('recipe-my-notes-text');
     if (mn && mn.value) autoGrow(mn);
+}
+
+// "Where it comes from" — a sourcing summary for the recipe, matching each
+// ingredient to a placed ecosystem source (or marking it untraced / pantry). The
+// "View on map" button deep-links to the Ecosystem tab with this recipe selected.
+function _renderRecipeSourcing(recipe) {
+    if (typeof ecoRecipeSourcing !== 'function') return '';
+    const sources = (D.ecosystem && D.ecosystem.sources) || [];
+    const s = ecoRecipeSourcing(recipe, sources);
+    if (!s.total) return '';
+    const txOf = (src) => (typeof ECO_TX !== 'undefined' && ECO_TX[src.transparency]) || { color: '#9aa0a6', label: 'unrated' };
+    const dot = (c) => `<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${c};flex:none"></span>`;
+    const tracedRows = s.traced.map(t => {
+        const tx = txOf(t.source);
+        return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:13px">
+            ${dot(tx.color)}
+            <span style="flex:1;color:var(--text)">${esc(t.ing.item)}</span>
+            <span style="color:var(--text-muted);font-size:12px">${esc(t.source.name)}</span>
+        </div>`;
+    }).join('');
+    const body = tracedRows || `<div style="font-size:13px;color:var(--text-muted)">Nothing traced yet — place these foods on the map.</div>`;
+    const placeRow = s.place.length
+        ? `<div style="margin-top:8px;font-size:12px;color:var(--text-muted)">Not yet traced: ${s.place.map(p => esc(p.ing.item)).join(', ')}</div>`
+        : '';
+    const pantryRow = s.pantry.length
+        ? `<div style="margin-top:4px;font-size:12px;color:var(--text-muted);opacity:.7">+ ${s.pantry.length} pantry staple${s.pantry.length === 1 ? '' : 's'} (not traced)</div>`
+        : '';
+    const jump = `<button onclick="switchTab(event,'ecosystem',{recipe:'${esc(recipe.id)}'})" style="min-height:40px;padding:6px 14px;margin-top:12px;background:none;color:var(--accent);border:1px solid var(--accent);border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">View on map &rarr;</button>`;
+    return `<details class="kitchen-section" data-card="recipe-sourcing" open style="margin:0 0 18px;border:1px solid var(--border);border-radius:10px;padding:0 12px">
+        <summary style="font-size:15px;font-weight:700;cursor:pointer;padding:12px 0;list-style:none;display:flex;align-items:center;gap:8px">
+            <span style="font-size:12px;transition:transform .15s;display:inline-block" class="kitchen-arrow">&#9654;</span>
+            Where it comes from
+            <span style="font-size:12px;font-weight:400;color:var(--text-muted)">traced ${s.traced.length}/${s.total}</span>
+        </summary>
+        <div style="padding:0 0 12px">
+            ${body}
+            ${placeRow}
+            ${pantryRow}
+            ${jump}
+        </div>
+    </details>`;
 }
 
 function _walkRecipeChain(recipe) {
