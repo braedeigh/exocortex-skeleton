@@ -1,0 +1,14 @@
+[package]
+name = "add-todo"
+version = "0.1.0"
+edition = "2021"
+
+# The "one narrow door" into the build queue. The agent never edits
+# build_todos.json directly — it calls this binary, which validates every
+# field and appends atomically. Code does the write; the model only fills slots.
+[dependencies]
+clap = { version = "4", features = ["derive"] }   # CLI args + the Theme enum (schema layer #1)
+serde = { version = "1", features = ["derive"] }  # turn structs <-> JSON
+serde_json = "1"                                   # the JSON itself (pretty 2-space, matches your other files)
+chrono = "0.4"                                      # local timestamps -> "2026-06-23 15:28"
+rand = "0.8"                                         # 8-char hex id, like your other entries
