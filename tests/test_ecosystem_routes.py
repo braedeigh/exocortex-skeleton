@@ -184,6 +184,31 @@ def test_update_transparency(client, data_dir):
     assert _source(client)["transparency"] == "disclosed"
 
 
+# --- geo_source (the placement axis: how the dot itself got placed) -----------
+
+def test_add_defaults_geo_source_unrated(client, data_dir):
+    _add(client)
+    assert _source(client)["geo_source"] == "unrated"
+
+
+def test_add_accepts_valid_geo_source(client, data_dir):
+    _add(client, name="HEB milk", geo_source="proxy")
+    assert _source(client)["geo_source"] == "proxy"
+
+
+def test_add_coerces_bogus_geo_source_to_unrated(client, data_dir):
+    # A proxy dot must never silently masquerade as a real placement — anything
+    # off-vocabulary lands on "unrated", not on a confident value.
+    _add(client, geo_source="definitely-the-farm")
+    assert _source(client)["geo_source"] == "unrated"
+
+
+def test_update_geo_source(client, data_dir):
+    sid = _add(client, geo_source="unrated")
+    _post(client, "/api/ecosystem/source/update", {"id": sid, "geo_source": "placed"})
+    assert _source(client)["geo_source"] == "placed"
+
+
 # --- USDA suggest parsing (no network — feed fixture rows) --------------------
 
 def test_usda_top_state_picks_biggest_in_latest_year():
