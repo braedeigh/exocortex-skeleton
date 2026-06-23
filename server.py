@@ -20,7 +20,7 @@ import config
 from routes import (
     kitchen, habits, todos, places, health, inventory, money, car,
     meditation, media, movement, reminders, food_test, terminal, settings,
-    devnotes, ideas, ecosystem, keeper,
+    devnotes, ideas, ecosystem, keeper, pending,
 )
 
 app = Flask(__name__)
@@ -1170,6 +1170,7 @@ devnotes.register(app)
 ideas.register(app)
 ecosystem.register(app)
 keeper.register(app)
+pending.register(app)
 
 # --- Startup ---
 validate_on_startup(app)
