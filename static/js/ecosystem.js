@@ -610,6 +610,11 @@ function _ecoPanel(force) {
         const t = ECO_TX[k]; const on = txCur === k;
         return `<button onclick="_ecoDraftSet('transparency','${k}')" title="${t.blurb}" style="flex:1;height:36px;border-radius:8px;border:1px solid ${on ? t.color : 'var(--border)'};background:${on ? t.color + '22' : 'none'};color:var(--text);font-size:11px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px"><span style="width:9px;height:9px;border-radius:50%;background:${t.color};flex:none"></span>${t.label}</button>`;
     }).join('');
+    const geoCur = d.geo_source || 'unrated';
+    const geoButtons = ECO_GEO_ORDER.map(k => {
+        const t = ECO_GEO[k]; const on = geoCur === k;
+        return `<button onclick="_ecoDraftSet('geo_source','${k}')" title="${t.blurb}" style="flex:1;height:36px;border-radius:8px;border:1px solid ${on ? 'var(--accent)' : 'var(--border)'};background:${on ? 'rgba(124,92,191,0.12)' : 'none'};color:var(--text);font-size:11px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:4px">${t.icon} ${t.label}</button>`;
+    }).join('');
     const keyOpen = !!window._ecoKeyPrompt;
     const useCircleBtn = `<button onclick="_ecoUseCircle()" style="height:30px;padding:0 10px;border-radius:7px;border:1px solid var(--border);background:none;color:var(--text-muted);font-size:12px;font-weight:600;cursor:pointer">use a circle</button>`;
     let regionUi = '';
@@ -668,6 +673,9 @@ function _ecoPanel(force) {
                 </div>
             </div>
         </div>
+
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">How was this dot placed?</div>
+        <div style="display:flex;gap:6px;margin-bottom:12px">${geoButtons}</div>
 
         <div style="font-size:12px;margin-bottom:12px">${loc}</div>
         <div style="display:flex;gap:8px;align-items:center">
