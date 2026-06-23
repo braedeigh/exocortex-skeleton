@@ -66,6 +66,19 @@ def _transparency(value):
     return v if v in _TX_LEVELS else "unrated"
 
 
+# How the DOT itself got placed — a third honest axis, distinct from transparency
+# (how disclosed the supply chain is) and precision (how exact the area is).
+# placed = an exact spot chosen on purpose (geocoded / a known farm); the dot is a
+# claim about THIS item · proxy = USDA "where this commodity is generally grown",
+# NOT this item's source · guess = eyeballed a rough region · unrated = not set.
+_GEO_SOURCES = ("placed", "proxy", "guess", "unrated")
+
+
+def _geo_source(value):
+    v = str(value or "").strip().lower()
+    return v if v in _GEO_SOURCES else "unrated"
+
+
 # An "area" source can be drawn as a soft circle, as real county outlines (USDA),
 # or as a whole-state outline. counties = list of 5-digit FIPS; region_name = a
 # US state name for the state outline.
@@ -334,6 +347,7 @@ def register(app):
             "area_kind": _area_kind(body.get("area_kind")),
             "counties": _fips_list(body.get("counties")),
             "region_name": (body.get("region_name") or "").strip(),
+            "geo_source": _geo_source(body.get("geo_source")),
         }
         data = _load()
         data["sources"].append(source)
@@ -379,6 +393,8 @@ def register(app):
             s["counties"] = _fips_list(body.get("counties"))
         if "region_name" in body:
             s["region_name"] = (body.get("region_name") or "").strip()
+        if "geo_source" in body:
+            s["geo_source"] = _geo_source(body.get("geo_source"))
         # An area with no radius and a point with a radius are both incoherent —
         # normalise so the map renders predictably.
         if s.get("precision") == "point":

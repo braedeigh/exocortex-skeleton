@@ -20,7 +20,7 @@ import config
 from routes import (
     kitchen, habits, todos, places, health, inventory, money, car,
     meditation, media, movement, reminders, food_test, terminal, settings,
-    devnotes, ideas, ecosystem,
+    devnotes, ideas, ecosystem, keeper,
 )
 
 app = Flask(__name__)
@@ -407,6 +407,11 @@ def journal_view():
     return render_template("journal.html")
 
 
+@app.route("/keeper")
+def keeper_page():
+    return render_template("keeper.html")
+
+
 @app.route("/api/journal/dates")
 def journal_dates():
     daily_dir = CONTENT_DIR / "Journal" / "Daily"
@@ -513,7 +518,8 @@ def _load_streaks():
             start = datetime.strptime(since, "%Y-%m-%d")
         except ValueError:
             continue
-        out.append({"label": label, "days": (today - start).days, "since": since})
+        out.append({"label": label, "days": (today - start).days, "since": since,
+                    "notes": str(s.get("notes", ""))})
     return out
 
 
@@ -530,6 +536,26 @@ def add_streak():
         return jsonify({"error": "date must be YYYY-MM-DD"}), 400
     d = store.read("streaks.json", {"streaks": []})
     d.setdefault("streaks", []).append({"label": label, "since": since})
+    store.write("streaks.json", d)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/streaks/update", methods=["POST"])
+def update_streak():
+    """Update the notes on a streak, identified by label+since (the same
+    composite key remove uses)."""
+    data = request.json or {}
+    label = (data.get("label") or "").strip()
+    since = (data.get("since") or "").strip()
+    notes = data.get("notes", "")
+    d = store.read("streaks.json", {"streaks": []})
+    found = False
+    for s in d.get("streaks", []):
+        if str(s.get("label", "")).strip() == label and str(s.get("since", "")).strip() == since:
+            s["notes"] = notes
+            found = True
+    if not found:
+        return jsonify({"error": "streak not found"}), 404
     store.write("streaks.json", d)
     return jsonify({"ok": True})
 
@@ -1143,6 +1169,7 @@ settings.register(app)
 devnotes.register(app)
 ideas.register(app)
 ecosystem.register(app)
+keeper.register(app)
 
 # --- Startup ---
 validate_on_startup(app)

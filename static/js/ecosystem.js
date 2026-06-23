@@ -23,6 +23,18 @@ const ECO_TX = {
 const ECO_TX_ORDER = ['disclosed', 'partial', 'opaque', 'unrated'];   // most → least Proper
 function _ecoTx(s) { return ECO_TX[s && s.transparency] || ECO_TX.unrated; }
 
+// A third honest axis: how the DOT itself got placed (vs. transparency = how
+// disclosed the chain is, precision = how exact the area is). Keeps a proxy dot
+// from masquerading as a factual placement of THIS item.
+const ECO_GEO = {
+    placed:  { icon: '📍', label: 'placed',     blurb: 'exact spot I chose — a claim about this item' },
+    proxy:   { icon: '≈',  label: 'USDA proxy', blurb: 'where this is generally grown — not necessarily this item' },
+    guess:   { icon: '~',  label: 'rough guess', blurb: 'eyeballed a rough region' },
+    unrated: { icon: '·',  label: 'unset',      blurb: "how the dot was placed isn't marked" },
+};
+const ECO_GEO_ORDER = ['placed', 'proxy', 'guess'];   // the three settable choices
+function _ecoGeo(s) { return ECO_GEO[s && s.geo_source] || ECO_GEO.unrated; }
+
 // Editing is owner-only. On the public standalone map (/food-map) VIEW_MODE is
 // "public", so the Add button and per-source Edit/Delete are withheld — viewers
 // still get the map, legend, transparency filters and recipe tracing, read-only.
@@ -211,10 +223,15 @@ function _ecoPopupHtml(s) {
     const meta = _ecoMetaLabel(s);
     const tx = _ecoTx(s);
     const chip = `<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${tx.color};margin-right:5px;vertical-align:middle"></span>${tx.label}`;
+    const g = _ecoGeo(s);
+    const geoLine = (s.geo_source && s.geo_source !== 'unrated')
+        ? `<div style="font-size:11px;color:#999;margin-bottom:8px">${g.icon} ${g.label}${s.geo_source === 'proxy' ? ' — generally grown here, not necessarily this item&rsquo;s source' : ''}</div>`
+        : '';
     return `<div style="min-width:170px">
         <div style="font-size:14px;font-weight:700;margin-bottom:2px">${esc(s.name)}</div>
         ${s.note ? `<div style="font-size:12px;color:#555;margin-bottom:4px">${esc(s.note)}</div>` : ''}
-        <div style="font-size:11px;color:#888;margin-bottom:8px">${chip} &middot; ${meta}</div>
+        <div style="font-size:11px;color:#888;margin-bottom:${geoLine ? '4px' : '8px'}">${chip} &middot; ${meta}</div>
+        ${geoLine}
         ${_ecoCanEdit() ? `<div style="display:flex;gap:6px">
             <button onclick="_ecoEditOpen('${esc(s.id)}')" style="flex:1;height:30px;border-radius:6px;border:1px solid #ccc;background:#fff;font-size:12px;font-weight:600;cursor:pointer">Edit</button>
             <button onclick="_ecoDelete('${esc(s.id)}','${escJs(s.name)}')" style="flex:1;height:30px;border-radius:6px;border:1px solid #e0b4b4;background:#fff;color:#c0392b;font-size:12px;font-weight:600;cursor:pointer">Delete</button>
@@ -303,6 +320,7 @@ async function _ecoGeocode() {
     } catch (e) { if (msg) msg.textContent = 'Network error reaching the geocoder.'; return; }
     if (!j || !j.ok) { if (msg) msg.textContent = (j && j.reason) || 'No match found.'; return; }
     d.precision = 'point'; d.lat = j.lat; d.lng = j.lng;
+    d.geo_source = 'placed';   // a geocoded address is a deliberate, exact placement
     _ecoSyncDraftMarker();
     if (window._ecomap) window._ecomap.setView([d.lat, d.lng], 13);
     _ecoUpdateLocReadout();
@@ -433,7 +451,7 @@ function _ecoLegend() {
 
 // --- Add / edit panel (form) -------------------------------------------------
 function _ecoAddNew() {
-    window._ecoDraft = { name: '', note: '', precision: 'point', radius_km: 0, lat: null, lng: null, transparency: 'unrated', area_kind: 'circle', counties: [], region_name: '' };
+    window._ecoDraft = { name: '', note: '', precision: 'point', radius_km: 0, lat: null, lng: null, transparency: 'unrated', area_kind: 'circle', counties: [], region_name: '', geo_source: 'unrated' };
     window._ecoKeyPrompt = false;
     _ecoSyncDraftMarker(); _ecoControls(); _ecoPanel(true);
 }
@@ -446,7 +464,7 @@ function _ecoEditOpen(id) {
         precision: s.precision || 'point', radius_km: s.radius_km || 0,
         lat: s.lat, lng: s.lng, transparency: s.transparency || 'unrated',
         area_kind: s.area_kind || 'circle', counties: (s.counties || []).slice(),
-        region_name: s.region_name || '',
+        region_name: s.region_name || '', geo_source: s.geo_source || 'unrated',
     };
     _ecoSyncDraftMarker();
     if (window._ecomap && typeof s.lat === 'number') window._ecomap.panTo([s.lat, s.lng]);
@@ -477,6 +495,11 @@ function _ecoDraftSet(field, val) {
         _ecoPanel(true);        // re-render to move the selected highlight
         return;
     }
+    if (field === 'geo_source') {
+        d.geo_source = ECO_GEO[val] ? val : 'unrated';
+        _ecoPanel(true);
+        return;
+    }
     d[field] = val;
 }
 
@@ -498,6 +521,7 @@ async function _ecoSuggestUSDA() {
         await _ecoLoadGeo().catch(() => {});
         d.precision = 'area'; d.area_kind = 'counties';
         d.counties = j.counties || []; d.region_name = ''; d.radius_km = 0;
+        d.geo_source = 'proxy';   // USDA = where it's generally grown, not this item
         if (!d.note) d.note = j.note || '';
         if ((d.transparency || 'unrated') === 'unrated') d.transparency = 'partial';
         window._ecoKeyPrompt = false;
@@ -511,6 +535,7 @@ async function _ecoSuggestUSDA() {
         d.precision = 'area'; d.area_kind = 'state';
         d.region_name = j.region_name || ''; d.counties = []; d.radius_km = 0;
         d.lat = j.lat; d.lng = j.lng;
+        d.geo_source = 'proxy';   // USDA = where it's generally grown, not this item
         if (!d.note) d.note = j.note || '';
         if ((d.transparency || 'unrated') === 'unrated') d.transparency = 'partial';
         window._ecoKeyPrompt = false;
@@ -538,6 +563,7 @@ function _ecoUseCircle() {
     const d = window._ecoDraft; if (!d) return;
     d.area_kind = 'circle'; d.counties = []; d.region_name = '';
     if (!(d.radius_km > 0)) d.radius_km = 100;
+    if (d.geo_source === 'proxy') d.geo_source = 'guess';   // a hand circle is a hunch, not USDA
     _ecoSyncDraftMarker(); _ecoPanel(true);
 }
 async function _ecoSaveKey() {
@@ -696,6 +722,7 @@ async function _ecoSave() {
         area_kind: kind,
         counties: kind === 'counties' ? (d.counties || []) : [],
         region_name: kind === 'state' ? (d.region_name || '') : '',
+        geo_source: d.geo_source || 'unrated',
     };
     const url = d.id ? '/api/ecosystem/source/update' : '/api/ecosystem/source/add';
     if (d.id) payload.id = d.id;

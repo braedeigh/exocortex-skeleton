@@ -385,7 +385,9 @@ function renderStreaks() {
     if (D._frost && D._frost.streaks) { el.innerHTML = ''; return; }
     const inp = 'padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px';
     const chips = (D.streaks || []).map(s => `<span class="streak-chip">
-        <span><span class="num">Day ${s.days}</span> ${esc(s.label)}</span>
+        <span class="streak-chip-body" onclick="openStreakDetail('${escJs(s.label)}','${esc(s.since)}')" title="Notes & details">
+            <span class="num">Day ${s.days}</span> ${esc(s.label)}
+        </span>
         <button class="x" onclick="removeStreak('${escJs(s.label)}','${esc(s.since)}')" title="Remove (re-add to fix a date)">&times;</button>
     </span>`).join('');
     el.innerHTML = `<div class="streak-row">
@@ -415,6 +417,62 @@ async function addStreak() {
 function removeStreak(label, since) {
     confirmDelete(label, 'streak');
     pendingDelete = { type: 'streak', label, since, item: label };
+}
+
+// Streak detail modal — mirrors the To-do detail modal: read view + an
+// Edit/Save toggle on a freeform notes field (dosage, changes, milestones).
+function openStreakDetail(label, since) {
+    const s = (D.streaks || []).find(x => x.label === label && x.since === since);
+    if (!s) return;
+    const notes = s.notes || '';
+    const body = `<div class="streak-modal-body" data-label="${esc(label)}" data-since="${esc(since)}">
+        <div class="streak-modal-meta">Started ${esc(since)}</div>
+        <div class="todo-modal-desc-read${notes ? '' : ' empty'}">${notes ? esc(notes) : 'No notes yet'}</div>
+        <div class="streak-modal-edit" style="display:none">
+            <div class="tm-field">
+                <label class="todo-modal-label">Notes</label>
+                <textarea class="todo-modal-desc-edit" placeholder="Dosage, changes, milestones…" oninput="autoGrow(this)">${esc(notes)}</textarea>
+            </div>
+        </div>
+        <div class="todo-modal-foot streak-modal-foot">
+            <button type="button" class="todo-modal-delete" onclick="removeStreakFromModal()">Delete</button>
+            <button type="button" class="todo-desc-editbtn" onclick="toggleStreakEdit(this)">Edit</button>
+        </div>
+    </div>`;
+    showEditorModal('Streak', body);
+    const h3 = document.getElementById('panel-modal-title');
+    if (h3) h3.innerHTML = `<span class="todo-modal-kicker">Day ${s.days}</span> <span class="todo-modal-htitle">${esc(label)}</span>`;
+}
+
+async function toggleStreakEdit(btn) {
+    const body = btn.closest('.streak-modal-body');
+    if (!body) return;
+    const editPanel = body.querySelector('.streak-modal-edit');
+    const descRead = body.querySelector('.todo-modal-desc-read');
+    const descEdit = body.querySelector('.todo-modal-desc-edit');
+    if (btn.textContent.trim() === 'Edit') {
+        editPanel.style.display = '';
+        descRead.style.display = 'none';
+        autoGrow(descEdit);
+        descEdit.focus();
+        descEdit.setSelectionRange(descEdit.value.length, descEdit.value.length);
+        btn.textContent = 'Save';
+        return;
+    }
+    const notes = descEdit.value.trim();
+    await fetch('/api/streaks/update', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label: body.dataset.label, since: body.dataset.since, notes })
+    });
+    hideEditorModal();
+    loadDashboard();
+}
+
+function removeStreakFromModal() {
+    const body = document.querySelector('.streak-modal-body');
+    if (!body) return;
+    hideEditorModal();
+    removeStreak(body.dataset.label, body.dataset.since);
 }
 
 function renderHeader() {

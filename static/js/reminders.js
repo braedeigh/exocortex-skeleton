@@ -146,7 +146,7 @@ function renderReminders() {
         const sub = snoozed ? `💤 snoozed — back ${_fmtAddedDate(r.snoozed_until)}` : s.sub;
         html += `<div class="hrt-bar" style="border-left-color:${s.color};background:${s.color};${s.pulse}margin-bottom:12px${snoozed ? ';opacity:0.6' : ''}">
             <div>
-                <div style="font-size:18px">${emoji}${esc(r.label)} — ${s.daysText}</div>
+                <div style="font-size:18px">${emoji}${esc(r.label)}: ${s.daysText}</div>
                 <div style="font-size:13px;opacity:0.8;font-weight:400;margin-top:2px">${sub}</div>
             </div>
             <div style="display:flex;gap:8px;align-items:center;flex:none">

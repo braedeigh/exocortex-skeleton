@@ -40,6 +40,7 @@
                 <button type="button" class="time-btn" id="more-btn" onclick="toggleMore(event)">More &#9662;</button>
                 <!-- Overflowed bar tabs are injected above these always-in-More items. -->
                 <div id="more-menu" class="more-menu" role="menu">
+                    <a href="/keeper" class="auth-only" onclick="closeMore()">Keeper</a>
                     <a href="/personality" class="auth-only" onclick="closeMore()">Personality</a>
                     <a href="/inventory" data-tab="inventory" onclick="switchTab(event,'inventory')">Inventory</a>
                     <a href="/car-maintenance" data-tab="car" onclick="switchTab(event,'car')">Car Maintenance</a>

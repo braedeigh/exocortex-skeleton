@@ -103,6 +103,11 @@ body {
     cursor: pointer; white-space: nowrap;
 }
 .hrt-done-btn:hover { background: rgba(255,255,255,0.3); border-color: #fff; }
+/* On the installed PWA, stack the action buttons below the title instead of
+   squeezing them onto the same row. */
+@media (display-mode: standalone) {
+    .hrt-bar { flex-direction: column; align-items: center; gap: var(--space-4); text-align: center; }
+}
 
 /* Contact reminder collapsible */
 .contact-reminder-group summary::-webkit-details-marker { display: none; }
@@ -222,6 +227,13 @@ body {
     border-radius: 999px; padding: 4px 6px 4px 12px; font-size: 12.5px; color: var(--text-secondary);
 }
 .streak-chip .num { color: var(--accent); font-weight: 700; }
+.streak-chip-body { cursor: pointer; display: inline-flex; align-items: center; gap: 5px; }
+.streak-modal-meta { color: var(--text-muted); font-size: 13px; margin-bottom: 12px; }
+/* No middle element here (unlike the to-do modal's date), so group the two
+   buttons snug to their text instead of flinging them to opposite edges. */
+.streak-modal-foot { justify-content: flex-start; gap: 10px; }
+.streak-modal-foot .todo-desc-editbtn,
+.streak-modal-foot .todo-modal-delete { padding: 8px 16px; }
 .streak-chip .x {
     background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 14px;
     line-height: 1; padding: 0 4px; opacity: 0; transition: opacity 0.15s;
