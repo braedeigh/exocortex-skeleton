@@ -652,6 +652,18 @@ def _load_habit_starts():
     return store.read("habit_start_dates.json", {})
 
 
+def _load_habit_cadence():
+    # Reconciles graduated habits' spot-checks against the log on the way out
+    # (pass/miss/demote/reschedule). Cheap; safe on every data load.
+    import habit_cadence
+    return habit_cadence.reconcile(_load_habits_log())
+
+
+def _cadence_config():
+    import habit_cadence
+    return habit_cadence.CONFIG
+
+
 def _load_activity_log():
     return store.read("activity_log.json", {}).get("entries", [])
 
@@ -719,6 +731,8 @@ def get_data_today():
         "todos": todos_to_sections(todo_data),
         "places": store.read("places", {}).get("places", []),
         "habits_log": _load_habits_log(),
+        "habit_cadence": _load_habit_cadence(),
+        "cadence_config": _cadence_config(),
         "health_data": load_health_data(),
         "contacts": _load_contacts(),
         "applications": applications,
@@ -748,6 +762,8 @@ def get_data_map():
     data.update({
         "health_data": load_health_data(),
         "habits_log": _load_habits_log(),
+        "habit_cadence": _load_habit_cadence(),
+        "cadence_config": _cadence_config(),
         "habits": _load_habits(),
         "habit_starts": _load_habit_starts(),
         "habit_settings": _load_habit_settings(),
@@ -1042,6 +1058,8 @@ def get_data():
         "contacts": _load_contacts(),
         "buy_list": buy_list,
         "habits_log": _load_habits_log(),
+        "habit_cadence": _load_habit_cadence(),
+        "cadence_config": _cadence_config(),
         "runs": runs_data,
         "activity_log": _load_activity_log(),
         "meal_defaults": _load_meal_defaults(),

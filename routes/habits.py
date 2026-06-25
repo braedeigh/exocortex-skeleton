@@ -145,6 +145,22 @@ def register(app):
                           habit_log_key(section, new_name), also_bare=old_name)
         return jsonify({"ok": True})
 
+    # --- Cadence ladder (daily → weekly → monthly → retired) ---
+
+    @app.route("/api/habits/cadence/promote", methods=["POST"])
+    def promote_habit():
+        import habit_cadence
+        data = request.json or {}
+        habit_cadence.promote(data.get("section", ""), data["habit"])
+        return jsonify({"ok": True})
+
+    @app.route("/api/habits/cadence/restore", methods=["POST"])
+    def restore_habit():
+        import habit_cadence
+        data = request.json or {}
+        habit_cadence.restore(data.get("section", ""), data["habit"])
+        return jsonify({"ok": True})
+
     # --- Edges ---
 
     @app.route("/api/edges/add", methods=["POST"])

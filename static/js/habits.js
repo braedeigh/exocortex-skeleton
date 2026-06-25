@@ -1,5 +1,173 @@
 // habits.js — habit cards, habit tracker grid
 
+// --- Cadence ladder (daily → weekly → monthly → retired) ---
+// A proven daily habit graduates to occasional spot-checks. Promotion is
+// suggested (badge → tap); demotion is automatic server-side. State lives in
+// D.habit_cadence keyed by 'section|text'; a plain daily habit has NO entry.
+
+function habitCadence(section, item) {
+    return (D.habit_cadence || {})[habitKey(section, item)] || null;
+}
+function isGraduated(c) { return !!c && (c.stage === 'weekly' || c.stage === 'monthly'); }
+
+// Completions in the last `days` days — the "still consistent NOW" graduation gate,
+// so a long-dormant habit's stale lifetime count can't keep re-suggesting itself.
+function recentHabitDone(section, item, days) {
+    const key = habitKey(section, item);
+    const log = D.habits_log || {};
+    const now = new Date();
+    let n = 0;
+    for (let i = 0; i < days; i++) {
+        const d = new Date(now); d.setDate(d.getDate() - i);
+        const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+        if ((log[ds] || {})[key]) n++;
+    }
+    return n;
+}
+
+// A plain daily habit that's proven AND still consistent → offer graduation.
+function readyToGraduate(section, item) {
+    if (habitCadence(section, item)) return false;          // already on the ladder
+    const cfg = D.cadence_config || {};
+    const need = cfg.graduate_count || 60;
+    const [rn, rd] = cfg.graduate_recent || [24, 30];
+    return habitCount(item, section) >= need && recentHabitDone(section, item, rd) >= rn;
+}
+
+// A graduated habit that's passed enough spot-checks → offer the next rung.
+function readyToPromote(c) {
+    const cfg = D.cadence_config || {};
+    if (c.stage === 'weekly')  return (c.passes || 0) >= (cfg.weekly_to_monthly || 4);
+    if (c.stage === 'monthly') return (c.passes || 0) >= (cfg.monthly_to_retire || 3);
+    return false;
+}
+
+// Passes needed at the current stage (for the "2/4 → monthly" progress label).
+function promoteTarget(c) {
+    const cfg = D.cadence_config || {};
+    if (c.stage === 'weekly')  return cfg.weekly_to_monthly || 4;
+    if (c.stage === 'monthly') return cfg.monthly_to_retire || 3;
+    return 0;
+}
+
+// Is a graduated habit's spot-check open today? (check day + grace window).
+function spotCheckDue(section, item) {
+    const c = habitCadence(section, item);
+    if (!isGraduated(c) || !c.next_check) return false;
+    const t = todayStr();
+    if (t < c.next_check) return false;
+    const grace = (D.cadence_config || {}).grace_days ?? 1;
+    const gap = Math.round((new Date(t + 'T12:00:00') - new Date(c.next_check + 'T12:00:00')) / 86400000);
+    return gap <= grace;
+}
+
+// Should this habit appear in today's daily card? Plain daily → always;
+// graduated → only on its open spot-check day; retired → never.
+function showsInDaily(section, item) {
+    const c = habitCadence(section, item);
+    if (!c) return true;
+    if (c.stage === 'retired') return false;
+    return spotCheckDue(section, item);
+}
+
+const STAGE_NEXT_LABEL = { weekly: 'monthly', monthly: 'retire' };
+
+async function graduateHabit(section, item) {
+    await fetch('/api/habits/cadence/promote', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ habit: item, section })
+    });
+    loadDashboard();
+}
+async function restoreHabitCadence(section, item) {
+    await fetch('/api/habits/cadence/restore', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ habit: item, section })
+    });
+    loadDashboard();
+}
+
+// Graduating from the To-Do nudge keeps a transient "graduated · Undo" bar visible
+// for ~6s (mirrors the reminders' logReminderDone pattern), then clears it.
+window._gradRecent = window._gradRecent || {};
+
+async function graduateFromPrompt(section, item) {
+    await fetch('/api/habits/cadence/promote', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ habit: item, section })
+    });
+    const key = habitKey(section, item);
+    window._gradRecent[key] = { section, item };
+    setTimeout(() => { delete window._gradRecent[key]; renderGraduationPrompts(); }, 6000);
+    loadDashboard();
+}
+
+async function undoGraduate(section, item) {
+    delete window._gradRecent[habitKey(section, item)];
+    await fetch('/api/habits/cadence/restore', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ habit: item, section })
+    });
+    loadDashboard();
+}
+
+// "Not now" on a graduate nudge — hide it for a week (client-side, like a snooze)
+// so the To-Do page doesn't nag daily. Falls away once she taps Graduate.
+function _gradSnoozeMap() {
+    try { return JSON.parse(localStorage.getItem('gradSnooze') || '{}'); } catch (e) { return {}; }
+}
+function gradSnoozed(section, item) {
+    const until = _gradSnoozeMap()[habitKey(section, item)];
+    return !!until && until > todayStr();
+}
+function snoozeGraduate(section, item) {
+    const m = _gradSnoozeMap();
+    const d = new Date(); d.setDate(d.getDate() + 7);
+    m[habitKey(section, item)] = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    localStorage.setItem('gradSnooze', JSON.stringify(m));
+    renderGraduationPrompts();
+}
+
+// To-Do page nudge: proven daily habits ready to graduate, shown as reminder-style
+// bars next to the linen/peptide reminders. (The Map keeps the management list.)
+function renderGraduationPrompts() {
+    const el = document.getElementById('habit-graduation-prompts');
+    if (!el) return;
+    const hidden = (D.habit_settings && D.habit_settings.hidden) || [];
+    let html = '';
+    // Just-graduated → brief green "graduated · Undo" confirmation (held ~6s).
+    const recent = window._gradRecent || {};
+    for (const key in recent) {
+        const { section, item } = recent[key];
+        html += `<div class="hrt-bar" style="border-left-color:var(--green);background:var(--green);margin-bottom:12px">
+            <div><div style="font-size:18px">&#10003; &#127891; ${esc(item)} graduated &rarr; weekly</div></div>
+            <button class="hrt-done-btn" onclick="undoGraduate('${escJs(section)}','${escJs(item)}')">Undo</button>
+        </div>`;
+    }
+    for (const section of (D.habits || [])) {
+        const n = section.name.toLowerCase();
+        if (!['morning', 'midday', 'night', 'evening / night'].includes(n)) continue;
+        for (const item of section.items) {
+            if (hidden.includes(item)) continue;
+            if (recent[habitKey(section.name, item)]) continue;   // showing its confirmation bar
+            if (!readyToGraduate(section.name, item)) continue;
+            if (gradSnoozed(section.name, item)) continue;
+            const color = '#9b86c9';
+            html += `<div class="hrt-bar" style="border-left-color:${color};background:${color};margin-bottom:12px">
+                <div>
+                    <div style="font-size:18px">&#127891; Graduate: ${esc(item)}</div>
+                    <div style="font-size:13px;opacity:0.8;font-weight:400;margin-top:2px">Automatic now — move it to a weekly spot-check</div>
+                </div>
+                <div style="display:flex;gap:8px;align-items:center;flex:none">
+                    <button class="hrt-done-btn" onclick="snoozeGraduate('${escJs(section.name)}','${escJs(item)}')" title="Not yet" style="opacity:0.85">Not now</button>
+                    <button class="hrt-done-btn" onclick="graduateFromPrompt('${escJs(section.name)}','${escJs(item)}')">&#127891; Graduate</button>
+                </div>
+            </div>`;
+        }
+    }
+    el.innerHTML = html;
+}
+
 function renderHabits() {
     const tod = getTime();
     const el = document.getElementById('habits-cards');
@@ -21,7 +189,8 @@ function renderHabits() {
         const cfg = sectionConfig[section.name.toLowerCase()];
         if (!cfg || cfg.time !== tod) continue;
 
-        const visibleItems = section.items.filter(item => !hidden.includes(item));
+        const visibleItems = section.items.filter(item =>
+            !hidden.includes(item) && showsInDaily(section.name, item));
         if (!visibleItems.length) continue;
 
         const allDone = visibleItems.every(item => !!todayLog[habitKey(section.name, item)]);
@@ -130,18 +299,20 @@ function renderHabitTracker() {
     const allMidday = [];
     const allNight = [];
     const weeklyGoals = [];
+    let mSec = 'Morning', midSec = 'Midday', nSec = 'Evening / Night';
     for (const section of D.habits) {
         const n = section.name.toLowerCase();
-        if (n === 'morning') allMorning.push(...section.items);
-        else if (n === 'midday') allMidday.push(...section.items);
-        else if (n === 'night' || n === 'evening / night') allNight.push(...section.items);
+        if (n === 'morning') { allMorning.push(...section.items); mSec = section.name; }
+        else if (n === 'midday') { allMidday.push(...section.items); midSec = section.name; }
+        else if (n === 'night' || n === 'evening / night') { allNight.push(...section.items); nSec = section.name; }
         else if (n === 'weekly' || n === 'recurring' || n === 'trying to add') weeklyGoals.push(...section.items);
     }
 
-    // Filter hidden habits for display
-    const morningHabits = allMorning.filter(h => !hidden.includes(h));
-    const middayHabits = allMidday.filter(h => !hidden.includes(h));
-    const nightHabits = allNight.filter(h => !hidden.includes(h));
+    // Filter hidden + graduated habits from the daily grid. A graduated habit
+    // (any cadence entry) lives in the "Graduated" block below, not the dot grid.
+    const morningHabits = allMorning.filter(h => !hidden.includes(h) && !habitCadence(mSec, h));
+    const middayHabits = allMidday.filter(h => !hidden.includes(h) && !habitCadence(midSec, h));
+    const nightHabits = allNight.filter(h => !hidden.includes(h) && !habitCadence(nSec, h));
 
     if (!allMorning.length && !allMidday.length && !allNight.length) { el.innerHTML = ''; return; }
 
@@ -258,6 +429,8 @@ function renderHabitTracker() {
     });
     symRow += '</tr>';
 
+    // (The "ready to graduate" nudge lives on the To-Do page next to the reminders —
+    // see renderGraduationPrompts. The Map keeps only the Graduated management list below.)
     html += sectionBlock('Morning', 'var(--morning)', morningHabits, 'var(--morning)', symRow, sectionNames.morning || 'Morning');
     if (middayHabits.length) {
         html += sectionBlock('Midday', 'var(--ongoing)', middayHabits, 'var(--ongoing)', '', sectionNames.midday || 'Midday');
@@ -305,6 +478,55 @@ function renderHabitTracker() {
             </div>`;
         }
         html += `</div></details>`;
+    }
+
+    // --- Graduated: habits on a lighter cadence, plus retired ones (collapsible) ---
+    const graduatedList = [];
+    const retiredList = [];
+    for (const section of D.habits) {
+        for (const item of section.items) {
+            const c = habitCadence(section.name, item);
+            if (!c) continue;
+            if (c.stage === 'retired') retiredList.push({ section: section.name, item, c });
+            else if (c.stage === 'weekly' || c.stage === 'monthly') graduatedList.push({ section: section.name, item, c });
+        }
+    }
+    if (graduatedList.length || retiredList.length) {
+        const fmt = ds => { if (!ds) return ''; const d = new Date(ds + 'T12:00:00'); return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); };
+        const chip = (label, color) => `<span style="font-size:12px;color:${color};background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:1px 8px;white-space:nowrap">${esc(label)}</span>`;
+        const btn = 'min-height:34px;background:none;border:1px solid var(--border);border-radius:6px;color:var(--text-muted);cursor:pointer;font-size:12px;padding:4px 10px;flex-shrink:0';
+        const row = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 0;border-bottom:1px solid var(--border)';
+        let g = `<details style="margin-top:12px">
+            <summary style="font-size:13px;font-weight:600;cursor:pointer;color:var(--text-muted)">Graduated (${graduatedList.length + retiredList.length})</summary>
+            <div style="margin-top:8px">`;
+        graduatedList.forEach(({ section, item, c }) => {
+            const stageColor = c.stage === 'monthly' ? 'var(--evening)' : 'var(--ongoing)';
+            const nextLabel = STAGE_NEXT_LABEL[c.stage] || '';
+            const ready = readyToPromote(c);
+            const progress = ready
+                ? `<span style="font-size:12px;color:${stageColor}">ready for ${nextLabel}</span>`
+                : `<span style="font-size:12px;color:var(--text-muted)">${c.passes || 0}/${promoteTarget(c)} &#8594; ${nextLabel}</span>`;
+            const when = spotCheckDue(section, item)
+                ? `<span style="font-size:12px;color:var(--ongoing)">due today</span>`
+                : `<span style="font-size:12px;color:var(--text-muted)">next ${fmt(c.next_check)}</span>`;
+            const promoteBtn = ready
+                ? `<button onclick="graduateHabit('${escJs(section)}','${escJs(item)}')" style="${btn};border-color:${stageColor};color:${stageColor}">&#127891; ${nextLabel === 'retire' ? 'Retire' : 'To ' + nextLabel}</button>`
+                : '';
+            g += `<div style="${row}">
+                <span style="flex:1;min-width:120px;font-size:13px;color:var(--text)">${esc(item)}</span>
+                ${chip(c.stage, stageColor)}${progress}${when}${promoteBtn}
+                <button onclick="restoreHabitCadence('${escJs(section)}','${escJs(item)}')" style="${btn}" title="Bring back to daily">&#8634; daily</button>
+            </div>`;
+        });
+        retiredList.forEach(({ section, item }) => {
+            g += `<div style="${row}">
+                <span style="flex:1;min-width:120px;font-size:13px;color:var(--text-muted);text-decoration:line-through">${esc(item)}</span>
+                ${chip('retired', 'var(--green)')}
+                <button onclick="restoreHabitCadence('${escJs(section)}','${escJs(item)}')" style="${btn}" title="Bring back to daily">&#8634; daily</button>
+            </div>`;
+        });
+        g += `</div></details>`;
+        html += g;
     }
 
     el.innerHTML = html;

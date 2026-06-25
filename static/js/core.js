@@ -270,7 +270,7 @@ function render() {
         TAB_RENDERERS = {
             today: [
                 renderHeader, renderFoodBanner, renderGroceryQuick,
-                renderReminders, renderContactReminders, renderContacts,
+                renderReminders, renderGraduationPrompts, renderContactReminders, renderContacts,
                 renderContactCalendar, renderHabits, renderTodos, renderSymptomForm,
                 renderDevNotes, restoreEditModes
             ],
@@ -930,6 +930,11 @@ function habitCardHTML(title, items, color, sectionName) {
         const done = !!todayLog[habitKey(sectionName, item)];
         const total = habitCount(item, sectionName);
         const target = 60;
+        const cad = habitCadence(sectionName, item);
+        const spot = isGraduated(cad);
+        const rightLabel = spot
+            ? `<span style="font-size:12px;margin-left:auto;white-space:nowrap;color:var(--ongoing);background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:1px 8px" title="A spot-check — keeping this habit honest on a light cadence">${esc(cad.stage)} check</span>`
+            : `<span style="font-size:12px;color:var(--text-muted);margin-left:auto">${habitStartLabel(item)}${total}/${target}</span>`;
         const lnk = HABIT_LINKS[item.toLowerCase()];
         const linkBtn = lnk
             ? `<button class="habit-link-btn" onclick="switchTab(event,'${esc(lnk.tab)}'${lnk.routine ? `,{routine:'${escJs(lnk.routine)}'}` : ''})" title="Open routine" aria-label="Open linked page">&#8599;</button>`
@@ -948,7 +953,7 @@ function habitCardHTML(title, items, color, sectionName) {
             <span class="item-text habit-view" style="${done?'text-decoration:line-through;opacity:0.5':''}">${esc(item)}${linkBtn}</span>
             <textarea class="habit-rename habit-edit" rows="1" style="display:none" data-original="${esc(item)}" data-section="${esc(sectionName)}"
                 oninput="autoGrow(this)" onblur="commitRename(this)" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur()}else if(event.key==='Escape'){this.value=this.dataset.original;this.blur()}">${esc(item)}</textarea>
-            <span style="font-size:12px;color:var(--text-muted);margin-left:auto">${habitStartLabel(item)}${total}/${target}</span>
+            ${rightLabel}
             <button class="delete-btn" onclick="confirmDelete('${esc(item)}','habit')" title="Remove">&times;</button>
         </div>`;
     }).join('');
