@@ -236,8 +236,8 @@ html, body {
     <div class="terminal-frame" style="position:relative;">
         <iframe id="term" tabindex="-1" inert></iframe>
         <script>
-        // Load terminal with session from URL param (default: journal)
-        const session = new URLSearchParams(window.location.search).get('session') || localStorage.getItem('exo-mobile-session') || 'journal';
+        // Load terminal with session from URL param (default: chat)
+        const session = new URLSearchParams(window.location.search).get('session') || localStorage.getItem('exo-mobile-session') || 'chat';
         document.getElementById('term').src = '/terminal/?arg=' + session;
         </script>
         <div id="touchScroll" style="position:absolute;top:0;left:0;right:0;bottom:0;z-index:2;"></div>
@@ -282,7 +282,7 @@ html, body {
 const inputEl = document.getElementById('input');
 const copyOverlay = document.getElementById('copyOverlay');
 const copyText = document.getElementById('copyText');
-const currentSession = new URLSearchParams(window.location.search).get('session') || 'journal';
+const currentSession = new URLSearchParams(window.location.search).get('session') || 'chat';
 
 // Auto-grow textarea — bottom bar is absolutely positioned so growing
 // the textarea expands upward over the terminal without resizing the iframe

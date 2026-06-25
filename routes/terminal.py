@@ -46,6 +46,57 @@ def _tmux(cmd_str):
     return subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=5)
 
 
+def _pane_owns_mouse(sess):
+    """True if the foreground app has mouse tracking on (full-screen TUI like
+    Claude, vim, less). Such apps keep their own scrollback and respond to wheel
+    events; tmux copy-mode can't scroll them (alt-screen panes hold no tmux
+    history). A plain shell returns False -> use copy-mode scrollback instead."""
+    return _tmux(f"display-message -t {sess} -p '#{{mouse_any_flag}}'").stdout.strip() == "1"
+
+
+def _wheel_hex(up, count, col=2, row=2):
+    """Hex bytes for `count` SGR mouse-wheel events, for `send-keys -H`.
+    SGR encoding: ESC [ < 64 ; col ; row M = wheel up, 65 = wheel down."""
+    btn = 64 if up else 65
+    seq = f"\033[<{btn};{col};{row}M" * count
+    return " ".join(f"{b:02x}" for b in seq.encode())
+
+
+def _scroll_wheel(sess, direction, mode, data):
+    """Scroll a full-screen TUI by feeding it mouse-wheel events."""
+    up = direction == "up"
+    if mode == "lines":
+        count = min(data.get("lines", 3), 50)
+    elif mode == "end":
+        count = 400  # blast to the top/bottom of the app's own scrollback
+    else:  # page
+        count = 12
+    _tmux(f"send-keys -t {sess} -H {_wheel_hex(up, count)}")
+
+
+def _scroll_copy_mode(sess, direction, mode, data):
+    """Scroll a plain shell through tmux copy-mode scrollback."""
+    # "Jump to bottom" = get back to the LIVE tail: cancel copy-mode outright
+    # (history-bottom would park at the end but stay frozen in copy-mode).
+    if mode == "end" and direction == "down":
+        _tmux(f"send-keys -t {sess} -X cancel")
+        return
+    # Scrolling must use copy-mode *commands* (`-X scroll-up`/`page-up`), NOT raw
+    # keys: a raw Up/PageUp only moves the copy cursor and won't touch scrollback
+    # until it reaches the top row. Enter with `-e` so scrolling back down to the
+    # bottom auto-exits copy-mode and returns to the live view.
+    _tmux(f"copy-mode -e -t {sess}")
+    if mode == "end":  # up = top of history
+        _tmux(f"send-keys -t {sess} -X history-top")
+    elif mode == "lines":
+        lines = min(data.get("lines", 5), 50)
+        cmd = "scroll-up" if direction == "up" else "scroll-down"
+        _tmux(f"send-keys -t {sess} -X -N {lines} {cmd}")
+    else:
+        cmd = "page-up" if direction == "up" else "page-down"
+        _tmux(f"send-keys -t {sess} -X {cmd}")
+
+
 def register(app):
     @app.route("/notes")
     def notes_page():
@@ -117,18 +168,14 @@ def register(app):
         sess = _get_session(data)
         direction = data.get("direction", "up")
         mode = data.get("mode", "page")
-        _tmux(f"copy-mode -t {sess}")
-        if mode == "end":
-            cmd = "history-top" if direction == "up" else "history-bottom"
-            _tmux(f"send-keys -t {sess} -X {cmd}")
-        elif mode == "lines":
-            lines = min(data.get("lines", 5), 50)
-            key = "Up" if direction == "up" else "Down"
-            keys = " ".join([key] * lines)
-            _tmux(f"send-keys -t {sess} {keys}")
+        # Full-screen TUIs (Claude, vim, less) own the mouse and their own
+        # scrollback — feed them wheel events. Plain shells scroll via tmux
+        # copy-mode. Picking the wrong one is why scroll looked broken: every
+        # session here runs Claude, so copy-mode had nothing to scroll.
+        if _pane_owns_mouse(sess):
+            _scroll_wheel(sess, direction, mode, data)
         else:
-            key = "PageUp" if direction == "up" else "PageDown"
-            _tmux(f"send-keys -t {sess} {key}")
+            _scroll_copy_mode(sess, direction, mode, data)
         return jsonify({"ok": True})
 
     @app.route("/api/terminal/refresh", methods=["POST"])

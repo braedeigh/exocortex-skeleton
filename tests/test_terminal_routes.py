@@ -1,0 +1,125 @@
+"""Terminal scroll contract.
+
+Scrolling the web terminal goes through tmux *copy-mode commands*
+(`send-keys -X ...`), never raw arrow/page keys. A raw `Up`/`PageUp` only
+moves the copy cursor inside the visible pane and doesn't touch scrollback
+until the cursor hits the top row — which made touch-drag scroll (mode=lines)
+silently do nothing. These tests pin the `-X` form so that regression can't
+come back.
+"""
+import pytest
+from flask import Flask
+from routes import terminal
+
+
+@pytest.fixture
+def term_client(monkeypatch):
+    """Minimal app with terminal routes; tmux calls are captured, not run."""
+    calls = []
+
+    # client._mouse toggles what the mouse_any_flag probe reports: "0" = plain
+    # shell (copy-mode path), "1" = full-screen TUI like Claude (wheel path).
+    state = {"mouse": "0"}
+
+    def fake_tmux(cmd_str):
+        calls.append(cmd_str)
+        out = state["mouse"] if "mouse_any_flag" in cmd_str else ""
+
+        class _R:
+            stdout = out
+        return _R()
+
+    monkeypatch.setattr(terminal, "_tmux", fake_tmux)
+    # `chat` is a default session, so _get_session accepts it without a file.
+    app = Flask(__name__)
+    app.config.update(TESTING=True)
+    terminal.register(app)
+    client = app.test_client()
+    client._tmux_calls = calls
+    client._state = state
+    return client
+
+
+def _scroll(client, **body):
+    body.setdefault("session", "chat")
+    return client.post("/api/terminal/scroll", json=body)
+
+
+def _scroll_calls(client):
+    """tmux calls excluding the mouse_any_flag probe."""
+    return [c for c in client._tmux_calls if "mouse_any_flag" not in c]
+
+
+def test_lines_scroll_uses_copy_mode_command_not_raw_keys(term_client):
+    resp = _scroll(term_client, direction="up", mode="lines", lines=12)
+    assert resp.status_code == 200
+    cmds = term_client._tmux_calls
+    # enters copy-mode with -e (so a down-scroll to the bottom auto-exits),
+    # then issues the buffer-scroll command with a repeat count
+    assert any(c == "copy-mode -e -t chat" for c in cmds)
+    assert any("-X -N 12 scroll-up" in c for c in cmds)
+    # never sends a bare arrow key (the old, broken behavior)
+    assert not any(c.endswith("Up") or " Up Up" in c for c in cmds)
+
+
+def test_lines_scroll_down_and_line_cap(term_client):
+    _scroll(term_client, direction="down", mode="lines", lines=999)
+    cmds = term_client._tmux_calls
+    # lines are capped at 50 to keep a single drag bounded
+    assert any("-X -N 50 scroll-down" in c for c in cmds)
+
+
+def test_page_scroll_uses_x_command(term_client):
+    _scroll(term_client, direction="up", mode="page")
+    assert any("-X page-up" in c for c in term_client._tmux_calls)
+
+
+def test_jump_to_bottom_cancels_copy_mode_not_history_bottom(term_client):
+    # The escape hatch back to the live tail must exit copy-mode outright;
+    # `history-bottom` would park at the end but stay frozen in copy-mode.
+    _scroll(term_client, direction="down", mode="end")
+    cmds = term_client._tmux_calls
+    assert any("-X cancel" in c for c in cmds)
+    assert not any("history-bottom" in c for c in cmds)
+    # and it shouldn't bother (re-)entering copy-mode just to cancel
+    assert not any(c.startswith("copy-mode") for c in cmds)
+
+
+def test_scroll_to_top_uses_history_top(term_client):
+    _scroll(term_client, direction="up", mode="end")
+    assert any("-X history-top" in c for c in term_client._tmux_calls)
+
+
+# --- Full-screen TUI (Claude) path: send mouse-wheel events, not copy-mode ---
+
+# SGR mouse-wheel: ESC[<64;col;row M = up, ESC[<65;col;row M = down. Mirror the
+# production encoder so expectations match byte-for-byte (the whole repeated
+# sequence is hex-joined at once, so event boundaries carry a space too).
+def _wheel_hex(up, count, col=2, row=2):
+    seq = f"\033[<{64 if up else 65};{col};{row}M" * count
+    return " ".join(f"{b:02x}" for b in seq.encode())
+
+
+def test_tui_lines_scroll_sends_wheel_events_not_copy_mode(term_client):
+    term_client._state["mouse"] = "1"  # foreground app owns the mouse (Claude)
+    _scroll(term_client, direction="up", mode="lines", lines=3)
+    cmds = _scroll_calls(term_client)
+    # one batched send-keys -H of three wheel-up events; never enters copy-mode
+    assert cmds == [f"send-keys -t chat -H {_wheel_hex(True, 3)}"]
+    assert not any("copy-mode" in c for c in cmds)
+
+
+def test_tui_scroll_down_sends_wheel_down(term_client):
+    term_client._state["mouse"] = "1"
+    _scroll(term_client, direction="down", mode="lines", lines=2)
+    cmds = _scroll_calls(term_client)
+    assert cmds == [f"send-keys -t chat -H {_wheel_hex(False, 2)}"]
+
+
+def test_tui_jump_to_bottom_blasts_wheel_down(term_client):
+    term_client._state["mouse"] = "1"
+    _scroll(term_client, direction="down", mode="end")
+    cmds = _scroll_calls(term_client)
+    # a big batch of wheel-down to reach the live tail; no copy-mode cancel here
+    assert cmds == [f"send-keys -t chat -H {_wheel_hex(False, 400)}"]
+    assert not any("cancel" in c for c in cmds)
