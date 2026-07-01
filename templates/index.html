@@ -43,6 +43,7 @@
                     <a href="/keeper" class="auth-only" onclick="closeMore()">Keeper</a>
                     <a href="/personality" class="auth-only" onclick="closeMore()">Personality</a>
                     <a href="/inventory" data-tab="inventory" onclick="switchTab(event,'inventory')">Inventory</a>
+                    <a href="/housing" class="auth-only" data-tab="housing" onclick="switchTab(event,'housing')">Housing</a>
                     <a href="/car-maintenance" data-tab="car" onclick="switchTab(event,'car')">Car Maintenance</a>
                 </div>
             </div>
@@ -190,6 +191,20 @@
         <div id="car-log-area"></div>
         <div id="dev-notes-car" class="auth-only" data-tab="car"></div>
         <div id="idea-notes-car" class="auth-only" data-tab="car"></div>
+    </div>
+
+    <!-- HOUSING TAB -->
+    <div id="tab-housing" style="display:none">
+        <div id="tab-todos-housing" class="auth-only"></div>
+        <div class="section-title" style="margin-top:0">Housing</div>
+        <div style="font-size:12px;color:var(--text-muted);margin:-8px 0 12px 0">
+            Apartment search — places, status, and what matters. Move target: late July.
+        </div>
+        <div id="housing-notes-area"></div>
+        <div id="housing-add-form-area"></div>
+        <div id="housing-list-area"></div>
+        <div id="dev-notes-housing" class="auth-only" data-tab="housing"></div>
+        <div id="idea-notes-housing" class="auth-only" data-tab="housing"></div>
     </div>
 
     <!-- BODY TAB -->
@@ -439,6 +454,7 @@
 <script src="{{ v_static('js/inventory.js') }}"></script>
 <script src="{{ v_static('js/money.js') }}"></script>
 <script src="{{ v_static('js/car.js') }}"></script>
+<script src="{{ v_static('js/housing.js') }}"></script>
 <script src="{{ v_static('js/meditation.js') }}"></script>
 <script src="{{ v_static('js/media.js') }}"></script>
 <script src="{{ v_static('js/movement.js') }}"></script>

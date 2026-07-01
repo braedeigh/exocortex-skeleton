@@ -228,10 +228,10 @@ body {
 }
 .streak-chip .num { color: var(--accent); font-weight: 700; }
 .streak-chip-body { cursor: pointer; display: inline-flex; align-items: center; gap: 5px; }
-.streak-modal-meta { color: var(--text-muted); font-size: 13px; margin-bottom: 12px; }
+.streak-modal-meta { color: var(--text-muted); font-size: 13px; }
 /* No middle element here (unlike the to-do modal's date), so group the two
    buttons snug to their text instead of flinging them to opposite edges. */
-.streak-modal-foot { justify-content: flex-start; gap: 10px; }
+.streak-modal-foot { justify-content: space-between; gap: 10px; }
 .streak-modal-foot .todo-desc-editbtn,
 .streak-modal-foot .todo-modal-delete { padding: 8px 16px; }
 .streak-chip .x {

@@ -136,8 +136,20 @@ function _ecoSyncTiles() {
     window._ecoTilesKey = key;
 }
 
-// --- Source dots + circles (synced only when the data actually changes, so an
-//     open popup isn't yanked shut on every 5s poll) ---------------------------
+// Convert a GeoJSON Polygon/MultiPolygon into Leaflet [lat,lng] ring arrays for
+// L.polygon. We draw regions with L.polygon directly instead of L.geoJSON — the
+// GeoJSON layer was throwing in-browser and taking the whole map down with it.
+// Returns null for anything unexpected (caller falls back to a dot).
+function _ecoLatLngs(geom) {
+    if (!geom) return null;
+    const ring = r => r.map(p => [p[1], p[0]]);   // GeoJSON [lng,lat] -> Leaflet [lat,lng]
+    if (geom.type === 'Polygon') return geom.coordinates.map(ring);               // [outer, hole, …]
+    if (geom.type === 'MultiPolygon') return geom.coordinates.map(poly => poly.map(ring));
+    return null;
+}
+
+// --- Source dots + circles + region shapes (synced only when the data actually
+//     changes, so an open popup isn't yanked shut on every 5s poll) ------------
 function _ecoSyncMarkers() {
     const map = window._ecomap; if (!map || !window._ecoLayer) return;
     const src = _ecoSources();
@@ -149,7 +161,8 @@ function _ecoSyncMarkers() {
     window._ecoLastSources = key;
     window._ecoLayer.clearLayers();
     window._ecoMarkers = {};
-    // If any source needs boundary shapes, load the GeoJSON once, then re-sync.
+    // County/state regions need the boundary GeoJSON. Load it once, then re-sync
+    // (until it's here those sources stand in as dots).
     if (!window._ecoGeo && !window._ecoGeoPromise && src.some(_ecoIsShape)) {
         _ecoLoadGeo().then(() => { window._ecoLastSources = null; _ecoSyncMarkers(); }).catch(() => {});
     }
@@ -157,38 +170,49 @@ function _ecoSyncMarkers() {
         if (typeof s.lat !== 'number' || typeof s.lng !== 'number') return;
         if (visible && !visible.has(s.id)) return;          // filtered out — don't draw it
         const col = _ecoTx(s).color;
-        const dot = () => L.circleMarker([s.lat, s.lng], {
-            radius: 7, color: '#fff', weight: 2, fillColor: col, fillOpacity: 0.95,
-        }).addTo(window._ecoLayer);
+        const dot = () => {
+            const d = L.circleMarker([s.lat, s.lng], {
+                radius: 7, color: '#fff', weight: 2, fillColor: col, fillOpacity: 0.95,
+            }).addTo(window._ecoLayer);
+            d.bindPopup(_ecoPopupHtml(s));
+            return d;
+        };
+        // Each source draws in isolation: a single bad shape must NOT abort the
+        // loop and hide every other source. On any failure we log the offender
+        // and fall back to a plain dot, so the source still lands on the map.
         let host = null;
-        if (s.precision === 'area') {
-            const feats = _ecoIsShape(s) ? _ecoFeatures(s) : [];
-            let shape = null;
-            if (feats.length) {
-                // Real county / state outlines, colored by transparency.
-                shape = L.geoJSON(feats, { style: { color: col, weight: 1, fillColor: col, fillOpacity: 0.2, opacity: 0.6 } }).addTo(window._ecoLayer);
-            } else if (s.radius_km > 0) {
-                shape = L.circle([s.lat, s.lng], {
+        try {
+            if (s.precision === 'area' && _ecoIsShape(s)) {
+                // Real county/state outlines, drawn as raw polygons (not L.geoJSON),
+                // colored by transparency. Falls through to a dot if geo isn't loaded.
+                const feats = _ecoFeatures(s);
+                if (feats.length) {
+                    const style = { color: col, weight: 1, fillColor: col, fillOpacity: 0.2, opacity: 0.6 };
+                    const grp = L.featureGroup();
+                    feats.forEach(f => {
+                        const ll = _ecoLatLngs(f.geometry);
+                        if (ll) L.polygon(ll, style).addTo(grp);
+                    });
+                    if (grp.getLayers().length) {
+                        grp.addTo(window._ecoLayer);
+                        grp.bindPopup(_ecoPopupHtml(s));   // click anywhere in the region
+                        host = grp;
+                    }
+                }
+            } else if (s.precision === 'area' && s.radius_km > 0) {
+                // A rough circle region — a soft hunch, not an exact spot.
+                host = L.circle([s.lat, s.lng], {
                     radius: s.radius_km * 1000, color: col, weight: 1,
                     fillColor: col, fillOpacity: 0.12, opacity: 0.45, dashArray: '4 4',
                 }).addTo(window._ecoLayer);
-            }
-            if (shape) {
-                // The shape itself is the whole marker — no centroid dot. Clicking
-                // anywhere in the region opens its popup.
-                shape.bindPopup(_ecoPopupHtml(s));
-                host = shape;
-            } else {
-                host = dot();   // shapes not loaded yet / no radius: a dot stands in
                 host.bindPopup(_ecoPopupHtml(s));
             }
+            if (!host) host = dot();   // exact point, or shapes not loaded yet
+        } catch (e) {
+            console.error('ecosystem: failed to draw "' + (s.name || s.id) + '" (' + s.area_kind + '/' + s.precision + '):', e);
+            try { host = dot(); } catch (e2) { host = null; }
         }
-        if (!host) {
-            // Exact spots keep a permanent dot.
-            host = dot();
-            host.bindPopup(_ecoPopupHtml(s));
-        }
-        window._ecoMarkers[s.id] = host;
+        if (host) window._ecoMarkers[s.id] = host;
     });
 }
 
@@ -878,13 +902,10 @@ function _ecoFitVisible() {
     const src = _ecoSources().filter(s => typeof s.lat === 'number' && typeof s.lng === 'number' && (!visible || visible.has(s.id)));
     if (!src.length) return;
     if (src.length === 1) { _ecoFocus(src[0].id); return; }
+    // Dots-only: frame the points themselves (no shape/region geometry).
     let bounds = null;
     src.forEach(s => {
-        const feats = _ecoIsShape(s) ? _ecoFeatures(s) : [];
-        let b;
-        if (feats.length) b = L.geoJSON(feats).getBounds();
-        else if (s.precision === 'area' && s.radius_km > 0) b = L.latLng(s.lat, s.lng).toBounds(s.radius_km * 2000);
-        else b = L.latLngBounds([s.lat, s.lng], [s.lat, s.lng]);
+        const b = L.latLngBounds([s.lat, s.lng], [s.lat, s.lng]);
         bounds = bounds ? bounds.extend(b) : b;
     });
     if (bounds) map.fitBounds(bounds.pad(0.15));
@@ -894,17 +915,23 @@ function _ecoFitVisible() {
 function renderEcosystem() {
     if (typeof L === 'undefined') return;     // Leaflet not loaded
     const map = _ecoEnsureMap(); if (!map) return;
-    _ecoSyncTiles();
-    _ecoSyncMarkers();
-    _ecoControls();
-    _ecoLegend();
-    _ecoRecipePanel();
-    _ecoPanel();
-    _ecoList();
+    // Each piece renders independently. A throw in one (e.g. a single bad marker
+    // tripping real Leaflet) must NOT blank the controls, legend, or item list
+    // below it — that's the "map but no UI" failure. Isolate + surface, never swallow.
+    const step = (name, fn) => { try { fn(); } catch (e) { console.error('renderEcosystem step "' + name + '" failed:', e); } };
+    step('tiles', _ecoSyncTiles);
+    step('markers', _ecoSyncMarkers);
+    step('controls', _ecoControls);
+    step('legend', _ecoLegend);
+    step('recipePanel', _ecoRecipePanel);
+    step('panel', _ecoPanel);
+    step('list', _ecoList);
     // Frame a freshly-selected recipe's sources once (not on every 5s poll).
-    const rec = _ecoActiveRecipe();
-    if (rec) { if (window._ecoFittedRecipe !== rec.id) { window._ecoFittedRecipe = rec.id; _ecoFitRecipe(rec); } }
-    else window._ecoFittedRecipe = null;
+    step('fitRecipe', () => {
+        const rec = _ecoActiveRecipe();
+        if (rec) { if (window._ecoFittedRecipe !== rec.id) { window._ecoFittedRecipe = rec.id; _ecoFitRecipe(rec); } }
+        else window._ecoFittedRecipe = null;
+    });
     // The host div was display:none until the tab opened — let Leaflet recompute
     // its size now that it's visible (otherwise tiles render into a 0×0 box), THEN
     // frame all her sources once. Without this the map opens on the fixed Austin

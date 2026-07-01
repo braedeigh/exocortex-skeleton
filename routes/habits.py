@@ -22,6 +22,35 @@ def _rewrite_log_keys(old_key, new_key, also_bare=None):
                 day[new_key] = day.pop(also_bare)
 
 
+def _remove_from_section(item, section, filepath):
+    """Remove a single `- [ ] item` line from ONE named section (the global
+    remove_item_from_file can't target a section, which matters for habits that
+    live in Morning AND Evening). Returns True if a line was removed."""
+    lines = filepath.read_text().split("\n")
+    out, in_sec, removed = [], False, False
+    for line in lines:
+        s = line.strip()
+        if s == f"## {section}":
+            in_sec = True
+            out.append(line); continue
+        if in_sec and (s.startswith("## ") or s == "---" or s.startswith("<")):
+            in_sec = False
+        if in_sec and not removed and s in (f"- [ ] {item}", f"- [x] {item}"):
+            removed = True
+            continue
+        out.append(line)
+    filepath.write_text("\n".join(out))
+    return removed
+
+
+def _drop_overlays(section, name):
+    """Forget cadence + course state for a (section, habit) that's going away."""
+    key = habit_log_key(section, name)
+    for fname in ("habit_cadence.json", "habit_meta.json"):
+        with store.mutate(fname, {}) as d:
+            d.pop(key, None)
+
+
 def _load_growth():
     return store.read("growth_notes.json", {"items": []})
 
@@ -159,6 +188,56 @@ def register(app):
         import habit_cadence
         data = request.json or {}
         habit_cadence.restore(data.get("section", ""), data["habit"])
+        return jsonify({"ok": True})
+
+    @app.route("/api/habits/configure", methods=["POST"])
+    def configure_habit():
+        """Create or re-configure a habit in one shot: which time-of-day section(s)
+        it lives in, and an optional course length (auto-archives when it ends).
+        Name changes still go through /rename — `name` is the identity here."""
+        import habit_meta
+        data = request.json or {}
+        name = (data.get("name") or "").strip()
+        if not name:
+            return jsonify({"error": "Name required"}), 400
+        name = name[0].upper() + name[1:] if len(name) > 1 else name.upper()
+        filepath = CONTENT_DIR / "HABITS.md"
+
+        # remove:true → take the habit out of every section it lives in (history in
+        # habits_log is keyed by date and stays put).
+        if data.get("remove"):
+            for sec in [s["name"] for s in parse_md_sections(filepath)
+                        if any(x["text"].lower() == name.lower() for x in s["items"])]:
+                _remove_from_section(name, sec, filepath)
+                _drop_overlays(sec, name)
+            return jsonify({"ok": True})
+
+        sections = [s for s in (data.get("sections") or []) if s]
+        if not sections:
+            return jsonify({"error": "Pick at least one time of day"}), 400
+        course_days = int(data.get("course_days") or 0)
+
+        current = [s["name"] for s in parse_md_sections(filepath)
+                   if any(x["text"].lower() == name.lower() for x in s["items"])]
+        for sec in sections:
+            if sec not in current:
+                add_item_to_file(name, sec, filepath)
+        for sec in current:
+            if sec not in sections:
+                _remove_from_section(name, sec, filepath)
+                _drop_overlays(sec, name)
+
+        today = datetime.now().strftime("%Y-%m-%d")
+        with store.mutate(habit_meta.META_FILE, {}) as meta:
+            for sec in sections:
+                key = habit_log_key(sec, name)
+                if course_days > 0:
+                    meta[key] = {
+                        "course_start": meta.get(key, {}).get("course_start", today),
+                        "course_days": course_days,
+                    }
+                else:
+                    meta.pop(key, None)
         return jsonify({"ok": True})
 
     # --- Edges ---

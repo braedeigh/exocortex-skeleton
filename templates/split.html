@@ -1147,7 +1147,7 @@ divider.addEventListener('dblclick', () => {
 });
 
 // === Tab nav: keep URL in sync with the active dashboard tab without reloading the shell ===
-const TAB_PATHS = { today: '/', map: '/map', kitchen: '/kitchen', inventory: '/inventory', money: '/money', car: '/car-maintenance', meditation: '/meditation', media: '/media', movement: '/movement', body: '/body', ideas: '/ideas', ecosystem: '/ecosystem' };
+const TAB_PATHS = { today: '/', map: '/map', kitchen: '/kitchen', inventory: '/inventory', money: '/money', car: '/car-maintenance', housing: '/housing', meditation: '/meditation', media: '/media', movement: '/movement', body: '/body', ideas: '/ideas', ecosystem: '/ecosystem' };
 
 function tabFromPath(path) {
     if (path.startsWith('/item/buy/')) return 'inventory';
@@ -1179,6 +1179,27 @@ window.addEventListener('message', (e) => {
         history.pushState({ tab: name }, '', path);
     }
     broadcastSwitchTo(name, e.data.extra);
+});
+
+// Triage: a dashboard-side button (🧭 Triage) asks us to open the terminal pane
+// on a session (the "todo" triage session). The spawn already happened
+// server-side; we just refresh the session bar and switch the active terminal
+// to it — desktop switches the left pane, mobile flips to the terminal tab.
+window.addEventListener('message', async (e) => {
+    if (e.origin !== location.origin) return;
+    if (!e.data || e.data.type !== 'openTerminalSession') return;
+    const fromDash = dashIframes().some(f => f && f.contentWindow === e.source);
+    if (!fromDash) return;
+    const name = e.data.name;
+    await loadSessions();   // pull in the freshly-spawned session so its tab exists
+    if (window.innerWidth > 768) {
+        const btn = [...document.querySelectorAll('#desktopSessionBar .session-tab')]
+            .find(b => b.dataset.session === name);
+        switchDesktopSession(name, btn || null);
+        renderDesktopTabs();
+    } else {
+        pickSession(name);
+    }
 });
 
 window.addEventListener('popstate', () => {

@@ -42,6 +42,10 @@ def _commit(change):
                "--bucket", payload.get("bucket", "now"),
                "--category", payload.get("category", "life"),
                "--data-dir", data_dir]
+    elif kind == "life_remove":
+        cmd = [str(ADD_TODO_BIN), "life", "--remove",
+               "--id", payload["id"],
+               "--data-dir", data_dir]
     else:
         raise ValueError(f"unknown change kind: {kind!r}")
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)

@@ -33,6 +33,7 @@ const TAB_ENDPOINTS = {
     },
     money: '/api/data/money',
     car: '/api/data/car',
+    housing: '/api/data/housing',
     meditation: '/api/data/meditation',
     media: '/api/data/media',
     movement: '/api/data/movement',
@@ -54,6 +55,8 @@ function initTab() {
     document.getElementById('tab-money').style.display = currentTab === 'money' ? '' : 'none';
     const carEl = document.getElementById('tab-car');
     if (carEl) carEl.style.display = currentTab === 'car' ? '' : 'none';
+    const housingEl = document.getElementById('tab-housing');
+    if (housingEl) housingEl.style.display = currentTab === 'housing' ? '' : 'none';
     const medEl = document.getElementById('tab-meditation');
     if (medEl) medEl.style.display = currentTab === 'meditation' ? '' : 'none';
     const mediaEl = document.getElementById('tab-media');
@@ -312,6 +315,10 @@ function render() {
                 renderHeader, renderCarNotes, renderCarAddForm, renderCarLog,
                 renderDevNotes, restoreEditModes
             ],
+            housing: [
+                renderHeader, renderHousingNotes, renderHousingAddForm, renderHousingList,
+                renderDevNotes, restoreEditModes
+            ],
             meditation: [
                 renderHeader, renderMeditationTimer, renderMeditationStream,
                 renderDeities, _applyMedView, renderDevNotes, restoreEditModes
@@ -421,21 +428,53 @@ function removeStreak(label, since) {
 
 // Streak detail modal — mirrors the To-do detail modal: read view + an
 // Edit/Save toggle on a freeform notes field (dosage, changes, milestones).
+// A streak label ("on doxycycline") → a tidy habit name ("Doxycycline").
+function streakHabitName(label) {
+    const n = (label || '').replace(/^(on|off|of)\s+/i, '').trim();
+    return n ? n[0].toUpperCase() + n.slice(1) : label;
+}
+
 function openStreakDetail(label, since) {
     const s = (D.streaks || []).find(x => x.label === label && x.since === since);
     if (!s) return;
     const notes = s.notes || '';
-    const body = `<div class="streak-modal-body" data-label="${esc(label)}" data-since="${esc(since)}">
-        <div class="streak-modal-meta">Started ${esc(since)}</div>
+    // Habit linkage: this streak can also be tracked as daily habit checkboxes.
+    const habitName = streakHabitName(label);
+    const curSections = (typeof _habitSectionsOf === 'function') ? _habitSectionsOf(habitName) : [];
+    let courseDays = 0;
+    for (const sec of curSections) { const m = habitMeta(sec, habitName); if (m && m.course_days) { courseDays = m.course_days; break; } }
+    const defs = (typeof habitSectionDefs === 'function') ? habitSectionDefs() : [];
+    const inp = 'padding:7px 9px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:15px';
+    const secChecks = defs.map(d => `<label style="display:inline-flex;align-items:center;gap:7px;min-height:40px;margin-right:16px;font-size:15px;cursor:pointer">
+        <input type="checkbox" class="hc-section" value="${esc(d.name)}" ${curSections.includes(d.name) ? 'checked' : ''} style="width:20px;height:20px;cursor:pointer"> ${d.label}
+    </label>`).join('');
+    const courseOn = courseDays > 0;
+    const body = `<div class="streak-modal-body" data-label="${esc(label)}" data-since="${esc(since)}" data-habit="${esc(habitName)}" data-linked="${curSections.length ? '1' : ''}">
         <div class="todo-modal-desc-read${notes ? '' : ' empty'}">${notes ? esc(notes) : 'No notes yet'}</div>
         <div class="streak-modal-edit" style="display:none">
             <div class="tm-field">
                 <label class="todo-modal-label">Notes</label>
                 <textarea class="todo-modal-desc-edit" placeholder="Dosage, changes, milestones…" oninput="autoGrow(this)">${esc(notes)}</textarea>
             </div>
+            <div class="tm-field" style="border-top:1px solid var(--border);padding-top:12px;margin-top:6px">
+                <label class="todo-modal-label">Track as a daily habit</label>
+                <div style="font-size:12px;color:var(--text-muted);margin:2px 0 6px">Adds checkboxes named “${esc(habitName)}” to your habit cards. Uncheck all to stop.</div>
+                <div>${secChecks}</div>
+                <label style="display:flex;align-items:center;gap:8px;min-height:40px;cursor:pointer">
+                    <input id="hc-course-on" type="checkbox" ${courseOn ? 'checked' : ''} onchange="hcToggleCourse()" style="width:20px;height:20px;cursor:pointer">
+                    <span class="todo-modal-label" style="margin:0">Temporary course — auto-archives when it ends</span>
+                </label>
+                <div id="hc-course-fields" style="display:${courseOn ? 'flex' : 'none'};align-items:center;gap:8px;margin-top:4px;flex-wrap:wrap">
+                    <span style="font-size:15px">Length</span>
+                    <input id="hc-course-days" type="number" min="1" value="${courseDays || 10}" oninput="hcUpdateEnd()" style="${inp};width:72px">
+                    <span style="font-size:15px">days</span>
+                    <span id="hc-course-end" style="color:var(--text-muted);font-size:13px"></span>
+                </div>
+            </div>
         </div>
         <div class="todo-modal-foot streak-modal-foot">
             <button type="button" class="todo-modal-delete" onclick="removeStreakFromModal()">Delete</button>
+            <span class="streak-modal-meta">Started ${esc(since)}</span>
             <button type="button" class="todo-desc-editbtn" onclick="toggleStreakEdit(this)">Edit</button>
         </div>
     </div>`;
@@ -464,6 +503,24 @@ async function toggleStreakEdit(btn) {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ label: body.dataset.label, since: body.dataset.since, notes })
     });
+    // Habit linkage: create/update/remove the daily-habit checkboxes for this streak.
+    const habitName = body.dataset.habit;
+    if (habitName) {
+        const sections = [...body.querySelectorAll('.hc-section:checked')].map(c => c.value);
+        const courseOn = body.querySelector('#hc-course-on') && body.querySelector('#hc-course-on').checked;
+        const courseDays = courseOn ? (parseInt(body.querySelector('#hc-course-days').value, 10) || 0) : 0;
+        if (sections.length) {
+            await fetch('/api/habits/configure', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: habitName, sections, course_days: courseDays })
+            });
+        } else if (body.dataset.linked) {        // was linked, now all unchecked → unlink
+            await fetch('/api/habits/configure', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: habitName, remove: true })
+            });
+        }
+    }
     hideEditorModal();
     loadDashboard();
 }
@@ -932,7 +989,10 @@ function habitCardHTML(title, items, color, sectionName) {
         const target = 60;
         const cad = habitCadence(sectionName, item);
         const spot = isGraduated(cad);
-        const rightLabel = spot
+        const ci = courseInfo(sectionName, item);
+        const rightLabel = ci
+            ? `<span onclick="openHabitConfig('${escJs(sectionName)}','${escJs(item)}')" title="Day ${ci.dayNum} of ${ci.days} — tap to edit the course" style="font-size:12px;margin-left:auto;white-space:nowrap;cursor:pointer;color:var(--evening);background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:1px 8px">day ${ci.dayNum}/${ci.days}</span>`
+            : spot
             ? `<span style="font-size:12px;margin-left:auto;white-space:nowrap;color:var(--ongoing);background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:1px 8px" title="A spot-check — keeping this habit honest on a light cadence">${esc(cad.stage)} check</span>`
             : `<span style="font-size:12px;color:var(--text-muted);margin-left:auto">${habitStartLabel(item)}${total}/${target}</span>`;
         const lnk = HABIT_LINKS[item.toLowerCase()];
@@ -1149,6 +1209,12 @@ async function executeDelete() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ index: pendingDelete.item })
+        });
+    } else if (pendingDelete.type === 'housing-place') {
+        await fetch('/api/housing/remove', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: pendingDelete.item })
         });
     } else {
         await fetch(`/api/${pendingDelete.type}s/remove`, {

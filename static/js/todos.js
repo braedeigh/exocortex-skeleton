@@ -328,3 +328,20 @@ async function removeApp(company) {
     });
     loadDashboard();
 }
+
+// --- Triage ---
+// Spawn (or reuse) the `todo` Claude session, then ask the split shell to open
+// the terminal pane on it (a "Todo" session tab). You just talk; it reorders
+// todos.json live. Falls back to /phone if we're not inside the split shell.
+async function openTriage(btn) {
+    if (btn) { btn.disabled = true; btn.textContent = '🧭 Opening…'; }
+    try {
+        await fetch('/api/triage/open', { method: 'POST' });
+    } catch (e) { /* still try to open — the session tab is there either way */ }
+    if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ type: 'openTerminalSession', name: 'todo' }, location.origin);
+    } else {
+        window.location.href = '/phone?session=todo';
+    }
+    if (btn) setTimeout(() => { btn.disabled = false; btn.textContent = '🧭 Triage'; }, 1500);
+}

@@ -20,7 +20,7 @@ import config
 from routes import (
     kitchen, habits, todos, places, health, inventory, money, car,
     meditation, media, movement, reminders, food_test, terminal, settings,
-    devnotes, ideas, ecosystem, keeper, pending,
+    devnotes, ideas, ecosystem, keeper, pending, housing, triage,
 )
 
 app = Flask(__name__)
@@ -264,7 +264,7 @@ def api_change_password():
     return jsonify({"ok": True})
 
 
-VALID_TABS = ("today", "map", "kitchen", "inventory", "money", "car", "meditation", "media", "movement", "body", "ideas", "ecosystem")
+VALID_TABS = ("today", "map", "kitchen", "inventory", "money", "car", "meditation", "media", "movement", "body", "ideas", "ecosystem", "housing")
 
 # Path to the file that backs the public homepage fake-terminal intro.
 PUBLIC_INTRO_PATH = CONTENT_DIR / "public_intro.md"
@@ -340,6 +340,7 @@ _SPLIT_PAGES = [
     ("/body", "body"),
     ("/ideas", "ideas"),
     ("/ecosystem", "ecosystem"),
+    ("/housing", "housing"),
 ]
 
 
@@ -664,6 +665,10 @@ def _cadence_config():
     return habit_cadence.CONFIG
 
 
+def _load_habit_meta():
+    return store.read("habit_meta.json", {})
+
+
 def _load_activity_log():
     return store.read("activity_log.json", {}).get("entries", [])
 
@@ -733,6 +738,7 @@ def get_data_today():
         "habits_log": _load_habits_log(),
         "habit_cadence": _load_habit_cadence(),
         "cadence_config": _cadence_config(),
+        "habit_meta": _load_habit_meta(),
         "health_data": load_health_data(),
         "contacts": _load_contacts(),
         "applications": applications,
@@ -764,6 +770,7 @@ def get_data_map():
         "habits_log": _load_habits_log(),
         "habit_cadence": _load_habit_cadence(),
         "cadence_config": _cadence_config(),
+        "habit_meta": _load_habit_meta(),
         "habits": _load_habits(),
         "habit_starts": _load_habit_starts(),
         "habit_settings": _load_habit_settings(),
@@ -850,6 +857,20 @@ def get_data_car():
     return jsonify(filter_for_view(data, request.view_mode))
   except Exception as e:
     app.logger.error(f"/api/data/car failed: {e}\n{traceback.format_exc()}")
+    return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/data/housing")
+def get_data_housing():
+  try:
+    data = _common_data()
+    data["housing"] = store.read("housing.json", {"entries": [], "notes": ""})
+    data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("housing", [])
+    data["idea_notes"] = _load_idea_notes().get("tabs", {}).get("housing", [])
+    data["tab_todos"] = todos_for_tab("housing")
+    return jsonify(filter_for_view(data, request.view_mode))
+  except Exception as e:
+    app.logger.error(f"/api/data/housing failed: {e}\n{traceback.format_exc()}")
     return jsonify({"error": str(e)}), 500
 
 
@@ -1060,6 +1081,7 @@ def get_data():
         "habits_log": _load_habits_log(),
         "habit_cadence": _load_habit_cadence(),
         "cadence_config": _cadence_config(),
+        "habit_meta": _load_habit_meta(),
         "runs": runs_data,
         "activity_log": _load_activity_log(),
         "meal_defaults": _load_meal_defaults(),
@@ -1177,6 +1199,7 @@ health.register(app)
 inventory.register(app)
 money.register(app)
 car.register(app)
+housing.register(app)
 meditation.register(app)
 media.register(app)
 movement.register(app)
@@ -1189,6 +1212,7 @@ ideas.register(app)
 ecosystem.register(app)
 keeper.register(app)
 pending.register(app)
+triage.register(app)
 
 # --- Startup ---
 validate_on_startup(app)

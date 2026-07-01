@@ -54,15 +54,21 @@ struct BuildArgs {
 // ── LIFE list args ───────────────────────────────────────────────────────────
 #[derive(Args)]
 struct LifeArgs {
-    /// The task text, e.g. "get a haircut"
+    /// The task text, e.g. "get a haircut" (required to add; used as a label when removing)
     #[arg(long)]
-    text: String,
+    text: Option<String>,
     /// Which priority bucket on the ladder
     #[arg(long, value_enum, default_value = "now")]
     bucket: Bucket,
     /// Category tag
     #[arg(long, value_enum, default_value = "life")]
     category: Category,
+    /// Remove an existing item instead of adding one (needs --id)
+    #[arg(long)]
+    remove: bool,
+    /// The id of the item to remove (with --remove)
+    #[arg(long)]
+    id: Option<String>,
     /// Stage for approval instead of committing
     #[arg(long)]
     stage: bool,
@@ -182,11 +188,60 @@ fn run_build(args: BuildArgs) -> Result<(), Box<dyn Error>> {
 }
 
 fn run_life(args: LifeArgs) -> Result<(), Box<dyn Error>> {
-    let text = args.text.trim();
+    let data_dir = resolve_data_dir(args.data_dir)?;
+
+    // ── REMOVE mode: stage or commit a deletion by id. ──────────────────────
+    if args.remove {
+        let target = args.id.ok_or("removal requires --id")?;
+        let label = args
+            .text
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or(&target)
+            .to_string();
+
+        if args.stage {
+            let path = data_dir.join("pending_changes.json");
+            let mut q: Pending = load_or_default(&path)?;
+            q.pending.push(PendingChange {
+                id: new_id(),
+                kind: "life_remove".into(),
+                summary: format!("Remove from to-do list: \"{}\"", label),
+                payload: serde_json::json!({ "id": target, "text": label }),
+                created: stamp_minute(),
+            });
+            atomic_write(&path, &q)?;
+            println!("staged removal of [{}] for approval", target);
+        } else {
+            let path = data_dir.join("todos.json");
+            let mut root: serde_json::Value = match fs::read_to_string(&path) {
+                Ok(s) => serde_json::from_str(&s)?,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => serde_json::json!({}),
+                Err(e) => return Err(e.into()),
+            };
+            // Drop the item from whichever bucket holds it, leaving everything else intact.
+            let mut removed = 0usize;
+            if let Some(obj) = root.as_object_mut() {
+                for (_bucket, val) in obj.iter_mut() {
+                    if let Some(items) = val.get_mut("items").and_then(|v| v.as_array_mut()) {
+                        let before = items.len();
+                        items.retain(|it| it.get("id").and_then(|v| v.as_str()) != Some(target.as_str()));
+                        removed += before - items.len();
+                    }
+                }
+            }
+            atomic_write(&path, &root)?;
+            println!("removed {} item(s) with id {}", removed, target);
+        }
+        return Ok(());
+    }
+
+    // ── ADD mode (default). ─────────────────────────────────────────────────
+    let text = args.text.as_deref().unwrap_or("").trim();
     if text.is_empty() {
         return Err("text is empty — refusing to add a blank task".into());
     }
-    let data_dir = resolve_data_dir(args.data_dir)?;
     let id = new_id();
     let bucket = args.bucket.as_key();
     let category = args.category.as_key();

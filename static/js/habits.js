@@ -28,6 +28,7 @@ function recentHabitDone(section, item, days) {
 // A plain daily habit that's proven AND still consistent → offer graduation.
 function readyToGraduate(section, item) {
     if (habitCadence(section, item)) return false;          // already on the ladder
+    if (habitMeta(section, item)) return false;             // temporary/course habits don't graduate
     const cfg = D.cadence_config || {};
     const need = cfg.graduate_count || 60;
     const [rn, rd] = cfg.graduate_recent || [24, 30];
@@ -64,10 +65,123 @@ function spotCheckDue(section, item) {
 // Should this habit appear in today's daily card? Plain daily → always;
 // graduated → only on its open spot-check day; retired → never.
 function showsInDaily(section, item) {
+    const ci = courseInfo(section, item);
+    if (ci && ci.expired) return false;                     // finished course → off the daily list
     const c = habitCadence(section, item);
     if (!c) return true;
     if (c.stage === 'retired') return false;
     return spotCheckDue(section, item);
+}
+
+// --- Course habits (time-limited, e.g. a 10-day antibiotic) ---
+function habitMeta(section, item) {
+    return (D.habit_meta || {})[habitKey(section, item)] || null;
+}
+function courseInfo(section, item) {
+    const m = habitMeta(section, item);
+    if (!m || !m.course_days) return null;
+    const start = new Date(m.course_start + 'T12:00:00');
+    const dayNum = Math.floor((new Date(todayStr() + 'T12:00:00') - start) / 86400000) + 1;
+    return { start: m.course_start, days: m.course_days, dayNum, expired: dayNum > m.course_days };
+}
+
+// Actual HABITS.md section names for the Morning/Midday/Evening slots.
+function habitSectionDefs() {
+    let m = 'Morning', mid = 'Midday', n = 'Evening / Night';
+    for (const s of (D.habits || [])) {
+        const x = s.name.toLowerCase();
+        if (x === 'morning') m = s.name;
+        else if (x === 'midday') mid = s.name;
+        else if (x === 'night' || x === 'evening / night') n = s.name;
+    }
+    return [{ label: 'Morning', name: m }, { label: 'Midday', name: mid }, { label: 'Evening', name: n }];
+}
+function _habitSectionsOf(item) {
+    return (D.habits || []).filter(s => (s.items || []).includes(item)).map(s => s.name);
+}
+
+function openHabitConfigNew() { _openHabitConfig({ name: '', sections: [], courseDays: 0, isEdit: false }); }
+function openHabitConfig(section, item) {
+    const m = habitMeta(section, item);
+    _openHabitConfig({ name: item, sections: _habitSectionsOf(item), courseDays: (m && m.course_days) || 0, isEdit: true });
+}
+function _openHabitConfig(o) {
+    const inp = 'padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:15px';
+    const checks = habitSectionDefs().map(s => `<label style="display:inline-flex;align-items:center;gap:7px;min-height:40px;margin-right:16px;font-size:15px;cursor:pointer">
+        <input type="checkbox" class="hc-section" value="${esc(s.name)}" ${o.sections.includes(s.name) ? 'checked' : ''} style="width:20px;height:20px;cursor:pointer"> ${s.label}
+    </label>`).join('');
+    const on = o.courseDays > 0;
+    const body = `<div class="habit-config" data-original="${esc(o.name)}">
+        <div class="tm-field">
+            <label class="todo-modal-label">Name</label>
+            <input id="hc-name" type="text" value="${esc(o.name)}" placeholder="e.g. Doxycycline" ${o.isEdit ? 'readonly' : ''} style="${inp};width:100%${o.isEdit ? ';opacity:0.7' : ''}">
+        </div>
+        <div class="tm-field">
+            <label class="todo-modal-label">Time of day</label>
+            <div style="margin-top:4px">${checks}</div>
+        </div>
+        <div class="tm-field">
+            <label style="display:flex;align-items:center;gap:8px;min-height:40px;cursor:pointer">
+                <input id="hc-course-on" type="checkbox" ${on ? 'checked' : ''} onchange="hcToggleCourse()" style="width:20px;height:20px;cursor:pointer">
+                <span class="todo-modal-label" style="margin:0">Temporary course — auto-archives when it ends</span>
+            </label>
+            <div id="hc-course-fields" style="display:${on ? 'flex' : 'none'};align-items:center;gap:8px;margin-top:4px;flex-wrap:wrap">
+                <span style="font-size:15px">Length</span>
+                <input id="hc-course-days" type="number" min="1" value="${o.courseDays || 10}" oninput="hcUpdateEnd()" style="${inp};width:72px">
+                <span style="font-size:15px">days</span>
+                <span id="hc-course-end" style="color:var(--text-muted);font-size:13px"></span>
+            </div>
+        </div>
+        <div class="todo-modal-foot">
+            ${o.isEdit ? `<button type="button" class="todo-modal-delete" onclick="hcDelete()">Delete</button>` : '<span></span>'}
+            <button type="button" class="todo-desc-editbtn" onclick="saveHabitConfig()">Save</button>
+        </div>
+    </div>`;
+    showEditorModal(o.isEdit ? 'Edit habit' : 'New habit', body);
+    hcUpdateEnd();
+}
+function hcToggleCourse() {
+    const on = document.getElementById('hc-course-on').checked;
+    document.getElementById('hc-course-fields').style.display = on ? 'flex' : 'none';
+    hcUpdateEnd();
+}
+function hcUpdateEnd() {
+    const el = document.getElementById('hc-course-end');
+    if (!el) return;
+    const on = document.getElementById('hc-course-on') && document.getElementById('hc-course-on').checked;
+    const days = parseInt(document.getElementById('hc-course-days') && document.getElementById('hc-course-days').value, 10);
+    if (!on || !days || days < 1) { el.textContent = ''; return; }
+    const end = new Date(todayStr() + 'T12:00:00'); end.setDate(end.getDate() + days - 1);
+    el.textContent = '→ ends ' + end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+async function saveHabitConfig() {
+    const root = document.querySelector('.habit-config');
+    if (!root) return;
+    const name = document.getElementById('hc-name').value.trim();
+    if (!name) { alert('Give it a name'); return; }
+    const sections = [...root.querySelectorAll('.hc-section:checked')].map(c => c.value);
+    if (!sections.length) { alert('Pick at least one time of day'); return; }
+    const courseOn = document.getElementById('hc-course-on').checked;
+    const courseDays = courseOn ? (parseInt(document.getElementById('hc-course-days').value, 10) || 0) : 0;
+    const res = await fetch('/api/habits/configure', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, sections, course_days: courseDays })
+    });
+    if (!res.ok) { const d = await res.json().catch(() => ({})); alert(d.error || 'Failed to save'); return; }
+    hideEditorModal();
+    loadDashboard();
+}
+async function hcDelete() {
+    const root = document.querySelector('.habit-config');
+    const name = root && root.dataset.original;
+    if (!name) return;
+    if (!confirm(`Remove "${name}" from all habit sections? Its history stays.`)) return;
+    await fetch('/api/habits/configure', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, remove: true })
+    });
+    hideEditorModal();
+    loadDashboard();
 }
 
 const STAGE_NEXT_LABEL = { weekly: 'monthly', monthly: 'retire' };
@@ -282,6 +396,9 @@ function renderHabits() {
         html += growthHTML;
     }
 
+    html += `<button onclick="openHabitConfigNew()" title="Add a habit with time-of-day and an optional course length"
+        style="margin-top:10px;min-height:40px;width:100%;font-size:13px;background:none;border:1px dashed var(--border);border-radius:8px;color:var(--text-muted);cursor:pointer">&#43; Tracked habit</button>`;
+
     el.innerHTML = html;
 }
 
@@ -310,9 +427,10 @@ function renderHabitTracker() {
 
     // Filter hidden + graduated habits from the daily grid. A graduated habit
     // (any cadence entry) lives in the "Graduated" block below, not the dot grid.
-    const morningHabits = allMorning.filter(h => !hidden.includes(h) && !habitCadence(mSec, h));
-    const middayHabits = allMidday.filter(h => !hidden.includes(h) && !habitCadence(midSec, h));
-    const nightHabits = allNight.filter(h => !hidden.includes(h) && !habitCadence(nSec, h));
+    const notExpired = (sec, h) => { const ci = courseInfo(sec, h); return !(ci && ci.expired); };
+    const morningHabits = allMorning.filter(h => !hidden.includes(h) && !habitCadence(mSec, h) && notExpired(mSec, h));
+    const middayHabits = allMidday.filter(h => !hidden.includes(h) && !habitCadence(midSec, h) && notExpired(midSec, h));
+    const nightHabits = allNight.filter(h => !hidden.includes(h) && !habitCadence(nSec, h) && notExpired(nSec, h));
 
     if (!allMorning.length && !allMidday.length && !allNight.length) { el.innerHTML = ''; return; }
 
@@ -389,6 +507,7 @@ function renderHabitTracker() {
                 <button onclick="moveHabitInSection('${escJs(sectionName)}','${escJs(h)}',-1)" style="${btn}" title="Move up">&#9650;</button>
                 <button onclick="moveHabitInSection('${escJs(sectionName)}','${escJs(h)}',1)" style="${btn}" title="Move down">&#9660;</button>
                 <button onclick="showTrackerMoveMenu(this, '${escJs(h)}', '${escJs(sectionName)}', ${moveTargetsJs})" style="${btn}" title="Move to section">&#8596;</button>
+                <button onclick="openHabitConfig('${escJs(sectionName)}','${escJs(h)}')" style="${btn}" title="Options — time of day, course">&#9881;</button>
                 <button onclick="confirmDelete('${escJs(h)}','habit')" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;padding:0 4px;flex-shrink:0" title="Remove">&times;</button>
             </div>`;
         });
@@ -527,6 +646,38 @@ function renderHabitTracker() {
         });
         g += `</div></details>`;
         html += g;
+    }
+
+    // --- Finished courses: expired time-limited habits, archived but kept ---
+    const finishedCourses = [];
+    for (const section of D.habits) {
+        for (const item of section.items) {
+            const ci = courseInfo(section.name, item);
+            if (ci && ci.expired) finishedCourses.push({ section: section.name, item, ci });
+        }
+    }
+    if (finishedCourses.length) {
+        const fmt = ds => { const d = new Date(ds + 'T12:00:00'); return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); };
+        const btn = 'min-height:34px;background:none;border:1px solid var(--border);border-radius:6px;color:var(--text-muted);cursor:pointer;font-size:12px;padding:4px 10px;flex-shrink:0';
+        const row = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 0;border-bottom:1px solid var(--border)';
+        // dedupe by item (a course in AM+PM is one finished course)
+        const uniqueCount = new Set(finishedCourses.map(c => c.item)).size;
+        let f = `<details style="margin-top:12px">
+            <summary style="font-size:13px;font-weight:600;cursor:pointer;color:var(--text-muted)">Finished courses (${uniqueCount})</summary>
+            <div style="margin-top:8px">`;
+        const shown = new Set();
+        finishedCourses.forEach(({ section, item, ci }) => {
+            if (shown.has(item)) return;
+            shown.add(item);
+            const endD = new Date(ci.start + 'T12:00:00'); endD.setDate(endD.getDate() + ci.days - 1);
+            f += `<div style="${row}">
+                <span style="flex:1;min-width:120px;font-size:13px;color:var(--text-muted);text-decoration:line-through">${esc(item)}</span>
+                <span style="font-size:12px;color:var(--green)">finished ${fmt(endD.toISOString().slice(0,10))}</span>
+                <button onclick="openHabitConfig('${escJs(section)}','${escJs(item)}')" style="${btn}" title="Edit / extend">&#9881; edit</button>
+            </div>`;
+        });
+        f += `</div></details>`;
+        html += f;
     }
 
     el.innerHTML = html;
