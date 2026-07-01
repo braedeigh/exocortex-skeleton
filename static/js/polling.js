@@ -23,6 +23,16 @@ document.addEventListener('focusout', (e) => {
     }
 });
 
+// Fields that tick on their own (server_hour changes every minute) without the
+// data meaningfully changing. Compare payloads with these stripped — otherwise
+// every tab rebuilds its DOM once a minute forever, yanking scroll/focus.
+const VOLATILE_KEYS = ['time_of_day', 'server_hour', 'server_day_of_year', 'server_date', 'date'];
+function _stableSnapshot(data) {
+    const o = Object.assign({}, data);
+    for (const k of VOLATILE_KEYS) delete o[k];
+    return JSON.stringify(o);
+}
+
 async function pollForUpdates() {
     try {
         // Check if code itself changed — if so, full reload
@@ -35,17 +45,22 @@ async function pollForUpdates() {
         codeVersion = vData.hash;
 
         // Check if data changed
-        const endpoint = TAB_ENDPOINTS[currentTab] || '/api/data';
+        let endpoint = TAB_ENDPOINTS[currentTab] || '/api/data';
+        if (typeof endpoint === 'function') endpoint = endpoint();
         const res = await fetch(endpoint);
-        const text = await res.text();
-        if (text !== lastDataHash) {
-            lastDataHash = text;
-            D = JSON.parse(text);
-            D.habits.forEach(s => { s.items = s.items.map(i => typeof i === 'string' ? i : i.text); });
-            syncTimeOfDay(D.time_of_day);
-            // Keep the date global fresh too — otherwise "today's" forms can log to
-            // yesterday after a midnight rollover (guarded: tab endpoints may omit it).
-            if (D.server_date) _serverDate = D.server_date;
+        const data = await res.json();
+        if (data.error) return; // don't replace good data with an error payload
+        // Keep the clock-driven globals fresh every poll, render or not —
+        // otherwise "today's" forms can log to yesterday after midnight.
+        syncTimeOfDay(data.time_of_day);
+        if (data.server_date) _serverDate = data.server_date;
+        const snapshot = _stableSnapshot(data);
+        if (snapshot !== lastDataHash) {
+            lastDataHash = snapshot;
+            D = data;
+            // Guarded: only today/map payloads carry habits — the bare forEach
+            // used to throw here, silently killing live polling on other tabs.
+            if (D.habits) D.habits.forEach(s => { s.items = s.items.map(i => typeof i === 'string' ? i : i.text); });
             if (_inputFocused) {
                 _pendingRender = true; // render when they leave the input
             } else {

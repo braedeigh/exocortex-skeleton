@@ -360,14 +360,19 @@ function render() {
     // Category-tagged to-dos strip — no-ops on tabs without a container.
     try { renderTabTodos(); } catch(e) { console.error('renderTabTodos failed:', e); }
 
-    if (snap && snap.value) {
+    if (snap) {
         const host = document.getElementById(snap.key);
         const el = snap.byParent ? (host && host.querySelector(snap.tag)) : host;
-        if (el && el.tagName === snap.tag && el.value !== snap.value) {
+        if (el && el.tagName === snap.tag && snap.value && el.value !== snap.value) {
             el.value = snap.value;
             if (el.tagName === 'TEXTAREA' && typeof autoGrow === 'function') autoGrow(el);
         }
-        if (el) {
+        // Re-focus only when this document actually holds keyboard focus.
+        // activeElement stays pointed at the last-focused input even after the
+        // user clicks into another pane (in split view the dashboard is an
+        // iframe beside the terminal) — focusing it here would steal the
+        // keyboard back across panes mid-typing.
+        if (el && document.hasFocus()) {
             try {
                 el.focus({ preventScroll: true });
                 el.setSelectionRange(snap.start, snap.end);

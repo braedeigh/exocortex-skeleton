@@ -57,14 +57,7 @@ function renderGroceryInto(el) {
     const onList = new Set(items.map(i => i.name.toLowerCase()));
 
     // Category config
-    const categoryOrder = (D.kitchen_category_order || ['vegetables', 'produce', 'fruit', 'grains', 'drinks', 'snacks', 'dessert', 'other', 'dairy', 'protein', 'pharmacy', 'supplements']).slice();
-    const categoryLabels = {
-        produce: 'Produce', vegetables: 'Vegetables', fruit: 'Fruit',
-        protein: 'Protein', dairy: 'Dairy', grains: 'Grains',
-        drinks: 'Drinks', snacks: 'Snacks', dessert: 'Dessert', other: 'Other',
-        pharmacy: 'Pharmacy', supplements: 'Supplements'
-    };
-    _ensureHousehold(categoryOrder, categoryLabels);
+    const { categoryOrder, categoryLabels } = _kitchenCats();
 
     let html = '<div style="margin-bottom:20px">';
 
@@ -188,17 +181,8 @@ function renderGroceryInto(el) {
     html += '</div>';
 
     // --- My Foods (search/filter chips + add new) ---
-    const rawFilter = _kitchenChipFilter || '';                    // what the user typed (preserved for the input value)
-    const chipFilter = rawFilter.toLowerCase().trim();             // normalized for matching
-    function renderMyFoodsBar(suffix) {
-        return `<div style="display:flex;gap:6px;margin:8px 0">
-            <input type="text" id="kitchen-input-${suffix}" value="${esc(rawFilter)}" placeholder="Search or add new item..."
-                style="flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:14px;background:var(--bg);color:var(--text)"
-                oninput="kitchenChipFilterInput(this.value,'${suffix}')" onkeydown="kitchenMyFoodsKeydown(event,'${suffix}')" autocomplete="off">
-            ${chipFilter ? `<button onclick="addGrocery('${suffix}')" style="padding:8px 14px;border:none;border-radius:6px;background:var(--text);color:var(--bg);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">+ Add</button>` : ''}
-            ${chipFilter ? `<button onclick="kitchenChipFilterClear()" title="Clear" style="padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:none;color:var(--text-muted);font-size:13px;cursor:pointer">&times;</button>` : ''}
-        </div>`;
-    }
+    // Bar + chips are rendered by top-level helpers so the live filter can
+    // refresh the chips without rebuilding the input it's typed in.
 
     // My Foods sort mode (persisted). One-time migration: clear an old 'frequency'
     // default so users land on the new A–Z default without having to click it.
@@ -225,102 +209,9 @@ function renderGroceryInto(el) {
             </span>
         </summary>`;
 
-    html += renderMyFoodsBar('top');
-
-    // Catalog — known items as tappable chips.
-    // Sort priority when filtering: name-prefix-match → word-prefix → substring; then by count desc, then alpha.
-    // When no filter: sort by count desc, then alpha (legacy behavior).
-    function _prefixRank(name, q) {
-        if (!q) return 0;
-        const n = name.toLowerCase();
-        if (n.startsWith(q)) return 0;
-        if (n.split(/[\s-]+/).some(w => w.startsWith(q))) return 1;
-        if (n.includes(q)) return 2;
-        return 3;  // shouldn't happen since we filter on substring; safety
-    }
-    const matchesFilter = (name) => !chipFilter || name.toLowerCase().includes(chipFilter);
-    const catalogItems = Object.entries(known)
-        .map(([name, cat]) => ({ name, cat, count: counts[name] || 0 }))
-        .filter(i => i.cat !== 'household')   // household items live in "Other grocery items" section below
-        .filter(i => matchesFilter(i.name))
-        .sort((a, b) => {
-            if (chipFilter) {
-                const r = _prefixRank(a.name, chipFilter) - _prefixRank(b.name, chipFilter);
-                if (r !== 0) return r;
-            }
-            if (b.count !== a.count) return b.count - a.count;
-            return a.name.localeCompare(b.name);
-        });
-
-    if (catalogItems.length) {
-        html += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-            <div style="font-size:14px;font-weight:700">${chipFilter ? `Matches for "${esc(chipFilter)}"` : 'Quick add from favorites'}</div>
-            <button onclick="openCatalogEditor()" style="font-size:12px;color:var(--text-muted);background:none;border:1px solid var(--border);border-radius:6px;padding:3px 10px;cursor:pointer">Edit</button>
-        </div>`;
-
-        if (sortMode === 'alpha') {
-            // Flat alphabetical — no Most bought, no category subgroups
-            const alphaItems = catalogItems.slice().sort((a, b) => a.name.localeCompare(b.name));
-            html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">';
-            alphaItems.forEach(item => { html += renderCatalogChip(item, onList); });
-            html += '</div>';
-        } else if (sortMode === 'both') {
-            // Top-N by frequency, then alphabetical rest
-            const TOP_N = 10;
-            const byFreq = catalogItems.slice().sort((a, b) => (b.count - a.count) || a.name.localeCompare(b.name));
-            const topFreq = byFreq.filter(i => i.count > 0).slice(0, TOP_N);
-            const topSet = new Set(topFreq.map(i => i.name));
-            const restAlpha = catalogItems.filter(i => !topSet.has(i.name)).sort((a, b) => a.name.localeCompare(b.name));
-            if (topFreq.length) {
-                html += '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin-bottom:6px">Most bought</div>';
-                html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">';
-                topFreq.forEach(item => { html += renderCatalogChip(item, onList); });
-                html += '</div>';
-            }
-            if (restAlpha.length) {
-                html += '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin-bottom:6px">Everything else (A–Z)</div>';
-                html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px">';
-                restAlpha.forEach(item => { html += renderCatalogChip(item, onList); });
-                html += '</div>';
-            }
-        } else {
-            // 'frequency' — legacy behavior: Most bought + category subgroups
-            const catGroups = {};
-            const frequent = catalogItems.filter(i => i.count > 0);
-            const rest = catalogItems.filter(i => i.count === 0);
-
-            if (frequent.length) {
-                html += '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin-bottom:6px">Most bought</div>';
-                html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">';
-                frequent.forEach(item => { html += renderCatalogChip(item, onList); });
-                html += '</div>';
-            }
-
-            rest.forEach(item => {
-                if (!catGroups[item.cat]) catGroups[item.cat] = [];
-                catGroups[item.cat].push(item);
-            });
-
-            const catsWithItems = categoryOrder.filter(c => catGroups[c]);
-            Object.keys(catGroups).forEach(c => { if (!catsWithItems.includes(c)) catsWithItems.push(c); });
-
-            if (catsWithItems.length) {
-                const allItemsOpen = chipFilter ? ' open' : '';
-                html += `<details${allItemsOpen} style="margin-top:4px"><summary style="font-size:12px;font-weight:600;cursor:pointer;color:var(--text-muted)">All items by category</summary><div style="margin-top:8px">`;
-                catsWithItems.forEach(cat => {
-                    html += `<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin:8px 0 4px">${categoryLabels[cat] || cat}</div>`;
-                    html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px">';
-                    catGroups[cat].forEach(item => { html += renderCatalogChip(item, onList); });
-                    html += '</div>';
-                });
-                html += '</div></details>';
-            }
-        }
-
-    } else if (chipFilter) {
-        html += `<div style="color:var(--text-muted);font-size:13px;font-style:italic;padding:8px 0">No matches for "${esc(chipFilter)}". Tap + Add to create a new item.</div>`;
-    }
-    html += renderMyFoodsBar('bottom');
+    html += _myFoodsBarHtml('top');
+    html += '<div id="kitchen-catalog-area">' + _catalogChipsHtml() + '</div>';
+    html += _myFoodsBarHtml('bottom');
 
     // --- Other grocery items (household) — nested inside My Foods, collapsed ---
     const householdItems = Object.entries(known)
@@ -489,6 +380,141 @@ async function pantryNeedItem(name) {
 let _kitchenPending = new Map();      // name -> {category, btn} — items pending ADD
 let _kitchenPendingRemove = new Set(); // names pending REMOVE (active chips tapped)
 let _catalogEditMode = false;
+
+// Category config shared by the full kitchen render and the live chip filter.
+function _kitchenCats() {
+    const categoryOrder = (D.kitchen_category_order || ['vegetables', 'produce', 'fruit', 'grains', 'drinks', 'snacks', 'dessert', 'other', 'dairy', 'protein', 'pharmacy', 'supplements']).slice();
+    const categoryLabels = {
+        produce: 'Produce', vegetables: 'Vegetables', fruit: 'Fruit',
+        protein: 'Protein', dairy: 'Dairy', grains: 'Grains',
+        drinks: 'Drinks', snacks: 'Snacks', dessert: 'Dessert', other: 'Other',
+        pharmacy: 'Pharmacy', supplements: 'Supplements'
+    };
+    _ensureHousehold(categoryOrder, categoryLabels);
+    return { categoryOrder, categoryLabels };
+}
+
+// The My Foods search/add bar. The +Add / × buttons are always in the DOM and
+// toggled via display, so the live filter can flip them without rebuilding the
+// bar — rebuilding the focused input dropped focus/caret and reset the mobile
+// keyboard on every keystroke.
+function _myFoodsBarHtml(suffix) {
+    const rawFilter = _kitchenChipFilter || '';
+    const q = rawFilter.trim();
+    return `<div style="display:flex;gap:6px;margin:8px 0">
+        <input type="text" id="kitchen-input-${suffix}" value="${esc(rawFilter)}" placeholder="Search or add new item..."
+            style="flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:14px;background:var(--bg);color:var(--text)"
+            oninput="kitchenChipFilterInput(this.value,'${suffix}')" onkeydown="kitchenMyFoodsKeydown(event,'${suffix}')" autocomplete="off">
+        <button id="kitchen-addbtn-${suffix}" onclick="addGrocery('${suffix}')" style="padding:8px 14px;border:none;border-radius:6px;background:var(--text);color:var(--bg);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;${q ? '' : 'display:none'}">+ Add</button>
+        <button id="kitchen-clearbtn-${suffix}" onclick="kitchenChipFilterClear()" title="Clear" style="padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:none;color:var(--text-muted);font-size:13px;cursor:pointer;${q ? '' : 'display:none'}">&times;</button>
+    </div>`;
+}
+
+// Catalog — known items as tappable chips, in #kitchen-catalog-area so the
+// live filter can re-render just this region.
+// Sort priority when filtering: name-prefix-match → word-prefix → substring; then by count desc, then alpha.
+// When no filter: sort by count desc, then alpha (legacy behavior).
+function _catalogChipsHtml() {
+    const known = D.kitchen_known_items || {};
+    const counts = D.kitchen_purchase_counts || {};
+    const onList = new Set((D.kitchen_list || []).map(i => i.name.toLowerCase()));
+    const { categoryOrder, categoryLabels } = _kitchenCats();
+    const chipFilter = (_kitchenChipFilter || '').toLowerCase().trim();
+    const sortMode = localStorage.getItem('kitchen_my_foods_sort') || 'alpha';
+    let html = '';
+
+    function _prefixRank(name, q) {
+        if (!q) return 0;
+        const n = name.toLowerCase();
+        if (n.startsWith(q)) return 0;
+        if (n.split(/[\s-]+/).some(w => w.startsWith(q))) return 1;
+        if (n.includes(q)) return 2;
+        return 3;  // shouldn't happen since we filter on substring; safety
+    }
+    const matchesFilter = (name) => !chipFilter || name.toLowerCase().includes(chipFilter);
+    const catalogItems = Object.entries(known)
+        .map(([name, cat]) => ({ name, cat, count: counts[name] || 0 }))
+        .filter(i => i.cat !== 'household')   // household items live in "Other grocery items" section below
+        .filter(i => matchesFilter(i.name))
+        .sort((a, b) => {
+            if (chipFilter) {
+                const r = _prefixRank(a.name, chipFilter) - _prefixRank(b.name, chipFilter);
+                if (r !== 0) return r;
+            }
+            if (b.count !== a.count) return b.count - a.count;
+            return a.name.localeCompare(b.name);
+        });
+
+    if (catalogItems.length) {
+        html += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+            <div style="font-size:14px;font-weight:700">${chipFilter ? `Matches for "${esc(chipFilter)}"` : 'Quick add from favorites'}</div>
+            <button onclick="openCatalogEditor()" style="font-size:12px;color:var(--text-muted);background:none;border:1px solid var(--border);border-radius:6px;padding:3px 10px;cursor:pointer">Edit</button>
+        </div>`;
+
+        if (sortMode === 'alpha') {
+            // Flat alphabetical — no Most bought, no category subgroups
+            const alphaItems = catalogItems.slice().sort((a, b) => a.name.localeCompare(b.name));
+            html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">';
+            alphaItems.forEach(item => { html += renderCatalogChip(item, onList); });
+            html += '</div>';
+        } else if (sortMode === 'both') {
+            // Top-N by frequency, then alphabetical rest
+            const TOP_N = 10;
+            const byFreq = catalogItems.slice().sort((a, b) => (b.count - a.count) || a.name.localeCompare(b.name));
+            const topFreq = byFreq.filter(i => i.count > 0).slice(0, TOP_N);
+            const topSet = new Set(topFreq.map(i => i.name));
+            const restAlpha = catalogItems.filter(i => !topSet.has(i.name)).sort((a, b) => a.name.localeCompare(b.name));
+            if (topFreq.length) {
+                html += '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin-bottom:6px">Most bought</div>';
+                html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">';
+                topFreq.forEach(item => { html += renderCatalogChip(item, onList); });
+                html += '</div>';
+            }
+            if (restAlpha.length) {
+                html += '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin-bottom:6px">Everything else (A–Z)</div>';
+                html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px">';
+                restAlpha.forEach(item => { html += renderCatalogChip(item, onList); });
+                html += '</div>';
+            }
+        } else {
+            // 'frequency' — legacy behavior: Most bought + category subgroups
+            const catGroups = {};
+            const frequent = catalogItems.filter(i => i.count > 0);
+            const rest = catalogItems.filter(i => i.count === 0);
+
+            if (frequent.length) {
+                html += '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin-bottom:6px">Most bought</div>';
+                html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">';
+                frequent.forEach(item => { html += renderCatalogChip(item, onList); });
+                html += '</div>';
+            }
+
+            rest.forEach(item => {
+                if (!catGroups[item.cat]) catGroups[item.cat] = [];
+                catGroups[item.cat].push(item);
+            });
+
+            const catsWithItems = categoryOrder.filter(c => catGroups[c]);
+            Object.keys(catGroups).forEach(c => { if (!catsWithItems.includes(c)) catsWithItems.push(c); });
+
+            if (catsWithItems.length) {
+                const allItemsOpen = chipFilter ? ' open' : '';
+                html += `<details${allItemsOpen} style="margin-top:4px"><summary style="font-size:12px;font-weight:600;cursor:pointer;color:var(--text-muted)">All items by category</summary><div style="margin-top:8px">`;
+                catsWithItems.forEach(cat => {
+                    html += `<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin:8px 0 4px">${categoryLabels[cat] || cat}</div>`;
+                    html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px">';
+                    catGroups[cat].forEach(item => { html += renderCatalogChip(item, onList); });
+                    html += '</div>';
+                });
+                html += '</div></details>';
+            }
+        }
+
+    } else if (chipFilter) {
+        html += `<div style="color:var(--text-muted);font-size:13px;font-style:italic;padding:8px 0">No matches for "${esc(chipFilter)}". Tap + Add to create a new item.</div>`;
+    }
+    return html;
+}
 
 function renderCatalogChip(item, onList) {
     const active = onList.has(item.name);
@@ -997,13 +1023,20 @@ function cancelGroceryBatch() {
 
 function kitchenChipFilterInput(val, suffix) {
     _kitchenChipFilter = val;
-    renderGroceryList(); // re-render to filter chips and toggle +Add button
-    // Restore focus to whichever input was being typed in
-    const el = document.getElementById('kitchen-input-' + (suffix || 'top'));
-    if (el) {
-        el.focus();
-        el.setSelectionRange(val.length, val.length);
-    }
+    // Refresh the chips and the bars' controls in place. The input being typed
+    // in is never rebuilt — destroying it stole focus/caret and reset the
+    // mobile keyboard on every keystroke.
+    const area = document.getElementById('kitchen-catalog-area');
+    if (area) area.innerHTML = _catalogChipsHtml();
+    const q = val.trim();
+    ['top', 'bottom'].forEach(s => {
+        const inp = document.getElementById('kitchen-input-' + s);
+        if (inp && s !== suffix && inp.value !== val) inp.value = val;
+        const add = document.getElementById('kitchen-addbtn-' + s);
+        if (add) add.style.display = q ? '' : 'none';
+        const clr = document.getElementById('kitchen-clearbtn-' + s);
+        if (clr) clr.style.display = q ? '' : 'none';
+    });
 }
 
 function kitchenChipFilterClear() {
