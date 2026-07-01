@@ -1217,16 +1217,14 @@ function openAddTodoModal(section, opts) {
                 <span class="todo-add-labeltext">Description <span class="todo-add-opt">(optional)</span></span>
                 <textarea id="add-todo-desc" class="todo-add-input" rows="2" placeholder="Any details…" oninput="autoGrow(this)"></textarea>
             </label>
-            <details class="todo-add-more">
-                <summary class="todo-add-labeltext" style="cursor:pointer;min-height:40px;display:flex;align-items:center;font-size:var(--text-md);font-weight:600;color:var(--text-secondary)">More details <span class="todo-add-opt" style="margin-left:6px">(time, place, category…)</span></summary>
-                <div class="todo-modal-edit">
-                    <div class="tm-field">
-                        <label class="todo-modal-label">Time <span class="todo-add-opt">(optional)</span></label>
-                        <input type="time" id="add-todo-time" class="todo-modal-time-input">
-                    </div>
-                    ${todoAttrFieldsHTML({ theme: presetTheme })}
+            <div class="todo-modal-edit">
+                ${todoThemeFieldHTML(presetTheme)}
+                <div class="tm-field">
+                    <label class="todo-modal-label">Time <span class="todo-add-opt">(optional)</span></label>
+                    <input type="time" id="add-todo-time" class="todo-modal-time-input">
                 </div>
-            </details>
+                ${todoAttrFieldsHTML({})}
+            </div>
             <div class="todo-add-actions">
                 <button type="button" class="modal-btn cancel" onclick="closeActiveEditor()">Cancel</button>
                 <button type="submit" class="modal-btn confirm" style="background:var(--accent)">Add</button>
@@ -1249,7 +1247,7 @@ async function submitAddTodoModal(section) {
     if (!text) { textEl.focus(); return; }
     const due_by = document.getElementById('add-todo-due').value;
     const notes = document.getElementById('add-todo-desc').value.trim();
-    // "More details" section (same selectors as the detail modal's edit panel).
+    // Attribute fields (same selectors as the detail modal's edit panel).
     const form = textEl.closest('form');
     const due_time = document.getElementById('add-todo-time')?.value || '';
     let place_id = form.querySelector('.todo-modal-place')?.value || '';
@@ -1508,9 +1506,22 @@ async function tmSaveNewPlace(btn) {
 }
 
 // Shared attribute-field markup (place / category / duration / status) for the
-// to-do editors — used by both the detail modal's edit panel and the add
-// modal's "More details" section. Selectors (.todo-modal-*) are shared too, so
-// the same readers work in both places.
+// to-do editors — used by both the detail modal's edit panel and the add modal.
+// Focus lives in its own todoThemeFieldHTML above; the rest are here. Selectors
+// (.todo-modal-*) are shared too, so the same readers work in both places.
+// The Focus (theme) field, pulled out so it can sit on its own — right below
+// Description and above Time — in both the add and detail modals.
+function todoThemeFieldHTML(theme) {
+    // Blank = "Other": untagged items surface under the Other chip, so leaving a
+    // to-do without a theme is a real (named) choice, not a forgotten one.
+    const themeOpts = ['<option value="">🏷️ Other</option>']
+        .concat(TODO_THEMES.map(t => `<option value="${esc(t.key)}"${t.key === theme ? ' selected' : ''}>${t.emoji} ${esc(t.label)}</option>`)).join('');
+    return `<div class="tm-field">
+                <label class="todo-modal-label">Focus</label>
+                <select class="todo-modal-theme">${themeOpts}</select>
+            </div>`;
+}
+
 function todoAttrFieldsHTML(item) {
     item = item || {};
     const placeOpts = ['<option value="">No place</option>']
@@ -1518,10 +1529,6 @@ function todoAttrFieldsHTML(item) {
         .concat(['<option value="__new__">➕ Add a place…</option>']).join('');
     const catOpts = ['<option value="">— none —</option>']
         .concat(TODO_CATEGORIES.map(c => `<option value="${esc(c.key)}"${c.key === item.category ? ' selected' : ''}>${esc(c.label)}</option>`)).join('');
-    // Blank = "Other": untagged items surface under the Other chip, so leaving a
-    // to-do without a theme is a real (named) choice, not a forgotten one.
-    const themeOpts = ['<option value="">🏷️ Other</option>']
-        .concat(TODO_THEMES.map(t => `<option value="${esc(t.key)}"${t.key === item.theme ? ' selected' : ''}>${t.emoji} ${esc(t.label)}</option>`)).join('');
     const durChips = [15, 30, 60].map(m => `<button type="button" class="tm-chip${item.duration_min === m ? ' active' : ''}" onclick="tmDurationChip(this, ${m})">${m}m</button>`).join('');
     const statusChips = TODO_STATUSES.map(s => `<button type="button" class="tm-chip${item.status === s.key ? ' active' : ''}" data-val="${esc(s.key)}" onclick="tmStatusChip(this)">${esc(s.label)}</button>`).join('');
     return `
@@ -1533,10 +1540,6 @@ function todoAttrFieldsHTML(item) {
                     <input type="text" class="tm-newplace-addr" placeholder="Address (optional)">
                     <button type="button" class="modal-btn confirm" style="background:var(--accent)" onclick="tmSaveNewPlace(this)">Save place</button>
                 </div>
-            </div>
-            <div class="tm-field">
-                <label class="todo-modal-label">Focus</label>
-                <select class="todo-modal-theme">${themeOpts}</select>
             </div>
             <div class="tm-field">
                 <label class="todo-modal-label">Category</label>
@@ -1597,6 +1600,7 @@ function openTodoDetailById(id, opts) {
                 <label class="todo-modal-label">Description</label>
                 <textarea class="todo-modal-desc-edit" placeholder="Add a description…" oninput="autoGrow(this)">${esc(notes)}</textarea>
             </div>
+            ${todoThemeFieldHTML(item.theme)}
             <div class="tm-field">
                 <label class="todo-modal-label">Do on <span class="todo-add-opt">(date + time, optional)</span></label>
                 <div class="tm-row">
