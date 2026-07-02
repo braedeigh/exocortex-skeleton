@@ -86,9 +86,6 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
     background: var(--accent); color: #fff; font-size: 13px; font-weight: 600; cursor: pointer;
 }
 .devnotes-list { max-height: 40vh; overflow-y: auto; margin-top: 8px; font-size: 13px; color: var(--text); }
-.devnotes-list .dn-item { padding: 6px 0; border-top: 1px solid var(--border); display: flex; gap: 8px; }
-.devnotes-list .dn-date { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
-.devnotes-list .dn-empty { color: var(--text-muted); font-style: italic; padding: 4px 0; }
 
 /* Mode toggle */
 .mode-toggle {
@@ -162,6 +159,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 
 <script>window.THEME_OVERRIDES = {{ theme_overrides_json|safe }};</script>
 <script src="/static/js/sky-theme.js"></script>
+<script src="{{ v_static('js/mini-notes.js') }}"></script>
 <script>
 let currentDate = null;
 let saveTimer = null;
@@ -383,20 +381,8 @@ function closeDevNotes() {
     devNotesPanel.classList.remove('open');
 }
 
-function escDn(s) {
-    return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-async function loadDevNotes() {
-    const list = document.getElementById('devNotesList');
-    try {
-        const r = await fetch('/api/devnotes/journal');
-        const data = await r.json();
-        list.innerHTML = (data.notes || []).map(n =>
-            `<div class="dn-item"><div style="flex:1">${escDn(n.text)}</div><div class="dn-date">${escDn(n.created || '')}</div></div>`
-        ).join('') || '<div class="dn-empty">No journal notes yet</div>';
-    } catch (e) { list.textContent = 'Could not load notes'; }
-}
+const journalNotes = createMiniNotes(document.getElementById('devNotesList'), 'journal');
+function loadDevNotes() { journalNotes.load(); }
 
 async function addDevNote() {
     const text = devNoteInput.value.trim();

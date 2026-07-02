@@ -499,6 +499,7 @@ body.public-mode #mobileFiles {
 </head>
 <body class="{{ 'public-mode' if view_mode == 'public' else '' }}" data-view-mode="{{ view_mode }}">
 <script>window.VIEW_MODE = "{{ view_mode }}";</script>
+<script src="{{ v_static('js/mini-notes.js') }}"></script>
 
 <!-- Desktop: side-by-side -->
 <div class="split-container" id="splitContainer">
@@ -1097,20 +1098,10 @@ window.addEventListener('blur', () => {
     if (_tnPanel && _tnPanel.style.display !== 'none') _tnPanel.style.display = 'none';
 });
 
-async function loadTermNotes() {
-    const list = document.getElementById('termNotesList');
-    if (!list) return;
-    try {
-        const r = await fetch('/api/devnotes/terminal');
-        const data = await r.json();
-        const escN = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        list.innerHTML = (data.notes || []).map(n =>
-            `<div style="padding:6px 0;border-top:1px solid #2a2a4a;display:flex;gap:8px">
-                <div style="flex:1">${escN(n.text)}</div>
-                <div style="font-size:11px;color:rgba(180,160,220,0.6);white-space:nowrap">${escN(n.created || '')}</div>
-            </div>`).join('') || '<div style="color:rgba(180,160,220,0.6);font-style:italic;padding:4px 0">No terminal notes yet</div>';
-    } catch (e) { list.textContent = 'Could not load notes'; }
-}
+// Rows (with edit/delete) come from the shared mini-notes component.
+const _termNotesList = document.getElementById('termNotesList');
+const _termNotes = _termNotesList ? createMiniNotes(_termNotesList, 'terminal') : null;
+function loadTermNotes() { if (_termNotes) _termNotes.load(); }
 
 async function addTermNote() {
     const input = document.getElementById('termNoteInput');
