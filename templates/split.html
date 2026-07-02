@@ -424,7 +424,7 @@ body.public-mode .tab-bar { display: none; }
 body.public-mode .tab-content { margin-top: 0; }
 body.public-mode #mobileDashboard { display: block; }
 body.public-mode #mobileTerminal,
-body.public-mode #mobileFiles {
+body.public-mode #mobileSettings {
     display: none !important;
 }
 
@@ -558,7 +558,7 @@ body.public-mode #mobileFiles {
         <button class="tab-btn active" data-tab="terminal" id="termTabBtn" onclick="switchTab('terminal')">Chat</button>
         <button class="tab-btn" data-tab="journal" onclick="switchTab('journal')">Journal</button>
         <button class="tab-btn" data-tab="dashboard" onclick="switchTab('dashboard')">Dashboard</button>
-        <button class="tab-btn" data-tab="files" onclick="switchTab('files')">Files<span class="tab-close-x" onclick="closeVscodeFromTab(event)" title="Close VS Code (free memory)">&times;</span></button>
+        <button class="tab-btn" data-tab="settings" onclick="switchTab('settings')" title="Settings" aria-label="Settings" style="font-size:18px">&#9881;</button>
     </div>
     <div class="session-menu" id="sessionMenu"></div>
     <div class="tab-content">
@@ -570,9 +570,6 @@ body.public-mode #mobileFiles {
         </div>
         <div class="tab-pane" id="mobileJournal">
             <iframe id="mobileJournalFrame"></iframe>
-        </div>
-        <div class="tab-pane" id="mobileFiles">
-            <iframe src="/files/"></iframe>
         </div>
         <div class="tab-pane" id="mobileSettings">
             <iframe id="mobileSettingsFrame"></iframe>
@@ -1013,7 +1010,6 @@ function switchTab(tab) {
     document.getElementById('mobileTerminal').classList.toggle('active', tab === 'terminal');
     document.getElementById('mobileJournal').classList.toggle('active', tab === 'journal');
     document.getElementById('mobileDashboard').classList.toggle('active', tab === 'dashboard');
-    document.getElementById('mobileFiles').classList.toggle('active', tab === 'files');
     document.getElementById('mobileSettings').classList.toggle('active', tab === 'settings');
 
     // Lazy-load the markdown journal iframe the first time it's opened
@@ -1257,27 +1253,24 @@ async function closeVscodeFromTab(e) {
         const r = await fetch('/api/vscode/stop', { method: 'POST' });
         if (!r.ok) throw new Error(r.status);
         showToast('VS Code closed', 2000);
-        // Point iframes at the launcher so the next Files tap shows it
+        // Point the iframe at the launcher so the next Files tap shows it
         const df = document.getElementById('filesFrame');
         if (df) df.src = '/vscode';
-        const mf = document.querySelector('#mobileFiles iframe');
-        if (mf) mf.src = '/vscode';
         // If Files is currently visible, switch back to Dashboard
         const desktopFilesActive = document.querySelector('.dash-bar button[data-dashview="files"].active');
         if (desktopFilesActive) {
             const dashBtn = document.querySelector('.dash-bar button[data-dashview="dashboard"]');
             if (dashBtn) switchDashView('dashboard', dashBtn);
         }
-        const mobileFilesActive = document.querySelector('.tab-btn[data-tab="files"].active');
-        if (mobileFilesActive) switchTab('dashboard');
     } catch (err) {
         showToast('Close failed', 2000);
     }
 }
 
-// Long-press on the Files tab (mobile/PWA): hold ~600ms to close VS Code
+// Long-press on the desktop Files tab: hold ~600ms to close VS Code
+// (the mobile Files tab is gone — settings ⚙ lives there now)
 function setupFilesLongPress() {
-    document.querySelectorAll('.tab-btn[data-tab="files"], .dash-bar button[data-dashview="files"]').forEach(btn => {
+    document.querySelectorAll('.dash-bar button[data-dashview="files"]').forEach(btn => {
         let timer = null;
         let fired = false;
         const start = () => {

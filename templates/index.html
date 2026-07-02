@@ -48,7 +48,6 @@
                 </div>
             </div>
         </div>
-        <button type="button" class="auth-only" id="settings-gear" onclick="openSettings()" title="Settings" aria-label="Settings" style="margin-left:auto;font-size:20px;line-height:1;background:none;border:none;color:var(--text-muted);cursor:pointer;padding:6px 4px">&#9881;</button>
     </div>
 
     <!-- TODAY TAB -->
@@ -84,7 +83,9 @@
             </div>
             <div>
                 <div class="col-header" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-                    <span>To Do</span>
+                    <span style="display:inline-flex;align-items:center;gap:10px">To Do
+                        <button id="todo-showall-btn" onclick="toggleAllTodoCards(this)" style="min-height:40px;padding:0 12px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">show all</button>
+                    </span>
                     <span style="display:inline-flex;align-items:center;gap:8px">
                         <button onclick="openAddTodoModal('Now')" title="Add a to-do" style="min-height:40px;padding:0 14px;border:1px solid var(--accent);background:transparent;color:var(--accent);border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:4px;white-space:nowrap">+ Add</button>
                         <button onclick="openTriage(this)" title="Talk to Triage — it reorders your todos as you chat" style="min-height:40px;padding:0 14px;border:1px solid var(--accent);background:var(--accent);color:#fff;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap">🧭 Triage</button>
