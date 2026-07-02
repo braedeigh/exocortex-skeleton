@@ -881,12 +881,14 @@ function cardHTML(title, items, color, type, sectionName, dim, manualOrder) {
     }).join('');
 
     const emptyHTML = items.length === 0
-        ? '<div class="empty-state">Nothing here — add one below</div>'
+        ? `<div class="empty-state">Nothing here — add one ${type === 'todo' ? 'with + Add above' : 'below'}</div>`
         : '';
 
+    // To-do cards add from the title row (+ Add next to edit); other card
+    // types keep their inline bottom form.
     const addId = `add-${type}-${sectionName.replace(/\s+/g,'-')}`;
     const addForm = type === 'todo'
-        ? `<div class="add-trigger" onclick="openAddTodoModal('${escJs(sectionName)}')">+ Add</div>`
+        ? ''
         : `
         <div class="add-trigger" onclick="toggleAdd('${addId}')">+ Add</div>
         <div class="add-form" id="${addId}">
@@ -903,6 +905,7 @@ function cardHTML(title, items, color, type, sectionName, dim, manualOrder) {
             <span class="kitchen-arrow" style="font-size:12px;transition:transform 0.15s;display:inline-block">&#9654;</span>
             <span style="flex:1">${title}${countBadge}</span>
             ${type === 'todo' && manualOrder ? `<span class="autosort-toggle" onclick="event.preventDefault();event.stopPropagation();autosortTodos('${escJs(sectionName)}')" title="Sort by due date again">&#8597; Auto-sort</span>` : ''}
+            ${type === 'todo' ? `<span class="add-toggle" onclick="event.preventDefault();event.stopPropagation();openAddTodoModal('${escJs(sectionName)}')">+ Add</span>` : ''}
             <span class="edit-toggle" onclick="event.preventDefault();event.stopPropagation();${type === 'todo' ? `openBucketEdit('${escJs(sectionName)}')` : `toggleEditMode('${cardId}')`}">edit</span>
         </summary>
         ${itemsHTML}${emptyHTML}${addForm}</details>`;

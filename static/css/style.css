@@ -551,6 +551,7 @@ textarea.todo-add-input { resize: none; overflow: hidden; min-height: 44px; }
 .modal-overlay.todo-bucket-modal .modal.panel-modal { width: 96vw; max-width: 820px; max-height: 92vh; }
 .todo-bucket-modal .edit-toggle,
 .todo-bucket-modal .kitchen-arrow,
+.todo-bucket-modal .add-toggle,
 .todo-bucket-modal .add-trigger { display: none; }
 .todo-bucket-modal summary.card-title { cursor: default; list-style: none; }
 .bucket-edit-wrap .card {
@@ -867,6 +868,14 @@ details summary {
     background: rgba(124, 92, 191, 0.06);
 }
 .edit-toggle:hover { color: var(--text-secondary); background: rgba(124, 92, 191, 0.12); border-color: var(--accent); }
+/* "+ Add" pill in a to-do card's title row — the edit toggle's shape, accent
+   color so it reads as the primary action, padded taller for the thumb. */
+.add-toggle {
+    font-size: 13px; color: var(--accent); cursor: pointer; font-weight: 600;
+    border: 1px solid var(--border); border-radius: 6px; padding: 4px 12px;
+    background: rgba(124, 92, 191, 0.06); white-space: nowrap;
+}
+.add-toggle:hover { background: rgba(124, 92, 191, 0.12); border-color: var(--accent); }
 /* Safety-cloud Edit button — lives in the section header, only while open */
 .safety-edit-btn {
     float: right; font-size: var(--text-xs); background: none; border: 1px solid var(--border);

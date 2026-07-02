@@ -164,10 +164,10 @@ function dayViewHTML(label, items, color, alwaysShow) {
             <span class="kitchen-arrow" style="font-size:12px;transition:transform 0.15s;display:inline-block">&#9654;</span>
             <span style="flex:1">${esc(label)}<span class="todo-day-count">${items.filter(it => !it.done).length}</span></span>
             ${totalBadge}
+            <span class="add-toggle" onclick="event.preventDefault();event.stopPropagation();addToDay('${escJs(label)}')">+ Add</span>
             <span class="edit-toggle" onclick="event.preventDefault();event.stopPropagation();openBucketEdit('${escJs(label)}')">edit</span>
         </summary>
         ${stopsHTML}
-        <div class="add-trigger" onclick="addToDay('${escJs(label)}')">+ Add</div>
     </details>`;
 }
 
