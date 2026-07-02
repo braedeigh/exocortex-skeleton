@@ -1273,6 +1273,12 @@ function openAddTodoModal(section, opts) {
     // lands inside the view you're looking at. ('Other'/__none__ → stays blank.)
     const ft = getFocusTheme();
     const presetTheme = (ft && ft !== '__none__') ? ft : '';
+    // Time lives behind "More options" alongside the rest of todoAttrFieldsHTML
+    // — quick-add only surfaces title / due / description / Focus up front.
+    const timeFieldHTML = `<div class="tm-field">
+                <label class="todo-modal-label">Time <span class="todo-add-opt">(optional)</span></label>
+                <input type="time" id="add-todo-time" class="todo-modal-time-input">
+            </div>`;
     const html = `
         <form class="todo-add-form" onsubmit="event.preventDefault();submitAddTodoModal('${escJs(section)}')">
             <label class="todo-add-label">
@@ -1282,7 +1288,7 @@ function openAddTodoModal(section, opts) {
             </label>
             <label class="todo-add-label">
                 <span class="todo-add-labeltext">Due by <span class="todo-add-opt">(optional)</span></span>
-                <input type="date" id="add-todo-due" class="todo-add-input" value="${esc(presetDue)}">
+                ${tmDateFieldHTML({ id: 'add-todo-due', class: 'todo-add-input' }, presetDue)}
             </label>
             <label class="todo-add-label">
                 <span class="todo-add-labeltext">Description <span class="todo-add-opt">(optional)</span></span>
@@ -1290,11 +1296,7 @@ function openAddTodoModal(section, opts) {
             </label>
             <div class="todo-modal-edit">
                 ${todoThemeFieldHTML(presetTheme)}
-                <div class="tm-field">
-                    <label class="todo-modal-label">Time <span class="todo-add-opt">(optional)</span></label>
-                    <input type="time" id="add-todo-time" class="todo-modal-time-input">
-                </div>
-                ${todoAttrFieldsHTML({})}
+                ${tmMoreHTML(timeFieldHTML + todoAttrFieldsHTML({}), false)}
             </div>
             <div class="todo-add-actions">
                 <button type="button" class="modal-btn cancel" onclick="closeActiveEditor()">Cancel</button>
@@ -1323,7 +1325,7 @@ async function submitAddTodoModal(section) {
     const due_time = document.getElementById('add-todo-time')?.value || '';
     let place_id = form.querySelector('.todo-modal-place')?.value || '';
     if (place_id === '__new__') place_id = '';
-    const category = form.querySelector('.todo-modal-category')?.value || '';
+    const category = form.querySelector('.todo-modal-category .tm-chip.active')?.dataset.val || '';
     // Pre-selected from the active Focus filter (see openAddTodoModal), so a plain
     // read keeps the new to-do inside the view you added it from.
     const theme = form.querySelector('.todo-modal-theme')?.value || '';
@@ -1543,6 +1545,10 @@ function tmDurationChip(btn, mins) {
     const inp = wrap.querySelector('.todo-modal-duration');
     if (inp) inp.value = mins;
 }
+// Generic scoped single-select-with-clear chip handler — tap a chip to select
+// it (clearing any sibling in the same .tm-chips wrap), tap the active chip
+// again to clear it. Reused by status *and* category (todoAttrFieldsHTML),
+// not just status despite the name.
 function tmStatusChip(btn) {
     const wrap = btn.closest('.tm-chips');
     const wasActive = btn.classList.contains('active');
@@ -1598,8 +1604,9 @@ function todoAttrFieldsHTML(item) {
     const placeOpts = ['<option value="">No place</option>']
         .concat((D.places || []).map(p => `<option value="${esc(p.id)}"${p.id === item.place_id ? ' selected' : ''}>${esc(p.name)}</option>`))
         .concat(['<option value="__new__">➕ Add a place…</option>']).join('');
-    const catOpts = ['<option value="">— none —</option>']
-        .concat(TODO_CATEGORIES.map(c => `<option value="${esc(c.key)}"${c.key === item.category ? ' selected' : ''}>${esc(c.label)}</option>`)).join('');
+    // No "none" chip: clearing the category means tapping the active chip
+    // again (tmStatusChip's existing clear-on-reclick behavior).
+    const catChips = TODO_CATEGORIES.map(c => `<button type="button" class="tm-chip${item.category === c.key ? ' active' : ''}" data-val="${esc(c.key)}" onclick="tmStatusChip(this)">${esc(c.label)}</button>`).join('');
     const durChips = [15, 30, 60].map(m => `<button type="button" class="tm-chip${item.duration_min === m ? ' active' : ''}" onclick="tmDurationChip(this, ${m})">${m}m</button>`).join('');
     const statusChips = TODO_STATUSES.map(s => `<button type="button" class="tm-chip${item.status === s.key ? ' active' : ''}" data-val="${esc(s.key)}" onclick="tmStatusChip(this)">${esc(s.label)}</button>`).join('');
     return `
@@ -1614,7 +1621,7 @@ function todoAttrFieldsHTML(item) {
             </div>
             <div class="tm-field">
                 <label class="todo-modal-label">Category</label>
-                <select class="todo-modal-category">${catOpts}</select>
+                <div class="tm-chips todo-modal-category">${catChips}</div>
             </div>
             <div class="tm-field">
                 <label class="todo-modal-label">Duration <span class="todo-add-opt">(rough estimate)</span></label>
@@ -1624,6 +1631,48 @@ function todoAttrFieldsHTML(item) {
                 <label class="todo-modal-label">Status</label>
                 <div class="tm-chips todo-modal-status">${statusChips}</div>
             </div>`;
+}
+
+// Generic collapsible "more options" wrapper — the app's existing kitchen-arrow
+// chevron idiom (see cardHTML's todo-card summary), reused here. `inner` stays
+// in the DOM whether or not the <details> is open, so every field it wraps
+// keeps working with existing scoped readers (form/body .querySelector).
+function tmMoreHTML(inner, open) {
+    return `<details class="tm-more"${open ? ' open' : ''}>
+        <summary class="tm-more-summary">
+            <span class="kitchen-arrow" style="font-size:12px;transition:transform 0.15s;display:inline-block">&#9654;</span>
+            <span>More options</span>
+        </summary>
+        <div class="tm-more-body">${inner}</div>
+    </details>`;
+}
+
+// A native <input type="date"> styled as a tappable row with a 40px calendar
+// button. `attrs` is spread onto the input (e.g. {id:'add-todo-due'}) so
+// callers can keep reading it exactly as before.
+function tmDateFieldHTML(attrs, value) {
+    attrs = attrs || {};
+    const attrStr = Object.keys(attrs).map(k => ` ${k}="${esc(attrs[k])}"`).join('');
+    return `<div class="tm-datewrap">
+        <input type="date"${attrStr} value="${esc(value || '')}">
+        <button type="button" class="tm-date-icon" onclick="tmShowDatePicker(this)" aria-label="Open date picker">📅</button>
+    </div>`;
+}
+
+// showPicker() throws on older Safari and when it's not invoked from a user
+// gesture in some browsers — fall back to focus() (iOS opens the wheel
+// picker on focus).
+function tmShowDatePicker(btn) {
+    const inp = btn.closest('.tm-datewrap')?.querySelector('input[type=date]');
+    if (!inp) return;
+    try { inp.showPicker(); } catch (e) { inp.focus(); }
+}
+
+// Whether an item carries any of the fields tucked behind "More options", so
+// the detail modal's expander can default open instead of hiding data the
+// item already has.
+function _hasHiddenAttrs(item) {
+    return !!(item.place_id || item.category || item.duration_min || item.status);
 }
 
 // Tap a to-do → its detail modal. Read mode shows attribute chips; Edit reveals
@@ -1663,27 +1712,34 @@ function openTodoDetailById(id, opts) {
         .filter(s => !s.name.toLowerCase().startsWith('done'))
         .map(s => `<option value="${esc(s.name)}"${s.name === curSection ? ' selected' : ''}>${esc(s.name)}</option>`).join('');
 
+    // List/bucket mover markup, folded into the "More options" expander (D) below.
+    const bucketFieldHTML = bucketOpts ? `<div class="tm-field">
+                <label class="todo-modal-label">List <span class="todo-add-opt">(move to another section)</span></label>
+                <select class="todo-modal-bucket" data-original="${esc(curSection)}">${bucketOpts}</select>
+            </div>` : '';
     const body = `<div class="todo-modal-body" data-item="${esc(text)}" data-id="${esc(id)}" data-due="${esc(dueIso)}">
         <div class="todo-modal-meta"${metaBits.length ? '' : ' style="display:none"'}>${metaBits.join('')}</div>
-        <div class="todo-modal-desc-read${notes ? '' : ' empty'}">${notes ? esc(notes) : 'No description'}</div>
+        <div class="todo-modal-desc-read${notes ? '' : ' empty'}" onclick="todoQuickEditDesc(this)">${notes ? esc(notes) : 'No description'}</div>
+        <div class="todo-modal-edit" style="display:none">
+            <div class="tm-field">
+                <label class="todo-modal-label">Do on <span class="todo-add-opt">(date + time, optional)</span></label>
+                <div class="tm-row">
+                    ${tmDateFieldHTML({ class: 'todo-modal-due-input' }, dueIso)}
+                    <input type="time" class="todo-modal-time-input" value="${esc(dueTime)}">
+                </div>
+            </div>
+        </div>
         <div class="todo-modal-edit" style="display:none">
             <div class="tm-field">
                 <label class="todo-modal-label">Description</label>
                 <textarea class="todo-modal-desc-edit" placeholder="Add a description…" oninput="autoGrow(this)">${esc(notes)}</textarea>
             </div>
+        </div>
+        <div class="todo-modal-edit" style="display:none">
             ${todoThemeFieldHTML(item.theme)}
-            <div class="tm-field">
-                <label class="todo-modal-label">Do on <span class="todo-add-opt">(date + time, optional)</span></label>
-                <div class="tm-row">
-                    <input type="date" class="todo-modal-due-input" value="${esc(dueIso)}">
-                    <input type="time" class="todo-modal-time-input" value="${esc(dueTime)}">
-                </div>
-            </div>
-            ${todoAttrFieldsHTML(item)}
-            ${bucketOpts ? `<div class="tm-field">
-                <label class="todo-modal-label">List <span class="todo-add-opt">(move to another section)</span></label>
-                <select class="todo-modal-bucket" data-original="${esc(curSection)}">${bucketOpts}</select>
-            </div>` : ''}
+        </div>
+        <div class="todo-modal-edit" style="display:none">
+            ${tmMoreHTML(todoAttrFieldsHTML(item) + bucketFieldHTML, _hasHiddenAttrs(item))}
         </div>
         <div class="todo-modal-foot">
             <button type="button" class="todo-modal-delete" onclick="confirmDeleteTodoItem(this.closest('.todo-modal-body').dataset.id, this.closest('.todo-modal-body').dataset.item)">Delete</button>
@@ -1693,7 +1749,7 @@ function openTodoDetailById(id, opts) {
     </div>`;
     showEditorModal('To-do', body);
     const h3 = document.getElementById('panel-modal-title');
-    if (h3) h3.innerHTML = `<span class="todo-modal-kicker">To-do:</span> <span class="todo-modal-htitle">${esc(text)}</span><textarea class="todo-modal-htitle-edit" rows="1" placeholder="To-do" oninput="autoGrow(this)" style="display:none">${esc(text)}</textarea>`;
+    if (h3) h3.innerHTML = `<span class="todo-modal-kicker">To-do:</span> <span class="todo-modal-htitle" onclick="todoQuickEditTitle()">${esc(text)}</span><textarea class="todo-modal-htitle-edit" rows="1" placeholder="To-do" oninput="autoGrow(this)" style="display:none">${esc(text)}</textarea>`;
     if (opts.edit) {
         const b = document.querySelector('#panel-modal .todo-desc-editbtn');
         if (b) toggleTodoModalEdit(b);
@@ -1715,7 +1771,7 @@ async function toggleTodoModalEdit(btn) {
     const headerTitle = document.querySelector('#panel-modal-title .todo-modal-htitle');
     const titleEdit = document.querySelector('#panel-modal-title .todo-modal-htitle-edit');
     const metaRow = body.querySelector('.todo-modal-meta');
-    const editPanel = body.querySelector('.todo-modal-edit');
+    const editPanels = body.querySelectorAll('.todo-modal-edit');   // 4 sibling wrappers (see openTodoDetailById)
     const descRead = body.querySelector('.todo-modal-desc-read');
     const descEdit = body.querySelector('.todo-modal-desc-edit');
 
@@ -1723,7 +1779,7 @@ async function toggleTodoModalEdit(btn) {
         headerTitle.style.display = 'none';
         titleEdit.style.display = '';
         autoGrow(titleEdit);
-        if (editPanel) editPanel.style.display = '';
+        editPanels.forEach(p => p.style.display = '');
         if (metaRow) metaRow.style.display = 'none';
         descRead.style.display = 'none';
         descEdit.style.display = 'block';
@@ -1743,7 +1799,7 @@ async function toggleTodoModalEdit(btn) {
     const dueTime = body.querySelector('.todo-modal-time-input').value;
     let placeSel = body.querySelector('.todo-modal-place').value;
     if (placeSel === '__new__') placeSel = '';   // an unsaved "add place" choice → none
-    const category = body.querySelector('.todo-modal-category').value;
+    const category = body.querySelector('.todo-modal-category .tm-chip.active')?.dataset.val || '';
     const theme = body.querySelector('.todo-modal-theme').value;
     const duration = body.querySelector('.todo-modal-duration').value;
     const statusBtn = body.querySelector('.todo-modal-status .tm-chip.active');
@@ -1892,6 +1948,83 @@ async function toggleGrowthModalEdit(btn) {
     descRead.style.display = '';
     descEdit.style.display = 'none';
     btn.textContent = 'Edit';
+    loadDashboard();
+}
+
+// Tap-to-edit, read mode only, in the to-do detail modal (openTodoDetailById).
+// NOT wired on the growth or streak modals — they reuse the same
+// .todo-modal-htitle / .todo-modal-desc-read classes but are different modals;
+// their onclick hooks are intentionally absent, so this pair never fires there.
+function todoQuickEditTitle() {
+    const headerTitle = document.querySelector('#panel-modal-title .todo-modal-htitle');
+    const titleEdit = document.querySelector('#panel-modal-title .todo-modal-htitle-edit');
+    if (!headerTitle || !titleEdit) return;
+    headerTitle.style.display = 'none';
+    titleEdit.style.display = '';
+    autoGrow(titleEdit);
+    titleEdit.focus();
+    titleEdit.setSelectionRange(titleEdit.value.length, titleEdit.value.length);
+    titleEdit.onblur = () => todoQuickSaveTitle(titleEdit);
+}
+
+async function todoQuickSaveTitle(el) {
+    el.onblur = null;   // clear first — a programmatic blur during the DOM swap below must not re-fire this
+    const headerTitle = document.querySelector('#panel-modal-title .todo-modal-htitle');
+    const body = document.querySelector('#panel-modal-body .todo-modal-body');
+    if (!headerTitle || !body) return;
+    const oldText = body.dataset.item;
+    const newText = el.value.trim();
+    // Swap back to read mode synchronously, before any fetch: browser event
+    // order is mousedown -> blur -> click, so if the user blurred by clicking
+    // Edit/Delete, that click must land on clean read-mode DOM, not DOM that's
+    // still mid-request.
+    headerTitle.style.display = '';
+    el.style.display = 'none';
+    if (!newText || newText === oldText) { el.value = oldText; return; }   // revert silently, no fetch
+    headerTitle.textContent = newText;
+    body.dataset.item = newText;   // read by the Delete label + move payload elsewhere
+    const id = body.dataset.id || oldText;
+    await fetch('/api/todos/rename', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, old: oldText, new: newText })
+    });
+    loadDashboard();
+}
+
+// Same pattern for the description — swaps in wrapper (B) from
+// openTodoDetailById in place of the read-mode div.
+function todoQuickEditDesc(el) {
+    const body = el.closest('.todo-modal-body');
+    const descEdit = body && body.querySelector('.todo-modal-desc-edit');
+    const wrap = descEdit && descEdit.closest('.todo-modal-edit');
+    if (!descEdit || !wrap) return;
+    el.style.display = 'none';
+    wrap.style.display = '';
+    autoGrow(descEdit);
+    descEdit.focus();
+    descEdit.onblur = () => todoQuickSaveDesc(descEdit);
+}
+
+async function todoQuickSaveDesc(el) {
+    el.onblur = null;
+    const wrap = el.closest('.todo-modal-edit');
+    const body = el.closest('.todo-modal-body');
+    const descRead = body && body.querySelector('.todo-modal-desc-read');
+    if (!wrap || !body || !descRead) return;
+    const notes = el.value.trim();
+    // Swap back to read mode before the fetch, same reasoning as todoQuickSaveTitle.
+    wrap.style.display = 'none';
+    descRead.style.display = '';
+    descRead.textContent = notes || 'No description';
+    descRead.classList.toggle('empty', !notes);
+    const id = body.dataset.id || body.dataset.item;
+    // Same request shape as saveTodoNotes below.
+    await fetch('/api/todos/details', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, notes })
+    });
+    // Refresh client state (D) like the title path does, so reopening the
+    // modal before the next poll doesn't show the stale description.
     loadDashboard();
 }
 
