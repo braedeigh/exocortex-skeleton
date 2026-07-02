@@ -18,7 +18,7 @@
 html, body { height: 100%; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
 
 .container {
-    display: flex; flex-direction: column; height: 100%; margin: 0 auto; padding: 0 16px;
+    display: flex; flex-direction: column; height: 100%; max-width: 800px; margin: 0 auto; padding: 0 16px;
 }
 
 /* Nav */
@@ -135,7 +135,15 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
         <span class="date-label" id="dateLabel" onclick="toggleCalendar()"></span>
         <button id="todayBtn" class="today-btn" onclick="goToday()" style="display:none">Today</button>
         <button id="nextBtn" onclick="nav(1)">&rarr;</button>
+        <button id="devNotesBtn" onclick="toggleDevNotes()" title="Journal dev notes" style="display:none">&#128221;</button>
         <div class="calendar-overlay" id="calOverlay"></div>
+        <div class="devnotes-overlay" id="devNotesPanel">
+            <div class="devnotes-row">
+                <textarea id="devNoteInput" rows="2" placeholder="Bug or idea for the journal&hellip;"></textarea>
+                <button onclick="addDevNote()">Add</button>
+            </div>
+            <div class="devnotes-list" id="devNotesList"></div>
+        </div>
     </div>
     <div class="mode-toggle">
         <button class="active" id="readBtn" onclick="setMode('read')">Read</button>
@@ -152,6 +160,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
     <div class="save-status" id="status"></div>
 </div>
 
+<script>window.THEME_OVERRIDES = {{ theme_overrides_json|safe }};</script>
 <script src="/static/js/sky-theme.js"></script>
 <script>
 let currentDate = null;
@@ -205,8 +214,12 @@ async function loadDate(date) {
         document.getElementById('dateLabel').textContent = formatDate(data.date);
         document.getElementById('prevBtn').disabled = !data.prev;
         document.getElementById('prevBtn').dataset.date = data.prev || '';
-        document.getElementById('nextBtn').disabled = !data.next;
-        document.getElementById('nextBtn').dataset.date = data.next || '';
+        const nextBtn = document.getElementById('nextBtn');
+        nextBtn.disabled = !data.next;
+        nextBtn.dataset.date = data.next || '';
+        // Most recent day: the → is dead anyway — swap it for the dev-notes 📝
+        nextBtn.style.display = data.next ? '' : 'none';
+        document.getElementById('devNotesBtn').style.display = data.next ? 'none' : '';
         document.getElementById('todayBtn').style.display = data.date === localToday() ? 'none' : '';
         renderPreview();
         closeCalendar();
@@ -294,6 +307,7 @@ window.addEventListener('beforeunload', () => { if (editor.value !== lastSaved) 
 function toggleCalendar() {
     if (calOpen) { closeCalendar(); return; }
     calOpen = true;
+    closeDevNotes();
     const d = new Date(currentDate + 'T12:00:00');
     calMonth = { year: d.getFullYear(), month: d.getMonth() };
     renderCalendar();
@@ -347,6 +361,65 @@ function renderCalendar() {
 document.addEventListener('click', (e) => {
     if (calOpen && !calOverlay.contains(e.target) && e.target.id !== 'dateLabel') {
         closeCalendar();
+    }
+});
+
+// --- Dev notes modal (writes to the 'journal' tab of dev notes) ---
+const devNotesPanel = document.getElementById('devNotesPanel');
+const devNoteInput = document.getElementById('devNoteInput');
+let devNotesOpen = false;
+
+function toggleDevNotes() {
+    if (devNotesOpen) { closeDevNotes(); return; }
+    devNotesOpen = true;
+    closeCalendar();
+    devNotesPanel.classList.add('open');
+    loadDevNotes();
+    devNoteInput.focus();
+}
+
+function closeDevNotes() {
+    devNotesOpen = false;
+    devNotesPanel.classList.remove('open');
+}
+
+function escDn(s) {
+    return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+async function loadDevNotes() {
+    const list = document.getElementById('devNotesList');
+    try {
+        const r = await fetch('/api/devnotes/journal');
+        const data = await r.json();
+        list.innerHTML = (data.notes || []).map(n =>
+            `<div class="dn-item"><div style="flex:1">${escDn(n.text)}</div><div class="dn-date">${escDn(n.created || '')}</div></div>`
+        ).join('') || '<div class="dn-empty">No journal notes yet</div>';
+    } catch (e) { list.textContent = 'Could not load notes'; }
+}
+
+async function addDevNote() {
+    const text = devNoteInput.value.trim();
+    if (!text) return;
+    const r = await fetch('/api/devnote/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tab: 'journal', text })
+    });
+    if (r.ok) { devNoteInput.value = ''; devNoteInput.style.height = 'auto'; loadDevNotes(); }
+}
+
+// Enter submits, Shift+Enter inserts a newline; auto-expand while typing
+devNoteInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); addDevNote(); }
+});
+devNoteInput.addEventListener('input', () => {
+    devNoteInput.style.height = 'auto';
+    devNoteInput.style.height = Math.min(devNoteInput.scrollHeight, 160) + 'px';
+});
+document.addEventListener('click', (e) => {
+    if (devNotesOpen && !devNotesPanel.contains(e.target) && e.target.id !== 'devNotesBtn') {
+        closeDevNotes();
     }
 });
 
