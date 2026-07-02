@@ -13,8 +13,9 @@
     st.id = 'mini-notes-css';
     st.textContent = `
 .mn-item { display:flex; gap:6px; align-items:flex-start; padding:6px 0; border-top:1px solid var(--border,#2a2a4a); font-size:13px; }
-.mn-text { flex:1; white-space:pre-wrap; word-break:break-word; padding-top:5px; }
-.mn-date { font-size:12px; color:var(--text-muted,rgba(180,160,220,0.6)); white-space:nowrap; padding-top:6px; }
+.mn-body { flex:1; padding-top:5px; min-width:0; }
+.mn-text { white-space:pre-wrap; word-break:break-word; }
+.mn-date { font-size:12px; color:var(--text-muted,rgba(180,160,220,0.6)); margin-top:2px; }
 .mn-act { background:none; border:none; cursor:pointer; color:var(--text-muted,rgba(180,160,220,0.7)); padding:4px 6px; min-width:30px; min-height:30px; border-radius:6px; font-size:14px; font-family:inherit; }
 .mn-act:hover { background:var(--accent-light,rgba(124,92,191,0.15)); color:var(--accent,#7c5cbf); }
 .mn-x { font-size:17px; line-height:1; }
@@ -71,8 +72,10 @@ function createMiniNotes(listEl, tab) {
             const delCls = n.id === confirmId ? 'mn-act mn-x mn-sure' : 'mn-act mn-x';
             const delLabel = n.id === confirmId ? 'Sure?' : '&times;';
             return `<div class="mn-item" data-id="${esc(n.id)}">
-                <div class="mn-text">${esc(n.text)}</div>
-                <div class="mn-date">${esc(n.created || '')}</div>
+                <div class="mn-body">
+                    <div class="mn-text">${esc(n.text)}</div>
+                    <div class="mn-date">${esc(n.created || '')}</div>
+                </div>
                 <button class="mn-act" data-action="edit" title="Edit">&#9998;</button>
                 <button class="${delCls}" data-action="del" title="Delete">${delLabel}</button>
             </div>`;
