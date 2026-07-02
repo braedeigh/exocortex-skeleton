@@ -507,7 +507,7 @@ function renderHabitTracker() {
                 <button onclick="moveHabitInSection('${escJs(sectionName)}','${escJs(h)}',-1)" style="${btn}" title="Move up">&#9650;</button>
                 <button onclick="moveHabitInSection('${escJs(sectionName)}','${escJs(h)}',1)" style="${btn}" title="Move down">&#9660;</button>
                 <button onclick="showTrackerMoveMenu(this, '${escJs(h)}', '${escJs(sectionName)}', ${moveTargetsJs})" style="${btn}" title="Move to section">&#8596;</button>
-                <button onclick="openHabitConfig('${escJs(sectionName)}','${escJs(h)}')" style="${btn}" title="Options — time of day, course">&#9881;</button>
+                <button onclick="openHabitConfig('${escJs(sectionName)}','${escJs(h)}')" style="${btn}" title="Options — time of day, course">&#9881;&#65038;</button>
                 <button onclick="confirmDelete('${escJs(h)}','habit')" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;padding:0 4px;flex-shrink:0" title="Remove">&times;</button>
             </div>`;
         });
@@ -673,7 +673,7 @@ function renderHabitTracker() {
             f += `<div style="${row}">
                 <span style="flex:1;min-width:120px;font-size:13px;color:var(--text-muted);text-decoration:line-through">${esc(item)}</span>
                 <span style="font-size:12px;color:var(--green)">finished ${fmt(endD.toISOString().slice(0,10))}</span>
-                <button onclick="openHabitConfig('${escJs(section)}','${escJs(item)}')" style="${btn}" title="Edit / extend">&#9881; edit</button>
+                <button onclick="openHabitConfig('${escJs(section)}','${escJs(item)}')" style="${btn}" title="Edit / extend">&#9881;&#65038; edit</button>
             </div>`;
         });
         f += `</div></details>`;

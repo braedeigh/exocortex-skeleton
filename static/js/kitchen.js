@@ -662,7 +662,7 @@ function openCatalogEditor() {
             <div style="font-size:16px;font-weight:700;color:var(--text)">Edit Catalog</div>
             <button onclick="closeCatalogEditor()" style="background:none;border:none;color:var(--text-muted);font-size:20px;cursor:pointer">&times;</button>
         </div>
-        <div style="margin-bottom:12px"><button onclick="openCategoriesEditor()" style="font-size:12px;color:var(--accent);background:none;border:1px solid rgba(124,92,191,0.4);border-radius:6px;padding:3px 10px;cursor:pointer">⚙ Manage categories</button></div>
+        <div style="margin-bottom:12px"><button onclick="openCategoriesEditor()" style="font-size:12px;color:var(--accent);background:none;border:1px solid rgba(124,92,191,0.4);border-radius:6px;padding:3px 10px;cursor:pointer">&#9881;&#65038; Manage categories</button></div>
         <div style="flex:1;overflow-y:auto;min-height:0;padding-right:20px">
             ${rows}
         </div>

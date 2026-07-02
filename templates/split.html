@@ -543,7 +543,7 @@ body.public-mode #mobileSettings {
             <button class="active" data-dashview="dashboard" onclick="switchDashView('dashboard', this)">Dashboard</button>
             <button data-dashview="journal" onclick="switchDashView('journal', this)">Journal</button>
             <button data-dashview="files" onclick="switchDashView('files', this)">Files<span class="tab-close-x" onclick="closeVscodeFromTab(event)" title="Close VS Code (free memory)">&times;</span></button>
-            <button data-dashview="settings" onclick="switchDashView('settings', this)" title="Settings" aria-label="Settings" style="flex:0;padding:11px 16px;font-size:18px;margin-left:auto">&#9881;</button>
+            <button data-dashview="settings" onclick="switchDashView('settings', this)" title="Settings" aria-label="Settings" style="flex:0;padding:11px 16px;font-size:18px;margin-left:auto">&#9881;&#65038;</button>
         </div>
         <iframe src="/tab/{{ active_tab }}{% if item_name %}?item={{ item_name }}{% endif %}" id="dashboardFrame" allow="fullscreen; autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
         <iframe id="journalFrame" style="display:none"></iframe>
@@ -558,7 +558,7 @@ body.public-mode #mobileSettings {
         <button class="tab-btn active" data-tab="terminal" id="termTabBtn" onclick="switchTab('terminal')">Chat</button>
         <button class="tab-btn" data-tab="journal" onclick="switchTab('journal')">Journal</button>
         <button class="tab-btn" data-tab="dashboard" onclick="switchTab('dashboard')">Dashboard</button>
-        <button class="tab-btn" data-tab="settings" onclick="switchTab('settings')" title="Settings" aria-label="Settings" style="font-size:18px">&#9881;</button>
+        <button class="tab-btn" data-tab="settings" onclick="switchTab('settings')" title="Settings" aria-label="Settings" style="font-size:18px">&#9881;&#65038;</button>
     </div>
     <div class="session-menu" id="sessionMenu"></div>
     <div class="tab-content">
