@@ -175,9 +175,11 @@ function stopHTML(group) {
     const pl = group.key === '__none__' ? null : placeById(group.key);
     const stopMin = group.items.reduce((s, it) => s + (parseInt(it.duration_min, 10) || 0), 0);
     const stopTotal = stopMin ? `<span class="todo-stop-total">~${esc(_fmtDuration(stopMin))}</span>` : '';
+    // Unlocated items get no group header at all — they read as a plain list
+    // (they already sort below the located stops).
     const head = pl
         ? `<div class="todo-stop-head"><span class="todo-stop-name">📍 ${esc(pl.name)}</span>${pl.address ? `<span class="todo-stop-addr">${esc(pl.address)}</span>` : ''}${stopTotal}</div>`
-        : `<div class="todo-stop-head todo-stop-none"><span class="todo-stop-name">No location</span>${stopTotal}</div>`;
+        : '';
     return `<div class="todo-stop">${head}${group.items.map(dayItemHTML).join('')}</div>`;
 }
 
