@@ -881,7 +881,7 @@ function cardHTML(title, items, color, type, sectionName, dim, manualOrder) {
     }).join('');
 
     const emptyHTML = items.length === 0
-        ? `<div class="empty-state">Nothing here — add one ${type === 'todo' ? 'with + Add above' : 'below'}</div>`
+        ? `<div class="empty-state">Nothing here — add one ${type === 'todo' ? 'with + add above' : 'below'}</div>`
         : '';
 
     // To-do cards add from the title row (+ Add next to edit); other card
@@ -905,7 +905,7 @@ function cardHTML(title, items, color, type, sectionName, dim, manualOrder) {
             <span class="kitchen-arrow" style="font-size:12px;transition:transform 0.15s;display:inline-block">&#9654;</span>
             <span style="flex:1">${title}${countBadge}</span>
             ${type === 'todo' && manualOrder ? `<span class="autosort-toggle" onclick="event.preventDefault();event.stopPropagation();autosortTodos('${escJs(sectionName)}')" title="Sort by due date again">&#8597; Auto-sort</span>` : ''}
-            ${type === 'todo' ? `<span class="add-toggle" onclick="event.preventDefault();event.stopPropagation();openAddTodoModal('${escJs(sectionName)}')">+ Add</span>` : ''}
+            ${type === 'todo' ? `<span class="add-toggle" onclick="event.preventDefault();event.stopPropagation();openAddTodoModal('${escJs(sectionName)}')">+ add</span>` : ''}
             <span class="edit-toggle" onclick="event.preventDefault();event.stopPropagation();${type === 'todo' ? `openBucketEdit('${escJs(sectionName)}')` : `toggleEditMode('${cardId}')`}">edit</span>
         </summary>
         ${itemsHTML}${emptyHTML}${addForm}</details>`;
