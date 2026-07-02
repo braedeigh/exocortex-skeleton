@@ -1288,7 +1288,7 @@ function openAddTodoModal(section, opts) {
             </label>
             <label class="todo-add-label">
                 <span class="todo-add-labeltext">Due by <span class="todo-add-opt">(optional)</span></span>
-                <input type="date" id="add-todo-due" class="todo-add-input" value="${esc(presetDue)}">
+                <input type="date" id="add-todo-due" class="todo-add-input" value="${esc(presetDue)}" onchange="addTodoDueChanged(this)">
             </label>
             <label class="todo-add-label">
                 <span class="todo-add-labeltext">Description <span class="todo-add-opt">(optional)</span></span>
@@ -1304,15 +1304,19 @@ function openAddTodoModal(section, opts) {
             </div>
         </form>`;
     showEditorModal('Add to ' + (opts.dayLabel || section), html);
-    // Header "Now" becomes a section picker: which list the to-do lands in is
-    // choosable at add time, defaulting to the one the modal was opened from.
-    // Day-view adds keep their label as context (the due date does the placing).
+    // Header "Now" becomes a picker: the real lists, plus Today/Tomorrow — which
+    // are day views (due today/tomorrow), not lists. Picking a day sets the due
+    // date; the to-do still files into the underlying list (data-base). The
+    // picker and the Due-by input stay in sync both ways (see the two handlers
+    // next to submitAddTodoModal).
     const sections = (D.todos || []).filter(s => !s.name.toLowerCase().startsWith('done')).map(s => s.name);
     const h3 = document.getElementById('panel-modal-title');
     if (h3 && sections.length) {
-        const sectionOpts = sections.map(s => `<option value="${esc(s)}"${s === section ? ' selected' : ''}>${esc(s)}</option>`).join('');
-        h3.innerHTML = `Add to <select id="add-todo-section" class="todo-add-section">${sectionOpts}</select>`
-            + (opts.dayLabel ? ` <span class="todo-add-opt">· ${esc(opts.dayLabel)}</span>` : '');
+        const selVal = presetDue === todayStr() ? '__today__' : (presetDue === tomorrowStr() ? '__tomorrow__' : section);
+        const optHTML = [['__today__', 'Today'], ['__tomorrow__', 'Tomorrow']]
+            .map(([v, l]) => `<option value="${v}"${selVal === v ? ' selected' : ''}>${l}</option>`).join('')
+            + sections.map(s => `<option value="${esc(s)}"${selVal === s ? ' selected' : ''}>${esc(s)}</option>`).join('');
+        h3.innerHTML = `Add to <select id="add-todo-section" class="todo-add-section" data-base="${esc(section)}" onchange="addTodoSectionChanged(this)">${optHTML}</select>`;
     }
     setTimeout(() => { const el = document.getElementById('add-todo-text'); if (el) el.focus(); }, 50);
 }
@@ -1324,12 +1328,41 @@ function addToDay(label) {
     openAddTodoModal('Now', { due, dayLabel: label });
 }
 
+// Two-way sync between the header picker and the Due-by input. Picker → day
+// option sets the matching due date; picker → real list clears the date it
+// set (only a today/tomorrow date — a hand-picked other date is left alone)
+// and becomes the new fallback list. Date → today/tomorrow flips the picker
+// to that day; any other date flips it back to the fallback list.
+function addTodoSectionChanged(sel) {
+    const due = document.getElementById('add-todo-due');
+    if (!due) return;
+    if (sel.value === '__today__') due.value = todayStr();
+    else if (sel.value === '__tomorrow__') due.value = tomorrowStr();
+    else {
+        sel.dataset.base = sel.value;
+        if (due.value === todayStr() || due.value === tomorrowStr()) due.value = '';
+    }
+}
+function addTodoDueChanged(inp) {
+    const sel = document.getElementById('add-todo-section');
+    if (!sel) return;
+    if (inp.value === todayStr()) sel.value = '__today__';
+    else if (inp.value === tomorrowStr()) sel.value = '__tomorrow__';
+    else if (sel.value === '__today__' || sel.value === '__tomorrow__') sel.value = sel.dataset.base;
+}
+
 async function submitAddTodoModal(section) {
     const textEl = document.getElementById('add-todo-text');
     const text = textEl.value.trim();
     if (!text) { textEl.focus(); return; }
-    // The header's section picker wins over the section the modal opened with.
-    section = document.getElementById('add-todo-section')?.value || section;
+    // The header picker wins over the section the modal opened with; a day
+    // option means "the underlying list, dated for that day" (the due date is
+    // already in #add-todo-due via the sync handlers).
+    const sectionSel = document.getElementById('add-todo-section');
+    if (sectionSel) {
+        section = (sectionSel.value === '__today__' || sectionSel.value === '__tomorrow__')
+            ? (sectionSel.dataset.base || section) : sectionSel.value;
+    }
     const due_by = document.getElementById('add-todo-due').value;
     const notes = document.getElementById('add-todo-desc').value.trim();
     // Attribute fields (same selectors as the detail modal's edit panel).
