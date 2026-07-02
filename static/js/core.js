@@ -932,6 +932,18 @@ function todoCardToggled(d, sectionName) {
     try { localStorage.setItem('todoOpenV2:' + sectionName, d.open ? '1' : '0'); } catch (e) {}
 }
 
+// "show all" / "collapse all" button next to the To Do title. Unlike the
+// prompts sweep above, this one writes card memory on purpose (via each
+// card's ontoggle): a state you asked for by name should survive data
+// re-renders for the rest of the visit.
+function toggleAllTodoCards(btn) {
+    const cards = document.querySelectorAll('#todo-cards details.todo-card');
+    if (!cards.length) return;
+    const anyClosed = Array.from(cards).some(d => !d.open);
+    cards.forEach(d => { d.open = anyClosed; });
+    btn.textContent = anyClosed ? 'collapse all' : 'show all';
+}
+
 // Clear the saved open/closed state of every To-Do bucket so the page reopens in
 // its default layout (only "Now" expanded). Call this when entering the To-Do
 // page — NOT on data re-renders — so logging an item doesn't snap your work shut.
@@ -944,6 +956,9 @@ function resetTodoCollapseMemory() {
         }
         keys.forEach(k => localStorage.removeItem(k));
     } catch (e) { /* no-op */ }
+    // Fresh visit, default layout — the show/collapse-all button starts over too.
+    const btn = document.getElementById('todo-showall-btn');
+    if (btn) btn.textContent = 'show all';
 }
 
 // --- habitCount, habitStartLabel, habitCardHTML ---
