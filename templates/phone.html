@@ -217,17 +217,18 @@ html, body {
 </head>
 <body>
 
-<!-- Jump-to-bottom is the only scroll button that earned its place (touch-drag
-     scrolls the buffer); 📝 captures terminal bugs/ideas into dev notes under
-     the 'terminal' tab. -->
+<!-- Jump-to-top/bottom are single-tap (touch-drag on the terminal area covers
+     everything in between); 📝 captures terminal bugs/ideas into dev notes
+     under the 'terminal' tab. -->
 <div class="scroll-buttons">
     <button id="termNotesBtn" title="Terminal notes">&#128221;</button>
+    <button id="jumpTop" style="font-size:12px;">&#9650;&#9650;</button>
     <button id="jumpBottom" style="font-size:12px;">&#9660;&#9660;</button>
 </div>
-<div id="termNotesPanel" style="display:none;position:fixed;top:64px;right:12px;z-index:6;width:min(320px,86vw);background:#16162a;border:1px solid rgba(124,92,191,0.5);border-radius:12px;padding:10px;box-shadow:0 8px 30px rgba(0,0,0,0.5)">
+<div id="termNotesPanel" style="display:none;position:fixed;top:64px;right:12px;z-index:6;width:min(320px,86vw);background:#16162a;border:1px solid rgba(124,92,191,0.5);border-radius:12px;padding:10px;box-shadow:0 8px 30px rgba(0,0,0,0.5);font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
     <div style="display:flex;gap:6px;align-items:flex-start">
         <textarea id="termNoteInput" rows="2" placeholder="Bug or idea for the terminal…" style="flex:1;padding:8px 10px;border:1px solid #2a2a4a;border-radius:8px;background:#0d0d1a;color:#e0d0ff;font-size:13px;font-family:inherit;resize:none"></textarea>
-        <button onclick="addTermNote()" style="min-height:40px;padding:0 14px;border:none;border-radius:8px;background:#7c5cbf;color:#fff;font-size:13px;font-weight:600;cursor:pointer">Add</button>
+        <button onclick="addTermNote()" style="min-height:40px;padding:0 14px;border:none;border-radius:8px;background:#7c5cbf;color:#fff;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">Add</button>
     </div>
     <div id="termNotesList" style="max-height:40vh;overflow-y:auto;margin-top:8px;font-size:13px;color:#e0d0ff"></div>
 </div>
@@ -408,18 +409,27 @@ function scrollCmd(direction, mode) {
     });
 }
 
-// Jump to bottom — single tap. (The up/page-scroll buttons are gone: touch
+// Jump to top/bottom — single tap. (The page-scroll buttons are gone: touch
 // drag on the terminal area covers scrollback.)
+document.getElementById('jumpTop').addEventListener('click', () => scrollCmd('up', 'end'));
 document.getElementById('jumpBottom').addEventListener('click', () => scrollCmd('down', 'end'));
 
 // --- Terminal notes (dev notes filed under the 'terminal' tab) ---
 const termNotesPanel = document.getElementById('termNotesPanel');
-document.getElementById('termNotesBtn').addEventListener('click', () => {
+const termNotesBtnEl = document.getElementById('termNotesBtn');
+termNotesBtnEl.addEventListener('click', () => {
     const open = termNotesPanel.style.display !== 'none';
     termNotesPanel.style.display = open ? 'none' : 'block';
     if (!open) {
         loadTermNotes();
         document.getElementById('termNoteInput').focus();
+    }
+});
+// Click outside the panel (and not the 📝 trigger) dismisses it — same
+// pattern as the journal calendar overlay / desktop terminal notes panel.
+document.addEventListener('click', (e) => {
+    if (termNotesPanel.style.display !== 'none' && !termNotesPanel.contains(e.target) && e.target !== termNotesBtnEl) {
+        termNotesPanel.style.display = 'none';
     }
 });
 

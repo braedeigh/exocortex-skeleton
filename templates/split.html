@@ -80,8 +80,10 @@ body { height: 100%; overflow: hidden; background: var(--bg); }
     color: var(--text);
     background: rgba(124, 92, 191, 0.1);
 }
-/* Close-vscode affordance on the Files tab */
-.dash-bar button, .tab-btn { position: relative; }
+/* Close-vscode affordance on the Files tab; also reused for closing custom
+   session tabs in the desktop session bar (hover-only, see .session-bar
+   button:hover below). */
+.dash-bar button, .tab-btn, .session-bar button { position: relative; }
 .tab-close-x {
     position: absolute;
     top: 3px;
@@ -96,7 +98,8 @@ body { height: 100%; overflow: hidden; background: var(--bg); }
     cursor: pointer;
     user-select: none;
 }
-.dash-bar button:hover .tab-close-x { opacity: 0.55; }
+.dash-bar button:hover .tab-close-x,
+.session-bar button:hover .tab-close-x { opacity: 0.55; }
 .tab-close-x:hover {
     opacity: 1 !important;
     color: #e74c3c;
@@ -510,10 +513,10 @@ body.public-mode #mobileFiles {
         <!-- Terminal notes — bugs/ideas for the terminal, filed to dev notes
              under the 'terminal' tab (same store the PWA 📝 writes to). -->
         <button id="termNotesBtn" title="Terminal notes" style="position:absolute;top:46px;right:12px;width:34px;height:34px;border-radius:8px;border:1px solid var(--border);background:rgba(26,26,46,0.85);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);color:var(--text-muted);font-size:16px;cursor:pointer;z-index:50">&#128221;</button>
-        <div id="termNotesPanel" style="display:none;position:absolute;top:86px;right:12px;z-index:51;width:min(340px,80%);background:#16162a;border:1px solid rgba(124,92,191,0.5);border-radius:12px;padding:10px;box-shadow:0 8px 30px rgba(0,0,0,0.5)">
+        <div id="termNotesPanel" style="display:none;position:absolute;top:86px;right:12px;z-index:51;width:min(340px,80%);background:#16162a;border:1px solid rgba(124,92,191,0.5);border-radius:12px;padding:10px;box-shadow:0 8px 30px rgba(0,0,0,0.5);font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
             <div style="display:flex;gap:6px;align-items:flex-start">
                 <textarea id="termNoteInput" rows="2" placeholder="Bug or idea for the terminal…" style="flex:1;padding:8px 10px;border:1px solid #2a2a4a;border-radius:8px;background:#0d0d1a;color:#e0d0ff;font-size:13px;font-family:inherit;resize:none"></textarea>
-                <button onclick="addTermNote()" style="min-height:40px;padding:0 14px;border:none;border-radius:8px;background:#7c5cbf;color:#fff;font-size:13px;font-weight:600;cursor:pointer">Add</button>
+                <button onclick="addTermNote()" style="min-height:40px;padding:0 14px;border:none;border-radius:8px;background:#7c5cbf;color:#fff;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">Add</button>
             </div>
             <div id="termNotesList" style="max-height:40vh;overflow-y:auto;margin-top:8px;font-size:13px;color:#e0d0ff"></div>
         </div>
@@ -651,6 +654,17 @@ function renderDesktopTabs() {
                 e.preventDefault();
                 showCtxMenu(e.clientX, e.clientY, s);
             });
+            // Hover-visible × (desktop only, see @media (hover: none)) — same
+            // close-session flow as the right-click menu, no duplicated fetch.
+            const xSpan = document.createElement('span');
+            xSpan.className = 'tab-close-x';
+            xSpan.title = 'Close session';
+            xSpan.textContent = '×';
+            xSpan.onclick = function(e) {
+                e.stopPropagation();
+                removeSession(s);
+            };
+            btn.appendChild(xSpan);
         }
         bar.appendChild(btn);
     });
@@ -750,7 +764,21 @@ async function addSession() {
     renderDesktopTabs();
     renderMobileMenu();
     // Auto-switch to the new session
-    switchDesktopSession(clean, document.querySelector('#desktopSessionBar .session-tab[data-session="' + clean + '"]'));
+    activateDesktopSession(clean);
+}
+
+// Switch to `session`'s desktop tab, re-querying for its button after the
+// bar has actually rendered (rather than trusting a querySelector taken
+// before/alongside a render) so the new tab reliably lands as active even
+// if a render raced us.
+function activateDesktopSession(session) {
+    let btn = document.querySelector('#desktopSessionBar .session-tab[data-session="' + session + '"]');
+    if (!btn) {
+        renderDesktopTabs();
+        btn = document.querySelector('#desktopSessionBar .session-tab[data-session="' + session + '"]');
+    }
+    switchDesktopSession(session, btn);
+    if (btn) btn.classList.add('active');
 }
 
 async function removeSession(name) {
@@ -1029,17 +1057,45 @@ initSessions();
 
 // === Terminal notes (desktop) — same dev-notes 'terminal' tab as the PWA ===
 const _tnBtn = document.getElementById('termNotesBtn');
+const _tnPanel = document.getElementById('termNotesPanel');
 if (_tnBtn) {
-    const panel = document.getElementById('termNotesPanel');
     _tnBtn.addEventListener('click', () => {
-        const open = panel.style.display !== 'none';
-        panel.style.display = open ? 'none' : 'block';
+        const open = _tnPanel.style.display !== 'none';
+        _tnPanel.style.display = open ? 'none' : 'block';
         if (!open) {
             loadTermNotes();
             document.getElementById('termNoteInput').focus();
         }
     });
+    const _tnInput = document.getElementById('termNoteInput');
+    if (_tnInput) {
+        // Enter submits, Shift+Enter inserts a newline
+        _tnInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                addTermNote();
+            }
+        });
+        // Auto-expand while typing (same pattern as phone.html's #input)
+        _tnInput.addEventListener('input', () => {
+            _tnInput.style.height = 'auto';
+            _tnInput.style.height = Math.min(_tnInput.scrollHeight, 160) + 'px';
+        });
+    }
 }
+// Click outside the panel (and not the 📝 trigger) dismisses it — same
+// pattern as the journal calendar overlay.
+document.addEventListener('click', (e) => {
+    if (_tnPanel && _tnPanel.style.display !== 'none' && !_tnPanel.contains(e.target) && e.target !== _tnBtn) {
+        _tnPanel.style.display = 'none';
+    }
+});
+// Clicks inside the terminal iframe never bubble to this document — catch
+// them via the window losing focus to the iframe. (Typed text survives:
+// hiding the panel doesn't clear the textarea.)
+window.addEventListener('blur', () => {
+    if (_tnPanel && _tnPanel.style.display !== 'none') _tnPanel.style.display = 'none';
+});
 
 async function loadTermNotes() {
     const list = document.getElementById('termNotesList');
@@ -1193,10 +1249,7 @@ window.addEventListener('message', async (e) => {
     const name = e.data.name;
     await loadSessions();   // pull in the freshly-spawned session so its tab exists
     if (window.innerWidth > 768) {
-        const btn = [...document.querySelectorAll('#desktopSessionBar .session-tab')]
-            .find(b => b.dataset.session === name);
-        switchDesktopSession(name, btn || null);
-        renderDesktopTabs();
+        activateDesktopSession(name);
     } else {
         pickSession(name);
     }
