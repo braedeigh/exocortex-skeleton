@@ -320,10 +320,11 @@ textarea.todo-add-input { resize: none; overflow: hidden; min-height: 44px; }
 .todo-add-input:focus { border-color: var(--accent); outline: none; }
 .todo-add-actions { display: flex; gap: var(--space-3); justify-content: space-between; margin-top: var(--space-2); }
 .todo-add-actions .modal-btn { min-height: 40px; }
-/* Section picker in the add-modal header ("Add to [Now ▾]") */
+/* Section picker in the add-modal header ("Add to [Now ▾]") — kept compact
+   so the header row stays a single slim line. */
 .todo-add-section {
-    min-height: 36px; padding: 4px 8px; margin-left: 2px;
-    font-size: 16px; font-weight: 600; font-family: inherit;
+    padding: 2px 6px; margin-left: 2px;
+    font-size: 15px; font-weight: 600; font-family: inherit;
     color: var(--text); background: var(--bg);
     border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer;
 }
