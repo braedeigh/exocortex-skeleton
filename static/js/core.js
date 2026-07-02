@@ -2348,8 +2348,10 @@ function renderNotePanels(kind) {
                 ? `<button onclick="sendDevNoteToIdeas('${escJs(tab)}','${escJs(n.id)}')" title="Send to Ideas (moves this note into the Ideas panel)" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:13px;padding:0 4px">&#128161;</button>`
                 : '';
             return `<div style="display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-top:1px solid var(--border);font-size:13px">
-                <div style="flex:1">${esc(n.text)}</div>
-                <div style="font-size:12px;color:var(--text-muted);white-space:nowrap">${esc(n.created || '')}</div>
+                <div style="flex:1;min-width:0">
+                    <div>${esc(n.text)}</div>
+                    <div style="font-size:12px;color:var(--text-muted);margin-top:2px">${esc(n.created || '')}</div>
+                </div>
                 ${ideaBtn}
                 <button onclick="editNote('${kind}','${escJs(tab)}','${escJs(n.id)}')" title="Edit" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:13px;padding:0 4px">&#9998;</button>
                 <button onclick="removeNote('${kind}','${escJs(tab)}','${escJs(n.id)}')" title="Remove" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;padding:0 4px">&times;</button>
