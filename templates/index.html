@@ -426,7 +426,10 @@
             <button onclick="closeReceiptImportModal()" style="background:none;border:none;color:var(--text-muted);font-size:24px;cursor:pointer;line-height:1;padding:0 4px">&times;</button>
         </div>
         <div id="receipt-import-header" style="font-size:12px;color:var(--text-muted);margin-bottom:8px;flex-shrink:0"></div>
-        <div id="receipt-import-progress" style="font-size:12px;font-weight:700;margin-bottom:6px;flex-shrink:0"></div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-shrink:0">
+            <div id="receipt-import-progress" style="font-size:12px;font-weight:700;flex:1"></div>
+            <button id="receipt-import-approve-all" onclick="approveAllReceiptRows()" class="modal-btn" style="min-height:40px;background:var(--accent);color:#fff;font-size:12px;padding:6px 14px;flex-shrink:0">Approve all</button>
+        </div>
         <div id="receipt-import-rows" style="flex:1;min-height:0;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:4px;background:var(--bg)"></div>
         <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap;flex-shrink:0">
             <label style="font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:6px" title="Uncheck to skip this row (won't be added to the trip)">

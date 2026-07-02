@@ -148,7 +148,7 @@ function renderGroceryInto(el) {
                         : `<span style="color:var(--text-muted);opacity:0.35;font-size:14px;line-height:1" title="Tap to tag safe/suspect">&#9675;</span>`;
                 const safetyBtn = `<button onclick="cycleGrocerySafety('${esc(item.name)}')" style="background:none;border:none;cursor:pointer;padding:0 6px" title="Tap to cycle: untagged → safe → suspect">${safetyIcon}</button>`;
                 html += `<div class="card-item">
-                    <span class="habit-check" onclick="toggleGrocery('${esc(item.name)}')" style="cursor:pointer">&#9675;</span>
+                    <span class="habit-check" onclick="toggleGrocery('${esc(item.name)}')" style="cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;flex-shrink:0">&#9675;</span>
                     <span class="item-text">${esc(item.name)}${inlineNote}</span>
                     ${addNoteBtn}
                     ${aisleBadge}
@@ -167,7 +167,7 @@ function renderGroceryInto(el) {
                     ? ` <span style="font-size:12px;color:var(--text-muted);text-decoration:line-through">— ${esc(noteText)}</span>`
                     : '';
                 html += `<div class="card-item" style="opacity:0.4">
-                    <span class="habit-check done" onclick="toggleGrocery('${esc(item.name)}')" style="cursor:pointer">&#10003;</span>
+                    <span class="habit-check done" onclick="toggleGrocery('${esc(item.name)}')" style="cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;flex-shrink:0;background:var(--accent);color:var(--accent)">&#9675;</span>
                     <span class="item-text" style="text-decoration:line-through">${esc(item.name)}${inlineNote}</span>
                     <button class="delete-btn" onclick="removeGrocery('${esc(item.name)}')" title="Remove">&times;</button>
                 </div>`;
@@ -622,7 +622,8 @@ function openCatalogEditor() {
         pharmacy: 'Pharmacy', supplements: 'Supplements'
     };
     _ensureHousehold(categoryOrder, categoryLabels);
-    const catOptions = categoryOrder.map(c => `<option value="${c}">${categoryLabels[c] || c}</option>`).join('');
+    const NEW_CAT_OPT = `<option value="__new__">+ New category…</option>`;
+    const catOptions = categoryOrder.map(c => `<option value="${c}">${categoryLabels[c] || c}</option>`).join('') + NEW_CAT_OPT;
 
     const items = Object.entries(known).sort((a, b) => a[0].localeCompare(b[0]));
 
@@ -638,8 +639,8 @@ function openCatalogEditor() {
             <input type="text" value="${esc(label)}" data-orig="${esc(name)}" class="catalog-rename-input" style="flex:2;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--bg);color:var(--text)"
                 onblur="saveCatalogRename(this)"
                 onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}">
-            <select onchange="updateCatalogCat('${esc(name)}',this.value)" style="flex:1;padding:4px 6px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:var(--bg);color:var(--text)">
-                ${categoryOrder.map(c => `<option value="${c}" ${c === cat ? 'selected' : ''}>${categoryLabels[c] || c}</option>`).join('')}
+            <select onchange="catalogSelectCategory('${esc(name)}',this)" style="flex:1;padding:4px 6px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:var(--bg);color:var(--text)">
+                ${categoryOrder.map(c => `<option value="${c}" ${c === cat ? 'selected' : ''}>${categoryLabels[c] || c}</option>`).join('') + NEW_CAT_OPT}
             </select>
             ${safeBtn}${suspectBtn}
             <button onclick="removeCatalogItem('${esc(name)}')" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:16px;line-height:1" title="Delete">&times;</button>
@@ -667,7 +668,7 @@ function openCatalogEditor() {
         </div>
         <div style="display:flex;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
             <input type="text" id="catalog-new-name" placeholder="New item..." style="flex:2;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--bg);color:var(--text)" onkeydown="if(event.key==='Enter')addCatalogItem()">
-            <select id="catalog-new-cat" style="flex:1;padding:6px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:var(--bg);color:var(--text)">${catOptions}</select>
+            <select id="catalog-new-cat" onchange="catalogNewCatOnChange(this)" style="flex:1;padding:6px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:var(--bg);color:var(--text)">${catOptions}</select>
             <button onclick="addCatalogItem()" style="padding:6px 14px;border:none;border-radius:6px;background:var(--accent);color:#fff;font-size:13px;font-weight:600;cursor:pointer">Add</button>
         </div>
     </div>`;
@@ -770,11 +771,14 @@ async function deleteCategoryFromEditor(name, count) {
     openCategoriesEditor();
 }
 
-async function addCategoryFromEditor() {
-    const input = document.getElementById('cat-add-name');
-    const name = (input.value || '').trim().toLowerCase();
-    if (!name) return;
-    if (name === '@aisles') { alert('@aisles is reserved'); return; }
+// Shared logic for creating a new kitchen category: validates the name, refuses
+// the '@aisles' sentinel, inserts it just before '@aisles' in the order (or at the
+// end if there's no sentinel), and persists via /api/kitchen/category-order.
+// Returns the normalized category name on success, or null if aborted/invalid/failed.
+async function _createKitchenCategory(rawName) {
+    const name = (rawName || '').trim().toLowerCase();
+    if (!name) return null;
+    if (name === '@aisles') { alert('@aisles is reserved'); return null; }
     const order = (D.kitchen_category_order || []).slice();
     if (!order.includes(name)) {
         const aislesAt = order.indexOf('@aisles');
@@ -788,10 +792,17 @@ async function addCategoryFromEditor() {
             });
             D.kitchen_category_order = order;
         } catch (e) {
-            alert('Failed to add: ' + e.message);
-            return;
+            alert('Failed to add category: ' + e.message);
+            return null;
         }
     }
+    return name;
+}
+
+async function addCategoryFromEditor() {
+    const input = document.getElementById('cat-add-name');
+    const name = await _createKitchenCategory(input.value);
+    if (!name) return;
     input.value = '';
     await loadDashboard();
     openCategoriesEditor();
@@ -890,6 +901,43 @@ async function updateCatalogCat(name, category) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, category })
     });
+}
+
+// Per-row category <select> in the catalog editor: intercepts the "+ New category…"
+// sentinel option, otherwise delegates straight to updateCatalogCat.
+async function catalogSelectCategory(name, selectEl) {
+    if (selectEl.value !== '__new__') {
+        updateCatalogCat(name, selectEl.value);
+        return;
+    }
+    const newCat = await _createKitchenCategory(prompt('New category name:'));
+    if (!newCat) {
+        const known = D.kitchen_known_items || {};
+        selectEl.value = known[name] || '';
+        return;
+    }
+    await updateCatalogCat(name, newCat);
+    await loadDashboard();
+    openCatalogEditor(); // re-render with the new category selected
+}
+
+// "New item" mini-form category <select> in the catalog editor: intercepts the
+// "+ New category…" sentinel option, then re-renders preserving the typed item name.
+async function catalogNewCatOnChange(selectEl) {
+    if (selectEl.value !== '__new__') return;
+    const nameEl = document.getElementById('catalog-new-name');
+    const typedName = nameEl ? nameEl.value : '';
+    const newCat = await _createKitchenCategory(prompt('New category name:'));
+    if (!newCat) {
+        selectEl.selectedIndex = 0;
+        return;
+    }
+    await loadDashboard();
+    openCatalogEditor(); // re-render so the new category appears in the dropdown
+    const newNameEl = document.getElementById('catalog-new-name');
+    const newCatEl = document.getElementById('catalog-new-cat');
+    if (newNameEl) newNameEl.value = typedName;
+    if (newCatEl) newCatEl.value = newCat;
 }
 
 function toggleCatalogItem(name, category, btn) {
@@ -1178,10 +1226,20 @@ function openKitchenCatModal(name, callback) {
         pharmacy: 'Pharmacy', supplements: 'Supplements'
     };
     _ensureHousehold(categoryOrder, categoryLabels);
-    chipsEl.innerHTML = categoryOrder.map(cat =>
-        `<button onclick="pickKitchenCatModal('${esc(cat)}')" style="padding:8px 14px;border-radius:8px;border:1px solid var(--border);background:var(--card-bg);color:var(--text);font-size:13px;font-weight:600;cursor:pointer">${esc(categoryLabels[cat] || cat)}</button>`
-    ).join('');
+    const chips = categoryOrder.map(cat =>
+        `<button onclick="pickKitchenCatModal('${esc(cat)}')" style="min-height:40px;padding:8px 14px;border-radius:8px;border:1px solid var(--border);background:var(--card-bg);color:var(--text);font-size:13px;font-weight:600;cursor:pointer">${esc(categoryLabels[cat] || cat)}</button>`
+    );
+    chips.push(`<button onclick="addKitchenCatModalNewCategory()" style="min-height:40px;padding:8px 14px;border-radius:8px;border:1px dashed var(--accent);background:none;color:var(--accent);font-size:13px;font-weight:600;cursor:pointer">+ New category…</button>`);
+    chipsEl.innerHTML = chips.join('');
     modal.classList.add('open');
+}
+
+async function addKitchenCatModalNewCategory() {
+    const name = await _createKitchenCategory(prompt('New category name:'));
+    if (!name) return;
+    // Selects the new category for the item currently being added (same as
+    // tapping an existing chip) — the callback itself calls loadDashboard().
+    await pickKitchenCatModal(name);
 }
 
 function closeKitchenCatModal() {
@@ -1490,15 +1548,30 @@ function _updateReceiptImportProgress() {
     if (!_activeReceiptImport) return;
     const rows = _activeReceiptImport.rows;
     const sorted = rows.filter(_rowIsSorted).length;
+    const allConfirmed = sorted === rows.length;
     const el = document.getElementById('receipt-import-progress');
-    if (!el) return;
-    if (sorted === rows.length) {
-        el.style.color = 'var(--green)';
-        el.textContent = `✓ All ${rows.length} confirmed — ready to import`;
-    } else {
-        el.style.color = '#e8741c';
-        el.textContent = `${sorted} / ${rows.length} confirmed — tap each row to confirm (or edit anything to mark it touched)`;
+    if (el) {
+        if (allConfirmed) {
+            el.style.color = 'var(--green)';
+            el.textContent = `✓ All ${rows.length} confirmed — ready to import`;
+        } else {
+            el.style.color = '#e8741c';
+            el.textContent = `${sorted} / ${rows.length} confirmed — tap each row to confirm (or edit anything to mark it touched)`;
+        }
     }
+    const btn = document.getElementById('receipt-import-approve-all');
+    if (btn) {
+        btn.disabled = allConfirmed;
+        btn.textContent = allConfirmed ? '✓ All confirmed' : 'Approve all';
+        btn.style.opacity = allConfirmed ? '0.6' : '1';
+        btn.style.cursor = allConfirmed ? 'default' : 'pointer';
+    }
+}
+
+function approveAllReceiptRows() {
+    if (!_activeReceiptImport) return;
+    _activeReceiptImport.rows.forEach(r => { r.user_touched = true; });
+    renderReceiptImportModal();
 }
 
 function renderReceiptImportModal() {
