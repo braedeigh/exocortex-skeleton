@@ -7,6 +7,7 @@
 <style>
 :root {
     --bg: #0d0d1a;
+    --card-bg: #1a1a2e;
     --text: #f0e6d6;
     --text-muted: rgba(200, 190, 170, 0.5);
     --border: #2a2a4a;
@@ -17,7 +18,7 @@
 html, body { height: 100%; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
 
 .container {
-    display: flex; flex-direction: column; height: 100%; max-width: 800px; margin: 0 auto; padding: 0 16px;
+    display: flex; flex-direction: column; height: 100%; margin: 0 auto; padding: 0 16px;
 }
 
 /* Nav */
@@ -40,7 +41,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 /* Calendar overlay */
 .calendar-overlay {
     display: none; position: absolute; top: 48px; left: 50%; transform: translateX(-50%);
-    background: #1a1a2e; border: 1px solid var(--border); border-radius: 10px;
+    background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px;
     box-shadow: 0 8px 30px rgba(0,0,0,0.12); z-index: 20; padding: 12px; min-width: 280px;
 }
 .calendar-overlay.open { display: block; }
@@ -67,6 +68,27 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .cal-grid .cal-day.today { outline: 2px solid var(--accent); outline-offset: -2px; }
 .cal-grid .cal-day.selected { background: var(--accent); color: #fff; }
 .cal-grid .cal-day.empty { visibility: hidden; }
+
+/* Dev-notes modal (journal tab) — same pattern as the terminal notes panel */
+.devnotes-overlay {
+    display: none; position: absolute; top: 48px; right: 0; z-index: 21;
+    background: var(--card-bg); border: 1px solid rgba(124, 92, 191, 0.5); border-radius: 12px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.35); padding: 12px; width: min(360px, 90vw);
+}
+.devnotes-overlay.open { display: block; }
+.devnotes-row { display: flex; gap: 6px; align-items: flex-start; }
+.devnotes-row textarea {
+    flex: 1; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--bg); color: var(--text); font-size: 13px; font-family: inherit; resize: none; outline: none;
+}
+.devnotes-row button {
+    min-height: 40px; padding: 0 14px; border: none; border-radius: 8px;
+    background: var(--accent); color: #fff; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.devnotes-list { max-height: 40vh; overflow-y: auto; margin-top: 8px; font-size: 13px; color: var(--text); }
+.devnotes-list .dn-item { padding: 6px 0; border-top: 1px solid var(--border); display: flex; gap: 8px; }
+.devnotes-list .dn-date { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+.devnotes-list .dn-empty { color: var(--text-muted); font-style: italic; padding: 4px 0; }
 
 /* Mode toggle */
 .mode-toggle {
@@ -116,8 +138,8 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
         <div class="calendar-overlay" id="calOverlay"></div>
     </div>
     <div class="mode-toggle">
-        <button class="active" id="editBtn" onclick="setMode('edit')">Edit</button>
-        <button id="readBtn" onclick="setMode('read')">Read</button>
+        <button class="active" id="readBtn" onclick="setMode('read')">Read</button>
+        <button id="editBtn" onclick="setMode('edit')">Edit</button>
     </div>
     <!-- Empty today → start the page yourself, no keeper required -->
     <div id="startDay" style="display:none;padding:10px 0">
@@ -353,6 +375,7 @@ async function pollJournal() {
 setInterval(pollJournal, 3000);
 
 // --- Init ---
+setMode('read');
 fetchServerDate().then(() => loadDates()).then(() => loadDate(null));
 </script>
 </body>
