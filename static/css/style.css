@@ -320,6 +320,13 @@ textarea.todo-add-input { resize: none; overflow: hidden; min-height: 44px; }
 .todo-add-input:focus { border-color: var(--accent); outline: none; }
 .todo-add-actions { display: flex; gap: var(--space-3); justify-content: space-between; margin-top: var(--space-2); }
 .todo-add-actions .modal-btn { min-height: 40px; }
+/* Section picker in the add-modal header ("Add to [Now ▾]") */
+.todo-add-section {
+    min-height: 36px; padding: 4px 8px; margin-left: 2px;
+    font-size: 16px; font-weight: 600; font-family: inherit;
+    color: var(--text); background: var(--bg);
+    border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer;
+}
 
 /* Due-by badge on to-do cards */
 .todo-due {
@@ -427,6 +434,10 @@ textarea.todo-add-input { resize: none; overflow: hidden; min-height: 44px; }
 
 /* --- To-do attribute editor (Phase 1): date+time, place, category, duration, status --- */
 .todo-modal-edit .tm-field { margin: 12px 0; }
+/* The add form already spaces its children with flex gap (and flex gaps don't
+   margin-collapse), so the first field inside the edit block sheds its top
+   margin — otherwise Description → Focus reads as a double gap. */
+.todo-modal-edit > .tm-field:first-child, .tm-more-body > .tm-field:first-child { margin-top: 0; }
 .todo-modal-edit .todo-modal-label { display: block; margin-bottom: 5px; }
 .tm-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .todo-modal-edit input[type=date],
@@ -466,19 +477,12 @@ textarea.todo-add-input { resize: none; overflow: hidden; min-height: 44px; }
 .tm-more[open] .kitchen-arrow { transform: rotate(90deg); }
 .tm-more-body { padding: 4px 12px 12px; }
 
-/* Date field styled as a real tappable row: the input plus a 40px calendar
-   button that opens the native picker (see tmShowDatePicker). */
-.tm-datewrap { position: relative; display: flex; flex: 1 1 auto; }
-.tm-datewrap input[type=date] { flex: 1 1 auto; min-width: 0; padding-right: 44px; }
-.tm-date-icon {
-    position: absolute; top: 0; right: 0; bottom: 0; width: 40px;
-    display: flex; align-items: center; justify-content: center;
-    border: none; background: none; font-size: 18px; line-height: 1; cursor: pointer;
-    color: var(--text-secondary);
+/* The browser's own calendar icon on date fields, grown to a comfortable
+   tap target (the icon renders ~22px; padding makes the hit area ~40px). */
+.todo-add-input::-webkit-calendar-picker-indicator,
+.todo-modal-edit input[type=date]::-webkit-calendar-picker-indicator {
+    width: 22px; height: 22px; padding: 9px 0 9px 9px; cursor: pointer;
 }
-/* Inside a .tm-row (detail modal's date+time pair), let the date field share
-   the row instead of claiming the full width. */
-.tm-row .tm-datewrap { flex: 1 1 160px; width: auto; }
 
 /* Tap-to-edit affordance on the detail modal's read-mode title/description */
 .todo-modal-htitle[onclick]:hover, .todo-modal-desc-read[onclick]:hover {

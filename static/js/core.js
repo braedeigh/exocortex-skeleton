@@ -1288,7 +1288,7 @@ function openAddTodoModal(section, opts) {
             </label>
             <label class="todo-add-label">
                 <span class="todo-add-labeltext">Due by <span class="todo-add-opt">(optional)</span></span>
-                ${tmDateFieldHTML({ id: 'add-todo-due', class: 'todo-add-input' }, presetDue)}
+                <input type="date" id="add-todo-due" class="todo-add-input" value="${esc(presetDue)}">
             </label>
             <label class="todo-add-label">
                 <span class="todo-add-labeltext">Description <span class="todo-add-opt">(optional)</span></span>
@@ -1304,6 +1304,16 @@ function openAddTodoModal(section, opts) {
             </div>
         </form>`;
     showEditorModal('Add to ' + (opts.dayLabel || section), html);
+    // Header "Now" becomes a section picker: which list the to-do lands in is
+    // choosable at add time, defaulting to the one the modal was opened from.
+    // Day-view adds keep their label as context (the due date does the placing).
+    const sections = (D.todos || []).filter(s => !s.name.toLowerCase().startsWith('done')).map(s => s.name);
+    const h3 = document.getElementById('panel-modal-title');
+    if (h3 && sections.length) {
+        const sectionOpts = sections.map(s => `<option value="${esc(s)}"${s === section ? ' selected' : ''}>${esc(s)}</option>`).join('');
+        h3.innerHTML = `Add to <select id="add-todo-section" class="todo-add-section">${sectionOpts}</select>`
+            + (opts.dayLabel ? ` <span class="todo-add-opt">· ${esc(opts.dayLabel)}</span>` : '');
+    }
     setTimeout(() => { const el = document.getElementById('add-todo-text'); if (el) el.focus(); }, 50);
 }
 
@@ -1318,6 +1328,8 @@ async function submitAddTodoModal(section) {
     const textEl = document.getElementById('add-todo-text');
     const text = textEl.value.trim();
     if (!text) { textEl.focus(); return; }
+    // The header's section picker wins over the section the modal opened with.
+    section = document.getElementById('add-todo-section')?.value || section;
     const due_by = document.getElementById('add-todo-due').value;
     const notes = document.getElementById('add-todo-desc').value.trim();
     // Attribute fields (same selectors as the detail modal's edit panel).
@@ -1647,27 +1659,6 @@ function tmMoreHTML(inner, open) {
     </details>`;
 }
 
-// A native <input type="date"> styled as a tappable row with a 40px calendar
-// button. `attrs` is spread onto the input (e.g. {id:'add-todo-due'}) so
-// callers can keep reading it exactly as before.
-function tmDateFieldHTML(attrs, value) {
-    attrs = attrs || {};
-    const attrStr = Object.keys(attrs).map(k => ` ${k}="${esc(attrs[k])}"`).join('');
-    return `<div class="tm-datewrap">
-        <input type="date"${attrStr} value="${esc(value || '')}">
-        <button type="button" class="tm-date-icon" onclick="tmShowDatePicker(this)" aria-label="Open date picker">📅</button>
-    </div>`;
-}
-
-// showPicker() throws on older Safari and when it's not invoked from a user
-// gesture in some browsers — fall back to focus() (iOS opens the wheel
-// picker on focus).
-function tmShowDatePicker(btn) {
-    const inp = btn.closest('.tm-datewrap')?.querySelector('input[type=date]');
-    if (!inp) return;
-    try { inp.showPicker(); } catch (e) { inp.focus(); }
-}
-
 // Whether an item carries any of the fields tucked behind "More options", so
 // the detail modal's expander can default open instead of hiding data the
 // item already has.
@@ -1724,7 +1715,7 @@ function openTodoDetailById(id, opts) {
             <div class="tm-field">
                 <label class="todo-modal-label">Do on <span class="todo-add-opt">(date + time, optional)</span></label>
                 <div class="tm-row">
-                    ${tmDateFieldHTML({ class: 'todo-modal-due-input' }, dueIso)}
+                    <input type="date" class="todo-modal-due-input" value="${esc(dueIso)}">
                     <input type="time" class="todo-modal-time-input" value="${esc(dueTime)}">
                 </div>
             </div>
