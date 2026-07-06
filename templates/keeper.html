@@ -100,9 +100,59 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .preview .wikilink { color: var(--accent); cursor: pointer; border-bottom: 1px dotted var(--accent); }
 .preview .wikilink.dead { color: var(--text-muted); border-bottom-style: dotted; cursor: default; opacity: 0.8; }
 .preview .wikilink:hover:not(.dead) { background: var(--accent-light); }
+/* Frontmatter chips (people files: tags + aliases) */
+.fm-block { margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.fm-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.fm-tag { font-size: 12px; padding: 3px 10px; border-radius: 999px; background: var(--accent-light); color: var(--accent); font-weight: 600; }
+.fm-aliases { font-size: 12px; color: var(--text-muted); font-style: italic; }
 
 .empty-state { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-size: 15px; text-align: center; padding: 24px; }
 .save-status { padding: 6px 16px; font-size: 12px; color: var(--text-muted); text-align: right; flex-shrink: 0; min-height: 24px; }
+
+/* Delete button + confirm modal + undo toast */
+.danger-btn {
+    flex-shrink: 0; min-width: 40px; min-height: 40px; border: 1px solid var(--border);
+    border-radius: 8px; background: none; color: #e0736e; font-size: 17px; cursor: pointer;
+}
+.danger-btn:hover { background: rgba(217, 83, 79, 0.15); border-color: #d9534f; }
+
+.confirm-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 60;
+    align-items: center; justify-content: center; padding: 20px;
+}
+.confirm-overlay.open { display: flex; }
+.confirm-card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    padding: 20px; width: min(400px, 92vw); box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+}
+.confirm-title { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+.confirm-name { font-size: 14px; color: var(--accent); word-break: break-all; margin-bottom: 8px; }
+.confirm-msg { font-size: 14px; color: var(--text-muted); line-height: 1.5; margin-bottom: 18px; }
+.confirm-actions { display: flex; gap: 10px; justify-content: flex-end; }
+.confirm-actions button {
+    min-height: 44px; padding: 0 18px; border-radius: 10px; font-size: 15px; font-weight: 600;
+    cursor: pointer; border: 1px solid var(--border);
+}
+.btn-cancel { background: none; color: var(--text); }
+.btn-cancel:hover { background: var(--bg); }
+.btn-delete { background: #d9534f; border-color: #d9534f; color: #fff; }
+.btn-delete:hover { background: #c9302c; }
+
+.undo-toast {
+    display: none; position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+    z-index: 61; align-items: center; gap: 14px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 10px 12px 10px 16px; box-shadow: 0 8px 30px rgba(0,0,0,0.5); font-size: 14px;
+}
+.undo-toast.open { display: flex; }
+.undo-btn {
+    min-height: 36px; padding: 0 16px; border-radius: 8px; border: 1px solid var(--accent);
+    background: var(--accent-light); color: var(--accent); font-size: 14px; font-weight: 700; cursor: pointer;
+}
+.undo-btn:hover { background: var(--accent); color: #fff; }
+
+/* Brief flash on the folder you get bumped into after a delete */
+.group.bump > summary { background: var(--accent-light); }
 
 @media (max-width: 700px) {
     .menu-btn { display: block; }
@@ -121,7 +171,6 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 <div class="container">
     <div class="topbar">
         <button class="menu-btn" onclick="toggleSidebar()" aria-label="Files">&#9776;</button>
-        <a href="/" class="home">&larr; App</a>
         <h1>Keeper memory</h1>
         <input class="search" id="search" type="search" placeholder="Search files…" oninput="filterTree(this.value)">
     </div>
@@ -135,6 +184,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
                     <button class="active" id="readBtn" onclick="setMode('read')">Read</button>
                     <button id="editBtn" onclick="setMode('edit')">Edit</button>
                 </div>
+                <button class="danger-btn" id="deleteBtn" onclick="askDelete()" title="Delete this file" aria-label="Delete file">&#128465;</button>
             </div>
             <div class="content">
                 <div class="empty-state" id="emptyState">Pick a file to see what the keeper remembers.</div>
@@ -144,6 +194,25 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
             <div class="save-status" id="status"></div>
         </div>
     </div>
+</div>
+
+<!-- Delete confirmation -->
+<div class="confirm-overlay" id="confirmOverlay">
+    <div class="confirm-card">
+        <div class="confirm-title">Delete this file?</div>
+        <div class="confirm-name" id="confirmName"></div>
+        <div class="confirm-msg">This removes it from the keeper's memory. You can undo right after.</div>
+        <div class="confirm-actions">
+            <button class="btn-cancel" onclick="closeConfirm()">Cancel</button>
+            <button class="btn-delete" onclick="doDelete()">Delete</button>
+        </div>
+    </div>
+</div>
+
+<!-- Undo toast -->
+<div class="undo-toast" id="undoToast">
+    <span id="undoLabel">Deleted</span>
+    <button class="undo-btn" onclick="undoDelete()">Undo</button>
 </div>
 
 <script src="/static/js/sky-theme.js"></script>
@@ -272,9 +341,37 @@ function setMode(mode) {
 
 function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
 
+function parseFrontmatter(block) {
+    const meta = {};
+    block.split('\n').forEach(line => {
+        const i = line.indexOf(':');
+        if (i === -1) return;
+        const key = line.slice(0, i).trim().toLowerCase();
+        let val = line.slice(i + 1).trim();
+        if (val.startsWith('[') && val.endsWith(']')) val = val.slice(1, -1);
+        const items = val.split(',').map(s => s.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);
+        if (items.length) meta[key] = items;
+    });
+    return meta;
+}
+function renderChips(meta) {
+    let h = '';
+    if (meta.tags) h += `<div class="fm-tags">${meta.tags.map(t => `<span class="fm-tag">#${esc(t)}</span>`).join('')}</div>`;
+    if (meta.aliases) h += `<div class="fm-aliases">also known as: ${meta.aliases.map(esc).join(', ')}</div>`;
+    return h ? `<div class="fm-block">${h}</div>` : '';
+}
+
 function renderPreview() {
     let md = editor.value;
     if (!md.trim()) { preview.innerHTML = '<p style="color:var(--text-muted);font-style:italic">Empty file.</p>'; return; }
+    // Pull a leading YAML frontmatter block (people files: tags/aliases) out to chips
+    // instead of letting the raw --- render as a horizontal rule + "tags: [...]" text.
+    let chips = '';
+    const fm = md.match(/^---\n([\s\S]*?)\n---\n?/);
+    if (fm) {
+        const meta = parseFrontmatter(fm[1]);
+        if (meta.tags || meta.aliases) { chips = renderChips(meta); md = md.slice(fm[0].length); }
+    }
     md = md.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     // [[wikilinks]] — the keeper's cross-references. Resolve to a real file when we have one.
     md = md.replace(/\[\[([^\]]+)\]\]/g, (m, name) => {
@@ -298,7 +395,7 @@ function renderPreview() {
     md = '<p>' + md + '</p>';
     md = md.replace(/<p><(h[123]|hr|ul|blockquote)/g, '<$1');
     md = md.replace(/<\/(h[123]|ul|blockquote)><\/p>/g, '</$1>');
-    preview.innerHTML = md;
+    preview.innerHTML = chips + md;
 }
 
 // Click a wikilink to jump to that memory file.
@@ -327,6 +424,92 @@ async function save() {
 }
 
 window.addEventListener('beforeunload', () => { if (editor.value !== lastSaved) save(); });
+
+// --- Delete a file (confirm -> delete -> bump into its folder -> offer undo) ---
+let _lastDeleted = null;   // { path, content, group } for one-shot undo
+let _undoTimer = null;
+
+function askDelete() {
+    if (!currentPath) return;
+    document.getElementById('confirmName').textContent = currentPath;
+    document.getElementById('confirmOverlay').classList.add('open');
+}
+function closeConfirm() {
+    document.getElementById('confirmOverlay').classList.remove('open');
+}
+
+async function doDelete() {
+    const path = currentPath;
+    if (!path) { closeConfirm(); return; }
+    let data;
+    try {
+        const resp = await fetch('/api/keeper/file?path=' + encodeURIComponent(path), { method: 'DELETE' });
+        data = await resp.json();
+    } catch (e) { data = { error: 'network' }; }
+    closeConfirm();
+    if (!data || data.error) { status.textContent = 'Delete failed: ' + ((data && data.error) || '?'); return; }
+
+    _lastDeleted = { path, content: data.content, group: data.group };
+
+    // Clear the pane back to the empty state.
+    currentPath = null; editor.value = ''; lastSaved = '';
+    document.getElementById('paneHead').style.display = 'none';
+    preview.style.display = 'none'; editor.style.display = 'none';
+    document.getElementById('emptyState').style.display = '';
+    if (localStorage.getItem('keeper.last') === path) localStorage.removeItem('keeper.last');
+
+    // Drop it from the tree and bump the user into its folder.
+    files = files.filter(f => f.path !== path);
+    localStorage.setItem('keeper.open.' + data.group, '1');   // make sure the folder renders open
+    renderTree();
+    bumpToGroup(data.group);
+    showUndo(path);
+}
+
+function bumpToGroup(group) {
+    sidebar.classList.add('open');                            // open the drawer on mobile
+    document.getElementById('scrim').classList.add('open');
+    const d = sidebar.querySelector('.group[data-group="' + group + '"]');
+    if (d) {
+        d.open = true;
+        d.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        d.classList.add('bump');
+        setTimeout(() => d.classList.remove('bump'), 1200);
+    }
+}
+
+function showUndo(path) {
+    const name = path.split('/').pop().replace(/\.md$/, '');
+    document.getElementById('undoLabel').textContent = 'Deleted ' + name;
+    const toast = document.getElementById('undoToast');
+    toast.classList.add('open');
+    clearTimeout(_undoTimer);
+    _undoTimer = setTimeout(() => toast.classList.remove('open'), 8000);
+}
+
+async function undoDelete() {
+    if (!_lastDeleted) return;
+    const { path, content } = _lastDeleted;
+    let data;
+    try {
+        const resp = await fetch('/api/keeper/file/restore', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path, content }),
+        });
+        data = await resp.json();
+    } catch (e) { data = { error: 'network' }; }
+    if (!data || data.error) { status.textContent = 'Undo failed: ' + ((data && data.error) || '?'); return; }
+    document.getElementById('undoToast').classList.remove('open');
+    _lastDeleted = null;
+    await loadTree();
+    openFile(path);
+}
+
+// Close the confirm on Esc or a click outside the card.
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeConfirm(); });
+document.getElementById('confirmOverlay').addEventListener('click', (e) => {
+    if (e.target.id === 'confirmOverlay') closeConfirm();
+});
 
 // --- Search filter ---
 function filterTree(q) {
@@ -374,8 +557,24 @@ setInterval(poll, 4000);
 
 // --- Init ---
 loadTree().then(() => {
+    // Deep-link: /keeper#people/sally.md (e.g. clicked from the journal) wins.
+    const hash = decodeURIComponent(location.hash.slice(1));
+    if (hash && files.some(f => f.path === hash)) { openFile(hash); return; }
     const last = localStorage.getItem('keeper.last');
     if (last && files.some(f => f.path === last)) openFile(last);
+});
+
+// Honor later hash changes too (clicking another journal name while keeper's open).
+window.addEventListener('hashchange', () => {
+    const hash = decodeURIComponent(location.hash.slice(1));
+    if (hash && files.some(f => f.path === hash)) openFile(hash);
+});
+
+// The app shell (split.html) posts this when a journal popover asks to open a file
+// here — works even when the file is already showing (hashchange wouldn't re-fire).
+window.addEventListener('message', (e) => {
+    if (e.origin !== location.origin) return;
+    if (e.data && e.data.type === 'keeper-open' && e.data.path) openFile(e.data.path);
 });
 </script>
 </body>

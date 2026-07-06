@@ -119,6 +119,71 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .preview strong { font-weight: 700; }
 .preview blockquote { border-left: 3px solid var(--accent); padding-left: 12px; color: var(--text-muted); margin: 8px 0; }
 .preview ul, .preview ol { padding-left: 20px; margin-bottom: 8px; }
+/* Known people, auto-highlighted in read mode — click to jump to their file. */
+.preview .entity { color: var(--accent); cursor: pointer; border-bottom: 1px dotted var(--accent); }
+.preview .entity:hover { background: var(--accent-light); }
+.preview .entity.find-current { background: var(--accent); color: #fff !important; border-radius: 3px; border-bottom-color: transparent; }
+
+/* Find bar — lands on the first mention of a name in an entry, shows "n of N" */
+.find-bar {
+    display: none; position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 30;
+    align-items: center; gap: 8px; background: var(--card-bg); border: 1px solid var(--accent);
+    border-radius: 10px; padding: 6px 8px 6px 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.4); font-size: 14px;
+}
+.find-bar.open { display: flex; }
+.find-bar .find-name { font-weight: 700; color: var(--accent); }
+.find-bar .find-count { color: var(--text-muted); font-size: 13px; }
+.find-bar button {
+    min-width: 34px; min-height: 34px; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--bg); color: var(--text); font-size: 15px; cursor: pointer;
+}
+.find-bar button:hover { border-color: var(--accent); }
+
+/* Entity backlinks popover */
+.entity-pop-backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 40; }
+.entity-pop-backdrop.open { display: block; }
+.entity-pop {
+    display: none; position: fixed; z-index: 41;
+    left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: min(440px, 92vw); max-height: 80vh; overflow-y: auto;
+    background: var(--card-bg); border: 1px solid var(--border); border-radius: 14px;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.5); padding: 0;
+}
+.entity-pop.open { display: block; }
+/* Sticky header: name + "Open full file" stay pinned as the list scrolls under them. */
+.ep-sticky {
+    position: sticky; top: 0; z-index: 2; background: var(--card-bg);
+    padding: 14px 16px 12px; border-bottom: 1px solid var(--border);
+}
+.ep-body { padding: 12px 16px 16px; }
+.ep-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.ep-name { font-size: 19px; font-weight: 700; flex: 1; }
+.ep-close {
+    background: none; border: 1px solid var(--border); border-radius: 8px;
+    width: 36px; height: 36px; font-size: 20px; color: var(--text); cursor: pointer; flex-shrink: 0;
+}
+.ep-close:hover { background: var(--bg); }
+.ep-blurb { font-size: 14px; line-height: 1.6; color: var(--text); margin-bottom: 12px; }
+.ep-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.ep-tag { font-size: 12px; padding: 3px 9px; border-radius: 999px; background: var(--accent-light); color: var(--accent); font-weight: 600; }
+.ep-aliases { font-size: 12px; color: var(--text-muted); font-style: italic; margin-bottom: 10px; }
+.ep-section { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+    color: var(--text-muted); margin: 14px 0 6px; }
+.ep-row {
+    display: block; width: 100%; text-align: left; background: var(--bg);
+    border: 1px solid var(--border); border-radius: 10px; padding: 9px 11px; margin-bottom: 6px;
+    color: var(--text); cursor: pointer; font-family: inherit; min-height: 40px;
+}
+.ep-row:hover { border-color: var(--accent); }
+.ep-date { font-size: 13px; font-weight: 600; color: var(--accent); }
+.ep-note { font-size: 13px; color: var(--text); }
+.ep-snip { display: block; font-size: 13px; color: var(--text-muted); margin-top: 2px; line-height: 1.45; }
+.ep-empty { font-size: 13px; color: var(--text-muted); font-style: italic; }
+.ep-openfile {
+    display: block; width: 100%; text-align: center; margin: 0; min-height: 40px;
+    background: var(--accent-light); border: 1px solid var(--accent); border-radius: 10px;
+    color: var(--accent); font-size: 14px; font-weight: 600; cursor: pointer;
+}
 
 .save-status {
     padding: 6px 0; font-size: 12px; color: var(--text-muted); text-align: right; flex-shrink: 0; min-height: 24px;
@@ -157,6 +222,19 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
     <div class="save-status" id="status"></div>
 </div>
 
+<!-- Entity backlinks popover: click a highlighted name -> blurb + everywhere it's stored -->
+<div class="entity-pop-backdrop" id="entityBackdrop"></div>
+<div class="entity-pop" id="entityPop" role="dialog" aria-modal="true"></div>
+
+<!-- Find bar: after jumping to a referenced day, land on the first mention and cycle them -->
+<div class="find-bar" id="findBar">
+    <span class="find-name" id="findName"></span>
+    <span class="find-count" id="findCount"></span>
+    <button onclick="findNext(-1)" aria-label="Previous mention">&uarr;</button>
+    <button onclick="findNext(1)" aria-label="Next mention">&darr;</button>
+    <button onclick="closeFind()" aria-label="Close find">&times;</button>
+</div>
+
 <script>window.THEME_OVERRIDES = {{ theme_overrides_json|safe }};</script>
 <script src="/static/js/sky-theme.js"></script>
 <script src="{{ v_static('js/mini-notes.js') }}"></script>
@@ -172,6 +250,91 @@ const editor = document.getElementById('editor');
 const preview = document.getElementById('preview');
 const status = document.getElementById('status');
 const calOverlay = document.getElementById('calOverlay');
+
+// --- Entity highlighting: known people light up in read mode, each their own
+// color, click to jump to their file in the exocortex. ---
+let _entityRe = null;                 // one big \b(term|term|...)\b matcher, or null
+const _entityPath = new Map();        // person slug -> people-file path
+const _matchToSlug = new Map();       // matched term (name/alias, lowercased) -> slug
+let _popoverKey = null;               // whose popover is open (for find-on-jump)
+
+// Deterministic hue per name so each person keeps the same color everywhere.
+function entityHue(name) {
+    let h = 0;
+    for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % 360;
+    return h;
+}
+
+function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+async function loadEntities() {
+    try {
+        const resp = await fetch('/api/people');
+        const data = await resp.json();
+        const terms = [];
+        const addTerm = (term, slug) => {
+            const t = (term || '').trim();
+            const k = t.toLowerCase();
+            if (!k || _matchToSlug.has(k)) return;   // first person to claim a term wins
+            _matchToSlug.set(k, slug);
+            terms.push(t);
+        };
+        for (const p of (data.people || [])) {
+            _entityPath.set(p.id, p.file);
+            addTerm(p.name.split(' ')[0], p.id);     // first name as written in prose
+            (p.aliases || []).forEach(a => addTerm(a, p.id));  // "my landlord" -> sally
+        }
+        if (terms.length) {
+            // Longest first so multi-word aliases win; word-boundary, case-insensitive.
+            terms.sort((a, b) => b.length - a.length);
+            _entityRe = new RegExp('\\b(' + terms.map(escapeRe).join('|') + ')\\b', 'gi');
+        }
+    } catch (e) { /* highlighting is a nicety — never break the page over it */ }
+}
+
+// Walk the rendered preview's text nodes and wrap known names in clickable spans.
+// Done on the DOM (not the markdown string) so we never corrupt tags/attributes.
+function highlightEntities() {
+    if (!_entityRe) return;
+    const walker = document.createTreeWalker(preview, NodeFilter.SHOW_TEXT, {
+        acceptNode(n) {
+            // Don't highlight inside code, headings, or an already-made entity span.
+            return n.parentElement && n.parentElement.closest('code, h1, h2, h3, .entity')
+                ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+        }
+    });
+    const targets = [];
+    let node;
+    while ((node = walker.nextNode())) {
+        _entityRe.lastIndex = 0;
+        if (_entityRe.test(node.nodeValue)) targets.push(node);
+    }
+    for (const n of targets) {
+        const text = n.nodeValue;
+        const frag = document.createDocumentFragment();
+        let last = 0, m;
+        _entityRe.lastIndex = 0;
+        while ((m = _entityRe.exec(text))) {
+            if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
+            const slug = _matchToSlug.get(m[0].toLowerCase());
+            if (slug) {
+                const span = document.createElement('span');
+                span.className = 'entity';
+                span.dataset.name = slug;                 // group name + aliases under one person
+                span.dataset.path = _entityPath.get(slug) || '';
+                span.style.color = `hsl(${entityHue(slug)} 70% 66%)`;   // consistent color per person
+                span.style.borderBottomColor = `hsl(${entityHue(slug)} 70% 66%)`;
+                span.textContent = m[0];
+                frag.appendChild(span);
+            } else {
+                frag.appendChild(document.createTextNode(m[0]));
+            }
+            last = m.index + m[0].length;
+        }
+        if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+        n.parentNode.replaceChild(frag, n);
+    }
+}
 
 let _journalServerDate = null;
 
@@ -278,6 +441,163 @@ function renderPreview() {
     md = md.replace(/<p><(h[123]|hr|ul|blockquote)/g, '<$1');
     md = md.replace(/<\/(h[123]|ul|blockquote)><\/p>/g, '</$1>');
     preview.innerHTML = md;
+    highlightEntities();
+}
+
+// --- Entity backlinks popover: click a name -> blurb + everywhere it's stored ---
+const entityPop = document.getElementById('entityPop');
+const entityBackdrop = document.getElementById('entityBackdrop');
+
+function epEsc(s) {
+    return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+preview.addEventListener('click', (e) => {
+    const span = e.target.closest('.entity[data-name]');
+    if (span) openEntityPopover(span.dataset.name);
+});
+
+async function openEntityPopover(name) {
+    _popoverKey = name;   // remember who this popover is about, for find-on-jump
+    entityPop.innerHTML = `<div class="ep-blurb">Loading…</div>`;
+    entityPop.classList.add('open');
+    entityBackdrop.classList.add('open');
+    try {
+        const resp = await fetch('/api/backlinks?name=' + encodeURIComponent(name));
+        const data = await resp.json();
+        renderEntityPopover(data);
+    } catch (e) {
+        entityPop.innerHTML = `<div class="ep-blurb">Couldn't load backlinks.</div>`;
+    }
+}
+
+function renderEntityPopover(data) {
+    const p = data.person;
+    const hue = entityHue((data.name || '').toLowerCase().split(' ')[0]);
+    const color = `hsl(${hue} 70% 66%)`;
+
+    // "Open full file" lives in the sticky header so it stays pinned while scrolling.
+    const openBtn = (p && p.file)
+        ? `<button class="ep-openfile" data-nav="keeper:${epEsc(p.file)}">Open full file &rarr;</button>` : '';
+
+    let body = '';
+    if (p && p.tags && p.tags.length) {
+        body += `<div class="ep-tags">${p.tags.map(t => `<span class="ep-tag">#${epEsc(t)}</span>`).join('')}</div>`;
+    }
+    if (p && p.aliases && p.aliases.length) {
+        body += `<div class="ep-aliases">also: ${p.aliases.map(epEsc).join(', ')}</div>`;
+    }
+    if (p && p.blurb) body += `<div class="ep-blurb">${epEsc(p.blurb)}</div>`;
+
+    // Structured entries from their own file — each date jumps within the journal.
+    const entries = (p && p.entries) ? p.entries.slice().reverse() : [];
+    if (entries.length) {
+        body += `<div class="ep-section">In their file · ${entries.length}</div>`;
+        for (const en of entries) {
+            body += `<button class="ep-row" data-nav="journal:${epEsc(en.date)}">
+                <span class="ep-date">${epEsc(en.date)}</span>${en.note ? ` <span class="ep-note">${epEsc(en.note)}</span>` : ''}
+            </button>`;
+        }
+    }
+
+    // Loose mentions everywhere else — journal days jump in-app, other files open in keeper.
+    const mentions = data.mentions || [];
+    if (mentions.length) {
+        body += `<div class="ep-section">Mentioned elsewhere · ${mentions.length}</div>`;
+        for (const m of mentions) {
+            const nav = (m.file.startsWith('Journal/Daily/') && m.date)
+                ? `journal:${m.date}` : `keeper:${m.file}`;
+            body += `<button class="ep-row" data-nav="${epEsc(nav)}">
+                <span class="ep-date">${epEsc(m.label)}</span>
+                <span class="ep-snip">${epEsc(m.snippet)}</span>
+            </button>`;
+        }
+    }
+
+    if (!entries.length && !mentions.length) {
+        body += `<div class="ep-empty">No references recorded yet.</div>`;
+    }
+
+    entityPop.innerHTML = `
+        <div class="ep-sticky">
+            <div class="ep-head">
+                <span class="ep-name" style="color:${color}">${epEsc(data.name)}</span>
+                <button class="ep-close" onclick="closeEntityPopover()" aria-label="Close">&times;</button>
+            </div>
+            ${openBtn}
+        </div>
+        <div class="ep-body">${body}</div>`;
+}
+
+// Route clicks inside the popover: journal dates load in-app, other files open keeper.
+entityPop.addEventListener('click', (e) => {
+    const el = e.target.closest('[data-nav]');
+    if (!el) return;
+    const nav = el.dataset.nav;
+    const idx = nav.indexOf(':');
+    const kind = nav.slice(0, idx), val = nav.slice(idx + 1);
+    closeEntityPopover();
+    if (kind === 'journal') {
+        // Jump to that day, then land on the first mention of this person + count them.
+        const who = _popoverKey;
+        setMode('read');
+        loadDate(val).then(() => findInEntry(who));
+    } else if (kind === 'keeper') {
+        // Ask the app shell to open the Files tab (keeper memory) on this file.
+        // Fall back to a direct nav if we're ever loaded outside the shell.
+        if (window.parent && window.parent !== window) {
+            window.parent.postMessage({ type: 'open-keeper', path: val }, location.origin);
+        } else {
+            location.href = '/keeper#' + encodeURIComponent(val);
+        }
+    }
+});
+
+function closeEntityPopover() {
+    entityPop.classList.remove('open');
+    entityBackdrop.classList.remove('open');
+}
+entityBackdrop.addEventListener('click', closeEntityPopover);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeEntityPopover(); closeFind(); } });
+
+// --- Find-in-entry: after jumping to a referenced day, land on the first mention
+// of that person and let her cycle through the rest, search-style ("2 of 5"). ---
+const findBar = document.getElementById('findBar');
+let _findMatches = [];
+let _findIdx = 0;
+
+function findInEntry(key) {
+    closeFind();
+    if (!key) return;
+    setMode('read');
+    // The name is already wrapped as .entity[data-name="key"] spans by the highlighter.
+    _findMatches = Array.from(preview.querySelectorAll('.entity')).filter(el => el.dataset.name === key);
+    if (!_findMatches.length) return;   // referenced by role only (e.g. "my landlord") — nothing to land on
+    document.getElementById('findName').textContent = _findMatches[0].textContent;
+    showFindMatch(0);
+    findBar.classList.add('open');
+}
+
+function showFindMatch(i) {
+    _findMatches.forEach(el => el.classList.remove('find-current'));
+    const el = _findMatches[i];
+    if (!el) return;
+    el.classList.add('find-current');
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    document.getElementById('findCount').textContent = `${i + 1} of ${_findMatches.length}`;
+    _findIdx = i;
+}
+
+function findNext(dir) {
+    if (!_findMatches.length) return;
+    showFindMatch((_findIdx + dir + _findMatches.length) % _findMatches.length);
+}
+
+function closeFind() {
+    findBar.classList.remove('open');
+    _findMatches.forEach(el => el.classList.remove('find-current'));
+    _findMatches = [];
 }
 
 // --- Auto-save ---
@@ -435,6 +755,7 @@ setInterval(pollJournal, 3000);
 
 // --- Init ---
 setMode('read');
+loadEntities().then(() => { if (preview.style.display !== 'none') renderPreview(); });
 fetchServerDate().then(() => loadDates()).then(() => loadDate(null));
 </script>
 </body>

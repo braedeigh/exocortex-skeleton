@@ -1,0 +1,17 @@
+[package]
+name = "people"
+version = "0.1.0"
+edition = "2021"
+
+# The "one narrow door" into tulku/people/*.md — the twin of add-todo, but for
+# the people vault instead of the build queue. The nightly people cricket never
+# edits those markdown files by hand anymore; it calls this binary, which
+# validates every write against the exact format routes/entities.py parses,
+# appends atomically, and records what it did in a changelog. Two guarantees fall
+# out of that: the file format becomes a *contract* (validate refuses drift the
+# database would silently drop), and every automated write is *observable*
+# (the changelog shows exactly what the crickets touched).
+[dependencies]
+clap = { version = "4", features = ["derive"] }   # subcommands + typed args (schema layer #1)
+regex = "1"                                         # the reference-line grammar, byte-for-byte with entities.py
+chrono = "0.4"                                      # local timestamps for the changelog

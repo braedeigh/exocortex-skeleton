@@ -74,3 +74,38 @@ def test_write_to_missing_file_is_refused(client):
     # The tab fixes existing memory; it doesn't conjure new keeper files.
     resp = client.post("/api/keeper/file", json={"path": "people/nobody.md", "content": "x"})
     assert resp.status_code == 404
+
+
+def test_delete_removes_file_and_returns_group_and_content(client, vault):
+    resp = client.delete("/api/keeper/file?path=people/bryan.md")
+    data = resp.get_json()
+    assert data["ok"] is True
+    assert data["group"] == "people"          # for the "bump into folder" step
+    assert data["content"] == "# Bryan\n"      # handed back so the client can undo
+    assert not (vault / "people" / "bryan.md").exists()
+
+
+def test_delete_root_file_reports_core_group(client, vault):
+    data = client.delete("/api/keeper/file?path=WORRIES.md").get_json()
+    assert data["group"] == "Core"             # root files live under the Core group
+
+
+def test_delete_missing_or_traversal_is_rejected(client, tmp_path):
+    assert client.delete("/api/keeper/file?path=people/nobody.md").status_code == 404
+    assert client.delete("/api/keeper/file?path=../../etc/passwd").status_code == 400
+    assert not (tmp_path.parent / "passwd").exists()
+
+
+def test_restore_recreates_a_deleted_file(client, vault):
+    client.delete("/api/keeper/file?path=people/bryan.md")
+    resp = client.post("/api/keeper/file/restore",
+                       json={"path": "people/bryan.md", "content": "# Bryan\n"})
+    assert resp.get_json()["ok"] is True
+    assert (vault / "people" / "bryan.md").read_text() == "# Bryan\n"
+
+
+def test_restore_traversal_is_blocked(client, tmp_path):
+    resp = client.post("/api/keeper/file/restore",
+                       json={"path": "../evil.md", "content": "x"})
+    assert resp.status_code == 400
+    assert not (tmp_path.parent / "evil.md").exists()

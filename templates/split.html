@@ -542,12 +542,12 @@ body.public-mode #mobileSettings {
         <div class="dash-bar" id="desktopDashBar">
             <button class="active" data-dashview="dashboard" onclick="switchDashView('dashboard', this)">Dashboard</button>
             <button data-dashview="journal" onclick="switchDashView('journal', this)">Journal</button>
-            <button data-dashview="files" onclick="switchDashView('files', this)">Files<span class="tab-close-x" onclick="closeVscodeFromTab(event)" title="Close VS Code (free memory)">&times;</span></button>
+            <button data-dashview="files" onclick="switchDashView('files', this)">Files</button>
             <button data-dashview="settings" onclick="switchDashView('settings', this)" title="Settings" aria-label="Settings" style="flex:0;padding:11px 16px;font-size:18px;margin-left:auto">&#9881;&#65038;</button>
         </div>
         <iframe src="/tab/{{ active_tab }}{% if item_name %}?item={{ item_name }}{% endif %}" id="dashboardFrame" allow="fullscreen; autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
         <iframe id="journalFrame" style="display:none"></iframe>
-        <iframe src="/files/" id="filesFrame" style="display:none"></iframe>
+        <iframe src="/keeper" id="filesFrame" style="display:none"></iframe>
         <iframe id="settingsFrame" style="display:none"></iframe>
     </div>
 </div>
@@ -558,6 +558,7 @@ body.public-mode #mobileSettings {
         <button class="tab-btn active" data-tab="terminal" id="termTabBtn" onclick="switchTab('terminal')">Chat</button>
         <button class="tab-btn" data-tab="journal" onclick="switchTab('journal')">Journal</button>
         <button class="tab-btn" data-tab="dashboard" onclick="switchTab('dashboard')">Dashboard</button>
+        <button class="tab-btn" data-tab="files" onclick="switchTab('files')">Files</button>
         <button class="tab-btn" data-tab="settings" onclick="switchTab('settings')" title="Settings" aria-label="Settings" style="font-size:18px">&#9881;&#65038;</button>
     </div>
     <div class="session-menu" id="sessionMenu"></div>
@@ -570,6 +571,9 @@ body.public-mode #mobileSettings {
         </div>
         <div class="tab-pane" id="mobileJournal">
             <iframe id="mobileJournalFrame"></iframe>
+        </div>
+        <div class="tab-pane" id="mobileFiles">
+            <iframe id="mobileFilesFrame"></iframe>
         </div>
         <div class="tab-pane" id="mobileSettings">
             <iframe id="mobileSettingsFrame"></iframe>
@@ -865,7 +869,7 @@ window.addEventListener('message', (e) => {
     if (!msg || msg.type !== 'theme-changed' || !msg.overrides) return;
     const frames = [
         'dashboardFrame', 'journalFrame', 'filesFrame', 'settingsFrame',
-        'mobileTerminalFrame', 'mobileDashboardFrame', 'mobileJournalFrame', 'mobileSettingsFrame',
+        'mobileTerminalFrame', 'mobileDashboardFrame', 'mobileJournalFrame', 'mobileFilesFrame', 'mobileSettingsFrame',
     ];
     for (const id of frames) {
         const f = document.getElementById(id);
@@ -1010,12 +1014,17 @@ function switchTab(tab) {
     document.getElementById('mobileTerminal').classList.toggle('active', tab === 'terminal');
     document.getElementById('mobileJournal').classList.toggle('active', tab === 'journal');
     document.getElementById('mobileDashboard').classList.toggle('active', tab === 'dashboard');
+    document.getElementById('mobileFiles').classList.toggle('active', tab === 'files');
     document.getElementById('mobileSettings').classList.toggle('active', tab === 'settings');
 
     // Lazy-load the markdown journal iframe the first time it's opened
     if (tab === 'journal') {
         const jf = document.getElementById('mobileJournalFrame');
         if (jf && !jf.src) jf.src = '/journal-view';
+    }
+    if (tab === 'files') {
+        const ff = document.getElementById('mobileFilesFrame');
+        if (ff && !ff.src) ff.src = '/keeper';
     }
     if (tab === 'settings') {
         const sf = document.getElementById('mobileSettingsFrame');
@@ -1203,6 +1212,35 @@ function dashIframes() {
     return [document.getElementById('dashboardFrame'), document.getElementById('mobileDashboardFrame')].filter(Boolean);
 }
 
+function journalIframes() {
+    return [document.getElementById('journalFrame'), document.getElementById('mobileJournalFrame')].filter(Boolean);
+}
+
+// A journal-side entity popover ("Open full file", or a keeper-file mention) asks
+// us to open the Files tab (keeper memory) on a specific file. We load/navigate the
+// keeper frame BEFORE flipping tabs so switchTab's lazy-load can't race us.
+function openKeeperFile(path) {
+    const isMobile = window.matchMedia('(max-width: 768px)').matches;
+    const frame = document.getElementById(isMobile ? 'mobileFilesFrame' : 'filesFrame');
+    if (frame) {
+        if (!frame.getAttribute('src')) {
+            frame.src = '/keeper#' + encodeURIComponent(path);   // lazy frame: land on the file
+        } else {
+            try { frame.contentWindow.postMessage({ type: 'keeper-open', path: path }, location.origin); }
+            catch (e) { frame.src = '/keeper#' + encodeURIComponent(path); }
+        }
+    }
+    if (isMobile) switchTab('files');
+    else switchDashView('files', document.querySelector('#desktopDashBar [data-dashview="files"]'));
+}
+
+window.addEventListener('message', (e) => {
+    if (e.origin !== location.origin) return;
+    if (!e.data || e.data.type !== 'open-keeper' || !e.data.path) return;
+    if (!journalIframes().some(f => f && f.contentWindow === e.source)) return;
+    openKeeperFile(e.data.path);
+});
+
 function broadcastSwitchTo(name, extra) {
     dashIframes().forEach(f => {
         if (f && f.contentWindow) f.contentWindow.postMessage({ type: 'switchTo', name: name, extra: extra || null }, location.origin);
@@ -1295,7 +1333,10 @@ function setupFilesLongPress() {
         btn.addEventListener('touchcancel', cancel);
     });
 }
-setupFilesLongPress();
+// The Files tab now opens the keeper memory browser, not VS Code — so the
+// long-press-to-close-VS-Code affordance no longer applies. (VS Code itself is
+// still reachable directly at /files/ if needed.) Left defined but not wired.
+// setupFilesLongPress();
 
 // === PWA service worker ===
 if ('serviceWorker' in navigator) {

@@ -96,3 +96,31 @@ def register(app):
             return jsonify({"error": "not found"}), 404
         full.write_text(data.get("content", ""))
         return jsonify({"ok": True})
+
+    @app.route("/api/keeper/file", methods=["DELETE"])
+    def keeper_file_delete():
+        full = _resolve(request.args.get("path", ""))
+        if full is None:
+            return jsonify({"error": "invalid path"}), 400
+        if not full.exists():
+            return jsonify({"error": "not found"}), 404
+        rel = full.relative_to(_vault())
+        # Hand the content + group back so the client can offer Undo and bump the
+        # user into the deleted file's folder. (Everything's also under hourly git
+        # backup, so a delete is never truly unrecoverable.)
+        content = full.read_text()
+        group = rel.parts[0] if len(rel.parts) > 1 else "Core"
+        full.unlink()
+        return jsonify({"ok": True, "path": rel.as_posix(), "group": group, "content": content})
+
+    @app.route("/api/keeper/file/restore", methods=["POST"])
+    def keeper_file_restore():
+        # Undo of a delete: recreate the file. This is the one create path this tab
+        # allows — and only right after a delete, from content the server just gave out.
+        data = request.json or {}
+        full = _resolve(data.get("path", ""))
+        if full is None:
+            return jsonify({"error": "invalid path"}), 400
+        full.parent.mkdir(parents=True, exist_ok=True)
+        full.write_text(data.get("content", ""))
+        return jsonify({"ok": True, "path": full.relative_to(_vault()).as_posix()})
