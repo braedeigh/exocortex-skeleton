@@ -60,7 +60,9 @@ def register(app):
 
     @app.route("/api/pending/approve", methods=["POST"])
     def approve_pending():
-        pid = (request.json or {}).get("id")
+        req = request.json or {}
+        pid = req.get("id")
+        edited = req.get("payload")  # the modal sends back the (possibly edited) fields
         if not pid:
             return jsonify({"ok": False, "error": "missing id"}), 400
         # Hold the lock across find -> commit -> remove. If _commit raises, the
@@ -70,6 +72,10 @@ def register(app):
             change = next((p for p in data["pending"] if p.get("id") == pid), None)
             if change is None:
                 return jsonify({"ok": False, "error": "not found"}), 404
+            # Apply the user's edits over the staged payload before committing, so
+            # what she approves is exactly what she sees in the modal.
+            if isinstance(edited, dict):
+                change["payload"] = {**(change.get("payload") or {}), **edited}
             _commit(change)
             data["pending"] = [p for p in data["pending"] if p.get("id") != pid]
         return jsonify({"ok": True})

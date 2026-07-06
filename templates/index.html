@@ -411,8 +411,9 @@
 <div class="modal-overlay" id="change-modal" style="z-index:300;background:rgba(20,20,30,0.5);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)">
     <div class="modal" style="max-width:460px;width:92vw;text-align:left;padding:22px;color:var(--text)">
         <div style="font-size:18px;font-weight:700;margin-bottom:6px">Approve change? ✍️</div>
-        <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px">An agent wants to write to your dashboard. Nothing lands until you approve.</div>
-        <div id="change-modal-summary" style="font-size:15px;background:transparent;border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:18px;line-height:1.4"></div>
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px">An agent wants to write to your dashboard. Edit anything below, then approve — nothing lands until you do.</div>
+        <div id="change-modal-summary" style="font-size:12px;color:var(--text-muted);margin-bottom:12px"></div>
+        <div id="change-modal-fields" class="todo-modal-edit" style="margin-bottom:18px"></div>
         <div class="modal-buttons" style="justify-content:flex-end">
             <button class="modal-btn cancel" style="min-height:40px" onclick="denyChange()">Deny</button>
             <button class="modal-btn confirm" style="background:var(--green);min-height:40px" onclick="approveChange()">Approve</button>
@@ -468,6 +469,9 @@
 <script src="{{ v_static('js/ideas.js') }}"></script>
 <script src="{{ v_static('js/reminders.js') }}"></script>
 <script src="{{ v_static('js/pending.js') }}"></script>
+<script src="{{ v_static('js/approvals/contacts.js') }}"></script>
+<script src="{{ v_static('js/approvals/long-covid.js') }}"></script>
+<script src="{{ v_static('js/approvals/food.js') }}"></script>
 <script src="{{ v_static('js/polling.js') }}"></script>
 <script src="{{ v_static('js/today-polish.js') }}"></script>
 

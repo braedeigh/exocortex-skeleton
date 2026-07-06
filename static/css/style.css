@@ -444,6 +444,7 @@ textarea.todo-add-input { resize: none; overflow: hidden; min-height: 44px; }
 .todo-modal-edit input[type=date],
 .todo-modal-edit input[type=time],
 .todo-modal-edit input[type=number],
+.todo-modal-edit input[type=text],
 .todo-modal-edit select,
 .tm-newplace input {
     min-height: 40px; padding: 8px 10px; border: 1px solid var(--border);
