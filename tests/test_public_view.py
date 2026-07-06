@@ -117,6 +117,15 @@ def test_ecosystem_write_endpoints_stay_gated():
     assert not is_public_path("/api/ecosystem/source/remove")
 
 
+def test_auth_check_is_not_public():
+    # /api/auth-check is the nginx auth_request target for /files/ (code-server)
+    # and /terminal/ (ttyd). It MUST NOT be public: if it is, it returns 204 to
+    # logged-out visitors and nginx's auth_request becomes a silent no-op,
+    # leaving those proxied shells open. It must 401 when unauthed (via the gate)
+    # and 204 only when authed.
+    assert not is_public_path("/api/auth-check")
+
+
 def test_public_map_exposes_light_recipes_but_hides_full_recipes():
     # The map's trace picker needs id/name/ingredients (eco_recipes, public), but
     # the full recipes stream carries instructions and also rides the public

@@ -125,7 +125,6 @@ PUBLIC_PATHS = (
     "/api/data/money",
     "/api/data/item-buy",
     "/api/data/ecosystem",
-    "/api/auth-check",
     "/api/version",
 )
 
