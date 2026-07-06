@@ -45,6 +45,13 @@ html, body { min-height: 100%; background: var(--bg); color: var(--text); font-f
 /* Sections */
 .p-section { padding: 18px 0; border-bottom: 1px solid var(--border); }
 .p-section:last-child { border-bottom: none; }
+/* Facts + Activity two-up: side by side on wide screens, stacked on the PWA. */
+.p-duo { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 28px; border-bottom: 1px solid var(--border); }
+.p-duo .p-section { border-bottom: none; }
+@media (max-width: 640px) {
+    .p-duo { grid-template-columns: minmax(0, 1fr); }
+    .p-duo .p-section:first-child { border-bottom: 1px solid var(--border); }
+}
 .p-section-title {
     font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
     color: var(--text-muted); margin-bottom: 10px;
@@ -159,9 +166,16 @@ html, body { min-height: 100%; background: var(--bg); color: var(--text); font-f
     <div id="loading">Loading&hellip;</div>
 
     <div id="content" style="display:none">
-        <div class="p-section" id="factsSection">
-            <div class="p-section-title">Facts</div>
-            <div id="factsBody"></div>
+        <div class="p-duo">
+            <div class="p-section" id="factsSection">
+                <div class="p-section-title">Facts</div>
+                <div id="factsBody"></div>
+            </div>
+
+            <div class="p-section">
+                <div class="p-section-title">Activity</div>
+                <div id="heatmapWrap"></div>
+            </div>
         </div>
 
         <div class="p-section">
@@ -170,11 +184,6 @@ html, body { min-height: 100%; background: var(--bg); color: var(--text); font-f
             <div style="margin-top:10px">
                 <button class="p-btn" id="regenBtn" onclick="regenerateImpression()">Regenerate impression</button>
             </div>
-        </div>
-
-        <div class="p-section">
-            <div class="p-section-title">Activity</div>
-            <div id="heatmapWrap"></div>
         </div>
 
         <div class="p-section">
