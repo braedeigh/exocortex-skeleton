@@ -74,3 +74,20 @@ so the app runs on an empty data dir. Back up that directory (git, rsync, anythi
 - `deploy/setup_codeserver.sh` — browser VS Code
 - `deploy/fix_ttyd.sh`, `deploy/ttyd_connect.sh` — embedded web terminal
 - `deploy/setup_filebrowser.sh` — file browser
+
+> ⚠️ **These `deploy/*.sh` paths don't exist in this repo.** The actual scripts they
+> refer to live in the **personal** vault repo at `personal/scripts/` (e.g.
+> `setup_codeserver.sh`, `setup_filebrowser.sh`, `fix_ttyd.sh`, `ttyd_connect.sh`), not
+> here in skeleton. For the live, verified machine state (nginx vhost, systemd units,
+> crontab), see `personal/deploy/` and `personal/RESTORE.md` instead — those are
+> snapshots of what's actually running as of 2026-07-06, captured because this repo's
+> `deploy/` pointer never existed.
+>
+> **Do not re-run `personal/scripts/setup_nginx.sh`, `setup_codeserver.sh`, or
+> `setup_filebrowser.sh` as nginx generators.** They generate `/files/` and `/terminal/`
+> blocks protected by `auth_basic` (or, in `setup_nginx.sh`'s case, no auth at all on
+> `/terminal/`). The live nginx config was hand-edited to use `auth_request
+> /api/auth-check` instead (a proper session-based gate, not a separate htpasswd) —
+> re-running any of those scripts will **regress** that fix and can reopen `/terminal/`
+> as an unauthenticated web shell. Use `personal/deploy/nginx-exocortex.conf` as the
+> source of truth for nginx instead.
