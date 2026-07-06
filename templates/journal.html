@@ -189,6 +189,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .ep-fact-row:not(:last-child) { border-bottom: 1px solid var(--border); }
 .ep-fact-label { font-weight: 600; color: var(--text-muted); }
 .ep-fact-val { color: var(--text); }
+.ep-fact-empty { color: var(--text-muted); opacity: 0.55; }
 .ep-openfile {
     display: block; width: 100%; text-align: center; margin: 0; min-height: 40px;
     background: var(--accent-light); border: 1px solid var(--accent); border-radius: 10px;
@@ -469,10 +470,9 @@ function monthYear(dateStr) {
     return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
 }
 
-// Slimmed to an overview: name/tags/date-range, impression (or blurb), a stats
-// line, the single most-recent mention, and a button through to the full
-// person page (which holds the entries + mentions lists this popup used to
-// dump in full).
+// A facts card: name/tags/date-range, the fact fields (seeds always shown,
+// '—' when unfilled; edit them on the person page), then the 5 most recent
+// mentions. No prose here — the impression/blurbs live on the person page.
 function renderEntityPopover(data) {
     const p = data.person;
     const stats = data.stats || {};
@@ -489,36 +489,40 @@ function renderEntityPopover(data) {
             `<span class="ep-daterange">${monthYear(stats.first_date)} &ndash; ${monthYear(stats.last_date)}</span>`;
     }
 
+    // Facts card: the four seed fields always render ('—' when unfilled, as a
+    // nudge that the person page can fill them); extra saved facts follow.
     let factsHtml = '';
-    if (p && p.facts && Object.keys(p.facts).length) {
-        const nonEmpty = Object.entries(p.facts).filter(([k, v]) => v && v.trim());
-        if (nonEmpty.length) {
-            factsHtml = '<div class="ep-facts">' +
-                nonEmpty.map(([k, v]) =>
-                    `<div class="ep-fact-row"><span class="ep-fact-label">${epEsc(k.charAt(0).toUpperCase() + k.slice(1))}</span><span class="ep-fact-val">${epEsc(v)}</span></div>`
-                ).join('') +
-                '</div>';
+    if (p) {
+        const SEEDS = ['relationship', 'age', 'lives', 'work'];
+        const facts = p.facts || {};
+        const rows = [];
+        for (const k of SEEDS) {
+            const v = (facts[k] || '').trim();
+            rows.push([k, v]);
         }
+        for (const [k, v] of Object.entries(facts)) {
+            if (!SEEDS.includes(k) && v && v.trim()) rows.push([k, v.trim()]);
+        }
+        factsHtml = '<div class="ep-facts">' +
+            rows.map(([k, v]) =>
+                `<div class="ep-fact-row"><span class="ep-fact-label">${epEsc(k.charAt(0).toUpperCase() + k.slice(1))}</span>` +
+                `<span class="ep-fact-val${v ? '' : ' ep-fact-empty'}">${v ? epEsc(v) : '&mdash;'}</span></div>`
+            ).join('') +
+            '</div>';
     }
 
     let body = '';
-    if (p && p.impression && p.impression.trim()) {
-        body += `<div class="ep-blurb">${mdToHtml(p.impression)}</div>`;
-    } else if (p && p.blurb) {
-        body += `<div class="ep-blurb">${epEsc(p.blurb)}</div>`;
-    }
-
     if (stats.total) {
         body += `<div class="ep-stats">mentioned ${stats.total}&times; across ${stats.days || 0} day${stats.days === 1 ? '' : 's'}</div>`;
     }
 
-    // The single most recent mention — journal dates jump in-app, others open in keeper.
-    if (stats.last) {
-        const nav = (stats.last.file && stats.last.file.startsWith('Journal/Daily/') && stats.last.date)
-            ? `journal:${stats.last.date}` : `keeper:${epEsc(stats.last.file || '')}`;
+    // The 5 most recent mentions — journal dates jump in-app, others open in keeper.
+    for (const m of (data.mentions || []).slice(0, 5)) {
+        const nav = (m.file && m.file.startsWith('Journal/Daily/') && m.date)
+            ? `journal:${m.date}` : `keeper:${epEsc(m.file || '')}`;
         body += `<button class="ep-row" data-nav="${nav}">
-            <span class="ep-date">${epEsc(stats.last.label || stats.last.date)}</span>
-            ${stats.last.snippet ? `<span class="ep-snip">${epEsc(stats.last.snippet)}</span>` : ''}
+            <span class="ep-date">${epEsc(m.label || m.date)}</span>
+            ${m.snippet ? `<span class="ep-snip">${epEsc(m.snippet)}</span>` : ''}
         </button>`;
     }
 
