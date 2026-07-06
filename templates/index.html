@@ -453,37 +453,56 @@
     </div>
 </div>
 
-<script src="{{ v_static('js/sky-theme.js') }}"></script>
-<script src="{{ v_static('js/api.js') }}"></script>
-<script src="{{ v_static('js/core.js') }}"></script>
-<script src="{{ v_static('js/health.js') }}"></script>
-<script src="{{ v_static('js/contacts.js') }}"></script>
-<script src="{{ v_static('js/habits.js') }}"></script>
-<script src="{{ v_static('js/todos.js') }}"></script>
-<script src="{{ v_static('js/food.js') }}"></script>
-<script src="{{ v_static('js/eco-match.js') }}"></script>
-<script src="{{ v_static('js/kitchen.js') }}"></script>
-<script src="{{ v_static('js/kitchen-recipes.js') }}"></script>
-<script src="{{ v_static('js/activity.js') }}"></script>
-<script src="{{ v_static('js/overview.js') }}"></script>
-<script src="{{ v_static('js/inventory.js') }}"></script>
-<script src="{{ v_static('js/money.js') }}"></script>
-<script src="{{ v_static('js/car.js') }}"></script>
-<script src="{{ v_static('js/housing.js') }}"></script>
-<script src="{{ v_static('js/people.js') }}"></script>
-<script src="{{ v_static('js/meditation.js') }}"></script>
-<script src="{{ v_static('js/media.js') }}"></script>
-<script src="{{ v_static('js/movement.js') }}"></script>
-<script src="{{ v_static('vendor/leaflet/leaflet.js') }}"></script>
-<script src="{{ v_static('js/ecosystem.js') }}"></script>
-<script src="{{ v_static('js/ideas.js') }}"></script>
-<script src="{{ v_static('js/reminders.js') }}"></script>
-<script src="{{ v_static('js/pending.js') }}"></script>
-<script src="{{ v_static('js/approvals/contacts.js') }}"></script>
-<script src="{{ v_static('js/approvals/long-covid.js') }}"></script>
-<script src="{{ v_static('js/approvals/food.js') }}"></script>
-<script src="{{ v_static('js/polling.js') }}"></script>
-<script src="{{ v_static('js/today-polish.js') }}"></script>
+<script src="{{ v_static('js/sky-theme.js') }}" defer></script>
+<script src="{{ v_static('js/api.js') }}" defer></script>
+<script src="{{ v_static('js/core.js') }}" defer></script>
+<script src="{{ v_static('js/health.js') }}" defer></script>
+<script src="{{ v_static('js/contacts.js') }}" defer></script>
+<script src="{{ v_static('js/habits.js') }}" defer></script>
+<script src="{{ v_static('js/todos.js') }}" defer></script>
+<script src="{{ v_static('js/food.js') }}" defer></script>
+<script src="{{ v_static('js/eco-match.js') }}" defer></script>
+<script src="{{ v_static('js/activity.js') }}" defer></script>
+<script src="{{ v_static('js/overview.js') }}" defer></script>
+<script src="{{ v_static('js/inventory.js') }}" defer></script>
+<script src="{{ v_static('js/money.js') }}" defer></script>
+<script src="{{ v_static('js/car.js') }}" defer></script>
+<script src="{{ v_static('js/housing.js') }}" defer></script>
+<script src="{{ v_static('js/people.js') }}" defer></script>
+<script src="{{ v_static('js/meditation.js') }}" defer></script>
+<script src="{{ v_static('js/media.js') }}" defer></script>
+<script src="{{ v_static('js/movement.js') }}" defer></script>
+<script src="{{ v_static('js/ideas.js') }}" defer></script>
+<script src="{{ v_static('js/reminders.js') }}" defer></script>
+<script src="{{ v_static('js/pending.js') }}" defer></script>
+<script src="{{ v_static('js/approvals/contacts.js') }}" defer></script>
+<script src="{{ v_static('js/approvals/long-covid.js') }}" defer></script>
+<script src="{{ v_static('js/approvals/food.js') }}" defer></script>
+<!-- Lazy-tab asset manifest — kitchen.js/kitchen-recipes.js (kitchen + body tabs)
+     and leaflet.js/ecosystem.js (ecosystem tab) are fat and only fetched by
+     core.js's ensureTabAssets() when a tab that needs them becomes active.
+     Versions match v_static's mtime stamping so cache-busting still works. -->
+<script>
+window.TAB_ASSETS = {
+    kitchen: ["{{ v_static('js/kitchen.js') }}", "{{ v_static('js/kitchen-recipes.js') }}"],
+    ecosystem: ["{{ v_static('vendor/leaflet/leaflet.js') }}", "{{ v_static('js/ecosystem.js') }}"]
+};
+window.TAB_ASSETS_LOADED = {};
+</script>
+{% if active_tab in ('kitchen', 'body') %}
+<!-- active tab needs the kitchen group on first paint — include it eagerly so
+     there's zero async gap, and mark it pre-loaded for ensureTabAssets(). -->
+<script src="{{ v_static('js/kitchen.js') }}" defer></script>
+<script src="{{ v_static('js/kitchen-recipes.js') }}" defer></script>
+<script>window.TAB_ASSETS_LOADED.kitchen = true;</script>
+{% endif %}
+{% if active_tab == 'ecosystem' %}
+<script src="{{ v_static('vendor/leaflet/leaflet.js') }}" defer></script>
+<script src="{{ v_static('js/ecosystem.js') }}" defer></script>
+<script>window.TAB_ASSETS_LOADED.ecosystem = true;</script>
+{% endif %}
+<script src="{{ v_static('js/polling.js') }}" defer></script>
+<script src="{{ v_static('js/today-polish.js') }}" defer></script>
 
 <!-- JS split into /static/js/*.js files -->
 

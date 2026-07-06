@@ -47,6 +47,47 @@ const TAB_ENDPOINTS = {
 // are defined in other JS files that load after core.js
 let TAB_RENDERERS = null;
 
+// --- Lazy tab assets (kitchen.js/kitchen-recipes.js/leaflet.js/ecosystem.js) ---
+// Which tabs need which entry in window.TAB_ASSETS. 'body' needs the kitchen
+// group too — its food-safety cards (renderFoodExperiments/renderFoodTriage/
+// renderSafeFoods/renderSuspectFoods/renderInflammatoryFoods) live in kitchen.js.
+const TAB_ASSET_GROUPS = { kitchen: 'kitchen', body: 'kitchen', ecosystem: 'ecosystem' };
+let _tabAssetPromises = {};
+
+function _loadScriptSeq(urls) {
+    // Sequential, not parallel: each script must finish (and run) before the
+    // next is even appended, so execution order matches document order
+    // (leaflet.js before ecosystem.js, kitchen.js before kitchen-recipes.js).
+    return urls.reduce((p, url) => p.then(() => new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = url;
+        s.onload = () => resolve();
+        s.onerror = () => reject(new Error('script load failed: ' + url));
+        document.body.appendChild(s);
+    })), Promise.resolve());
+}
+
+// Ensures the JS group a tab needs is present, fetching it (once) if not.
+// Memoized per group so repeated/concurrent calls share the same promise.
+function ensureTabAssets(name) {
+    const group = TAB_ASSET_GROUPS[name];
+    if (!group) return Promise.resolve();
+    window.TAB_ASSETS_LOADED = window.TAB_ASSETS_LOADED || {};
+    if (window.TAB_ASSETS_LOADED[group]) return Promise.resolve();
+    if (_tabAssetPromises[group]) return _tabAssetPromises[group];
+    const urls = (window.TAB_ASSETS && window.TAB_ASSETS[group]) || [];
+    if (!urls.length) return Promise.resolve();
+    const p = _loadScriptSeq(urls).then(() => {
+        window.TAB_ASSETS_LOADED[group] = true;
+    }).catch(err => {
+        console.error('ensureTabAssets: failed to load "' + group + '" assets:', err);
+        delete _tabAssetPromises[group];  // let a later retry re-attempt
+        throw err;
+    });
+    _tabAssetPromises[group] = p;
+    return p;
+}
+
 // --- initTab ---
 function initTab() {
     document.getElementById('tab-today').style.display = currentTab === 'today' ? '' : 'none';
@@ -275,7 +316,16 @@ function render() {
     if (!TAB_RENDERERS) {
         TAB_RENDERERS = {
             today: [
-                renderHeader, renderFoodBanner, renderGroceryQuick,
+                renderHeader, renderFoodBanner,
+                () => {
+                    // renderGroceryQuick lives in kitchen.js, which is lazy.
+                    // Don't block Today's paint on it — fetch in the background
+                    // and fill the grocery card in when it lands.
+                    if (typeof renderGroceryQuick === 'function') { renderGroceryQuick(); return; }
+                    ensureTabAssets('kitchen').then(() => {
+                        if (currentTab === 'today' && typeof renderGroceryQuick === 'function') renderGroceryQuick();
+                    }).catch(() => {});
+                },
                 renderReminders, renderGraduationPrompts, renderContactReminders, renderContacts,
                 renderContactCalendar, renderHabits, renderTodos, renderSymptomForm,
                 renderDevNotes, restoreEditModes
@@ -286,12 +336,19 @@ function render() {
                 renderDevNotes, restoreEditModes
             ],
             body: [
-                renderHeader, renderFoodExperiments, renderFoodTriage, renderSafeFoods, renderSuspectFoods,
-                renderInflammatoryFoods, renderDotGrid, renderSymptomDefinitions, renderFoodLog,
+                renderHeader,
+                () => { if (typeof renderFoodExperiments === 'function') renderFoodExperiments(); },
+                () => { if (typeof renderFoodTriage === 'function') renderFoodTriage(); },
+                () => { if (typeof renderSafeFoods === 'function') renderSafeFoods(); },
+                () => { if (typeof renderSuspectFoods === 'function') renderSuspectFoods(); },
+                () => { if (typeof renderInflammatoryFoods === 'function') renderInflammatoryFoods(); },
+                renderDotGrid, renderSymptomDefinitions, renderFoodLog,
                 renderDevNotes, restoreEditModes
             ],
             kitchen: [
-                renderHeader, renderGroceryList, renderDevNotes, restoreEditModes
+                renderHeader,
+                () => { if (typeof renderGroceryList === 'function') renderGroceryList(); },
+                renderDevNotes, restoreEditModes
             ],
             inventory: [
                 renderHeader,
@@ -336,7 +393,9 @@ function render() {
                 renderHeader, renderIdeasByPage, renderIdeasDoc, renderDevNotes, restoreEditModes
             ],
             ecosystem: [
-                renderHeader, renderEcosystem, renderDevNotes, restoreEditModes
+                renderHeader,
+                () => { if (typeof renderEcosystem === 'function') renderEcosystem(); },
+                renderDevNotes, restoreEditModes
             ],
             people: [
                 renderHeader, renderPeopleTab, renderDevNotes, restoreEditModes
@@ -613,16 +672,26 @@ window.addEventListener('message', (e) => {
         window._ecoLastSources = null;
     }
     if (name === currentTab) {
-        // Already on this tab — just apply the deep-link by re-rendering.
-        if (name === 'movement' && typeof renderMovement === 'function') renderMovement();
-        if (name === 'ecosystem' && typeof renderEcosystem === 'function') renderEcosystem();
+        // Already on this tab — just apply the deep-link by re-rendering, once
+        // this tab's lazy assets (if any) are in place.
+        ensureTabAssets(name).catch(() => {}).then(() => {
+            if (name === 'movement' && typeof renderMovement === 'function') renderMovement();
+            if (name === 'ecosystem' && typeof renderEcosystem === 'function') renderEcosystem();
+        });
         return;
     }
     currentTab = name;
     document.body.dataset.activeTab = name;
     if (name === 'today') resetTodoCollapseMemory();  // start the To-Do page fresh
-    initTab();
-    loadDashboard();
+    // Fetch this tab's fat JS (if it has any and it isn't already loaded) before
+    // rendering it — ensures e.g. renderGroceryList/renderEcosystem are real
+    // functions (not no-op guards) by the time render() runs for this tab.
+    // Swallow load failures so a flaky fetch doesn't leave the tab stuck blank —
+    // the guarded renderers just no-op and initTab()/loadDashboard() still run.
+    ensureTabAssets(name).catch(() => {}).then(() => {
+        initTab();
+        loadDashboard();
+    });
 });
 
 // --- Frosted-placeholder helpers (public mode) ---

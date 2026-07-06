@@ -6,8 +6,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0d0d1a">
-<link rel="manifest" href="/static/manifest.json">
-<link rel="apple-touch-icon" href="/static/icon-192.png">
+<link rel="manifest" href="{{ v_static('manifest.json') }}">
+<link rel="apple-touch-icon" href="{{ v_static('icon-192.png') }}">
 <title>Exocortex</title>
 <style>
 :root {
@@ -499,7 +499,7 @@ body.public-mode #mobileSettings {
 </head>
 <body class="{{ 'public-mode' if view_mode == 'public' else '' }}" data-view-mode="{{ view_mode }}">
 <script>window.VIEW_MODE = "{{ view_mode }}"; window.ACTIVE_VIEW = "{{ active_view }}";</script>
-<script src="{{ v_static('js/mini-notes.js') }}"></script>
+<script src="{{ v_static('js/mini-notes.js') }}" defer></script>
 
 <!-- Desktop: side-by-side -->
 <div class="split-container" id="splitContainer">
@@ -1139,8 +1139,20 @@ window.addEventListener('blur', () => {
 });
 
 // Rows (with edit/delete) come from the shared mini-notes component.
+// mini-notes.js now loads with `defer`, so it may not have run yet at this
+// point in parsing — build _termNotes once it has (DOMContentLoaded fires
+// after all deferred scripts finish), rather than calling createMiniNotes
+// here at parse time.
 const _termNotesList = document.getElementById('termNotesList');
-const _termNotes = _termNotesList ? createMiniNotes(_termNotesList, 'terminal') : null;
+let _termNotes = null;
+function _initTermNotes() {
+    _termNotes = (_termNotesList && typeof createMiniNotes === 'function') ? createMiniNotes(_termNotesList, 'terminal') : null;
+}
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _initTermNotes);
+} else {
+    _initTermNotes();
+}
 function loadTermNotes() { if (_termNotes) _termNotes.load(); }
 
 async function addTermNote() {

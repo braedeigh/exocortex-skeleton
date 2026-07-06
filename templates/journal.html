@@ -245,7 +245,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 </div>
 
 <script>window.THEME_OVERRIDES = {{ theme_overrides_json|safe }};</script>
-<script src="/static/js/sky-theme.js"></script>
+<script src="{{ v_static('js/sky-theme.js') }}"></script>
 <script src="{{ v_static('js/md.js') }}"></script>
 <script src="{{ v_static('js/mini-notes.js') }}"></script>
 <script>

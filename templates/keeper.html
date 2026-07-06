@@ -215,7 +215,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
     <button class="undo-btn" onclick="undoDelete()">Undo</button>
 </div>
 
-<script src="/static/js/sky-theme.js"></script>
+<script src="{{ v_static('js/sky-theme.js') }}"></script>
 <script>
 // --- State ---
 let files = [];              // [{path, name, group, mtime}]

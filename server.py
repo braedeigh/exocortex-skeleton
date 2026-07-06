@@ -28,6 +28,11 @@ from routes.shell import VALID_TABS
 app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 app.config['TEMPLATES_AUTO_RELOAD'] = True
+# Long-lived static caching is safe because every /static/ URL rendered through
+# templates is stamped with a file-mtime version query param by the v_static()
+# context processor below — a changed file gets a new URL, so browsers never
+# serve a stale cached asset across a redeploy.
+app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 31536000
 
 # --- Logging ---
 from logging.handlers import RotatingFileHandler
