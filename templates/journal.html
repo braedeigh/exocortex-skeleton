@@ -164,10 +164,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 }
 .ep-close:hover { background: var(--bg); }
 .ep-blurb { font-size: 14px; line-height: 1.6; color: var(--text); margin-bottom: 12px; }
-.ep-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
-.ep-tag { font-size: 12px; padding: 3px 9px; border-radius: 999px; background: var(--accent-light); color: var(--accent); font-weight: 600; }
-.ep-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; font-size: 13px; color: var(--text-muted); }
-.ep-daterange { font-size: 13px; color: var(--text-muted); }
+.ep-daterange { font-size: 13px; color: var(--text-muted); white-space: nowrap; }
 .ep-stats { font-size: 13px; color: var(--text-muted); margin: 2px 0 10px; }
 .ep-openperson {
     display: block; width: 100%; text-align: center; margin: 4px 0 8px; min-height: 44px;
@@ -480,13 +477,10 @@ function renderEntityPopover(data) {
     const hue = entityHue(slug);
     const color = `hsl(${hue} 70% 66%)`;
 
-    let meta = '';
-    if (p && p.tags && p.tags.length) {
-        meta += p.tags.map(t => `<span class="ep-tag">#${epEsc(t)}</span>`).join('');
-    }
+    // Known-since range rides the name line; no tags in the popup.
+    let range = '';
     if (stats.first_date && stats.last_date) {
-        meta += (meta ? ' &middot; ' : '') +
-            `<span class="ep-daterange">${monthYear(stats.first_date)} &ndash; ${monthYear(stats.last_date)}</span>`;
+        range = `<span class="ep-daterange">${monthYear(stats.first_date)} &ndash; ${monthYear(stats.last_date)}</span>`;
     }
 
     // Facts card: the four seed fields always render ('—' when unfilled, as a
@@ -542,9 +536,9 @@ function renderEntityPopover(data) {
         <div class="ep-sticky">
             <div class="ep-head">
                 <span class="ep-name" style="color:${color}">${epEsc(data.name)}</span>
+                ${range}
                 <button class="ep-close" onclick="closeEntityPopover()" aria-label="Close">&times;</button>
             </div>
-            ${meta ? `<div class="ep-meta">${meta}</div>` : ''}
         </div>
         <div class="ep-body">
             ${factsHtml}
