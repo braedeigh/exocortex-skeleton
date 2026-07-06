@@ -34,6 +34,7 @@ const TAB_ENDPOINTS = {
     money: '/api/data/money',
     car: '/api/data/car',
     housing: '/api/data/housing',
+    people: '/api/data/people',
     meditation: '/api/data/meditation',
     media: '/api/data/media',
     movement: '/api/data/movement',
@@ -69,6 +70,8 @@ function initTab() {
     if (ideasEl) ideasEl.style.display = currentTab === 'ideas' ? '' : 'none';
     const ecoEl = document.getElementById('tab-ecosystem');
     if (ecoEl) ecoEl.style.display = currentTab === 'ecosystem' ? '' : 'none';
+    const peopleEl = document.getElementById('tab-people');
+    if (peopleEl) peopleEl.style.display = currentTab === 'people' ? '' : 'none';
 
     // Inside inventory: show list OR item detail based on data-item-name
     const itemName = document.body.dataset.itemName || '';
@@ -334,6 +337,9 @@ function render() {
             ],
             ecosystem: [
                 renderHeader, renderEcosystem, renderDevNotes, restoreEditModes
+            ],
+            people: [
+                renderHeader, renderPeopleTab, renderDevNotes, restoreEditModes
             ],
         };
     }

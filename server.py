@@ -265,7 +265,7 @@ def api_change_password():
     return jsonify({"ok": True})
 
 
-VALID_TABS = ("today", "map", "kitchen", "inventory", "money", "car", "meditation", "media", "movement", "body", "ideas", "ecosystem", "housing")
+VALID_TABS = ("today", "map", "kitchen", "inventory", "money", "car", "meditation", "media", "movement", "body", "ideas", "ecosystem", "housing", "people")
 
 # Path to the file that backs the public homepage fake-terminal intro.
 PUBLIC_INTRO_PATH = CONTENT_DIR / "public_intro.md"
@@ -342,6 +342,7 @@ _SPLIT_PAGES = [
     ("/ideas", "ideas"),
     ("/ecosystem", "ecosystem"),
     ("/housing", "housing"),
+    ("/people", "people"),
 ]
 
 
@@ -872,6 +873,21 @@ def get_data_housing():
     return jsonify(filter_for_view(data, request.view_mode))
   except Exception as e:
     app.logger.error(f"/api/data/housing failed: {e}\n{traceback.format_exc()}")
+    return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/data/people")
+def get_data_people():
+  try:
+    # The roster itself comes from /api/people/roster (fetched by people.js);
+    # this is just the shared dashboard chrome the tab renderers expect.
+    data = _common_data()
+    data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("people", [])
+    data["idea_notes"] = _load_idea_notes().get("tabs", {}).get("people", [])
+    data["tab_todos"] = todos_for_tab("people")
+    return jsonify(filter_for_view(data, request.view_mode))
+  except Exception as e:
+    app.logger.error(f"/api/data/people failed: {e}\n{traceback.format_exc()}")
     return jsonify({"error": str(e)}), 500
 
 

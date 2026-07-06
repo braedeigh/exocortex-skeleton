@@ -1604,3 +1604,70 @@ details.card-section > summary > span[style*="color:var(--text-muted)"] {
 @media (hover: none) {
     .card.editing .drag-handle { display: none; }
 }
+
+/* ===== People tab (formerly the standalone /people page) =====
+   Ported from the old templates/people.html, which hardcoded a dark palette.
+   Everything below reads the dashboard's live theme vars (set by sky-theme.js)
+   instead, and is scoped under #tab-people so its class names (.chip, .p-tag,
+   .tier-title, etc.) can't leak onto / collide with anything else. Two vars the
+   standalone page had that the dashboard doesn't (--accent-light, --hm-empty)
+   are recreated here as tab-scoped custom properties derived from --accent /
+   --text, so they stay translucent over whatever sits underneath in any theme. */
+#tab-people {
+    --ppl-accent-light: color-mix(in srgb, var(--accent) 15%, transparent);
+    --ppl-hm-empty: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+#tab-people .people-controls-row {
+    display: flex; gap: 8px; overflow-x: auto; padding: 4px 0 12px;
+    border-bottom: 1px solid var(--border); -webkit-overflow-scrolling: touch;
+    margin-bottom: 4px;
+}
+#tab-people .chip {
+    flex-shrink: 0; display: inline-flex; align-items: center; min-height: 40px;
+    padding: 0 14px; border-radius: 999px; border: 1px solid var(--border);
+    background: var(--card-bg); color: var(--text); font-size: 13px; font-weight: 600;
+    cursor: pointer; white-space: nowrap; font-family: inherit;
+}
+#tab-people .chip.sort-chip { color: var(--accent); border-color: var(--accent); background: var(--ppl-accent-light); }
+#tab-people .chip.tag-chip.active { color: #fff; background: var(--accent); border-color: var(--accent); }
+#tab-people .chip-sep { flex-shrink: 0; width: 1px; background: var(--border); margin: 6px 2px; }
+
+#tab-people #people-loading { padding: 24px 0; color: var(--text-muted); font-size: 14px; }
+#tab-people #people-list { padding-top: 8px; }
+
+#tab-people .tier-title {
+    font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+    color: var(--text-muted); margin: 18px 0 8px;
+}
+#tab-people .tier-title:first-child { margin-top: 12px; }
+
+#tab-people .p-row-item {
+    display: block; width: 100%; text-align: left; background: var(--card-bg);
+    border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px;
+    margin-bottom: 8px; color: var(--text); cursor: pointer; font-family: inherit;
+    min-height: 56px;
+}
+#tab-people .p-row-item:hover { border-color: var(--accent); }
+#tab-people .pr-line1 { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+#tab-people .pr-name { font-size: 16px; font-weight: 600; color: var(--text); }
+#tab-people .pr-lastseen { font-size: 13px; color: var(--text-muted); flex-shrink: 0; white-space: nowrap; }
+#tab-people .pr-blurb {
+    margin-top: 3px; font-size: 14px; color: var(--text-muted);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#tab-people .pr-empty { font-size: 13px; color: var(--text-muted); font-style: italic; padding: 12px 0; }
+
+/* Expanded content */
+#tab-people .pr-expanded { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); cursor: default; }
+#tab-people .pr-stats { font-size: 13px; color: var(--text-muted); margin-bottom: 8px; }
+#tab-people .pr-spark { width: 100%; height: 36px; display: block; margin-bottom: 10px; }
+#tab-people .p-tag { font-size: 12px; padding: 3px 9px; border-radius: 999px; background: var(--ppl-accent-light); color: var(--accent); font-weight: 600; margin: 0 6px 6px 0; display: inline-block; }
+#tab-people .pr-note { font-size: 13px; color: var(--text-muted); line-height: 1.5; margin-bottom: 10px; }
+#tab-people .p-btn {
+    display: inline-flex; align-items: center; justify-content: center; min-height: 40px;
+    padding: 0 16px; border: 1px solid var(--accent); border-radius: 10px;
+    background: var(--ppl-accent-light); color: var(--accent); font-size: 14px; font-weight: 600;
+    cursor: pointer; text-decoration: none;
+}
+#tab-people .p-btn:hover { background: var(--accent); color: #fff; }

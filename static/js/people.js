@@ -1,11 +1,17 @@
-// people.js — the /people roster page: a browsable, filterable, sortable list
-// over the same Person dicts the deep /person/<slug> page uses, fed by the
-// lightweight /api/people/roster endpoint (no vault-wide mention scan — see
+// people.js — the People tab: a browsable, filterable, sortable list over the
+// same Person dicts the deep /person/<slug> page uses, fed by the lightweight
+// /api/people/roster endpoint (no vault-wide mention scan — see
 // routes/entities.py's people_roster()). All binning/sorting/filtering here is
 // client-side; the server just hands over each person's entry dates + latest note.
+//
+// Entry point is renderPeopleTab() (called from core.js's per-tab renderer
+// list, like every other tab): the first call fetches + caches the roster,
+// later calls (tab re-renders, sort/filter clicks) just re-render from PEOPLE.
 
 let PEOPLE = [];
 let ALL_TAGS = [];
+let _peopleFetched = false;
+let _peopleAuthFailed = false;
 
 const STATE = {
     sort: 'recent',       // 'recent' | 'most' | 'alpha'
@@ -85,18 +91,33 @@ function matchesTags(p, selected) {
     return tags.some(t => selected.has(t));
 }
 
-async function loadPeopleRoster() {
-    loadState();
-    try {
-        const resp = await fetch('/api/people/roster');
-        const data = await resp.json();
-        PEOPLE = data.people || [];
-    } catch (e) {
-        PEOPLE = [];
+// Tab entry point. First call: fetch the roster (or note that the fetch
+// failed — public mode gets a 401, no session) and cache it. Every later
+// call (tab switch back, sort/tag clicks) just re-renders from the cache.
+async function renderPeopleTab() {
+    if (!_peopleFetched) {
+        _peopleFetched = true;
+        loadState();
+        try {
+            const resp = await fetch('/api/people/roster');
+            if (resp.ok) {
+                const data = await resp.json();
+                PEOPLE = data.people || [];
+                _peopleAuthFailed = false;
+            } else {
+                PEOPLE = [];
+                _peopleAuthFailed = true;
+            }
+        } catch (e) {
+            PEOPLE = [];
+            _peopleAuthFailed = true;
+        }
+        ALL_TAGS = computeAllTags();
     }
-    ALL_TAGS = computeAllTags();
-    document.getElementById('loading').style.display = 'none';
-    document.getElementById('list').style.display = '';
+    const loadingEl = document.getElementById('people-loading');
+    const listEl = document.getElementById('people-list');
+    if (loadingEl) loadingEl.style.display = 'none';
+    if (listEl) listEl.style.display = '';
     renderControls();
     renderList();
 }
@@ -118,7 +139,9 @@ function toggleTag(tag) {
 }
 
 function renderControls() {
-    const el = document.getElementById('controlsRow');
+    const el = document.getElementById('people-controls-row');
+    if (!el) return;
+    if (_peopleAuthFailed) { el.innerHTML = ''; return; }
     let html = `<button class="chip sort-chip" id="sortChip">${pEsc(SORT_LABELS[STATE.sort])}</button>`;
     html += `<div class="chip-sep"></div>`;
     ALL_TAGS.forEach(t => {
@@ -155,7 +178,12 @@ function filteredSorted() {
 }
 
 function renderList() {
-    const el = document.getElementById('list');
+    const el = document.getElementById('people-list');
+    if (!el) return;
+    if (_peopleAuthFailed) {
+        el.innerHTML = '<div class="pr-empty">Sign in to see your people.</div>';
+        return;
+    }
     const list = filteredSorted();
     if (!list.length) {
         el.innerHTML = '<div class="pr-empty">No one matches these filters.</div>';
@@ -284,7 +312,7 @@ function sparklineSVG(dates, now) {
         const h = c ? Math.max(4, Math.round(maxBarH * (c / maxCount))) : stub;
         const x = i * (bw + gap);
         const y = H - h;
-        const fill = c ? 'var(--accent)' : 'var(--hm-empty)';
+        const fill = c ? 'var(--accent)' : 'var(--ppl-hm-empty)';
         const title = `${pEsc(monthKeyLabel(k))} — ${c} day${c === 1 ? '' : 's'}`;
         bars += `<path d="${roundedTopBarPath(x, y, bw, h, 2)}" fill="${fill}"><title>${title}</title></path>`;
     });
