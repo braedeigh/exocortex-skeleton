@@ -235,11 +235,24 @@ def find_mentions(terms, self_file=None, limit=200):
             if not hits:
                 continue
             seen.add(rel)
-            # First matching line, trimmed, as the snippet.
+            # Snippet: a window CENTERED on the first name hit, ellipsized on
+            # whichever sides get cut — "…text text Sally text text…" — so the
+            # popup's 2-line clamp always shows the name in context.
             snippet = ""
             for line in text.splitlines():
                 if word.search(line):
-                    snippet = line.strip().lstrip("#-* ").strip()
+                    line = line.strip().lstrip("#-* ").strip()
+                    m = word.search(line)
+                    if not m:
+                        snippet = line
+                        break
+                    start = max(0, m.start() - 90)
+                    end = min(len(line), m.end() + 90)
+                    snippet = line[start:end].strip()
+                    if start > 0:
+                        snippet = "…" + snippet
+                    if end < len(line):
+                        snippet += "…"
                     break
             dm = _DATE_IN_NAME.search(rel)
             out.append({

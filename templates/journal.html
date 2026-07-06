@@ -157,7 +157,11 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 }
 .ep-body { padding: 12px 16px 16px; }
 .ep-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-.ep-name { font-size: 19px; font-weight: 700; flex: 1; }
+.ep-name { font-size: 19px; font-weight: 700; flex-shrink: 0; }
+.ep-aliases {
+    flex: 1; min-width: 0; font-size: 13px; color: var(--text-muted); font-style: italic;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .ep-close {
     background: none; border: 1px solid var(--border); border-radius: 8px;
     width: 36px; height: 36px; font-size: 20px; color: var(--text); cursor: pointer; flex-shrink: 0;
@@ -165,7 +169,6 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .ep-close:hover { background: var(--bg); }
 .ep-blurb { font-size: 14px; line-height: 1.6; color: var(--text); margin-bottom: 12px; }
 .ep-daterange { font-size: 13px; color: var(--text-muted); white-space: nowrap; }
-.ep-stats { font-size: 13px; color: var(--text-muted); margin: 2px 0 10px; }
 .ep-openperson {
     display: block; width: 100%; text-align: center; margin: 4px 0 8px; min-height: 44px;
     background: var(--accent); border: none; border-radius: 10px;
@@ -178,7 +181,10 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 }
 .ep-row:hover { border-color: var(--accent); }
 .ep-date { font-size: 13px; font-weight: 600; color: var(--accent); }
-.ep-snip { display: block; font-size: 13px; color: var(--text-muted); margin-top: 2px; line-height: 1.45; }
+.ep-snip {
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden; font-size: 13px; color: var(--text-muted); margin-top: 2px; line-height: 1.45;
+}
 .ep-empty { font-size: 13px; color: var(--text-muted); font-style: italic; }
 /* Facts in entity popover */
 .ep-facts { margin-bottom: 8px; }
@@ -187,11 +193,6 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .ep-fact-label { font-weight: 600; color: var(--text-muted); }
 .ep-fact-val { color: var(--text); }
 .ep-fact-empty { color: var(--text-muted); opacity: 0.55; }
-.ep-openfile {
-    display: block; width: 100%; text-align: center; margin: 0; min-height: 40px;
-    background: var(--accent-light); border: 1px solid var(--accent); border-radius: 10px;
-    color: var(--accent); font-size: 14px; font-weight: 600; cursor: pointer;
-}
 
 .save-status {
     padding: 6px 0; font-size: 12px; color: var(--text-muted); text-align: right; flex-shrink: 0; min-height: 24px;
@@ -467,9 +468,10 @@ function monthYear(dateStr) {
     return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
 }
 
-// A facts card: name/tags/date-range, the fact fields (seeds always shown,
-// '—' when unfilled; edit them on the person page), then the 5 most recent
-// mentions. No prose here — the impression/blurbs live on the person page.
+// A facts card sized to fit WITHOUT scrolling: name + aliases + known-since
+// range on one line, the fact fields (seeds always shown, '—' when unfilled;
+// edit them on the person page), 3 recent mentions as 2-line name-centered
+// snippets, and the person-page button. Everything else lives on the page.
 function renderEntityPopover(data) {
     const p = data.person;
     const stats = data.stats || {};
@@ -477,7 +479,11 @@ function renderEntityPopover(data) {
     const hue = entityHue(slug);
     const color = `hsl(${hue} 70% 66%)`;
 
-    // Known-since range rides the name line; no tags in the popup.
+    // Name line: aliases right next to the name, known-since range after; no tags.
+    let aliases = '';
+    if (p && p.aliases && p.aliases.length) {
+        aliases = `<span class="ep-aliases">${epEsc(p.aliases.join(', '))}</span>`;
+    }
     let range = '';
     if (stats.first_date && stats.last_date) {
         range = `<span class="ep-daterange">${monthYear(stats.first_date)} &ndash; ${monthYear(stats.last_date)}</span>`;
@@ -506,12 +512,9 @@ function renderEntityPopover(data) {
     }
 
     let body = '';
-    if (stats.total) {
-        body += `<div class="ep-stats">mentioned ${stats.total}&times; across ${stats.days || 0} day${stats.days === 1 ? '' : 's'}</div>`;
-    }
-
-    // The 5 most recent mentions — journal dates jump in-app, others open in keeper.
-    for (const m of (data.mentions || []).slice(0, 5)) {
+    // The 3 most recent mentions, 2-line clamped, name-centered snippets —
+    // journal dates jump in-app, others open in keeper.
+    for (const m of (data.mentions || []).slice(0, 3)) {
         const nav = (m.file && m.file.startsWith('Journal/Daily/') && m.date)
             ? `journal:${m.date}` : `keeper:${epEsc(m.file || '')}`;
         body += `<button class="ep-row" data-nav="${nav}">
@@ -520,8 +523,8 @@ function renderEntityPopover(data) {
         </button>`;
     }
 
-    if (!body && !stats.total) {
-        body += `<div class="ep-empty">No references recorded yet.</div>`;
+    if (!body) {
+        body = `<div class="ep-empty">No references recorded yet.</div>`;
     }
     if (!p) {
         body += `<div class="ep-empty">No file yet.</div>`;
@@ -529,13 +532,12 @@ function renderEntityPopover(data) {
 
     const openPersonBtn = p
         ? `<button class="ep-openperson" onclick="location.href='/person/${epEsc(p.id)}'">Open person page &rarr;</button>` : '';
-    const openFileBtn = (p && p.file)
-        ? `<button class="ep-openfile" data-nav="keeper:${epEsc(p.file)}">Open full file &rarr;</button>` : '';
 
     entityPop.innerHTML = `
         <div class="ep-sticky">
             <div class="ep-head">
                 <span class="ep-name" style="color:${color}">${epEsc(data.name)}</span>
+                ${aliases}
                 ${range}
                 <button class="ep-close" onclick="closeEntityPopover()" aria-label="Close">&times;</button>
             </div>
@@ -544,7 +546,6 @@ function renderEntityPopover(data) {
             ${factsHtml}
             ${body}
             ${openPersonBtn}
-            ${openFileBtn}
         </div>`;
 }
 
