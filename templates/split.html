@@ -498,7 +498,7 @@ body.public-mode #mobileSettings {
 </style>
 </head>
 <body class="{{ 'public-mode' if view_mode == 'public' else '' }}" data-view-mode="{{ view_mode }}">
-<script>window.VIEW_MODE = "{{ view_mode }}";</script>
+<script>window.VIEW_MODE = "{{ view_mode }}"; window.ACTIVE_VIEW = "{{ active_view }}";</script>
 <script src="{{ v_static('js/mini-notes.js') }}"></script>
 
 <!-- Desktop: side-by-side -->
@@ -817,15 +817,23 @@ async function initSessions() {
 }
 
 // === Dashboard view switcher (Dashboard / Journal / Files / Settings) ===
-function switchDashView(view, btn) {
+// `skipPush` is set when the popstate handler (or initial-load activation) is
+// driving this — the URL is already correct, so we must not push a new entry,
+// and re-click affordances (which are only meaningful for a real click) are
+// skipped too.
+function switchDashView(view, btn, skipPush) {
     // Re-click Dashboard while it's already the active view → jump to the To Do
     // sub-tab inside the iframe. (No-op if the iframe is already on /tab/today.)
-    if (view === 'dashboard' && btn && btn.classList.contains('active')) {
+    if (view === 'dashboard' && !skipPush && btn && btn.classList.contains('active')) {
         const f = document.getElementById('dashboardFrame');
         if (f) {
             let cur = '';
             try { cur = f.contentWindow.location.pathname; } catch (e) {}
             if (cur !== '/tab/today') f.src = '/tab/today';
+        }
+        currentDashTab = 'today';
+        if (location.pathname !== '/dashboard/today') {
+            history.pushState({ tab: 'today' }, '', '/dashboard/today');
         }
         return;
     }
@@ -838,9 +846,19 @@ function switchDashView(view, btn) {
     document.getElementById('filesFrame').style.display = view === 'files' ? 'block' : 'none';
     const sf = document.getElementById('settingsFrame');
     sf.style.display = view === 'settings' ? 'block' : 'none';
-    if (view === 'settings' && !sf.src) sf.src = '/settings';
+    if (view === 'settings' && !sf.src) sf.src = '/settings-view';
     document.querySelectorAll('#desktopDashBar button').forEach(b => b.classList.remove('active'));
     if (btn) btn.classList.add('active');
+
+    if (!skipPush) {
+        const targetPath = view === 'journal' ? '/journal'
+            : view === 'files' ? '/files'
+            : view === 'settings' ? '/settings'
+            : (TAB_PATHS[currentDashTab] || '/dashboard/today');
+        if (location.pathname !== targetPath) {
+            history.pushState({ view: view }, '', targetPath);
+        }
+    }
 }
 
 // Callable from child iframes (dashboard / journal / files) to switch the
@@ -985,10 +1003,12 @@ document.addEventListener('paste', (e) => {
 const sessionMenu = document.getElementById('sessionMenu');
 const termTabBtn = document.getElementById('termTabBtn');
 
-function switchTab(tab) {
+// `skipPush` (see switchDashView) — driven by popstate/initial-load, URL is
+// already correct, don't push and skip the re-tap affordances.
+function switchTab(tab, skipPush) {
     if (tab === 'terminal') {
         const isAlreadyActive = termTabBtn.classList.contains('active');
-        if (isAlreadyActive) {
+        if (isAlreadyActive && !skipPush) {
             const opening = !sessionMenu.classList.contains('open');
             sessionMenu.classList.toggle('open');
             termTabBtn.classList.toggle('menu-open', opening);
@@ -996,7 +1016,7 @@ function switchTab(tab) {
         }
     }
     // Re-tap mobile Dashboard while it's already active → jump to To Do inside.
-    if (tab === 'dashboard') {
+    if (tab === 'dashboard' && !skipPush) {
         const dashBtn = document.querySelector('.tab-btn[data-tab="dashboard"]');
         if (dashBtn && dashBtn.classList.contains('active')) {
             const f = document.getElementById('mobileDashboardFrame');
@@ -1004,6 +1024,10 @@ function switchTab(tab) {
                 let cur = '';
                 try { cur = f.contentWindow.location.pathname; } catch (e) {}
                 if (cur !== '/tab/today') f.src = '/tab/today';
+            }
+            currentDashTab = 'today';
+            if (location.pathname !== '/dashboard/today') {
+                history.pushState({ tab: 'today' }, '', '/dashboard/today');
             }
             return;
         }
@@ -1028,13 +1052,24 @@ function switchTab(tab) {
     }
     if (tab === 'settings') {
         const sf = document.getElementById('mobileSettingsFrame');
-        if (sf && !sf.src) sf.src = '/settings';
+        if (sf && !sf.src) sf.src = '/settings-view';
     }
 
     // Tell iframes whether they're active so they can manage focus
     const termFrame = document.getElementById('mobileTerminalFrame');
     if (termFrame && termFrame.contentWindow) {
         termFrame.contentWindow.postMessage({ type: 'tabActive', active: tab === 'terminal' }, '*');
+    }
+
+    // Terminal never gets a URL of its own — leave the address bar as-is.
+    if (!skipPush && tab !== 'terminal') {
+        const targetPath = tab === 'journal' ? '/journal'
+            : tab === 'files' ? '/files'
+            : tab === 'settings' ? '/settings'
+            : (TAB_PATHS[currentDashTab] || '/dashboard/today');
+        if (location.pathname !== targetPath) {
+            history.pushState({ tab: tab }, '', targetPath);
+        }
     }
 }
 
@@ -1199,12 +1234,28 @@ divider.addEventListener('dblclick', () => {
 });
 
 // === Tab nav: keep URL in sync with the active dashboard tab without reloading the shell ===
-const TAB_PATHS = { today: '/', map: '/map', kitchen: '/kitchen', inventory: '/inventory', money: '/money', car: '/car-maintenance', housing: '/housing', meditation: '/meditation', media: '/media', movement: '/movement', body: '/body', ideas: '/ideas', ecosystem: '/ecosystem' };
+const KNOWN_TABS = ['today', 'map', 'kitchen', 'inventory', 'money', 'car', 'meditation', 'media', 'movement', 'body', 'ideas', 'ecosystem', 'housing', 'people'];
+
+// Canonical URL for each dashboard tab (routes/shell.py's /dashboard/<tab>).
+const TAB_PATHS = {};
+KNOWN_TABS.forEach(function (t) { TAB_PATHS[t] = t === 'today' ? '/dashboard/today' : '/dashboard/' + t; });
+
+// Pre-migration paths — still live (they 302 server-side), kept here only so a
+// stale history entry from before the migration still parses to the right tab.
+const LEGACY_TAB_PATHS = { map: '/map', kitchen: '/kitchen', inventory: '/inventory', money: '/money', car: '/car-maintenance', housing: '/housing', meditation: '/meditation', media: '/media', movement: '/movement', body: '/body', ideas: '/ideas', ecosystem: '/ecosystem', people: '/people' };
+
+// The dashboard tab currently loaded in the dashboard iframe(s) — tracked at the
+// shell level so switching to/from Journal/Files/Settings and back can restore
+// the right URL. Seeded from the tab the server rendered.
+let currentDashTab = "{{ active_tab }}";
 
 function tabFromPath(path) {
     if (path.startsWith('/item/buy/')) return 'inventory';
-    for (const k in TAB_PATHS) if (TAB_PATHS[k] === path) return k;
+    if (path === '/') return 'today';
     if (path === '/dashboard') return 'today';
+    const m = path.match(/^\/dashboard\/([^/]+)$/);
+    if (m) return KNOWN_TABS.includes(m[1]) ? m[1] : 'today';
+    for (const k in LEGACY_TAB_PATHS) if (LEGACY_TAB_PATHS[k] === path) return k;
     return 'today';
 }
 
@@ -1256,6 +1307,7 @@ window.addEventListener('message', (e) => {
     const name = e.data.name;
     const path = TAB_PATHS[name];
     if (!path) return;
+    currentDashTab = name;
     if (location.pathname !== path) {
         history.pushState({ tab: name }, '', path);
     }
@@ -1281,7 +1333,44 @@ window.addEventListener('message', async (e) => {
 });
 
 window.addEventListener('popstate', () => {
-    broadcastSwitchTo(tabFromPath(location.pathname));
+    const path = location.pathname;
+    const isMobile = window.matchMedia('(max-width: 768px)').matches;
+    if (path === '/journal' || path === '/files' || path === '/settings') {
+        const view = path.slice(1);
+        if (isMobile) {
+            switchTab(view, true);
+        } else {
+            const btn = document.querySelector('#desktopDashBar [data-dashview="' + view + '"]');
+            switchDashView(view, btn, true);
+        }
+        return;
+    }
+    const tab = tabFromPath(path);
+    currentDashTab = tab;
+    if (isMobile) {
+        switchTab('dashboard', true);
+    } else {
+        const btn = document.querySelector('#desktopDashBar [data-dashview="dashboard"]');
+        switchDashView('dashboard', btn, true);
+    }
+    broadcastSwitchTo(tab);
+});
+
+// === Initial-view activation: if the server rendered this page with a
+// non-dashboard view active (i.e. /journal, /files, /settings), flip to it on
+// load — reusing switchDashView/switchTab so the lazy iframe-src logic runs.
+// The URL is already correct, so this must never push state. Mobile's default
+// pane is Terminal for '/', which we leave alone (ACTIVE_VIEW is 'dashboard'
+// there, so this block is a no-op). ===
+document.addEventListener('DOMContentLoaded', () => {
+    if (!window.ACTIVE_VIEW || window.ACTIVE_VIEW === 'dashboard') return;
+    const isMobile = window.matchMedia('(max-width: 768px)').matches;
+    if (isMobile) {
+        switchTab(window.ACTIVE_VIEW, true);
+    } else {
+        const btn = document.querySelector('#desktopDashBar [data-dashview="' + window.ACTIVE_VIEW + '"]');
+        switchDashView(window.ACTIVE_VIEW, btn, true);
+    }
 });
 
 // === Close VS Code from the Files tab ===

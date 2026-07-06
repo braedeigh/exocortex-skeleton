@@ -21,8 +21,9 @@ from routes import (
     kitchen, habits, todos, places, health, inventory, money, car,
     meditation, media, movement, reminders, food_test, terminal, settings,
     devnotes, ideas, ecosystem, keeper, pending, housing, triage, decisions,
-    entities, person,
+    entities, person, shell,
 )
+from routes.shell import VALID_TABS
 
 app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
@@ -265,138 +266,6 @@ def api_change_password():
     return jsonify({"ok": True})
 
 
-VALID_TABS = ("today", "map", "kitchen", "inventory", "money", "car", "meditation", "media", "movement", "body", "ideas", "ecosystem", "housing", "people")
-
-# Path to the file that backs the public homepage fake-terminal intro.
-PUBLIC_INTRO_PATH = CONTENT_DIR / "public_intro.md"
-
-
-def _render_inline(s):
-    """Escape HTML and convert `code` spans into cc-file styling."""
-    import html as _html
-    import re as _re
-    s = _html.escape(s)
-    return _re.sub(r"`([^`]+)`", r'<span class="cc-file">\1</span>', s)
-
-
-def _load_public_intro_html():
-    """Read tulku/public_intro.md and render it to HTML for the fake terminal.
-
-    Conventions:
-      - Paragraphs separated by blank lines.
-      - A paragraph whose lines all start with ⎿ becomes a block of `cc-tool` lines.
-      - A single-line paragraph wrapped in _..._ becomes a dim italic intro (`cc-p cc-dim`).
-      - Everything else is a normal `cc-p` paragraph.
-    You edit the .md file directly; template auto-reload picks it up.
-    """
-    if not PUBLIC_INTRO_PATH.exists():
-        return ""
-    text = PUBLIC_INTRO_PATH.read_text().strip()
-    blocks = []
-    for para in text.split("\n\n"):
-        para = para.strip()
-        if not para:
-            continue
-        lines = [ln for ln in para.split("\n") if ln.strip()]
-        if lines and all(ln.strip().startswith("⎿") for ln in lines):
-            rendered = []
-            for ln in lines:
-                body = _render_inline(ln.strip()[1:].lstrip())
-                rendered.append(f'<div class="cc-tool">⎿  {body}</div>')
-            blocks.append("\n".join(rendered))
-        elif len(lines) == 1 and lines[0].startswith("_") and lines[0].endswith("_"):
-            body = _render_inline(lines[0][1:-1])
-            blocks.append(f'<p class="cc-p cc-dim">{body}</p>')
-        else:
-            body = _render_inline(" ".join(lines))
-            blocks.append(f'<p class="cc-p">{body}</p>')
-    return "\n".join(blocks)
-
-
-def _split_response(active_tab, item_name=""):
-    public_intro_html = _load_public_intro_html() if request.view_mode == "public" else ""
-    resp = app.make_response(render_template(
-        "split.html",
-        active_tab=active_tab,
-        item_name=item_name,
-        public_intro_html=public_intro_html,
-    ))
-    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-    return resp
-
-
-# Page shells — each URL renders split.html with the right active tab.
-# The URL path can differ from the tab key (e.g. /car-maintenance → "car"),
-# and a tab can answer to several paths (today is both / and /dashboard).
-_SPLIT_PAGES = [
-    (("/", "/dashboard"), "today"),
-    ("/map", "map"),
-    ("/kitchen", "kitchen"),
-    ("/inventory", "inventory"),
-    ("/money", "money"),
-    ("/car-maintenance", "car"),
-    ("/meditation", "meditation"),
-    ("/media", "media"),
-    ("/movement", "movement"),
-    ("/body", "body"),
-    ("/ideas", "ideas"),
-    ("/ecosystem", "ecosystem"),
-    ("/housing", "housing"),
-    ("/people", "people"),
-]
-
-
-def _make_split_page(tab):
-    def view():
-        return _split_response(tab)
-    return view
-
-
-for _rules, _tab in _SPLIT_PAGES:
-    _view = _make_split_page(_tab)
-    for _rule in ((_rules,) if isinstance(_rules, str) else _rules):
-        app.add_url_rule(_rule, endpoint=f"split_{_tab}", view_func=_view)
-
-
-@app.route("/personality")
-def personality_page():
-    return render_template("personality.html")
-
-
-@app.route("/settings")
-def settings_page():
-    return render_template("settings.html")
-
-
-@app.route("/item/buy/<path:name>")
-def split_item_buy(name):
-    return _split_response("inventory", item_name=name)
-
-
-@app.route("/tab/<name>")
-def tab_view(name):
-    """Iframe content endpoint — renders index.html for the given tab."""
-    if name not in VALID_TABS:
-        return redirect("/")
-    item_name = request.args.get("item", "")
-    resp = app.make_response(render_template("index.html", active_tab=name, item_name=item_name))
-    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-    return resp
-
-
-@app.route("/about")
-def about_page():
-    return render_template("about.html")
-
-
-@app.route("/food-map")
-def food_map_page():
-    """Standalone, shareable food-sourcing map — no dashboard chrome. Public; the
-    map renders read-only for visitors (no Add/Edit/Delete) and pulls its data
-    from the public /api/data/ecosystem stream."""
-    return render_template("food_map.html")
-
-
 # --- Dev Notes + Idea Notes (per-tab panels) — routes live in routes/devnotes.py ---
 
 _load_dev_notes = devnotes.load_dev_notes
@@ -404,16 +273,6 @@ _load_idea_notes = devnotes.load_idea_notes
 
 
 # --- Journal ---
-
-@app.route("/journal-view")
-def journal_view():
-    return render_template("journal.html")
-
-
-@app.route("/keeper")
-def keeper_page():
-    return render_template("keeper.html")
-
 
 @app.route("/api/journal/dates")
 def journal_dates():
@@ -1208,6 +1067,7 @@ def vscode_stop():
 
 
 # --- Register route modules ---
+shell.register(app)
 kitchen.register(app)
 habits.register(app)
 todos.register(app)

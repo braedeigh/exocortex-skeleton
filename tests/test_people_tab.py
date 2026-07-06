@@ -1,10 +1,10 @@
 """The People roster moved from a standalone page (`/people` rendering
-templates/people.html directly) to a proper dashboard tab: `/people` is now
-one of server.py's `_SPLIT_PAGES` (the split.html shell, iframing
-`/tab/people` -> index.html with the tab-people div), same as `/housing`.
-Uses the real server app (the split/tab machinery lives there, not in a
-blueprint) against an isolated temp data dir — mirrors
-test_recipe_sourcing_payload.py's authed_client pattern.
+templates/people.html directly) to a proper dashboard tab: `/people` is now a
+legacy path that 302-redirects to `/dashboard/people` (routes/shell.py), which
+renders the split.html shell iframing `/tab/people` -> index.html with the
+tab-people div, same as `/housing`. Uses the real server app (the split/tab
+machinery lives there, not in a blueprint) against an isolated temp data dir —
+mirrors test_recipe_sourcing_payload.py's authed_client pattern.
 """
 import pytest
 
@@ -23,8 +23,14 @@ def test_people_is_a_valid_tab():
     assert "people" in server.VALID_TABS
 
 
-def test_people_page_renders_the_split_shell(authed_client):
+def test_people_legacy_path_redirects_to_dashboard_tab(authed_client):
     resp = authed_client.get("/people")
+    assert resp.status_code == 302
+    assert resp.headers["Location"] == "/dashboard/people"
+
+
+def test_dashboard_people_renders_the_split_shell(authed_client):
+    resp = authed_client.get("/dashboard/people")
     assert resp.status_code == 200
     assert b'src="/tab/people"' in resp.data
 
