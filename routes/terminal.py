@@ -152,7 +152,13 @@ def register(app):
             if data.get("enter"):
                 _tmux(f"send-keys -t {sess} Enter")
         elif "key" in data:
-            _tmux(f"send-keys -t {sess} {data['key']}")
+            # Allowlist: tmux key names only (Enter, Escape, C-c, M-Up, F5, DC…).
+            # This string is interpolated into a shell=True command — anything
+            # outside [A-Za-z0-9_-] would be a command-injection vector.
+            key = str(data["key"])
+            if not re.fullmatch(r"[A-Za-z0-9_-]{1,20}", key):
+                return jsonify({"error": "invalid key"}), 400
+            _tmux(f"send-keys -t {sess} {key}")
         return jsonify({"ok": True})
 
     @app.route("/api/terminal/capture")
