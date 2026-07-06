@@ -76,6 +76,30 @@ def log_request(response):
         access_logger.info(f"{request.method} {request.path} → {response.status_code}")
     return response
 
+
+# The dashboard polls /api/version + /api/data/<tab> every 5s (static/js/polling.js)
+# and again on every visibilitychange, re-downloading the full JSON payload (up to
+# ~1.5MB) even when nothing changed. Turn those endpoints into conditional GETs: tag
+# the response with an ETag of its body, and let Werkzeug turn a matching
+# If-None-Match into a bodyless 304. fetch() handles the revalidation transparently
+# (a 304 is served to JS as a normal 200 from the HTTP cache) — no frontend change
+# needed. Cache-Control: no-cache forces revalidation every time rather than letting
+# the browser skip the request altogether (data can change server-side).
+def add_conditional_cache(response):
+    if request.method != 'GET' or response.status_code != 200:
+        return response
+    if not (request.path.startswith('/api/data') or request.path == '/api/version'):
+        return response
+    if response.direct_passthrough:
+        return response
+    response.add_etag()
+    response.cache_control.no_cache = True
+    response.cache_control.private = True
+    return response.make_conditional(request)
+
+
+app.after_request(add_conditional_cache)
+
 # Cache-busting
 @app.context_processor
 def static_versioning():

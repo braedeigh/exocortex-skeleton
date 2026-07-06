@@ -68,6 +68,7 @@ async function pollForUpdates() {
             }
         }
     } catch(e) { console.error('Poll failed:', e); }
+    finally { window._lastPollAt = Date.now(); }
 }
 setInterval(pollForUpdates, 5000);
 
@@ -75,8 +76,14 @@ setInterval(pollForUpdates, 5000);
 // _serverDate can be stale — setInterval is throttled while hidden, so no poll ran and
 // the date is frozen at whenever the app last loaded. A stale date silently logs
 // "today's" symptoms/food to yesterday. Re-sync from the server the moment we're visible.
+// Debounced: if a poll already landed within the last 4s, _serverDate can't be
+// stale yet, so skip the extra fetch — this is what saves the redundant refetch
+// on quick tab-switches/focus blips without reintroducing the staleness bug.
 document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') loadDashboard();
+    if (document.visibilityState !== 'visible') return;
+    if (window._lastPollAt && Date.now() - window._lastPollAt <= 4000) return;
+    loadDashboard();
+    window._lastPollAt = Date.now();
 });
 
 // --- Go ---
