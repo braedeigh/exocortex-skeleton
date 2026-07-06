@@ -40,6 +40,10 @@ RECIPES_DIR = Path(os.environ.get("EXOCORTEX_RECIPES_DIR", DATA_DIR / "recipes")
 # this folder (its CLAUDE.md is the skill). Defaults to a `triage/` at the
 # deployment root (sibling of the data dir), next to recipes/; override via env.
 TRIAGE_DIR = Path(os.environ.get("EXOCORTEX_TRIAGE_DIR", DATA_DIR.parent / "triage"))
+# Person pages: the "regenerate impression" button opens a Claude session here
+# (its CLAUDE.md is the skill) to draft a person's ## Impression with her, live.
+# Same idea as TRIAGE_DIR — sibling of the data dir, override via env.
+PERSON_SKILL_DIR = Path(os.environ.get("EXOCORTEX_PERSON_DIR", DATA_DIR.parent / "person-summary"))
 # The ideas/vision doc that "send to ideas" (dev notes) appends to. Defaults
 # inside the content store; point it at an existing ideas doc via env.
 IDEAS_FILE = Path(os.environ.get("EXOCORTEX_IDEAS_FILE", CONTENT_DIR / "IDEAS.md"))

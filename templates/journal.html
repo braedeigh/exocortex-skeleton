@@ -150,7 +150,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
     box-shadow: 0 12px 40px rgba(0,0,0,0.5); padding: 0;
 }
 .entity-pop.open { display: block; }
-/* Sticky header: name + "Open full file" stay pinned as the list scrolls under them. */
+/* Sticky header: name stays pinned if the (now short) body ever needs to scroll. */
 .ep-sticky {
     position: sticky; top: 0; z-index: 2; background: var(--card-bg);
     padding: 14px 16px 12px; border-bottom: 1px solid var(--border);
@@ -166,9 +166,14 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .ep-blurb { font-size: 14px; line-height: 1.6; color: var(--text); margin-bottom: 12px; }
 .ep-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
 .ep-tag { font-size: 12px; padding: 3px 9px; border-radius: 999px; background: var(--accent-light); color: var(--accent); font-weight: 600; }
-.ep-aliases { font-size: 12px; color: var(--text-muted); font-style: italic; margin-bottom: 10px; }
-.ep-section { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
-    color: var(--text-muted); margin: 14px 0 6px; }
+.ep-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; font-size: 13px; color: var(--text-muted); }
+.ep-daterange { font-size: 13px; color: var(--text-muted); }
+.ep-stats { font-size: 13px; color: var(--text-muted); margin: 2px 0 10px; }
+.ep-openperson {
+    display: block; width: 100%; text-align: center; margin: 4px 0 8px; min-height: 44px;
+    background: var(--accent); border: none; border-radius: 10px;
+    color: #fff; font-size: 15px; font-weight: 700; cursor: pointer;
+}
 .ep-row {
     display: block; width: 100%; text-align: left; background: var(--bg);
     border: 1px solid var(--border); border-radius: 10px; padding: 9px 11px; margin-bottom: 6px;
@@ -176,9 +181,14 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 }
 .ep-row:hover { border-color: var(--accent); }
 .ep-date { font-size: 13px; font-weight: 600; color: var(--accent); }
-.ep-note { font-size: 13px; color: var(--text); }
 .ep-snip { display: block; font-size: 13px; color: var(--text-muted); margin-top: 2px; line-height: 1.45; }
 .ep-empty { font-size: 13px; color: var(--text-muted); font-style: italic; }
+/* Facts in entity popover */
+.ep-facts { margin-bottom: 8px; }
+.ep-fact-row { display: grid; grid-template-columns: 90px 1fr; gap: 8px; padding: 4px 0; font-size: 13px; }
+.ep-fact-row:not(:last-child) { border-bottom: 1px solid var(--border); }
+.ep-fact-label { font-weight: 600; color: var(--text-muted); }
+.ep-fact-val { color: var(--text); }
 .ep-openfile {
     display: block; width: 100%; text-align: center; margin: 0; min-height: 40px;
     background: var(--accent-light); border: 1px solid var(--accent); border-radius: 10px;
@@ -237,6 +247,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 
 <script>window.THEME_OVERRIDES = {{ theme_overrides_json|safe }};</script>
 <script src="/static/js/sky-theme.js"></script>
+<script src="{{ v_static('js/md.js') }}"></script>
 <script src="{{ v_static('js/mini-notes.js') }}"></script>
 <script>
 let currentDate = null;
@@ -258,12 +269,7 @@ const _entityPath = new Map();        // person slug -> people-file path
 const _matchToSlug = new Map();       // matched term (name/alias, lowercased) -> slug
 let _popoverKey = null;               // whose popover is open (for find-on-jump)
 
-// Deterministic hue per name so each person keeps the same color everywhere.
-function entityHue(name) {
-    let h = 0;
-    for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % 360;
-    return h;
-}
+// entityHue() and mdToHtml() now live in md.js (shared with person.html).
 
 function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
@@ -423,24 +429,9 @@ function setMode(mode) {
 }
 
 function renderPreview() {
-    let md = editor.value;
+    const md = editor.value;
     if (!md.trim()) { preview.innerHTML = '<p style="color:var(--text-muted);font-style:italic">No entry for this day.</p>'; return; }
-    md = md.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    md = md.replace(/^### (.+)$/gm, '<h3>$1</h3>');
-    md = md.replace(/^## (.+)$/gm, '<h2>$1</h2>');
-    md = md.replace(/^# (.+)$/gm, '<h1>$1</h1>');
-    md = md.replace(/^---+$/gm, '<hr>');
-    md = md.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-    md = md.replace(/\*(.+?)\*/g, '<em>$1</em>');
-    md = md.replace(/`([^`]+)`/g, '<code>$1</code>');
-    md = md.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
-    md = md.replace(/^- (.+)$/gm, '<li>$1</li>');
-    md = md.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
-    md = md.replace(/\n\n/g, '</p><p>');
-    md = '<p>' + md + '</p>';
-    md = md.replace(/<p><(h[123]|hr|ul|blockquote)/g, '<$1');
-    md = md.replace(/<\/(h[123]|ul|blockquote)><\/p>/g, '</$1>');
-    preview.innerHTML = md;
+    preview.innerHTML = mdToHtml(md);
     highlightEntities();
 }
 
@@ -472,52 +463,76 @@ async function openEntityPopover(name) {
     }
 }
 
+// "Mon YYYY" — e.g. "Feb 2026" — for the popover/person-page date ranges.
+function monthYear(dateStr) {
+    const d = new Date(dateStr + 'T12:00:00');
+    return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+}
+
+// Slimmed to an overview: name/tags/date-range, impression (or blurb), a stats
+// line, the single most-recent mention, and a button through to the full
+// person page (which holds the entries + mentions lists this popup used to
+// dump in full).
 function renderEntityPopover(data) {
     const p = data.person;
-    const hue = entityHue((data.name || '').toLowerCase().split(' ')[0]);
+    const stats = data.stats || {};
+    const slug = (p && p.id) || (data.name || '').toLowerCase().split(' ')[0];
+    const hue = entityHue(slug);
     const color = `hsl(${hue} 70% 66%)`;
 
-    // "Open full file" lives in the sticky header so it stays pinned while scrolling.
-    const openBtn = (p && p.file)
-        ? `<button class="ep-openfile" data-nav="keeper:${epEsc(p.file)}">Open full file &rarr;</button>` : '';
+    let meta = '';
+    if (p && p.tags && p.tags.length) {
+        meta += p.tags.map(t => `<span class="ep-tag">#${epEsc(t)}</span>`).join('');
+    }
+    if (stats.first_date && stats.last_date) {
+        meta += (meta ? ' &middot; ' : '') +
+            `<span class="ep-daterange">${monthYear(stats.first_date)} &ndash; ${monthYear(stats.last_date)}</span>`;
+    }
+
+    let factsHtml = '';
+    if (p && p.facts && Object.keys(p.facts).length) {
+        const nonEmpty = Object.entries(p.facts).filter(([k, v]) => v && v.trim());
+        if (nonEmpty.length) {
+            factsHtml = '<div class="ep-facts">' +
+                nonEmpty.map(([k, v]) =>
+                    `<div class="ep-fact-row"><span class="ep-fact-label">${epEsc(k.charAt(0).toUpperCase() + k.slice(1))}</span><span class="ep-fact-val">${epEsc(v)}</span></div>`
+                ).join('') +
+                '</div>';
+        }
+    }
 
     let body = '';
-    if (p && p.tags && p.tags.length) {
-        body += `<div class="ep-tags">${p.tags.map(t => `<span class="ep-tag">#${epEsc(t)}</span>`).join('')}</div>`;
-    }
-    if (p && p.aliases && p.aliases.length) {
-        body += `<div class="ep-aliases">also: ${p.aliases.map(epEsc).join(', ')}</div>`;
-    }
-    if (p && p.blurb) body += `<div class="ep-blurb">${epEsc(p.blurb)}</div>`;
-
-    // Structured entries from their own file — each date jumps within the journal.
-    const entries = (p && p.entries) ? p.entries.slice().reverse() : [];
-    if (entries.length) {
-        body += `<div class="ep-section">In their file · ${entries.length}</div>`;
-        for (const en of entries) {
-            body += `<button class="ep-row" data-nav="journal:${epEsc(en.date)}">
-                <span class="ep-date">${epEsc(en.date)}</span>${en.note ? ` <span class="ep-note">${epEsc(en.note)}</span>` : ''}
-            </button>`;
-        }
+    if (p && p.impression && p.impression.trim()) {
+        body += `<div class="ep-blurb">${mdToHtml(p.impression)}</div>`;
+    } else if (p && p.blurb) {
+        body += `<div class="ep-blurb">${epEsc(p.blurb)}</div>`;
     }
 
-    // Loose mentions everywhere else — journal days jump in-app, other files open in keeper.
-    const mentions = data.mentions || [];
-    if (mentions.length) {
-        body += `<div class="ep-section">Mentioned elsewhere · ${mentions.length}</div>`;
-        for (const m of mentions) {
-            const nav = (m.file.startsWith('Journal/Daily/') && m.date)
-                ? `journal:${m.date}` : `keeper:${m.file}`;
-            body += `<button class="ep-row" data-nav="${epEsc(nav)}">
-                <span class="ep-date">${epEsc(m.label)}</span>
-                <span class="ep-snip">${epEsc(m.snippet)}</span>
-            </button>`;
-        }
+    if (stats.total) {
+        body += `<div class="ep-stats">mentioned ${stats.total}&times; across ${stats.days || 0} day${stats.days === 1 ? '' : 's'}</div>`;
     }
 
-    if (!entries.length && !mentions.length) {
+    // The single most recent mention — journal dates jump in-app, others open in keeper.
+    if (stats.last) {
+        const nav = (stats.last.file && stats.last.file.startsWith('Journal/Daily/') && stats.last.date)
+            ? `journal:${stats.last.date}` : `keeper:${epEsc(stats.last.file || '')}`;
+        body += `<button class="ep-row" data-nav="${nav}">
+            <span class="ep-date">${epEsc(stats.last.label || stats.last.date)}</span>
+            ${stats.last.snippet ? `<span class="ep-snip">${epEsc(stats.last.snippet)}</span>` : ''}
+        </button>`;
+    }
+
+    if (!body && !stats.total) {
         body += `<div class="ep-empty">No references recorded yet.</div>`;
     }
+    if (!p) {
+        body += `<div class="ep-empty">No file yet.</div>`;
+    }
+
+    const openPersonBtn = p
+        ? `<button class="ep-openperson" onclick="location.href='/person/${epEsc(p.id)}'">Open person page &rarr;</button>` : '';
+    const openFileBtn = (p && p.file)
+        ? `<button class="ep-openfile" data-nav="keeper:${epEsc(p.file)}">Open full file &rarr;</button>` : '';
 
     entityPop.innerHTML = `
         <div class="ep-sticky">
@@ -525,9 +540,14 @@ function renderEntityPopover(data) {
                 <span class="ep-name" style="color:${color}">${epEsc(data.name)}</span>
                 <button class="ep-close" onclick="closeEntityPopover()" aria-label="Close">&times;</button>
             </div>
-            ${openBtn}
+            ${meta ? `<div class="ep-meta">${meta}</div>` : ''}
         </div>
-        <div class="ep-body">${body}</div>`;
+        <div class="ep-body">
+            ${factsHtml}
+            ${body}
+            ${openPersonBtn}
+            ${openFileBtn}
+        </div>`;
 }
 
 // Route clicks inside the popover: journal dates load in-app, other files open keeper.
@@ -754,9 +774,15 @@ async function pollJournal() {
 setInterval(pollJournal, 3000);
 
 // --- Init ---
+// Honor a ?date=YYYY-MM-DD deep link (e.g. from the person page's heat map)
+// in place of the default "today" load.
+function initialDateFromQuery() {
+    return new URLSearchParams(location.search).get('date') || null;
+}
+
 setMode('read');
 loadEntities().then(() => { if (preview.style.display !== 'none') renderPreview(); });
-fetchServerDate().then(() => loadDates()).then(() => loadDate(null));
+fetchServerDate().then(() => loadDates()).then(() => loadDate(initialDateFromQuery()));
 </script>
 </body>
 </html>

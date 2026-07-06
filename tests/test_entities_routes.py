@@ -21,6 +21,12 @@ Bradie's landlord in Austin. Sweet but landlord-vibes.
 
 **A later arc paragraph** that should NOT be in the blurb.
 
+## Impression
+Landlord vibes, but sweet underneath — the chore texts land bigger than
+intended some weeks.
+
+*(updated 2026-07-01)*
+
 ## Referenced In
 - 2026-02-27 (as "landlady")
 - [[2026-05-10]] (Mother's Day)
@@ -49,7 +55,20 @@ def vault(tmp_path, monkeypatch):
         "B: my landlord was being weird again\n")   # alias, not the name "Sally"
     (tmp_path / "Journal" / "Daily" / "2026-07-01.md").write_text(
         "B: nothing about anyone here\n")
+    (tmp_path / "Journal" / "Daily" / "2026-07-06.md").write_text(
+        "B: quiet day, nothing much happened\n")   # card-cutover day, no named hit
     (tmp_path / "THREADS.md").write_text("Housing: moving out from Sally's place.\n")
+
+    # Card files (the cricket's per-message log): from CARDS_CUTOVER on, a card
+    # tagged with a person's slug counts even when its body doesn't name them —
+    # unless the body DOES name them, in which case the journal-day scan above
+    # already caught it and the card must not double-count.
+    cards = tmp_path / "_system" / "data" / "cards"
+    cards.mkdir(parents=True)
+    (cards / "2026-07-06.aaa.md").write_text(
+        "---\ntags: [sally]\n---\nTalked about dinner plans.\n")      # unnamed -> +1
+    (cards / "2026-07-06.bbb.md").write_text(
+        "---\ntags: [sally]\n---\nSally stopped by after work.\n")    # named -> skip
     return tmp_path
 
 
@@ -98,6 +117,10 @@ def test_backlinks_endpoint_shape(client):
     assert data["person"]["id"] == "sally"
     assert len(data["person"]["entries"]) == 3
     assert any(m["file"] == "THREADS.md" for m in data["mentions"])
+    # New: every old field is still there (journal.html/keeper consumers depend
+    # on them), plus a stats block.
+    assert data["stats"]["days"] > 0
+    assert data["stats"]["total"] >= data["stats"]["days"]
 
 
 def test_backlinks_unknown_name_still_returns_mentions(client):
@@ -150,3 +173,104 @@ def test_people_endpoint_carries_tags_and_filters(client):
 
     none = client.get("/api/people?tag=nonexistent").get_json()["people"]
     assert none == []
+
+
+# --- Impression + body (person-page narrative fields) -----------------------
+
+def test_impression_section_parsed(vault):
+    person = entities.people_index()["sally"]
+    assert person["impression"].startswith("Landlord vibes, but sweet underneath")
+    assert "*(updated 2026-07-01)*" in person["impression"]
+    assert "Referenced In" not in person["impression"]
+
+
+def test_impression_absent_is_empty_string(vault):
+    person = entities.people_index()["david"]
+    assert person["impression"] == ""
+
+
+def test_body_is_full_markdown_after_frontmatter(vault):
+    person = entities.people_index()["sally"]
+    assert person["body"].startswith("# Sally")
+    assert "## Referenced In" in person["body"]
+    assert "landlord-vibes" in person["body"]
+    # Frontmatter itself must not leak into body.
+    assert "aliases:" not in person["body"]
+
+
+# --- Mention counts -----------------------------------------------------------
+
+def test_mentions_carry_hit_count(vault):
+    person = entities.people_index()["sally"]
+    mentions = entities.find_mentions("Sally", self_file=person["file"])
+    m = next(m for m in mentions if m["file"] == "Journal/Daily/2026-07-03.md")
+    assert m["count"] == 1
+
+
+# --- mention_days: journal counts + tagged cards + entries union -------------
+
+def test_mention_days_counts_journal_and_unions_entries(vault):
+    person = entities.people_index()["sally"]
+    days = entities.mention_days(person)
+    by_date = {d["date"]: d["count"] for d in days}
+
+    assert by_date["2026-07-03"] == 1   # "sally texted me..." — named
+    assert by_date["2026-07-02"] == 1   # "my landlord" — alias
+    assert "2026-07-01" not in by_date  # no mention there at all
+
+    # Structured entries with no journal/card hit are unioned in at count 1.
+    assert by_date["2026-02-27"] == 1
+    assert by_date["2026-05-10"] == 1
+    assert by_date["2026-06-28"] == 1
+
+
+def test_mention_days_counts_unnamed_tagged_card_once_and_skips_named_card(vault):
+    person = entities.people_index()["sally"]
+    days = entities.mention_days(person)
+    by_date = {d["date"]: d["count"] for d in days}
+    # The journal file for this day has no hit; the unnamed card adds exactly 1
+    # (the named card, which contains "Sally", is skipped so it isn't double-counted).
+    assert by_date["2026-07-06"] == 1
+
+
+def test_mention_days_ignores_tagged_cards_before_cutover(vault, monkeypatch):
+    # Move the cutover forward so today's tagged card would no longer count —
+    # proves the CARDS_CUTOVER gate, not just that the card exists.
+    monkeypatch.setattr(entities, "CARDS_CUTOVER", "2099-01-01")
+    person = entities.people_index()["sally"]
+    days = entities.mention_days(person)
+    by_date = {d["date"]: d["count"] for d in days}
+    assert "2026-07-06" not in by_date
+
+
+# --- person_stats -------------------------------------------------------------
+
+def test_person_stats_prefers_newest_mention_for_last(vault):
+    person = entities.people_index()["sally"]
+    terms = [person["name"].split()[0]] + person["aliases"]
+    mentions = entities.find_mentions(terms, self_file=person["file"])
+    days = entities.mention_days(person)
+    stats = entities.person_stats(person, days, mentions)
+
+    assert stats["days"] == len(days)
+    assert stats["total"] == sum(d["count"] for d in days)
+    assert stats["first_date"] == days[0]["date"]
+    assert stats["last_date"] == days[-1]["date"]
+    # The newest *mention* (2026-07-03, has a snippet) wins over the newest *day*
+    # (2026-07-06 is a card-only day with no mention snippet).
+    assert stats["last_date"] == "2026-07-06"
+    assert stats["last"]["date"] == mentions[0]["date"] == "2026-07-03"
+    assert stats["last"]["snippet"] == mentions[0]["snippet"]
+
+
+def test_person_stats_falls_back_to_day_when_no_mentions(vault):
+    person = entities.people_index()["david"]
+    mentions = entities.find_mentions(person["name"], self_file=person["file"])
+    days = entities.mention_days(person)
+    stats = entities.person_stats(person, days, mentions)
+
+    assert mentions == []
+    assert stats["last"] == {
+        "date": "2026-06-01", "file": "Journal/Daily/2026-06-01.md",
+        "label": "2026-06-01", "snippet": "",
+    }
