@@ -393,3 +393,30 @@ def register(app):
                 "tags": p.get("tags", []), "aliases": p.get("aliases", []),
             })
         return jsonify({"people": out})
+
+    @app.route("/api/people/roster")
+    def people_roster():
+        """The browsable /people page's data source. Deliberately cheap: built
+        only from `people_index()` (each person's own file) — never calls
+        `find_mentions`, which globs the whole vault and would mean 43x full
+        scans for a roster of 43 people. The client does all binning/sorting;
+        this just hands over each person's structured entry dates plus their
+        newest non-empty note."""
+        out = []
+        for p in people_index().values():
+            entries = p.get("entries", [])  # sorted ascending by date
+            dates = [e["date"] for e in entries]
+            last_note = None
+            for e in reversed(entries):
+                if e.get("note"):
+                    last_note = {"date": e["date"], "note": e["note"]}
+                    break
+            out.append({
+                "id": p["id"],
+                "name": p["name"],
+                "tags": p.get("tags", []),
+                "blurb": p.get("blurb", ""),
+                "dates": dates,
+                "last_note": last_note,
+            })
+        return jsonify({"people": out})

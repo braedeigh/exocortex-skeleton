@@ -22,6 +22,10 @@ from routes.kitchen import shared
 
 
 def register(app):
+    @app.route("/people")
+    def people_roster_page():
+        return render_template("people.html")
+
     @app.route("/person/<slug>")
     def person_page(slug):
         if entities.resolve_person(slug) is None:
