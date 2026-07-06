@@ -247,6 +247,11 @@ def version():
 
 @app.route("/api/auth-check")
 def auth_check():
+    # nginx auth_request gate for /files/ and /terminal/. The before_request
+    # gate already 401s anonymous callers, but check again here so this can
+    # never silently become public via PUBLIC_PATHS.
+    if not session.get('authed'):
+        return "", 401
     return "", 204
 
 
