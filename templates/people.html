@@ -23,11 +23,6 @@ html, body { min-height: 100%; background: var(--bg); color: var(--text); font-f
 /* Sticky header + controls, stacked together */
 .phdr-wrap { position: sticky; top: 0; z-index: 5; background: var(--bg); }
 .phdr { padding: 12px 0 10px; }
-.back-link {
-    display: inline-flex; align-items: center; min-height: 40px; padding: 0 4px;
-    color: var(--text-muted); text-decoration: none; font-size: 14px; font-weight: 600;
-}
-.back-link:hover { color: var(--accent); }
 .phdr-name { font-size: 22px; font-weight: 700; margin-top: 6px; }
 
 /* Controls row */
@@ -90,7 +85,6 @@ html, body { min-height: 100%; background: var(--bg); color: var(--text); font-f
 <div class="container">
     <div class="phdr-wrap">
         <div class="phdr">
-            <a class="back-link" href="/">&larr; Dashboard</a>
             <div class="phdr-name">People</div>
         </div>
         <div class="controls-row" id="controlsRow"></div>
