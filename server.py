@@ -21,7 +21,7 @@ from routes import (
     kitchen, habits, todos, places, health, inventory, money, car,
     meditation, media, movement, reminders, food_test, terminal, settings,
     devnotes, ideas, ecosystem, keeper, pending, housing, triage, decisions,
-    entities, person, shell, cards, archivals,
+    entities, person, shell, cards, archivals, research,
 )
 from routes.shell import VALID_TABS
 
@@ -496,6 +496,10 @@ def _load_movement():
     return store.read("movement.json", {"routines": []})
 
 
+def _load_research():
+    return store.read("research.json", {"topics": [], "entries": []})
+
+
 def _load_ecosystem():
     return store.read("ecosystem.json", {"sources": []})
 
@@ -866,6 +870,21 @@ def get_data_movement():
     return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/data/research")
+def get_data_research():
+  try:
+    data = _common_data()
+    data.update({
+        "research": _load_research(),
+    })
+    data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("research", [])
+    data["idea_notes"] = _load_idea_notes().get("tabs", {}).get("research", [])
+    return jsonify(filter_for_view(data, request.view_mode))
+  except Exception as e:
+    app.logger.error(f"/api/data/research failed: {e}\n{traceback.format_exc()}")
+    return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/data/ecosystem")
 def get_data_ecosystem():
   try:
@@ -1119,6 +1138,7 @@ housing.register(app)
 meditation.register(app)
 media.register(app)
 movement.register(app)
+research.register(app)
 reminders.register(app)
 food_test.register(app)
 terminal.register(app)

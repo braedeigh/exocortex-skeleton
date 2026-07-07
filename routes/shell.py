@@ -15,8 +15,8 @@ URL scheme (post-migration):
                               shell's settings view — mirrors "/journal-view").
   - legacy tab paths (/map, /kitchen, /inventory, /money, /car-maintenance,
     /meditation, /media, /movement, /body, /ideas, /ecosystem, /housing,
-    /people) → 302 → the matching "/dashboard/<tab>" (302, not 301: still
-    iterating on the scheme, don't want browsers caching the redirect forever).
+    /people, /research) → 302 → the matching "/dashboard/<tab>" (302, not 301:
+    still iterating on the scheme, don't want browsers caching the redirect forever).
   - "/item/buy/<name>"      → the shell, dashboard view, inventory tab, with the
                               buy-item drawer open.
   - "/tab/<name>"           → iframe content for the dashboard pane (index.html).
@@ -29,7 +29,8 @@ from data_helpers import CONTENT_DIR
 # The 14 dashboard sub-tabs. Single source of truth — server.py re-exports this
 # (`server.VALID_TABS`) for the handful of other places that check tab names.
 VALID_TABS = ("today", "map", "kitchen", "inventory", "money", "car", "meditation",
-              "media", "movement", "body", "ideas", "ecosystem", "housing", "people")
+              "media", "movement", "body", "ideas", "ecosystem", "housing", "people",
+              "research")
 
 # Legacy path -> tab key. The path can differ from the tab key (car-maintenance
 # -> "car"); everything here 302-redirects to "/dashboard/<tab>".
@@ -47,6 +48,7 @@ _LEGACY_TAB_PATHS = [
     ("/ecosystem", "ecosystem"),
     ("/housing", "housing"),
     ("/people", "people"),
+    ("/research", "research"),
 ]
 
 # Path to the file that backs the public homepage fake-terminal intro.
