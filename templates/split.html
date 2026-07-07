@@ -521,6 +521,22 @@ body.public-mode #mobileSettings {
             </div>
             <div id="termNotesList" style="max-height:40vh;overflow-y:auto;margin-top:8px;font-size:13px;color:#e0d0ff"></div>
         </div>
+        <!-- Scheduled prompts — "tell it what to put in a specific terminal, and
+             that terminal guns it at that time" (queue lives in
+             scheduled_prompts.json; scripts/prompt_dispatcher.py, cron'd every
+             minute, is what actually fires a due job). -->
+        <button id="schedBtn" title="Schedule a prompt" style="position:absolute;top:46px;right:52px;width:34px;height:34px;border-radius:8px;border:1px solid var(--border);background:rgba(26,26,46,0.85);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);color:var(--text-muted);font-size:16px;cursor:pointer;z-index:50">&#9200;</button>
+        <div id="schedPanel" style="display:none;position:absolute;top:86px;right:12px;z-index:51;width:min(380px,88%);max-height:70vh;overflow-y:auto;background:#16162a;border:1px solid rgba(124,92,191,0.5);border-radius:12px;padding:12px;box-shadow:0 8px 30px rgba(0,0,0,0.5);font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;color:#e0d0ff">
+            <div style="font-size:13px;font-weight:700;margin-bottom:8px">&#9200; Schedule a prompt</div>
+            <div style="display:flex;flex-direction:column;gap:8px">
+                <select id="schedSessionSelect" style="min-height:40px;padding:0 10px;border:1px solid #2a2a4a;border-radius:8px;background:#0d0d1a;color:#e0d0ff;font-size:13px;font-family:inherit"></select>
+                <input id="schedNewSessionInput" type="text" placeholder="new-session-name" maxlength="30" style="display:none;min-height:40px;padding:0 10px;border:1px solid #2a2a4a;border-radius:8px;background:#0d0d1a;color:#e0d0ff;font-size:13px;font-family:inherit">
+                <textarea id="schedPromptInput" rows="3" placeholder="What should it do?" style="padding:8px 10px;border:1px solid #2a2a4a;border-radius:8px;background:#0d0d1a;color:#e0d0ff;font-size:13px;font-family:inherit;resize:vertical;min-height:40px"></textarea>
+                <input id="schedAtInput" type="datetime-local" style="min-height:40px;padding:0 10px;border:1px solid #2a2a4a;border-radius:8px;background:#0d0d1a;color:#e0d0ff;font-size:13px;font-family:inherit;color-scheme:dark">
+                <button id="schedAddBtn" onclick="addScheduledPrompt()" style="min-height:40px;padding:0 14px;border:none;border-radius:8px;background:#7c5cbf;color:#fff;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">Add</button>
+            </div>
+            <div id="schedJobsList" style="margin-top:10px;font-size:13px"></div>
+        </div>
         {% else %}
         <div class="cc-fake" id="ccFake">
             <div class="cc-fake-content">
@@ -1120,6 +1136,8 @@ if (_tnBtn) {
         const open = _tnPanel.style.display !== 'none';
         _tnPanel.style.display = open ? 'none' : 'block';
         if (!open) {
+            const sp = document.getElementById('schedPanel');
+            if (sp) sp.style.display = 'none';   // only one floating panel open at a time
             loadTermNotes();
             document.getElementById('termNoteInput').focus();
         }
@@ -1153,6 +1171,177 @@ document.addEventListener('click', (e) => {
 window.addEventListener('blur', () => {
     if (_tnPanel && _tnPanel.style.display !== 'none') _tnPanel.style.display = 'none';
 });
+
+// === Scheduled prompts ("timers for starting code in the terminal") ===
+// Panel lets Bradie queue a prompt for a session (existing or brand new) at a
+// future date/time. The queue itself (scheduled_prompts.json) is managed by
+// /api/terminal/schedule*; scripts/prompt_dispatcher.py (cron, every minute)
+// is what actually types the prompt in when the time comes.
+const _schedBtn = document.getElementById('schedBtn');
+const _schedPanel = document.getElementById('schedPanel');
+const _schedSessionSelect = document.getElementById('schedSessionSelect');
+const _schedNewSessionInput = document.getElementById('schedNewSessionInput');
+const _schedPromptInput = document.getElementById('schedPromptInput');
+const _schedAtInput = document.getElementById('schedAtInput');
+const _schedJobsList = document.getElementById('schedJobsList');
+
+function _escHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c => (
+        {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]
+    ));
+}
+
+function _schedDefaultAt() {
+    // Tomorrow 06:00 — "running before I wake up" is the whole point.
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    d.setHours(6, 0, 0, 0);
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function _renderSchedSessionOptions() {
+    if (!_schedSessionSelect) return;
+    const prev = _schedSessionSelect.value;
+    _schedSessionSelect.innerHTML = '';
+    allSessions.forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s;
+        opt.textContent = s;
+        _schedSessionSelect.appendChild(opt);
+    });
+    const newOpt = document.createElement('option');
+    newOpt.value = '__new__';
+    newOpt.textContent = '+ New session…';
+    _schedSessionSelect.appendChild(newOpt);
+    if (allSessions.includes(prev) || prev === '__new__') _schedSessionSelect.value = prev;
+}
+
+if (_schedSessionSelect) {
+    _schedSessionSelect.addEventListener('change', () => {
+        const isNew = _schedSessionSelect.value === '__new__';
+        _schedNewSessionInput.style.display = isNew ? 'block' : 'none';
+        if (isNew) _schedNewSessionInput.focus();
+    });
+}
+
+if (_schedBtn) {
+    _schedBtn.addEventListener('click', () => {
+        const open = _schedPanel.style.display !== 'none';
+        _schedPanel.style.display = open ? 'none' : 'block';
+        if (!open) {
+            if (_tnPanel) _tnPanel.style.display = 'none';   // only one floating panel open at a time
+            _renderSchedSessionOptions();
+            if (_schedAtInput && !_schedAtInput.value) _schedAtInput.value = _schedDefaultAt();
+            loadScheduledPrompts();
+        }
+    });
+}
+// Same click-outside / window-blur dismiss pattern as the terminal notes panel.
+document.addEventListener('click', (e) => {
+    if (_schedPanel && _schedPanel.style.display !== 'none' && !_schedPanel.contains(e.target) && e.target !== _schedBtn) {
+        _schedPanel.style.display = 'none';
+    }
+});
+window.addEventListener('blur', () => {
+    if (_schedPanel && _schedPanel.style.display !== 'none') _schedPanel.style.display = 'none';
+});
+
+function _schedSessionValue() {
+    if (!_schedSessionSelect) return '';
+    if (_schedSessionSelect.value === '__new__') {
+        return (_schedNewSessionInput.value || '').trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30);
+    }
+    return _schedSessionSelect.value;
+}
+
+async function addScheduledPrompt() {
+    const session = _schedSessionValue();
+    const prompt = (_schedPromptInput.value || '').trim();
+    const atRaw = _schedAtInput.value;
+    if (!session) { alert('Pick or name a session.'); return; }
+    if (!prompt) { alert('Prompt cannot be empty.'); return; }
+    if (!atRaw) { alert('Pick a date and time.'); return; }
+    let resp;
+    try {
+        resp = await fetch('/api/terminal/schedule/add', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({session, prompt, at: atRaw.replace('T', ' ')}),
+        });
+    } catch (e) { alert('Add failed: ' + e.message); return; }
+    if (resp.status === 404) { alert('Schedule API not loaded yet — needs an app restart.'); return; }
+    const data = await resp.json();
+    if (!resp.ok) { alert(data.error || 'Could not schedule that.'); return; }
+    _schedPromptInput.value = '';
+    _schedAtInput.value = _schedDefaultAt();
+    if (_schedSessionSelect.value === '__new__') _schedNewSessionInput.value = '';
+    loadScheduledPrompts();
+}
+
+function _schedSnippet(text) {
+    const s = String(text || '');
+    return s.length > 90 ? s.slice(0, 90) + '…' : s;
+}
+
+function _renderSchedJobs(jobs) {
+    if (!_schedJobsList) return;
+    const pending = jobs.filter(j => j.status === 'pending');
+    const rest = jobs.filter(j => j.status !== 'pending').slice(0, 8);
+    if (!pending.length && !rest.length) {
+        _schedJobsList.innerHTML = '<div style="color:var(--text-muted);padding:6px 0">No scheduled prompts yet.</div>';
+        return;
+    }
+    let html = '';
+    if (pending.length) {
+        html += '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin:2px 0 4px">Pending</div>';
+        pending.forEach(j => {
+            html += `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #2a2a4a">
+                <div style="flex:1;min-width:0">
+                    <div style="font-weight:600">${_escHtml(j.session)} <span style="font-weight:400;color:var(--text-muted)">&middot; ${_escHtml(j.at)}</span></div>
+                    <div style="color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_escHtml(_schedSnippet(j.prompt))}</div>
+                </div>
+                <button onclick="cancelScheduledPrompt('${_escHtml(j.id)}')" style="flex-shrink:0;min-height:40px;min-width:40px;padding:0 12px;border:1px solid #e74c3c;border-radius:8px;background:none;color:#e74c3c;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">Cancel</button>
+            </div>`;
+        });
+    }
+    if (rest.length) {
+        html += '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin:10px 0 4px">Recent</div>';
+        rest.forEach(j => {
+            html += `<div style="padding:6px 0;border-bottom:1px solid #2a2a4a;opacity:0.55">
+                <div>${_escHtml(j.session)} <span style="color:var(--text-muted)">&middot; ${_escHtml(j.at)} &middot; ${_escHtml(j.status)}</span></div>
+                <div style="color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_escHtml(_schedSnippet(j.prompt))}</div>
+            </div>`;
+        });
+    }
+    _schedJobsList.innerHTML = html;
+}
+
+async function loadScheduledPrompts() {
+    let resp;
+    try {
+        resp = await fetch('/api/terminal/schedule');
+    } catch (e) { return; }
+    if (resp.status === 404) { alert('Schedule API not loaded yet — needs an app restart.'); return; }
+    if (!resp.ok) return;
+    const data = await resp.json();
+    _renderSchedJobs(data.jobs || []);
+}
+
+async function cancelScheduledPrompt(id) {
+    let resp;
+    try {
+        resp = await fetch('/api/terminal/schedule/cancel', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({id}),
+        });
+    } catch (e) { alert('Cancel failed: ' + e.message); return; }
+    if (resp.status === 404) { alert('Schedule API not loaded yet — needs an app restart.'); return; }
+    const data = await resp.json();
+    if (!resp.ok) { alert(data.error || 'Could not cancel that.'); return; }
+    loadScheduledPrompts();
+}
 
 // Rows (with edit/delete) come from the shared mini-notes component.
 // mini-notes.js now loads with `defer`, so it may not have run yet at this

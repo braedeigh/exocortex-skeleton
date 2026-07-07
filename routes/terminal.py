@@ -7,6 +7,7 @@ import json
 import subprocess
 import re
 import time
+import store
 
 TMUX_SESSION = "chat"
 DEFAULT_SESSIONS = ["chat", "dev", "other"]
@@ -18,6 +19,27 @@ TMUX_SOCKET = "/tmp/tmux-1000/default"
 NOTES_PATH = DATA_DIR / "notes_dump.md"
 
 _VALID_SESSION_RE = re.compile(r'^[a-zA-Z0-9_-]{1,30}$')
+
+# --- Scheduled prompts ("timers for starting code in the terminal") ---------
+# Jobs live in scheduled_prompts.json (via store.py, so writes are atomic and
+# concurrency-safe). A standalone script, scripts/prompt_dispatcher.py, is
+# meant to be cron'd every minute to actually fire due jobs — these routes
+# only manage the queue (add/list/cancel).
+_SCHEDULE_SESSION_RE = re.compile(r'^[a-z0-9-]{1,30}$')
+_SCHEDULE_AT_FORMAT = "%Y-%m-%d %H:%M"
+
+
+def _new_schedule_id(jobs):
+    """Legible timestamp id (mirrors routes/research.py's _new_entry_id):
+    'YYYY-MM-DD.HHMM', with a '-2', '-3', ... suffix on same-minute collisions."""
+    base = datetime.now().strftime("%Y-%m-%d.%H%M")
+    taken = {j["id"] for j in jobs if isinstance(j, dict) and j.get("id")}
+    if base not in taken:
+        return base
+    i = 2
+    while f"{base}-{i}" in taken:
+        i += 1
+    return f"{base}-{i}"
 
 
 def _load_sessions():
@@ -190,6 +212,59 @@ def register(app):
         sess = _get_session(data)
         _tmux(f"refresh-client -t {sess}")
         return jsonify({"ok": True})
+
+    @app.route("/api/terminal/schedule")
+    def terminal_schedule_list():
+        data = store.read("scheduled_prompts.json", {"jobs": []})
+        jobs = sorted(
+            (j for j in data.get("jobs", []) if isinstance(j, dict)),
+            key=lambda j: j.get("id", ""),
+            reverse=True,
+        )
+        return jsonify({"jobs": jobs})
+
+    @app.route("/api/terminal/schedule/add", methods=["POST"])
+    def terminal_schedule_add():
+        body = request.json or {}
+        session = str(body.get("session", "")).strip().lower()
+        prompt = str(body.get("prompt", "")).strip()
+        at_raw = str(body.get("at", "")).strip()
+        if not _SCHEDULE_SESSION_RE.match(session):
+            return jsonify({"error": "Invalid session name. Use lowercase letters, numbers, hyphens (max 30 chars)."}), 400
+        if not prompt:
+            return jsonify({"error": "Prompt cannot be empty."}), 400
+        try:
+            at_dt = datetime.strptime(at_raw, _SCHEDULE_AT_FORMAT)
+        except ValueError:
+            return jsonify({"error": "Invalid date/time. Use YYYY-MM-DD HH:MM."}), 400
+        if at_dt <= datetime.now():
+            return jsonify({"error": "Scheduled time must be in the future."}), 400
+        with store.mutate("scheduled_prompts.json", {"jobs": []}) as data:
+            jobs = data.setdefault("jobs", [])
+            job = {
+                "id": _new_schedule_id(jobs),
+                "session": session,
+                "prompt": prompt,
+                "at": at_dt.strftime(_SCHEDULE_AT_FORMAT),
+                "status": "pending",
+                "created": datetime.now().strftime(_SCHEDULE_AT_FORMAT),
+                "sent_at": None,
+            }
+            jobs.append(job)
+        return jsonify({"ok": True, "job": job})
+
+    @app.route("/api/terminal/schedule/cancel", methods=["POST"])
+    def terminal_schedule_cancel():
+        body = request.json or {}
+        jid = body.get("id")
+        with store.mutate("scheduled_prompts.json", {"jobs": []}) as data:
+            job = next((j for j in data.get("jobs", []) if j.get("id") == jid), None)
+            if not job:
+                return jsonify({"error": "not found"}), 404
+            if job.get("status") != "pending":
+                return jsonify({"error": "job is not pending"}), 400
+            job["status"] = "cancelled"
+        return jsonify({"ok": True, "job": job})
 
     @app.route("/api/terminal/session", methods=["POST"])
     def terminal_session():
