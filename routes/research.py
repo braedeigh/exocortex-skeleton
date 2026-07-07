@@ -6,11 +6,23 @@ topic strips that id from every entry's `topics` list; the entries survive.
 
     {"topics": [{"id", "name", "status", "created"}],
      "entries": [{"id", "kind", "text", "topics", "url", "verdict",
-                  "status", "reply_to", "created"}]}
+                  "status", "reply_to", "created",
+                  "flagged", "processed", "author", "reviewed", "session"}],
+     "sessions": [{"id", "entry_ids", "topics", "created", "status", "report"}]}
 
 Entry ids are legible time stamps (`YYYY-MM-DD.HHMM`) with a `-2`, `-3`, ...
 suffix on same-minute collisions. Topic ids are slugified names, same
 collision handling.
+
+The new entry fields are all optional/backward-compatible (old entries just
+lack them): `flagged` marks an entry Bradie has queued to send to Claude;
+`processed` is set by the runner once a session has dealt with an entry;
+`author` == "llm" marks an entry the runner wrote back (absent means hers);
+`reviewed` (llm entries only) is whether she's signed off on it; `session`
+is the id of the session that produced an llm entry. A "session" is one
+research-runner run: it records which of her entries were sent, the union
+of their topics, and a status ("running" → "done") with a one-line report
+the runner leaves behind. Session ids share the entry id scheme.
 """
 import re
 from datetime import datetime
@@ -71,7 +83,17 @@ def _now_stamp():
 
 
 def _blob(data):
-    return jsonify({"ok": True, "topics": data.get("topics", []), "entries": data.get("entries", [])})
+    return jsonify({
+        "ok": True,
+        "topics": data.get("topics", []),
+        "entries": data.get("entries", []),
+        "sessions": data.get("sessions", []),
+    })
+
+
+def _new_session_id(sessions):
+    base = datetime.now().strftime("%Y-%m-%d.%H%M")
+    return _unique_id(base, {s["id"] for s in sessions})
 
 
 def register(app):
@@ -198,6 +220,89 @@ def register(app):
         with store.mutate("research.json", {"topics": [], "entries": []}) as data:
             data["entries"] = [e for e in data.get("entries", []) if e["id"] != eid]
         return _blob(data)
+
+    @app.route("/api/research/entry/flag", methods=["POST"])
+    def flag_research_entry():
+        body = request.json or {}
+        eid = body.get("id")
+        with store.mutate("research.json", {"topics": [], "entries": []}) as data:
+            entry = next((e for e in data.get("entries", []) if e["id"] == eid), None)
+            if not entry:
+                return jsonify({"error": "not found"}), 404
+            if entry.get("author") == "llm":
+                return jsonify({"error": "can't flag an LLM output"}), 400
+            entry["flagged"] = bool(body.get("flagged"))
+        return _blob(data)
+
+    @app.route("/api/research/entry/review", methods=["POST"])
+    def review_research_entry():
+        body = request.json or {}
+        eid = body.get("id")
+        with store.mutate("research.json", {"topics": [], "entries": []}) as data:
+            entry = next((e for e in data.get("entries", []) if e["id"] == eid), None)
+            if not entry:
+                return jsonify({"error": "not found"}), 404
+            if entry.get("author") != "llm":
+                return jsonify({"error": "only LLM outputs carry review"}), 400
+            entry["reviewed"] = bool(body.get("reviewed"))
+        return _blob(data)
+
+    # --- Runner: send flagged entries to a Claude session for engagement ---
+
+    @app.route("/api/research/send", methods=["POST"])
+    def send_research_entries():
+        """Send a set of her entries to the research-runner Claude session.
+
+        With explicit `ids`, this is "send now" — it flags them and sends in
+        one step. With no `ids`, it sends everything already flagged. Either
+        way, a session record is appended (before the runner is spawned) so
+        the runner has something to look up by id."""
+        from routes.kitchen import shared
+
+        body = request.json or {}
+        ids = body.get("ids")
+        with store.mutate("research.json", {"topics": [], "entries": []}) as data:
+            entries = data.get("entries", [])
+            by_id = {e["id"]: e for e in entries}
+            if ids is not None:
+                for eid in ids:
+                    entry = by_id.get(eid)
+                    if not entry:
+                        return jsonify({"error": "not found"}), 404
+                    if entry.get("author") == "llm":
+                        return jsonify({"error": "can't flag an LLM output"}), 400
+                for eid in ids:
+                    by_id[eid]["flagged"] = True
+                targets = [by_id[eid] for eid in ids]
+            else:
+                targets = [e for e in entries if e.get("flagged") and e.get("author") != "llm"]
+
+            if not targets:
+                return jsonify({"ok": True, "sent": 0, "session": None})
+
+            sessions = data.setdefault("sessions", [])
+            sid = _new_session_id(sessions)
+            topics = sorted({t for e in targets for t in (e.get("topics") or [])})
+            sessions.append({
+                "id": sid,
+                "entry_ids": [e["id"] for e in targets],
+                "topics": topics,
+                "created": _now_stamp(),
+                "status": "running",
+                "report": "",
+            })
+
+        n = len(targets)
+        newly = shared.ensure_claude_session(
+            "research-runner", store.RESEARCH_RUNNER_DIR, dirs=(store.RESEARCH_RUNNER_DIR,),
+        )
+        prompt = (
+            f"Session {sid}: {n} research entries are queued in session record "
+            f"'{sid}' in research.json. Do your one job: read your CLAUDE.md, "
+            f"process them, and report in one line."
+        )
+        shared.send_prompt("research-runner", prompt)
+        return jsonify({"ok": True, "sent": n, "session": sid, "newly_spawned": newly})
 
     # --- Filer: a cricket-style Claude session that tags the unfiled pool ---
 

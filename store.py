@@ -57,6 +57,9 @@ RESEARCH_DIR = Path(os.environ.get("EXOCORTEX_RESEARCH_DIR", DATA_DIR.parent / "
 # Research filer: the "file the unfiled entries" Claude session works out of
 # this folder (its CLAUDE.md is the skill) — same idea as TRIAGE_DIR.
 RESEARCH_FILER_DIR = Path(os.environ.get("EXOCORTEX_RESEARCH_FILER_DIR", DATA_DIR.parent / "research-filer"))
+# Research runner: the "send flagged entries to Claude" session works out of
+# this folder (its CLAUDE.md is the skill) — same idea as RESEARCH_FILER_DIR.
+RESEARCH_RUNNER_DIR = Path(os.environ.get("EXOCORTEX_RESEARCH_RUNNER_DIR", DATA_DIR.parent / "research-runner"))
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)

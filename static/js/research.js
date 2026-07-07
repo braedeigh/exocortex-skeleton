@@ -1,8 +1,11 @@
 // research.js — the standalone /research place (templates/research.html).
-// A flat pool of learning notes; topics are lenses over the pool, not boxes.
-// Quick capture at the top, an "Open questions" roll-up, one card per topic
-// (active, then dormant, then settled), the Unfiled backstop, the read-only
-// Library of research/*.md files, and a "new topic" row.
+// A flat pool of learning notes; topics are threads over the pool, not boxes.
+// Hash-routed: '' is the main directory (composer, send-all, search, open
+// questions, the thread directory, Unfiled backstop, Library, new-thread
+// row); '#thread/<id>' is a single thread's chat-like view (her entries +
+// nested llm replies, oldest first, with its own composer at the bottom).
+// She flags entries to queue them for Claude; a send fires a research-runner
+// session that writes reply entries back into the thread.
 //
 // Self-contained: talks straight to /api/data/research + /api/research/*,
 // no dashboard globals (D, loadDashboard, core.js helpers).
@@ -10,7 +13,7 @@
 const _rsrchInputStyle = 'padding:9px 11px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:14px;box-sizing:border-box';
 
 // --- State ---
-let R = { topics: [], entries: [] };
+let R = { topics: [], entries: [], sessions: [] };
 let _library = [];
 const editingCards = new Set();
 let _rsrchComposer = { text: '', kind: 'note', url: '', topics: new Set(), replyTo: null };
@@ -32,7 +35,14 @@ function escJs(s) {
 
 function _researchTopics() { return R.topics || []; }
 function _researchEntries() { return R.entries || []; }
+function _researchSessions() { return R.sessions || []; }
 function _rsrchTopicsById() { return Object.fromEntries(_researchTopics().map(t => [t.id, t])); }
+
+// --- Hash routing: '' = main directory, '#thread/<id>' = one thread ---
+function _rsrchCurrentThreadId() {
+    const m = (location.hash || '').match(/^#thread\/(.+)$/);
+    return m ? decodeURIComponent(m[1]) : null;
+}
 
 // --- Card open/closed memory (per data-card, localStorage) ---
 const RSRCH_OPEN_KEY = 'rsrch-open-cards';
@@ -60,30 +70,44 @@ async function loadResearch() {
     const res = await fetch('/api/data/research');
     if (!res.ok) return;
     const body = await res.json();
-    R = body.research || { topics: [], entries: [] };
+    R = body.research || { topics: [], entries: [], sessions: [] };
 }
 
 function renderResearch() {
     const el = document.getElementById('research-area');
     if (!el) return;
-    el.innerHTML = _rsrchComposerHtml() + _rsrchSearchCard() + _rsrchQuestionsCard() + _rsrchTopicCards()
-        + _rsrchUnfiledCard() + _rsrchArticlesCard() + _rsrchLibraryCard() + _rsrchNewTopicRow();
+    const tid = _rsrchCurrentThreadId();
+    if (tid && _rsrchTopicsById()[tid]) {
+        el.innerHTML = _rsrchThreadView(_rsrchTopicsById()[tid]);
+        return;
+    }
+    if (tid) { location.hash = ''; return; }   // unknown thread id — bounce home
+    el.innerHTML = _rsrchMainView();
 }
+
+function _rsrchMainView() {
+    return _rsrchComposerHtml() + _rsrchSendAllStrip() + _rsrchSearchCard() + _rsrchQuestionsCard()
+        + _rsrchThreadDirectoryCard() + _rsrchUnfiledCard() + _rsrchArticlesCard()
+        + _rsrchLibraryCard() + _rsrchNewTopicRow();
+}
+
+window.addEventListener('hashchange', renderResearch);
 
 // --- Quick capture composer ---
 const RSRCH_KINDS = [
     ['note', 'Note'], ['source', 'Source'], ['claim', 'Claim'], ['question', 'Question'],
 ];
 
-function _rsrchComposerHtml() {
+function _rsrchComposerHtml(opts) {
+    opts = opts || {};
     const st = _rsrchComposer;
     const topics = _researchTopics();
     const kindChips = RSRCH_KINDS.map(([k, label]) =>
         `<button type="button" class="rsrch-chip${st.kind === k ? ' active' : ''}" onclick="_rsrchSetKind('${k}')">${label}</button>`
     ).join('');
-    const topicChips = topics.length
+    const topicChips = opts.hideTopics ? '' : (topics.length
         ? topics.map(t => `<button type="button" class="rsrch-chip${st.topics.has(t.id) ? ' active' : ''}" onclick="_rsrchToggleComposerTopic('${esc(t.id)}')">${esc(t.name)}</button>`).join('')
-        : `<span style="font-size:12px;color:var(--text-muted);font-style:italic">No topics yet &mdash; add one at the bottom of the page.</span>`;
+        : `<span style="font-size:12px;color:var(--text-muted);font-style:italic">No topics yet &mdash; add one at the bottom of the page.</span>`);
     const urlRow = st.kind === 'source'
         ? `<input type="text" id="rsrch-add-url" value="${esc(st.url)}" oninput="_rsrchComposer.url=this.value" placeholder="URL" style="${_rsrchInputStyle};width:100%;margin-top:8px">`
         : '';
@@ -93,13 +117,16 @@ function _rsrchComposerHtml() {
             <button type="button" onclick="_rsrchCancelAnswer()" title="Cancel answering" style="flex:none;min-width:28px;height:28px;border-radius:6px;border:1px solid var(--border);background:none;color:var(--text-muted);font-size:14px;cursor:pointer">&times;</button>
         </div>`
         : '';
-    return `<div style="border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:16px;background:var(--card-bg)">
+    const addArg = opts.presetTopic ? `'${escJs(opts.presetTopic)}'` : '';
+    const addLabel = opts.addLabel || 'Add';
+    const placeholder = opts.placeholder || 'Capture a note, source, claim, or question&hellip;';
+    return `<div style="border:1px solid var(--border);border-radius:12px;padding:14px;${opts.presetTopic ? 'margin-top:12px' : 'margin-bottom:16px'};background:var(--card-bg)">
         ${replyPill}
-        <textarea id="rsrch-add-text" oninput="_rsrchComposer.text=this.value" placeholder="Capture a note, source, claim, or question&hellip;" rows="2" style="${_rsrchInputStyle};width:100%;min-height:40px;resize:vertical;font-family:inherit">${esc(st.text)}</textarea>
+        <textarea id="rsrch-add-text" oninput="_rsrchComposer.text=this.value" placeholder="${placeholder}" rows="2" style="${_rsrchInputStyle};width:100%;min-height:40px;resize:vertical;font-family:inherit">${esc(st.text)}</textarea>
         ${urlRow}
         <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">${kindChips}</div>
-        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">${topicChips}</div>
-        <button type="button" onclick="_rsrchAddEntry()" style="margin-top:12px;height:40px;padding:0 20px;border-radius:8px;border:none;background:var(--ongoing);color:#fff;font-size:14px;font-weight:700;cursor:pointer">Add</button>
+        ${topicChips ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">${topicChips}</div>` : ''}
+        <button type="button" onclick="_rsrchAddEntry(${addArg})" style="margin-top:12px;height:40px;padding:0 20px;border-radius:8px;border:none;background:var(--ongoing);color:#fff;font-size:14px;font-weight:700;cursor:pointer">${addLabel}</button>
     </div>`;
 }
 
@@ -110,11 +137,13 @@ function _rsrchToggleComposerTopic(id) {
     renderResearch();
 }
 
-async function _rsrchAddEntry() {
+async function _rsrchAddEntry(extraTopicId) {
     const st = _rsrchComposer;
     const text = (st.text || '').trim();
     if (!text) { alert('Write something first.'); return; }
-    const payload = { text, kind: st.kind, topics: Array.from(st.topics) };
+    const topics = new Set(st.topics);
+    if (extraTopicId) topics.add(extraTopicId);
+    const payload = { text, kind: st.kind, topics: Array.from(topics) };
     if (st.kind === 'source') payload.url = st.url || '';
     if (st.replyTo) payload.reply_to = st.replyTo.id;
     if (await _rsrchPost('/api/research/entry/add', payload)) {
@@ -145,6 +174,22 @@ function _rsrchStartAnswer(id) {
 }
 
 function _rsrchCancelAnswer() { _rsrchComposer.replyTo = null; renderResearch(); }
+
+// --- Send-all strip: only when something's queued. The count pill next to
+// it surfaces unreviewed llm output so the orange never hides silently.
+function _rsrchSendAllStrip() {
+    const entries = _researchEntries();
+    const flagged = entries.filter(e => e.flagged && e.author !== 'llm');
+    if (!flagged.length) return '';
+    const unreviewed = entries.filter(e => e.author === 'llm' && !e.reviewed).length;
+    const pill = unreviewed
+        ? `<span style="flex:none;display:inline-flex;align-items:center;height:44px;padding:0 14px;border-radius:10px;background:rgba(212,112,10,0.16);color:var(--orange);font-size:13px;font-weight:700;white-space:nowrap">${unreviewed} unreviewed</span>`
+        : '';
+    return `<div style="display:flex;align-items:stretch;gap:10px;margin-bottom:16px">
+        <button type="button" onclick="_rsrchSend(null)" style="flex:1;min-height:44px;border-radius:10px;border:none;background:var(--accent);color:#fff;font-size:15px;font-weight:700;cursor:pointer">&#10148; Send ${flagged.length} queued to Claude</button>
+        ${pill}
+    </div>`;
+}
 
 // --- Search (labrador port: keyword + semantic as two independent modes) ---
 // Keyword always works (pure server-side ranking); Semantic lights up once
@@ -272,29 +317,120 @@ function _rsrchOrderedTopics() {
     });
 }
 
-function _rsrchTopicCards() {
-    return _rsrchOrderedTopics().map(t => _rsrchTopicCard(t)).join('');
+// --- Thread directory (main view): one row per thread, tap to enter ---
+function _rsrchThreadDirectoryCard() {
+    const topics = _rsrchOrderedTopics();
+    const entries = _researchEntries();
+    const rows = topics.length
+        ? topics.map(t => _rsrchThreadDirRow(t, entries)).join('')
+        : `<div style="color:var(--text-muted);font-style:italic;padding:10px 2px;font-size:14px">No threads yet &mdash; add one below.</div>`;
+    return `<details class="rsrch-card" data-card="research-threads"${_openAttr('research-threads', true)} ontoggle="rsrchCardToggled(this)">
+        <summary><span class="kitchen-arrow">&#9654;</span>Threads<span class="card-count">${topics.length}</span></summary>
+        ${rows}
+    </details>`;
 }
 
-function _rsrchTopicCard(t) {
+function _rsrchThreadDirRow(t, entries) {
+    const own = entries.filter(e => (e.topics || []).includes(t.id));
+    const flaggedN = own.filter(e => e.flagged && e.author !== 'llm').length;
+    const unreviewedN = own.filter(e => e.author === 'llm' && !e.reviewed).length;
+    const openN = own.filter(e => e.kind === 'question' && e.status === 'open').length;
+    const statusNote = t.status !== 'active'
+        ? `<div style="font-size:12px;color:var(--text-muted);margin-top:2px">&middot; ${esc(t.status)}</div>` : '';
+    const flagBadge = flaggedN ? `<span style="flex:none;font-size:12px;font-weight:700;color:var(--accent)">&#9873; ${flaggedN}</span>` : '';
+    const unreviewedBadge = unreviewedN
+        ? `<span style="flex:none;font-size:12px;font-weight:700;color:var(--orange);background:rgba(212,112,10,0.16);padding:3px 10px;border-radius:999px">${unreviewedN} new</span>` : '';
+    const openBadge = openN ? `<span style="flex:none;font-size:12px;font-weight:700;color:var(--accent)">${openN} open</span>` : '';
+    return `<div class="rsrch-entry" style="display:flex;align-items:center;gap:10px;padding:12px 0;border-top:1px solid var(--border);min-height:44px;cursor:pointer" onclick="location.hash='thread/${escJs(t.id)}'">
+        <div style="flex:1;min-width:0">
+            <div style="font-size:15px;font-weight:700;color:var(--text)">${esc(t.name)}<span class="card-count">${own.length} entr${own.length === 1 ? 'y' : 'ies'}</span></div>
+            ${statusNote}
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex:none">${flagBadge}${unreviewedBadge}${openBadge}</div>
+        <span style="flex:none;color:var(--text-muted);font-size:20px;line-height:1">&#8250;</span>
+    </div>`;
+}
+
+// --- Thread view: the thread as a chat — her entries + nested llm replies,
+// oldest first, with a bottom composer preset to this thread's id.
+function _rsrchThreadView(t) {
     const cardId = `research-topic-${t.id}`;
     const isEditing = editingCards.has(cardId);
     const entries = _researchEntries()
         .filter(e => (e.topics || []).includes(t.id))
+        .slice().sort((a, b) => (a.created || '').localeCompare(b.created || ''));
+    const idsInThread = new Set(entries.map(e => e.id));
+    const flagged = entries.filter(e => e.flagged && e.author !== 'llm');
+    const sessions = _researchSessions()
+        .filter(s => (s.topics || []).includes(t.id))
         .slice().sort((a, b) => (b.created || '').localeCompare(a.created || ''));
-    const openQCount = entries.filter(e => e.kind === 'question' && e.status === 'open').length;
-    const rows = entries.length
-        ? entries.map(e => _rsrchEntryRow(e, isEditing)).join('')
-        : `<div style="color:var(--text-muted);font-style:italic;padding:10px 2px;font-size:14px">No entries yet.</div>`;
-    const statusBadge = t.status !== 'active' ? `<span style="font-size:12px;font-weight:400;color:var(--text-muted);margin-left:6px">&middot; ${esc(t.status)}</span>` : '';
-    const openBadge = openQCount ? `<span style="font-size:12px;font-weight:700;color:var(--accent);margin-left:8px">${openQCount} open</span>` : '';
-    return `<details class="rsrch-card${isEditing ? ' editing' : ''}" id="${cardId}" data-card="${cardId}"${_openAttr(cardId, false)} ontoggle="rsrchCardToggled(this)">
-        <summary>
-            <span class="kitchen-arrow">&#9654;</span>
-            <span style="flex:1">${esc(t.name)}<span class="card-count">${entries.length} entr${entries.length === 1 ? 'y' : 'ies'}</span>${statusBadge}${openBadge}</span>
-            <button class="card-edit-btn" onclick="event.preventDefault();event.stopPropagation();toggleEditMode('${cardId}')">${isEditing ? 'Done' : 'Edit'}</button>
-        </summary>
-        ${isEditing ? _rsrchTopicEditor(t) : ''}
+
+    const repliesOf = {};
+    for (const e of entries) {
+        if (e.reply_to && idsInThread.has(e.reply_to)) {
+            (repliesOf[e.reply_to] = repliesOf[e.reply_to] || []).push(e);
+        }
+    }
+    const topLevel = entries.filter(e => !e.reply_to || !idsInThread.has(e.reply_to));
+    const threadRows = topLevel.length
+        ? topLevel.map(e => _rsrchThreadBlock(e, repliesOf, isEditing)).join('')
+        : `<div style="color:var(--text-muted);font-style:italic;padding:10px 2px;font-size:14px">No entries yet &mdash; start below.</div>`;
+
+    // Build the array literal with escJs'd single-quoted strings (not
+    // JSON.stringify) since this lands inside a double-quoted onclick attr.
+    const flaggedIdsJs = flagged.map(e => `'${escJs(e.id)}'`).join(',');
+    const sendStrip = flagged.length
+        ? `<div style="margin-bottom:16px">
+            <button type="button" onclick="_rsrchSend([${flaggedIdsJs}])" style="width:100%;min-height:44px;border-radius:10px;border:none;background:var(--accent);color:#fff;font-size:15px;font-weight:700;cursor:pointer">&#10148; Send ${flagged.length} queued in this thread</button>
+        </div>` : '';
+
+    return `<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+        <button type="button" onclick="location.hash=''" title="Back to threads" aria-label="Back to threads" style="flex:none;width:40px;height:40px;border-radius:10px;border:1px solid var(--border);background:var(--card-bg);color:var(--text);font-size:19px;cursor:pointer">&#8592;</button>
+        <div style="flex:1;min-width:0">
+            <div style="font-size:18px;font-weight:800;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.name)}</div>
+            <div style="font-size:12px;color:var(--text-muted)">${entries.length} entr${entries.length === 1 ? 'y' : 'ies'}</div>
+        </div>
+        <button type="button" class="card-edit-btn" onclick="toggleEditMode('${cardId}')">${isEditing ? 'Done' : 'Edit'}</button>
+    </div>
+    ${isEditing ? `<div style="border:1px solid var(--border);border-radius:12px;padding:10px 14px;margin-bottom:16px;background:var(--card-bg)">${_rsrchTopicEditor(t)}</div>` : ''}
+    ${sendStrip}
+    ${_rsrchSessionsCard(sessions)}
+    <div style="border:1px solid var(--border);border-radius:12px;padding:4px 14px;margin-bottom:16px;background:var(--card-bg)">
+        ${threadRows}
+    </div>
+    ${_rsrchComposerHtml({ hideTopics: true, presetTopic: t.id, addLabel: 'Add to thread', placeholder: 'Add to this thread&hellip;' })}`;
+}
+
+// LLM replies nest under the entry they answer, indented — the output lands
+// "in that spot" instead of just appending at the end of the thread.
+function _rsrchThreadBlock(e, repliesOf, isEditing) {
+    const kids = (repliesOf[e.id] || []).slice().sort((a, b) => (a.created || '').localeCompare(b.created || ''));
+    const kidsHtml = kids.length
+        ? `<div style="margin-left:16px;border-left:2px solid var(--border);padding-left:12px;margin-top:2px">${kids.map(k => _rsrchThreadBlock(k, repliesOf, isEditing)).join('')}</div>`
+        : '';
+    return `${_rsrchEntryRow(e, isEditing)}${kidsHtml}`;
+}
+
+// --- Sessions record: the saved history of research-runner runs for a
+// thread, newest first, collapsed by default so it doesn't crowd the chat.
+function _rsrchSessionsCard(sessions) {
+    if (!sessions.length) return '';
+    const rows = sessions.map(s => {
+        const running = s.status === 'running';
+        const dot = running
+            ? `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--orange);animation:rsrchPulse 1.2s ease-in-out infinite"></span>`
+            : '';
+        return `<div class="rsrch-entry" style="padding:10px 0;border-top:1px solid var(--border)">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                <span style="font-size:13px;color:var(--text-muted)">${esc(s.created || '')}</span>
+                <span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:${running ? 'var(--orange)' : 'var(--green)'}">${dot}${running ? 'running&hellip;' : 'done'}</span>
+                <span style="font-size:12px;color:var(--text-muted)">${(s.entry_ids || []).length} entries sent</span>
+            </div>
+            ${s.report ? `<div style="font-size:14px;color:var(--text);margin-top:6px">${esc(s.report)}</div>` : ''}
+        </div>`;
+    }).join('');
+    return `<details class="rsrch-card" data-card="research-sessions"${_openAttr('research-sessions', false)} ontoggle="rsrchCardToggled(this)">
+        <summary><span class="kitchen-arrow">&#9654;</span>Sessions<span class="card-count">${sessions.length} &mdash; the saved record of each run</span></summary>
         ${rows}
     </details>`;
 }
@@ -328,7 +464,10 @@ const RSRCH_KIND_LABEL = { note: 'Note', source: 'Source', claim: 'Claim', quest
 const RSRCH_CLAIM_CYCLE = { '': 'real', real: 'shaky', shaky: 'interesting', interesting: '' };
 
 function _rsrchEntryRow(e, editing) {
-    const badge = `<span class="rsrch-kind kind-${e.kind}">${RSRCH_KIND_LABEL[e.kind] || e.kind}</span>`;
+    const isLlm = e.author === 'llm';
+    const badge = isLlm
+        ? `<span class="rsrch-kind kind-llm">&#10024; claude</span>`
+        : `<span class="rsrch-kind kind-${e.kind}">${RSRCH_KIND_LABEL[e.kind] || e.kind}</span>`;
     let extra = '';
     if (e.kind === 'source') {
         const link = e.url ? `<a href="${esc(e.url)}" target="_blank" rel="noopener" style="font-size:12px;color:var(--accent);word-break:break-all">${esc(e.url)} &#8599;</a>` : '';
@@ -383,16 +522,41 @@ function _rsrchEntryRow(e, editing) {
         }).join('')
         : (e.topics || []).map(tid => byId[tid]
             ? `<span class="rsrch-chip" style="cursor:default">${esc(byId[tid].name)}</span>` : '').join('');
-    const textHtml = editing
-        ? `<span onclick="_rsrchEditText('${esc(e.id)}','${escJs(e.text)}')" style="font-size:14px;color:var(--text);cursor:text" title="Tap to edit">${esc(e.text)}</span>`
-        : `<span style="font-size:14px;color:var(--text)">${esc(e.text)}</span>`;
+    // Claude's replies may use markdown (bullets etc); her own text stays
+    // escaped plain text, and only hers is inline-editable.
+    const textHtml = isLlm
+        ? `<span style="font-size:14px;color:var(--text)">${mdToHtml(e.text)}</span>`
+        : (editing
+            ? `<span onclick="_rsrchEditText('${esc(e.id)}','${escJs(e.text)}')" style="font-size:14px;color:var(--text);cursor:text" title="Tap to edit">${esc(e.text)}</span>`
+            : `<span style="font-size:14px;color:var(--text)">${esc(e.text)}</span>`);
     const del = editing
         ? `<button type="button" class="rsrch-del-btn" onclick="_rsrchConfirmRemoveEntry('${esc(e.id)}','${escJs(e.text.slice(0, 60))}')" title="Delete">&times;</button>`
         : '';
-    return `<div class="rsrch-entry" style="display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-top:1px solid var(--border)">
+    // Flag/send for her entries; mark-reviewed for llm outputs. Never both.
+    let controlChips = '';
+    if (isLlm) {
+        const reviewed = !!e.reviewed;
+        controlChips = `<button type="button" class="rsrch-chip ${reviewed ? 'verdict-verified' : 'verdict-interesting'}" onclick="_rsrchToggleReviewed('${esc(e.id)}', ${reviewed ? 'false' : 'true'})">${reviewed ? '&#10003; reviewed' : '&#9675; mark reviewed'}</button>`;
+    } else {
+        const flagged = !!e.flagged;
+        controlChips = `<button type="button" class="rsrch-chip${flagged ? ' active' : ''}" onclick="_rsrchToggleFlag('${esc(e.id)}', ${flagged ? 'false' : 'true'})">${flagged ? '&#9873; queued' : '&#9873; queue for Claude'}</button>
+            <button type="button" class="rsrch-chip" onclick="_rsrchSend(['${esc(e.id)}'])">&#10148; send now</button>`;
+    }
+    // Row tint: unreviewed llm output (orange) > processed by the runner
+    // (pink) > flagged and queued (accent edge). At most one applies.
+    let rowStyle = 'display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-top:1px solid var(--border)';
+    if (isLlm && !e.reviewed) {
+        rowStyle += ';background:rgba(212,112,10,0.12);border-left:3px solid var(--orange);padding-left:10px;border-radius:6px';
+    } else if (e.processed) {
+        rowStyle += ';background:rgba(214,107,160,0.10);border-left:3px solid var(--pink);padding-left:10px;border-radius:6px';
+    } else if (!isLlm && e.flagged) {
+        rowStyle += ';border-left:3px solid var(--accent);padding-left:10px';
+    }
+    return `<div class="rsrch-entry" style="${rowStyle}">
         <div style="flex:1;min-width:0">
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">${badge}${textHtml}</div>
             ${extra}
+            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;align-items:center">${controlChips}</div>
             ${replyLine}
             ${topicChips ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px">${topicChips}</div>` : ''}
         </div>
@@ -486,7 +650,12 @@ async function confirmRsrchDelete() {
     closeRsrchModal();
     if (!pd) return;
     if (pd.type === 'research-topic') {
-        if (await _rsrchPost('/api/research/topic/remove', { id: pd.item })) renderResearch();
+        if (await _rsrchPost('/api/research/topic/remove', { id: pd.item })) {
+            // Deleting the thread we're currently viewing bounces to the
+            // directory; the hashchange handler re-renders from there.
+            if (location.hash === '#thread/' + pd.item) location.hash = '';
+            else renderResearch();
+        }
     } else if (pd.type === 'research-entry') {
         if (await _rsrchPost('/api/research/entry/remove', { id: pd.item })) renderResearch();
     } else if (pd.type === 'annotation') {
@@ -638,24 +807,24 @@ function closeReader() {
     document.getElementById('readerOverlay').classList.remove('open');
 }
 
-// --- New topic row ---
+// --- New thread row ---
 function _rsrchNewTopicRow() {
     return `<div style="display:flex;gap:8px;margin-top:4px">
-        <input type="text" id="rsrch-new-topic-name" placeholder="New topic name" style="${_rsrchInputStyle};flex:1" onkeydown="if(event.key==='Enter')_rsrchCreateTopic()">
-        <button type="button" onclick="_rsrchCreateTopic()" style="flex:none;height:40px;padding:0 18px;border-radius:8px;border:none;background:var(--accent);color:#fff;font-size:14px;font-weight:700;cursor:pointer">Add topic</button>
+        <input type="text" id="rsrch-new-topic-name" placeholder="New thread name" style="${_rsrchInputStyle};flex:1" onkeydown="if(event.key==='Enter')_rsrchCreateTopic()">
+        <button type="button" onclick="_rsrchCreateTopic()" style="flex:none;height:40px;padding:0 18px;border-radius:8px;border:none;background:var(--accent);color:#fff;font-size:14px;font-weight:700;cursor:pointer">New thread</button>
     </div>`;
 }
 
 async function _rsrchCreateTopic() {
     const input = document.getElementById('rsrch-new-topic-name');
     const name = (input?.value || '').trim();
-    if (!name) { alert('Name the topic first.'); return; }
+    if (!name) { alert('Name the thread first.'); return; }
     if (await _rsrchPost('/api/research/topic/add', { name })) renderResearch();
 }
 
 // --- API helper ---
-// Every CRUD endpoint returns the full {topics, entries} state, so a
-// successful post refreshes R directly — no refetch needed.
+// Every CRUD endpoint returns the full {topics, entries, sessions} state, so
+// a successful post refreshes R directly — no refetch needed.
 async function _rsrchPost(url, payload) {
     const res = await fetch(url, {
         method: 'POST',
@@ -668,8 +837,85 @@ async function _rsrchPost(url, payload) {
         return false;
     }
     const body = await res.json().catch(() => null);
-    if (body && body.topics) R = { topics: body.topics, entries: body.entries || [] };
+    if (body && body.topics) R = { topics: body.topics, entries: body.entries || [], sessions: body.sessions || [] };
     return true;
+}
+
+// --- Flag / review / send: the newest endpoints, not live until the app is
+// restarted — a 404 here means "the code's in, the process isn't" and gets
+// the same friendly alert as the other not-yet-restarted endpoints.
+async function _rsrchToggleFlag(id, flagged) {
+    let res;
+    try {
+        res = await fetch('/api/research/entry/flag', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id, flagged }),
+        });
+    } catch (err) { alert('Network error — try again.'); return; }
+    if (res.status === 404) { alert('Flag API not loaded yet — needs an app restart.'); return; }
+    if (!res.ok) { const d = await res.json().catch(() => ({})); alert(d.error || 'Could not flag.'); return; }
+    const d = await res.json().catch(() => ({}));
+    if (d.topics) R = { topics: d.topics, entries: d.entries || [], sessions: d.sessions || [] };
+    renderResearch();
+}
+
+async function _rsrchToggleReviewed(id, reviewed) {
+    let res;
+    try {
+        res = await fetch('/api/research/entry/review', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id, reviewed }),
+        });
+    } catch (err) { alert('Network error — try again.'); return; }
+    if (res.status === 404) { alert('Review API not loaded yet — needs an app restart.'); return; }
+    if (!res.ok) { const d = await res.json().catch(() => ({})); alert(d.error || 'Could not mark reviewed.'); return; }
+    const d = await res.json().catch(() => ({}));
+    if (d.topics) R = { topics: d.topics, entries: d.entries || [], sessions: d.sessions || [] };
+    renderResearch();
+}
+
+// ids === null means "send everything already flagged" ({} body).
+async function _rsrchSend(ids) {
+    let res;
+    try {
+        res = await fetch('/api/research/send', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(ids ? { ids } : {}),
+        });
+    } catch (err) { alert('Network error — try again.'); return; }
+    if (res.status === 404) { alert('Send API not loaded yet — needs an app restart.'); return; }
+    if (!res.ok) { const d = await res.json().catch(() => ({})); alert(d.error || 'Could not send.'); return; }
+    const d = await res.json().catch(() => ({}));
+    await loadResearch();
+    renderResearch();
+    if (d.sent > 0) {
+        window.parent.postMessage({ type: 'openTerminalSession', name: 'research-runner' }, location.origin);
+        _rsrchStartPolling();
+    }
+}
+
+// --- Poll while a research-runner session is running: refresh every 5s so
+// her replies land without a manual refresh, capped at ~10 minutes.
+let _rsrchPollTimer = null;
+let _rsrchPollTicks = 0;
+const RSRCH_POLL_MAX_TICKS = 120;   // 120 * 5s = 10 minutes
+
+function _rsrchAnySessionRunning() {
+    return _researchSessions().some(s => s.status === 'running');
+}
+
+function _rsrchStartPolling() {
+    if (_rsrchPollTimer) return;
+    _rsrchPollTicks = 0;
+    _rsrchPollTimer = setInterval(async () => {
+        _rsrchPollTicks++;
+        await loadResearch();
+        renderResearch();
+        if (!_rsrchAnySessionRunning() || _rsrchPollTicks >= RSRCH_POLL_MAX_TICKS) {
+            clearInterval(_rsrchPollTimer);
+            _rsrchPollTimer = null;
+        }
+    }, 5000);
 }
 
 // === Annotator — labrador's char-anchored highlights, generic over docs ===
@@ -909,10 +1155,12 @@ async function _annPost(url, payload) {
 document.addEventListener('mouseup', _annOnSelectionEnd);
 document.addEventListener('touchend', _annOnSelectionEnd);
 
-// --- Boot + refresh-on-return (no polling on this page) ---
+// --- Boot + refresh-on-return. Also resumes polling on load if a session
+// was left running (e.g. she closed the tab mid-run).
 async function _rsrchInit() {
     await Promise.all([loadResearch(), loadLibrary(), loadDocTexts()]);
     renderResearch();
+    if (_rsrchAnySessionRunning()) _rsrchStartPolling();
 }
 
 document.addEventListener('visibilitychange', async () => {

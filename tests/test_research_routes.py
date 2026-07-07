@@ -236,6 +236,163 @@ def test_library_file_rejects_traversal(client, tmp_path, monkeypatch):
                       query_string={"path": "missing.md"}).status_code == 404
 
 
+# --- entry flag / review (LLM-reply lifecycle) --------------------------------
+
+def test_flag_sets_and_clears(client):
+    r = _post(client, "/api/research/entry/add", {"text": "note"})
+    eid = r.get_json()["entries"][0]["id"]
+
+    on = _post(client, "/api/research/entry/flag", {"id": eid, "flagged": True})
+    assert on.status_code == 200
+    assert on.get_json()["entries"][0]["flagged"] is True
+
+    off = _post(client, "/api/research/entry/flag", {"id": eid, "flagged": False})
+    assert off.status_code == 200
+    assert off.get_json()["entries"][0]["flagged"] is False
+
+
+def test_flag_not_found_404(client):
+    r = _post(client, "/api/research/entry/flag", {"id": "missing", "flagged": True})
+    assert r.status_code == 404
+
+
+def test_flag_llm_entry_rejected(client):
+    with_llm = {"topics": [], "entries": [
+        {"id": "2026-07-01.0900", "kind": "note", "text": "reply", "topics": [],
+         "url": "", "verdict": "", "status": "", "reply_to": None,
+         "created": "2026-07-01 09:00", "author": "llm", "reviewed": False},
+    ]}
+    import store
+    store.write("research.json", with_llm)
+    r = _post(client, "/api/research/entry/flag", {"id": "2026-07-01.0900", "flagged": True})
+    assert r.status_code == 400
+    assert r.get_json()["error"] == "can't flag an LLM output"
+    assert "flagged" not in _read()["entries"][0]
+
+
+def test_review_flips_on_llm_entry(client):
+    with_llm = {"topics": [], "entries": [
+        {"id": "2026-07-01.0900", "kind": "note", "text": "reply", "topics": [],
+         "url": "", "verdict": "", "status": "", "reply_to": None,
+         "created": "2026-07-01 09:00", "author": "llm", "reviewed": False},
+    ]}
+    import store
+    store.write("research.json", with_llm)
+    r = _post(client, "/api/research/entry/review", {"id": "2026-07-01.0900", "reviewed": True})
+    assert r.status_code == 200
+    assert r.get_json()["entries"][0]["reviewed"] is True
+
+
+def test_review_on_human_entry_rejected(client):
+    r = _post(client, "/api/research/entry/add", {"text": "her own note"})
+    eid = r.get_json()["entries"][0]["id"]
+    bad = _post(client, "/api/research/entry/review", {"id": eid, "reviewed": True})
+    assert bad.status_code == 400
+    assert bad.get_json()["error"] == "only LLM outputs carry review"
+
+
+def test_blob_includes_sessions_key(client):
+    r = _post(client, "/api/research/entry/add", {"text": "x"})
+    assert "sessions" in r.get_json()
+    assert r.get_json()["sessions"] == []
+
+
+# --- send (the research-runner cricket trigger) -------------------------------
+
+@pytest.fixture
+def stub_runner(monkeypatch):
+    """Stub the tmux session spawn so tests never shell out; records prompts."""
+    calls = {"prompts": []}
+    from routes.kitchen import shared
+    monkeypatch.setattr(shared, "ensure_claude_session",
+                        lambda *a, **k: calls.setdefault("spawned", True) or True)
+    monkeypatch.setattr(shared, "send_prompt",
+                        lambda session, text, *a, **k: calls["prompts"].append((session, text)))
+    return calls
+
+
+def test_send_with_explicit_ids_flags_and_creates_running_session(client, stub_runner):
+    r1 = _post(client, "/api/research/entry/add", {"text": "one"})
+    r2 = _post(client, "/api/research/entry/add", {"text": "two"})
+    id1 = r1.get_json()["entries"][0]["id"]
+    id2 = r2.get_json()["entries"][1]["id"]
+
+    r = _post(client, "/api/research/send", {"ids": [id1, id2]})
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["sent"] == 2
+    sid = body["session"]
+    assert sid
+
+    data = _read()
+    entries = {e["id"]: e for e in data["entries"]}
+    assert entries[id1]["flagged"] is True
+    assert entries[id2]["flagged"] is True
+
+    sessions = data["sessions"]
+    assert len(sessions) == 1
+    assert sessions[0]["id"] == sid
+    assert set(sessions[0]["entry_ids"]) == {id1, id2}
+    assert sessions[0]["status"] == "running"
+    assert sessions[0]["report"] == ""
+
+    assert stub_runner.get("spawned")
+    assert len(stub_runner["prompts"]) == 1
+    session_name, prompt = stub_runner["prompts"][0]
+    assert session_name == "research-runner"
+    assert sid in prompt
+
+
+def test_send_explicit_ids_missing_entry_404_no_mutation(client, stub_runner):
+    _post(client, "/api/research/entry/add", {"text": "one"})
+    r = _post(client, "/api/research/send", {"ids": ["missing"]})
+    assert r.status_code == 404
+    assert _read().get("sessions", []) == []
+    assert not stub_runner.get("spawned")
+
+
+def test_send_explicit_ids_rejects_llm_entry(client, stub_runner):
+    with_llm = {"topics": [], "entries": [
+        {"id": "2026-07-01.0900", "kind": "note", "text": "reply", "topics": [],
+         "url": "", "verdict": "", "status": "", "reply_to": None,
+         "created": "2026-07-01 09:00", "author": "llm", "reviewed": False},
+    ]}
+    import store
+    store.write("research.json", with_llm)
+    r = _post(client, "/api/research/send", {"ids": ["2026-07-01.0900"]})
+    assert r.status_code == 400
+    assert _read().get("sessions", []) == []
+    assert not stub_runner.get("spawned")
+
+
+def test_send_with_no_body_picks_up_all_flagged(client, stub_runner):
+    r1 = _post(client, "/api/research/entry/add", {"text": "flagged one"})
+    r2 = _post(client, "/api/research/entry/add", {"text": "not flagged"})
+    id1 = r1.get_json()["entries"][0]["id"]
+    id2 = r2.get_json()["entries"][1]["id"]
+    _post(client, "/api/research/entry/flag", {"id": id1, "flagged": True})
+
+    r = _post(client, "/api/research/send", {})
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["sent"] == 1
+    assert body["session"]
+
+    sessions = _read()["sessions"]
+    assert sessions[0]["entry_ids"] == [id1]
+    assert id2 not in sessions[0]["entry_ids"]
+
+
+def test_send_with_nothing_flagged_sends_zero_and_no_session(client, stub_runner):
+    _post(client, "/api/research/entry/add", {"text": "unflagged"})
+    r = _post(client, "/api/research/send", {})
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body == {"ok": True, "sent": 0, "session": None}
+    assert _read().get("sessions", []) == []
+    assert not stub_runner.get("spawned")
+
+
 # --- file-unfiled (the filer cricket trigger) --------------------------------
 
 def test_file_unfiled_noop_when_nothing_unfiled(client):
