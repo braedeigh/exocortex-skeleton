@@ -294,11 +294,14 @@ function _archRenderCard(item) {
     const originLine = item.origin
         ? `<div style="margin-top:6px"><span style="font-size:12px;color:var(--text-muted)">Origin </span><span style="font-size:14px">${esc(item.origin)}</span></div>`
         : '';
+    const addedLine = item.created_at
+        ? `<div style="margin-top:8px;font-size:12px;color:var(--text-muted)" title="${esc(item.created_at)}">Added ${esc(_archFmtDate(item.created_at))}</div>`
+        : '';
     return `<div onclick="openArchivalModal('${escJs(item.id)}')" style="cursor:pointer;position:relative;border:1px solid var(--border);border-radius:12px;padding:14px;background:var(--card-bg,var(--bg))">
         ${privateBadge}
         ${img}
         <div style="margin-top:8px;font-size:15px;font-weight:700">${esc(item.name)}</div>
-        ${descLine}${catLine}${originLine}
+        ${descLine}${catLine}${originLine}${addedLine}
     </div>`;
 }
 
