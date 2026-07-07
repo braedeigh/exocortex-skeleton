@@ -34,8 +34,10 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .nav .date-label {
     font-size: 15px; font-weight: 700; flex: 1; text-align: center;
     cursor: pointer; padding: 4px 8px; border-radius: 6px; transition: background 0.12s;
+    display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 40px;
 }
 .nav .date-label:hover { background: var(--accent-light); }
+.nav .date-label .cal-icon { font-size: 18px; line-height: 1; flex-shrink: 0; }
 .nav .today-btn { font-size: 12px; color: var(--accent); }
 
 /* Calendar overlay */
@@ -244,14 +246,29 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
     color: #ff8a8a; border-color: rgba(255, 107, 107, 0.4); background: rgba(255, 107, 107, 0.08);
 }
 .card-delete-btn:hover:not(:disabled) { background: rgba(255, 107, 107, 0.18); }
-.card-delete-btn.confirm { background: #e5484d; border-color: #e5484d; color: #fff; }
+
+/* Confirm-delete modal (card delete) — same pattern as research.html's .rsrch-modal */
+.confirm-modal-wrap { display: none; position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,0.5); align-items: center; justify-content: center; padding: 20px; }
+.confirm-modal-wrap.open { display: flex; }
+.confirm-modal {
+    background: var(--card-bg); border: 1px solid var(--border); border-radius: 14px;
+    padding: 20px; width: min(400px, 100%); box-shadow: 0 12px 40px rgba(0,0,0,0.45);
+}
+.confirm-modal .modal-text { font-size: 14px; line-height: 1.5; margin-bottom: 16px; }
+.confirm-modal .modal-btns { display: flex; gap: 8px; justify-content: flex-end; }
+.confirm-modal button { min-height: 40px; padding: 0 18px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }
+.confirm-modal .btn-cancel { border: 1px solid var(--border); background: none; color: var(--text-muted); }
+.confirm-modal .btn-delete { border: none; background: #e5484d; color: #fff; }
 </style>
 </head>
 <body>
 <div class="container">
     <div class="nav" style="position:relative">
         <button id="prevBtn" onclick="nav(-1)">&larr;</button>
-        <span class="date-label" id="dateLabel" onclick="toggleCalendar()"></span>
+        <span class="date-label" id="dateLabel" onclick="toggleCalendar()" title="Jump to a date">
+            <span class="cal-icon" aria-hidden="true">&#128197;</span>
+            <span id="dateLabelText"></span>
+        </span>
         <button id="todayBtn" class="today-btn" onclick="goToday()" style="display:none">Today</button>
         <button id="nextBtn" onclick="nav(1)">&rarr;</button>
         <button id="devNotesBtn" onclick="toggleDevNotes()" title="Journal dev notes" style="display:none">&#128221;</button>
@@ -291,6 +308,17 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
     <button onclick="findNext(-1)" aria-label="Previous mention">&uarr;</button>
     <button onclick="findNext(1)" aria-label="Next mention">&darr;</button>
     <button onclick="closeFind()" aria-label="Close find">&times;</button>
+</div>
+
+<!-- Confirm delete (card delete) — modal instead of the old inline "really delete?" toggle -->
+<div class="confirm-modal-wrap" id="confirmModal" onclick="if(event.target===this) closeConfirmModal(false)">
+    <div class="confirm-modal">
+        <div class="modal-text" id="confirmModalText"></div>
+        <div class="modal-btns">
+            <button class="btn-cancel" onclick="closeConfirmModal(false)">Cancel</button>
+            <button class="btn-delete" onclick="closeConfirmModal(true)">Delete</button>
+        </div>
+    </div>
 </div>
 
 <script>window.THEME_OVERRIDES = {{ theme_overrides_json|safe }};</script>
@@ -435,7 +463,7 @@ async function loadDate(date) {
         // Offer to seed today's page when it doesn't exist yet.
         const sd = document.getElementById('startDay');
         if (sd) sd.style.display = (data.date === localToday() && !data.content.trim()) ? '' : 'none';
-        document.getElementById('dateLabel').textContent = formatDate(data.date);
+        document.getElementById('dateLabelText').textContent = formatDate(data.date);
         document.getElementById('prevBtn').disabled = !data.prev;
         document.getElementById('prevBtn').dataset.date = data.prev || '';
         const nextBtn = document.getElementById('nextBtn');
@@ -490,6 +518,24 @@ function setMode(mode) {
 
 function currentMode() {
     return document.getElementById('editBtn').classList.contains('active') ? 'edit' : 'read';
+}
+
+// --- Generic confirm-delete modal (replaces the old inline "really delete?" toggle) ---
+const confirmModal = document.getElementById('confirmModal');
+const confirmModalText = document.getElementById('confirmModalText');
+let _confirmResolve = null;
+
+function openConfirmModal(message) {
+    confirmModalText.textContent = message;
+    confirmModal.classList.add('open');
+    return new Promise((resolve) => { _confirmResolve = resolve; });
+}
+
+function closeConfirmModal(result) {
+    confirmModal.classList.remove('open');
+    const resolve = _confirmResolve;
+    _confirmResolve = null;
+    if (resolve) resolve(result);
 }
 
 // --- Card mode: per-card read/edit/delete over /api/cards ---
@@ -571,20 +617,10 @@ function enterCardEdit(id) {
     ta.focus();
 
     const delBtn = controls.querySelector('.card-delete-btn');
-    let confirmTimer = null;
-    delBtn.addEventListener('click', (e) => {
+    delBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
-        if (delBtn.classList.contains('confirm')) {
-            clearTimeout(confirmTimer);
-            deleteCard(id, controls);
-        } else {
-            delBtn.classList.add('confirm');
-            delBtn.textContent = 'Really delete?';
-            confirmTimer = setTimeout(() => {
-                delBtn.classList.remove('confirm');
-                delBtn.textContent = 'Delete';
-            }, 4000);
-        }
+        const ok = await openConfirmModal("Delete this entry? This can't be undone.");
+        if (ok) deleteCard(id, controls);
     });
     controls.querySelector('.card-cancel-btn').addEventListener('click', (e) => { e.stopPropagation(); exitCardEdit(); });
     controls.querySelector('.card-save-btn').addEventListener('click', (e) => { e.stopPropagation(); saveCard(id, ta.value, controls); });
@@ -661,6 +697,9 @@ async function refreshCardDay() {
 // Tap an entity name -> popover (same as read mode); tap anywhere else on a
 // card -> edit it. Buttons/textarea clicks stay their own.
 cardStream.addEventListener('click', (e) => {
+    // Let her select/highlight text in a card without it snapping into edit mode.
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed) return;
     const ent = e.target.closest('.entity[data-name]');
     if (ent) { openEntityPopover(ent.dataset.name); return; }
     if (e.target.closest('button, textarea, a')) return;
@@ -823,7 +862,13 @@ function closeEntityPopover() {
     entityBackdrop.classList.remove('open');
 }
 entityBackdrop.addEventListener('click', closeEntityPopover);
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeEntityPopover(); closeFind(); } });
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        closeEntityPopover();
+        closeFind();
+        if (confirmModal.classList.contains('open')) closeConfirmModal(false);
+    }
+});
 
 // --- Find-in-entry: after jumping to a referenced day, land on the first mention
 // of that person and let her cycle through the rest, search-style ("2 of 5"). ---
@@ -942,7 +987,14 @@ function renderCalendar() {
 }
 
 document.addEventListener('click', (e) => {
-    if (calOpen && !calOverlay.contains(e.target) && e.target.id !== 'dateLabel') {
+    if (!calOpen) return;
+    // Use composedPath (fixed at event-dispatch time) instead of .contains(e.target):
+    // clicking a month-nav arrow inside the overlay re-renders its innerHTML,
+    // which detaches the originally-clicked node from the DOM. .contains() on a
+    // detached node reports false even though the click was inside the overlay,
+    // which used to close the calendar the instant you tried to page months.
+    const path = e.composedPath();
+    if (!path.includes(calOverlay) && !path.includes(document.getElementById('dateLabel'))) {
         closeCalendar();
     }
 });
@@ -989,7 +1041,13 @@ devNoteInput.addEventListener('input', () => {
     devNoteInput.style.height = Math.min(devNoteInput.scrollHeight, 160) + 'px';
 });
 document.addEventListener('click', (e) => {
-    if (devNotesOpen && !devNotesPanel.contains(e.target) && e.target.id !== 'devNotesBtn') {
+    if (!devNotesOpen) return;
+    // Same composedPath fix as the calendar: editing/deleting a note
+    // (mini-notes.js) re-renders the list and detaches the clicked element,
+    // which used to make this think the click landed outside and close the
+    // whole dev-notes panel mid-edit.
+    const path = e.composedPath();
+    if (!path.includes(devNotesPanel) && !path.includes(document.getElementById('devNotesBtn'))) {
         closeDevNotes();
     }
 });
