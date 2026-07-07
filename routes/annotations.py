@@ -53,6 +53,25 @@ def _new_id(annotations):
     return f"{base}-{i}"
 
 
+def _mark_answer_reviewed(doc):
+    """A human highlighting one of Claude's answers IS the interaction — flip
+    the answer's reviewed flag so the research tab's orange calms down without
+    a separate 'mark reviewed' tap. 'entry:<id>' targets that entry directly;
+    'note:<file>' targets the llm reply carrying that report file (the UI's
+    'highlight report' annotates 'note:' + entry.file). Docs that map to
+    nothing — or to her own entries — are left alone."""
+    if doc.startswith("entry:"):
+        key, val = "id", doc[len("entry:"):]
+    elif doc.startswith("note:"):
+        key, val = "file", doc[len("note:"):]
+    else:
+        return
+    with store.mutate("research.json", {"topics": [], "entries": [], "sessions": []}) as data:
+        for e in data.get("entries", []):
+            if e.get("author") == "llm" and e.get(key) == val:
+                e["reviewed"] = True
+
+
 def _doc_error_response(resolved):
     """Map a failed docstore.resolve() result to a (body, status) pair."""
     err = resolved.get("error")
@@ -128,6 +147,11 @@ def register(app):
                 "selector": sel,
                 "created": _now_stamp(),
             })
+        if source == "human":
+            try:
+                _mark_answer_reviewed(doc)
+            except Exception:
+                pass  # a missed review flip is cosmetic; never fail the add
         return jsonify(_doc_response(doc, data["annotations"]))
 
     @app.route("/api/annotations/edit", methods=["POST"])

@@ -199,6 +199,67 @@ def test_edit_unknown_id_404(client):
     assert r.status_code == 404
 
 
+# --- highlight marks claude's answer reviewed ------------------------------
+# A human highlighting an llm answer IS the interaction — add_annotation flips
+# reviewed:true on the answer (entry: doc directly, note: doc via the entry's
+# .file), and only for human-sourced annotations.
+
+def _seed_research(entries):
+    import store
+    store.write("research.json", {"topics": [], "entries": entries, "sessions": []})
+
+
+def _research_entry(eid):
+    import store
+    data = store.read("research.json", {})
+    return next(e for e in data["entries"] if e["id"] == eid)
+
+
+def test_add_on_llm_answer_marks_it_reviewed(client):
+    _seed_research([{"id": "a1", "kind": "note", "text": "answer", "author": "llm", "reviewed": False}])
+    doc = _seed_entry_text("a1", "the quick brown fox")
+    r = _post(client, "/api/annotations/add", {"doc": doc, "char_start": 4, "char_end": 9})
+    assert r.status_code == 200
+    assert _research_entry("a1")["reviewed"] is True
+
+
+def test_add_on_report_file_marks_carrying_answer_reviewed(client, tmp_path, monkeypatch):
+    import store
+    monkeypatch.setattr(store, "RESEARCH_DIR", tmp_path)
+    (tmp_path / "gut.md").write_text("# Gut\n\nthe quick brown fox")
+    _seed_research([{"id": "a2", "kind": "note", "text": "digest", "author": "llm",
+                     "reviewed": False, "file": "gut.md"}])
+    r = _post(client, "/api/annotations/add",
+              {"doc": "note:gut.md", "char_start": 0, "char_end": 5})
+    assert r.status_code == 200
+    assert _research_entry("a2")["reviewed"] is True
+
+
+def test_add_on_her_own_entry_never_touches_reviewed(client):
+    _seed_research([{"id": "h1", "kind": "note", "text": "my note"}])
+    doc = _seed_entry_text("h1", "the quick brown fox")
+    _post(client, "/api/annotations/add", {"doc": doc, "char_start": 4, "char_end": 9})
+    assert "reviewed" not in _research_entry("h1")
+
+
+def test_llm_sourced_annotation_does_not_mark_reviewed(client):
+    _seed_research([{"id": "a3", "kind": "note", "text": "answer", "author": "llm", "reviewed": False}])
+    doc = _seed_entry_text("a3", "the quick brown fox")
+    _post(client, "/api/annotations/add",
+          {"doc": doc, "char_start": 4, "char_end": 9,
+           "content": {"kind": "highlight", "source": "llm"}})
+    assert _research_entry("a3")["reviewed"] is False
+
+
+def test_add_succeeds_when_doc_maps_to_no_research_entry(client):
+    # No research.json entry for this doc — the review flip is a no-op and the
+    # highlight itself still lands.
+    doc = _seed_entry_text("ghost-x", "the quick brown fox")
+    r = _post(client, "/api/annotations/add", {"doc": doc, "char_start": 4, "char_end": 9})
+    assert r.status_code == 200
+    assert len(_read()["annotations"]) == 1
+
+
 # --- remove ----------------------------------------------------------------
 
 def test_remove_deletes_by_id(client):
