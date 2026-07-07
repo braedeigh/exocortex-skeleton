@@ -114,6 +114,38 @@ details.editing .rsrch-del-btn { opacity: 1; min-width: 40px; height: 40px; }
 .reader-body em { color: var(--text-muted); }
 .reader-body blockquote { border-left: 3px solid var(--accent); padding-left: 12px; color: var(--text-muted); margin: 8px 0; }
 
+/* Annotator overlay — labrador's char-anchored highlights, over any doc */
+.ann-panel { width: min(980px, 100%); }
+.ann-main { display: flex; min-height: 0; flex: 1; }
+.ann-text {
+    flex: 1; min-width: 0; overflow-y: auto; padding: 16px 20px;
+    white-space: pre-wrap; overflow-wrap: break-word; line-height: 1.7; font-size: 14px;
+    -webkit-user-select: text; user-select: text;
+}
+.ann-list {
+    flex: none; width: 300px; overflow-y: auto; border-left: 1px solid var(--border);
+    padding: 12px 14px;
+}
+@media (max-width: 720px) {
+    .ann-main { flex-direction: column; }
+    .ann-list { width: auto; max-height: 38vh; border-left: none; border-top: 1px solid var(--border); }
+}
+mark.ann-mark { background: rgba(212,168,10,0.30); color: inherit; border-radius: 3px; cursor: pointer; padding: 1px 0; }
+mark.ann-mark.reviewed { background: rgba(58,158,140,0.28); }
+mark.ann-mark.active { outline: 2px solid var(--accent); }
+.ann-row { padding: 10px 0; border-top: 1px solid var(--border); }
+.ann-row:first-child { border-top: none; }
+.ann-row .ann-quote { font-size: 12px; color: var(--text-muted); font-style: italic; cursor: pointer; }
+.ann-row .ann-note { font-size: 14px; margin-top: 4px; }
+.ann-row .ann-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; align-items: center; }
+.ann-pop {
+    display: none; position: fixed; z-index: 60; height: 40px; padding: 0 16px;
+    border: none; border-radius: 8px; background: var(--accent); color: #fff;
+    font-size: 14px; font-weight: 700; cursor: pointer; box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+}
+.ann-pop.show { display: block; }
+.ann-empty { color: var(--text-muted); font-style: italic; font-size: 13px; padding: 8px 0; }
+
 /* Confirm-delete modal */
 .rsrch-modal-wrap { display: none; position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,0.5); align-items: center; justify-content: center; padding: 20px; }
 .rsrch-modal-wrap.open { display: flex; }
@@ -157,11 +189,30 @@ details.editing .rsrch-del-btn { opacity: 1; min-width: 40px; height: 40px; }
                 <div class="reader-title" id="readerTitle"></div>
                 <div class="reader-file" id="readerFile"></div>
             </div>
+            <button onclick="annotateReaderFile()" title="Annotate this file" aria-label="Annotate" style="font-size:15px">&#9998;</button>
             <button onclick="closeReader()" title="Close" aria-label="Close">&times;</button>
         </div>
         <div class="reader-body" id="readerBody"></div>
     </div>
 </div>
+
+<!-- Annotator: highlight + annotate any doc (papers, notes; journals later) -->
+<div class="reader-overlay" id="annOverlay" onclick="if(event.target===this)closeAnnotator()">
+    <div class="reader-panel ann-panel">
+        <div class="reader-head">
+            <div style="flex:1;min-width:0">
+                <div class="reader-title" id="annTitle"></div>
+                <div class="reader-file" id="annDoc"></div>
+            </div>
+            <button onclick="closeAnnotator()" title="Close" aria-label="Close">&times;</button>
+        </div>
+        <div class="ann-main">
+            <div class="ann-text" id="annText"></div>
+            <div class="ann-list" id="annList"></div>
+        </div>
+    </div>
+</div>
+<button type="button" class="ann-pop" id="annPop" onclick="_annCreate()">&#9998; Annotate</button>
 
 <!-- Confirm delete -->
 <div class="rsrch-modal-wrap" id="rsrchModal" onclick="if(event.target===this)closeRsrchModal()">

@@ -217,6 +217,153 @@ def test_pmc_pdf_url_error(monkeypatch):
     assert r == {"ok": False, "error": "network"}
 
 
+# --- lookup_pmcid / pmc_pdf_url refactor --------------------------------------
+
+def test_lookup_pmcid_extracted_and_reused_by_pmc_pdf_url(monkeypatch):
+    _fake_get_json(monkeypatch, value={"records": [{"pmcid": "PMC1234567"}]})
+    r = paperclients.lookup_pmcid("10.1/xyz")
+    assert r == {"ok": True, "pmcid": "PMC1234567"}
+
+
+def test_lookup_pmcid_not_found(monkeypatch):
+    _fake_get_json(monkeypatch, value={"records": []})
+    assert paperclients.lookup_pmcid("10.1/xyz") == {"ok": False, "error": "not_found"}
+
+
+# --- extract_pmcid (pure) -----------------------------------------------------
+
+def test_extract_pmcid_from_articles_url():
+    url = "https://pmc.ncbi.nlm.nih.gov/articles/PMC12327446"
+    assert paperclients.extract_pmcid(url) == "PMC12327446"
+
+
+def test_extract_pmcid_bare():
+    assert paperclients.extract_pmcid("see PMC7654321 for details") == "PMC7654321"
+
+
+def test_extract_pmcid_none_when_absent():
+    assert paperclients.extract_pmcid("no pmcid here") is None
+    assert paperclients.extract_pmcid("") is None
+    assert paperclients.extract_pmcid(None) is None
+
+
+# --- html_to_text (pure) -------------------------------------------------------
+
+def test_html_to_text_drops_script_and_style():
+    html = """
+    <html><head><title>My Page</title><style>body{color:red}</style></head>
+    <body>
+      <script>alert('hi')</script>
+      <p>Hello world.</p>
+      <noscript>enable js</noscript>
+    </body></html>
+    """
+    r = paperclients.html_to_text(html)
+    assert r["title"] == "My Page"
+    assert "alert" not in r["text"]
+    assert "color:red" not in r["text"]
+    assert "enable js" not in r["text"]
+    assert "Hello world." in r["text"]
+
+
+def test_html_to_text_paragraphs_are_newline_separated():
+    html = "<body><p>First paragraph.</p><p>Second paragraph.</p></body>"
+    r = paperclients.html_to_text(html)
+    assert "First paragraph." in r["text"]
+    assert "Second paragraph." in r["text"]
+    parts = [p for p in r["text"].split("\n") if p.strip()]
+    assert parts == ["First paragraph.", "Second paragraph."]
+
+
+def test_html_to_text_collapses_excess_blank_lines():
+    html = "<p>A</p>\n\n\n\n<p>B</p>"
+    r = paperclients.html_to_text(html)
+    assert "\n\n\n" not in r["text"]
+
+
+def test_html_to_text_no_title_is_empty_string():
+    r = paperclients.html_to_text("<body><p>No title here.</p></body>")
+    assert r["title"] == ""
+
+
+# --- xml_to_text (pure) ---------------------------------------------------------
+
+def test_xml_to_text_strips_tags_and_breaks_on_p_sec_title():
+    xml = (
+        "<article><body><sec><title>Intro</title>"
+        "<p>First bit.</p><p>Second bit.</p></sec></body></article>"
+    )
+    text = paperclients.xml_to_text(xml)
+    assert "<p>" not in text
+    assert "Intro" in text
+    lines = [l for l in text.split("\n") if l.strip()]
+    assert lines == ["Intro", "First bit.", "Second bit."]
+
+
+# --- fetch_page_text -----------------------------------------------------------
+
+def _fake_get(monkeypatch, value=None, exc=None):
+    calls = []
+
+    def fake(url, headers=None, want_content_type=False):
+        calls.append((url, headers, want_content_type))
+        if exc is not None:
+            raise exc
+        return value
+    monkeypatch.setattr(paperclients, "_get", fake)
+    return calls
+
+
+def test_fetch_page_text_extracts_title_and_text(monkeypatch):
+    html = "<html><head><title>A Blog Post</title></head><body><p>Body text.</p></body></html>"
+    calls = _fake_get(monkeypatch, value=(html, "text/html; charset=utf-8"))
+    r = paperclients.fetch_page_text("https://example.com/post")
+    assert r == {"ok": True, "title": "A Blog Post", "text": "Body text."}
+    url, headers, want_ct = calls[0]
+    assert url == "https://example.com/post"
+    assert "Mozilla" in headers["User-Agent"]
+    assert want_ct is True
+
+
+def test_fetch_page_text_non_html_content_type_is_not_html(monkeypatch):
+    _fake_get(monkeypatch, value=("%PDF-1.4 ...", "application/pdf"))
+    r = paperclients.fetch_page_text("https://example.com/paper.pdf")
+    assert r == {"ok": False, "error": "not_html"}
+
+
+def test_fetch_page_text_network_error(monkeypatch):
+    _fake_get(monkeypatch, exc=urllib.error.HTTPError("u", 500, "boom", {}, None))
+    r = paperclients.fetch_page_text("https://example.com/x")
+    assert r == {"ok": False, "error": "http_500"}
+
+
+# --- fetch_pmc_fulltext ---------------------------------------------------------
+
+def test_fetch_pmc_fulltext_extracts_text(monkeypatch):
+    xml = "<article><body><p>Full text here.</p></body></article>"
+    _fake_get(monkeypatch, value=xml)
+    r = paperclients.fetch_pmc_fulltext("PMC1234567")
+    assert r == {"ok": True, "text": "Full text here."}
+
+
+def test_fetch_pmc_fulltext_404_is_no_fulltext(monkeypatch):
+    _fake_get(monkeypatch, exc=urllib.error.HTTPError("u", 404, "not found", {}, None))
+    r = paperclients.fetch_pmc_fulltext("PMC1234567")
+    assert r == {"ok": False, "error": "no_fulltext"}
+
+
+def test_fetch_pmc_fulltext_other_http_error(monkeypatch):
+    _fake_get(monkeypatch, exc=urllib.error.HTTPError("u", 500, "boom", {}, None))
+    r = paperclients.fetch_pmc_fulltext("PMC1234567")
+    assert r == {"ok": False, "error": "http_500"}
+
+
+def test_fetch_pmc_fulltext_network_error(monkeypatch):
+    _fake_get(monkeypatch, exc=OSError("boom"))
+    r = paperclients.fetch_pmc_fulltext("PMC1234567")
+    assert r == {"ok": False, "error": "network"}
+
+
 # --- politeness sleep ---------------------------------------------------------
 
 def test_each_public_fn_sleeps_for_rate_limit(monkeypatch):
@@ -226,3 +373,36 @@ def test_each_public_fn_sleeps_for_rate_limit(monkeypatch):
     _fake_get_json(monkeypatch, value={"message": {}})
     paperclients.crossref_work("10.1/xyz", "me@example.com")
     assert calls == [paperclients.RATE_LIMIT_S]
+
+
+
+# --- jats_to_text (drops <front> metadata noise, keeps title/abstract/body) ---
+
+def test_jats_to_text_keeps_body_drops_front():
+    xml = (
+        "<article><front><journal-meta><journal-id>sciadv</journal-id>"
+        "<contrib><name>TuJiaobing</name></contrib></journal-meta>"
+        "<article-title>Wearable sweat biosensor</article-title></front>"
+        "<body><sec><title>Intro</title><p>Cortisol rises under stress.</p></sec></body>"
+        "</article>"
+    )
+    text = paperclients.jats_to_text(xml)
+    assert "Wearable sweat biosensor" in text
+    assert "Cortisol rises under stress." in text
+    assert "sciadv" not in text          # front journal-id dropped
+    assert "TuJiaobing" not in text      # front contributor dropped
+
+
+def test_jats_to_text_includes_abstract():
+    xml = ("<article><front><article-title>T</article-title></front>"
+           "<abstract><p>We built a biosensor.</p></abstract>"
+           "<body><p>Methods here.</p></body></article>")
+    text = paperclients.jats_to_text(xml)
+    assert "Abstract" in text and "We built a biosensor." in text
+    assert "Methods here." in text
+
+
+def test_jats_to_text_falls_back_when_no_body():
+    xml = "<article><p>Just a stub with no body element.</p></article>"
+    text = paperclients.jats_to_text(xml)
+    assert "Just a stub with no body element." in text

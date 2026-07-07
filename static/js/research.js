@@ -16,6 +16,8 @@ const editingCards = new Set();
 let _rsrchComposer = { text: '', kind: 'note', url: '', topics: new Set(), replyTo: null };
 let _rsrchSearch = { q: '', mode: 'keyword', hits: null, msg: '' };
 const _rsrchAnnotating = new Set();
+const _rsrchFetchingText = new Set();
+let _docTexts = new Set();   // doc ids (entry:<id>) with extracted text on disk
 let pendingDelete = null;
 
 // --- Local helpers (same semantics as core.js's esc/escJs) ---
@@ -65,7 +67,7 @@ function renderResearch() {
     const el = document.getElementById('research-area');
     if (!el) return;
     el.innerHTML = _rsrchComposerHtml() + _rsrchSearchCard() + _rsrchQuestionsCard() + _rsrchTopicCards()
-        + _rsrchUnfiledCard() + _rsrchLibraryCard() + _rsrchNewTopicRow();
+        + _rsrchUnfiledCard() + _rsrchArticlesCard() + _rsrchLibraryCard() + _rsrchNewTopicRow();
 }
 
 // --- Quick capture composer ---
@@ -335,10 +337,16 @@ function _rsrchEntryRow(e, editing) {
         const annBtn = (!e.meta || editing)
             ? `<button type="button" class="rsrch-chip" ${busy ? 'disabled' : ''} onclick="_rsrchAnnotate('${esc(e.id)}')">${busy ? '&#10024; fetching&hellip;' : (e.meta ? '&#8635; re-annotate' : '&#10024; annotate')}</button>`
             : '';
+        const doc = 'entry:' + e.id;
+        const fetching = _rsrchFetchingText.has(e.id);
+        const readBtn = _docTexts.has(doc)
+            ? `<button type="button" class="rsrch-chip" onclick="openAnnotator('${escJs(doc)}','${escJs(e.text.slice(0, 60))}')">&#128214; read</button>`
+            : (e.url ? `<button type="button" class="rsrch-chip" ${fetching ? 'disabled' : ''} onclick="_rsrchFetchText('${escJs(e.id)}')">${fetching ? '&#8987; fetching&hellip;' : '&#8681; get text'}</button>` : '');
         extra = `<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:6px">
             ${link}
             <button type="button" class="rsrch-chip${verified ? ' verdict-verified' : ''}" onclick="_rsrchSetVerdict('${esc(e.id)}','${verified ? '' : 'verified'}')">${verified ? '&#10003; verified' : '&#9675; unverified'}</button>
             ${annBtn}
+            ${readBtn}
         </div>${e.meta ? _rsrchMetaHtml(e) : ''}`;
     } else if (e.kind === 'claim') {
         const label = e.verdict || '&mdash;';
@@ -481,6 +489,8 @@ async function confirmRsrchDelete() {
         if (await _rsrchPost('/api/research/topic/remove', { id: pd.item })) renderResearch();
     } else if (pd.type === 'research-entry') {
         if (await _rsrchPost('/api/research/entry/remove', { id: pd.item })) renderResearch();
+    } else if (pd.type === 'annotation') {
+        await _annPost('/api/annotations/remove', { id: pd.item });
     }
 }
 
@@ -530,6 +540,36 @@ async function _rsrchFileUnfiled() {
     const d = await res.json().catch(() => ({}));
     if (!d.unfiled) { alert('Nothing unfiled.'); return; }
     window.parent.postMessage({ type: 'openTerminalSession', name: d.session || 'research' }, location.origin);
+}
+
+// --- Articles: every source with fetched full text, ready to annotate.
+// The "article picker" half of the labrador tool — pick a doc, land in the
+// highlighter. A source's own row also has read/get-text, but this gathers
+// them in one Labrador-sidebar-style list.
+function _rsrchArticlesCard() {
+    const byDoc = {};
+    for (const e of _researchEntries()) {
+        if (e.kind === 'source') byDoc['entry:' + e.id] = e;
+    }
+    const docs = Array.from(_docTexts).filter(d => byDoc[d]);
+    if (!docs.length) return '';   // nothing fetched yet — hide the card entirely
+    const rows = docs.map(doc => {
+        const e = byDoc[doc];
+        const m = e.meta || {};
+        const title = m.title || e.text;
+        const sub = [_rsrchAuthorsShort(m.authors), m.journal, m.published].filter(Boolean).map(esc).join(' &middot; ');
+        return `<div style="display:flex;align-items:center;gap:10px;padding:0;border-top:1px solid var(--border)">
+            <button type="button" onclick="openAnnotator('${escJs(doc)}','${escJs((title || '').slice(0, 60))}')" style="flex:1;min-width:0;min-height:44px;display:flex;flex-direction:column;align-items:flex-start;gap:2px;background:none;border:none;cursor:pointer;text-align:left;padding:6px 2px;font-family:inherit">
+                <span style="font-size:14px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%">${esc(title)}</span>
+                ${sub ? `<span style="font-size:12px;color:var(--text-muted)">${sub}</span>` : ''}
+            </button>
+            <span class="rsrch-kind kind-source" style="flex:none">&#128214; annotate</span>
+        </div>`;
+    }).join('');
+    return `<details class="rsrch-card" data-card="research-articles"${_openAttr('research-articles', true)} ontoggle="rsrchCardToggled(this)">
+        <summary><span class="kitchen-arrow">&#9654;</span>Articles<span class="card-count">${docs.length} with full text &mdash; pick one to highlight &amp; annotate</span></summary>
+        ${rows}
+    </details>`;
 }
 
 // --- Library: read-only listing of the research/*.md corpus ---
@@ -632,9 +672,246 @@ async function _rsrchPost(url, payload) {
     return true;
 }
 
+// === Annotator — labrador's char-anchored highlights, generic over docs ===
+// An annotation = {selector: {exact, char_start, char_end}, content: {kind,
+// note, source: llm|human}, needs_review}. Highlights render amber until
+// reviewed (green). Docs are namespaced ids (entry:<id>, note:<file>; the
+// journal: namespace for Cricket sessions is one docstore branch away).
+
+let _ann = { doc: null, title: '', text: '', items: [], selStart: null, selEnd: null, activeId: null };
+
+async function loadDocTexts() {
+    try {
+        const res = await fetch('/api/research/texts');
+        if (res.ok) _docTexts = new Set((await res.json()).docs || []);
+    } catch (e) { /* offline — keep whatever we had */ }
+}
+
+async function _rsrchFetchText(id) {
+    if (_rsrchFetchingText.has(id)) return;
+    _rsrchFetchingText.add(id);
+    renderResearch();
+    let res;
+    try {
+        res = await fetch('/api/research/entry/fetch-text', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id }),
+        });
+    } catch (err) {
+        _rsrchFetchingText.delete(id); renderResearch(); alert('Network error — try again.'); return;
+    }
+    _rsrchFetchingText.delete(id);
+    if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        renderResearch();
+        alert(d.error === 'pdf_extraction_unavailable'
+            ? "That source is a PDF — PDF text extraction isn't wired up yet."
+            : (d.error || 'Could not fetch text.'));
+        return;
+    }
+    const d = await res.json().catch(() => ({}));
+    if (d.doc) _docTexts.add(d.doc);
+    renderResearch();
+    const entry = _researchEntries().find(x => x.id === id);
+    openAnnotator(d.doc, entry ? entry.text.slice(0, 60) : '');
+}
+
+async function openAnnotator(doc, fallbackTitle) {
+    let dt, ann;
+    try {
+        [dt, ann] = await Promise.all([
+            fetch('/api/annotations/doc-text?doc=' + encodeURIComponent(doc)),
+            fetch('/api/annotations?doc=' + encodeURIComponent(doc)),
+        ]);
+    } catch (err) { alert('Network error — try again.'); return; }
+    if (dt.status === 404) { alert('No text fetched for this document yet.'); return; }
+    if (!dt.ok) { alert('Could not load the document text.'); return; }
+    const dbody = await dt.json().catch(() => ({}));
+    const abody = ann.ok ? await ann.json().catch(() => ({})) : {};
+    _ann = { doc, title: dbody.title || fallbackTitle || doc, text: dbody.text || '',
+             items: abody.annotations || [], selStart: null, selEnd: null, activeId: null };
+    _annRender();
+    document.getElementById('annOverlay').classList.add('open');
+}
+
+function closeAnnotator() {
+    document.getElementById('annOverlay').classList.remove('open');
+    _annHidePop();
+    _ann.doc = null;
+}
+
+function annotateReaderFile() {
+    const path = document.getElementById('readerFile').textContent;
+    if (!path) return;
+    const title = document.getElementById('readerTitle').textContent;
+    closeReader();
+    openAnnotator('note:' + path, title);
+}
+
+function _annRender() {
+    document.getElementById('annTitle').textContent = _ann.title;
+    document.getElementById('annDoc').textContent = _ann.doc || '';
+    document.getElementById('annText').innerHTML = _annMarksHtml();
+    document.getElementById('annList').innerHTML = _annListHtml();
+}
+
+// Highlighted text: greedy non-overlapping pass over resolved selectors.
+// An overlapped annotation loses its mark but stays in the list.
+function _annMarksHtml() {
+    const text = _ann.text;
+    const spans = _ann.items
+        .filter(a => a.state !== 'lost' && a.state !== 'unresolved' && a.selector)
+        .map(a => ({ id: a.id, s: a.selector.char_start, e: a.selector.char_end, review: a.needs_review }))
+        .filter(x => Number.isInteger(x.s) && Number.isInteger(x.e) && x.s >= 0 && x.e <= text.length && x.s < x.e)
+        .sort((a, b) => a.s - b.s || a.e - b.e);
+    let html = '', pos = 0;
+    for (const sp of spans) {
+        if (sp.s < pos) continue;
+        html += esc(text.slice(pos, sp.s));
+        const cls = 'ann-mark' + (sp.review ? '' : ' reviewed') + (sp.id === _ann.activeId ? ' active' : '');
+        html += `<mark class="${cls}" data-ann="${esc(sp.id)}" onclick="_annFocus('${escJs(sp.id)}')">${esc(text.slice(sp.s, sp.e))}</mark>`;
+        pos = sp.e;
+    }
+    html += esc(text.slice(pos));
+    return html || '<span class="ann-empty">Empty document.</span>';
+}
+
+function _annListHtml() {
+    if (!_ann.items.length) {
+        return '<div class="ann-empty">No annotations yet &mdash; select some text in the document to make the first one.</div>';
+    }
+    return _ann.items.slice().sort((a, b) => {
+        const sa = a.selector ? a.selector.char_start : Number.MAX_SAFE_INTEGER;
+        const sb = b.selector ? b.selector.char_start : Number.MAX_SAFE_INTEGER;
+        return sa - sb;
+    }).map(a => {
+        const q = (a.selector && a.selector.exact) || '';
+        const note = (a.content && a.content.note) || '';
+        const state = a.state === 'relocated'
+            ? '<span class="rsrch-chip" style="cursor:default" title="The text shifted; re-anchored by its exact quote">&#8635; relocated</span>'
+            : a.state === 'lost'
+                ? '<span class="rsrch-chip verdict-shaky" style="cursor:default" title="The quoted text no longer appears in this document">&#9888; lost</span>' : '';
+        const src = (a.content && a.content.source) === 'llm'
+            ? '<span class="rsrch-chip" style="cursor:default">llm</span>' : '';
+        const review = `<button type="button" class="rsrch-chip ${a.needs_review ? 'verdict-interesting' : 'verdict-verified'}" onclick="_annToggleReview('${escJs(a.id)}', ${a.needs_review ? 'true' : 'false'})">${a.needs_review ? '&#9675; review' : '&#10003; reviewed'}</button>`;
+        return `<div class="ann-row">
+            <div class="ann-quote" onclick="_annFocus('${escJs(a.id)}')">&ldquo;${esc(q.slice(0, 120))}${q.length > 120 ? '&hellip;' : ''}&rdquo;</div>
+            ${note ? `<div class="ann-note">${esc(note)}</div>` : ''}
+            <div class="ann-chips">${review}${src}${state}
+                <button type="button" class="rsrch-chip" onclick="_annEditNote('${escJs(a.id)}')">edit</button>
+                <button type="button" class="rsrch-chip" style="color:var(--red)" onclick="_annConfirmDelete('${escJs(a.id)}')">&times; delete</button>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function _annFocus(id) {
+    _ann.activeId = id;
+    _annRender();
+    const m = document.querySelector(`#annText mark[data-ann="${CSS.escape(id)}"]`);
+    if (m) m.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+// --- Selection → offsets. Marks contribute their inner text only, so the
+// rendered textContent maps 1:1 onto the raw document string.
+function _annSelectionOffsets() {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+    const container = document.getElementById('annText');
+    const range = sel.getRangeAt(0);
+    if (!container.contains(range.commonAncestorContainer)) return null;
+    const pre = range.cloneRange();
+    pre.selectNodeContents(container);
+    pre.setEnd(range.startContainer, range.startOffset);
+    const start = pre.toString().length;
+    const len = range.toString().length;
+    if (!len) return null;
+    return { start, end: start + len, rect: range.getBoundingClientRect() };
+}
+
+function _annOnSelectionEnd() {
+    if (!_ann.doc) return;
+    setTimeout(() => {
+        const off = _annSelectionOffsets();
+        if (!off) { _annHidePop(); return; }
+        _ann.selStart = off.start;
+        _ann.selEnd = off.end;
+        const pop = document.getElementById('annPop');
+        pop.style.left = Math.max(8, Math.min(window.innerWidth - 150, off.rect.left + off.rect.width / 2 - 65)) + 'px';
+        pop.style.top = Math.max(8, off.rect.top - 48) + 'px';
+        pop.classList.add('show');
+    }, 10);
+}
+
+function _annHidePop() {
+    document.getElementById('annPop').classList.remove('show');
+}
+
+async function _annCreate() {
+    _annHidePop();
+    if (_ann.selStart == null || _ann.selEnd == null || !_ann.doc) return;
+    const note = prompt('Annotation note (optional):', '');
+    if (note === null) return;
+    const ok = await _annPost('/api/annotations/add', {
+        doc: _ann.doc, char_start: _ann.selStart, char_end: _ann.selEnd,
+        content: { kind: 'highlight', note: note.trim(), source: 'human' },
+    });
+    if (ok) {
+        _ann.selStart = _ann.selEnd = null;
+        const sel = window.getSelection();
+        if (sel) sel.removeAllRanges();
+    }
+}
+
+async function _annToggleReview(id, cur) {
+    await _annPost('/api/annotations/edit', { id, needs_review: !cur });
+}
+
+async function _annEditNote(id) {
+    const a = _ann.items.find(x => x.id === id);
+    if (!a) return;
+    const note = prompt('Annotation note:', (a.content && a.content.note) || '');
+    if (note === null) return;
+    const content = Object.assign({}, a.content || {}, { note: note.trim() });
+    await _annPost('/api/annotations/edit', { id, content });
+}
+
+function _annConfirmDelete(id) {
+    const a = _ann.items.find(x => x.id === id);
+    pendingDelete = { item: id, type: 'annotation' };
+    document.getElementById('rsrchModalText').innerHTML =
+        `Delete this annotation?<br><i>&ldquo;${esc(((a && a.selector && a.selector.exact) || '').slice(0, 80))}&rdquo;</i>`;
+    document.getElementById('rsrchModal').classList.add('open');
+}
+
+// Annotation endpoints return the doc-scoped list; refresh _ann from it.
+async function _annPost(url, payload) {
+    let res;
+    try {
+        res = await fetch(url, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+    } catch (err) { alert('Network error — try again.'); return false; }
+    if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        alert(d.error || 'Save failed.');
+        return false;
+    }
+    const d = await res.json().catch(() => ({}));
+    if (d.annotations && (!d.doc || d.doc === _ann.doc)) {
+        _ann.items = d.annotations;
+        _annRender();
+    }
+    return true;
+}
+
+document.addEventListener('mouseup', _annOnSelectionEnd);
+document.addEventListener('touchend', _annOnSelectionEnd);
+
 // --- Boot + refresh-on-return (no polling on this page) ---
 async function _rsrchInit() {
-    await Promise.all([loadResearch(), loadLibrary()]);
+    await Promise.all([loadResearch(), loadLibrary(), loadDocTexts()]);
     renderResearch();
 }
 

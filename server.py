@@ -22,7 +22,8 @@ from routes import (
     meditation, media, movement, reminders, food_test, terminal, settings,
     devnotes, ideas, ecosystem, keeper, pending, housing, triage, decisions,
     entities, person, shell, cards, archivals, research,
-    research_search, research_sources, research_import,
+    research_search, research_sources, research_import, research_text,
+    annotations,
 )
 from routes.shell import VALID_TABS
 
@@ -1143,6 +1144,8 @@ research.register(app)
 research_search.register(app)
 research_sources.register(app)
 research_import.register(app)
+research_text.register(app)
+annotations.register(app)
 reminders.register(app)
 food_test.register(app)
 terminal.register(app)
