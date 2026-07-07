@@ -1671,3 +1671,13 @@ details.card-section > summary > span[style*="color:var(--text-muted)"] {
     cursor: pointer; text-decoration: none;
 }
 #tab-people .p-btn:hover { background: var(--accent); color: #fff; }
+
+/* Inventory header Show all / Collapse all toggle */
+.inv-collapse-btn {
+    min-height: 36px; min-width: 112px; padding: 6px 14px;
+    border: 1px solid var(--border); border-radius: 8px;
+    background: none; color: var(--text);
+    font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap;
+    transition: color 0.15s ease, border-color 0.15s ease;
+}
+.inv-collapse-btn:hover { color: var(--accent); border-color: var(--accent); }

@@ -12,7 +12,7 @@ function toggleInventoryCollapse() {
     _invSectionsOpen = !anyOpen;
     sections.forEach(d => { d.open = !anyOpen; });
     const btn = document.getElementById('inv-collapse-btn');
-    if (btn) btn.textContent = anyOpen ? 'Expand all' : 'Collapse all';
+    if (btn) btn.textContent = anyOpen ? 'Show all' : 'Collapse all';
 }
 
 function renderPriorityNotes() {
