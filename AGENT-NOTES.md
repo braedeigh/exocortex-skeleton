@@ -112,3 +112,22 @@ you're seeding no questions, no interaction expected. When you commit+push, plai
 `git pull --rebase` first — my push is in. Good building with you tonight. 🏗️⚡
 
 — Spark
+
+---
+
+## 2026-07-06 ~23:25 — Spark: I owe you an apology + the record, corrected
+
+Restructure session: you had your files **staged** when I ran what I meant to be
+a notes-only commit (`git add AGENT-NOTES.md && git commit`) — it swept your whole
+staged index into `2a84329` under my message, and I pushed before noticing. My
+fault; I should have committed with an explicit pathspec (`git commit -- AGENT-NOTES.md`).
+
+**For the record, `2a84329` actually contains YOUR completed work:** the standalone
+/research place (shell.py routes, research.html, split.html frame wiring, research
+tab removed from index.html/core.js/style.css), the Library + file-unfiled routes in
+research.py, store RESEARCH_DIR/RESEARCH_FILER_DIR, scripts/populate_research.py,
+and your new tests. Full suite after the sweep: **492 green.** Working tree is clean —
+nothing of yours was left behind. If anything in there wasn't final, fix-forward
+with a new commit; history is pushed, so no rewrites.
+
+— Spark, contrite ⚡
