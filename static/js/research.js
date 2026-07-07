@@ -15,6 +15,7 @@ const _rsrchInputStyle = 'padding:9px 11px;border:1px solid var(--border);border
 // --- State ---
 let R = { topics: [], entries: [], sessions: [] };
 let _library = [];
+let _libraryEdge = [];   // [{file: "edge/<topic-id>.md", title, mtime}] — pinned per topic thread
 const editingCards = new Set();
 let _rsrchComposer = { text: '', kind: 'note', url: '', topics: new Set(), replyTo: null, reQuote: null, contextChain: null };
 let _rsrchSearch = { q: '', mode: 'keyword', hits: null, msg: '' };
@@ -400,6 +401,67 @@ async function _rsrchDeepResearch(id) {
     _rsrchStartPolling();
 }
 
+// --- Distill: fires a research-distiller worker session (dispatcher-queued,
+// same as an annotation-batch question) that synthesizes a topic's REVIEWED
+// answers + reports into research/edge/<topic-id>.md. A running/queued
+// distill session for the topic renders as a pill — same dot pattern as
+// _rsrchDeepBtn — instead of the button, so it can't be double-fired.
+function _rsrchDistillBtn(t) {
+    const active = _researchSessions().find(s =>
+        s.mode === 'distill' && (s.status === 'running' || s.status === 'queued') && (s.topics || []).includes(t.id));
+    if (active) {
+        const queued = active.status === 'queued';
+        const dot = queued
+            ? `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--text-muted)"></span>`
+            : `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--purple);animation:rsrchPulse 1.2s ease-in-out infinite"></span>`;
+        return `<span style="flex:none;display:inline-flex;align-items:center;gap:6px;height:40px;padding:0 14px;border-radius:8px;background:${queued ? 'rgba(120,120,120,0.16)' : 'rgba(141,103,207,0.16)'};color:${queued ? 'var(--text-muted)' : 'var(--purple)'};font-size:13px;font-weight:700;white-space:nowrap">
+            ${dot}&#10024; ${queued ? 'queued' : 'distilling'}&hellip;
+        </span>`;
+    }
+    return `<button type="button" onclick="_rsrchDistill('${esc(t.id)}')" style="flex:none;height:40px;padding:0 14px;border-radius:8px;border:1px solid var(--purple);background:none;color:var(--purple);font-size:13px;font-weight:700;cursor:pointer">&#10024; Distill</button>`;
+}
+
+async function _rsrchDistill(tid) {
+    let res;
+    try {
+        res = await fetch('/api/research/topic/distill', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ topic: tid }),
+        });
+    } catch (err) { alert('Network error — try again.'); return; }
+    if (res.status === 404) { alert('Distill API not loaded yet — needs an app restart.'); return; }
+    if (res.status === 409) {
+        const d = await res.json().catch(() => ({}));
+        alert(d.error || 'A distill session for this topic is already queued or running.');
+        return;
+    }
+    if (!res.ok) { const d = await res.json().catch(() => ({})); alert(d.error || 'Could not start distill.'); return; }
+    loadResearch().then(renderResearch);
+}
+
+// Pinned card at the top of a topic thread once the distiller has written an
+// edge-of-knowledge note for it — settled canon, so it wears the purple tint.
+// The chip nudges a re-distill once enough new reviewed answers have landed.
+function _rsrchEdgeCard(t) {
+    const edge = _rsrchEdgeFor(t.id);
+    if (!edge) return '';
+    const reviewedSince = _researchEntries().filter(e =>
+        e.author === 'llm' && e.reviewed && (e.topics || []).includes(t.id)
+        && (e.created || '').slice(0, 10) > (edge.mtime || '')
+    ).length;
+    const chip = reviewedSince
+        ? `<span class="rsrch-chip" style="cursor:default;background:rgba(141,103,207,0.16);color:var(--purple);border-color:transparent;font-weight:700">${reviewedSince} reviewed since</span>`
+        : '';
+    return `<div class="rsrch-entry" style="display:flex;align-items:center;gap:10px;padding:12px 14px;margin-bottom:16px;border-radius:12px;cursor:pointer${RSRCH_TINT.purple}" onclick="openLibraryFile('${escJs(edge.file)}')">
+        <div style="flex:1;min-width:0">
+            <div style="font-size:15px;font-weight:700;color:var(--text)">&#10024; Edge of knowledge</div>
+            <div style="font-size:12px;color:var(--text-muted);margin-top:2px">As of ${esc(edge.mtime)}</div>
+        </div>
+        ${chip}
+        <span style="flex:none;color:var(--text-muted);font-size:20px;line-height:1">&#8250;</span>
+    </div>`;
+}
+
 // --- Topic cards ---
 const RSRCH_STATUS_RANK = { active: 0, dormant: 1, settled: 2 };
 
@@ -493,9 +555,11 @@ function _rsrchThreadView(t) {
             <div style="font-size:18px;font-weight:800;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.name)}</div>
             <div style="font-size:12px;color:var(--text-muted)">${entries.length} entr${entries.length === 1 ? 'y' : 'ies'}</div>
         </div>
+        ${_rsrchDistillBtn(t)}
         <button type="button" class="card-edit-btn" onclick="toggleEditMode('${cardId}')">${isEditing ? 'Done' : 'Edit'}</button>
     </div>
     ${isEditing ? `<div style="border:1px solid var(--border);border-radius:12px;padding:10px 14px;margin-bottom:16px;background:var(--card-bg)">${_rsrchTopicEditor(t)}</div>` : ''}
+    ${_rsrchEdgeCard(t)}
     ${sendStrip}
     ${_rsrchSessionsCard(sessions)}
     <div style="border:1px solid var(--border);border-radius:12px;padding:4px 14px;margin-bottom:16px;background:var(--card-bg)">
@@ -926,8 +990,15 @@ async function loadLibrary() {
     try {
         const res = await fetch('/api/research/library');
         if (!res.ok) return;
-        _library = (await res.json()).files || [];
+        const body = await res.json();
+        _library = body.files || [];
+        _libraryEdge = body.edge || [];
     } catch (e) { /* offline — keep whatever we had */ }
+}
+
+// The one topic's edge-of-knowledge note, if the distiller has ever written one.
+function _rsrchEdgeFor(tid) {
+    return _libraryEdge.find(f => f.file === `edge/${tid}.md`) || null;
 }
 
 function _rsrchLibraryCard() {

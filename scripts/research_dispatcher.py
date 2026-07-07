@@ -172,12 +172,23 @@ def describe_run(recovered, admitted):
 
 # --- spawning (moved here from routes/research.py's old _spawn_worker) ------
 
-def spawn_worker(session_id, mode, question_id):
-    """Spawn (or reuse) a named tmux Claude session for one annotation-batch
-    question. The worker reads its CLAUDE.md from RESEARCH_WORKER_DIR, does
-    its one job, then records the result via the APPLY command and closes
-    itself. Previously routes/research.py spawned this straight from the
-    endpoint; now the dispatcher calls it only once a slot actually opens up.
+def spawn_worker(session_id, mode, target_id):
+    """Spawn (or reuse) a named tmux Claude session for one queued worker
+    session, then send it a prompt shaped for its mode:
+
+      * `mode in ("regular", "deep")` — an annotation-batch question.
+        `target_id` is the question entry id; the worker reads its CLAUDE.md
+        from RESEARCH_WORKER_DIR.
+      * `mode == "distill"` — a per-topic distill (see
+        routes/research.py's /api/research/topic/distill). `target_id` is
+        the topic id; the worker reads its CLAUDE.md from
+        RESEARCH_DISTILLER_DIR and gets the topic's name looked up here (the
+        session record only carries the id) so the prompt can name it.
+
+    Either way the worker does its one job, records the result via the
+    APPLY command, then closes itself. Previously routes/research.py spawned
+    this straight from the endpoint; now the dispatcher calls it only once a
+    slot actually opens up.
     """
     skeleton_dir = Path(__file__).resolve().parent.parent
     tmux_name = worker_tmux_name(session_id)
@@ -187,15 +198,32 @@ def spawn_worker(session_id, mode, question_id):
         f"{skeleton_dir}/scripts/worker_apply_result.py "
         f"--session {session_id}"
     )
-    shared.ensure_claude_session(
-        tmux_name, store.RESEARCH_WORKER_DIR, dirs=(store.RESEARCH_WORKER_DIR,),
-    )
-    prompt = (
-        f"SESSION={session_id} MODE={mode} TMUX={tmux_name}\n"
-        f"APPLY: {apply_cmd}\n"
-        f"Do your one job: read your CLAUDE.md, research the one question in session "
-        f"{session_id}, record via APPLY, then close your tmux session."
-    )
+    if mode == "distill":
+        topic_id = target_id
+        data = store.read("research.json", {"topics": []})
+        topic = next((t for t in data.get("topics", []) if t["id"] == topic_id), None)
+        topic_name = topic["name"] if topic else topic_id
+        shared.ensure_claude_session(
+            tmux_name, store.RESEARCH_DISTILLER_DIR, dirs=(store.RESEARCH_DISTILLER_DIR,),
+        )
+        prompt = (
+            f"SESSION={session_id} TOPIC={topic_id}: {topic_name} TMUX={tmux_name}\n"
+            f"APPLY: {apply_cmd}\n"
+            f"Do your one job: read your CLAUDE.md, distill topic '{topic_name}' "
+            f"({topic_id}) into research/edge/{topic_id}.md, record via APPLY, then "
+            f"close your tmux session."
+        )
+    else:
+        question_id = target_id
+        shared.ensure_claude_session(
+            tmux_name, store.RESEARCH_WORKER_DIR, dirs=(store.RESEARCH_WORKER_DIR,),
+        )
+        prompt = (
+            f"SESSION={session_id} MODE={mode} TMUX={tmux_name}\n"
+            f"APPLY: {apply_cmd}\n"
+            f"Do your one job: read your CLAUDE.md, research the one question in session "
+            f"{session_id}, record via APPLY, then close your tmux session."
+        )
     # block=True: this script exits right after run_once — the default
     # daemon-thread send would die with the process before ever typing.
     shared.send_prompt(tmux_name, prompt, block=True)
@@ -237,7 +265,14 @@ def run_once(ending=None, *, meminfo=None, tmux_fn=None, spawner=None, clock=Non
             admitted = admit_one(data, slots)
 
         if admitted:
-            spawner(admitted["id"], admitted.get("mode", "regular"), admitted["entry_ids"][0])
+            # A distill session has no entry_ids (nothing to research — it
+            # synthesizes a topic instead), so its "target" for spawn_worker
+            # is the topic id, not a question id.
+            if admitted.get("mode") == "distill":
+                target_id = (admitted.get("topics") or [None])[0]
+            else:
+                target_id = admitted["entry_ids"][0]
+            spawner(admitted["id"], admitted.get("mode", "regular"), target_id)
 
         print(f"[{clock():%Y-%m-%d %H:%M:%S}] research-dispatcher: {describe_run(recovered, admitted)}")
 

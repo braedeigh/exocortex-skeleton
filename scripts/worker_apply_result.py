@@ -16,10 +16,18 @@ The script can also be imported and called directly:
 
 What it does (all inside one store.mutate):
   - Finds the session record (raises ValueError if missing).
-  - Finds the question entry referenced by session.entry_ids[0].
-  - Appends a reply entry authored by "llm" with the digest text.
-  - Marks the question processed=True, flagged=False (status unchanged).
-  - Sets session status="done" and a one-line report.
+  - If session.entry_ids is non-empty: finds the question entry referenced
+    by entry_ids[0], appends a reply entry (author "llm") threaded under it
+    via reply_to, marks the question processed=True/flagged=False (status
+    unchanged), and sets session report to "Researched → research/<file>"
+    (or "Answered." with no file).
+  - If session.entry_ids is EMPTY (a distill session — see
+    routes/research.py's /api/research/topic/distill): appends a reply entry
+    with reply_to=None and topics copied straight from the session (no
+    question to inherit topics from, nothing to mark processed/unflagged),
+    and sets session report to "Distilled → research/<file>" (or
+    "Distilled." with no file).
+  - Either way: sets session status="done".
 
 Once the mutate closes, it also kicks scripts/research_dispatcher.py (fire
 and forget) so the next queued worker gets admitted right away instead of
@@ -87,7 +95,9 @@ def apply_result(session_id, text, file=None):
         The newly created reply entry dict.
 
     Raises:
-        ValueError: if the session or its question entry is not found.
+        ValueError: if the session is not found, or (for a session WITH
+            entry_ids) its question entry is not found. A session with no
+            entry_ids (a distill session) has no question to look up.
     """
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
 
@@ -98,21 +108,29 @@ def apply_result(session_id, text, file=None):
             raise ValueError(f"Session not found: {session_id!r}")
 
         entries = data.setdefault("entries", [])
-        question_id = session["entry_ids"][0]
-        question = next((e for e in entries if e["id"] == question_id), None)
-        if question is None:
-            raise ValueError(f"Question entry not found: {question_id!r}")
+        entry_ids = session.get("entry_ids") or []
+
+        question = None
+        reply_to = None
+        topics = list(session.get("topics") or [])
+        if entry_ids:
+            question_id = entry_ids[0]
+            question = next((e for e in entries if e["id"] == question_id), None)
+            if question is None:
+                raise ValueError(f"Question entry not found: {question_id!r}")
+            reply_to = question_id
+            topics = list(question.get("topics") or [])
 
         # Create the llm reply entry
         reply = {
             "id": _new_entry_id(entries),
             "kind": "note",
             "text": text,
-            "topics": list(question.get("topics") or []),
+            "topics": topics,
             "url": "",
             "verdict": "",
             "status": "",
-            "reply_to": question_id,
+            "reply_to": reply_to,
             "created": now,
             "author": "llm",
             "reviewed": False,
@@ -122,15 +140,21 @@ def apply_result(session_id, text, file=None):
             reply["file"] = file
         entries.append(reply)
 
-        # Mark the question as processed; leave status unchanged
-        question["processed"] = True
-        question["flagged"] = False
+        if question is not None:
+            # Mark the question as processed; leave status unchanged
+            question["processed"] = True
+            question["flagged"] = False
 
         # Close the session with a one-line report
         session["status"] = "done"
-        session["report"] = (
-            f"Researched → research/{file}" if file else "Answered."
-        )
+        if entry_ids:
+            session["report"] = (
+                f"Researched → research/{file}" if file else "Answered."
+            )
+        else:
+            session["report"] = (
+                f"Distilled → research/{file}" if file else "Distilled."
+            )
 
     try:
         _deregister_terminal_tab(session_id)

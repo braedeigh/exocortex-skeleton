@@ -205,12 +205,37 @@ def test_library_lists_markdown_recursively(client, tmp_path, monkeypatch):
     assert files["product-references/beta.md"]["title"] == "beta"
 
 
+def test_library_excludes_edge_dir_and_lists_it_separately(client, tmp_path, monkeypatch):
+    """edge/<topic-id>.md notes (the distiller's output) don't show up in the
+    main `files` list — they're returned separately under `edge` so the UI
+    can pin them per topic thread instead."""
+    import store
+    monkeypatch.setattr(store, "RESEARCH_DIR", tmp_path)
+    (tmp_path / "alpha.md").write_text("# Alpha Title\n\nbody")
+    edge_dir = tmp_path / "edge"
+    edge_dir.mkdir()
+    (edge_dir / "hair-care.md").write_text("# Hair Care — edge of knowledge\n\n*As of 2026-07-07*")
+
+    r = client.get("/api/research/library")
+    assert r.status_code == 200
+    body = r.get_json()
+    files = {f["path"]: f for f in body["files"]}
+    assert set(files) == {"alpha.md"}   # the edge note is NOT in the main list
+
+    edge = body["edge"]
+    assert len(edge) == 1
+    assert edge[0]["file"] == "edge/hair-care.md"
+    assert edge[0]["title"] == "Hair Care — edge of knowledge"
+    assert "mtime" in edge[0]
+
+
 def test_library_missing_dir_is_empty_not_error(client, tmp_path, monkeypatch):
     import store
     monkeypatch.setattr(store, "RESEARCH_DIR", tmp_path / "nope")
     r = client.get("/api/research/library")
     assert r.status_code == 200
     assert r.get_json()["files"] == []
+    assert r.get_json()["edge"] == []
 
 
 def test_library_file_round_trips_content(client, tmp_path, monkeypatch):
@@ -484,6 +509,90 @@ def test_deep_research_rejected_request_leaves_store_unmutated(client, stub_deep
     assert "flagged" not in entry
     assert data.get("sessions", []) == []
     assert not stub_deep.get("spawned")
+
+
+# --- topic/distill (per-topic edge-of-knowledge note trigger) ----------------
+
+@pytest.fixture
+def stub_kick(monkeypatch):
+    """Stub _kick_dispatcher so distill tests never shell out; records calls."""
+    from routes import research as research_mod
+    calls = []
+    monkeypatch.setattr(research_mod, "_kick_dispatcher", lambda: calls.append(True))
+    return calls
+
+
+def test_distill_unknown_topic_404(client, stub_kick):
+    r = _post(client, "/api/research/topic/distill", {"topic": "no-such-topic"})
+    assert r.status_code == 404
+    assert _read().get("sessions", []) == []
+    assert not stub_kick
+
+
+def test_distill_queues_worker_session_and_kicks_dispatcher(client, stub_kick):
+    _post(client, "/api/research/topic/add", {"name": "Hair Care"})
+    tid = _read()["topics"][0]["id"]
+
+    r = _post(client, "/api/research/topic/distill", {"topic": tid})
+    assert r.status_code == 200
+    body = r.get_json()
+    session = body["session"]
+    assert session["entry_ids"] == []
+    assert session["topics"] == [tid]
+    assert session["status"] == "queued"
+    assert session["mode"] == "distill"
+    assert session["worker"] is True
+    assert "id" in session and session["id"]
+
+    data = _read()
+    sessions = data["sessions"]
+    assert len(sessions) == 1
+    assert sessions[0] == session
+
+    # the dispatcher is kicked so the queue drains without waiting for cron
+    assert stub_kick == [True]
+
+
+def test_distill_rejects_second_session_for_same_topic_while_active(client, stub_kick):
+    _post(client, "/api/research/topic/add", {"name": "Hair Care"})
+    tid = _read()["topics"][0]["id"]
+    first = _post(client, "/api/research/topic/distill", {"topic": tid})
+    assert first.status_code == 200
+
+    r = _post(client, "/api/research/topic/distill", {"topic": tid})
+    assert r.status_code == 409
+    assert "already" in r.get_json()["error"]
+
+    # still only the one session — the 409 didn't create a second
+    assert len(_read()["sessions"]) == 1
+
+
+def test_distill_allows_new_session_once_prior_one_is_done(client, stub_kick):
+    _post(client, "/api/research/topic/add", {"name": "Hair Care"})
+    tid = _read()["topics"][0]["id"]
+    first = _post(client, "/api/research/topic/distill", {"topic": tid})
+    sid = first.get_json()["session"]["id"]
+
+    import store
+    with store.mutate("research.json", {"topics": [], "entries": [], "sessions": []}) as data:
+        session = next(s for s in data["sessions"] if s["id"] == sid)
+        session["status"] = "done"
+
+    r = _post(client, "/api/research/topic/distill", {"topic": tid})
+    assert r.status_code == 200
+    assert len(_read()["sessions"]) == 2
+
+
+def test_distill_allows_concurrent_sessions_for_different_topics(client, stub_kick):
+    _post(client, "/api/research/topic/add", {"name": "Hair Care"})
+    _post(client, "/api/research/topic/add", {"name": "Sleep"})
+    t1, t2 = [t["id"] for t in _read()["topics"]]
+
+    r1 = _post(client, "/api/research/topic/distill", {"topic": t1})
+    r2 = _post(client, "/api/research/topic/distill", {"topic": t2})
+    assert r1.status_code == 200
+    assert r2.status_code == 200
+    assert len(_read()["sessions"]) == 2
 
 
 # --- file-unfiled (the filer cricket trigger) --------------------------------

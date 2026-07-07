@@ -67,6 +67,13 @@ RESEARCH_DEEP_DIR = Path(os.environ.get("EXOCORTEX_RESEARCH_DEEP_DIR", DATA_DIR.
 # Claude session here, gets a CLAUDE.md skill telling it to do ONE job then
 # call the APPLY command and close its tmux session.
 RESEARCH_WORKER_DIR = Path(os.environ.get("EXOCORTEX_RESEARCH_WORKER_DIR", DATA_DIR.parent / "research-worker"))
+# Research distiller: a "mode": "distill" worker session (queued via
+# POST /api/research/topic/distill, admitted by research_dispatcher.py same
+# as any other worker) works out of this folder (its CLAUDE.md is the
+# skill) — same idea as RESEARCH_WORKER_DIR, but it synthesizes a topic's
+# reviewed answers into research/edge/<topic-id>.md instead of answering one
+# question.
+RESEARCH_DISTILLER_DIR = Path(os.environ.get("EXOCORTEX_RESEARCH_DISTILLER_DIR", DATA_DIR.parent / "research-distiller"))
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)

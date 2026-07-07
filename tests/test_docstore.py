@@ -45,6 +45,29 @@ def test_note_resolves_with_title(data_dir, research_dir):
     assert "body text" in r["text"]
 
 
+def test_note_resolves_one_level_subdir(data_dir, research_dir):
+    """note:<subdir>/<file>.md (e.g. the distiller's edge/<topic-id>.md
+    notes) must resolve — _resolve_note's is_relative_to(root) check already
+    allows any depth under RESEARCH_DIR; this just pins that a one-level
+    subdir specifically works and isn't accidentally rejected."""
+    edge_dir = research_dir / "edge"
+    edge_dir.mkdir()
+    (edge_dir / "some-topic.md").write_text("# Some Topic — edge of knowledge\n\nbody")
+    r = docstore.resolve("note:edge/some-topic.md")
+    assert r["ok"] is True
+    assert r["title"] == "Some Topic — edge of knowledge"
+    assert "body" in r["text"]
+
+
+def test_note_traversal_via_subdir_is_still_blocked(data_dir, research_dir):
+    """A '..' inside a subdir path (e.g. note:edge/../../secret.md) must be
+    rejected the same as a bare note:../secret.md — the one-level-subdir
+    allowance is not a relaxation of the traversal guard."""
+    (research_dir.parent / "secret.md").write_text("nope")
+    r = docstore.resolve("note:edge/../../secret.md")
+    assert r == {"ok": False, "error": "bad_path"}
+
+
 def test_note_traversal_is_blocked(data_dir, research_dir):
     (research_dir.parent / "secret.md").write_text("nope")
     r = docstore.resolve("note:../secret.md")

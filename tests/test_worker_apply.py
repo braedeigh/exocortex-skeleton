@@ -59,6 +59,29 @@ def _seed(question_text="Does X cause Y?", topics=None):
     return q_id, s_id
 
 
+def _seed_distill(topics=None):
+    """Write research.json with a distill session: no entry_ids, one topic,
+    nothing to look up or flag-flip."""
+    import store
+    topics = list(topics or ["hair-care"])
+    s_id = "2026-07-07.1200"
+    store.write("research.json", {
+        "topics": [{"id": tid, "name": tid, "status": "active", "created": "2026-07-07 09:00"} for tid in topics],
+        "entries": [],
+        "sessions": [{
+            "id": s_id,
+            "entry_ids": [],
+            "topics": topics,
+            "created": "2026-07-07 12:00",
+            "status": "running",
+            "report": "",
+            "mode": "distill",
+            "worker": True,
+        }],
+    })
+    return s_id
+
+
 def _read():
     import store
     return store.read("research.json", {})
@@ -132,6 +155,64 @@ def test_apply_result_kicks_dispatcher(data_dir, monkeypatch):
     apply_result(session_id, "answer text")
 
     assert kicks == [session_id]
+
+
+# ---------------------------------------------------------------------------
+# Entry-less (distill) sessions: entry_ids == [], topics come from the
+# session itself, no question entry is looked up or flag-flipped.
+# ---------------------------------------------------------------------------
+
+def test_apply_result_distill_creates_reply_with_no_reply_to(data_dir):
+    """A distill session (entry_ids: []) gets a reply entry with
+    reply_to=None and topics copied straight from the session, not from a
+    question (there isn't one)."""
+    session_id = _seed_distill(topics=["hair-care", "sleep"])
+
+    apply_result(session_id, "digest of what's settled", file="edge/hair-care.md")
+
+    data = _read()
+    entries = data["entries"]
+    assert len(entries) == 1   # no question entry existed to begin with
+
+    reply = entries[0]
+    assert reply["author"] == "llm"
+    assert reply["reply_to"] is None
+    assert reply["topics"] == ["hair-care", "sleep"]
+    assert reply["file"] == "edge/hair-care.md"
+    assert reply["reviewed"] is False
+    assert reply["session"] == session_id
+
+
+def test_apply_result_distill_session_report_names_the_file(data_dir):
+    session_id = _seed_distill()
+
+    apply_result(session_id, "digest", file="edge/hair-care.md")
+
+    session = _read()["sessions"][0]
+    assert session["status"] == "done"
+    assert session["report"] == "Distilled → research/edge/hair-care.md"
+
+
+def test_apply_result_distill_session_report_defaults_without_file(data_dir):
+    session_id = _seed_distill()
+
+    apply_result(session_id, "digest")
+
+    session = _read()["sessions"][0]
+    assert session["report"] == "Distilled."
+
+
+def test_apply_result_distill_touches_no_question_entry(data_dir):
+    """No entries exist besides the reply itself — nothing gets a spurious
+    `processed`/`flagged` flip since there was no question to touch."""
+    session_id = _seed_distill()
+
+    apply_result(session_id, "digest", file="edge/hair-care.md")
+
+    entries = _read()["entries"]
+    assert len(entries) == 1
+    assert "processed" not in entries[0]
+    assert "flagged" not in entries[0]
 
 
 def test_apply_result_deregisters_terminal_tab(data_dir, monkeypatch):

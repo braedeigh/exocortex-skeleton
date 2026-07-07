@@ -246,6 +246,81 @@ def test_spawn_worker_sends_prompt_blocking(data_dir, monkeypatch):
     assert sends[0][1].get("block") is True
 
 
+# --- mode switch: distill sessions target a topic, not a question ------------
+
+def _distill_session(id, status="queued", created="2026-07-07 09:00", topics=("hair-care",), **extra):
+    s = {
+        "id": id, "entry_ids": [], "topics": list(topics), "created": created,
+        "status": status, "report": "", "mode": "distill", "worker": True,
+    }
+    s.update(extra)
+    return s
+
+
+def test_admit_and_spawn_passes_topic_id_for_distill_session(data_dir):
+    """run_once's spawner call must pass the topic id (not entry_ids[0], which
+    doesn't exist) as the target for a distill session."""
+    _write([_distill_session("d1", topics=["hair-care"])])
+    spawned = []
+    dispatcher.run_once(meminfo=lambda: 4000, tmux_fn=_fake_tmux([]),
+                        spawner=lambda sid, mode, target: spawned.append((sid, mode, target)))
+    assert spawned == [("d1", "distill", "hair-care")]
+    assert _sessions()[0]["status"] == "running"
+
+
+def test_spawn_worker_uses_distiller_dir_and_topic_prompt_for_distill_mode(data_dir, monkeypatch):
+    """spawn_worker itself, for mode=='distill', spawns in
+    RESEARCH_DISTILLER_DIR (not RESEARCH_WORKER_DIR) and builds a prompt
+    carrying SESSION/TOPIC/TMUX/APPLY — looking the topic's name up from
+    research.json since the session only carries its id."""
+    store.write("research.json", {
+        "topics": [{"id": "hair-care", "name": "Hair & Scalp Care", "status": "active", "created": "2026-07-07 09:00"}],
+        "entries": [], "sessions": [],
+    })
+    spawn_calls = []
+    monkeypatch.setattr(dispatcher.shared, "ensure_claude_session",
+                        lambda name, path, **kw: spawn_calls.append((name, path)))
+    sends = []
+    monkeypatch.setattr(dispatcher.shared, "send_prompt",
+                        lambda session, text, **kw: sends.append((session, text, kw)))
+
+    dispatcher.spawn_worker("d1", "distill", "hair-care")
+
+    assert len(spawn_calls) == 1
+    tmux_name, spawn_path = spawn_calls[0]
+    assert tmux_name == "rw-d1"
+    assert spawn_path == store.RESEARCH_DISTILLER_DIR
+    assert spawn_path != store.RESEARCH_WORKER_DIR
+
+    assert len(sends) == 1
+    sent_session, prompt, kw = sends[0]
+    assert sent_session == "rw-d1"
+    assert "SESSION=d1" in prompt
+    assert "TOPIC=hair-care: Hair & Scalp Care" in prompt
+    assert "TMUX=rw-d1" in prompt
+    assert "APPLY:" in prompt
+    assert "worker_apply_result.py" in prompt
+    assert "--session d1" in prompt
+    assert kw.get("block") is True
+
+
+def test_spawn_worker_regular_mode_still_uses_worker_dir(data_dir, monkeypatch):
+    """Non-distill modes are unaffected by the mode switch: still
+    RESEARCH_WORKER_DIR, still the MODE=<mode> prompt shape."""
+    spawn_calls = []
+    monkeypatch.setattr(dispatcher.shared, "ensure_claude_session",
+                        lambda name, path, **kw: spawn_calls.append((name, path)))
+    sends = []
+    monkeypatch.setattr(dispatcher.shared, "send_prompt",
+                        lambda session, text, **kw: sends.append((session, text, kw)))
+
+    dispatcher.spawn_worker("s1", "regular", "q1")
+
+    assert spawn_calls[0][1] == store.RESEARCH_WORKER_DIR
+    assert "MODE=regular" in sends[0][1]
+    assert "TOPIC=" not in sends[0][1]
+
+
 def test_send_prompt_block_true_types_before_returning(monkeypatch):
     """block=True must run synchronously — the caller's process may exit the
     moment send_prompt returns."""

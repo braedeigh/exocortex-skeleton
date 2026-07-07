@@ -24,7 +24,11 @@ research-runner run: it records which of her entries were sent, the union
 of their topics, and a status ("running" → "done") with a one-line report
 the runner leaves behind. Session ids share the entry id scheme. An
 optional `"mode": "deep"` marks a session spawned for a single-question
-deep-research dive (research-deep) rather than the regular runner.
+deep-research dive (research-deep) rather than the regular runner. `"mode":
+"distill"` marks a per-topic session (`entry_ids: []`, one topic id in
+`topics`) that synthesizes the topic's REVIEWED replies + reports into
+research/edge/<topic-id>.md — see /api/research/topic/distill and
+scripts/research_dispatcher.py's spawn_worker.
 """
 import os
 import re
@@ -381,6 +385,51 @@ def register(app):
         shared.send_prompt("research-deep", prompt)
         return jsonify({"ok": True, "session": sid, "newly_spawned": newly})
 
+    # --- Distill: synthesize a topic's reviewed answers into an edge note ---
+
+    @app.route("/api/research/topic/distill", methods=["POST"])
+    def distill_research_topic():
+        """Queue a distill session for one topic: a worker session (same
+        memory-throttled admission as annotation-batch, `worker: True`) with
+        `entry_ids: []` and `mode: "distill"` so research_dispatcher.py's
+        spawn_worker routes it to the research-distiller skill instead of the
+        regular worker one. The distiller reads the topic's REVIEWED llm
+        replies + their report files and (over)writes
+        research/edge/<topic-id>.md — the one file class an agent may
+        overwrite. Refuses a second distill session for the same topic while
+        one is already queued/running (409) rather than double-spawning."""
+        body = request.json or {}
+        tid = body.get("topic")
+        with store.mutate("research.json", {"topics": [], "entries": [], "sessions": []}) as data:
+            topic = next((t for t in data.get("topics", []) if t["id"] == tid), None)
+            if not topic:
+                return jsonify({"error": "not found"}), 404
+
+            sessions = data.setdefault("sessions", [])
+            dup = any(
+                s.get("mode") == "distill" and s.get("status") in ("queued", "running")
+                and tid in (s.get("topics") or [])
+                for s in sessions
+            )
+            if dup:
+                return jsonify({"error": "a distill session for this topic is already queued or running"}), 409
+
+            sid = _new_session_id(sessions)
+            session = {
+                "id": sid,
+                "entry_ids": [],
+                "topics": [tid],
+                "created": _now_stamp(),
+                "status": "queued",
+                "report": "",
+                "mode": "distill",
+                "worker": True,
+            }
+            sessions.append(session)
+
+        _kick_dispatcher()
+        return _blob(data, session=session)
+
     # --- Annotation-batch: create question entries + worker sessions in bulk ---
 
     @app.route("/api/research/annotation-batch", methods=["POST"])
@@ -496,21 +545,33 @@ def register(app):
 
     @app.route("/api/research/library")
     def research_library():
-        """List the markdown files in RESEARCH_DIR (recursive), newest first."""
+        """List the markdown files in RESEARCH_DIR (recursive), newest first.
+
+        `edge/<topic-id>.md` files — the distiller's "edge of knowledge"
+        notes — are excluded from the main list and returned separately
+        under `edge`, keyed by topic, so the UI can pin one per topic thread
+        instead of it showing up as just another library entry."""
         root = store.RESEARCH_DIR
         files = []
+        edge = []
         if root.is_dir():
             for p in sorted(root.rglob("*.md")):
+                rel = p.relative_to(root).as_posix()
                 stat = p.stat()
+                title = _md_title(p)
+                mtime = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d")
+                if rel.startswith("edge/"):
+                    edge.append({"file": rel, "title": title, "mtime": mtime})
+                    continue
                 files.append({
-                    "path": p.relative_to(root).as_posix(),
+                    "path": rel,
                     "name": p.stem,
-                    "title": _md_title(p),
-                    "mtime": datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d"),
+                    "title": title,
+                    "mtime": mtime,
                     "size": stat.st_size,
                 })
         files.sort(key=lambda f: f["mtime"], reverse=True)
-        return jsonify({"ok": True, "files": files})
+        return jsonify({"ok": True, "files": files, "edge": edge})
 
     @app.route("/api/research/library/file")
     def research_library_file():
