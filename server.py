@@ -5,6 +5,7 @@ import json
 import hashlib
 import secrets
 import bcrypt
+import time
 import traceback
 from datetime import datetime, timedelta
 
@@ -17,6 +18,7 @@ from data_helpers import (
 from public_config import filter_for_view, is_public_path
 import store
 import config
+import proxy_auth
 from routes import (
     kitchen, habits, todos, places, health, inventory, money, car,
     meditation, media, movement, reminders, food_test, terminal, settings,
@@ -166,9 +168,28 @@ app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_SECURE'] = True
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=90)
 
+# --- Proxy trust header (exocortex-rs handoff) ---
+# Inert unless EXO_PROXY_SECRET_FILE is set to a readable 32-byte hex secret file.
+_PROXY_SECRET = proxy_auth.load_secret(app.logger)
+
+
+def _exo_proxied_user():
+    """Return the authenticated slug from a valid X-Exo-Proxied header, or None."""
+    return proxy_auth.verify_header(request.headers.get("X-Exo-Proxied"), _PROXY_SECRET, time.time())
+
+
+def _is_authed() -> bool:
+    """Single auth predicate going forward: proxy-asserted user OR legacy session cookie."""
+    return getattr(request, 'exo_user', None) is not None or session.get('authed')
+
 
 @app.before_request
 def gate():
+    slug = _exo_proxied_user()
+    if slug:
+        request.exo_user = slug
+        request.view_mode = "authed"
+        return
     request.view_mode = "authed" if session.get('authed') else "public"
     if request.view_mode == "authed":
         return
@@ -216,7 +237,6 @@ def get_code_hash():
 # In-memory sliding window per IP. Per-worker (gunicorn = 2 workers, so effective
 # cap is ~2x). Good enough to neuter brute force; not a substitute for a real
 # distributed limiter.
-import time
 _LOGIN_FAILS = {}            # ip -> [timestamp, ...]
 LOGIN_WINDOW_SEC = 300       # 5-minute window
 LOGIN_MAX_FAILS = 5          # max failures per window before lockout
@@ -290,6 +310,8 @@ def auth_check():
 
 @app.route("/api/auth/change-password", methods=["POST"])
 def api_change_password():
+    if getattr(request, 'exo_user', None) is not None:
+        return jsonify({"error": "password is managed by the new login system — use `exo user passwd`"}), 410
     if not session.get('authed'):
         return jsonify({"error": "not authed"}), 401
     data = request.get_json(silent=True) or {}
