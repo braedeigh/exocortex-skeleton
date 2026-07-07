@@ -84,13 +84,15 @@ def _now_stamp():
     return datetime.now().strftime("%Y-%m-%d %H:%M")
 
 
-def _blob(data):
-    return jsonify({
+def _blob(data, **extra):
+    d = {
         "ok": True,
         "topics": data.get("topics", []),
         "entries": data.get("entries", []),
         "sessions": data.get("sessions", []),
-    })
+    }
+    d.update(extra)
+    return jsonify(d)
 
 
 def _new_session_id(sessions):
@@ -169,11 +171,17 @@ def register(app):
             "reply_to": body.get("reply_to"),
             "created": _now_stamp(),
         }
+        re_quote = (body.get("re_quote") or "").strip()
+        if re_quote:
+            entry["re_quote"] = re_quote
+        context_ids = body.get("context_ids")
+        if isinstance(context_ids, list) and context_ids:
+            entry["context_ids"] = [str(x) for x in context_ids]
         with store.mutate("research.json", {"topics": [], "entries": []}) as data:
             entries = data.setdefault("entries", [])
             entry["id"] = _new_entry_id(entries)
             entries.append(entry)
-        return _blob(data)
+        return _blob(data, id=entry["id"])
 
     @app.route("/api/research/entry/edit", methods=["POST"])
     def edit_research_entry():

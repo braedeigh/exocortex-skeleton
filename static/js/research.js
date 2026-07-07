@@ -16,7 +16,7 @@ const _rsrchInputStyle = 'padding:9px 11px;border:1px solid var(--border);border
 let R = { topics: [], entries: [], sessions: [] };
 let _library = [];
 const editingCards = new Set();
-let _rsrchComposer = { text: '', kind: 'note', url: '', topics: new Set(), replyTo: null };
+let _rsrchComposer = { text: '', kind: 'note', url: '', topics: new Set(), replyTo: null, reQuote: null, contextChain: null };
 let _rsrchSearch = { q: '', mode: 'keyword', hits: null, msg: '' };
 const _rsrchAnnotating = new Set();
 const _rsrchFetchingText = new Set();
@@ -111,22 +111,43 @@ function _rsrchComposerHtml(opts) {
     const urlRow = st.kind === 'source'
         ? `<input type="text" id="rsrch-add-url" value="${esc(st.url)}" oninput="_rsrchComposer.url=this.value" placeholder="URL" style="${_rsrchInputStyle};width:100%;margin-top:8px">`
         : '';
-    const replyPill = st.replyTo
+    const replyPill = (st.replyTo && !st.reQuote)
         ? `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:8px 10px;border-radius:8px;background:rgba(124,92,191,0.10);font-size:13px;color:var(--text)">
             <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">&#8618; answering: <i>${esc(st.replyTo.text)}</i></span>
             <button type="button" onclick="_rsrchCancelAnswer()" title="Cancel answering" style="flex:none;min-width:28px;height:28px;border-radius:6px;border:1px solid var(--border);background:none;color:var(--text-muted);font-size:14px;cursor:pointer">&times;</button>
         </div>`
         : '';
+    const reQuotePill = st.reQuote
+        ? `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:8px 10px;border-radius:8px;background:rgba(100,100,100,0.08);border-left:3px solid var(--accent);font-size:13px;color:var(--text)">
+            <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-style:italic">re: &ldquo;${esc(st.reQuote.slice(0, 120))}${st.reQuote.length > 120 ? '&hellip;' : ''}&rdquo;</span>
+            <button type="button" onclick="_rsrchClearReQuote()" title="Clear point context" style="flex:none;min-width:28px;height:28px;border-radius:6px;border:1px solid var(--border);background:none;color:var(--text-muted);font-size:14px;cursor:pointer">&times;</button>
+        </div>`
+        : '';
     const addArg = opts.presetTopic ? `'${escJs(opts.presetTopic)}'` : '';
     const addLabel = opts.addLabel || 'Add';
     const placeholder = opts.placeholder || 'Capture a note, source, claim, or question&hellip;';
+    const researchPointBtn = (st.reQuote && st.kind === 'question')
+        ? `<button type="button" onclick="_rsrchAddAndResearch(${addArg})" style="margin-top:12px;margin-left:8px;height:40px;padding:0 20px;border-radius:8px;border:1px solid var(--accent);background:none;color:var(--accent);font-size:14px;font-weight:700;cursor:pointer">&#128300; Research this</button>`
+        : '';
+    const contextSection = (st.contextChain && st.contextChain.length)
+        ? `<div style="margin-top:12px;padding:10px 12px;border-radius:8px;background:rgba(124,92,191,0.06);border:1px dashed var(--border)">
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;font-weight:600">context (deselect to trim):</div>
+            ${st.contextChain.map(c => `<label style="display:flex;align-items:center;gap:8px;min-height:36px;cursor:pointer;font-size:13px;color:var(--text);padding:2px 0">
+                <input type="checkbox" ${c.checked ? 'checked' : ''} onchange="_rsrchToggleContext('${escJs(c.id)}')" style="width:16px;height:16px;flex:none;cursor:pointer">
+                <span style="flex:none;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted);min-width:48px">${esc(c.kind)}</span>
+                <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.snippet)}${c.snippet.length >= 90 ? '&hellip;' : ''}</span>
+                ${c.file ? `<span style="flex:none;font-size:12px;color:var(--accent)" title="has report file">&#128196;</span>` : ''}
+            </label>`).join('')}
+        </div>`
+        : '';
     return `<div style="border:1px solid var(--border);border-radius:12px;padding:14px;${opts.presetTopic ? 'margin-top:12px' : 'margin-bottom:16px'};background:var(--card-bg)">
-        ${replyPill}
+        ${replyPill}${reQuotePill}
         <textarea id="rsrch-add-text" oninput="_rsrchComposer.text=this.value" placeholder="${placeholder}" rows="2" style="${_rsrchInputStyle};width:100%;min-height:40px;resize:vertical;font-family:inherit">${esc(st.text)}</textarea>
         ${urlRow}
         <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">${kindChips}</div>
         ${topicChips ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">${topicChips}</div>` : ''}
-        <button type="button" onclick="_rsrchAddEntry(${addArg})" style="margin-top:12px;height:40px;padding:0 20px;border-radius:8px;border:none;background:var(--ongoing);color:#fff;font-size:14px;font-weight:700;cursor:pointer">${addLabel}</button>
+        ${contextSection}
+        <button type="button" onclick="_rsrchAddEntry(${addArg})" style="margin-top:12px;height:40px;padding:0 20px;border-radius:8px;border:none;background:var(--ongoing);color:#fff;font-size:14px;font-weight:700;cursor:pointer">${addLabel}</button>${researchPointBtn}
     </div>`;
 }
 
@@ -146,6 +167,11 @@ async function _rsrchAddEntry(extraTopicId) {
     const payload = { text, kind: st.kind, topics: Array.from(topics) };
     if (st.kind === 'source') payload.url = st.url || '';
     if (st.replyTo) payload.reply_to = st.replyTo.id;
+    if (st.reQuote) payload.re_quote = st.reQuote;
+    if (st.contextChain) {
+        const ctx = st.contextChain.filter(c => c.checked).map(c => c.id);
+        if (ctx.length) payload.context_ids = ctx;
+    }
     if (await _rsrchPost('/api/research/entry/add', payload)) {
         // Answering a question auto-closes it — the reply IS the resolution.
         if (st.replyTo) {
@@ -154,7 +180,7 @@ async function _rsrchAddEntry(extraTopicId) {
                 await _rsrchPost('/api/research/entry/edit', { id: q.id, status: 'answered' });
             }
         }
-        _rsrchComposer = { text: '', kind: 'note', url: '', topics: new Set(), replyTo: null };
+        _rsrchComposer = { text: '', kind: 'note', url: '', topics: new Set(), replyTo: null, reQuote: null, contextChain: null };
         renderResearch();
     }
 }
@@ -173,7 +199,15 @@ function _rsrchStartAnswer(id) {
     if (ta) { ta.scrollIntoView({ behavior: 'smooth', block: 'center' }); ta.focus(); }
 }
 
-function _rsrchCancelAnswer() { _rsrchComposer.replyTo = null; renderResearch(); }
+function _rsrchCancelAnswer() { _rsrchComposer.replyTo = null; _rsrchComposer.reQuote = null; _rsrchComposer.contextChain = null; renderResearch(); }
+function _rsrchClearReQuote() { _rsrchComposer.reQuote = null; _rsrchComposer.contextChain = null; renderResearch(); }
+function _rsrchToggleContext(id) {
+    const chain = _rsrchComposer.contextChain;
+    if (!chain) return;
+    const item = chain.find(c => c.id === id);
+    if (item) item.checked = !item.checked;
+    renderResearch();
+}
 
 // --- Send-all strip: only when something's queued. The count pill next to
 // it surfaces unreviewed llm output so the orange never hides silently.
@@ -500,6 +534,49 @@ function _rsrchConfirmRemoveTopic(id, name) {
 const RSRCH_KIND_LABEL = { note: 'Note', source: 'Source', claim: 'Claim', question: 'Question' };
 const RSRCH_CLAIM_CYCLE = { '': 'real', real: 'shaky', shaky: 'interesting', interesting: '' };
 
+// Add the follow-up question and immediately fire deep research on it.
+async function _rsrchAddAndResearch(extraTopicId) {
+    const st = _rsrchComposer;
+    const text = (st.text || '').trim();
+    if (!text) { alert('Write something first.'); return; }
+    const topics = new Set(st.topics);
+    if (extraTopicId) topics.add(extraTopicId);
+    const payload = { text, kind: st.kind, topics: Array.from(topics) };
+    if (st.kind === 'source') payload.url = st.url || '';
+    if (st.replyTo) payload.reply_to = st.replyTo.id;
+    if (st.reQuote) payload.re_quote = st.reQuote;
+    if (st.contextChain) {
+        const ctx = st.contextChain.filter(c => c.checked).map(c => c.id);
+        if (ctx.length) payload.context_ids = ctx;
+    }
+    let res;
+    try {
+        res = await fetch('/api/research/entry/add', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+    } catch (err) { alert('Network error — try again.'); return; }
+    if (!res.ok) { const d = await res.json().catch(() => ({})); alert(d.error || 'Save failed.'); return; }
+    const body = await res.json().catch(() => null);
+    if (body && body.topics) R = { topics: body.topics, entries: body.entries || [], sessions: body.sessions || [] };
+    const newId = body && body.id;
+    if (!newId) { alert('Entry created but id missing — cannot fire deep research.'); _rsrchComposer = { text: '', kind: 'note', url: '', topics: new Set(), replyTo: null, reQuote: null, contextChain: null }; renderResearch(); return; }
+    let r2;
+    try {
+        r2 = await fetch('/api/research/question/deep', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: newId }),
+        });
+    } catch (err) { alert('Network error — try again.'); return; }
+    if (r2.status === 404) { alert('Deep research API not loaded yet — needs an app restart.'); return; }
+    if (!r2.ok) { const d = await r2.json().catch(() => ({})); alert(d.error || 'Could not start deep research.'); return; }
+    _rsrchComposer = { text: '', kind: 'note', url: '', topics: new Set(), replyTo: null, reQuote: null, contextChain: null };
+    await loadResearch();
+    renderResearch();
+    window.parent.postMessage({ type: 'openTerminalSession', name: 'research-deep' }, location.origin);
+    _rsrchStartPolling();
+}
+
 function _rsrchEntryRow(e, editing) {
     const isLlm = e.author === 'llm';
     const badge = isLlm
@@ -585,6 +662,13 @@ function _rsrchEntryRow(e, editing) {
     // in the existing library reader rather than building a second one.
     if (e.file) {
         controlChips += `<button type="button" class="rsrch-chip" onclick="openLibraryFile('${escJs(e.file)}')">&#128214; Read report</button>`;
+    }
+    // Non-source entries with enough text can be opened in the annotator so
+    // Bradie can highlight passages (the docstore now falls back to entry.text
+    // when no extracted doc_texts file exists).
+    if (e.kind !== 'source' && (e.text || '').length > 40) {
+        const hlKindLabel = RSRCH_KIND_LABEL[e.kind] || e.kind;
+        controlChips += ` <button type="button" class="rsrch-chip" onclick="openAnnotator('entry:${escJs(e.id)}','${escJs(hlKindLabel)}')">&#9998; highlight</button>`;
     }
     // Row tint: unreviewed llm output (orange) > processed by the runner
     // (pink) > flagged and queued (accent edge). At most one applies.
@@ -1088,11 +1172,55 @@ function _annListHtml() {
             <div class="ann-quote" onclick="_annFocus('${escJs(a.id)}')">&ldquo;${esc(q.slice(0, 120))}${q.length > 120 ? '&hellip;' : ''}&rdquo;</div>
             ${note ? `<div class="ann-note">${esc(note)}</div>` : ''}
             <div class="ann-chips">${review}${src}${state}
+                <button type="button" class="rsrch-chip" onclick="_annFollowUp('${escJs(a.id)}')">&#8627; follow up</button>
                 <button type="button" class="rsrch-chip" onclick="_annEditNote('${escJs(a.id)}')">edit</button>
                 <button type="button" class="rsrch-chip" style="color:var(--red)" onclick="_annConfirmDelete('${escJs(a.id)}')">&times; delete</button>
             </div>
         </div>`;
     }).join('');
+}
+
+// Walk the reply chain from noteId up to the root, returning an array of
+// context items [{id, kind, snippet, file, checked}] starting with the note
+// itself. Guards against cycles and missing entries.
+function _rsrchContextChain(noteId) {
+    const byId = Object.fromEntries(_researchEntries().map(e => [e.id, e]));
+    const chain = [];
+    const seen = new Set();
+    let cur = byId[noteId];
+    while (cur && !seen.has(cur.id)) {
+        seen.add(cur.id);
+        chain.push({
+            id: cur.id,
+            kind: cur.kind || 'note',
+            snippet: (cur.text || '').slice(0, 90),
+            file: cur.file || null,
+            checked: true,
+        });
+        cur = cur.reply_to ? byId[cur.reply_to] : null;
+    }
+    return chain;
+}
+
+// Close the annotator and set the composer to follow-up mode with the
+// highlighted exact text as reQuote and the full reply-chain as contextChain.
+function _annFollowUp(annId) {
+    const ann = _ann.items.find(a => a.id === annId);
+    if (!ann) return;
+    const exact = (ann.selector && ann.selector.exact) || '';
+    const noteId = (_ann.doc || '').startsWith('entry:') ? _ann.doc.slice('entry:'.length) : null;
+    if (!noteId) return;
+    const note = _researchEntries().find(e => e.id === noteId);
+    if (!note) return;
+    closeAnnotator();
+    _rsrchComposer.kind = 'question';
+    _rsrchComposer.replyTo = { id: noteId, text: note.text.slice(0, 80) };
+    _rsrchComposer.topics = new Set(note.topics || []);
+    _rsrchComposer.reQuote = exact;
+    _rsrchComposer.contextChain = _rsrchContextChain(noteId);
+    renderResearch();
+    const ta = document.getElementById('rsrch-add-text');
+    if (ta) { ta.scrollIntoView({ behavior: 'smooth', block: 'center' }); ta.focus(); }
 }
 
 function _annFocus(id) {

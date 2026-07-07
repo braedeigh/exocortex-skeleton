@@ -59,3 +59,40 @@ def test_note_non_md_is_blocked(data_dir, research_dir):
 def test_unknown_namespace(data_dir):
     assert docstore.resolve("journal:2026/07/06.md") == {"ok": False, "error": "unknown_namespace"}
     assert docstore.resolve("") == {"ok": False, "error": "unknown_namespace"}
+
+
+# --- entry: fallback to research.json when no doc_texts file ----------------
+
+def test_entry_fallback_to_research_json_text(data_dir):
+    """When no doc_texts file exists, resolve falls back to entry.text."""
+    import store
+    store.write("research.json", {
+        "topics": [],
+        "entries": [{"id": "test-entry-1", "kind": "note", "text": "Some long note text here for annotation.", "topics": []}],
+    })
+    r = docstore.resolve("entry:test-entry-1")
+    assert r["ok"] is True
+    assert r["text"] == "Some long note text here for annotation."
+    assert r["title"] == ""
+
+
+def test_entry_fallback_doc_texts_takes_precedence(data_dir):
+    """A doc_texts file overrides the fallback, even when research.json has text."""
+    import store
+    store.write("research.json", {
+        "topics": [],
+        "entries": [{"id": "test-entry-2", "kind": "note", "text": "note body", "topics": []}],
+    })
+    docstore.save_entry_text("test-entry-2", "extracted full text from file")
+    r = docstore.resolve("entry:test-entry-2")
+    assert r["ok"] is True
+    assert r["text"] == "extracted full text from file"
+
+
+def test_entry_not_found_when_neither_file_nor_entry(data_dir):
+    """When no doc_texts file and no matching entry, return not_found."""
+    import store
+    store.write("research.json", {"topics": [], "entries": []})
+    r = docstore.resolve("entry:missing-id")
+    assert r == {"ok": False, "error": "not_found"}
+    assert docstore.has_text("entry:missing-id") is False

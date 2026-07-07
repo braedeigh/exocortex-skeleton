@@ -66,17 +66,29 @@ def _resolve_note(filename):
 def resolve(doc_id):
     doc_id = str(doc_id or "")
     if doc_id.startswith("entry:"):
-        path = _entry_path(doc_id[len("entry:"):])
-        if not path.is_file():
-            return {"ok": False, "error": "not_found"}
-        try:
-            return {"ok": True, "text": path.read_text(), "title": ""}
-        except OSError:
-            return {"ok": False, "error": "not_found"}
+        entry_id = doc_id[len("entry:"):]
+        path = _entry_path(entry_id)
+        if path.is_file():
+            try:
+                return {"ok": True, "text": path.read_text(), "title": ""}
+            except OSError:
+                return {"ok": False, "error": "not_found"}
+        # Fall back to the entry's own text from research.json.
+        data = store.read("research.json", {"entries": []})
+        entry = next((e for e in data.get("entries", []) if e.get("id") == entry_id), None)
+        if entry and (entry.get("text") or "").strip():
+            return {"ok": True, "text": entry["text"], "title": ""}
+        return {"ok": False, "error": "not_found"}
     if doc_id.startswith("note:"):
         return _resolve_note(doc_id[len("note:"):])
     return {"ok": False, "error": "unknown_namespace"}
 
 
 def has_text(doc_id):
+    """True only when an extracted text file exists under doc_texts/.
+    The resolve() fallback to entry.text is a runtime annotation convenience;
+    this function answers 'has a text file been fetched?' for sources."""
+    doc_id = str(doc_id or "")
+    if doc_id.startswith("entry:"):
+        return _entry_path(doc_id[len("entry:"):]).is_file()
     return resolve(doc_id).get("ok", False)

@@ -515,3 +515,102 @@ def test_file_unfiled_spawns_session(client, monkeypatch):
     assert body["unfiled"] == 1
     assert body["session"] == "research"
     assert calls.get("spawned") and calls.get("prompted")
+
+
+# --- re_quote field + id in add response ------------------------------------
+
+def test_entry_add_re_quote_persists_and_id_returned(client):
+    """re_quote is stored on the entry and the response includes the new id."""
+    r = _post(client, "/api/research/entry/add", {
+        "text": "Does X affect Y specifically?",
+        "kind": "question",
+        "re_quote": "Point one: X has a notable effect on Y under certain conditions.",
+    })
+    assert r.status_code == 200
+    body = r.get_json()
+    # Response must include the new entry's id.
+    assert "id" in body
+    eid = body["id"]
+    assert eid
+
+    data = _read()
+    entry = next(e for e in data["entries"] if e["id"] == eid)
+    assert entry["re_quote"] == "Point one: X has a notable effect on Y under certain conditions."
+
+
+def test_entry_add_without_re_quote_omits_key(client):
+    """Omitting re_quote must not add the key at all (backward-compat)."""
+    r = _post(client, "/api/research/entry/add", {"text": "just a note"})
+    assert r.status_code == 200
+    body = r.get_json()
+    assert "id" in body
+    eid = body["id"]
+
+    data = _read()
+    entry = next(e for e in data["entries"] if e["id"] == eid)
+    assert "re_quote" not in entry
+
+
+def test_entry_add_empty_re_quote_omits_key(client):
+    """An empty/whitespace re_quote string is treated the same as absent."""
+    r = _post(client, "/api/research/entry/add", {"text": "a note", "re_quote": "   "})
+    assert r.status_code == 200
+    body = r.get_json()
+    eid = body["id"]
+
+    data = _read()
+    entry = next(e for e in data["entries"] if e["id"] == eid)
+    assert "re_quote" not in entry
+
+
+# --- context_ids field on add -----------------------------------------------
+
+def test_entry_add_context_ids_persists(client):
+    """context_ids list is stored on the entry when provided."""
+    r = _post(client, "/api/research/entry/add", {
+        "text": "Does X cause Y via pathway Z?",
+        "kind": "question",
+        "context_ids": ["entry-a", "entry-b"],
+    })
+    assert r.status_code == 200
+    body = r.get_json()
+    assert "id" in body
+    eid = body["id"]
+
+    data = _read()
+    entry = next(e for e in data["entries"] if e["id"] == eid)
+    assert entry.get("context_ids") == ["entry-a", "entry-b"]
+
+
+def test_entry_add_context_ids_coerced_to_strings(client):
+    """context_ids values are coerced to strings."""
+    r = _post(client, "/api/research/entry/add", {
+        "text": "test question",
+        "kind": "question",
+        "context_ids": [42, "abc"],
+    })
+    assert r.status_code == 200
+    eid = r.get_json()["id"]
+    data = _read()
+    entry = next(e for e in data["entries"] if e["id"] == eid)
+    assert entry["context_ids"] == ["42", "abc"]
+
+
+def test_entry_add_without_context_ids_omits_key(client):
+    """Omitting context_ids must not add the key (backward-compat)."""
+    r = _post(client, "/api/research/entry/add", {"text": "plain note"})
+    assert r.status_code == 200
+    eid = r.get_json()["id"]
+    data = _read()
+    entry = next(e for e in data["entries"] if e["id"] == eid)
+    assert "context_ids" not in entry
+
+
+def test_entry_add_empty_context_ids_omits_key(client):
+    """An empty context_ids list must not add the key."""
+    r = _post(client, "/api/research/entry/add", {"text": "plain note", "context_ids": []})
+    assert r.status_code == 200
+    eid = r.get_json()["id"]
+    data = _read()
+    entry = next(e for e in data["entries"] if e["id"] == eid)
+    assert "context_ids" not in entry
