@@ -21,7 +21,7 @@ from routes import (
     kitchen, habits, todos, places, health, inventory, money, car,
     meditation, media, movement, reminders, food_test, terminal, settings,
     devnotes, ideas, ecosystem, keeper, pending, housing, triage, decisions,
-    entities, person, shell, archivals,
+    entities, person, shell, cards, archivals,
 )
 from routes.shell import VALID_TABS
 
@@ -1132,6 +1132,7 @@ triage.register(app)
 decisions.register(app)
 entities.register(app)
 person.register(app)
+cards.register(app)
 
 # --- Startup ---
 validate_on_startup(app)

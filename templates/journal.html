@@ -197,6 +197,54 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .save-status {
     padding: 6px 0; font-size: 12px; color: var(--text-muted); text-align: right; flex-shrink: 0; min-height: 24px;
 }
+
+/* Card-mode day (card-system cutover, 2026-07-06 onward): a stream of
+   individual message-cards instead of the whole-day blob. Gentle blocks —
+   hairline border + faint tint, not heavy material cards. */
+.card-stream { flex: 1; overflow-y: auto; padding: 16px 0; display: none; }
+.entry-card {
+    border: 1px solid var(--border); border-radius: 10px; background: rgba(124, 92, 191, 0.05);
+    padding: 10px 12px; margin-bottom: 10px; cursor: pointer;
+}
+.entry-card.context {
+    border-style: dashed; background: rgba(124, 92, 191, 0.08); font-style: italic;
+}
+.entry-card.editing { cursor: default; }
+.card-meta {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+}
+.card-who {
+    font-weight: 700; font-size: 12px; padding: 1px 7px; border-radius: 4px; letter-spacing: 0.02em;
+}
+.card-who-B { color: var(--accent); background: var(--accent-light); }
+.card-who-K { color: var(--text-muted); background: rgba(200, 190, 170, 0.1); font-style: italic; }
+.card-time { font-size: 12px; color: var(--text-muted); }
+.card-body { font-size: 15px; line-height: 1.65; }
+.card-body p:last-child, .card-body h1:last-child, .card-body h2:last-child, .card-body h3:last-child { margin-bottom: 0; }
+.card-body-k { font-style: italic; color: var(--text-muted); }
+.card-context-body { font-style: italic; }
+/* Editing state — textarea + controls grow to comfortable ~40px touch targets
+   ("small until edit", same spirit as .card.editing elsewhere in the app). */
+.card-edit-textarea {
+    width: 100%; min-height: 68px; border: 1px solid var(--accent); border-radius: 8px;
+    background: var(--bg); color: var(--text); font-family: inherit; font-size: 15px;
+    line-height: 1.6; padding: 8px 10px; resize: vertical; outline: none;
+}
+.card-controls { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.card-controls-spacer { flex: 1; }
+.card-btn {
+    min-height: 40px; padding: 0 16px; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--bg); color: var(--text); font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.card-btn:disabled { opacity: 0.5; cursor: default; }
+.card-save-btn { background: var(--accent); border-color: var(--accent); color: #fff; }
+.card-save-btn:hover:not(:disabled) { filter: brightness(1.1); }
+.card-cancel-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.card-delete-btn {
+    color: #ff8a8a; border-color: rgba(255, 107, 107, 0.4); background: rgba(255, 107, 107, 0.08);
+}
+.card-delete-btn:hover:not(:disabled) { background: rgba(255, 107, 107, 0.18); }
+.card-delete-btn.confirm { background: #e5484d; border-color: #e5484d; color: #fff; }
 </style>
 </head>
 <body>
@@ -227,6 +275,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
     <div class="content">
         <textarea id="editor" spellcheck="false"></textarea>
         <div class="preview" id="preview"></div>
+        <div class="card-stream" id="cardStream"></div>
     </div>
     <div class="save-status" id="status"></div>
 </div>
@@ -256,10 +305,19 @@ let journalDates = new Set();
 let calMonth = null;
 let calOpen = false;
 
+// Card-mode state: days on/after the card cutover render as an editable
+// stream of per-utterance cards instead of the whole-day markdown blob
+// (the daily file is derived from the card pool — editing it wholesale
+// would just get overwritten by the next re-render).
+let cardMode = false;
+let dayCards = [];
+let editingCardId = null;
+
 const editor = document.getElementById('editor');
 const preview = document.getElementById('preview');
 const status = document.getElementById('status');
 const calOverlay = document.getElementById('calOverlay');
+const cardStream = document.getElementById('cardStream');
 
 // --- Entity highlighting: known people light up in read mode, each their own
 // color, click to jump to their file in the exocortex. ---
@@ -299,9 +357,9 @@ async function loadEntities() {
 
 // Walk the rendered preview's text nodes and wrap known names in clickable spans.
 // Done on the DOM (not the markdown string) so we never corrupt tags/attributes.
-function highlightEntities() {
+function highlightEntities(root = preview) {
     if (!_entityRe) return;
-    const walker = document.createTreeWalker(preview, NodeFilter.SHOW_TEXT, {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
         acceptNode(n) {
             // Don't highlight inside code, headings, or an already-made entity span.
             return n.parentElement && n.parentElement.closest('code, h1, h2, h3, .entity')
@@ -387,7 +445,8 @@ async function loadDate(date) {
         nextBtn.style.display = data.next ? '' : 'none';
         document.getElementById('devNotesBtn').style.display = data.next ? 'none' : '';
         document.getElementById('todayBtn').style.display = data.date === localToday() ? 'none' : '';
-        renderPreview();
+        await loadCards(data.date);
+        applyCardMode();
         closeCalendar();
         status.textContent = '';
     } catch(e) {
@@ -420,12 +479,198 @@ function startToday() {
 
 // --- Edit / Read toggle ---
 function setMode(mode) {
+    if (cardMode) mode = 'read';   // card days have no whole-file edit — the file is derived
     document.getElementById('editBtn').classList.toggle('active', mode === 'edit');
     document.getElementById('readBtn').classList.toggle('active', mode === 'read');
     editor.style.display = mode === 'edit' ? 'block' : 'none';
-    preview.style.display = mode === 'read' ? 'block' : 'none';
-    if (mode === 'read') renderPreview();
+    preview.style.display = (mode === 'read' && !cardMode) ? 'block' : 'none';
+    cardStream.style.display = (mode === 'read' && cardMode) ? 'block' : 'none';
+    if (mode === 'read' && !cardMode) renderPreview();
 }
+
+function currentMode() {
+    return document.getElementById('editBtn').classList.contains('active') ? 'edit' : 'read';
+}
+
+// --- Card mode: per-card read/edit/delete over /api/cards ---
+
+async function loadCards(date) {
+    editingCardId = null;
+    try {
+        const resp = await fetch(`/api/cards/${date}`);
+        const data = await resp.json();
+        dayCards = data.cards || [];
+        cardMode = !!(data.editable && dayCards.length);
+    } catch (e) {
+        dayCards = [];
+        cardMode = false;   // cards are a layer on top — never break the page over them
+    }
+}
+
+function applyCardMode() {
+    document.querySelector('.mode-toggle').style.display = cardMode ? 'none' : '';
+    setMode(cardMode ? 'read' : currentMode());
+    if (cardMode) renderCardStream();
+}
+
+// "8:46 AM" from "YYYY-MM-DD HH:MM:SS" — string math, no Date/timezone games.
+function cardClock(ts) {
+    const h = parseInt(ts.slice(11, 13), 10), m = ts.slice(14, 16);
+    return `${h % 12 || 12}:${m} ${h >= 12 ? 'PM' : 'AM'}`;
+}
+
+function renderCardStream() {
+    const context = dayCards.filter(c => c.kind === 'context');
+    const lines = dayCards.filter(c => c.kind !== 'context');
+    cardStream.innerHTML = '';
+    for (const c of [...context, ...lines]) cardStream.appendChild(buildCardEl(c));
+    highlightEntities(cardStream);
+}
+
+function buildCardEl(c) {
+    const el = document.createElement('div');
+    el.className = 'entry-card' + (c.kind === 'context' ? ' context' : '');
+    el.dataset.id = c.id;
+    const meta = document.createElement('div');
+    meta.className = 'card-meta';
+    meta.innerHTML = `<span class="card-who card-who-${c.who === 'K' ? 'K' : 'B'}">${c.who}</span>`
+        + `<span class="card-time">${cardClock(c.ts)}</span>`;
+    const body = document.createElement('div');
+    body.className = 'card-body' + (c.who === 'K' ? ' card-body-k' : '');
+    body.innerHTML = mdToHtml(c.body);
+    el.appendChild(meta);
+    el.appendChild(body);
+    return el;
+}
+
+function enterCardEdit(id) {
+    if (editingCardId === id) return;
+    if (editingCardId) exitCardEdit();          // one card at a time
+    const card = dayCards.find(c => c.id === id);
+    const el = cardStream.querySelector(`.entry-card[data-id="${id}"]`);
+    if (!card || !el) return;
+    editingCardId = id;
+    el.classList.add('editing');
+    el.querySelector('.card-body').style.display = 'none';
+
+    const ta = document.createElement('textarea');
+    ta.className = 'card-edit-textarea';
+    ta.value = card.body;
+    const autoSize = () => { ta.style.height = 'auto'; ta.style.height = Math.max(68, ta.scrollHeight + 2) + 'px'; };
+    ta.addEventListener('input', autoSize);
+
+    const controls = document.createElement('div');
+    controls.className = 'card-controls';
+    controls.innerHTML = `<button class="card-btn card-delete-btn">Delete</button>`
+        + `<div class="card-controls-spacer"></div>`
+        + `<button class="card-btn card-cancel-btn">Cancel</button>`
+        + `<button class="card-btn card-save-btn">Save</button>`;
+    el.appendChild(ta);
+    el.appendChild(controls);
+    autoSize();
+    ta.focus();
+
+    const delBtn = controls.querySelector('.card-delete-btn');
+    let confirmTimer = null;
+    delBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (delBtn.classList.contains('confirm')) {
+            clearTimeout(confirmTimer);
+            deleteCard(id, controls);
+        } else {
+            delBtn.classList.add('confirm');
+            delBtn.textContent = 'Really delete?';
+            confirmTimer = setTimeout(() => {
+                delBtn.classList.remove('confirm');
+                delBtn.textContent = 'Delete';
+            }, 4000);
+        }
+    });
+    controls.querySelector('.card-cancel-btn').addEventListener('click', (e) => { e.stopPropagation(); exitCardEdit(); });
+    controls.querySelector('.card-save-btn').addEventListener('click', (e) => { e.stopPropagation(); saveCard(id, ta.value, controls); });
+}
+
+function exitCardEdit() {
+    editingCardId = null;
+    renderCardStream();   // rebuild = restore read state
+}
+
+function setCardControlsDisabled(controls, disabled) {
+    controls.querySelectorAll('button').forEach(b => { b.disabled = disabled; });
+}
+
+async function saveCard(id, body, controls) {
+    if (!body.trim()) { status.textContent = 'Card body cannot be empty'; return; }
+    setCardControlsDisabled(controls, true);
+    try {
+        const r = await fetch('/api/cards/update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id, body })
+        });
+        const d = await r.json();
+        if (!r.ok) { status.textContent = d.error || 'Save failed'; setCardControlsDisabled(controls, false); return; }
+        editingCardId = null;
+        await refreshCardDay();
+        status.textContent = 'Saved';
+        setTimeout(() => { if (status.textContent === 'Saved') status.textContent = ''; }, 2000);
+    } catch (e) {
+        status.textContent = 'Save failed';
+        setCardControlsDisabled(controls, false);
+    }
+}
+
+async function deleteCard(id, controls) {
+    setCardControlsDisabled(controls, true);
+    try {
+        const r = await fetch('/api/cards/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id })
+        });
+        const d = await r.json();
+        if (!r.ok) { status.textContent = d.error || 'Delete failed'; setCardControlsDisabled(controls, false); return; }
+        editingCardId = null;
+        await refreshCardDay();
+        status.textContent = 'Deleted';
+        setTimeout(() => { if (status.textContent === 'Deleted') status.textContent = ''; }, 2000);
+    } catch (e) {
+        status.textContent = 'Delete failed';
+        setCardControlsDisabled(controls, false);
+    }
+}
+
+// After a mutation the backend re-renders the daily file, so re-sync BOTH the
+// cards and the hidden whole-day editor (keeping lastSaved in step so the
+// autosave paths never write a stale blob back).
+async function refreshCardDay() {
+    const [jResp, cResp] = await Promise.all([
+        fetch(`/api/journal/${currentDate}`),
+        fetch(`/api/cards/${currentDate}`),
+    ]);
+    const jData = await jResp.json();
+    const cData = await cResp.json();
+    editor.value = jData.content || '';
+    lastSaved = editor.value;
+    dayCards = cData.cards || [];
+    cardMode = !!(cData.editable && dayCards.length);
+    applyCardMode();
+    if (!cardMode) loadDates();   // deleted the day's last card — calendar dot may be gone
+}
+
+// Tap an entity name -> popover (same as read mode); tap anywhere else on a
+// card -> edit it. Buttons/textarea clicks stay their own.
+cardStream.addEventListener('click', (e) => {
+    const ent = e.target.closest('.entity[data-name]');
+    if (ent) { openEntityPopover(ent.dataset.name); return; }
+    if (e.target.closest('button, textarea, a')) return;
+    const card = e.target.closest('.entry-card');
+    if (card && card.dataset.id !== editingCardId) enterCardEdit(card.dataset.id);
+});
+
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && editingCardId) exitCardEdit();
+});
 
 function renderPreview() {
     const md = editor.value;
@@ -591,7 +836,8 @@ function findInEntry(key) {
     if (!key) return;
     setMode('read');
     // The name is already wrapped as .entity[data-name="key"] spans by the highlighter.
-    _findMatches = Array.from(preview.querySelectorAll('.entity')).filter(el => el.dataset.name === key);
+    const readRoot = cardMode ? cardStream : preview;
+    _findMatches = Array.from(readRoot.querySelectorAll('.entity')).filter(el => el.dataset.name === key);
     if (!_findMatches.length) return;   // referenced by role only (e.g. "my landlord") — nothing to land on
     document.getElementById('findName').textContent = _findMatches[0].textContent;
     showFindMatch(0);
@@ -766,7 +1012,12 @@ async function pollJournal() {
         if (data.content !== lastSaved) {
             editor.value = data.content;
             lastSaved = data.content;
-            renderPreview();
+            // A changed day usually means new/changed cards (the keeper hook
+            // re-renders after every message) — refresh the stream too, unless
+            // she's mid-edit on a card (never yank a textarea out from under her).
+            if (editingCardId) return;
+            await loadCards(currentDate);
+            applyCardMode();
         }
     } catch(e) {}
 }
@@ -780,7 +1031,11 @@ function initialDateFromQuery() {
 }
 
 setMode('read');
-loadEntities().then(() => { if (preview.style.display !== 'none') renderPreview(); });
+loadEntities().then(() => {
+    // Entities may finish loading after the first render — re-highlight whichever view is up.
+    if (cardMode && !editingCardId) renderCardStream();
+    else if (preview.style.display !== 'none') renderPreview();
+});
 fetchServerDate().then(() => loadDates()).then(() => loadDate(initialDateFromQuery()));
 </script>
 </body>
