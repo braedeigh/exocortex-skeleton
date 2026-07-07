@@ -41,7 +41,6 @@ const TAB_ENDPOINTS = {
     body: '/api/data/body',
     ideas: '/api/data/ideas',
     ecosystem: '/api/data/ecosystem',
-    research: '/api/data/research',
 };
 
 // TAB_RENDERERS is built lazily in render() because the functions
@@ -114,8 +113,6 @@ function initTab() {
     if (ecoEl) ecoEl.style.display = currentTab === 'ecosystem' ? '' : 'none';
     const peopleEl = document.getElementById('tab-people');
     if (peopleEl) peopleEl.style.display = currentTab === 'people' ? '' : 'none';
-    const researchEl = document.getElementById('tab-research');
-    if (researchEl) researchEl.style.display = currentTab === 'research' ? '' : 'none';
 
     // Inside inventory: show list OR item detail based on data-item-name
     const itemName = document.body.dataset.itemName || '';
@@ -403,9 +400,6 @@ function render() {
             ],
             people: [
                 renderHeader, renderPeopleTab, renderDevNotes, restoreEditModes
-            ],
-            research: [
-                renderHeader, renderResearch, renderDevNotes, restoreEditModes
             ],
         };
     }
@@ -1296,18 +1290,6 @@ async function executeDelete() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ routine_id: pendingDelete.routineId, id: pendingDelete.item })
-        });
-    } else if (pendingDelete.type === 'research-topic') {
-        await fetch('/api/research/topic/remove', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: pendingDelete.item })
-        });
-    } else if (pendingDelete.type === 'research-entry') {
-        await fetch('/api/research/entry/remove', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: pendingDelete.item })
         });
     } else if (pendingDelete.type === 'ecosystem-source') {
         await fetch('/api/ecosystem/source/remove', {

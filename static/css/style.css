@@ -531,35 +531,6 @@ textarea.todo-add-input { resize: none; overflow: hidden; min-height: 44px; }
 .item-text .todo-chip { margin-left: 8px; vertical-align: middle; }
 .todo-chip.chip-time.overdue { background: rgba(212,64,53,0.15); color: var(--red); }
 
-/* --- Research tab: kind badges, verdict/status chips, edit-mode delete --- */
-.rsrch-kind {
-    display: inline-flex; align-items: center; min-height: 20px; padding: 3px 10px;
-    border-radius: var(--radius-pill); font-size: 12px; font-weight: 700; white-space: nowrap;
-}
-.rsrch-kind.kind-note { background: var(--bg); color: var(--text-muted); }
-.rsrch-kind.kind-source { background: rgba(106,122,204,0.16); color: var(--evening); }
-.rsrch-kind.kind-claim { background: rgba(212,112,10,0.16); color: var(--orange); }
-.rsrch-kind.kind-question { background: rgba(124,92,191,0.16); color: var(--accent); }
-/* Tappable chip: kind picker, topic multi-select, verdict/status toggles.
-   28px min height keeps text >=12px comfortably tappable per the touch-first rule. */
-.rsrch-chip {
-    display: inline-flex; align-items: center; gap: 4px; min-height: 28px; box-sizing: border-box;
-    padding: 4px 12px; border-radius: var(--radius-pill); border: 1px solid var(--border);
-    background: var(--bg); font-size: 12px; font-weight: 600; color: var(--text-secondary); cursor: pointer;
-}
-.rsrch-chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
-.rsrch-chip.verdict-real, .rsrch-chip.verdict-verified { background: rgba(58,158,140,0.15); color: var(--green); border-color: transparent; }
-.rsrch-chip.verdict-shaky { background: rgba(212,64,53,0.14); color: var(--red); border-color: transparent; }
-.rsrch-chip.verdict-interesting { background: rgba(212,168,10,0.16); color: var(--yellow); border-color: transparent; }
-.rsrch-chip.status-answered { background: rgba(58,158,140,0.15); color: var(--green); border-color: transparent; }
-/* Delete button on an entry row — hidden until the card is in edit mode
-   ("small until edit"), then grown to the standard ~40px tap target. */
-.rsrch-del-btn {
-    opacity: 0; background: none; border: none; color: #ccc; font-size: 20px;
-    cursor: pointer; padding: 0 6px; min-width: 28px; transition: opacity 0.15s;
-}
-details.editing .rsrch-del-btn { opacity: 1; min-width: 40px; height: 40px; }
-
 /* --- Day views (Today / Tomorrow) + place-grouped stops (Phase 2) --- */
 .todo-day .todo-day-count {
     font-size: 12px; font-weight: 600; color: var(--text-muted);

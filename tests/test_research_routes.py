@@ -183,3 +183,85 @@ def test_entry_edit_rejected_request_applies_nothing(client):
     entry = _read()["entries"][0]
     assert entry["text"] == "original"
     assert entry["verdict"] == ""
+
+
+# --- library (read-only view of the research/*.md corpus) --------------------
+
+def test_library_lists_markdown_recursively(client, tmp_path, monkeypatch):
+    import store
+    monkeypatch.setattr(store, "RESEARCH_DIR", tmp_path)
+    (tmp_path / "alpha.md").write_text("# Alpha Title\n\nbody")
+    nested = tmp_path / "product-references"
+    nested.mkdir()
+    (nested / "beta.md").write_text("no heading here")
+    (tmp_path / "ignore.txt").write_text("not markdown")
+
+    r = client.get("/api/research/library")
+    assert r.status_code == 200
+    files = {f["path"]: f for f in r.get_json()["files"]}
+    assert set(files) == {"alpha.md", "product-references/beta.md"}
+    assert files["alpha.md"]["title"] == "Alpha Title"
+    # No leading '# ' heading → title falls back to the file stem.
+    assert files["product-references/beta.md"]["title"] == "beta"
+
+
+def test_library_missing_dir_is_empty_not_error(client, tmp_path, monkeypatch):
+    import store
+    monkeypatch.setattr(store, "RESEARCH_DIR", tmp_path / "nope")
+    r = client.get("/api/research/library")
+    assert r.status_code == 200
+    assert r.get_json()["files"] == []
+
+
+def test_library_file_round_trips_content(client, tmp_path, monkeypatch):
+    import store
+    monkeypatch.setattr(store, "RESEARCH_DIR", tmp_path)
+    (tmp_path / "doc.md").write_text("# Doc\n\nhello world")
+    r = client.get("/api/research/library/file", query_string={"path": "doc.md"})
+    assert r.status_code == 200
+    assert r.get_json()["text"] == "# Doc\n\nhello world"
+
+
+def test_library_file_rejects_traversal(client, tmp_path, monkeypatch):
+    import store
+    monkeypatch.setattr(store, "RESEARCH_DIR", tmp_path)
+    (tmp_path / "doc.md").write_text("# Doc")
+    assert client.get("/api/research/library/file",
+                      query_string={"path": "../../etc/passwd"}).status_code == 400
+    # A real file but not .md is still rejected.
+    (tmp_path / "secret.txt").write_text("x")
+    assert client.get("/api/research/library/file",
+                      query_string={"path": "secret.txt"}).status_code == 400
+    assert client.get("/api/research/library/file",
+                      query_string={"path": "missing.md"}).status_code == 404
+
+
+# --- file-unfiled (the filer cricket trigger) --------------------------------
+
+def test_file_unfiled_noop_when_nothing_unfiled(client):
+    # An entry that already carries a topic isn't "unfiled".
+    _post(client, "/api/research/topic/add", {"name": "T"})
+    tid = _read()["topics"][0]["id"]
+    _post(client, "/api/research/entry/add", {"text": "filed", "topics": [tid]})
+    r = _post(client, "/api/research/file-unfiled", {})
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["unfiled"] == 0
+    assert body["session"] is None
+
+
+def test_file_unfiled_spawns_session(client, monkeypatch):
+    # Stub the tmux session spawn so the test never shells out.
+    calls = {}
+    from routes.kitchen import shared
+    monkeypatch.setattr(shared, "ensure_claude_session",
+                        lambda *a, **k: calls.setdefault("spawned", True) or True)
+    monkeypatch.setattr(shared, "send_prompt",
+                        lambda *a, **k: calls.setdefault("prompted", True))
+    _post(client, "/api/research/entry/add", {"text": "unfiled note"})
+    r = _post(client, "/api/research/file-unfiled", {})
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["unfiled"] == 1
+    assert body["session"] == "research"
+    assert calls.get("spawned") and calls.get("prompted")

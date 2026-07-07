@@ -51,6 +51,12 @@ PERSON_SKILL_DIR = Path(os.environ.get("EXOCORTEX_PERSON_DIR", DATA_DIR.parent /
 # The ideas/vision doc that "send to ideas" (dev notes) appends to. Defaults
 # inside the content store; point it at an existing ideas doc via env.
 IDEAS_FILE = Path(os.environ.get("EXOCORTEX_IDEAS_FILE", CONTENT_DIR / "IDEAS.md"))
+# Research library: the markdown corpus the /research page lists read-only.
+# Sibling of the data dir (like TRIAGE_DIR), override via env.
+RESEARCH_DIR = Path(os.environ.get("EXOCORTEX_RESEARCH_DIR", DATA_DIR.parent / "research"))
+# Research filer: the "file the unfiled entries" Claude session works out of
+# this folder (its CLAUDE.md is the skill) — same idea as TRIAGE_DIR.
+RESEARCH_FILER_DIR = Path(os.environ.get("EXOCORTEX_RESEARCH_FILER_DIR", DATA_DIR.parent / "research-filer"))
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)

@@ -542,11 +542,12 @@ body.public-mode #mobileSettings {
         <div class="dash-bar" id="desktopDashBar">
             <button class="active" data-dashview="dashboard" onclick="switchDashView('dashboard', this)">Dashboard</button>
             <button data-dashview="journal" onclick="switchDashView('journal', this)">Journal</button>
-            <button data-dashview="research" onclick="switchResearchView(this, false)">Research</button>
+            <button data-dashview="research" onclick="switchDashView('research', this)">Research</button>
             <button data-dashview="settings" onclick="switchDashView('settings', this)" title="Settings" aria-label="Settings" style="flex:0 0 36px;padding:11px 0;font-size:18px;margin-left:auto">&#9881;&#65038;</button>
         </div>
         <iframe src="/tab/{{ active_tab }}{% if item_name %}?item={{ item_name }}{% endif %}" id="dashboardFrame" allow="fullscreen; autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
         <iframe id="journalFrame" style="display:none"></iframe>
+        <iframe id="researchFrame" style="display:none"></iframe>
         <iframe id="filesFrame" style="display:none"></iframe>
         <iframe id="settingsFrame" style="display:none"></iframe>
     </div>
@@ -558,7 +559,7 @@ body.public-mode #mobileSettings {
         <button class="tab-btn active" data-tab="terminal" id="termTabBtn" onclick="switchTab('terminal')">Chat</button>
         <button class="tab-btn" data-tab="journal" onclick="switchTab('journal')">Journal</button>
         <button class="tab-btn" data-tab="dashboard" onclick="switchTab('dashboard')">Dashboard</button>
-        <button class="tab-btn" data-tab="research" onclick="switchResearchTab(false)">Research</button>
+        <button class="tab-btn" data-tab="research" onclick="switchTab('research')">Research</button>
         <button class="tab-btn" data-tab="settings" onclick="switchTab('settings')" title="Settings" aria-label="Settings" style="font-size:18px;flex:0 0 44px">&#9881;&#65038;</button>
     </div>
     <div class="session-menu" id="sessionMenu"></div>
@@ -571,6 +572,9 @@ body.public-mode #mobileSettings {
         </div>
         <div class="tab-pane" id="mobileJournal">
             <iframe id="mobileJournalFrame"></iframe>
+        </div>
+        <div class="tab-pane" id="mobileResearch">
+            <iframe id="mobileResearchFrame"></iframe>
         </div>
         <div class="tab-pane" id="mobileFiles">
             <iframe id="mobileFilesFrame"></iframe>
@@ -843,6 +847,9 @@ function switchDashView(view, btn, skipPush) {
     if (view === 'journal' && !jf.src.includes('/journal-view')) {
         jf.src = '/journal-view';
     }
+    const rf = document.getElementById('researchFrame');
+    rf.style.display = view === 'research' ? 'block' : 'none';
+    if (view === 'research' && !rf.src) rf.src = '/research-view';
     const ff = document.getElementById('filesFrame');
     ff.style.display = view === 'files' ? 'block' : 'none';
     if (view === 'files' && !ff.src) ff.src = '/keeper';
@@ -854,6 +861,7 @@ function switchDashView(view, btn, skipPush) {
 
     if (!skipPush) {
         const targetPath = view === 'journal' ? '/journal'
+            : view === 'research' ? '/research'
             : view === 'files' ? '/files'
             : view === 'settings' ? '/settings'
             : (TAB_PATHS[currentDashTab] || '/dashboard/today');
@@ -861,43 +869,6 @@ function switchDashView(view, btn, skipPush) {
             history.pushState({ view: view }, '', targetPath);
         }
     }
-}
-
-// === Research: a promoted dashboard tab in the old Files slot ===
-// Research renders inside the dashboard iframe (it IS a dashboard tab), so its
-// button drives that frame via broadcastSwitchTo — no frame of its own. The
-// keeper memory browser (the old Files view) keeps its frame and machinery,
-// reachable via openKeeperFile and the /files URL; only its bar button is gone.
-function switchResearchView(btn, skipPush) {
-    switchDashView('dashboard', btn, true);   // show the dashboard frame, light THIS button
-    currentDashTab = 'research';
-    broadcastSwitchTo('research');
-    if (!skipPush && location.pathname !== TAB_PATHS.research) {
-        history.pushState({ tab: 'research' }, '', TAB_PATHS.research);
-    }
-}
-function switchResearchTab(skipPush) {
-    switchTab('dashboard', true);             // show the dashboard pane
-    currentDashTab = 'research';
-    broadcastSwitchTo('research');
-    syncResearchButtons('research');
-    if (!skipPush && location.pathname !== TAB_PATHS.research) {
-        history.pushState({ tab: 'research' }, '', TAB_PATHS.research);
-    }
-}
-// Research and Dashboard are two buttons over one iframe — when the inner tab
-// changes (a more-menu click inside the SPA, a popstate, the initial load),
-// hand the active highlight to whichever of the pair matches. Only reassigns
-// when one of the pair is already active (i.e. a dashboard-like view is up).
-function syncResearchButtons(name) {
-    [['#desktopDashBar [data-dashview="research"]', '#desktopDashBar [data-dashview="dashboard"]'],
-     ['.tab-btn[data-tab="research"]', '.tab-btn[data-tab="dashboard"]']].forEach(function (pair) {
-        const r = document.querySelector(pair[0]), d = document.querySelector(pair[1]);
-        if (r && d && (r.classList.contains('active') || d.classList.contains('active'))) {
-            r.classList.toggle('active', name === 'research');
-            d.classList.toggle('active', name !== 'research');
-        }
-    });
 }
 
 // Callable from child iframes (dashboard / journal / files) to switch the
@@ -925,8 +896,8 @@ window.addEventListener('message', (e) => {
     const msg = e.data;
     if (!msg || msg.type !== 'theme-changed' || !msg.overrides) return;
     const frames = [
-        'dashboardFrame', 'journalFrame', 'filesFrame', 'settingsFrame',
-        'mobileTerminalFrame', 'mobileDashboardFrame', 'mobileJournalFrame', 'mobileFilesFrame', 'mobileSettingsFrame',
+        'dashboardFrame', 'journalFrame', 'researchFrame', 'filesFrame', 'settingsFrame',
+        'mobileTerminalFrame', 'mobileDashboardFrame', 'mobileJournalFrame', 'mobileResearchFrame', 'mobileFilesFrame', 'mobileSettingsFrame',
     ];
     for (const id of frames) {
         const f = document.getElementById(id);
@@ -1076,6 +1047,7 @@ function switchTab(tab, skipPush) {
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
     document.getElementById('mobileTerminal').classList.toggle('active', tab === 'terminal');
     document.getElementById('mobileJournal').classList.toggle('active', tab === 'journal');
+    document.getElementById('mobileResearch').classList.toggle('active', tab === 'research');
     document.getElementById('mobileDashboard').classList.toggle('active', tab === 'dashboard');
     document.getElementById('mobileFiles').classList.toggle('active', tab === 'files');
     document.getElementById('mobileSettings').classList.toggle('active', tab === 'settings');
@@ -1084,6 +1056,10 @@ function switchTab(tab, skipPush) {
     if (tab === 'journal') {
         const jf = document.getElementById('mobileJournalFrame');
         if (jf && !jf.src) jf.src = '/journal-view';
+    }
+    if (tab === 'research') {
+        const rf = document.getElementById('mobileResearchFrame');
+        if (rf && !rf.src) rf.src = '/research-view';
     }
     if (tab === 'files') {
         const ff = document.getElementById('mobileFilesFrame');
@@ -1103,6 +1079,7 @@ function switchTab(tab, skipPush) {
     // Terminal never gets a URL of its own — leave the address bar as-is.
     if (!skipPush && tab !== 'terminal') {
         const targetPath = tab === 'journal' ? '/journal'
+            : tab === 'research' ? '/research'
             : tab === 'files' ? '/files'
             : tab === 'settings' ? '/settings'
             : (TAB_PATHS[currentDashTab] || '/dashboard/today');
@@ -1285,7 +1262,7 @@ divider.addEventListener('dblclick', () => {
 });
 
 // === Tab nav: keep URL in sync with the active dashboard tab without reloading the shell ===
-const KNOWN_TABS = ['today', 'map', 'kitchen', 'inventory', 'money', 'car', 'meditation', 'media', 'movement', 'body', 'ideas', 'ecosystem', 'housing', 'people', 'research'];
+const KNOWN_TABS = ['today', 'map', 'kitchen', 'inventory', 'money', 'car', 'meditation', 'media', 'movement', 'body', 'ideas', 'ecosystem', 'housing', 'people'];
 
 // Canonical URL for each dashboard tab (routes/shell.py's /dashboard/<tab>).
 const TAB_PATHS = {};
@@ -1293,7 +1270,7 @@ KNOWN_TABS.forEach(function (t) { TAB_PATHS[t] = t === 'today' ? '/dashboard/tod
 
 // Pre-migration paths — still live (they 302 server-side), kept here only so a
 // stale history entry from before the migration still parses to the right tab.
-const LEGACY_TAB_PATHS = { map: '/map', kitchen: '/kitchen', inventory: '/inventory', money: '/money', car: '/car-maintenance', housing: '/housing', meditation: '/meditation', media: '/media', movement: '/movement', body: '/body', ideas: '/ideas', ecosystem: '/ecosystem', people: '/people', research: '/research' };
+const LEGACY_TAB_PATHS = { map: '/map', kitchen: '/kitchen', inventory: '/inventory', money: '/money', car: '/car-maintenance', housing: '/housing', meditation: '/meditation', media: '/media', movement: '/movement', body: '/body', ideas: '/ideas', ecosystem: '/ecosystem', people: '/people' };
 
 // The dashboard tab currently loaded in the dashboard iframe(s) — tracked at the
 // shell level so switching to/from Journal/Files/Settings and back can restore
@@ -1316,6 +1293,10 @@ function dashIframes() {
 
 function journalIframes() {
     return [document.getElementById('journalFrame'), document.getElementById('mobileJournalFrame')].filter(Boolean);
+}
+
+function researchIframes() {
+    return [document.getElementById('researchFrame'), document.getElementById('mobileResearchFrame')].filter(Boolean);
 }
 
 // A journal-side entity popover ("Open full file", or a keeper-file mention) asks
@@ -1359,7 +1340,6 @@ window.addEventListener('message', (e) => {
     const path = TAB_PATHS[name];
     if (!path) return;
     currentDashTab = name;
-    syncResearchButtons(name);
     if (location.pathname !== path) {
         history.pushState({ tab: name }, '', path);
     }
@@ -1373,8 +1353,8 @@ window.addEventListener('message', (e) => {
 window.addEventListener('message', async (e) => {
     if (e.origin !== location.origin) return;
     if (!e.data || e.data.type !== 'openTerminalSession') return;
-    const fromDash = dashIframes().some(f => f && f.contentWindow === e.source);
-    if (!fromDash) return;
+    const fromOurs = [...dashIframes(), ...researchIframes()].some(f => f && f.contentWindow === e.source);
+    if (!fromOurs) return;
     const name = e.data.name;
     await loadSessions();   // pull in the freshly-spawned session so its tab exists
     if (window.innerWidth > 768) {
@@ -1387,7 +1367,7 @@ window.addEventListener('message', async (e) => {
 window.addEventListener('popstate', () => {
     const path = location.pathname;
     const isMobile = window.matchMedia('(max-width: 768px)').matches;
-    if (path === '/journal' || path === '/files' || path === '/settings') {
+    if (path === '/journal' || path === '/research' || path === '/files' || path === '/settings') {
         const view = path.slice(1);
         if (isMobile) {
             switchTab(view, true);
@@ -1406,7 +1386,6 @@ window.addEventListener('popstate', () => {
         switchDashView('dashboard', btn, true);
     }
     broadcastSwitchTo(tab);
-    syncResearchButtons(tab);
 });
 
 // === Initial-view activation: if the server rendered this page with a
@@ -1416,12 +1395,7 @@ window.addEventListener('popstate', () => {
 // pane is Terminal for '/', which we leave alone (ACTIVE_VIEW is 'dashboard'
 // there, so this block is a no-op). ===
 document.addEventListener('DOMContentLoaded', () => {
-    if (!window.ACTIVE_VIEW || window.ACTIVE_VIEW === 'dashboard') {
-        // Dashboard-like load: if the server rendered the research tab, the
-        // promoted Research button owns the highlight, not Dashboard.
-        if (currentDashTab === 'research') syncResearchButtons('research');
-        return;
-    }
+    if (!window.ACTIVE_VIEW || window.ACTIVE_VIEW === 'dashboard') return;
     const isMobile = window.matchMedia('(max-width: 768px)').matches;
     if (isMobile) {
         switchTab(window.ACTIVE_VIEW, true);

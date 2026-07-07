@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Research</title>
+<style>
+/* Fallback palette (field-notes teal) — sky-theme.js overwrites the shared
+   vars at load with the user's theme; the extras below it are page-local. */
+:root {
+    --bg: #0e1414;
+    --card-bg: #16201f;
+    --text: #e6ede8;
+    --text-secondary: rgba(215, 228, 220, 0.8);
+    --text-muted: rgba(175, 195, 185, 0.55);
+    --border: #24403a;
+    --accent: #3a9e8c;
+    --accent-light: rgba(58, 158, 140, 0.15);
+    --morning: #d4880a;
+    --evening: #6a7acc;
+    --ongoing: #3a9e8c;
+    --green: #3a9e8c;
+    --red: #d44035;
+    --orange: #d4700a;
+    --yellow: #d4a80a;
+    --radius-pill: 999px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+body { overflow-y: auto; }
+a { color: var(--accent); }
+
+.container { max-width: 800px; margin: 0 auto; padding: 16px 16px 48px; }
+
+.page-head { display: flex; align-items: baseline; gap: 10px; padding: 4px 0 14px; }
+.page-head h1 { font-size: 22px; font-weight: 800; }
+.page-head .sub { font-size: 13px; color: var(--text-muted); }
+
+/* Cards — collapsible <details>, same feel as the dashboard's map-sections */
+details.rsrch-card {
+    background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px;
+    padding: 4px 14px; margin-bottom: 12px;
+}
+details.rsrch-card > summary {
+    font-size: 16px; font-weight: 700; cursor: pointer; padding: 10px 0; list-style: none;
+    display: flex; align-items: center; gap: 8px; min-height: 40px;
+}
+details.rsrch-card > summary::-webkit-details-marker { display: none; }
+.kitchen-arrow { font-size: 12px; transition: transform 0.15s; display: inline-block; color: var(--text-muted); }
+details[open] > summary .kitchen-arrow { transform: rotate(90deg); }
+.card-count { font-size: 12px; font-weight: 400; color: var(--text-muted); margin-left: 8px; }
+.card-edit-btn {
+    flex: none; background: none; border: 1px solid var(--border); border-radius: 8px;
+    min-height: 32px; padding: 0 12px; font-size: 12px; font-weight: 600;
+    color: var(--text-muted); cursor: pointer;
+}
+.card-edit-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* Kind badges + chips (moved from the dashboard stylesheet) */
+.rsrch-kind {
+    display: inline-flex; align-items: center; min-height: 20px; padding: 3px 10px;
+    border-radius: var(--radius-pill); font-size: 12px; font-weight: 700; white-space: nowrap;
+}
+.rsrch-kind.kind-note { background: var(--bg); color: var(--text-muted); }
+.rsrch-kind.kind-source { background: rgba(106,122,204,0.16); color: var(--evening); }
+.rsrch-kind.kind-claim { background: rgba(212,112,10,0.16); color: var(--orange); }
+.rsrch-kind.kind-question { background: rgba(124,92,191,0.2); color: var(--accent); }
+.rsrch-chip {
+    display: inline-flex; align-items: center; gap: 4px; min-height: 28px; box-sizing: border-box;
+    padding: 4px 12px; border-radius: var(--radius-pill); border: 1px solid var(--border);
+    background: var(--bg); font-size: 12px; font-weight: 600; color: var(--text-secondary); cursor: pointer;
+}
+.rsrch-chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.rsrch-chip.verdict-real, .rsrch-chip.verdict-verified { background: rgba(58,158,140,0.15); color: var(--green); border-color: transparent; }
+.rsrch-chip.verdict-shaky { background: rgba(212,64,53,0.14); color: var(--red); border-color: transparent; }
+.rsrch-chip.verdict-interesting { background: rgba(212,168,10,0.16); color: var(--yellow); border-color: transparent; }
+.rsrch-chip.status-answered { background: rgba(58,158,140,0.15); color: var(--green); border-color: transparent; }
+.rsrch-del-btn {
+    opacity: 0; background: none; border: none; color: var(--text-muted); font-size: 20px;
+    cursor: pointer; padding: 0 6px; min-width: 28px; transition: opacity 0.15s;
+}
+details.editing .rsrch-del-btn { opacity: 1; min-width: 40px; height: 40px; }
+
+/* Library reader overlay */
+.reader-overlay {
+    display: none; position: fixed; inset: 0; z-index: 40;
+    background: rgba(0,0,0,0.55); padding: 16px;
+}
+.reader-overlay.open { display: flex; align-items: flex-start; justify-content: center; }
+.reader-panel {
+    background: var(--card-bg); border: 1px solid var(--border); border-radius: 14px;
+    width: min(760px, 100%); max-height: calc(100vh - 48px); display: flex; flex-direction: column;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.45);
+}
+.reader-head {
+    display: flex; align-items: center; gap: 10px; padding: 12px 16px;
+    border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.reader-head .reader-title { flex: 1; font-size: 15px; font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reader-head .reader-file { font-size: 12px; color: var(--text-muted); }
+.reader-head button {
+    flex: none; min-width: 40px; min-height: 40px; border: none; border-radius: 8px;
+    background: none; color: var(--text-muted); font-size: 20px; cursor: pointer;
+}
+.reader-head button:hover { background: var(--accent-light); color: var(--accent); }
+.reader-body { overflow-y: auto; padding: 16px 20px; line-height: 1.65; font-size: 14px; }
+.reader-body h1 { font-size: 20px; margin-bottom: 8px; }
+.reader-body h2 { font-size: 17px; margin-top: 20px; margin-bottom: 6px; }
+.reader-body h3 { font-size: 15px; margin-top: 16px; margin-bottom: 4px; }
+.reader-body hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+.reader-body p { margin-bottom: 8px; }
+.reader-body ul { margin: 8px 0 8px 20px; }
+.reader-body code { background: var(--accent-light); padding: 1px 4px; border-radius: 3px; font-size: 12px; }
+.reader-body em { color: var(--text-muted); }
+.reader-body blockquote { border-left: 3px solid var(--accent); padding-left: 12px; color: var(--text-muted); margin: 8px 0; }
+
+/* Confirm-delete modal */
+.rsrch-modal-wrap { display: none; position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,0.5); align-items: center; justify-content: center; padding: 20px; }
+.rsrch-modal-wrap.open { display: flex; }
+.rsrch-modal {
+    background: var(--card-bg); border: 1px solid var(--border); border-radius: 14px;
+    padding: 20px; width: min(400px, 100%); box-shadow: 0 12px 40px rgba(0,0,0,0.45);
+}
+.rsrch-modal .modal-text { font-size: 14px; line-height: 1.5; margin-bottom: 16px; }
+.rsrch-modal .modal-btns { display: flex; gap: 8px; justify-content: flex-end; }
+.rsrch-modal button { min-height: 40px; padding: 0 18px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }
+.rsrch-modal .btn-cancel { border: 1px solid var(--border); background: none; color: var(--text-muted); }
+.rsrch-modal .btn-delete { border: none; background: var(--red); color: #fff; }
+
+/* Page notes (dev notes for this place) */
+.notes-list { padding-bottom: 8px; }
+</style>
+</head>
+<body>
+<div class="container">
+    <div class="page-head">
+        <h1>Research</h1>
+        <span class="sub">what I'm learning, what I trust, what's still open</span>
+    </div>
+    <div id="research-area"></div>
+
+    <details class="rsrch-card" data-card="research-notes">
+        <summary><span class="kitchen-arrow">&#9654;</span>Page notes<span class="card-count">bugs &amp; ideas for this page</span></summary>
+        <div style="display:flex;gap:6px;align-items:flex-start;padding:4px 0 10px">
+            <textarea id="rsrch-note-input" rows="2" placeholder="Bug or idea for the research page&hellip;" style="flex:1;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:13px;font-family:inherit;resize:none;outline:none"></textarea>
+            <button onclick="addPageNote()" style="min-height:40px;padding:0 14px;border:none;border-radius:8px;background:var(--accent);color:#fff;font-size:13px;font-weight:600;cursor:pointer">Add</button>
+        </div>
+        <div id="rsrch-notes-list" class="notes-list"></div>
+    </details>
+</div>
+
+<!-- Library reader -->
+<div class="reader-overlay" id="readerOverlay" onclick="if(event.target===this)closeReader()">
+    <div class="reader-panel">
+        <div class="reader-head">
+            <div style="flex:1;min-width:0">
+                <div class="reader-title" id="readerTitle"></div>
+                <div class="reader-file" id="readerFile"></div>
+            </div>
+            <button onclick="closeReader()" title="Close" aria-label="Close">&times;</button>
+        </div>
+        <div class="reader-body" id="readerBody"></div>
+    </div>
+</div>
+
+<!-- Confirm delete -->
+<div class="rsrch-modal-wrap" id="rsrchModal" onclick="if(event.target===this)closeRsrchModal()">
+    <div class="rsrch-modal">
+        <div class="modal-text" id="rsrchModalText"></div>
+        <div class="modal-btns">
+            <button class="btn-cancel" onclick="closeRsrchModal()">Cancel</button>
+            <button class="btn-delete" onclick="confirmRsrchDelete()">Delete</button>
+        </div>
+    </div>
+</div>
+
+<script src="{{ v_static('js/sky-theme.js') }}"></script>
+<script src="{{ v_static('js/md.js') }}"></script>
+<script src="{{ v_static('js/mini-notes.js') }}"></script>
+<script src="{{ v_static('js/research.js') }}"></script>
+<script>
+// Page notes: same dev-notes store the old dashboard tab wrote to ('research').
+const _pageNotes = createMiniNotes(document.getElementById('rsrch-notes-list'), 'research');
+_pageNotes.load();
+async function addPageNote() {
+    const input = document.getElementById('rsrch-note-input');
+    const text = (input.value || '').trim();
+    if (!text) return;
+    await fetch('/api/devnote/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tab: 'research', text }),
+    });
+    input.value = '';
+    _pageNotes.load();
+}
+</script>
+</body>
+</html>

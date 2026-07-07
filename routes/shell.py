@@ -8,15 +8,19 @@ URL scheme (post-migration):
   - "/dashboard"            → 302 → "/dashboard/today"
   - "/dashboard/<tab>"      → the shell, dashboard view, that tab active. Unknown
                               tabs fall back (302) to "/dashboard/today".
-  - "/journal" "/files" "/settings"
-                            → the shell with that view active (journal/keeper/
-                              settings iframe shown in the right pane).
+  - "/journal" "/research" "/files" "/settings"
+                            → the shell with that view active (journal/research/
+                              keeper/settings iframe shown in the right pane).
+  - "/research-view"        → research.html standalone (iframe content for the
+                              shell's research view — mirrors "/journal-view").
   - "/settings-view"        → settings.html standalone (iframe content for the
                               shell's settings view — mirrors "/journal-view").
   - legacy tab paths (/map, /kitchen, /inventory, /money, /car-maintenance,
     /meditation, /media, /movement, /body, /ideas, /ecosystem, /housing,
-    /people, /research) → 302 → the matching "/dashboard/<tab>" (302, not 301:
+    /people) → 302 → the matching "/dashboard/<tab>" (302, not 301:
     still iterating on the scheme, don't want browsers caching the redirect forever).
+  - "/dashboard/research"   → 302 → "/research" (research used to be a dashboard
+                              tab; now it's its own place).
   - "/item/buy/<name>"      → the shell, dashboard view, inventory tab, with the
                               buy-item drawer open.
   - "/tab/<name>"           → iframe content for the dashboard pane (index.html).
@@ -29,8 +33,7 @@ from data_helpers import CONTENT_DIR
 # The 14 dashboard sub-tabs. Single source of truth — server.py re-exports this
 # (`server.VALID_TABS`) for the handful of other places that check tab names.
 VALID_TABS = ("today", "map", "kitchen", "inventory", "money", "car", "meditation",
-              "media", "movement", "body", "ideas", "ecosystem", "housing", "people",
-              "research")
+              "media", "movement", "body", "ideas", "ecosystem", "housing", "people")
 
 # Legacy path -> tab key. The path can differ from the tab key (car-maintenance
 # -> "car"); everything here 302-redirects to "/dashboard/<tab>".
@@ -48,7 +51,6 @@ _LEGACY_TAB_PATHS = [
     ("/ecosystem", "ecosystem"),
     ("/housing", "housing"),
     ("/people", "people"),
-    ("/research", "research"),
 ]
 
 # Path to the file that backs the public homepage fake-terminal intro.
@@ -99,7 +101,7 @@ def _load_public_intro_html():
 
 def _split_response(active_tab, item_name="", active_view="dashboard"):
     """Render split.html (the app shell) with the given dashboard tab and
-    top-level view ("dashboard" | "journal" | "files" | "settings") active.
+    top-level view ("dashboard" | "journal" | "research" | "files" | "settings") active.
 
     Reads the view mode off `request.view_mode` (set by server.py's
     before_request gate in production) via getattr so a bare test app — which
@@ -131,6 +133,9 @@ def register(app):
 
     @app.route("/dashboard/<tab>")
     def dashboard_tab(tab):
+        if tab == "research":
+            # Research graduated from dashboard tab to its own place.
+            return redirect("/research", code=302)
         if tab not in VALID_TABS:
             return redirect("/dashboard/today", code=302)
         return _split_response(tab)
@@ -146,6 +151,10 @@ def register(app):
     @app.route("/journal")
     def journal_shell():
         return _split_response("today", active_view="journal")
+
+    @app.route("/research")
+    def research_shell():
+        return _split_response("today", active_view="research")
 
     @app.route("/files")
     def files_shell():
@@ -166,6 +175,11 @@ def register(app):
     @app.route("/tab/<name>")
     def tab_view(name):
         """Iframe content endpoint — renders index.html for the given tab."""
+        if name == "research":
+            # Stale shells may still iframe the old research tab; keep the
+            # response iframe-content (redirecting to /research would nest
+            # the whole app shell inside the dashboard pane).
+            return redirect("/tab/today")
         if name not in VALID_TABS:
             return redirect("/")
         item_name = request.args.get("item", "")
@@ -191,6 +205,10 @@ def register(app):
     @app.route("/journal-view")
     def journal_view():
         return render_template("journal.html")
+
+    @app.route("/research-view")
+    def research_view():
+        return render_template("research.html")
 
     @app.route("/keeper")
     def keeper_page():

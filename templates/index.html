@@ -46,7 +46,6 @@
                     <a href="/inventory" data-tab="inventory" onclick="switchTab(event,'inventory')">Inventory</a>
                     <a href="/housing" class="auth-only" data-tab="housing" onclick="switchTab(event,'housing')">Housing</a>
                     <a href="/car-maintenance" data-tab="car" onclick="switchTab(event,'car')">Car Maintenance</a>
-                    <a href="/research" class="auth-only" data-tab="research" onclick="switchTab(event,'research')">Research</a>
                 </div>
             </div>
         </div>
@@ -326,17 +325,6 @@
         <div id="idea-notes-movement" class="auth-only" data-tab="movement"></div>
     </div>
 
-    <!-- RESEARCH TAB -->
-    <div id="tab-research" style="display:none">
-        <div class="section-title" style="margin-top:0">Research</div>
-        <div id="research-subtitle" style="font-size:12px;color:var(--text-muted);margin:-2px 0 12px 0">
-            What I'm learning &mdash; a pool of notes, sources, claims, and questions. Topics are lenses over the pool, not boxes.
-        </div>
-        <div id="research-area"></div>
-        <div id="dev-notes-research" class="auth-only" data-tab="research"></div>
-        <div id="idea-notes-research" class="auth-only" data-tab="research"></div>
-    </div>
-
     <!-- ECOSYSTEM TAB -->
     <div id="tab-ecosystem" style="display:none">
         <div id="tab-todos-ecosystem" class="auth-only"></div>
@@ -485,7 +473,6 @@
 <script src="{{ v_static('js/meditation.js') }}" defer></script>
 <script src="{{ v_static('js/media.js') }}" defer></script>
 <script src="{{ v_static('js/movement.js') }}" defer></script>
-<script src="{{ v_static('js/research.js') }}" defer></script>
 <script src="{{ v_static('js/ideas.js') }}" defer></script>
 <script src="{{ v_static('js/reminders.js') }}" defer></script>
 <script src="{{ v_static('js/pending.js') }}" defer></script>

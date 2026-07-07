@@ -19,6 +19,19 @@ from flask import request, jsonify
 
 import store
 
+
+def _md_title(path):
+    """First '# ' heading of a markdown file, else the file stem."""
+    try:
+        for line in path.read_text().splitlines():
+            if line.startswith("# "):
+                return line[2:].strip()
+            if line.strip():
+                break  # title must lead the file
+    except OSError:
+        pass
+    return path.stem
+
 KINDS = ("note", "source", "claim", "question")
 TOPIC_STATUSES = ("active", "dormant", "settled")
 CLAIM_VERDICTS = ("", "real", "shaky", "interesting")
@@ -185,3 +198,69 @@ def register(app):
         with store.mutate("research.json", {"topics": [], "entries": []}) as data:
             data["entries"] = [e for e in data.get("entries", []) if e["id"] != eid]
         return _blob(data)
+
+    # --- Filer: a cricket-style Claude session that tags the unfiled pool ---
+
+    @app.route("/api/research/file-unfiled", methods=["POST"])
+    def research_file_unfiled():
+        """Spawn (or reuse) the 'research' tmux Claude session — same pattern
+        as triage/person — cwd'd into RESEARCH_FILER_DIR so its CLAUDE.md
+        skill loads, and prompt it to file the unfiled entries. The frontend
+        then flips the terminal pane to the session so she can watch or
+        ignore it."""
+        from routes.kitchen import shared
+
+        data = _load()
+        unfiled = [e for e in data.get("entries", []) if not e.get("topics")]
+        if not unfiled:
+            return jsonify({"ok": True, "unfiled": 0, "session": None})
+        newly = shared.ensure_claude_session(
+            "research", store.RESEARCH_FILER_DIR, dirs=(store.RESEARCH_FILER_DIR,),
+        )
+        prompt = (
+            f"{len(unfiled)} research entries are sitting unfiled. Do your one "
+            f"job: read your CLAUDE.md, file them, and report in one line."
+        )
+        shared.send_prompt("research", prompt)
+        return jsonify({"ok": True, "unfiled": len(unfiled), "session": "research",
+                        "newly_spawned": newly})
+
+    # --- Library: read-only view of the research/*.md corpus ---
+
+    @app.route("/api/research/library")
+    def research_library():
+        """List the markdown files in RESEARCH_DIR (recursive), newest first."""
+        root = store.RESEARCH_DIR
+        files = []
+        if root.is_dir():
+            for p in sorted(root.rglob("*.md")):
+                stat = p.stat()
+                files.append({
+                    "path": p.relative_to(root).as_posix(),
+                    "name": p.stem,
+                    "title": _md_title(p),
+                    "mtime": datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d"),
+                    "size": stat.st_size,
+                })
+        files.sort(key=lambda f: f["mtime"], reverse=True)
+        return jsonify({"ok": True, "files": files})
+
+    @app.route("/api/research/library/file")
+    def research_library_file():
+        """Return one library file's markdown, read-only. Guards traversal."""
+        rel = request.args.get("path", "")
+        root = store.RESEARCH_DIR.resolve()
+        try:
+            target = (root / rel).resolve()
+        except (OSError, ValueError):
+            return jsonify({"error": "bad path"}), 400
+        if not target.is_relative_to(root) or target.suffix != ".md":
+            return jsonify({"error": "bad path"}), 400
+        if not target.is_file():
+            return jsonify({"error": "not found"}), 404
+        return jsonify({
+            "ok": True,
+            "path": rel,
+            "title": _md_title(target),
+            "text": target.read_text(),
+        })

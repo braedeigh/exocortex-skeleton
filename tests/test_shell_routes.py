@@ -91,6 +91,34 @@ def test_files_renders_the_shell():
     assert b'id="filesFrame"' in r.data
 
 
+def test_research_renders_the_shell_not_research_html():
+    r = _client().get("/research")
+    assert r.status_code == 200
+    assert b'id="researchFrame"' in r.data
+    assert b'ACTIVE_VIEW = "research"' in r.data
+    assert b"<title>Research</title>" not in r.data
+
+
+def test_research_view_renders_research_html():
+    r = _client().get("/research-view")
+    assert r.status_code == 200
+    assert b'id="research-area"' in r.data
+
+
+def test_dashboard_research_redirects_to_research_place():
+    r = _client().get("/dashboard/research")
+    assert r.status_code == 302
+    assert r.headers["Location"] == "/research"
+
+
+def test_tab_research_redirects_to_tab_today():
+    # Research is no longer a valid dashboard tab; the iframe-content route
+    # bounces stale /tab/research to today rather than nesting the shell.
+    r = _client().get("/tab/research")
+    assert r.status_code == 302
+    assert r.headers["Location"] == "/tab/today"
+
+
 def test_settings_renders_the_shell_not_settings_html():
     r = _client().get("/settings")
     assert r.status_code == 200
