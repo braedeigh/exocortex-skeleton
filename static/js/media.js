@@ -21,31 +21,125 @@ function mediaFormatDate(iso) {
 if (!window._mediaCompose) window._mediaCompose = { type: 'book' };
 // Which item (if any) is being edited inline
 if (!window._mediaEdit) window._mediaEdit = { id: null };
+// Filter/sort/search state — also persists across re-renders
+if (!window._mediaFilter) window._mediaFilter = { type: 'all', sort: 'date', query: '' };
 
 function _mediaItems() {
     return (D.media && D.media.items) || [];
 }
 
-function renderMedia() {
-    const el = document.getElementById('media-area');
-    if (!el) return;
+const _MEDIA_INPUT_STYLE = 'padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:14px;box-sizing:border-box';
 
-    const inp = 'padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:14px;box-sizing:border-box';
-
-    // --- Type chips for the compose form ---
-    const typeChips = (selected, cb) => MEDIA_TYPES.map(t => {
+function _mediaTypeChips(selected, cb) {
+    return MEDIA_TYPES.map(t => {
         const active = t === selected;
         const style = active
             ? 'background:rgba(124,92,191,0.18);border:1px solid var(--accent);color:var(--accent);font-weight:700'
             : 'background:none;border:1px solid var(--border);color:var(--text-muted);font-weight:500';
         return `<button type="button" onclick="${cb}('${t}')" style="padding:5px 12px;border-radius:14px;cursor:pointer;font-size:13px;${style}">${mediaTypeLabel(t)}</button>`;
     }).join('');
+}
+
+// --- Filter bar: type chips (data-driven), sort control, search box ---
+
+function _mediaPresentTypes(items) {
+    const present = new Set(items.map(it => it.type));
+    return MEDIA_TYPES.filter(t => present.has(t));
+}
+
+function _mediaFilterBarHtml(items) {
+    const f = window._mediaFilter;
+    const chipStyle = (active) => active
+        ? 'background:rgba(124,92,191,0.18);border:1px solid var(--accent);color:var(--accent);font-weight:700'
+        : 'background:none;border:1px solid var(--border);color:var(--text-muted);font-weight:500';
+    const chip = (value, label, active) =>
+        `<button type="button" onclick="_mediaSetFilterType('${value}')" style="padding:9px 14px;min-height:40px;box-sizing:border-box;border-radius:20px;cursor:pointer;font-size:13px;${chipStyle(active)}">${label}</button>`;
+
+    const typeChips = [chip('all', `All (${items.length})`, f.type === 'all')]
+        .concat(_mediaPresentTypes(items).map(t => {
+            const count = items.filter(it => it.type === t).length;
+            return chip(t, `${mediaTypeLabel(t)} (${count})`, f.type === t);
+        })).join('');
+
+    const sortOptions = [
+        ['date', 'Sort: Date added'],
+        ['title', 'Sort: Title (A–Z)'],
+        ['type', 'Sort: Type'],
+    ].map(([value, label]) => `<option value="${value}" ${f.sort === value ? 'selected' : ''}>${label}</option>`).join('');
+
+    return `
+    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+        <input type="text" id="media-search" value="${esc(f.query)}" oninput="_mediaSetSearch(this.value)"
+            placeholder="Search title or author…"
+            style="${_MEDIA_INPUT_STYLE};flex:1;min-width:180px;min-height:40px">
+        <select id="media-sort" onchange="_mediaSetSort(this.value)" style="${_MEDIA_INPUT_STYLE};min-height:40px">${sortOptions}</select>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px">${typeChips}</div>`;
+}
+
+function _mediaVisibleItems() {
+    const f = window._mediaFilter;
+    const q = (f.query || '').trim().toLowerCase();
+    let items = _mediaItems().filter(it => f.type === 'all' || it.type === f.type);
+    if (q) {
+        items = items.filter(it =>
+            (it.title || '').toLowerCase().includes(q) ||
+            (it.author || '').toLowerCase().includes(q));
+    }
+    return items.slice().sort((a, b) => {
+        // Not-done first, always — the sort control picks the ordering within that.
+        if (!!a.done !== !!b.done) return a.done ? 1 : -1;
+        if (f.sort === 'title') {
+            return (a.title || '').localeCompare(b.title || '', undefined, { sensitivity: 'base' });
+        }
+        if (f.sort === 'type') {
+            const at = mediaTypeLabel(a.type), bt = mediaTypeLabel(b.type);
+            if (at !== bt) return at.localeCompare(bt);
+        }
+        // 'date' (and the type tiebreak above) fall through to date desc, then id desc
+        const av = a.date || '0000-00-00', bv = b.date || '0000-00-00';
+        if (av !== bv) return bv.localeCompare(av);
+        return (b.id || '').localeCompare(a.id || '');
+    });
+}
+
+function _mediaSetFilterType(t) { window._mediaFilter.type = t; renderMedia(); }
+function _mediaSetSort(v) { window._mediaFilter.sort = v; renderMedia(); }
+
+function _mediaSetSearch(v) {
+    // Update state, but only re-render the card list — re-rendering the whole
+    // area would blow away focus/cursor position in the search box mid-keystroke.
+    window._mediaFilter.query = v;
+    const cardsEl = document.getElementById('media-cards');
+    if (cardsEl) cardsEl.innerHTML = _mediaCardsHtml();
+}
+
+function _mediaCardsHtml() {
+    const totalCount = _mediaItems().length;
+    const visible = _mediaVisibleItems();
+    if (!totalCount) {
+        return `<div style="color:var(--text-muted);font-style:italic;padding:18px;border:1px dashed var(--border);border-radius:8px;text-align:center">Nothing logged yet. Add the first recommendation above.</div>`;
+    }
+    if (!visible.length) {
+        return `<div style="color:var(--text-muted);font-style:italic;padding:18px;border:1px dashed var(--border);border-radius:8px;text-align:center">No matches for the current filter/search.</div>`;
+    }
+    return visible.map(it =>
+        window._mediaEdit.id === it.id ? _mediaRenderEditor(it) : _mediaRenderCard(it)
+    ).join('');
+}
+
+function renderMedia() {
+    const el = document.getElementById('media-area');
+    if (!el) return;
+
+    const inp = _MEDIA_INPUT_STYLE;
 
     const compose = `
     <div style="border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:18px;background:var(--bg-card)">
-        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">${typeChips(window._mediaCompose.type, '_mediaSetComposeType')}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">${_mediaTypeChips(window._mediaCompose.type, '_mediaSetComposeType')}</div>
         <input type="text" id="media-compose-title" placeholder="Title (book, movie, show…)" style="${inp};width:100%;margin-bottom:8px">
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+            <input type="text" id="media-compose-author" placeholder="Author (books)" style="${inp};flex:1;min-width:160px">
             <input type="text" id="media-compose-by" placeholder="Recommended by (optional)" style="${inp};flex:1;min-width:160px">
             <input type="date" id="media-compose-date" value="${todayStr()}" style="${inp}">
         </div>
@@ -57,24 +151,10 @@ function renderMedia() {
     </div>`;
 
     const items = _mediaItems();
-    // Sort: not-done first, then by date desc, then id for stability
-    const sorted = items.slice().sort((a, b) => {
-        if (!!a.done !== !!b.done) return a.done ? 1 : -1;
-        const av = a.date || '0000-00-00', bv = b.date || '0000-00-00';
-        if (av !== bv) return bv.localeCompare(av);
-        return (b.id || '').localeCompare(a.id || '');
-    });
+    const filterBar = _mediaFilterBarHtml(items);
+    const cardsHtml = _mediaCardsHtml();
 
-    let cardsHtml;
-    if (!sorted.length) {
-        cardsHtml = `<div style="color:var(--text-muted);font-style:italic;padding:18px;border:1px dashed var(--border);border-radius:8px;text-align:center">Nothing logged yet. Add the first recommendation above.</div>`;
-    } else {
-        cardsHtml = sorted.map(it =>
-            window._mediaEdit.id === it.id ? _mediaRenderEditor(it, inp, typeChips) : _mediaRenderCard(it)
-        ).join('');
-    }
-
-    el.innerHTML = compose + cardsHtml;
+    el.innerHTML = compose + filterBar + `<div id="media-cards">${cardsHtml}</div>`;
 }
 
 function _mediaRenderCard(it) {
@@ -89,6 +169,9 @@ function _mediaRenderCard(it) {
     const titleStyle = done
         ? 'font-weight:700;font-size:16px;color:var(--text-muted);text-decoration:line-through'
         : 'font-weight:700;font-size:16px;color:var(--text)';
+    const authorSpan = it.author
+        ? `<span style="font-size:13px;color:var(--text-muted);font-weight:500">${esc(it.author)}</span>`
+        : '';
     return `<div style="border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:12px;background:var(--bg-card);${done ? 'opacity:0.7' : ''}">
         <div style="display:flex;align-items:flex-start;gap:10px">
             <input type="checkbox" ${done ? 'checked' : ''} onchange="_mediaToggleDone('${esc(it.id)}', this.checked)" title="Mark read/watched" style="margin-top:4px;width:18px;height:18px;cursor:pointer;flex:none">
@@ -96,6 +179,7 @@ function _mediaRenderCard(it) {
                 <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                     <span style="font-size:12px;color:var(--accent);font-weight:600">${mediaTypeLabel(it.type)}</span>
                     <span style="${titleStyle}">${esc(it.title)}</span>
+                    ${authorSpan}
                 </div>
                 <div style="margin-top:2px">${metaLine}</div>
                 ${notes}
@@ -108,12 +192,14 @@ function _mediaRenderCard(it) {
     </div>`;
 }
 
-function _mediaRenderEditor(it, inp, typeChips) {
+function _mediaRenderEditor(it) {
+    const inp = _MEDIA_INPUT_STYLE;
     window._mediaEditType = window._mediaEditType || it.type || 'book';
     return `<div style="border:1px solid var(--accent);border-radius:10px;padding:14px;margin-bottom:12px;background:var(--bg-card)">
-        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">${typeChips(window._mediaEditType, '_mediaSetEditType')}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">${_mediaTypeChips(window._mediaEditType, '_mediaSetEditType')}</div>
         <input type="text" id="media-edit-title" value="${esc(it.title)}" placeholder="Title" style="${inp};width:100%;margin-bottom:8px">
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+            <input type="text" id="media-edit-author" value="${esc(it.author || '')}" placeholder="Author (books)" style="${inp};flex:1;min-width:160px">
             <input type="text" id="media-edit-by" value="${esc(it.recommended_by || '')}" placeholder="Recommended by (optional)" style="${inp};flex:1;min-width:160px">
             <input type="date" id="media-edit-date" value="${esc(it.date || todayStr())}" style="${inp}">
         </div>
@@ -129,7 +215,7 @@ function _mediaRenderEditor(it, inp, typeChips) {
 function _mediaSetComposeType(t) { window._mediaCompose.type = t; renderMedia(); }
 
 function _mediaClearCompose() {
-    ['media-compose-title', 'media-compose-by', 'media-compose-notes'].forEach(id => {
+    ['media-compose-title', 'media-compose-author', 'media-compose-by', 'media-compose-notes'].forEach(id => {
         const e = document.getElementById(id); if (e) e.value = '';
     });
 }
@@ -140,6 +226,7 @@ async function _mediaSaveCompose() {
     const payload = {
         title,
         type: window._mediaCompose.type,
+        author: (document.getElementById('media-compose-author')?.value || '').trim(),
         recommended_by: (document.getElementById('media-compose-by')?.value || '').trim(),
         date: document.getElementById('media-compose-date')?.value || todayStr(),
         notes: (document.getElementById('media-compose-notes')?.value || '').trim(),
@@ -179,6 +266,7 @@ async function _mediaSaveEdit(id) {
         id,
         title,
         type: window._mediaEditType || 'book',
+        author: (document.getElementById('media-edit-author')?.value || '').trim(),
         recommended_by: (document.getElementById('media-edit-by')?.value || '').trim(),
         date: document.getElementById('media-edit-date')?.value || todayStr(),
         notes: (document.getElementById('media-edit-notes')?.value || '').trim(),

@@ -32,6 +32,7 @@ def register(app):
             "id": uuid.uuid4().hex[:12],
             "title": title,
             "type": _coerce_type(body.get("type")),
+            "author": (body.get("author") or "").strip(),
             "recommended_by": (body.get("recommended_by") or "").strip(),
             "notes": (body.get("notes") or "").strip(),
             "date": (body.get("date") or "").strip() or None,
@@ -58,6 +59,8 @@ def register(app):
                     it["title"] = title
                 if "type" in body:
                     it["type"] = _coerce_type(body.get("type"))
+                if "author" in body:
+                    it["author"] = (body.get("author") or "").strip()
                 if "recommended_by" in body:
                     it["recommended_by"] = (body.get("recommended_by") or "").strip()
                 if "notes" in body:
