@@ -165,9 +165,9 @@
     <div id="tab-inventory" style="display:none">
         <div id="tab-todos-inventory" class="auth-only"></div>
         <div id="buy-list-section">
-            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-                <div class="section-title" style="margin-top:0">Inventory</div>
-                <button id="inv-collapse-btn" onclick="toggleInventoryCollapse()" style="font-size:13px;color:var(--text-muted);cursor:pointer;border:none;background:none;padding:10px 2px;margin:-10px 0;text-decoration:underline;text-underline-offset:3px">Collapse all</button>
+            <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:12px;border-bottom:2px solid var(--border);padding-bottom:8px;margin-bottom:16px">
+                <div class="section-title" style="margin:0;padding-bottom:0;border-bottom:none">Inventory</div>
+                <button id="inv-collapse-btn" onclick="toggleInventoryCollapse()" style="min-height:36px;padding:6px 14px;border:1px solid var(--border);border-radius:8px;background:none;color:var(--text);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">Collapse all</button>
             </div>
             <div id="priority-notes-area"></div>
             <div id="restock-banner-area"></div>
