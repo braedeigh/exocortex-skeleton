@@ -132,3 +132,18 @@ def test_apply_result_kicks_dispatcher(data_dir, monkeypatch):
     apply_result(session_id, "answer text")
 
     assert kicks == [session_id]
+
+
+def test_apply_result_deregisters_terminal_tab(data_dir, monkeypatch):
+    """A finished worker's tmux name must leave sessions.json — a lingering
+    tab invites a tap, and the terminal's attach path used to squat the name
+    with a bare shell the dispatcher mistook for a live worker."""
+    import store
+    question_id, session_id = _seed()
+    monkeypatch.setattr(_mod, "_kick_dispatcher", lambda sid: None)
+    tab = "rw-" + session_id.replace(".", "-")
+    store.write("sessions.json", ["chat", tab])
+
+    apply_result(session_id, "answer text")
+
+    assert store.read("sessions.json", []) == ["chat"]

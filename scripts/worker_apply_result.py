@@ -63,6 +63,17 @@ def _kick_dispatcher(session_id):
     )
 
 
+def _deregister_terminal_tab(session_id):
+    """Drop this worker's tmux name from sessions.json (the terminal UI's tab
+    list, registered by ensure_claude_session). Workers self-destruct when
+    done — a lingering tab for a dead worker invites a tap, and the terminal's
+    attach path would otherwise squat the name with a bare shell that the
+    dispatcher then mistakes for a live worker."""
+    tmux_name = re.sub(r"[^A-Za-z0-9-]", "-", f"rw-{session_id}")[:40]
+    with store.mutate("sessions.json", []) as names:
+        names[:] = [n for n in names if n != tmux_name]
+
+
 def apply_result(session_id, text, file=None):
     """Apply a worker result to research.json under an flock-safe mutate.
 
@@ -121,6 +132,10 @@ def apply_result(session_id, text, file=None):
             f"Researched → research/{file}" if file else "Answered."
         )
 
+    try:
+        _deregister_terminal_tab(session_id)
+    except Exception:
+        pass  # a stale tab is cosmetic; never fail a successful apply over it
     try:
         _kick_dispatcher(session_id)
     except Exception:

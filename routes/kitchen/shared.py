@@ -74,7 +74,9 @@ def ensure_claude_session(name, cwd, dirs=()):
     if name not in sessions:
         sessions.append(name)
         SESSIONS_PATH.write_text(json.dumps(sessions, indent=2))
-    check = tmux(f"has-session -t {name}")
+    # '=' forces an exact-name match — tmux otherwise prefix-matches, and the
+    # worker names collide that way (rw-...-1148 is a prefix of rw-...-1148-10).
+    check = tmux(f"has-session -t '={name}'")
     if check.returncode != 0:
         avail = _mem_available_mb()
         if avail is not None and avail < MIN_SPAWN_MB:
@@ -96,8 +98,8 @@ def send_prompt(session, text, delay=4.0, block=False):
     def _send():
         time.sleep(delay)
         safe = text.replace("'", "'\\''")
-        tmux(f"send-keys -t {session} -l '{safe}'")
-        tmux(f"send-keys -t {session} Enter")
+        tmux(f"send-keys -t '={session}' -l '{safe}'")
+        tmux(f"send-keys -t '={session}' Enter")
     if block:
         _send()
     else:
