@@ -6,9 +6,13 @@ let _invSectionsOpen = null;
 function _invOpen(defaultOpen) {
     return (_invSectionsOpen === null ? defaultOpen : _invSectionsOpen) ? 'open' : '';
 }
-function toggleInventorySections(open) {
-    _invSectionsOpen = open;
-    document.querySelectorAll('#buy-list-section details').forEach(d => { d.open = open; });
+function toggleInventoryCollapse() {
+    const sections = document.querySelectorAll('#buy-list-section details');
+    const anyOpen = Array.from(sections).some(d => d.open);
+    _invSectionsOpen = !anyOpen;
+    sections.forEach(d => { d.open = !anyOpen; });
+    const btn = document.getElementById('inv-collapse-btn');
+    if (btn) btn.textContent = anyOpen ? 'Expand all' : 'Collapse all';
 }
 
 function renderPriorityNotes() {
