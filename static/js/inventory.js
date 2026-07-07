@@ -71,6 +71,103 @@ const BUY_KINDS = [
     { key: 'service', label: 'Services', color: 'var(--ongoing)' },
 ];
 
+// --- Buy item edit modal (rows open this instead of the /item/buy page) ---
+
+function openBuyItemModal(name) {
+    const item = (D.buy_list || []).find(i => i.name === name);
+    if (!item) return;
+
+    let ov = document.getElementById('buy-modal-overlay');
+    if (!ov) {
+        ov = document.createElement('div');
+        ov.id = 'buy-modal-overlay';
+        ov.className = 'modal-overlay';
+        ov.style.zIndex = '100';
+        document.body.appendChild(ov);
+        ov.addEventListener('click', e => { if (e.target === ov) closeBuyItemModal(); });
+    }
+
+    const known = [...new Set((D.buy_list || []).map(i => (i.category || '').trim()).filter(Boolean))].sort();
+    const datalistOpts = known.map(c => `<option value="${esc(c)}">`).join('');
+    const label = (t) => `<label style="font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px">${t}</label>`;
+    const inputStyle = 'min-height:40px;padding:7px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;outline:none;background:var(--bg)';
+
+    ov.innerHTML = `<div class="modal" style="max-width:560px;width:calc(100% - 32px);max-height:88vh;overflow-y:auto;text-align:left">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+            <input type="text" id="buym-name" value="${esc(item.name)}" style="flex:1;font-size:19px;font-weight:700;border:none;outline:none;background:transparent;color:var(--text);padding:4px 0;border-bottom:1px solid transparent" onfocus="this.style.borderBottomColor='var(--border)'" onblur="this.style.borderBottomColor='transparent'">
+            <button onclick="closeBuyItemModal()" style="width:40px;height:40px;border:none;background:none;font-size:22px;cursor:pointer;color:var(--text-muted)">&times;</button>
+        </div>
+
+        <div style="display:grid;grid-template-columns:90px 1fr;gap:10px 12px;align-items:center">
+            ${label('Cost')}<input type="text" id="buym-cost" value="${esc(item.cost || '')}" placeholder="$40-80, or free" style="${inputStyle}">
+            ${label('Why')}<input type="text" id="buym-why" value="${esc(item.why || '')}" placeholder="what it solves / unlocks" style="${inputStyle}">
+            ${label('By')}<input type="text" id="buym-by" value="${esc(item.by || '')}" placeholder="deadline (YYYY-MM-DD) or open" style="${inputStyle}">
+            ${label('Category')}<span><input type="text" id="buym-category" list="buym-categories" value="${esc(item.category || '')}" placeholder="supplements, household..." style="${inputStyle};width:100%"><datalist id="buym-categories">${datalistOpts}</datalist></span>
+            ${label('Where')}<input type="text" id="buym-where" value="${esc(item.where || '')}" placeholder="store/site (optional)" style="${inputStyle}">
+            ${label('Order URL')}<input type="url" id="buym-order-url" value="${esc(item.order_url || '')}" placeholder="https://..." style="${inputStyle}">
+            ${label('Priority')}<select id="buym-priority" style="${inputStyle}">
+                <option value="high" ${item.priority === 'high' ? 'selected' : ''}>High</option>
+                <option value="medium" ${item.priority === 'medium' ? 'selected' : ''}>Medium</option>
+                <option value="low" ${item.priority === 'low' ? 'selected' : ''}>Low</option>
+            </select>
+            ${label('Kind')}<select id="buym-kind" style="${inputStyle}">
+                <option value="" ${!item.kind ? 'selected' : ''}>Unsorted</option>
+                <option value="consumable" ${item.kind === 'consumable' ? 'selected' : ''}>Consumable</option>
+                <option value="durable" ${item.kind === 'durable' ? 'selected' : ''}>Durable</option>
+                <option value="service" ${item.kind === 'service' ? 'selected' : ''}>Service</option>
+            </select>
+        </div>
+
+        <div style="margin-top:12px">
+            ${label('Notes')}
+            <textarea id="buym-notes" rows="6" placeholder="research, alternatives, who recommended what, prices you've seen..." style="width:100%;margin-top:6px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;outline:none;background:var(--bg);font-family:inherit;line-height:1.5;resize:vertical">${esc(item.notes || '')}</textarea>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:16px">
+            <button onclick="closeBuyItemModal();confirmDelete('${escJs(item.name)}','buy')" style="min-height:40px;padding:8px 14px;border:1px solid var(--red);border-radius:8px;background:none;color:var(--red);font-size:13px;font-weight:600;cursor:pointer">Delete</button>
+            <div style="display:flex;gap:8px">
+                <button onclick="closeBuyItemModal()" style="min-height:40px;padding:8px 16px;border:1px solid var(--border);border-radius:8px;background:none;font-size:13px;cursor:pointer;color:var(--text-muted)">Cancel</button>
+                <button onclick="saveBuyItemModal('${escJs(item.name)}')" style="min-height:40px;padding:8px 20px;border:none;border-radius:8px;background:var(--text);color:#fff;font-size:13px;font-weight:600;cursor:pointer">Save</button>
+            </div>
+        </div>
+    </div>`;
+    ov.classList.add('open');
+}
+
+function closeBuyItemModal() {
+    const ov = document.getElementById('buy-modal-overlay');
+    if (ov) ov.classList.remove('open');
+}
+
+async function saveBuyItemModal(originalName) {
+    const newName = document.getElementById('buym-name').value.trim();
+    if (!newName) { alert('Name is required'); return; }
+    const payload = {
+        name: originalName,
+        new_name: newName,
+        cost: document.getElementById('buym-cost').value.trim(),
+        why: document.getElementById('buym-why').value.trim(),
+        by: document.getElementById('buym-by').value.trim(),
+        category: document.getElementById('buym-category').value.trim(),
+        where: document.getElementById('buym-where').value.trim(),
+        order_url: document.getElementById('buym-order-url').value.trim(),
+        priority: document.getElementById('buym-priority').value,
+        kind: document.getElementById('buym-kind').value,
+        notes: document.getElementById('buym-notes').value.trim(),
+    };
+    const res = await fetch('/api/buy/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    });
+    if (res.ok) {
+        closeBuyItemModal();
+        loadDashboard();
+    } else {
+        alert('Save failed');
+    }
+}
+
 async function setBuyKind(name, kind) {
     const res = await fetch('/api/buy/update', {
         method: 'POST',
@@ -93,7 +190,6 @@ function renderBuyList() {
 
     const renderItem = (item) => {
         const color = priorityColors[item.priority] || 'var(--text-muted)';
-        const url = `/item/buy/${encodeURIComponent(item.name)}`;
         const costBadge = item.cost
             ? `<span style="font-size:13px;font-weight:600;color:var(--text);background:rgba(26,188,156,0.10);border:1px solid rgba(26,188,156,0.25);border-radius:16px;padding:4px 12px;margin-left:auto;margin-right:6px;white-space:nowrap">${esc(item.cost)}</span>`
             : `<span style="margin-left:auto"></span>`;
@@ -108,7 +204,7 @@ function renderBuyList() {
             : '';
         return `<div class="card-item" style="flex-wrap:wrap;align-items:center;min-height:40px;padding:6px 0">
             <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};margin-right:8px;flex-shrink:0"></span>
-            <a href="${url}" class="item-text" style="text-decoration:none;color:inherit;cursor:pointer"><b>${esc(item.name)}</b></a>
+            <span class="item-text" onclick="openBuyItemModal('${escJs(item.name)}')" style="color:inherit;cursor:pointer"><b>${esc(item.name)}</b></span>
             ${costBadge}
             ${kindChips}
             <button onclick="markBuyAsBought('${escJs(item.name)}')" title="Mark as bought — moves to Active" style="min-height:32px;background:none;border:1px solid var(--ongoing);color:var(--ongoing);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;margin-right:4px">✓ Bought</button>
