@@ -71,6 +71,16 @@ const BUY_KINDS = [
     { key: 'service', label: 'Services', color: 'var(--ongoing)' },
 ];
 
+// '2026-07-06T21:40:00' → 'Jul 6' (year appended if not this year)
+function _buyFmtDate(ts) {
+    if (!ts) return '';
+    const d = new Date(ts);
+    if (isNaN(d)) return ts.slice(0, 10);
+    const opts = { month: 'short', day: 'numeric' };
+    if (d.getFullYear() !== new Date().getFullYear()) opts.year = 'numeric';
+    return d.toLocaleDateString(undefined, opts);
+}
+
 // --- Buy item edit modal (rows open this instead of the /item/buy page) ---
 
 function openBuyItemModal(name) {
@@ -196,20 +206,24 @@ function renderBuyList() {
         const meta = [];
         if (item.why) meta.push(`<em>${esc(item.why)}</em>`);
         if (item.by) meta.push(`<span style="color:var(--red)">by ${esc(item.by)}</span>`);
+        if (item.added) meta.push(`<span title="${esc(item.added)}">added ${esc(_buyFmtDate(item.added))}</span>`);
         const metaLine = meta.length ? `<div style="width:100%;font-size:12px;color:var(--text-muted);padding-left:16px;margin-top:2px">${meta.join(' · ')}</div>` : '';
-        // unsorted items get one-tap filing chips into a kind
-        const kindChips = !BUY_KINDS.some(k => k.key === item.kind)
-            ? `<span style="display:inline-flex;gap:4px;margin-right:4px">${BUY_KINDS.map(k =>
-                `<button onclick="setBuyKind('${escJs(item.name)}','${k.key}')" title="File under ${k.label}" style="min-height:32px;background:none;border:1px solid ${k.color};color:${k.color};border-radius:8px;padding:4px 8px;font-size:12px;font-weight:600;cursor:pointer">${k.label.slice(0, 1)}</button>`).join('')}</span>`
+        const notesLine = item.notes
+            ? `<div style="width:100%;font-size:12px;color:var(--text-muted);padding-left:16px;margin-top:2px;white-space:pre-line;line-height:1.45">${esc(item.notes)}</div>`
+            : '';
+        // unsorted items get one-tap filing words into a kind
+        const kindWords = !BUY_KINDS.some(k => k.key === item.kind)
+            ? BUY_KINDS.map(k =>
+                `<button class="buy-word-btn" onclick="setBuyKind('${escJs(item.name)}','${k.key}')" title="File under ${k.label}">${k.key}</button>`).join('')
             : '';
         return `<div class="card-item" style="flex-wrap:wrap;align-items:center;min-height:40px;padding:6px 0">
             <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};margin-right:8px;flex-shrink:0"></span>
             <span class="item-text" onclick="openBuyItemModal('${escJs(item.name)}')" style="color:inherit;cursor:pointer"><b>${esc(item.name)}</b></span>
             ${costBadge}
-            ${kindChips}
-            <button onclick="markBuyAsBought('${escJs(item.name)}')" title="Mark as bought — moves to Active" style="min-height:32px;background:none;border:1px solid var(--ongoing);color:var(--ongoing);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;margin-right:4px">✓ Bought</button>
+            ${kindWords}
+            <button class="buy-word-btn" onclick="markBuyAsBought('${escJs(item.name)}')" title="Mark as bought — moves to Consumables">bought</button>
             <button class="delete-btn" onclick="confirmDelete('${escJs(item.name)}','buy')" title="Remove">&times;</button>
-            ${metaLine}
+            ${metaLine}${notesLine}
         </div>`;
     };
 

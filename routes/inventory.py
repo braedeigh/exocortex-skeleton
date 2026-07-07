@@ -40,6 +40,7 @@ def register(app):
             "notes": notes, "category": category,
             "cost": cost, "why": why, "by": by,
             "order_url": order_url, "kind": kind,
+            "added": datetime.now().isoformat(timespec="seconds"),
         })
         store.write("buy_list.json", bdata)
         return jsonify({"ok": True})
@@ -249,6 +250,7 @@ def register(app):
                 "by": "",
                 "order_url": item.get("order_url", ""),
                 "kind": "consumable",  # restocks come from the consumables loop
+                "added": datetime.now().isoformat(timespec="seconds"),
             })
             store.write("buy_list.json", bdata)
         return jsonify({"ok": True})
