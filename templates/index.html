@@ -334,8 +334,11 @@
         </div>
         <div id="ecosystem-controls"></div>
         <!-- Persistent map host: JS owns the Leaflet instance and NEVER rebuilds this
-             div's HTML (that would destroy the map on the 5s poll re-render). -->
-        <div id="ecomap" style="height:440px;border-radius:12px;overflow:hidden;border:1px solid var(--border);margin-bottom:10px;background:var(--bg)"></div>
+             div's HTML (that would destroy the map on the 5s poll re-render).
+             isolation:isolate scopes Leaflet's internal z-index stack (panes/controls
+             run up to 1000) into its own stacking context, so it can never paint over
+             the nav's "More ▾" dropdown (z-index:100 in style.css) when both are open. -->
+        <div id="ecomap" style="height:440px;border-radius:12px;overflow:hidden;border:1px solid var(--border);margin-bottom:10px;background:var(--bg);isolation:isolate"></div>
         <div id="ecosystem-legend"></div>
         <div id="ecosystem-recipe"></div>
         <div id="ecosystem-panel"></div>

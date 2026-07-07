@@ -148,6 +148,34 @@ function _ecoLatLngs(geom) {
     return null;
 }
 
+// Mouse/trackpad devices get the popup on hover — no tap required at a desk.
+// Touch devices (no real hover) keep Leaflet's default click/tap-to-open as-is,
+// since that's how she actually uses this on mobile/PWA. Cached: whether a
+// device has hover doesn't change mid-session.
+function _ecoHoverCapable() {
+    if (window._ecoHoverMQ === undefined) {
+        window._ecoHoverMQ = !!(window.matchMedia && window.matchMedia('(hover: hover)').matches);
+    }
+    return window._ecoHoverMQ;
+}
+// Bind a source's popup to a layer (dot / circle / region group). Click/tap always
+// opens it — unchanged, so touch never regresses. On hover-capable devices it also
+// opens on mouseover; mouseout closes it UNLESS the cursor is heading into the
+// popup itself (e.g. to tap Edit/Delete), so hovering doesn't yank the popup away
+// right as you reach for its buttons.
+function _ecoBindPopup(layer, s) {
+    layer.bindPopup(_ecoPopupHtml(s));
+    if (_ecoHoverCapable()) {
+        layer.on('mouseover', () => layer.openPopup());
+        layer.on('mouseout', (e) => {
+            const to = e.originalEvent && e.originalEvent.relatedTarget;
+            if (to && to.closest && to.closest('.leaflet-popup')) return;   // moving onto the popup — leave it open
+            layer.closePopup();
+        });
+    }
+    return layer;
+}
+
 // --- Source dots + circles + region shapes (synced only when the data actually
 //     changes, so an open popup isn't yanked shut on every 5s poll) ------------
 function _ecoSyncMarkers() {
@@ -174,7 +202,7 @@ function _ecoSyncMarkers() {
             const d = L.circleMarker([s.lat, s.lng], {
                 radius: 7, color: '#fff', weight: 2, fillColor: col, fillOpacity: 0.95,
             }).addTo(window._ecoLayer);
-            d.bindPopup(_ecoPopupHtml(s));
+            _ecoBindPopup(d, s);
             return d;
         };
         // Each source draws in isolation: a single bad shape must NOT abort the
@@ -195,7 +223,7 @@ function _ecoSyncMarkers() {
                     });
                     if (grp.getLayers().length) {
                         grp.addTo(window._ecoLayer);
-                        grp.bindPopup(_ecoPopupHtml(s));   // click anywhere in the region
+                        _ecoBindPopup(grp, s);   // click (or hover, on hover-capable devices) anywhere in the region
                         host = grp;
                     }
                 }
@@ -205,7 +233,7 @@ function _ecoSyncMarkers() {
                     radius: s.radius_km * 1000, color: col, weight: 1,
                     fillColor: col, fillOpacity: 0.12, opacity: 0.45, dashArray: '4 4',
                 }).addTo(window._ecoLayer);
-                host.bindPopup(_ecoPopupHtml(s));
+                _ecoBindPopup(host, s);
             }
             if (!host) host = dot();   // exact point, or shapes not loaded yet
         } catch (e) {
@@ -397,9 +425,16 @@ function _ecoSetRecipe(id) {
     renderEcosystem();
 }
 // Single-item filter: clicking a source in the list below shows only that one on
-// the map (click it again, or "Show all", to clear). Independent of recipe tracing.
+// the map (click it again, or "Show all", to clear). Picking one also clears any
+// traced recipe — otherwise the recipe filter (which stacks/intersects in
+// _ecoVisibleIds) can hide the very item you just clicked, or muddy its view with
+// a stale trace it has nothing to do with.
 function _ecoSetSolo(id) {
     window._ecoSoloSource = (window._ecoSoloSource === id) ? null : (id || null);
+    if (window._ecoSoloSource) {
+        window._ecoRecipeView = null;       // a fresh single-item pick clears any active recipe trace
+        window._ecoFittedRecipe = null;
+    }
     window._ecoLastSources = null;      // re-filter markers
     if (!window._ecoSoloSource) window._ecoFittedRecipe = null;     // re-frame recipe/all on clear
     renderEcosystem();
@@ -410,7 +445,7 @@ function _ecoFitRecipe(recipe) {
     const map = window._ecomap; if (!map || !recipe) return;
     map.invalidateSize(false);   // tab may have been hidden — refresh cached size so the fit centers right
     const ids = ecoRecipeSourceIds(recipe, _ecoSources());
-    const pts = _ecoSources().filter(s => ids.has(s.id) && typeof s.lat === 'number').map(s => [s.lat, s.lng]);
+    const pts = _ecoSources().filter(s => ids.has(s.id) && typeof s.lat === 'number' && typeof s.lng === 'number').map(s => [s.lat, s.lng]);
     if (pts.length === 1) map.setView(pts[0], 7);
     else if (pts.length > 1) map.fitBounds(L.latLngBounds(pts).pad(0.3), { maxZoom: 7 });
 }
