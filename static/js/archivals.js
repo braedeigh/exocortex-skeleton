@@ -467,7 +467,7 @@ function renderArchivals() {
     const filtersBtnActive = _archShowFilters || activeFilterCount > 0;
 
     el.innerHTML = `<details open class="card-section" style="margin-top:20px">
-        <summary style="font-size:16px;font-weight:600;cursor:pointer;color:var(--text-secondary)">Archivals${items.length ? ` (${items.length})` : ''}</summary>
+        <summary style="font-size:16px;font-weight:600;cursor:pointer;color:var(--text-secondary)">Durables${items.length ? ` (${items.length})` : ''}</summary>
         <div class="card" style="border-left-color:var(--purple,#8e6bbf);margin-top:8px;padding:12px">
             <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Things you own — clothes, jewelry, sentimental. Where they came from and the stories attached.</div>
 

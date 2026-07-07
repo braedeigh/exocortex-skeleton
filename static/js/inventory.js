@@ -250,7 +250,7 @@ function renderActiveInventory() {
     });
 
     el.innerHTML = `<details open class="card-section" style="margin-bottom:16px">
-        <summary style="font-size:16px;font-weight:600;cursor:pointer;color:var(--text-secondary)">Active Inventory${items.length ? ` (${items.length})` : ''}</summary>
+        <summary style="font-size:16px;font-weight:600;cursor:pointer;color:var(--text-secondary)">Consumables${items.length ? ` (${items.length})` : ''}</summary>
         <div class="card" style="border-left-color:var(--green);margin-top:8px;padding:12px">
             ${tablesHTML}
         </div>
@@ -375,7 +375,7 @@ function renderPastInventory() {
     });
 
     el.innerHTML = `<details class="card-section" style="margin-top:16px">
-        <summary style="font-size:16px;font-weight:600;cursor:pointer;color:var(--text-secondary)">Past Inventory${items.length ? ` (${items.length})` : ''}</summary>
+        <summary style="font-size:16px;font-weight:600;cursor:pointer;color:var(--text-secondary)">Past Consumables${items.length ? ` (${items.length})` : ''}</summary>
         <div class="card" style="border-left-color:var(--text-muted);margin-top:8px;padding:12px">
             ${tablesHTML}
         </div>
