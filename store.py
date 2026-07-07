@@ -60,6 +60,9 @@ RESEARCH_FILER_DIR = Path(os.environ.get("EXOCORTEX_RESEARCH_FILER_DIR", DATA_DI
 # Research runner: the "send flagged entries to Claude" session works out of
 # this folder (its CLAUDE.md is the skill) — same idea as RESEARCH_FILER_DIR.
 RESEARCH_RUNNER_DIR = Path(os.environ.get("EXOCORTEX_RESEARCH_RUNNER_DIR", DATA_DIR.parent / "research-runner"))
+# Research deep: the "deep-research this question" Claude session works out of
+# this folder (its CLAUDE.md is the skill) — same idea as RESEARCH_RUNNER_DIR.
+RESEARCH_DEEP_DIR = Path(os.environ.get("EXOCORTEX_RESEARCH_DEEP_DIR", DATA_DIR.parent / "research-deep"))
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)

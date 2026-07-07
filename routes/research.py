@@ -22,7 +22,9 @@ lack them): `flagged` marks an entry Bradie has queued to send to Claude;
 is the id of the session that produced an llm entry. A "session" is one
 research-runner run: it records which of her entries were sent, the union
 of their topics, and a status ("running" → "done") with a one-line report
-the runner leaves behind. Session ids share the entry id scheme.
+the runner leaves behind. Session ids share the entry id scheme. An
+optional `"mode": "deep"` marks a session spawned for a single-question
+deep-research dive (research-deep) rather than the regular runner.
 """
 import re
 from datetime import datetime
@@ -303,6 +305,52 @@ def register(app):
         )
         shared.send_prompt("research-runner", prompt)
         return jsonify({"ok": True, "sent": n, "session": sid, "newly_spawned": newly})
+
+    @app.route("/api/research/question/deep", methods=["POST"])
+    def deep_research_question():
+        """Send one open question to the research-deep Claude session for a
+        proper deep-dive, rather than the lighter-touch research-runner."""
+        from routes.kitchen import shared
+
+        body = request.json or {}
+        eid = body.get("id")
+        with store.mutate("research.json", {"topics": [], "entries": []}) as data:
+            entry = next((e for e in data.get("entries", []) if e["id"] == eid), None)
+            if not entry:
+                return jsonify({"error": "not found"}), 404
+            # Validate every field before applying any — a partial apply on a
+            # 400 would persist, since an early return exits mutate() cleanly.
+            if entry["kind"] != "question":
+                return jsonify({"error": "only questions can be deep-researched"}), 400
+            if entry.get("author") == "llm":
+                return jsonify({"error": "can't research an LLM output"}), 400
+            if entry.get("status") != "open":
+                return jsonify({"error": "question is not open"}), 400
+
+            entry["flagged"] = True
+            sessions = data.setdefault("sessions", [])
+            sid = _new_session_id(sessions)
+            sessions.append({
+                "id": sid,
+                "entry_ids": [entry["id"]],
+                "topics": sorted(set(entry.get("topics") or [])),
+                "created": _now_stamp(),
+                "status": "running",
+                "report": "",
+                "mode": "deep",
+            })
+
+        newly = shared.ensure_claude_session(
+            "research-deep", store.RESEARCH_DEEP_DIR, dirs=(store.RESEARCH_DEEP_DIR,),
+        )
+        prompt = (
+            f"Session {sid}: an open research question is queued in session record "
+            f"'{sid}' in research.json. Do your one job: read your CLAUDE.md, "
+            f"research it deeply, save the report to the research library, and "
+            f"report in one line."
+        )
+        shared.send_prompt("research-deep", prompt)
+        return jsonify({"ok": True, "session": sid, "newly_spawned": newly})
 
     # --- Filer: a cricket-style Claude session that tags the unfiled pool ---
 

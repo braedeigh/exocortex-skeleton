@@ -393,6 +393,99 @@ def test_send_with_nothing_flagged_sends_zero_and_no_session(client, stub_runner
     assert not stub_runner.get("spawned")
 
 
+# --- question/deep (the single-question deep-research trigger) ---------------
+
+@pytest.fixture
+def stub_deep(monkeypatch):
+    """Stub the tmux session spawn so tests never shell out; records prompts."""
+    calls = {"prompts": []}
+    from routes.kitchen import shared
+    monkeypatch.setattr(shared, "ensure_claude_session",
+                        lambda *a, **k: calls.setdefault("spawned", True) or True)
+    monkeypatch.setattr(shared, "send_prompt",
+                        lambda session, text, *a, **k: calls["prompts"].append((session, text)))
+    return calls
+
+
+def test_deep_research_open_question_flags_and_creates_running_session(client, stub_deep):
+    r = _post(client, "/api/research/entry/add", {"text": "Does X cause Y?", "kind": "question"})
+    qid = r.get_json()["entries"][0]["id"]
+
+    resp = _post(client, "/api/research/question/deep", {"id": qid})
+    assert resp.status_code == 200
+    body = resp.get_json()
+    sid = body["session"]
+    assert sid
+
+    data = _read()
+    entry = data["entries"][0]
+    assert entry["id"] == qid
+    assert entry["flagged"] is True
+
+    sessions = data["sessions"]
+    assert len(sessions) == 1
+    assert sessions[0]["id"] == sid
+    assert sessions[0]["entry_ids"] == [qid]
+    assert sessions[0]["status"] == "running"
+    assert sessions[0]["mode"] == "deep"
+
+    assert stub_deep.get("spawned")
+    session_name, prompt = stub_deep["prompts"][0]
+    assert session_name == "research-deep"
+    assert sid in prompt
+
+
+def test_deep_research_rejects_non_question(client, stub_deep):
+    r = _post(client, "/api/research/entry/add", {"text": "just a note"})
+    nid = r.get_json()["entries"][0]["id"]
+    resp = _post(client, "/api/research/question/deep", {"id": nid})
+    assert resp.status_code == 400
+    assert resp.get_json()["error"] == "only questions can be deep-researched"
+
+
+def test_deep_research_rejects_llm_entry(client, stub_deep):
+    with_llm = {"topics": [], "entries": [
+        {"id": "2026-07-01.0900", "kind": "question", "text": "reply", "topics": [],
+         "url": "", "verdict": "", "status": "open", "reply_to": None,
+         "created": "2026-07-01 09:00", "author": "llm", "reviewed": False},
+    ]}
+    import store
+    store.write("research.json", with_llm)
+    resp = _post(client, "/api/research/question/deep", {"id": "2026-07-01.0900"})
+    assert resp.status_code == 400
+    assert resp.get_json()["error"] == "can't research an LLM output"
+
+
+def test_deep_research_rejects_answered_question(client, stub_deep):
+    r = _post(client, "/api/research/entry/add", {"text": "Does X cause Y?", "kind": "question"})
+    qid = r.get_json()["entries"][0]["id"]
+    _post(client, "/api/research/entry/edit", {"id": qid, "status": "answered"})
+    resp = _post(client, "/api/research/question/deep", {"id": qid})
+    assert resp.status_code == 400
+    assert resp.get_json()["error"] == "question is not open"
+
+
+def test_deep_research_missing_id_404(client, stub_deep):
+    resp = _post(client, "/api/research/question/deep", {"id": "missing"})
+    assert resp.status_code == 404
+    assert not stub_deep.get("spawned")
+
+
+def test_deep_research_rejected_request_leaves_store_unmutated(client, stub_deep):
+    """A 400 must not half-apply: the entry stays unflagged and no session appears."""
+    r = _post(client, "/api/research/entry/add", {"text": "just a note"})
+    nid = r.get_json()["entries"][0]["id"]
+    resp = _post(client, "/api/research/question/deep", {"id": nid})
+    assert resp.status_code == 400
+
+    data = _read()
+    entry = data["entries"][0]
+    assert entry["id"] == nid
+    assert "flagged" not in entry
+    assert data.get("sessions", []) == []
+    assert not stub_deep.get("spawned")
+
+
 # --- file-unfiled (the filer cricket trigger) --------------------------------
 
 def test_file_unfiled_noop_when_nothing_unfiled(client):

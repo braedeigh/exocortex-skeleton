@@ -290,11 +290,47 @@ function _rsrchQuestionRow(e, byId) {
         </div>
         <button type="button" onclick="_rsrchStartAnswer('${esc(e.id)}')" style="flex:none;height:40px;padding:0 14px;border-radius:8px;border:none;background:var(--accent);color:#fff;font-size:13px;font-weight:700;cursor:pointer">Answer&hellip;</button>
         <button type="button" onclick="_rsrchAnswer('${esc(e.id)}')" title="Mark answered without writing an answer" style="flex:none;height:40px;padding:0 14px;border-radius:8px;border:1px solid var(--border);background:none;color:var(--text-muted);font-size:13px;font-weight:600;cursor:pointer">&#10003; Done</button>
+        ${_rsrchDeepBtn(e)}
     </div>`;
 }
 
 async function _rsrchAnswer(id) {
     if (await _rsrchPost('/api/research/entry/edit', { id, status: 'answered' })) renderResearch();
+}
+
+// --- Deep research: fires a standalone research-deep tmux session against a
+// single question (heavier than the queue-and-send-all flow above). A
+// running deep session for this question renders as a pulsing pill — same
+// treatment as the Sessions card's running-dot — instead of the button, so
+// there's no way to double-fire it. Shared by the open-questions roll-up and
+// the thread view's inline question rows.
+function _rsrchDeepBtn(e) {
+    const running = _researchSessions().some(s =>
+        s.mode === 'deep' && s.status === 'running' && (s.entry_ids || []).includes(e.id));
+    if (running) {
+        return `<span style="flex:none;display:inline-flex;align-items:center;gap:6px;height:40px;padding:0 14px;border-radius:8px;background:rgba(212,112,10,0.16);color:var(--orange);font-size:13px;font-weight:700;white-space:nowrap">
+            <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--orange);animation:rsrchPulse 1.2s ease-in-out infinite"></span>&#128300; researching&hellip;
+        </span>`;
+    }
+    return `<button type="button" onclick="_rsrchDeepResearch('${esc(e.id)}')" style="flex:none;height:40px;padding:0 14px;border-radius:8px;border:1px solid var(--accent);background:none;color:var(--accent);font-size:13px;font-weight:700;cursor:pointer">&#128300; Deep research</button>`;
+}
+
+async function _rsrchDeepResearch(id) {
+    let res;
+    try {
+        res = await fetch('/api/research/question/deep', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id }),
+        });
+    } catch (err) { alert('Network error — try again.'); return; }
+    if (res.status === 404) { alert('Deep research API not loaded yet — needs an app restart.'); return; }
+    if (!res.ok) { const d = await res.json().catch(() => ({})); alert(d.error || 'Could not start deep research.'); return; }
+    // The endpoint returns {ok, session, newly_spawned} — not the full research
+    // blob — so refresh state the same way _rsrchSend does before rendering.
+    await loadResearch();
+    renderResearch();
+    window.parent.postMessage({ type: 'openTerminalSession', name: 'research-deep' }, location.origin);
+    _rsrchStartPolling();
 }
 
 // --- Topic cards ---
@@ -420,9 +456,10 @@ function _rsrchSessionsCard(sessions) {
         const dot = running
             ? `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--orange);animation:rsrchPulse 1.2s ease-in-out infinite"></span>`
             : '';
+        const modePrefix = s.mode === 'deep' ? '&#128300; ' : '';
         return `<div class="rsrch-entry" style="padding:10px 0;border-top:1px solid var(--border)">
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                <span style="font-size:13px;color:var(--text-muted)">${esc(s.created || '')}</span>
+                <span style="font-size:13px;color:var(--text-muted)">${modePrefix}${esc(s.created || '')}</span>
                 <span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:${running ? 'var(--orange)' : 'var(--green)'}">${dot}${running ? 'running&hellip;' : 'done'}</span>
                 <span style="font-size:12px;color:var(--text-muted)">${(s.entry_ids || []).length} entries sent</span>
             </div>
@@ -497,9 +534,11 @@ function _rsrchEntryRow(e, editing) {
         const answers = _researchEntries().filter(x => x.reply_to === e.id);
         const answerChip = answers.length
             ? `<span class="rsrch-chip" style="cursor:default">&#8618; ${answers.length} answer${answers.length === 1 ? '' : 's'}</span>` : '';
+        const deepBtn = (e.status === 'open' && !isLlm) ? _rsrchDeepBtn(e) : '';
         extra = `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;align-items:center">
             <button type="button" class="rsrch-chip${answered ? ' status-answered' : ''}" onclick="_rsrchSetQuestionStatus('${esc(e.id)}','${answered ? 'open' : 'answered'}')">${answered ? 'answered' : 'open'}</button>
             ${answerChip}
+            ${deepBtn}
         </div>`;
     }
     // An entry that answers a question wears the link — the walkable web.
@@ -541,6 +580,11 @@ function _rsrchEntryRow(e, editing) {
         const flagged = !!e.flagged;
         controlChips = `<button type="button" class="rsrch-chip${flagged ? ' active' : ''}" onclick="_rsrchToggleFlag('${esc(e.id)}', ${flagged ? 'false' : 'true'})">${flagged ? '&#9873; queued' : '&#9873; queue for Claude'}</button>
             <button type="button" class="rsrch-chip" onclick="_rsrchSend(['${esc(e.id)}'])">&#10148; send now</button>`;
+    }
+    // Deep-research replies point at the write-up they came from — open it
+    // in the existing library reader rather than building a second one.
+    if (e.file) {
+        controlChips += `<button type="button" class="rsrch-chip" onclick="openLibraryFile('${escJs(e.file)}')">&#128214; Read report</button>`;
     }
     // Row tint: unreviewed llm output (orange) > processed by the runner
     // (pink) > flagged and queued (accent edge). At most one applies.
