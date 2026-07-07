@@ -614,3 +614,96 @@ def test_entry_add_empty_context_ids_omits_key(client):
     data = _read()
     entry = next(e for e in data["entries"] if e["id"] == eid)
     assert "context_ids" not in entry
+
+
+# --- annotation-batch -------------------------------------------------------
+
+def test_annotation_batch_creates_questions_sessions_and_kicks_dispatcher(client, monkeypatch):
+    """POST /api/research/annotation-batch: creates 2 question entries + 2 QUEUED
+    (not spawned) sessions (one deep, one regular), and kicks the dispatcher once
+    rather than spawning a worker per item directly."""
+    from routes import research as research_mod
+    kicks = []
+    monkeypatch.setattr(research_mod, "_kick_dispatcher", lambda: kicks.append(True))
+
+    # Seed two entries as reply_to targets
+    r1 = _post(client, "/api/research/entry/add", {"text": "Entry A", "kind": "note"})
+    id1 = r1.get_json()["entries"][0]["id"]
+    r2 = _post(client, "/api/research/entry/add", {"text": "Entry B", "kind": "note"})
+    id2 = r2.get_json()["entries"][1]["id"]
+
+    r = _post(client, "/api/research/annotation-batch", {
+        "items": [
+            {"reply_to": id1, "question": "Q1", "re_quote": "passage", "context_ids": [], "mode": "deep"},
+            {"reply_to": id2, "question": "Q2", "re_quote": "", "context_ids": [id1], "mode": "regular"},
+        ]
+    })
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["ok"] is True
+    assert body["count"] == 2
+    assert len(body["session_ids"]) == 2
+    assert len(body["question_ids"]) == 2
+
+    data = _read()
+    all_entries = data["entries"]
+    all_sessions = data.get("sessions", [])
+
+    # 2 original + 2 new question entries
+    assert len(all_entries) == 4
+
+    q_entries = [e for e in all_entries if e["kind"] == "question"]
+    assert len(q_entries) == 2
+
+    q1 = next(e for e in q_entries if e["text"] == "Q1")
+    assert q1["reply_to"] == id1
+    assert q1["re_quote"] == "passage"
+    assert "context_ids" not in q1        # empty list → key omitted
+    assert q1["status"] == "open"
+
+    q2 = next(e for e in q_entries if e["text"] == "Q2")
+    assert q2["reply_to"] == id2
+    assert "re_quote" not in q2           # empty string → key omitted
+    assert q2["context_ids"] == [str(id1)]
+
+    assert len(all_sessions) == 2
+    s_by_qid = {s["entry_ids"][0]: s for s in all_sessions}
+    assert s_by_qid[q1["id"]]["mode"] == "deep"
+    assert s_by_qid[q1["id"]]["status"] == "queued"
+    assert s_by_qid[q1["id"]]["worker"] is True
+    assert s_by_qid[q2["id"]]["mode"] == "regular"
+    assert s_by_qid[q2["id"]]["status"] == "queued"
+    assert s_by_qid[q2["id"]]["worker"] is True
+
+    # the dispatcher is kicked exactly once for the whole batch, not per item
+    assert kicks == [True]
+
+
+def test_annotation_batch_empty_items_400(client, monkeypatch):
+    """Empty items list must return 400 without touching the store."""
+    from routes import research as research_mod
+    monkeypatch.setattr(research_mod, "_kick_dispatcher", lambda: None)
+    r = _post(client, "/api/research/annotation-batch", {"items": []})
+    assert r.status_code == 400
+    assert _read().get("sessions", []) == []
+
+
+def test_annotation_batch_skips_blank_questions(client, monkeypatch):
+    """Items with empty question text are silently skipped; others proceed."""
+    from routes import research as research_mod
+    kicks = []
+    monkeypatch.setattr(research_mod, "_kick_dispatcher", lambda: kicks.append(True))
+
+    r_base = _post(client, "/api/research/entry/add", {"text": "Base"})
+    base_id = r_base.get_json()["entries"][0]["id"]
+
+    r = _post(client, "/api/research/annotation-batch", {
+        "items": [
+            {"reply_to": base_id, "question": "", "re_quote": "", "context_ids": [], "mode": "regular"},
+            {"reply_to": base_id, "question": "Real Q", "re_quote": "", "context_ids": [], "mode": "regular"},
+        ]
+    })
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["count"] == 1
+    assert kicks == [True]

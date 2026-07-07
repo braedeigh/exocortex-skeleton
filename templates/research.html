@@ -5,17 +5,18 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Research</title>
 <style>
-/* Fallback palette (field-notes teal) — sky-theme.js overwrites the shared
-   vars at load with the user's theme; the extras below it are page-local. */
+/* Fallback palette — same defaults as the dashboard stylesheet; sky-theme.js
+   overwrites the shared vars at load with the user's theme; the extras below
+   it are page-local. */
 :root {
-    --bg: #0e1414;
-    --card-bg: #16201f;
-    --text: #e6ede8;
-    --text-secondary: rgba(215, 228, 220, 0.8);
-    --text-muted: rgba(175, 195, 185, 0.55);
-    --border: #24403a;
-    --accent: #3a9e8c;
-    --accent-light: rgba(58, 158, 140, 0.15);
+    --bg: #f5f0e8;
+    --card-bg: #fff;
+    --text: #2a2520;
+    --text-secondary: #5a5048;
+    --text-muted: #998e82;
+    --border: #e0d8ce;
+    --accent: #7c5cbf;
+    --accent-light: rgba(124, 92, 191, 0.15);
     --morning: #d4880a;
     --evening: #6a7acc;
     --ongoing: #3a9e8c;
@@ -162,8 +163,32 @@ mark.ann-mark.active { outline: 2px solid var(--accent); }
 .rsrch-modal .btn-cancel { border: 1px solid var(--border); background: none; color: var(--text-muted); }
 .rsrch-modal .btn-delete { border: none; background: var(--red); color: #fff; }
 
-/* Page notes (dev notes for this place) */
-.notes-list { padding-bottom: 8px; }
+/* Dev-notes floating panel — same pattern as the journal/terminal notes
+   panel, but pinned to the viewport corner so it rides along while scrolling */
+.devnotes-btn {
+    position: fixed; top: 12px; right: 12px; z-index: 30;
+    min-width: 40px; min-height: 40px;
+    background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+    font-size: 16px; cursor: pointer; transition: all 0.12s;
+}
+.devnotes-btn:hover { border-color: var(--accent); color: var(--accent); }
+.devnotes-overlay {
+    display: none; position: fixed; top: 60px; right: 12px; z-index: 30;
+    background: var(--card-bg); border: 1px solid rgba(124, 92, 191, 0.5); border-radius: 12px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.35); padding: 10px; width: min(320px, 86vw);
+}
+.devnotes-overlay.open { display: block; }
+.devnotes-row { display: flex; gap: 6px; align-items: flex-start; }
+.devnotes-row textarea {
+    flex: 1; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--bg); color: var(--text); font-size: 13px; font-family: inherit; resize: none; outline: none;
+}
+.devnotes-row button {
+    min-height: 40px; padding: 0 14px; border: none; border-radius: 8px;
+    background: var(--accent); color: #fff; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.devnotes-list { max-height: 40vh; overflow-y: auto; margin-top: 8px; font-size: 13px; color: var(--text); }
 </style>
 </head>
 <body>
@@ -173,15 +198,16 @@ mark.ann-mark.active { outline: 2px solid var(--accent); }
         <span class="sub">what I'm learning, what I trust, what's still open</span>
     </div>
     <div id="research-area"></div>
+</div>
 
-    <details class="rsrch-card" data-card="research-notes">
-        <summary><span class="kitchen-arrow">&#9654;</span>Page notes<span class="card-count">bugs &amp; ideas for this page</span></summary>
-        <div style="display:flex;gap:6px;align-items:flex-start;padding:4px 0 10px">
-            <textarea id="rsrch-note-input" rows="2" placeholder="Bug or idea for the research page&hellip;" style="flex:1;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:13px;font-family:inherit;resize:none;outline:none"></textarea>
-            <button onclick="addPageNote()" style="min-height:40px;padding:0 14px;border:none;border-radius:8px;background:var(--accent);color:#fff;font-size:13px;font-weight:600;cursor:pointer">Add</button>
-        </div>
-        <div id="rsrch-notes-list" class="notes-list"></div>
-    </details>
+<!-- Dev notes — pinned to the corner, follows the scroll -->
+<button id="devNotesBtn" class="devnotes-btn" onclick="toggleDevNotes()" title="Research dev notes">&#128221;</button>
+<div class="devnotes-overlay" id="devNotesPanel">
+    <div class="devnotes-row">
+        <textarea id="devNoteInput" rows="2" placeholder="Bug or idea for the research page&hellip;"></textarea>
+        <button onclick="addDevNote()">Add</button>
+    </div>
+    <div class="devnotes-list" id="devNotesList"></div>
 </div>
 
 <!-- Library reader -->
@@ -228,26 +254,61 @@ mark.ann-mark.active { outline: 2px solid var(--accent); }
     </div>
 </div>
 
+<script>window.THEME_OVERRIDES = {{ theme_overrides_json|safe }};</script>
 <script src="{{ v_static('js/sky-theme.js') }}"></script>
 <script src="{{ v_static('js/md.js') }}"></script>
 <script src="{{ v_static('js/mini-notes.js') }}"></script>
 <script src="{{ v_static('js/research.js') }}"></script>
 <script>
-// Page notes: same dev-notes store the old dashboard tab wrote to ('research').
-const _pageNotes = createMiniNotes(document.getElementById('rsrch-notes-list'), 'research');
-_pageNotes.load();
-async function addPageNote() {
-    const input = document.getElementById('rsrch-note-input');
-    const text = (input.value || '').trim();
+// Dev-notes floating panel: same dev-notes store the old dashboard tab wrote
+// to ('research'). Same toggle/close behavior as the journal's panel.
+const devNotesPanel = document.getElementById('devNotesPanel');
+const devNoteInput = document.getElementById('devNoteInput');
+let devNotesOpen = false;
+
+function toggleDevNotes() {
+    if (devNotesOpen) { closeDevNotes(); return; }
+    devNotesOpen = true;
+    devNotesPanel.classList.add('open');
+    devNotes.load();
+    devNoteInput.focus();
+}
+
+function closeDevNotes() {
+    devNotesOpen = false;
+    devNotesPanel.classList.remove('open');
+}
+
+const devNotes = createMiniNotes(document.getElementById('devNotesList'), 'research');
+
+async function addDevNote() {
+    const text = devNoteInput.value.trim();
     if (!text) return;
-    await fetch('/api/devnote/add', {
+    const r = await fetch('/api/devnote/add', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tab: 'research', text }),
     });
-    input.value = '';
-    _pageNotes.load();
+    if (r.ok) { devNoteInput.value = ''; devNoteInput.style.height = 'auto'; devNotes.load(); }
 }
+
+// Enter submits, Shift+Enter inserts a newline; auto-expand while typing
+devNoteInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); addDevNote(); }
+});
+devNoteInput.addEventListener('input', () => {
+    devNoteInput.style.height = 'auto';
+    devNoteInput.style.height = Math.min(devNoteInput.scrollHeight, 160) + 'px';
+});
+document.addEventListener('click', (e) => {
+    if (!devNotesOpen) return;
+    // composedPath: mini-notes.js re-renders the list on edit/delete, which
+    // detaches the clicked element — e.target alone would read as "outside".
+    const path = e.composedPath();
+    if (!path.includes(devNotesPanel) && !path.includes(document.getElementById('devNotesBtn'))) {
+        closeDevNotes();
+    }
+});
 </script>
 </body>
 </html>

@@ -38,10 +38,31 @@ def tmux(cmd_str):
     )
 
 
+MIN_SPAWN_MB = 700  # refuse to start another ~400MB `claude` process below this
+
+
+def _mem_available_mb():
+    """MemAvailable from /proc/meminfo, in MB, or None if unreadable (e.g.
+    non-Linux dev boxes lack /proc — callers should just skip the check)."""
+    try:
+        with open("/proc/meminfo") as f:
+            for line in f:
+                if line.startswith("MemAvailable:"):
+                    return int(line.split()[1]) // 1024
+    except OSError:
+        return None
+    return None
+
+
 def ensure_claude_session(name, cwd, dirs=()):
     """Create the named tmux session running Claude Code (cwd = its working dir),
     after mkdir-ing `dirs`. Registers the session in sessions.json so the
-    terminal UI shows it. Returns True if the session was newly spawned."""
+    terminal UI shows it. Returns True if the session was newly spawned.
+
+    Refuses to spawn (raises RuntimeError) if MemAvailable is below
+    MIN_SPAWN_MB — a backstop against OOMing the box, since every button that
+    starts a Claude session (triage, person, kitchen, research runner/deep/
+    filer, and the annotation-batch worker dispatcher) funnels through here."""
     for d in dirs:
         d.mkdir(parents=True, exist_ok=True)
     sessions = []
@@ -55,19 +76,32 @@ def ensure_claude_session(name, cwd, dirs=()):
         SESSIONS_PATH.write_text(json.dumps(sessions, indent=2))
     check = tmux(f"has-session -t {name}")
     if check.returncode != 0:
+        avail = _mem_available_mb()
+        if avail is not None and avail < MIN_SPAWN_MB:
+            raise RuntimeError(
+                f"refusing to spawn Claude session '{name}': only {avail}MB available"
+            )
         tmux(f"new-session -d -s {name} -c {shlex.quote(str(cwd))} 'claude'")
         return True
     return False
 
 
-def send_prompt(session, text, delay=4.0):
-    """Send text to the session after a delay (lets Claude finish loading)."""
+def send_prompt(session, text, delay=4.0, block=False):
+    """Send text to the session after a delay (lets Claude finish loading).
+
+    Defaults to a daemon thread so route handlers return immediately — but a
+    daemon thread dies with its process, so a SHORT-LIVED caller (the research
+    dispatcher, any cron script) must pass block=True or the prompt is
+    silently never typed."""
     def _send():
         time.sleep(delay)
         safe = text.replace("'", "'\\''")
         tmux(f"send-keys -t {session} -l '{safe}'")
         tmux(f"send-keys -t {session} Enter")
-    threading.Thread(target=_send, daemon=True).start()
+    if block:
+        _send()
+    else:
+        threading.Thread(target=_send, daemon=True).start()
 
 
 def chmod_for_claude(path, dir_mode=0o777, file_mode=0o666):

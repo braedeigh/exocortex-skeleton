@@ -26,8 +26,11 @@ the runner leaves behind. Session ids share the entry id scheme. An
 optional `"mode": "deep"` marks a session spawned for a single-question
 deep-research dive (research-deep) rather than the regular runner.
 """
+import os
 import re
+import subprocess
 from datetime import datetime
+from pathlib import Path
 
 from flask import request, jsonify
 
@@ -98,6 +101,24 @@ def _blob(data, **extra):
 def _new_session_id(sessions):
     base = datetime.now().strftime("%Y-%m-%d.%H%M")
     return _unique_id(base, {s["id"] for s in sessions})
+
+
+def _kick_dispatcher():
+    """Fire scripts/research_dispatcher.py once, detached, right after an
+    annotation-batch is queued — so the first worker gets admitted within
+    seconds instead of waiting for cron to notice. Fire-and-forget: we don't
+    wait for it or check its exit code, and the dispatcher's own flock means
+    an overlapping/slow run just no-ops rather than piling up. Separated from
+    the route handler so tests can monkeypatch this function.
+    """
+    skeleton_dir = Path(__file__).resolve().parent.parent
+    subprocess.Popen(
+        [str(skeleton_dir / "venv" / "bin" / "python3"),
+         str(skeleton_dir / "scripts" / "research_dispatcher.py")],
+        env={**os.environ, "EXOCORTEX_DATA_DIR": str(store.DATA_DIR)},
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
 
 
 def register(app):
@@ -359,6 +380,91 @@ def register(app):
         )
         shared.send_prompt("research-deep", prompt)
         return jsonify({"ok": True, "session": sid, "newly_spawned": newly})
+
+    # --- Annotation-batch: create question entries + worker sessions in bulk ---
+
+    @app.route("/api/research/annotation-batch", methods=["POST"])
+    def annotation_batch():
+        """Create question entries + QUEUED sessions for a batch of annotation-derived
+        questions. Sessions don't spawn a worker directly — each is marked
+        `"worker": True` so scripts/research_dispatcher.py (cron, and kicked once
+        below) knows to admit it as memory allows. A batch of many items used to
+        spawn one ~400MB `claude` process per item immediately, which could OOM
+        the box; queueing + incremental admission is the fix.
+
+        Body: {items: [{reply_to, question, re_quote, context_ids, mode}, ...]}
+
+        All entries and sessions are written in ONE store.mutate pass.
+        """
+        body = request.json or {}
+        items = body.get("items") or []
+        if not items:
+            return jsonify({"error": "no items"}), 400
+
+        created = []   # [(session_id, mode, question_id), ...]
+        now = _now_stamp()
+
+        with store.mutate("research.json", {"topics": [], "entries": [], "sessions": []}) as data:
+            entries = data.setdefault("entries", [])
+            sessions = data.setdefault("sessions", [])
+            by_id = {e["id"]: e for e in entries}
+
+            for item in items:
+                reply_to = item.get("reply_to")
+                question_text = (item.get("question") or "").strip()
+                if not question_text:
+                    continue
+
+                # Inherit topics from the reply_to entry (or [])
+                topics = list((by_id.get(reply_to) or {}).get("topics") or [])
+
+                # Build the question entry
+                q_entry = {
+                    "id": _new_entry_id(entries),
+                    "kind": "question",
+                    "text": question_text,
+                    "topics": topics,
+                    "url": "",
+                    "verdict": "",
+                    "status": "open",
+                    "reply_to": reply_to,
+                    "created": now,
+                }
+                re_quote = (item.get("re_quote") or "").strip()
+                if re_quote:
+                    q_entry["re_quote"] = re_quote
+                context_ids = item.get("context_ids")
+                if isinstance(context_ids, list) and context_ids:
+                    q_entry["context_ids"] = [str(x) for x in context_ids]
+                entries.append(q_entry)
+                by_id[q_entry["id"]] = q_entry
+
+                # Build the session record
+                mode = (item.get("mode") or "regular").strip()
+                sid = _new_session_id(sessions)
+                sessions.append({
+                    "id": sid,
+                    "entry_ids": [q_entry["id"]],
+                    "topics": sorted(set(topics)),
+                    "created": now,
+                    "status": "queued",
+                    "report": "",
+                    "mode": mode,
+                    "worker": True,
+                })
+                created.append((sid, mode, q_entry["id"]))
+
+        # Kick the dispatcher once so the first worker starts within seconds —
+        # after the mutate so the store is stable before it can act on it.
+        if created:
+            _kick_dispatcher()
+
+        return jsonify({
+            "ok": True,
+            "count": len(created),
+            "session_ids": [c[0] for c in created],
+            "question_ids": [c[2] for c in created],
+        })
 
     # --- Filer: a cricket-style Claude session that tags the unfiled pool ---
 

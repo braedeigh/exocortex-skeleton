@@ -63,6 +63,10 @@ RESEARCH_RUNNER_DIR = Path(os.environ.get("EXOCORTEX_RESEARCH_RUNNER_DIR", DATA_
 # Research deep: the "deep-research this question" Claude session works out of
 # this folder (its CLAUDE.md is the skill) — same idea as RESEARCH_RUNNER_DIR.
 RESEARCH_DEEP_DIR = Path(os.environ.get("EXOCORTEX_RESEARCH_DEEP_DIR", DATA_DIR.parent / "research-deep"))
+# Research worker: each annotation-batch question spawns its own short-lived
+# Claude session here, gets a CLAUDE.md skill telling it to do ONE job then
+# call the APPLY command and close its tmux session.
+RESEARCH_WORKER_DIR = Path(os.environ.get("EXOCORTEX_RESEARCH_WORKER_DIR", DATA_DIR.parent / "research-worker"))
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)

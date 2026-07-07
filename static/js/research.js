@@ -334,16 +334,20 @@ async function _rsrchAnswer(id) {
 
 // --- Deep research: fires a standalone research-deep tmux session against a
 // single question (heavier than the queue-and-send-all flow above). A
-// running deep session for this question renders as a pulsing pill — same
-// treatment as the Sessions card's running-dot — instead of the button, so
-// there's no way to double-fire it. Shared by the open-questions roll-up and
-// the thread view's inline question rows.
+// running (or queued, waiting on the memory-aware dispatcher) deep session
+// for this question renders as a pill — same dot treatment as the Sessions
+// card — instead of the button, so there's no way to double-fire it. Shared
+// by the open-questions roll-up and the thread view's inline question rows.
 function _rsrchDeepBtn(e) {
-    const running = _researchSessions().some(s =>
-        s.mode === 'deep' && s.status === 'running' && (s.entry_ids || []).includes(e.id));
-    if (running) {
-        return `<span style="flex:none;display:inline-flex;align-items:center;gap:6px;height:40px;padding:0 14px;border-radius:8px;background:rgba(212,112,10,0.16);color:var(--orange);font-size:13px;font-weight:700;white-space:nowrap">
-            <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--orange);animation:rsrchPulse 1.2s ease-in-out infinite"></span>&#128300; researching&hellip;
+    const active = _researchSessions().find(s =>
+        s.mode === 'deep' && (s.status === 'running' || s.status === 'queued') && (s.entry_ids || []).includes(e.id));
+    if (active) {
+        const queued = active.status === 'queued';
+        const dot = queued
+            ? `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--text-muted)"></span>`
+            : `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--orange);animation:rsrchPulse 1.2s ease-in-out infinite"></span>`;
+        return `<span style="flex:none;display:inline-flex;align-items:center;gap:6px;height:40px;padding:0 14px;border-radius:8px;background:${queued ? 'rgba(120,120,120,0.16)' : 'rgba(212,112,10,0.16)'};color:${queued ? 'var(--text-muted)' : 'var(--orange)'};font-size:13px;font-weight:700;white-space:nowrap">
+            ${dot}&#128300; ${queued ? 'queued' : 'researching'}&hellip;
         </span>`;
     }
     return `<button type="button" onclick="_rsrchDeepResearch('${esc(e.id)}')" style="flex:none;height:40px;padding:0 14px;border-radius:8px;border:1px solid var(--accent);background:none;color:var(--accent);font-size:13px;font-weight:700;cursor:pointer">&#128300; Deep research</button>`;
@@ -487,14 +491,25 @@ function _rsrchSessionsCard(sessions) {
     if (!sessions.length) return '';
     const rows = sessions.map(s => {
         const running = s.status === 'running';
+        const queued = s.status === 'queued';
+        const failed = s.status === 'failed';
+        // queued = waiting on the memory-aware dispatcher to admit it: a
+        // static muted dot (nothing's happening yet, so no pulse). failed =
+        // worker died twice: a static red dot.
         const dot = running
             ? `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--orange);animation:rsrchPulse 1.2s ease-in-out infinite"></span>`
-            : '';
+            : queued
+                ? `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--text-muted)"></span>`
+                : failed
+                    ? `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--red)"></span>`
+                    : '';
+        const color = running ? 'var(--orange)' : queued ? 'var(--text-muted)' : failed ? 'var(--red)' : 'var(--green)';
+        const label = running ? 'running&hellip;' : queued ? 'queued' : failed ? 'failed' : 'done';
         const modePrefix = s.mode === 'deep' ? '&#128300; ' : '';
         return `<div class="rsrch-entry" style="padding:10px 0;border-top:1px solid var(--border)">
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                 <span style="font-size:13px;color:var(--text-muted)">${modePrefix}${esc(s.created || '')}</span>
-                <span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:${running ? 'var(--orange)' : 'var(--green)'}">${dot}${running ? 'running&hellip;' : 'done'}</span>
+                <span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:${color}">${dot}${label}</span>
                 <span style="font-size:12px;color:var(--text-muted)">${(s.entry_ids || []).length} entries sent</span>
             </div>
             ${s.report ? `<div style="font-size:14px;color:var(--text);margin-top:6px">${esc(s.report)}</div>` : ''}
@@ -1031,8 +1046,10 @@ let _rsrchPollTimer = null;
 let _rsrchPollTicks = 0;
 const RSRCH_POLL_MAX_TICKS = 120;   // 120 * 5s = 10 minutes
 
+// "In flight" = running or queued (waiting on the dispatcher) — either way
+// it hasn't finished, so the poll loop needs to keep watching it.
 function _rsrchAnySessionRunning() {
-    return _researchSessions().some(s => s.status === 'running');
+    return _researchSessions().some(s => s.status === 'running' || s.status === 'queued');
 }
 
 function _rsrchStartPolling() {
@@ -1055,7 +1072,7 @@ function _rsrchStartPolling() {
 // reviewed (green). Docs are namespaced ids (entry:<id>, note:<file>; the
 // journal: namespace for Cricket sessions is one docstore branch away).
 
-let _ann = { doc: null, title: '', text: '', items: [], selStart: null, selEnd: null, activeId: null };
+let _ann = { doc: null, title: '', text: '', items: [], selStart: null, selEnd: null, activeId: null, selected: new Set(), modes: {}, _batchMsg: '' };
 
 async function loadDocTexts() {
     try {
@@ -1106,7 +1123,8 @@ async function openAnnotator(doc, fallbackTitle) {
     const dbody = await dt.json().catch(() => ({}));
     const abody = ann.ok ? await ann.json().catch(() => ({})) : {};
     _ann = { doc, title: dbody.title || fallbackTitle || doc, text: dbody.text || '',
-             items: abody.annotations || [], selStart: null, selEnd: null, activeId: null };
+             items: abody.annotations || [], selStart: null, selEnd: null, activeId: null,
+             selected: new Set(), modes: {}, _batchMsg: '' };
     _annRender();
     document.getElementById('annOverlay').classList.add('open');
 }
@@ -1154,10 +1172,23 @@ function _annMarksHtml() {
 }
 
 function _annListHtml() {
+    const nSel = _ann.selected ? _ann.selected.size : 0;
+    const nItems = _ann.items.length;
+    const allSel = nItems > 0 && nSel === nItems;
+    const selectAllBtn = `<button type="button" onclick="${allSel ? '_annSelectNone()' : '_annSelectAll()'}" ${nItems === 0 ? 'disabled' : ''} style="height:38px;padding:0 16px;border-radius:8px;border:1px solid var(--accent);background:none;color:var(--accent);font-size:14px;font-weight:600;cursor:${nItems === 0 ? 'default' : 'pointer'};opacity:${nItems === 0 ? '0.4' : '1'}">${allSel ? 'Deselect all' : 'Select all'}</button>`;
+    const sendBtn = `<button type="button" id="annBatchBtn" onclick="_annBatch()" ${nSel === 0 ? 'disabled' : ''} style="height:38px;padding:0 16px;border-radius:8px;border:none;background:${nSel > 0 ? 'var(--ongoing)' : 'var(--border)'};color:#fff;font-size:14px;font-weight:700;cursor:${nSel === 0 ? 'default' : 'pointer'}">&#128300; Send ${nSel} as research</button>`;
+    const batchBar = `<div style="display:flex;align-items:center;gap:8px;padding:6px 0 10px;border-bottom:1px solid var(--border);margin-bottom:4px;flex-wrap:wrap">
+        ${selectAllBtn}
+        <span style="flex:1;min-width:0;font-size:13px;color:var(--text-muted)">${nSel} of ${nItems} selected</span>
+        ${sendBtn}
+    </div>`;
+    const msg = (_ann._batchMsg || '')
+        ? `<div style="font-size:13px;color:var(--green);padding:4px 0 6px;word-break:break-word">${esc(_ann._batchMsg)}</div>`
+        : '';
     if (!_ann.items.length) {
-        return '<div class="ann-empty">No annotations yet &mdash; select some text in the document to make the first one.</div>';
+        return batchBar + msg + '<div class="ann-empty">No annotations yet &mdash; select some text in the document to make the first one.</div>';
     }
-    return _ann.items.slice().sort((a, b) => {
+    const rows = _ann.items.slice().sort((a, b) => {
         const sa = a.selector ? a.selector.char_start : Number.MAX_SAFE_INTEGER;
         const sb = b.selector ? b.selector.char_start : Number.MAX_SAFE_INTEGER;
         return sa - sb;
@@ -1171,16 +1202,146 @@ function _annListHtml() {
         const src = (a.content && a.content.source) === 'llm'
             ? '<span class="rsrch-chip" style="cursor:default">llm</span>' : '';
         const review = `<button type="button" class="rsrch-chip ${a.needs_review ? 'verdict-interesting' : 'verdict-verified'}" onclick="_annToggleReview('${escJs(a.id)}', ${a.needs_review ? 'true' : 'false'})">${a.needs_review ? '&#9675; review' : '&#10003; reviewed'}</button>`;
+        const isSel = _ann.selected && _ann.selected.has(a.id);
+        const modeVal = (_ann.modes || {})[a.id] || 'regular';
+        const selCb = `<input type="checkbox" class="ann-select-cb" data-ann-id="${escJs(a.id)}" ${isSel ? 'checked' : ''} onchange="_annToggleSelect('${escJs(a.id)}')" style="width:16px;height:16px;cursor:pointer;flex:none" title="Select for batch research">`;
+        const modeChip = `<button type="button" class="rsrch-chip ann-mode-chip" data-ann-id="${escJs(a.id)}" onclick="_annToggleMode('${escJs(a.id)}')" title="Toggle deep/regular">${modeVal === 'deep' ? '&#128300; deep' : '&#128269; regular'}</button>`;
+        const researchOne = `<button type="button" class="rsrch-chip ann-research-one" data-ann-id="${escJs(a.id)}" onclick="_annResearchOne('${escJs(a.id)}')" title="Research this annotation">&#128300;</button>`;
         return `<div class="ann-row">
             <div class="ann-quote" onclick="_annFocus('${escJs(a.id)}')">&ldquo;${esc(q.slice(0, 120))}${q.length > 120 ? '&hellip;' : ''}&rdquo;</div>
             ${note ? `<div class="ann-note">${esc(note)}</div>` : ''}
             <div class="ann-chips">${review}${src}${state}
+                ${selCb}${modeChip}${researchOne}
                 <button type="button" class="rsrch-chip" onclick="_annFollowUp('${escJs(a.id)}')">&#8627; follow up</button>
                 <button type="button" class="rsrch-chip" onclick="_annEditNote('${escJs(a.id)}')">edit</button>
                 <button type="button" class="rsrch-chip" style="color:var(--red)" onclick="_annConfirmDelete('${escJs(a.id)}')">&times; delete</button>
             </div>
         </div>`;
     }).join('');
+    return batchBar + msg + rows;
+}
+
+// --- Annotation batch-research helpers ---
+
+function _annSelectAll() {
+    _ann.selected = new Set(_ann.items.map(a => a.id));
+    _annRender();
+}
+
+function _annSelectNone() {
+    _ann.selected = new Set();
+    _annRender();
+}
+
+function _annToggleSelect(annId) {
+    if (!_ann.selected) _ann.selected = new Set();
+    if (_ann.selected.has(annId)) _ann.selected.delete(annId); else _ann.selected.add(annId);
+    _annRender();
+}
+
+function _annToggleMode(annId) {
+    if (!_ann.modes) _ann.modes = {};
+    _ann.modes[annId] = (_ann.modes[annId] === 'deep') ? 'regular' : 'deep';
+    _annRender();
+}
+
+// Resolve the owning research entry id from the current annotator doc.
+// entry:<id> → that id; note:<file> → entry whose .file === <file>.
+function _annResolveReplyTo() {
+    const doc = _ann.doc || '';
+    if (doc.startsWith('entry:')) return doc.slice('entry:'.length);
+    if (doc.startsWith('note:')) {
+        const fname = doc.slice('note:'.length);
+        const owner = _researchEntries().find(e => e.file === fname);
+        return owner ? owner.id : null;
+    }
+    return null;
+}
+
+async function _annResearchOne(annId) {
+    const ann = _ann.items.find(a => a.id === annId);
+    if (!ann) return;
+    const note = (ann.content && ann.content.note) || '';
+    if (!note.trim()) {
+        _ann._batchMsg = 'This annotation has no note — add a note first.';
+        _annRender();
+        return;
+    }
+    const reply_to = _annResolveReplyTo();
+    if (!reply_to) {
+        _ann._batchMsg = 'Cannot resolve the source entry for this document.';
+        _annRender();
+        return;
+    }
+    const context_ids = _rsrchContextChain(reply_to).map(c => c.id);
+    const re_quote = (ann.selector && ann.selector.exact) || '';
+    const mode = (_ann.modes || {})[annId] || 'regular';
+    let res;
+    try {
+        res = await fetch('/api/research/annotation-batch', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ items: [{ reply_to, question: note, re_quote, context_ids, mode }] }),
+        });
+    } catch (err) { _ann._batchMsg = 'Network error — try again.'; _annRender(); return; }
+    if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        _ann._batchMsg = d.error || 'Research request failed.';
+        _annRender();
+        return;
+    }
+    _ann._batchMsg = 'Sent 1 question to research.';
+    _annRender();
+    await loadResearch();
+    renderResearch();
+    _rsrchStartPolling();
+}
+
+async function _annBatch() {
+    const reply_to = _annResolveReplyTo();
+    if (!reply_to) {
+        _ann._batchMsg = 'Cannot resolve the source entry for this document.';
+        _annRender();
+        return;
+    }
+    const context_ids = _rsrchContextChain(reply_to).map(c => c.id);
+    const items = [];
+    let skipped = 0;
+    for (const ann of _ann.items) {
+        if (!_ann.selected || !_ann.selected.has(ann.id)) continue;
+        const note = (ann.content && ann.content.note) || '';
+        if (!note.trim()) { skipped++; continue; }
+        const re_quote = (ann.selector && ann.selector.exact) || '';
+        const mode = (_ann.modes || {})[ann.id] || 'regular';
+        items.push({ reply_to, question: note, re_quote, context_ids, mode });
+    }
+    if (!items.length) {
+        _ann._batchMsg = skipped
+            ? `${skipped} annotation${skipped === 1 ? '' : 's'} skipped (no note). Nothing to send.`
+            : 'Select annotations with notes first.';
+        _annRender();
+        return;
+    }
+    let res;
+    try {
+        res = await fetch('/api/research/annotation-batch', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ items }),
+        });
+    } catch (err) { _ann._batchMsg = 'Network error — try again.'; _annRender(); return; }
+    if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        _ann._batchMsg = d.error || 'Batch send failed.';
+        _annRender();
+        return;
+    }
+    const d = await res.json().catch(() => ({}));
+    const n = d.count != null ? d.count : items.length;
+    _ann._batchMsg = `Sent ${n} question${n === 1 ? '' : 's'} to research${skipped ? ` (${skipped} skipped — no note)` : ''}.`;
+    _ann.selected = new Set();
+    _annRender();
+    await loadResearch();
+    renderResearch();
+    _rsrchStartPolling();
 }
 
 // Walk the reply chain from noteId up to the root, returning an array of
