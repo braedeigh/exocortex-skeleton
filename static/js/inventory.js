@@ -50,6 +50,22 @@ async function savePriorityNotes(textarea) {
     }
 }
 
+const BUY_KINDS = [
+    { key: 'consumable', label: 'Consumables', color: 'var(--green)' },
+    { key: 'durable', label: 'Durables', color: 'var(--purple,#8e6bbf)' },
+    { key: 'service', label: 'Services', color: 'var(--ongoing)' },
+];
+
+async function setBuyKind(name, kind) {
+    const res = await fetch('/api/buy/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, kind })
+    });
+    if (res.ok) loadDashboard();
+    else alert('Save failed');
+}
+
 function renderBuyList() {
     const el = document.getElementById('buy-list-area');
     const items = D.buy_list || [];
@@ -57,18 +73,7 @@ function renderBuyList() {
     const priorityColors = { high: 'var(--red)', medium: 'var(--yellow)', low: 'var(--text-muted)' };
     const priorityOrder = { high: 0, medium: 1, low: 2 };
 
-    const groups = {};
-    items.forEach(item => {
-        const cat = (item.category || '').trim() || 'uncategorized';
-        if (!groups[cat]) groups[cat] = [];
-        groups[cat].push(item);
-    });
-    const categoryNames = Object.keys(groups).sort((a, b) => {
-        if (a === 'uncategorized') return 1;
-        if (b === 'uncategorized') return -1;
-        return a.localeCompare(b);
-    });
-    const knownCategories = categoryNames.filter(c => c !== 'uncategorized');
+    const knownCategories = [...new Set(items.map(i => (i.category || '').trim()).filter(Boolean))].sort();
     const datalistOptions = knownCategories.map(c => `<option value="${esc(c)}">`).join('');
 
     const renderItem = (item) => {
@@ -81,25 +86,61 @@ function renderBuyList() {
         if (item.why) meta.push(`<em>${esc(item.why)}</em>`);
         if (item.by) meta.push(`<span style="color:var(--red)">by ${esc(item.by)}</span>`);
         const metaLine = meta.length ? `<div style="width:100%;font-size:12px;color:var(--text-muted);padding-left:16px;margin-top:2px">${meta.join(' · ')}</div>` : '';
+        // unsorted items get one-tap filing chips into a kind
+        const kindChips = !BUY_KINDS.some(k => k.key === item.kind)
+            ? `<span style="display:inline-flex;gap:4px;margin-right:4px">${BUY_KINDS.map(k =>
+                `<button onclick="setBuyKind('${escJs(item.name)}','${k.key}')" title="File under ${k.label}" style="min-height:32px;background:none;border:1px solid ${k.color};color:${k.color};border-radius:8px;padding:4px 8px;font-size:12px;font-weight:600;cursor:pointer">${k.label.slice(0, 1)}</button>`).join('')}</span>`
+            : '';
         return `<div class="card-item" style="flex-wrap:wrap;align-items:center;min-height:40px;padding:6px 0">
             <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};margin-right:8px;flex-shrink:0"></span>
             <a href="${url}" class="item-text" style="text-decoration:none;color:inherit;cursor:pointer"><b>${esc(item.name)}</b></a>
             ${costBadge}
+            ${kindChips}
             <button onclick="markBuyAsBought('${escJs(item.name)}')" title="Mark as bought — moves to Active" style="min-height:32px;background:none;border:1px solid var(--ongoing);color:var(--ongoing);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;margin-right:4px">✓ Bought</button>
             <button class="delete-btn" onclick="confirmDelete('${escJs(item.name)}','buy')" title="Remove">&times;</button>
             ${metaLine}
         </div>`;
     };
 
+    // group: kind → category → items
+    const renderCategoryGroups = (kindItems) => {
+        const groups = {};
+        kindItems.forEach(item => {
+            const cat = (item.category || '').trim() || 'uncategorized';
+            (groups[cat] = groups[cat] || []).push(item);
+        });
+        const categoryNames = Object.keys(groups).sort((a, b) => {
+            if (a === 'uncategorized') return 1;
+            if (b === 'uncategorized') return -1;
+            return a.localeCompare(b);
+        });
+        return categoryNames.map(cat => {
+            const sorted = [...groups[cat]].sort((a, b) => (priorityOrder[a.priority] || 2) - (priorityOrder[b.priority] || 2));
+            const label = cat === 'uncategorized' ? 'Uncategorized' : cat.charAt(0).toUpperCase() + cat.slice(1);
+            return `<div style="margin-bottom:10px">
+                <div style="font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">${esc(label)} <span style="opacity:0.6;font-weight:400">(${sorted.length})</span></div>
+                ${sorted.map(renderItem).join('')}
+            </div>`;
+        }).join('');
+    };
+
     let listHTML = '';
-    categoryNames.forEach(cat => {
-        const sorted = [...groups[cat]].sort((a, b) => (priorityOrder[a.priority] || 2) - (priorityOrder[b.priority] || 2));
-        const label = cat === 'uncategorized' ? 'Uncategorized' : cat.charAt(0).toUpperCase() + cat.slice(1);
-        listHTML += `<div style="margin-bottom:10px">
-            <div style="font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">${esc(label)} <span style="opacity:0.6;font-weight:400">(${sorted.length})</span></div>
-            ${sorted.map(renderItem).join('')}
+    const unsorted = items.filter(i => !BUY_KINDS.some(k => k.key === i.kind));
+    BUY_KINDS.forEach(k => {
+        const kindItems = items.filter(i => i.kind === k.key);
+        if (!kindItems.length) return;
+        listHTML += `<div style="margin-bottom:14px">
+            <div style="font-size:14px;font-weight:700;color:${k.color};margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid var(--border)">${k.label} <span style="opacity:0.6;font-weight:400;font-size:12px">(${kindItems.length})</span></div>
+            ${renderCategoryGroups(kindItems)}
         </div>`;
     });
+    if (unsorted.length) {
+        listHTML += `<div style="margin-bottom:14px">
+            <div style="font-size:14px;font-weight:700;color:var(--text-muted);margin-bottom:4px;padding-bottom:4px;border-bottom:1px solid var(--border)">Unsorted <span style="opacity:0.6;font-weight:400;font-size:12px">(${unsorted.length})</span></div>
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">Tap C / D / S to file as Consumable, Durable or Service</div>
+            ${renderCategoryGroups(unsorted)}
+        </div>`;
+    }
 
     let html = `<details open style="margin-top:20px">
         <summary style="font-size:16px;font-weight:600;cursor:pointer;color:var(--text-secondary)">Buy List${items.length ? ` (${items.length})` : ''}</summary>
@@ -109,6 +150,11 @@ function renderBuyList() {
             <div style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px">
                 <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px">
                     <input type="text" id="buy-name" placeholder="Item name..." style="flex:2;min-width:160px;min-height:40px;padding:7px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;outline:none;background:var(--bg)" onkeydown="if(event.key==='Enter')addBuyItem()">
+                    <select id="buy-kind" style="min-height:40px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg)">
+                        <option value="consumable" selected>Consumable</option>
+                        <option value="durable">Durable</option>
+                        <option value="service">Service</option>
+                    </select>
                     <select id="buy-priority" style="min-height:40px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg)">
                         <option value="high">High</option>
                         <option value="medium" selected>Medium</option>
@@ -432,6 +478,14 @@ function renderBuyItemDetail() {
                         <option value="medium" ${item.priority === 'medium' ? 'selected' : ''}>Medium</option>
                         <option value="low" ${item.priority === 'low' ? 'selected' : ''}>Low</option>
                     </select>
+
+                    <label style="font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px">Kind</label>
+                    <select id="detail-kind" style="min-height:40px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg)">
+                        <option value="" ${!item.kind ? 'selected' : ''}>Unsorted</option>
+                        <option value="consumable" ${item.kind === 'consumable' ? 'selected' : ''}>Consumable</option>
+                        <option value="durable" ${item.kind === 'durable' ? 'selected' : ''}>Durable</option>
+                        <option value="service" ${item.kind === 'service' ? 'selected' : ''}>Service</option>
+                    </select>
                 </div>
 
                 <div style="margin-top:8px">
@@ -461,6 +515,7 @@ async function saveBuyItemDetail(originalName) {
         where: document.getElementById('detail-where').value.trim(),
         order_url: document.getElementById('detail-order-url').value.trim(),
         priority: document.getElementById('detail-priority').value,
+        kind: document.getElementById('detail-kind').value,
         notes: document.getElementById('detail-notes').value.trim(),
     };
     const res = await fetch('/api/buy/update', {
@@ -483,13 +538,14 @@ async function addBuyItem() {
     const name = document.getElementById('buy-name').value.trim();
     if (!name) return;
     const priority = document.getElementById('buy-priority').value;
+    const kind = document.getElementById('buy-kind').value;
     const where = document.getElementById('buy-where').value.trim();
     const category = document.getElementById('buy-category').value.trim();
     const notes = document.getElementById('buy-notes').value.trim();
     const res = await fetch('/api/buy/add', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, priority, where, category, notes })
+        body: JSON.stringify({ name, priority, kind, where, category, notes })
     });
     if (res.ok) {
         document.getElementById('buy-name').value = '';

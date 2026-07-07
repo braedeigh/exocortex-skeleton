@@ -30,6 +30,8 @@ def register(app):
         why = data.get("why", "").strip()
         by = data.get("by", "").strip()
         order_url = data.get("order_url", "").strip()
+        # what sort of purchase: consumable | durable | service ('' = unsorted)
+        kind = data.get("kind", "").strip()
         bdata = store.read("buy_list.json", {"items": []})
         if any(i["name"].lower() == name.lower() for i in bdata["items"]):
             return jsonify({"error": "Already on the list"}), 400
@@ -37,7 +39,7 @@ def register(app):
             "name": name, "priority": priority, "where": where,
             "notes": notes, "category": category,
             "cost": cost, "why": why, "by": by,
-            "order_url": order_url,
+            "order_url": order_url, "kind": kind,
         })
         store.write("buy_list.json", bdata)
         return jsonify({"ok": True})
@@ -85,6 +87,8 @@ def register(app):
                         i["by"] = data["by"]
                     if "order_url" in data:
                         i["order_url"] = data["order_url"]
+                    if "kind" in data:
+                        i["kind"] = data["kind"]
                     if "new_name" in data:
                         new_name = data["new_name"].strip()
                         if new_name and new_name != name and not any(x["name"].lower() == new_name.lower() for x in bdata["items"] if x is not i):
@@ -244,6 +248,7 @@ def register(app):
                 "why": "running low — restock",
                 "by": "",
                 "order_url": item.get("order_url", ""),
+                "kind": "consumable",  # restocks come from the consumables loop
             })
             store.write("buy_list.json", bdata)
         return jsonify({"ok": True})
