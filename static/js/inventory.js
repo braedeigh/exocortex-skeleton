@@ -9,7 +9,7 @@ function renderPriorityNotes() {
     if (existing && document.activeElement === existing) return;
 
     el.innerHTML = `
-        <div class="card" style="border-left-color:#d4880a;background:#fffaf0;margin-bottom:16px;padding:14px 16px">
+        <div class="card" style="border-left-color:#d4880a;background:linear-gradient(rgba(212,136,10,0.07),rgba(212,136,10,0.07)),var(--card-bg,#fffaf0);margin-bottom:16px;padding:14px 16px">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
                 <div style="font-size:12px;font-weight:700;color:#d4880a;text-transform:uppercase;letter-spacing:1.2px">Priority notes</div>
                 <span id="priority-notes-status" style="font-size:12px;color:var(--text-muted);font-style:italic"></span>
@@ -142,9 +142,9 @@ function renderBuyList() {
         </div>`;
     }
 
-    let html = `<details open style="margin-top:20px">
+    let html = `<details open class="card-section" style="margin-bottom:16px">
         <summary style="font-size:16px;font-weight:600;cursor:pointer;color:var(--text-secondary)">Buy List${items.length ? ` (${items.length})` : ''}</summary>
-        <div class="card" style="border-left-color:var(--ongoing);margin-top:8px">
+        <div class="card" style="border-left-color:var(--ongoing);margin-top:8px;padding:12px">
             ${listHTML || '<div style="font-size:14px;color:var(--text-muted);padding:4px 0">Nothing on the list</div>'}
             <datalist id="buy-categories">${datalistOptions}</datalist>
             <div style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px">
