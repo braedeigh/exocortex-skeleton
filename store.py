@@ -36,6 +36,10 @@ CONTENT_DIR = Path(os.environ.get("EXOCORTEX_CONTENT_DIR", DATA_DIR))
 # CONTENT_DIR. (Defaulting them next to the *code* is what orphaned them on migration.)
 RECEIPTS_DIR = Path(os.environ.get("EXOCORTEX_RECEIPTS_DIR", DATA_DIR / "receipts"))
 RECIPES_DIR = Path(os.environ.get("EXOCORTEX_RECIPES_DIR", DATA_DIR / "recipes"))
+# Archivals: photo files for the things-you-own catalog (imported from the old
+# standalone inventory-app). Item metadata lives in archivals.json; the photo
+# binaries live here — same relocation story as RECEIPTS_DIR.
+ARCHIVALS_DIR = Path(os.environ.get("EXOCORTEX_ARCHIVALS_DIR", DATA_DIR / "archivals"))
 # Triage: the "talk to it and it reorders your todos" Claude session works out of
 # this folder (its CLAUDE.md is the skill). Defaults to a `triage/` at the
 # deployment root (sibling of the data dir), next to recipes/; override via env.

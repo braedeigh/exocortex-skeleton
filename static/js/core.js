@@ -361,6 +361,7 @@ function render() {
                         renderRestockBanner();
                         renderActiveInventory();
                         renderBuyList();
+                        if (typeof renderArchivals === 'function') renderArchivals();
                         renderPastInventory();
                     }
                 },

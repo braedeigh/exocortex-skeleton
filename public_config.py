@@ -50,6 +50,11 @@ STREAMS = {
     "buy_item": "public",
     "known_categories": "public",
     "priority_notes": "public",
+    # Things-you-own catalog (routes/archivals.py). The server already strips
+    # private items/fields before this filter runs (public_view); frost the
+    # rest. To open the catalog up later, flip to "public" AND add
+    # /archivals/photo/ to PUBLIC_PATHS — otherwise strangers get broken images.
+    "archivals": "frosted",
 
     # ---- money ----
     # Visible to the public, but RESCALED server-side (see _scale_money_streams):

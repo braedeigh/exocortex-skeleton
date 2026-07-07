@@ -21,7 +21,7 @@ from routes import (
     kitchen, habits, todos, places, health, inventory, money, car,
     meditation, media, movement, reminders, food_test, terminal, settings,
     devnotes, ideas, ecosystem, keeper, pending, housing, triage, decisions,
-    entities, person, shell,
+    entities, person, shell, archivals,
 )
 from routes.shell import VALID_TABS
 
@@ -696,11 +696,15 @@ def get_data_inventory():
     buy_list = store.read("buy_list.json", {}).get("items", [])
     active_inventory = store.read("active_inventory.json", {}).get("items", [])
     priority_notes = store.read("priority_notes.json", {}).get("text", "")
+    archival_items = store.read("archivals.json", {}).get("items", [])
+    if request.view_mode != "authed":
+        archival_items = archivals.public_view(archival_items)
 
     data.update({
         "buy_list": buy_list,
         "active_inventory": active_inventory,
         "priority_notes": priority_notes,
+        "archivals": archival_items,
     })
     data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("inventory", [])
     data["idea_notes"] = _load_idea_notes().get("tabs", {}).get("inventory", [])
@@ -1108,6 +1112,7 @@ todos.register(app)
 places.register(app)
 health.register(app)
 inventory.register(app)
+archivals.register(app)
 money.register(app)
 car.register(app)
 housing.register(app)
