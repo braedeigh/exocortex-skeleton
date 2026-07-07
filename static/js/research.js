@@ -314,10 +314,33 @@ function _rsrchQuestionsCard() {
     </details>`;
 }
 
+// Row tints for the question/answer lifecycle (see _rsrchAnswerState):
+// pink = waiting on an answer, orange = claude answered and she hasn't
+// looked yet, purple = interacted with / settled.
+const RSRCH_TINT = {
+    pink: ';background:rgba(214,107,160,0.10);border-left:3px solid var(--pink);padding-left:10px;border-radius:6px',
+    orange: ';background:rgba(212,112,10,0.12);border-left:3px solid var(--orange);padding-left:10px;border-radius:6px',
+    purple: ';background:rgba(141,103,207,0.12);border-left:3px solid var(--purple);padding-left:10px;border-radius:6px',
+};
+
+// Where one of her questions sits in its lifecycle: 'waiting' (no claude
+// answer yet), 'fresh' (claude answered, at least one answer unreviewed),
+// 'settled' (every answer reviewed, or she closed it herself).
+function _rsrchAnswerState(e) {
+    const answers = _researchEntries().filter(r => r.author === 'llm' && r.reply_to === e.id);
+    if (answers.length) return answers.some(r => !r.reviewed) ? 'fresh' : 'settled';
+    return e.status === 'answered' ? 'settled' : 'waiting';
+}
+
+function _rsrchLifecycleTint(e) {
+    const st = _rsrchAnswerState(e);
+    return st === 'waiting' ? RSRCH_TINT.pink : st === 'fresh' ? RSRCH_TINT.orange : RSRCH_TINT.purple;
+}
+
 function _rsrchQuestionRow(e, byId) {
     const chips = (e.topics || []).map(tid => byId[tid]
         ? `<span class="rsrch-chip" style="cursor:default">${esc(byId[tid].name)}</span>` : '').join('');
-    return `<div class="rsrch-entry" style="display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--border)">
+    return `<div class="rsrch-entry" style="display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--border)${_rsrchLifecycleTint(e)}">
         <div style="flex:1;min-width:0">
             <div style="font-size:14px;color:var(--text)">${esc(e.text)}</div>
             ${chips ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px">${chips}</div>` : ''}
@@ -688,14 +711,19 @@ function _rsrchEntryRow(e, editing) {
         const hlKindLabel = RSRCH_KIND_LABEL[e.kind] || e.kind;
         controlChips += ` <button type="button" class="rsrch-chip" onclick="openAnnotator('entry:${escJs(e.id)}','${escJs(hlKindLabel)}')">&#9998; highlight</button>`;
     }
-    // Row tint: unreviewed llm output (orange) > processed by the runner
-    // (pink) > flagged and queued (accent edge). At most one applies.
+    // Row tint — the question/answer lifecycle. Claude's answers: orange
+    // until she marks them reviewed, purple after. Her questions: pink while
+    // waiting on an answer, orange once an unreviewed answer has landed,
+    // purple when settled (see _rsrchAnswerState). Other entries: purple once
+    // processed, accent edge while flagged and queued. At most one applies.
     let rowStyle = 'display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-top:1px solid var(--border)';
-    if (isLlm && !e.reviewed) {
-        rowStyle += ';background:rgba(212,112,10,0.12);border-left:3px solid var(--orange);padding-left:10px;border-radius:6px';
+    if (isLlm) {
+        rowStyle += e.reviewed ? RSRCH_TINT.purple : RSRCH_TINT.orange;
+    } else if (e.kind === 'question') {
+        rowStyle += _rsrchLifecycleTint(e);
     } else if (e.processed) {
-        rowStyle += ';background:rgba(214,107,160,0.10);border-left:3px solid var(--pink);padding-left:10px;border-radius:6px';
-    } else if (!isLlm && e.flagged) {
+        rowStyle += RSRCH_TINT.purple;
+    } else if (e.flagged) {
         rowStyle += ';border-left:3px solid var(--accent);padding-left:10px';
     }
     return `<div class="rsrch-entry" style="${rowStyle}">
