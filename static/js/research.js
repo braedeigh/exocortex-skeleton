@@ -663,10 +663,13 @@ function _rsrchEntryRow(e, editing) {
     if (e.file) {
         controlChips += `<button type="button" class="rsrch-chip" onclick="openLibraryFile('${escJs(e.file)}')">&#128214; Read report</button>`;
     }
-    // Non-source entries with enough text can be opened in the annotator so
-    // Bradie can highlight passages (the docstore now falls back to entry.text
-    // when no extracted doc_texts file exists).
-    if (e.kind !== 'source' && (e.text || '').length > 40) {
+    // Highlightable in the annotator. A deep-research reply highlights its
+    // full write-up (the `note:<file>` report), not its short digest; other
+    // non-source entries highlight their own text (docstore falls back to
+    // entry.text when no extracted doc_texts file exists).
+    if (e.file) {
+        controlChips += ` <button type="button" class="rsrch-chip" onclick="openAnnotator('note:${escJs(e.file)}','report')">&#9998; highlight report</button>`;
+    } else if (e.kind !== 'source' && (e.text || '').length > 40) {
         const hlKindLabel = RSRCH_KIND_LABEL[e.kind] || e.kind;
         controlChips += ` <button type="button" class="rsrch-chip" onclick="openAnnotator('entry:${escJs(e.id)}','${escJs(hlKindLabel)}')">&#9998; highlight</button>`;
     }
@@ -1208,7 +1211,18 @@ function _annFollowUp(annId) {
     const ann = _ann.items.find(a => a.id === annId);
     if (!ann) return;
     const exact = (ann.selector && ann.selector.exact) || '';
-    const noteId = (_ann.doc || '').startsWith('entry:') ? _ann.doc.slice('entry:'.length) : null;
+    // The highlight lives either on an entry's own text (entry:<id>) or on a
+    // deep-research report file (note:<file>); either way, resolve it to the
+    // owning entry so the follow-up threads under it and inherits the chain.
+    const doc = _ann.doc || '';
+    let noteId = null;
+    if (doc.startsWith('entry:')) {
+        noteId = doc.slice('entry:'.length);
+    } else if (doc.startsWith('note:')) {
+        const fname = doc.slice('note:'.length);
+        const owner = _researchEntries().find(e => e.file === fname);
+        if (owner) noteId = owner.id;
+    }
     if (!noteId) return;
     const note = _researchEntries().find(e => e.id === noteId);
     if (!note) return;
