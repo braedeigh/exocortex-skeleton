@@ -28,7 +28,9 @@ from routes import (
 from routes.shell import VALID_TABS
 
 app = Flask(__name__)
-app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
+# Two trusted proxy hops since the v2 cutover: nginx (TLS) → exo-server
+# (Rust strangler proxy, :8100) → Flask. Each appends to X-Forwarded-For.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=2, x_proto=1)
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 # Long-lived static caching is safe because every /static/ URL rendered through
 # templates is stamped with a file-mtime version query param by the v_static()
