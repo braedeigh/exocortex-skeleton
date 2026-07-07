@@ -80,8 +80,11 @@ def main():
             "private_origin": old.get("privateOrigin") or "",
             "materials": old.get("materials") or [],
             "photos": [],
-            "created_at": (old.get("createdAt") or "")[:10],
+            # full entry timestamps from the old DB, not just the date
+            "created_at": old.get("createdAt") or "",
         }
+        if old.get("lastEdited"):
+            item["last_edited"] = old["lastEdited"]
 
         photos = fetch_json(f"{OLD_API}/item/{old['id']}/photos").get("photos", [])
         if not photos and old.get("mainPhoto"):

@@ -98,7 +98,7 @@ def register(app):
             "name": name,
             "materials": [],
             "photos": [],
-            "created_at": datetime.now().strftime("%Y-%m-%d"),
+            "created_at": datetime.now().isoformat(timespec="seconds"),
         }
         for k in _TEXT_FIELDS:
             item[k] = (request.form.get(k) or "").strip()
@@ -135,7 +135,7 @@ def register(app):
             if "materials" in payload:
                 m = payload["materials"]
                 item["materials"] = m if isinstance(m, list) else _parse_materials(m)
-            item["last_edited"] = datetime.now().strftime("%Y-%m-%d")
+            item["last_edited"] = datetime.now().isoformat(timespec="seconds")
         return jsonify({"ok": True})
 
     @app.route("/api/archivals/remove", methods=["POST"])
@@ -165,7 +165,7 @@ def register(app):
                     item["photos"].append(_save_photo_file(f, item))
         except ValueError as e:
             return jsonify({"error": str(e)}), 400
-        item["last_edited"] = datetime.now().strftime("%Y-%m-%d")
+        item["last_edited"] = datetime.now().isoformat(timespec="seconds")
         _save(data)
         return jsonify({"ok": True, "photos": item["photos"]})
 

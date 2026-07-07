@@ -75,17 +75,17 @@ function renderBuyList() {
         const color = priorityColors[item.priority] || 'var(--text-muted)';
         const url = `/item/buy/${encodeURIComponent(item.name)}`;
         const costBadge = item.cost
-            ? `<span style="font-size:13px;font-weight:600;color:var(--text);background:rgba(26,188,156,0.10);border:1px solid rgba(26,188,156,0.25);border-radius:6px;padding:2px 8px;margin-left:auto;margin-right:6px;white-space:nowrap">${esc(item.cost)}</span>`
+            ? `<span style="font-size:13px;font-weight:600;color:var(--text);background:rgba(26,188,156,0.10);border:1px solid rgba(26,188,156,0.25);border-radius:16px;padding:4px 12px;margin-left:auto;margin-right:6px;white-space:nowrap">${esc(item.cost)}</span>`
             : `<span style="margin-left:auto"></span>`;
         const meta = [];
         if (item.why) meta.push(`<em>${esc(item.why)}</em>`);
         if (item.by) meta.push(`<span style="color:var(--red)">by ${esc(item.by)}</span>`);
         const metaLine = meta.length ? `<div style="width:100%;font-size:12px;color:var(--text-muted);padding-left:16px;margin-top:2px">${meta.join(' · ')}</div>` : '';
-        return `<div class="card-item" style="flex-wrap:wrap;padding:6px 0">
+        return `<div class="card-item" style="flex-wrap:wrap;align-items:center;min-height:40px;padding:6px 0">
             <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};margin-right:8px;flex-shrink:0"></span>
             <a href="${url}" class="item-text" style="text-decoration:none;color:inherit;cursor:pointer"><b>${esc(item.name)}</b></a>
             ${costBadge}
-            <button onclick="markBuyAsBought('${escJs(item.name)}')" title="Mark as bought — moves to Active" style="background:none;border:1px solid var(--ongoing);color:var(--ongoing);border-radius:6px;padding:2px 8px;font-size:12px;font-weight:600;cursor:pointer;margin-right:4px">✓ Bought</button>
+            <button onclick="markBuyAsBought('${escJs(item.name)}')" title="Mark as bought — moves to Active" style="min-height:32px;background:none;border:1px solid var(--ongoing);color:var(--ongoing);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;margin-right:4px">✓ Bought</button>
             <button class="delete-btn" onclick="confirmDelete('${escJs(item.name)}','buy')" title="Remove">&times;</button>
             ${metaLine}
         </div>`;
@@ -107,21 +107,21 @@ function renderBuyList() {
             ${listHTML || '<div style="font-size:14px;color:var(--text-muted);padding:4px 0">Nothing on the list</div>'}
             <datalist id="buy-categories">${datalistOptions}</datalist>
             <div style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px">
-                <div style="display:flex;gap:8px;margin-bottom:6px">
-                    <input type="text" id="buy-name" placeholder="Item name..." style="flex:2;padding:7px 12px;border:1px solid var(--border);border-radius:6px;font-size:14px;outline:none;background:var(--bg)" onkeydown="if(event.key==='Enter')addBuyItem()">
-                    <select id="buy-priority" style="padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--bg)">
+                <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+                    <input type="text" id="buy-name" placeholder="Item name..." style="flex:2;min-width:160px;min-height:40px;padding:7px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;outline:none;background:var(--bg)" onkeydown="if(event.key==='Enter')addBuyItem()">
+                    <select id="buy-priority" style="min-height:40px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg)">
                         <option value="high">High</option>
                         <option value="medium" selected>Medium</option>
                         <option value="low">Low</option>
                     </select>
                 </div>
-                <div style="display:flex;gap:8px;margin-bottom:6px">
-                    <input type="text" id="buy-category" list="buy-categories" placeholder="Category (e.g. supplements)" style="flex:1;padding:7px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;outline:none;background:var(--bg)">
-                    <input type="text" id="buy-where" placeholder="Where (optional)" style="flex:1;padding:7px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;outline:none;background:var(--bg)">
+                <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+                    <input type="text" id="buy-category" list="buy-categories" placeholder="Category (e.g. supplements)" style="flex:1;min-width:160px;min-height:40px;padding:7px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;outline:none;background:var(--bg)">
+                    <input type="text" id="buy-where" placeholder="Where (optional)" style="flex:1;min-width:160px;min-height:40px;padding:7px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;outline:none;background:var(--bg)">
                 </div>
-                <div style="display:flex;gap:8px">
-                    <input type="text" id="buy-notes" placeholder="Notes (optional)" style="flex:1;padding:7px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;outline:none;background:var(--bg)" onkeydown="if(event.key==='Enter')addBuyItem()">
-                    <button onclick="addBuyItem()" style="padding:7px 16px;border:none;border-radius:6px;background:var(--text);color:#fff;font-size:13px;font-weight:600;cursor:pointer">Add</button>
+                <div style="display:flex;flex-wrap:wrap;gap:8px">
+                    <input type="text" id="buy-notes" placeholder="Notes (optional)" style="flex:1;min-width:160px;min-height:40px;padding:7px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;outline:none;background:var(--bg)" onkeydown="if(event.key==='Enter')addBuyItem()">
+                    <button onclick="addBuyItem()" style="min-height:40px;padding:7px 16px;border:none;border-radius:8px;background:var(--text);color:#fff;font-size:14px;font-weight:600;cursor:pointer;white-space:nowrap">Add</button>
                 </div>
             </div>
         </div>
@@ -150,12 +150,12 @@ function renderRestockBanner() {
         const order = item.order_url
             ? `<a href="${esc(item.order_url)}" target="_blank" rel="noopener" title="Order page" style="color:var(--red);text-decoration:none;margin-left:6px">↗</a>`
             : '';
-        return `<span style="display:inline-flex;align-items:center;gap:2px;padding:3px 10px;background:rgba(231,76,60,0.10);color:var(--red);border:1px solid rgba(231,76,60,0.3);border-radius:14px;font-size:12px;font-weight:600">
+        return `<span style="display:inline-flex;align-items:center;gap:2px;padding:4px 12px;background:rgba(231,76,60,0.10);color:var(--red);border:1px solid rgba(231,76,60,0.3);border-radius:16px;font-size:12px;font-weight:600">
             ${esc(item.name)}${order}
         </span>`;
     }).join(' ');
 
-    el.innerHTML = `<div style="background:rgba(231,76,60,0.06);border:1px solid rgba(231,76,60,0.25);border-radius:8px;padding:10px 14px;margin-bottom:14px">
+    el.innerHTML = `<div style="background:rgba(231,76,60,0.06);border:1px solid rgba(231,76,60,0.25);border-radius:10px;padding:10px 14px;margin-bottom:14px">
         <div style="font-size:12px;font-weight:700;color:var(--red);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Needs Restock (${lows.length})</div>
         <div style="display:flex;flex-wrap:wrap;gap:6px">${chips}</div>
     </div>`;
@@ -186,16 +186,16 @@ function renderActiveInventory() {
     const renderRow = (item) => {
         const status = item.status || 'in_use';
         const meta = STATUS_META[status] || STATUS_META.in_use;
-        const statusBadge = `<span style="font-size:12px;font-weight:600;color:#fff;background:${meta.color};border-radius:6px;padding:2px 8px;white-space:nowrap;display:inline-block">${meta.label}</span>`;
+        const statusBadge = `<span style="font-size:12px;font-weight:600;color:#fff;background:${meta.color};border-radius:16px;padding:3px 10px;white-space:nowrap;display:inline-block">${meta.label}</span>`;
         const costCell = item.last_cost ? esc(item.last_cost) : '<span style="color:var(--text-muted)">—</span>';
         const notesOneLine = item.notes ? item.notes.replace(/\n/g, ' · ') : '';
         const notesCell = notesOneLine
             ? `<span title="${esc(item.notes)}" style="color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;max-width:280px;vertical-align:bottom">${esc(notesOneLine)}</span>`
             : '<span style="color:var(--text-muted)">—</span>';
         const restockBtn = status !== 'running_low'
-            ? `<button onclick="restockActive('${escJs(item.name)}')" title="Mark running low — auto-adds to buy list" style="background:none;border:1px solid var(--red);color:var(--red);border-radius:6px;padding:2px 8px;font-size:12px;font-weight:600;cursor:pointer">Restock</button>`
+            ? `<button onclick="restockActive('${escJs(item.name)}')" title="Mark running low — auto-adds to buy list" style="min-height:32px;background:none;border:1px solid var(--red);color:var(--red);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer">Restock</button>`
             : `<span style="font-size:12px;color:var(--red);font-style:italic">on buy list</span>`;
-        const retireBtn = `<button onclick="retireActive('${escJs(item.name)}')" title="Move to Past — log when you stopped + your thoughts" style="background:none;border:1px solid var(--text-muted);color:var(--text-muted);border-radius:6px;padding:2px 8px;font-size:12px;font-weight:600;cursor:pointer;margin-left:4px">Retire</button>`;
+        const retireBtn = `<button onclick="retireActive('${escJs(item.name)}')" title="Move to Past — log when you stopped + your thoughts" style="min-height:32px;background:none;border:1px solid var(--text-muted);color:var(--text-muted);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;margin-left:4px">Retire</button>`;
 
         const orderLink = item.order_url
             ? `<a href="${esc(item.order_url)}" target="_blank" rel="noopener" title="Order page" style="color:var(--ongoing);text-decoration:none;margin-left:6px;font-size:13px">↗</a>`
@@ -217,7 +217,7 @@ function renderActiveInventory() {
             <td style="padding:8px 10px;text-align:right;white-space:nowrap">
                 ${restockBtn}
                 ${retireBtn}
-                <button onclick="confirmDelete('${escJs(item.name)}','active')" title="Remove" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:18px;padding:0 4px;margin-left:4px">&times;</button>
+                <button onclick="confirmDelete('${escJs(item.name)}','active')" title="Remove" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:18px;padding:6px 8px;margin-left:4px">&times;</button>
             </td>
         </tr>`;
     };
@@ -346,8 +346,8 @@ function renderPastInventory() {
             <td style="padding:8px 10px;white-space:nowrap;font-size:13px;color:var(--text-muted)">${usedRange}</td>
             <td style="padding:8px 10px;font-size:13px;cursor:pointer" onclick="editReview('${escJs(item.name)}')" title="Click to edit">${reviewText}</td>
             <td style="padding:8px 10px;text-align:right;white-space:nowrap">
-                <button onclick="unretireActive('${escJs(item.name)}')" title="Bring back to active" style="background:none;border:1px solid var(--green);color:var(--green);border-radius:6px;padding:2px 8px;font-size:12px;font-weight:600;cursor:pointer">Bring back</button>
-                <button onclick="confirmDelete('${escJs(item.name)}','active')" title="Delete forever" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:18px;padding:0 4px;margin-left:4px">&times;</button>
+                <button onclick="unretireActive('${escJs(item.name)}')" title="Bring back to active" style="min-height:32px;background:none;border:1px solid var(--green);color:var(--green);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer">Bring back</button>
+                <button onclick="confirmDelete('${escJs(item.name)}','active')" title="Delete forever" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:18px;padding:6px 8px;margin-left:4px">&times;</button>
             </td>
         </tr>`;
     };
@@ -390,7 +390,7 @@ function renderBuyItemDetail() {
     const item = D.buy_item;
     if (!item) {
         el.innerHTML = `<div style="padding:20px">
-            <button onclick="history.back()" style="font-size:13px;color:var(--text-muted);background:none;border:1px solid var(--border);border-radius:6px;padding:6px 14px;cursor:pointer;margin-bottom:16px">← Back</button>
+            <button onclick="history.back()" style="min-height:40px;font-size:13px;color:var(--text-muted);background:none;border:1px solid var(--border);border-radius:8px;padding:8px 16px;cursor:pointer;margin-bottom:16px">← Back</button>
             <div style="color:var(--red)">Item not found.</div>
         </div>`;
         return;
@@ -401,33 +401,33 @@ function renderBuyItemDetail() {
 
     el.innerHTML = `
         <div style="max-width:680px;margin:0 auto">
-            <button onclick="history.back()" style="font-size:13px;color:var(--text-muted);background:none;border:1px solid var(--border);border-radius:6px;padding:6px 14px;cursor:pointer;margin-bottom:16px">← Back</button>
+            <button onclick="history.back()" style="min-height:40px;font-size:13px;color:var(--text-muted);background:none;border:1px solid var(--border);border-radius:8px;padding:8px 16px;cursor:pointer;margin-bottom:16px">← Back</button>
 
             <div class="card" style="border-left-color:var(--ongoing);padding:20px">
                 <input type="text" id="detail-name" value="${esc(item.name)}" style="width:100%;font-size:22px;font-weight:700;border:none;outline:none;background:transparent;color:var(--text);margin-bottom:16px;padding:4px 0;border-bottom:1px solid transparent" onfocus="this.style.borderBottomColor='var(--border)'" onblur="this.style.borderBottomColor='transparent'">
 
                 <div style="display:grid;grid-template-columns:80px 1fr;gap:10px 12px;margin-bottom:16px;align-items:center">
                     <label style="font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px">Cost</label>
-                    <input type="text" id="detail-cost" value="${esc(item.cost || '')}" placeholder="$40-80, 30 min, or free" style="padding:7px 12px;border:1px solid var(--border);border-radius:6px;font-size:14px;outline:none;background:var(--bg)">
+                    <input type="text" id="detail-cost" value="${esc(item.cost || '')}" placeholder="$40-80, 30 min, or free" style="min-height:40px;padding:7px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;outline:none;background:var(--bg)">
 
                     <label style="font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px">Why</label>
-                    <input type="text" id="detail-why" value="${esc(item.why || '')}" placeholder="what it solves / unlocks" style="padding:7px 12px;border:1px solid var(--border);border-radius:6px;font-size:14px;outline:none;background:var(--bg)">
+                    <input type="text" id="detail-why" value="${esc(item.why || '')}" placeholder="what it solves / unlocks" style="min-height:40px;padding:7px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;outline:none;background:var(--bg)">
 
                     <label style="font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px">By</label>
-                    <input type="text" id="detail-by" value="${esc(item.by || '')}" placeholder="deadline (YYYY-MM-DD) or open" style="padding:7px 12px;border:1px solid var(--border);border-radius:6px;font-size:14px;outline:none;background:var(--bg)">
+                    <input type="text" id="detail-by" value="${esc(item.by || '')}" placeholder="deadline (YYYY-MM-DD) or open" style="min-height:40px;padding:7px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;outline:none;background:var(--bg)">
 
                     <label style="font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px">Category</label>
-                    <input type="text" id="detail-category" list="detail-categories" value="${esc(item.category || '')}" placeholder="services, supplements, household..." style="padding:7px 12px;border:1px solid var(--border);border-radius:6px;font-size:14px;outline:none;background:var(--bg)">
+                    <input type="text" id="detail-category" list="detail-categories" value="${esc(item.category || '')}" placeholder="services, supplements, household..." style="min-height:40px;padding:7px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;outline:none;background:var(--bg)">
                     <datalist id="detail-categories">${datalistOpts}</datalist>
 
                     <label style="font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px">Where</label>
-                    <input type="text" id="detail-where" value="${esc(item.where || '')}" placeholder="store/site (optional)" style="padding:7px 12px;border:1px solid var(--border);border-radius:6px;font-size:14px;outline:none;background:var(--bg)">
+                    <input type="text" id="detail-where" value="${esc(item.where || '')}" placeholder="store/site (optional)" style="min-height:40px;padding:7px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;outline:none;background:var(--bg)">
 
                     <label style="font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px">Order URL</label>
-                    <input type="url" id="detail-order-url" value="${esc(item.order_url || '')}" placeholder="https://... (one-tap reorder link)" style="padding:7px 12px;border:1px solid var(--border);border-radius:6px;font-size:14px;outline:none;background:var(--bg)">
+                    <input type="url" id="detail-order-url" value="${esc(item.order_url || '')}" placeholder="https://... (one-tap reorder link)" style="min-height:40px;padding:7px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;outline:none;background:var(--bg)">
 
                     <label style="font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px">Priority</label>
-                    <select id="detail-priority" style="padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;background:var(--bg)">
+                    <select id="detail-priority" style="min-height:40px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg)">
                         <option value="high" ${item.priority === 'high' ? 'selected' : ''}>High</option>
                         <option value="medium" ${item.priority === 'medium' ? 'selected' : ''}>Medium</option>
                         <option value="low" ${item.priority === 'low' ? 'selected' : ''}>Low</option>
@@ -436,12 +436,12 @@ function renderBuyItemDetail() {
 
                 <div style="margin-top:8px">
                     <label style="font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:6px">Notes</label>
-                    <textarea id="detail-notes" rows="10" placeholder="research, alternatives, places to try, who recommended what, prices you've seen..." style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:6px;font-size:14px;outline:none;background:var(--bg);font-family:inherit;line-height:1.5;resize:vertical">${esc(item.notes || '')}</textarea>
+                    <textarea id="detail-notes" rows="10" placeholder="research, alternatives, places to try, who recommended what, prices you've seen..." style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;outline:none;background:var(--bg);font-family:inherit;line-height:1.5;resize:vertical">${esc(item.notes || '')}</textarea>
                 </div>
 
                 <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
-                    <button onclick="history.back()" style="padding:8px 16px;border:1px solid var(--border);border-radius:6px;background:none;font-size:13px;cursor:pointer;color:var(--text-muted)">Cancel</button>
-                    <button onclick="saveBuyItemDetail('${escJs(item.name)}')" style="padding:8px 18px;border:none;border-radius:6px;background:var(--text);color:#fff;font-size:13px;font-weight:600;cursor:pointer">Save</button>
+                    <button onclick="history.back()" style="min-height:40px;padding:8px 16px;border:1px solid var(--border);border-radius:8px;background:none;font-size:13px;cursor:pointer;color:var(--text-muted)">Cancel</button>
+                    <button onclick="saveBuyItemDetail('${escJs(item.name)}')" style="min-height:40px;padding:8px 20px;border:none;border-radius:8px;background:var(--text);color:#fff;font-size:13px;font-weight:600;cursor:pointer">Save</button>
                 </div>
             </div>
         </div>
