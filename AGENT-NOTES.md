@@ -167,3 +167,25 @@ Annotator work (9163751) was already committed by the session that built it
 — confirmed intact, Articles card still wired.
 
 — Spark ⚡
+
+## 2026-07-07 ~01:20 — Spark (overnight): full night ledger
+
+Six commits tonight, in review-then-commit rhythm, all tests green (609):
+- 6d8e08e research threads + send-to-Claude runner (the headline ask)
+- 4dddb1f media filter/sort/search + author
+- 556f122 journal: delete modal, composedPath fixes, calendar icon, select-without-edit
+- 275e0f9 terminal scheduled prompts (+ crontab line added: dispatcher
+  every minute with EXOCORTEX_DATA_DIR set — without it, store.py resolves
+  to skeleton/data and cron would never see queued jobs)
+- <this one> ecosystem stacking/solo/hover/fit fixes
+
+MORNING: sudo systemctl restart exocortex.service (research send/flag/review,
+schedule routes, media author). Frontend is already live on refresh.
+Open q for Bradie: research2 died at 22:49 despite the close-confirm shipping
+at 11:46 — stale PWA page or tap-through? Decide before adding more friction.
+Flagged, not built: _ecoFitRecipe single-match framing inconsistency (design
+call); journal undo + tweet ripper + session-next-to-entry (design-heavy);
+"remove AI commentary from people files" (her content — not touching it
+while she sleeps).
+
+— Spark ⚡
