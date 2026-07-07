@@ -1,5 +1,16 @@
 // inventory.js — buy list and (eventually) stock, goods/services tracking
 
+// Show all / Collapse all for the tab's sections. null = each section's own
+// default; renderers consult this so re-renders don't undo the user's choice.
+let _invSectionsOpen = null;
+function _invOpen(defaultOpen) {
+    return (_invSectionsOpen === null ? defaultOpen : _invSectionsOpen) ? 'open' : '';
+}
+function toggleInventorySections(open) {
+    _invSectionsOpen = open;
+    document.querySelectorAll('#buy-list-section details').forEach(d => { d.open = open; });
+}
+
 function renderPriorityNotes() {
     const el = document.getElementById('priority-notes-area');
     if (!el) return;
@@ -142,7 +153,7 @@ function renderBuyList() {
         </div>`;
     }
 
-    let html = `<details open class="card-section" style="margin-bottom:16px">
+    let html = `<details ${_invOpen(true)} class="card-section" style="margin-bottom:16px">
         <summary style="font-size:16px;font-weight:600;cursor:pointer;color:var(--text-secondary)">Buy List${items.length ? ` (${items.length})` : ''}</summary>
         <div class="card" style="border-left-color:var(--ongoing);margin-top:8px;padding:12px">
             ${listHTML || '<div style="font-size:14px;color:var(--text-muted);padding:4px 0">Nothing on the list</div>'}
@@ -295,7 +306,7 @@ function renderActiveInventory() {
         </div>`;
     });
 
-    el.innerHTML = `<details open class="card-section" style="margin-bottom:16px">
+    el.innerHTML = `<details ${_invOpen(true)} class="card-section" style="margin-bottom:16px">
         <summary style="font-size:16px;font-weight:600;cursor:pointer;color:var(--text-secondary)">Consumables${items.length ? ` (${items.length})` : ''}</summary>
         <div class="card" style="border-left-color:var(--green);margin-top:8px;padding:12px">
             ${tablesHTML}
@@ -420,7 +431,7 @@ function renderPastInventory() {
         </div>`;
     });
 
-    el.innerHTML = `<details class="card-section" style="margin-top:16px">
+    el.innerHTML = `<details ${_invOpen(false)} class="card-section" style="margin-top:16px">
         <summary style="font-size:16px;font-weight:600;cursor:pointer;color:var(--text-secondary)">Past Consumables${items.length ? ` (${items.length})` : ''}</summary>
         <div class="card" style="border-left-color:var(--text-muted);margin-top:8px;padding:12px">
             ${tablesHTML}
