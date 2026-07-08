@@ -204,6 +204,7 @@ export function TodosPage() {
                   onOpenDetail={setSelected}
                   onReorder={todoActions.reorder}
                   onAutosort={todoActions.autosort}
+                  onMove={todoActions.move}
                 />
               ))
             )}
@@ -221,6 +222,7 @@ export function TodosPage() {
                 onOpenDetail={setSelected}
                 onReorder={todoActions.reorder}
                 onAutosort={todoActions.autosort}
+                onMove={todoActions.move}
               />
             ) : null}
           </div>

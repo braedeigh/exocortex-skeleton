@@ -1,3 +1,15 @@
+/* Later/Someday/Done currently share --todo-3, a lighter blue-gray that
+   reads as a different color family from Now/Up Next's teal (--todo-1/2)
+   rather than a darker, cooler variant of it. "Light mode" here can't come
+   from prefers-color-scheme: the page's lightness is driven by sky-theme.js
+   (time-of-day themes setting --bg/--text inline), which ignores the OS
+   scheme entirely. Deriving the accent from the live theme's own --text/--bg
+   gives the darker neutral gray she asked for on light themes and stays
+   readable on dark ones. */
+:global(:root) {
+  --todo-later-accent: color-mix(in srgb, var(--text) 58%, var(--bg));
+}
+
 .card {
   margin: var(--space-3) var(--space-4);
   border: 1px solid var(--border);
@@ -5,6 +17,11 @@
   border-radius: var(--radius-lg);
   background: var(--card-bg);
   overflow: hidden;
+  transition: box-shadow 0.1s ease;
+}
+
+.card.dropTarget {
+  box-shadow: 0 0 0 2px var(--accent);
 }
 
 .summary {

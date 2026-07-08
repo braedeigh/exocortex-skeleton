@@ -1064,7 +1064,11 @@ async function pollJournal() {
 
         // Poll journal content
         if (!currentDate) return;
-        if (document.activeElement === editor) return;
+        // Bail while she's typing anywhere in the journal UI — not just the
+        // main editor. Card-edit textareas and the dev-note box are just as
+        // vulnerable to a mid-keystroke content/card refresh yanking focus.
+        const _ae = document.activeElement;
+        if (_ae && (_ae === editor || _ae.tagName === 'INPUT' || _ae.tagName === 'TEXTAREA' || _ae.isContentEditable)) return;
         const resp = await fetch(`/api/journal/${currentDate}`);
         const data = await resp.json();
         if (data.content !== lastSaved) {

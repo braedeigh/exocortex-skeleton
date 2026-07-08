@@ -313,6 +313,19 @@ async function loadDashboard() {
 
 // --- render ---
 function render() {
+    // Authoritative guard: never rebuild the DOM while she's mid-keystroke.
+    // polling.js's _inputFocused flag is event-based (focusin/focusout) and can
+    // miss iOS PWA blips — the autocorrect bar etc. fires focusout *between*
+    // keystrokes, flipping the flag false while she's still typing. Checking
+    // activeElement here, at render time, can't be fooled by a stale flag.
+    // Defer instead of skipping: flip the shared _pendingRender flag so
+    // polling.js's focusout handler (and its next-poll-tick fallback) replays
+    // this render once she's actually done, so no update is lost.
+    const _typingEl = document.activeElement;
+    if (_typingEl && (_typingEl.tagName === 'INPUT' || _typingEl.tagName === 'TEXTAREA' || _typingEl.isContentEditable)) {
+        if (typeof _pendingRender !== 'undefined') _pendingRender = true;
+        return;
+    }
     if (!TAB_RENDERERS) {
         TAB_RENDERERS = {
             today: [

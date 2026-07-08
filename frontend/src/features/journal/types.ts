@@ -22,9 +22,16 @@ export interface Card {
   ts: string;
   reply_to: string | null;
   tags: string[];
-  /** "line" | "context" | "" */
+  /** "line" | "context" | "ref" | "" */
   kind: string;
   body: string;
+  /**
+   * Target strings for a "ref" card (keeper-authored annotation): each is
+   * either a journal date "YYYY-MM-DD" or a vault-relative file path (e.g.
+   * "people/vivian.md", "THREADS.md"). Always present (default []); only
+   * meaningful when kind === "ref". See refTargets.ts for classification.
+   */
+  refs: string[];
 }
 
 export interface CardsResponse {

@@ -20,6 +20,15 @@ NOTES_PATH = DATA_DIR / "notes_dump.md"
 
 _VALID_SESSION_RE = re.compile(r'^[a-zA-Z0-9_-]{1,30}$')
 
+# Shared with terminal_send()'s "accept the confirmation prompt before typing"
+# logic below, and with /api/terminal/needs-input (which tints a background
+# session's tab so it's not silently waiting forever off-screen).
+_PROMPT_PATTERNS = [
+    "? (y/n)", "(Y)es", "(N)o", "Allow?", "Allow ",
+    "1: Bad", "2: Fine", "3: Good", "(optional)",
+    "? for shortcuts", "(y)es, (n)o", "(a)lways",
+]
+
 # --- Scheduled prompts ("timers for starting code in the terminal") ---------
 # Jobs live in scheduled_prompts.json (via store.py, so writes are atomic and
 # concurrency-safe). A standalone script, scripts/prompt_dispatcher.py, is
@@ -151,12 +160,7 @@ def register(app):
         if "text" in data:
             text = data["text"]
             last_lines = _tmux(f"capture-pane -t {sess} -p -S -15").stdout.strip()
-            prompt_patterns = [
-                "? (y/n)", "(Y)es", "(N)o", "Allow?", "Allow ",
-                "1: Bad", "2: Fine", "3: Good", "(optional)",
-                "? for shortcuts", "(y)es, (n)o", "(a)lways",
-            ]
-            if any(p.lower() in last_lines.lower() for p in prompt_patterns):
+            if any(p.lower() in last_lines.lower() for p in _PROMPT_PATTERNS):
                 _tmux(f"send-keys -t {sess} Enter")
                 time.sleep(0.3)
             if len(text) > 500:
@@ -328,6 +332,21 @@ def register(app):
                 time.sleep(1)
         return Response(generate(), mimetype='text/event-stream',
                         headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+    @app.route("/api/terminal/needs-input")
+    def terminal_needs_input():
+        """Per-session 'is something waiting on you' flag, for tinting a
+        background session's tab. Reuses the same _PROMPT_PATTERNS heuristic
+        terminal_send() already checks before typing into a session — cheap
+        (just a capture-pane), no new tmux state to maintain, and it clears
+        itself on the next poll once the prompt scrolls off (e.g. because
+        terminal_send() auto-accepted it when a message was sent)."""
+        sessions = _load_sessions()
+        result = {}
+        for s in sessions:
+            text = _tmux(f"capture-pane -t {s} -p -S -15").stdout.lower()
+            result[s] = any(p.lower() in text for p in _PROMPT_PATTERNS)
+        return jsonify({"sessions": result})
 
     @app.route("/api/terminal/upload", methods=["POST"])
     def terminal_upload():

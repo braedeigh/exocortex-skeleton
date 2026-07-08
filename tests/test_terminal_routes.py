@@ -7,6 +7,8 @@ until the cursor hits the top row — which made touch-drag scroll (mode=lines)
 silently do nothing. These tests pin the `-X` form so that regression can't
 come back.
 """
+import re
+
 import pytest
 from flask import Flask
 from routes import terminal
@@ -149,3 +151,44 @@ def test_send_rejects_injection_in_key(term_client, payload):
     assert resp.status_code == 400
     # nothing was ever sent to tmux for the rejected key
     assert not any("send-keys" in c for c in _scroll_calls(term_client))
+
+
+# --- /api/terminal/needs-input ------------------------------------------------
+
+@pytest.fixture
+def needs_input_client(monkeypatch, tmp_path):
+    """Like term_client, but capture-pane output is per-session and
+    configurable, since needs-input probes every default session."""
+    calls = []
+    panes = {"chat": "", "dev": "", "other": ""}
+
+    def fake_tmux(cmd_str):
+        calls.append(cmd_str)
+        m = re.search(r"-t (\S+)", cmd_str)
+        sess = m.group(1) if m else None
+        out = panes.get(sess, "") if "capture-pane" in cmd_str else ""
+
+        class _R:
+            stdout = out
+        return _R()
+
+    monkeypatch.setattr(terminal, "_tmux", fake_tmux)
+    app = Flask(__name__)
+    app.config.update(TESTING=True)
+    terminal.register(app)
+    client = app.test_client()
+    client._panes = panes
+    client._tmux_calls = calls
+    return client
+
+
+def test_needs_input_false_when_no_prompt_pending(needs_input_client):
+    resp = needs_input_client.get("/api/terminal/needs-input")
+    assert resp.status_code == 200
+    assert resp.get_json()["sessions"] == {"chat": False, "dev": False, "other": False}
+
+
+def test_needs_input_true_when_prompt_pattern_present(needs_input_client):
+    needs_input_client._panes["dev"] = "Do you want to proceed? Allow?"
+    data = needs_input_client.get("/api/terminal/needs-input").get_json()
+    assert data["sessions"] == {"chat": False, "dev": True, "other": False}

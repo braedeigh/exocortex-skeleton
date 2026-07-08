@@ -19,6 +19,17 @@
   border-bottom-color: var(--accent);
 }
 
+/* "a terminal that needs input... turns a different color until I open it" —
+ * tinted while a background session is waiting on a response. */
+.needsInput {
+  background: color-mix(in srgb, var(--orange) 16%, transparent);
+  border-bottom-color: var(--orange);
+}
+
+.needsInput .tabLabel {
+  color: var(--orange);
+}
+
 .tabLabel {
   flex: 1;
   min-width: 0;
@@ -48,7 +59,8 @@
 /* Close × for custom sessions — always visible (touch-friendly), reddens on hover. */
 .closeX {
   flex: 0 0 auto;
-  width: 28px;
+  min-width: 32px;
+  padding: 0 var(--space-2);
   border: none;
   background: transparent;
   color: var(--text-muted);
@@ -59,6 +71,20 @@
 
 .closeX:hover {
   color: var(--red);
+}
+
+/* Two-step close confirm ("tap × again") — no native confirm(). */
+.closeConfirm {
+  min-width: 52px;
+  border-radius: var(--radius-sm);
+  background: var(--red);
+  color: #fff;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.closeConfirm:hover {
+  color: #fff;
 }
 
 .addBtn {

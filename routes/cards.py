@@ -59,6 +59,9 @@ def _card_dict(meta, body, fallback_id=None):
     tags = meta.get("tags", [])
     if not isinstance(tags, list):
         tags = [tags] if tags else []
+    refs = meta.get("refs", [])
+    if not isinstance(refs, list):
+        refs = [refs] if refs else []
     return {
         "id": meta.get("id") or fallback_id,
         "who": meta.get("who", ""),
@@ -66,6 +69,7 @@ def _card_dict(meta, body, fallback_id=None):
         "reply_to": reply_to,
         "tags": tags,
         "kind": meta.get("kind", ""),
+        "refs": refs,
         "body": body.strip("\n"),
     }
 

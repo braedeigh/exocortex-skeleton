@@ -75,6 +75,15 @@
   opacity: 0.5;
 }
 
+.notesPreview {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
 .chips {
   display: flex;
   flex-wrap: wrap;

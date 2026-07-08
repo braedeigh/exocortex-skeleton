@@ -1,0 +1,173 @@
+.panel {
+  position: absolute;
+  top: 100px;
+  right: var(--space-3);
+  z-index: 51;
+  width: min(340px, 80%);
+  max-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--card-bg);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-xl);
+  padding: var(--space-3);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+}
+
+.composer {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-end;
+}
+
+.input {
+  flex: 1;
+  min-height: 40px;
+  max-height: 160px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--font-size-base);
+  font-family: inherit;
+  resize: none;
+  overflow-y: auto;
+}
+
+.addBtn {
+  flex: 0 0 auto;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-4);
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--accent);
+  color: #fff;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.addBtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.list {
+  overflow-y: auto;
+  margin-top: var(--space-2);
+  font-size: var(--font-size-sm);
+}
+
+.empty {
+  padding: var(--space-2) 0;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.item {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--border);
+}
+
+.item:first-child {
+  border-top: none;
+}
+
+.body {
+  flex: 1;
+  min-width: 0;
+  padding-top: 5px;
+}
+
+.text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+}
+
+.date {
+  margin-top: 2px;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.act {
+  flex: 0 0 auto;
+  min-width: 34px;
+  min-height: 34px;
+  padding: 0 var(--space-2);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-muted);
+  font-size: var(--font-size-base);
+  cursor: pointer;
+}
+
+.act:hover {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--accent);
+}
+
+.actDanger {
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 12%, transparent);
+}
+
+.actDanger:hover {
+  background: color-mix(in srgb, var(--red) 22%, transparent);
+  color: var(--red);
+}
+
+.editRow {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.editArea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 60px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--font-size-sm);
+  line-height: 1.4;
+  font-family: inherit;
+  resize: none;
+}
+
+.editBtns {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+  margin-top: var(--space-2);
+}
+
+.editBtns button {
+  min-height: 34px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.saveBtn {
+  border: none;
+  background: var(--accent);
+  color: #fff;
+}
+
+.cancelBtn {
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text-muted);
+}

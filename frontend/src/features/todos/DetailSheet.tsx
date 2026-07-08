@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button, IconButton, Sheet } from '../../ui';
 import { LADDER_LABELS, TODO_CATEGORIES, TODO_STATUSES, TODO_THEMES, fmtAddedDate } from './todoHelpers';
 import type { TodoDetailsPatch } from '../../api/endpoints';
@@ -16,6 +16,9 @@ export interface DetailSheetProps {
   onRemove: (id: string) => void;
 }
 
+const SNOOZE_DAYS = [1, 2, 3, 4, 5, 6];
+const SNOOZE_WEEKS = [1, 2, 3, 4];
+
 export function DetailSheet({ item, open, currentSection, onClose, onSave, onMove, onSnooze, onRemove }: DetailSheetProps) {
   const [text, setText] = useState('');
   const [notes, setNotes] = useState('');
@@ -25,8 +28,13 @@ export function DetailSheet({ item, open, currentSection, onClose, onSave, onMov
   const [category, setCategory] = useState('');
   const [status, setStatus] = useState('');
   const [durationMin, setDurationMin] = useState('');
-  const [customSnooze, setCustomSnooze] = useState('');
   const [confirmingRemove, setConfirmingRemove] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [editingNotes, setEditingNotes] = useState(false);
+
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  const notesInputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (!item) return;
@@ -39,7 +47,18 @@ export function DetailSheet({ item, open, currentSection, onClose, onSave, onMov
     setStatus(item.status || '');
     setDurationMin(item.duration_min ? String(item.duration_min) : '');
     setConfirmingRemove(false);
+    setMoreOpen(false);
+    setEditingTitle(false);
+    setEditingNotes(false);
   }, [item]);
+
+  useEffect(() => {
+    if (editingTitle) titleInputRef.current?.focus();
+  }, [editingTitle]);
+
+  useEffect(() => {
+    if (editingNotes) notesInputRef.current?.focus();
+  }, [editingNotes]);
 
   if (!open || !item) return null;
 
@@ -61,6 +80,16 @@ export function DetailSheet({ item, open, currentSection, onClose, onSave, onMov
     onClose();
   }
 
+  function pickCategory(key: string) {
+    if (!item) return;
+    const next = category === key ? '' : key;
+    setCategory(next);
+    // Category is a one-tap, immediately-committed change — it doesn't wait
+    // for the Save button, and deliberately doesn't touch the title so an
+    // in-progress (unsaved) title edit isn't force-committed as a side effect.
+    onSave(item.id, { category: next }, item.text);
+  }
+
   return (
     <Sheet open={open} title="Edit to-do" onClose={onClose}>
       <div className={styles.meta}>
@@ -68,57 +97,46 @@ export function DetailSheet({ item, open, currentSection, onClose, onSave, onMov
       </div>
 
       <div className={styles.field}>
-        <label className={styles.label} htmlFor="td-text">
-          Text
-        </label>
-        <input id="td-text" className={styles.input} value={text} onChange={(e) => setText(e.target.value)} />
-      </div>
-
-      <div className={styles.field}>
-        <label className={styles.label} htmlFor="td-notes">
-          Notes
-        </label>
-        <textarea
-          id="td-notes"
-          className={styles.textarea}
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          placeholder="Add a description…"
-        />
-      </div>
-
-      <div className={styles.field}>
-        <span className={styles.label}>Due</span>
-        <div className={styles.row2}>
+        {editingTitle ? (
           <input
-            className={styles.input}
-            type="date"
-            value={dueBy}
-            onChange={(e) => setDueBy(e.target.value)}
-            aria-label="Due date"
+            id="td-text"
+            ref={titleInputRef}
+            className={`${styles.input} ${styles.titleInput}`}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onBlur={() => setEditingTitle(false)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                setEditingTitle(false);
+              }
+            }}
+            aria-label="Text"
           />
-          <input
-            className={styles.input}
-            type="time"
-            value={dueTime}
-            onChange={(e) => setDueTime(e.target.value)}
-            aria-label="Due time"
-          />
-        </div>
+        ) : (
+          <button type="button" className={styles.titleDisplay} onClick={() => setEditingTitle(true)}>
+            {text || 'Untitled'}
+          </button>
+        )}
       </div>
 
       <div className={styles.field}>
-        <label className={styles.label} htmlFor="td-theme">
-          Focus
-        </label>
-        <select id="td-theme" className={styles.select} value={theme} onChange={(e) => setTheme(e.target.value)}>
-          <option value="">🏷️ Other</option>
-          {TODO_THEMES.map((t) => (
-            <option key={t.key} value={t.key}>
-              {t.emoji} {t.label}
-            </option>
-          ))}
-        </select>
+        {editingNotes ? (
+          <textarea
+            id="td-notes"
+            ref={notesInputRef}
+            className={styles.textarea}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            onBlur={() => setEditingNotes(false)}
+            placeholder="Add a description…"
+            aria-label="Notes"
+          />
+        ) : (
+          <button type="button" className={styles.notesDisplay} onClick={() => setEditingNotes(true)}>
+            {notes ? notes : <span className={styles.placeholder}>Add a description…</span>}
+          </button>
+        )}
       </div>
 
       <div className={styles.field}>
@@ -129,7 +147,7 @@ export function DetailSheet({ item, open, currentSection, onClose, onSave, onMov
               type="button"
               key={c.key}
               className={`${styles.chip} ${category === c.key ? styles.active : ''}`}
-              onClick={() => setCategory((cur) => (cur === c.key ? '' : c.key))}
+              onClick={() => pickCategory(c.key)}
             >
               {c.label}
             </button>
@@ -137,113 +155,158 @@ export function DetailSheet({ item, open, currentSection, onClose, onSave, onMov
         </div>
       </div>
 
-      <div className={styles.field}>
-        <span className={styles.label}>Status</span>
-        <div className={styles.chips}>
-          {TODO_STATUSES.map((s) => (
-            <button
-              type="button"
-              key={s.key}
-              className={`${styles.chip} ${status === s.key ? styles.active : ''}`}
-              onClick={() => setStatus((cur) => (cur === s.key ? '' : s.key))}
-            >
-              {s.label}
-            </button>
-          ))}
-        </div>
-      </div>
+      <button
+        type="button"
+        className={styles.moreToggle}
+        onClick={() => setMoreOpen((v) => !v)}
+        aria-expanded={moreOpen}
+      >
+        <span className={`${styles.moreArrow} ${moreOpen ? styles.moreArrowOpen : ''}`} aria-hidden="true">
+          &#9654;
+        </span>
+        {moreOpen ? 'Fewer options' : 'More options'}
+      </button>
 
-      <div className={styles.field}>
-        <label className={styles.label} htmlFor="td-duration">
-          Duration (minutes)
-        </label>
-        <div className={styles.chips}>
-          {[15, 30, 60].map((m) => (
-            <button
-              type="button"
-              key={m}
-              className={`${styles.chip} ${durationMin === String(m) ? styles.active : ''}`}
-              onClick={() => setDurationMin(String(m))}
-            >
-              {m}m
-            </button>
-          ))}
-          <input
-            id="td-duration"
-            className={styles.input}
-            style={{ width: 90 }}
-            type="number"
-            min={0}
-            step={5}
-            value={durationMin}
-            onChange={(e) => setDurationMin(e.target.value)}
-            placeholder="min"
-          />
-        </div>
-      </div>
-
-      <div className={styles.field}>
-        <label className={styles.label} htmlFor="td-move">
-          Move to
-        </label>
-        <select
-          id="td-move"
-          className={styles.select}
-          value={currentSection || ''}
-          onChange={(e) => onMove(item.id, e.target.value)}
-        >
-          {LADDER_LABELS.map((label) => (
-            <option key={label} value={label}>
-              {label}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className={styles.field}>
-        <span className={styles.label}>Snooze</span>
-        <div className={styles.snoozeRow}>
-          {[
-            [1, '1 day'],
-            [3, '3 days'],
-            [7, '1 week'],
-          ].map(([days, label]) => (
-            <button
-              type="button"
-              key={label}
-              className={styles.chip}
-              onClick={() => onSnooze(item.id, days as number)}
-            >
-              {label}
-            </button>
-          ))}
-          <div className={styles.snoozeCustom}>
-            <input
-              type="number"
-              min={1}
-              value={customSnooze}
-              onChange={(e) => setCustomSnooze(e.target.value)}
-              placeholder="days"
-              aria-label="Custom snooze days"
-            />
-            <Button
-              variant="secondary"
-              onClick={() => {
-                const n = Number(customSnooze);
-                if (n > 0) onSnooze(item.id, n);
-                setCustomSnooze('');
-              }}
-            >
-              Snooze
-            </Button>
+      {moreOpen ? (
+        <>
+          <div className={styles.field}>
+            <span className={styles.label}>Due</span>
+            <div className={styles.row2}>
+              <input
+                className={styles.input}
+                type="date"
+                value={dueBy}
+                onChange={(e) => setDueBy(e.target.value)}
+                aria-label="Due date"
+              />
+              <input
+                className={styles.input}
+                type="time"
+                value={dueTime}
+                onChange={(e) => setDueTime(e.target.value)}
+                aria-label="Due time"
+              />
+            </div>
+            {dueBy ? (
+              <button
+                type="button"
+                className={styles.chip}
+                onClick={() => {
+                  setDueBy('');
+                  setDueTime('');
+                }}
+              >
+                &#8617; Remove date
+              </button>
+            ) : null}
           </div>
-          {item.snoozed_until ? (
-            <button type="button" className={styles.chip} onClick={() => onSnooze(item.id, 0)}>
-              &#8617; Clear snooze
-            </button>
-          ) : null}
-        </div>
-      </div>
+
+          <div className={styles.field}>
+            <label className={styles.label} htmlFor="td-theme">
+              Focus
+            </label>
+            <select id="td-theme" className={styles.select} value={theme} onChange={(e) => setTheme(e.target.value)}>
+              <option value="">🏷️ Other</option>
+              {TODO_THEMES.map((t) => (
+                <option key={t.key} value={t.key}>
+                  {t.emoji} {t.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className={styles.field}>
+            <span className={styles.label}>Status</span>
+            <div className={styles.chips}>
+              {TODO_STATUSES.map((s) => (
+                <button
+                  type="button"
+                  key={s.key}
+                  className={`${styles.chip} ${status === s.key ? styles.active : ''}`}
+                  onClick={() => setStatus((cur) => (cur === s.key ? '' : s.key))}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className={styles.field}>
+            <label className={styles.label} htmlFor="td-duration">
+              Duration (minutes)
+            </label>
+            <div className={styles.chips}>
+              {[15, 30, 60].map((m) => (
+                <button
+                  type="button"
+                  key={m}
+                  className={`${styles.chip} ${durationMin === String(m) ? styles.active : ''}`}
+                  onClick={() => setDurationMin(String(m))}
+                >
+                  {m}m
+                </button>
+              ))}
+              <input
+                id="td-duration"
+                className={styles.input}
+                style={{ width: 90 }}
+                type="number"
+                min={0}
+                step={5}
+                value={durationMin}
+                onChange={(e) => setDurationMin(e.target.value)}
+                placeholder="min"
+              />
+            </div>
+          </div>
+
+          <div className={styles.field}>
+            <label className={styles.label} htmlFor="td-move">
+              Move to
+            </label>
+            <select
+              id="td-move"
+              className={styles.select}
+              value={currentSection || ''}
+              onChange={(e) => onMove(item.id, e.target.value)}
+            >
+              {LADDER_LABELS.map((label) => (
+                <option key={label} value={label}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className={styles.field}>
+            <span className={styles.label}>Snooze</span>
+            <div className={styles.snoozeRow}>
+              {SNOOZE_DAYS.map((d) => (
+                <button type="button" key={`d${d}`} className={styles.chip} onClick={() => onSnooze(item.id, d)}>
+                  {d}d
+                </button>
+              ))}
+            </div>
+            <div className={styles.snoozeRow}>
+              {SNOOZE_WEEKS.map((w) => (
+                <button
+                  type="button"
+                  key={`w${w}`}
+                  className={styles.chip}
+                  onClick={() => onSnooze(item.id, w * 7)}
+                >
+                  {w}w
+                </button>
+              ))}
+            </div>
+            {item.snoozed_until ? (
+              <button type="button" className={styles.chip} onClick={() => onSnooze(item.id, 0)}>
+                &#8617; Clear snooze
+              </button>
+            ) : null}
+          </div>
+        </>
+      ) : null}
 
       <div className={styles.actions}>
         <Button variant="secondary" onClick={onClose}>

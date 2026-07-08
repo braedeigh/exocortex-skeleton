@@ -178,6 +178,27 @@ function _daysUntil(dateStr) {
     return Math.round((target - today) / (1000 * 60 * 60 * 24));
 }
 
+function _ordinal(n) {
+    n = parseInt(n, 10);
+    if (!n) return '';
+    const suf = ['th', 'st', 'nd', 'rd'], v = n % 100;
+    return n + (suf[(v - 20) % 10] || suf[v] || suf[0]);
+}
+
+async function updateSubscriptionField(name, field, value) {
+    const res = await fetch('/api/subscription/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, [field]: value })
+    });
+    if (res.ok) {
+        loadDashboard();
+    } else {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || 'Update failed');
+    }
+}
+
 function renderSubscriptions() {
     const el = document.getElementById('subscriptions-area');
     if (!el) return;
@@ -212,9 +233,24 @@ function renderSubscriptions() {
             ? `<a href="${esc(s.cancel_url)}" target="_blank" rel="noopener" title="Cancel page" style="color:var(--ongoing);text-decoration:none;margin-right:6px;font-size:13px">↗</a>`
             : '';
         const freq = s.frequency === 'yearly' ? '/yr' : '/mo';
+        const label = s.display_name || s.name;
+        const idBadge = label !== s.name
+            ? `<span title="Matches transactions as &quot;${esc(s.name)}&quot;" style="font-size:11px;color:var(--text-muted);cursor:help;white-space:nowrap"> (${esc(s.name)})</span>`
+            : '';
+        const nameInput = `<input type="text" value="${esc(label)}" data-orig="${esc(label)}" title="Edit how this shows here (doesn't change what it matches in transactions)"
+            onfocus="this.style.borderColor='var(--border)'"
+            onblur="this.style.borderColor='transparent'; const v=this.value.trim(); if(v && v!==this.dataset.orig) updateSubscriptionField('${escJs(s.name)}','display_name', v)"
+            style="font-weight:600;border:1px solid transparent;border-radius:4px;padding:2px 4px;font-size:14px;background:transparent;color:var(--text);width:150px">`;
+        const billDay = s.bill_day || '';
+        const billDayCell = `<input type="number" min="1" max="31" value="${billDay}" data-orig="${billDay}" placeholder="—" title="Day of month this bill occurs on"
+            oninput="this.nextElementSibling.textContent = this.value ? _ordinal(this.value) : ''"
+            onblur="if(this.value !== this.dataset.orig) updateSubscriptionField('${escJs(s.name)}','bill_day', this.value)"
+            style="width:46px;padding:3px 4px;border:1px solid var(--border);border-radius:4px;font-size:13px;background:var(--bg);text-align:center">
+            <span style="font-size:12px;color:var(--text-muted);margin-left:4px">${billDay ? _ordinal(billDay) : ''}</span>`;
         return `<tr style="border-top:1px solid var(--border)">
-            <td style="padding:8px 10px"><b>${esc(s.name)}</b>${cancelLink ? ' ' + cancelLink : ''}</td>
+            <td style="padding:8px 10px">${nameInput}${idBadge}${cancelLink ? ' ' + cancelLink : ''}</td>
             <td style="padding:8px 10px;white-space:nowrap;font-size:13px">${_m(s.amount)}${freq}</td>
+            <td style="padding:8px 10px;white-space:nowrap">${billDayCell}</td>
             <td style="padding:8px 10px;white-space:nowrap;font-size:13px">${renewCell}</td>
             <td style="padding:8px 10px;font-size:13px;color:var(--text-muted)">${esc(s.notes || '')}</td>
             <td style="padding:8px 10px;text-align:right">
@@ -230,6 +266,7 @@ function renderSubscriptions() {
                 <thead><tr style="text-align:left;color:var(--text-muted);font-size:12px;text-transform:uppercase;letter-spacing:0.5px">
                     <th style="padding:6px 10px;font-weight:600">Name</th>
                     <th style="padding:6px 10px;font-weight:600">Cost</th>
+                    <th style="padding:6px 10px;font-weight:600">Bill day</th>
                     <th style="padding:6px 10px;font-weight:600">Next renewal</th>
                     <th style="padding:6px 10px;font-weight:600">Notes</th>
                     <th></th>

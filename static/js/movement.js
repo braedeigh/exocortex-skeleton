@@ -10,6 +10,14 @@ if (!window._moveNewRoutine) window._moveNewRoutine = { open: false };
 // Which routine is opened into its detail view (recipe-style drill-in), or null.
 // Window-scoped so it survives the 5s polling re-render, like _kitchenRecipeView.
 if (!window._movementRoutineView) window._movementRoutineView = null;
+// Whether video links/thumbnails are hidden in the detail view — a "just the
+// routine and the reps/timing" focus mode for actually running through it.
+// Persisted across sessions/reloads via localStorage.
+if (window._moveHideVideos === undefined) {
+    let _storedHideVideos = false;
+    try { _storedHideVideos = localStorage.getItem('movement_hide_videos') === '1'; } catch (e) {}
+    window._moveHideVideos = _storedHideVideos;
+}
 
 function _movementRoutines() {
     return (D.movement && D.movement.routines) || [];
@@ -88,16 +96,18 @@ function _movementListCard(r) {
 // --- Detail view: the opened routine — Back/Edit header, then its moves ---
 function _movementDetail(r) {
     const editing = window._moveEdit.routineId === r.id;
+    const hideVideos = window._moveHideVideos;
     const header = `<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
         <button onclick="_moveCloseRoutine()" style="display:inline-flex;align-items:center;height:38px;padding:0 16px;border-radius:8px;border:1px solid var(--border);background:none;color:var(--text-muted);font-size:14px;font-weight:600;cursor:pointer">&#8592; Back</button>
-        ${editing ? '' : `<button onclick="_moveEditOpen('${esc(r.id)}')" style="margin-left:auto;height:38px;padding:0 16px;border-radius:8px;border:1px solid var(--border);background:none;color:var(--text-muted);font-size:14px;font-weight:600;cursor:pointer">Edit</button>`}
+        ${editing ? '' : `<button onclick="_moveToggleHideVideos()" title="${hideVideos ? 'Show the video links again' : 'Hide video links — just the routine and reps/timing'}" style="margin-left:auto;display:inline-flex;align-items:center;height:38px;padding:0 14px;border-radius:8px;border:1px solid var(--border);background:${hideVideos ? 'var(--accent)' : 'none'};color:${hideVideos ? '#fff' : 'var(--text-muted)'};font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">${hideVideos ? '&#128065; Show videos' : '&#128683; Hide videos'}</button>`}
+        ${editing ? '' : `<button onclick="_moveEditOpen('${esc(r.id)}')" style="height:38px;padding:0 16px;border-radius:8px;border:1px solid var(--border);background:none;color:var(--text-muted);font-size:14px;font-weight:600;cursor:pointer">Edit</button>`}
     </div>`;
     if (editing) {
         return header + _movementRoutineEditor(r);
     }
     const moves = r.moves || [];
     const rows = moves.length
-        ? moves.map(m => _movementMoveRow(r, m)).join('')
+        ? moves.map(m => _movementMoveRow(r, m, hideVideos)).join('')
         : `<div style="color:var(--text-muted);font-style:italic;padding:12px 2px;font-size:14px">No moves yet — tap Edit to add some.</div>`;
     const note = r.note
         ? `<div style="font-size:13px;color:var(--text-muted);margin:0 0 14px;line-height:1.45">${esc(r.note)}</div>`
@@ -108,7 +118,7 @@ function _movementDetail(r) {
         ${rows}`;
 }
 
-function _movementMoveRow(r, m) {
+function _movementMoveRow(r, m, hideVideos) {
     const hasVid = !!(m.url && m.url.trim());
     const dose = m.dose
         ? `<span style="display:inline-block;padding:2px 9px;border-radius:11px;background:rgba(124,92,191,0.16);color:var(--accent);font-size:12px;font-weight:700;white-space:nowrap">${esc(m.dose)}</span>`
@@ -123,6 +133,14 @@ function _movementMoveRow(r, m) {
             <div style="font-size:15px;font-weight:600;color:var(--text)">${esc(m.name)}</div>
             ${meta}
         </div>`;
+    if (hideVideos) {
+        // Focus mode mid-routine: just the move, its dose/reps and cue — no
+        // video thumbnail, player, or link, however the move is set up.
+        return `<div style="display:flex;align-items:center;gap:12px;padding:11px 12px;margin-bottom:8px;border:1px solid var(--border);border-radius:10px;background:var(--bg);min-height:44px;box-sizing:border-box">
+            <span style="flex:none;width:30px;height:30px;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:15px">&#9679;</span>
+            ${label}
+        </div>`;
+    }
     const vidId = _ytId(m.url);
     if (vidId) {
         // Inline click-to-load player — thumbnail until tapped, then plays in
@@ -239,6 +257,14 @@ function _moveCloseRoutine() {
 function _moveEditOpen(id) { window._moveEdit = { routineId: id }; renderMovement(); }
 function _moveEditClose() { window._moveEdit = { routineId: null }; renderMovement(); }
 function _moveNewRoutineToggle(open) { window._moveNewRoutine = { open: !!open }; renderMovement(); }
+
+// Hide/show video links+thumbnails in the routine detail view — for running
+// through a routine without the videos pulling focus. Persists across reloads.
+function _moveToggleHideVideos() {
+    window._moveHideVideos = !window._moveHideVideos;
+    try { localStorage.setItem('movement_hide_videos', window._moveHideVideos ? '1' : '0'); } catch (e) {}
+    renderMovement();
+}
 
 // --- API helpers ---
 async function _movePost(url, payload) {

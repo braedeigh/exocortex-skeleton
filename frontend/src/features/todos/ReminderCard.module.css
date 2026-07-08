@@ -6,8 +6,12 @@
 }
 
 .bar {
+  /* Text sits full-width above the button row (rather than squeezed beside
+     it) now that the due row can have three buttons (snooze / Yesterday /
+     Done). */
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   gap: var(--space-3);
   min-height: 56px;
   padding: var(--space-3) var(--space-4);
@@ -72,10 +76,11 @@
 .actions {
   display: flex;
   gap: var(--space-2);
-  flex-shrink: 0;
+  width: 100%;
 }
 
 .actionBtn {
+  flex: 1;
   min-height: var(--tap-target);
   padding: 0 var(--space-3);
   border-radius: var(--radius-md);
@@ -89,6 +94,7 @@
 }
 
 .iconBtn {
+  flex: 0 0 var(--tap-target);
   min-height: var(--tap-target);
   min-width: var(--tap-target);
   border-radius: var(--radius-md);

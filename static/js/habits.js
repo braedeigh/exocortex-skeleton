@@ -460,8 +460,16 @@ function renderHabitTracker() {
         const key = habitKey(sectionName, habit);
         const maxLen = 30;
         const shortName = habit.length > maxLen ? habit.slice(0, maxLen) + '...' : habit;
+        // Habits recorded before this habit's own start date shouldn't show a
+        // loggable dot — that history doesn't exist. Habits without a recorded
+        // start (pre-dating this feature) aren't clamped.
+        const startDate = (D.habit_starts || {})[habit] || null;
         let row = `<tr><td class="metric-label">${esc(shortName)}<span style="font-size:12px;color:var(--text-muted);margin-left:6px">${habitStartLabel(habit)}${total}/60</span></td>`;
         days.forEach(d => {
+            if (startDate && d < startDate) {
+                row += `<td><div class="dot dot-prestart" title="Before this habit started"></div></td>`;
+                return;
+            }
             const hit = log[d] && log[d][key];
             const color = hit ? accentColor : '#2a2a4a';
             if (hit) {
@@ -477,6 +485,11 @@ function renderHabitTracker() {
     // Top Edit button now lives on the card's title line (see index.html);
     // a second one is rendered below the habits.
     let html = '';
+
+    // Easy-add: jump straight to the same "New habit" flow used elsewhere,
+    // without navigating off the Map tab.
+    html += `<button onclick="openHabitConfigNew()" title="Add a habit with time-of-day and an optional course length"
+        style="margin-bottom:12px;min-height:40px;width:100%;font-size:13px;background:none;border:1px dashed var(--border);border-radius:8px;color:var(--text-muted);cursor:pointer">&#43; Add habit</button>`;
 
     // --- Shared inline editor (used by the daily-habits panel AND Building next) ---
     // Find actual section names from D.habits

@@ -51,6 +51,15 @@ def _drop_overlays(section, name):
             d.pop(key, None)
 
 
+def _record_habit_start(name):
+    """Record today as a habit's first-seen date, if it doesn't have one yet.
+    Backs the habit-tracker dot grid's 'don't show dots before this habit
+    existed' clamp (D.habit_starts, read in server.py)."""
+    today = datetime.now().strftime("%Y-%m-%d")
+    with store.mutate("habit_start_dates.json", {}) as starts:
+        starts.setdefault(name, today)
+
+
 def _load_growth():
     return store.read("growth_notes.json", {"items": []})
 
@@ -74,6 +83,7 @@ def register(app):
                 if item.lower() in {x["text"].lower() for x in s["items"]}:
                     return jsonify({"error": "Already exists in this section"}), 400
         add_item_to_file(item, section, filepath)
+        _record_habit_start(item)
         return jsonify({"ok": True})
 
     @app.route("/api/habits/remove", methods=["POST"])
@@ -172,6 +182,11 @@ def register(app):
         # History follows the rename (qualified key; legacy bare as fallback).
         _rewrite_log_keys(habit_log_key(section, old_name),
                           habit_log_key(section, new_name), also_bare=old_name)
+        # Start date follows the rename too, so the tracker doesn't lose track
+        # of when the (renamed) habit actually began.
+        with store.mutate("habit_start_dates.json", {}) as starts:
+            if old_name in starts and new_name not in starts:
+                starts[new_name] = starts.pop(old_name)
         return jsonify({"ok": True})
 
     # --- Cadence ladder (daily → weekly → monthly → retired) ---
@@ -222,6 +237,8 @@ def register(app):
         for sec in sections:
             if sec not in current:
                 add_item_to_file(name, sec, filepath)
+        if not current:
+            _record_habit_start(name)
         for sec in current:
             if sec not in sections:
                 _remove_from_section(name, sec, filepath)

@@ -16,6 +16,13 @@ function todaySymptomsDone() {
     return todayData && todayData.energy !== null;
 }
 
+// Whether the "Symptoms logged ✓ (edit)" card renders expanded. Starts open
+// (so it's discoverable the first time it appears) but is force-collapsed
+// after a successful save — the save action should close the card it's in,
+// not leave it hanging open. Also kept in sync if the user manually
+// re-toggles it via the <details> summary.
+let _symptomDetailsOpen = true;
+
 function renderSymptomForm() {
     const el = document.getElementById('symptom-form-area');
     if (todaySymptomsDone() && !expandedAll) { el.innerHTML = ''; return; }
@@ -69,7 +76,7 @@ function renderSymptomForm() {
     if (done && !expandedAll) {
         el.innerHTML = '';
     } else if (done) {
-        el.innerHTML = `<details open class="card-section" style="margin-bottom:20px">
+        el.innerHTML = `<details ${_symptomDetailsOpen ? 'open' : ''} class="card-section" style="margin-bottom:20px" ontoggle="_symptomDetailsOpen = this.open">
             <summary style="font-size:14px;font-weight:600;cursor:pointer;color:var(--text-muted)">Symptoms logged &#10003; (edit)</summary>
             <div class="symptom-form" style="margin-top:8px">${formInner('Update')}</div></details>`;
     } else {
@@ -158,10 +165,13 @@ async function logSymptoms() {
     });
     const noseSpray = document.getElementById('sym-nose-spray')?.checked ? 1 : 0;
     symptoms['nose_spray'] = noseSpray;
-    await fetch('/api/symptoms', {
+    const res = await fetch('/api/symptoms', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ date: document.getElementById('sym-date').value, symptoms })
     });
+    // Auto-close the "Symptoms logged (edit)" card on a successful save so it
+    // doesn't sit open after you've just saved it.
+    if (res.ok) _symptomDetailsOpen = false;
     loadDashboard();
 }

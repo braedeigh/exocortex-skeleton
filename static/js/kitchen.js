@@ -525,15 +525,16 @@ function renderCatalogChip(item, onList) {
 
     if (active) {
         const pendingRemove = _kitchenPendingRemove.has(item.name);
+        // Color/style alone signals state — no checkmark prefix, no width change
+        // on tap (a prefix character made the button visibly "expand").
         const style = pendingRemove
             ? 'padding:6px 12px;border-radius:16px;border:1px solid #d65b9a;font-size:13px;background:rgba(232,91,154,0.22);color:#a82a64;cursor:pointer;transition:all 0.12s;'
             : 'padding:6px 12px;border-radius:16px;border:1px solid rgba(124,92,191,0.3);font-size:13px;background:rgba(124,92,191,0.2);color:var(--accent);opacity:0.85;cursor:pointer;transition:all 0.12s;';
-        const prefix = pendingRemove ? '✕ ' : '✓ ';
         const tip = pendingRemove ? 'Tap again to undo removal' : 'On list — tap to mark for removal';
         return `<button onclick="toggleCatalogItem('${esc(item.name)}','${esc(item.cat)}',this)"
             oncontextmenu="event.preventDefault();openItemNote('${esc(item.name)}')" ontouchstart="startLongPress('${esc(item.name)}',event)" ontouchend="cancelLongPress()" ontouchmove="cancelLongPress()"
             style="${style}"
-            title="${tip}">${prefix}${esc(label)}${dot}</button>`;
+            title="${tip}">${esc(label)}${dot}</button>`;
     }
 
     return `<button onclick="toggleCatalogItem('${esc(item.name)}','${esc(item.cat)}',this)"
@@ -945,14 +946,15 @@ function toggleCatalogItem(name, category, btn) {
     const onList = (D.kitchen_list || []).some(i => i.name.toLowerCase() === name.toLowerCase());
 
     if (onList) {
-        // Toggle pending-remove state — pink chip means "will be removed on commit"
+        // Toggle pending-remove state — color alone signals it (pink = "will be
+        // removed on commit"); no checkmark prefix, no textContent length change.
         if (_kitchenPendingRemove.has(name)) {
             _kitchenPendingRemove.delete(name);
             btn.style.background = 'rgba(124,92,191,0.2)';
             btn.style.color = 'var(--accent)';
             btn.style.borderColor = 'rgba(124,92,191,0.3)';
             btn.style.opacity = '0.85';
-            btn.textContent = '✓ ' + label;
+            btn.textContent = label;
             btn.title = 'On list — tap to mark for removal';
         } else {
             _kitchenPendingRemove.add(name);
@@ -960,7 +962,7 @@ function toggleCatalogItem(name, category, btn) {
             btn.style.color = '#a82a64';
             btn.style.borderColor = '#d65b9a';
             btn.style.opacity = '1';
-            btn.textContent = '✕ ' + label;
+            btn.textContent = label;
             btn.title = 'Tap again to undo removal';
         }
         updateGroceryBatchBar();
@@ -978,7 +980,7 @@ function toggleCatalogItem(name, category, btn) {
         btn.style.background = 'var(--accent)';
         btn.style.color = '#fff';
         btn.style.borderColor = 'var(--accent)';
-        btn.textContent = '✓ ' + label;
+        btn.textContent = label;
     }
     updateGroceryBatchBar();
 }

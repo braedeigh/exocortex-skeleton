@@ -102,10 +102,12 @@ def register(app):
             return jsonify({"error": "File not found"}), 404
         pdata = json.loads(path.read_text())
         rules = shared.load_grocery_rules()
-        kitchen_catalog = store.read("kitchen.json", {}).get("category_map", {})
+        gdata = store.read("kitchen.json", {})
+        kitchen_catalog = gdata.get("category_map", {})
+        active_items = gdata.get("items", [])
         rows = []
         for item in pdata.get("line_items", []):
-            cat, catalog = shared.categorize_grocery_item(item.get("name", ""), rules, kitchen_catalog)
+            cat, catalog = shared.categorize_grocery_item(item.get("name", ""), rules, kitchen_catalog, active_items)
             rows.append({
                 "name": item.get("name", ""),
                 "qty": item.get("qty", 1),

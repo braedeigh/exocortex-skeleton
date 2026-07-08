@@ -74,9 +74,25 @@ async function loadResearch() {
     R = body.research || { topics: [], entries: [], sessions: [] };
 }
 
+// Focus guard: a redraw mid-keystroke (poll tick, tab-focus refresh, another
+// agent's write landing) would blow away whatever she's typing. Checked at
+// render time (activeElement), not via an event flag, so it catches every
+// call path through renderResearch() uniformly. A skipped render sets
+// _rsrchRenderPending so the focusout listener below can catch up once she
+// leaves the field — no update is silently lost.
+let _rsrchRenderPending = false;
+function _rsrchInputFocused() {
+    const el = document.activeElement;
+    if (!el || (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA')) return false;
+    const root = document.getElementById('research-area');
+    return !!(root && root.contains(el));
+}
+
 function renderResearch() {
     const el = document.getElementById('research-area');
     if (!el) return;
+    if (_rsrchInputFocused()) { _rsrchRenderPending = true; return; }
+    _rsrchRenderPending = false;
     const tid = _rsrchCurrentThreadId();
     if (tid && _rsrchTopicsById()[tid]) {
         el.innerHTML = _rsrchThreadView(_rsrchTopicsById()[tid]);
@@ -211,7 +227,9 @@ function _rsrchToggleContext(id) {
 }
 
 // --- Send-all strip: only when something's queued. The count pill next to
-// it surfaces unreviewed llm output so the orange never hides silently.
+// it surfaces unreviewed llm output so the orange never hides silently. The
+// list below the button names exactly what's queued (checked via the
+// per-entry checkbox in each entry row) so "send" is never a surprise.
 function _rsrchSendAllStrip() {
     const entries = _researchEntries();
     const flagged = entries.filter(e => e.flagged && e.author !== 'llm');
@@ -220,9 +238,13 @@ function _rsrchSendAllStrip() {
     const pill = unreviewed
         ? `<span style="flex:none;display:inline-flex;align-items:center;height:44px;padding:0 14px;border-radius:10px;background:rgba(212,112,10,0.16);color:var(--orange);font-size:13px;font-weight:700;white-space:nowrap">${unreviewed} unreviewed</span>`
         : '';
-    return `<div style="display:flex;align-items:stretch;gap:10px;margin-bottom:16px">
-        <button type="button" onclick="_rsrchSend(null)" style="flex:1;min-height:44px;border-radius:10px;border:none;background:var(--accent);color:#fff;font-size:15px;font-weight:700;cursor:pointer">&#10148; Send ${flagged.length} queued to Claude</button>
-        ${pill}
+    const list = flagged.map(e => `<div style="font-size:13px;color:var(--text);padding:6px 0;border-top:1px solid var(--border);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">&#9873; ${esc(e.text.slice(0, 100))}${e.text.length > 100 ? '&hellip;' : ''}</div>`).join('');
+    return `<div style="border:1px solid var(--border);border-radius:12px;padding:10px 14px;margin-bottom:16px;background:var(--card-bg)">
+        <div style="display:flex;align-items:stretch;gap:10px">
+            <button type="button" onclick="_rsrchSend(null)" style="flex:1;min-height:44px;border-radius:10px;border:none;background:var(--accent);color:#fff;font-size:15px;font-weight:700;cursor:pointer">&#10148; Send ${flagged.length} queued to Claude</button>
+            ${pill}
+        </div>
+        ${list}
     </div>`;
 }
 
@@ -516,14 +538,18 @@ function _rsrchThreadDirRow(t, entries) {
     </div>`;
 }
 
-// --- Thread view: the thread as a chat — her entries + nested llm replies,
-// oldest first, with a bottom composer preset to this thread's id.
+// --- Thread view: the thread as a chat — her entries + nested llm replies.
+// Top-level entries sort newest-first (posting lands at the top, not buried
+// at the bottom); replies under a given parent stay chronological (oldest
+// first) so a reply chain still reads top-to-bottom. The composer sits above
+// the rows, preset to this thread's id — "add to this thread" is the first
+// thing she sees, and what she adds shows up right below it.
 function _rsrchThreadView(t) {
     const cardId = `research-topic-${t.id}`;
     const isEditing = editingCards.has(cardId);
     const entries = _researchEntries()
         .filter(e => (e.topics || []).includes(t.id))
-        .slice().sort((a, b) => (a.created || '').localeCompare(b.created || ''));
+        .slice().sort((a, b) => (b.created || '').localeCompare(a.created || ''));
     const idsInThread = new Set(entries.map(e => e.id));
     const flagged = entries.filter(e => e.flagged && e.author !== 'llm');
     const sessions = _researchSessions()
@@ -539,14 +565,16 @@ function _rsrchThreadView(t) {
     const topLevel = entries.filter(e => !e.reply_to || !idsInThread.has(e.reply_to));
     const threadRows = topLevel.length
         ? topLevel.map(e => _rsrchThreadBlock(e, repliesOf, isEditing)).join('')
-        : `<div style="color:var(--text-muted);font-style:italic;padding:10px 2px;font-size:14px">No entries yet &mdash; start below.</div>`;
+        : `<div style="color:var(--text-muted);font-style:italic;padding:10px 2px;font-size:14px">No entries yet &mdash; start above.</div>`;
 
     // Build the array literal with escJs'd single-quoted strings (not
     // JSON.stringify) since this lands inside a double-quoted onclick attr.
     const flaggedIdsJs = flagged.map(e => `'${escJs(e.id)}'`).join(',');
+    const flaggedList = flagged.map(e => `<div style="font-size:13px;color:var(--text);padding:6px 0;border-top:1px solid var(--border);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">&#9873; ${esc(e.text.slice(0, 100))}${e.text.length > 100 ? '&hellip;' : ''}</div>`).join('');
     const sendStrip = flagged.length
-        ? `<div style="margin-bottom:16px">
+        ? `<div style="border:1px solid var(--border);border-radius:12px;padding:10px 14px;margin-bottom:16px;background:var(--card-bg)">
             <button type="button" onclick="_rsrchSend([${flaggedIdsJs}])" style="width:100%;min-height:44px;border-radius:10px;border:none;background:var(--accent);color:#fff;font-size:15px;font-weight:700;cursor:pointer">&#10148; Send ${flagged.length} queued in this thread</button>
+            ${flaggedList}
         </div>` : '';
 
     return `<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
@@ -560,22 +588,40 @@ function _rsrchThreadView(t) {
     </div>
     ${isEditing ? `<div style="border:1px solid var(--border);border-radius:12px;padding:10px 14px;margin-bottom:16px;background:var(--card-bg)">${_rsrchTopicEditor(t)}</div>` : ''}
     ${_rsrchEdgeCard(t)}
+    ${_rsrchComposerHtml({ hideTopics: true, presetTopic: t.id, addLabel: 'Add to thread', placeholder: 'Add to this thread&hellip;' })}
     ${sendStrip}
     ${_rsrchSessionsCard(sessions)}
     <div style="border:1px solid var(--border);border-radius:12px;padding:4px 14px;margin-bottom:16px;background:var(--card-bg)">
         ${threadRows}
-    </div>
-    ${_rsrchComposerHtml({ hideTopics: true, presetTopic: t.id, addLabel: 'Add to thread', placeholder: 'Add to this thread&hellip;' })}`;
+    </div>`;
 }
 
 // LLM replies nest under the entry they answer, indented — the output lands
-// "in that spot" instead of just appending at the end of the thread.
+// "in that spot" instead of just appending at the end of the thread. Each
+// top-level block collapses independently (<details> + the same _openAttr /
+// rsrchCardToggled localStorage pattern the top cards use, keyed per entry
+// id so state survives re-renders) — open by default so nothing looks
+// different until she folds one closed.
 function _rsrchThreadBlock(e, repliesOf, isEditing) {
     const kids = (repliesOf[e.id] || []).slice().sort((a, b) => (a.created || '').localeCompare(b.created || ''));
     const kidsHtml = kids.length
         ? `<div style="margin-left:16px;border-left:2px solid var(--border);padding-left:12px;margin-top:2px">${kids.map(k => _rsrchThreadBlock(k, repliesOf, isEditing)).join('')}</div>`
         : '';
-    return `${_rsrchEntryRow(e, isEditing)}${kidsHtml}`;
+    const cardId = `research-block-${e.id}`;
+    const badgeLabel = e.author === 'llm' ? '&#10024; claude' : (RSRCH_KIND_LABEL[e.kind] || e.kind);
+    const snippet = esc((e.text || '').replace(/\s+/g, ' ').slice(0, 90)) + ((e.text || '').length > 90 ? '&hellip;' : '');
+    const replyCount = kids.length ? `<span class="card-count">${kids.length} repl${kids.length === 1 ? 'y' : 'ies'}</span>` : '';
+    // Reuses the .rsrch-card class (rather than inventing a new one) purely
+    // so its ::-webkit-details-marker{display:none} rule applies — Safari
+    // otherwise draws its own disclosure triangle next to our kitchen-arrow
+    // span. The box-level card styling (border/bg/padding) is overridden
+    // back off inline since this is a nested per-entry fold, not a top card.
+    return `<details class="rsrch-card" data-card="${cardId}"${_openAttr(cardId, true)} ontoggle="rsrchCardToggled(this)" style="border:none;border-radius:0;padding:0;margin-bottom:0;background:none">
+        <summary style="font-size:13px;font-weight:400;color:var(--text-muted);padding:8px 0;min-height:40px">
+            <span class="kitchen-arrow" style="font-size:11px">&#9654;</span><b style="color:var(--text);font-weight:700">${badgeLabel}</b><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${snippet}</span>${replyCount}
+        </summary>
+        ${_rsrchEntryRow(e, isEditing)}${kidsHtml}
+    </details>`;
 }
 
 // --- Sessions record: the saved history of research-runner runs for a
@@ -747,24 +793,31 @@ function _rsrchEntryRow(e, editing) {
         : (e.topics || []).map(tid => byId[tid]
             ? `<span class="rsrch-chip" style="cursor:default">${esc(byId[tid].name)}</span>` : '').join('');
     // Claude's replies may use markdown (bullets etc); her own text stays
-    // escaped plain text, and only hers is inline-editable.
+    // escaped plain text. Editing is a plain button now (see controlChips
+    // below) rather than a tap-to-edit zone gated behind card Edit mode.
     const textHtml = isLlm
         ? `<span style="font-size:14px;color:var(--text)">${mdToHtml(e.text)}</span>`
-        : (editing
-            ? `<span onclick="_rsrchEditText('${esc(e.id)}','${escJs(e.text)}')" style="font-size:14px;color:var(--text);cursor:text" title="Tap to edit">${esc(e.text)}</span>`
-            : `<span style="font-size:14px;color:var(--text)">${esc(e.text)}</span>`);
-    const del = editing
-        ? `<button type="button" class="rsrch-del-btn" onclick="_rsrchConfirmRemoveEntry('${esc(e.id)}','${escJs(e.text.slice(0, 60))}')" title="Delete">&times;</button>`
-        : '';
-    // Flag/send for her entries; mark-reviewed for llm outputs. Never both.
+        : `<span style="font-size:14px;color:var(--text)">${esc(e.text)}</span>`;
+    // Delete is always available (two-step "Sure?" modal, not a native
+    // confirm()) — no more hiding behind card Edit mode.
+    const del = `<button type="button" class="rsrch-del-btn" style="opacity:1;min-width:40px;height:40px;color:var(--red)" onclick="_rsrchConfirmRemoveEntry('${esc(e.id)}','${escJs(e.text.slice(0, 60))}')" title="Delete">&times;</button>`;
+    // Flag/send for her entries (a visible checkbox — tap the whole label,
+    // ~40px tall — rather than a chip that only implies its state); reply +
+    // mark-reviewed for llm outputs. Edit is always available on both.
     let controlChips = '';
     if (isLlm) {
         const reviewed = !!e.reviewed;
-        controlChips = `<button type="button" class="rsrch-chip ${reviewed ? 'verdict-verified' : 'verdict-interesting'}" onclick="_rsrchToggleReviewed('${esc(e.id)}', ${reviewed ? 'false' : 'true'})">${reviewed ? '&#10003; reviewed' : '&#9675; mark reviewed'}</button>`;
+        controlChips = `<button type="button" class="rsrch-chip ${reviewed ? 'verdict-verified' : 'verdict-interesting'}" onclick="_rsrchToggleReviewed('${esc(e.id)}', ${reviewed ? 'false' : 'true'})">${reviewed ? '&#10003; reviewed' : '&#9675; mark reviewed'}</button>
+            <button type="button" class="rsrch-chip" onclick="_rsrchStartAnswer('${esc(e.id)}')">&#8618; reply</button>
+            <button type="button" class="rsrch-chip" onclick="_rsrchEditText('${esc(e.id)}','${escJs(e.text)}')">&#9998; edit</button>`;
     } else {
         const flagged = !!e.flagged;
-        controlChips = `<button type="button" class="rsrch-chip${flagged ? ' active' : ''}" onclick="_rsrchToggleFlag('${esc(e.id)}', ${flagged ? 'false' : 'true'})">${flagged ? '&#9873; queued' : '&#9873; queue for Claude'}</button>
-            <button type="button" class="rsrch-chip" onclick="_rsrchSend(['${esc(e.id)}'])">&#10148; send now</button>`;
+        controlChips = `<label style="display:inline-flex;align-items:center;gap:8px;min-height:40px;padding:0 10px 0 2px;cursor:pointer;font-size:13px;font-weight:600;color:${flagged ? 'var(--accent)' : 'var(--text)'}">
+                <input type="checkbox" ${flagged ? 'checked' : ''} onchange="_rsrchToggleFlag('${esc(e.id)}', this.checked)" style="width:20px;height:20px;flex:none;cursor:pointer" title="Queue for Claude">
+                ${flagged ? '&#9873; queued for Claude' : 'queue for Claude'}
+            </label>
+            <button type="button" class="rsrch-chip" onclick="_rsrchSend(['${esc(e.id)}'])">&#10148; send now</button>
+            <button type="button" class="rsrch-chip" onclick="_rsrchEditText('${esc(e.id)}','${escJs(e.text)}')">&#9998; edit</button>`;
     }
     // Deep-research replies point at the write-up they came from — open it
     // in the existing library reader rather than building a second one.
@@ -1633,6 +1686,13 @@ window.addEventListener('focus', async () => {
     const before = JSON.stringify(R);
     await loadResearch();
     if (JSON.stringify(R) !== before) renderResearch();
+});
+
+// A render skipped because she was mid-keystroke (see renderResearch's focus
+// guard) catches up here once focus actually leaves the field.
+document.getElementById('research-area')?.addEventListener('focusout', () => {
+    if (!_rsrchRenderPending) return;
+    setTimeout(() => { if (_rsrchRenderPending && !_rsrchInputFocused()) renderResearch(); }, 0);
 });
 
 document.addEventListener('DOMContentLoaded', _rsrchInit);

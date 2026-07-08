@@ -129,9 +129,22 @@ def save_grocery_rules(rules):
     store.write("grocery_item_rules.json", rules)
 
 
-def categorize_grocery_item(name, rules, kitchen_catalog):
-    """Return (category, catalog_name) by substring match against rules + catalog."""
+def categorize_grocery_item(name, rules, kitchen_catalog, active_items=None):
+    """Return (category, catalog_name) by substring match against rules + catalog.
+
+    active_items (optional): the current active grocery list (gdata["items"]),
+    checked FIRST — a scanned receipt line should preferentially match something
+    already on the list she's shopping from before falling back to the broader,
+    all-time catalog or receipt-learned rules (which can match an unrelated item
+    that merely shares a substring, e.g. "organic" matching a rule learned from
+    kale when the list actually has "organic strawberries").
+    """
     nlow = (name or "").lower()
+    # 0) Active grocery list — prefer whatever's already on the list she's shopping
+    for item in (active_items or []):
+        iname = (item.get("name") or "").strip().lower()
+        if iname and (iname in nlow or nlow in iname):
+            return item.get("category", "other"), iname
     # 1) Custom rules — first substring match wins
     for p in rules.get("patterns", []):
         if p.get("match", "").lower() in nlow:

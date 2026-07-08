@@ -170,7 +170,19 @@ def register(app):
                         s["amount"] = float(data["amount"])
                     except (ValueError, TypeError):
                         return jsonify({"error": "Invalid amount"}), 400
-                for k in ("frequency", "next_renewal", "cancel_url", "notes"):
+                if "bill_day" in data:
+                    raw_day = data["bill_day"]
+                    if raw_day in ("", None):
+                        s["bill_day"] = None
+                    else:
+                        try:
+                            day_int = int(raw_day)
+                        except (ValueError, TypeError):
+                            return jsonify({"error": "Invalid bill day"}), 400
+                        if not (1 <= day_int <= 31):
+                            return jsonify({"error": "Bill day must be 1-31"}), 400
+                        s["bill_day"] = day_int
+                for k in ("frequency", "next_renewal", "cancel_url", "notes", "display_name"):
                     if k in data:
                         s[k] = data[k]
                 if "new_name" in data:

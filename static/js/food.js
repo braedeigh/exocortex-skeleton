@@ -46,9 +46,62 @@ async function dismissFoodBanner() {
     loadDashboard();
 }
 
-// --- Food Log (today + past 3 days) ---
+// --- Food Log (today + past days, expandable further back) ---
 
 let foodLogDaysBack = 3;
+
+// Which single date (if any) currently has its item list expanded into the
+// editable view — either 'today' or a past day, toggled via the per-day Edit
+// affordance. Only one day is editable at a time to keep the list simple.
+let _foodEditingDate = null;
+// Which item index within _foodEditingDate is mid inline-edit (text field open).
+let _foodEditingItemIdx = null;
+
+function foodItemsForDate(date) {
+    const dayData = D.health_data.find(d => d.date === date);
+    return dayData && dayData.food_notes ? dayData.food_notes.split(';').map(f => f.trim()).filter(Boolean) : [];
+}
+
+function toggleFoodDayEdit(date) {
+    _foodEditingDate = (_foodEditingDate === date) ? null : date;
+    _foodEditingItemIdx = null;
+    renderFoodLog();
+}
+
+async function saveFoodItemsForDate(date, foods) {
+    await fetch('/api/food/set', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date, food_notes: foods.join('; ') })
+    });
+    loadDashboard();
+}
+
+function editFoodItemInline(idx) {
+    _foodEditingItemIdx = idx;
+    renderFoodLog();
+    document.getElementById('food-item-edit-input')?.focus();
+}
+
+function cancelFoodItemInline() {
+    _foodEditingItemIdx = null;
+    renderFoodLog();
+}
+
+async function saveFoodItemInline(date, idx) {
+    const input = document.getElementById('food-item-edit-input');
+    const val = input ? input.value.trim() : '';
+    const foods = foodItemsForDate(date);
+    if (val) foods[idx] = val; else foods.splice(idx, 1);   // saving blank = delete
+    _foodEditingItemIdx = null;
+    await saveFoodItemsForDate(date, foods);
+}
+
+async function deleteFoodItem(date, idx) {
+    const foods = foodItemsForDate(date);
+    foods.splice(idx, 1);
+    await saveFoodItemsForDate(date, foods);
+}
 
 function renderFoodLog() {
     const el = document.getElementById('food-log-area');
@@ -79,6 +132,26 @@ function renderFoodLog() {
         return c ? `<span class="food-badge" style="background:${c}"></span>` : '';
     };
 
+    // Renders a date's items as an editable list: tap text to fix a typo,
+    // tap × to delete. Used for whichever single day is currently expanded
+    // (today by default has its own "Edit" toggle same as any past day).
+    const renderEditableItems = (date, foods) => {
+        if (!foods.length) return '<div style="font-size:13px;color:var(--text-muted);font-style:italic;padding:4px 0">No food logged</div>';
+        return foods.map((item, idx) => {
+            if (_foodEditingItemIdx === idx) {
+                return `<div class="card-item food-item-editing">
+                    <input type="text" id="food-item-edit-input" class="food-item-input" value="${esc(item)}" onkeydown="if(event.key==='Enter')saveFoodItemInline('${date}',${idx});if(event.key==='Escape')cancelFoodItemInline()">
+                    <button class="food-item-save" onclick="saveFoodItemInline('${date}',${idx})" title="Save">&#10003;</button>
+                    <button class="delete-btn food-item-del" onclick="cancelFoodItemInline()" title="Cancel">&times;</button>
+                </div>`;
+            }
+            return `<div class="card-item">
+                <span class="item-text" onclick="editFoodItemInline(${idx})" style="cursor:pointer">${foodBadge(item)}${esc(item)}</span>
+                <button class="delete-btn food-item-del" onclick="deleteFoodItem('${date}',${idx})" title="Delete">&times;</button>
+            </div>`;
+        }).join('');
+    };
+
     let html = '';
 
     // Earlier-days controls
@@ -86,38 +159,56 @@ function renderFoodLog() {
     const canCollapse = foodLogDaysBack > 3;
     if (canExpand || canCollapse) {
         html += '<div style="display:flex;justify-content:center;gap:8px;margin-bottom:8px">';
-        if (canExpand) html += `<button onclick="showEarlierFood()" style="font-size:12px;background:none;border:1px solid var(--border);border-radius:6px;padding:5px 14px;cursor:pointer;color:var(--text-muted)">&#8593; Show earlier days</button>`;
-        if (canCollapse) html += `<button onclick="hideEarlierFood()" style="font-size:12px;background:none;border:1px solid var(--border);border-radius:6px;padding:5px 14px;cursor:pointer;color:var(--text-muted)">&#8595; Hide earlier days</button>`;
+        if (canExpand) html += `<button onclick="showEarlierFood()" class="food-log-more-btn">&#8593; Show earlier days</button>`;
+        if (canCollapse) html += `<button onclick="hideEarlierFood()" class="food-log-more-btn">&#8595; Hide earlier days</button>`;
         html += '</div>';
     }
 
-    // Past days: compact one-liners (oldest first, today rendered separately below)
+    // Past days: compact one-liners (oldest first, today rendered separately below);
+    // tapping "Edit" expands a day into the same editable list Today uses.
     const pastDates = dates.filter(d => d !== today);
     if (pastDates.length) {
         html += '<div class="card" style="border-left-color:var(--ongoing);margin-bottom:8px;padding:6px 12px">';
         pastDates.forEach(date => {
-            const dayData = D.health_data.find(d => d.date === date);
-            const foods = dayData && dayData.food_notes ? dayData.food_notes.split(';').map(f => f.trim()).filter(Boolean) : [];
+            const foods = foodItemsForDate(date);
             const label = new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-            const foodsHtml = foods.length
-                ? foods.map(item => `${foodBadge(item)}${esc(item)}`).join('<span style="color:var(--text-muted)">, </span>')
-                : '<span style="color:var(--text-muted);font-style:italic">—</span>';
-            html += `<div style="display:flex;gap:10px;padding:4px 0;border-top:1px solid var(--border);font-size:13px;line-height:1.4">
-                <span style="color:var(--text-secondary);font-weight:600;white-space:nowrap;min-width:70px">${label}</span>
-                <span style="flex:1">${foodsHtml}</span>
-            </div>`;
+            if (_foodEditingDate === date) {
+                html += `<div style="padding:6px 0;border-top:1px solid var(--border)">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+                        <span style="color:var(--text-secondary);font-weight:600;font-size:13px">${label}</span>
+                        <button class="food-day-edit-btn" onclick="toggleFoodDayEdit('${date}')">Done</button>
+                    </div>
+                    ${renderEditableItems(date, foods)}
+                </div>`;
+            } else {
+                const foodsHtml = foods.length
+                    ? foods.map(item => `${foodBadge(item)}${esc(item)}`).join('<span style="color:var(--text-muted)">, </span>')
+                    : '<span style="color:var(--text-muted);font-style:italic">—</span>';
+                html += `<div style="display:flex;gap:10px;padding:4px 0;border-top:1px solid var(--border);font-size:13px;line-height:1.4;align-items:center">
+                    <span style="color:var(--text-secondary);font-weight:600;white-space:nowrap;min-width:70px">${label}</span>
+                    <span style="flex:1">${foodsHtml}</span>
+                    <button class="food-day-edit-btn" onclick="toggleFoodDayEdit('${date}')" title="Edit this day's food log">Edit</button>
+                </div>`;
+            }
         });
         html += '</div>';
     }
 
-    // Today: full card with add box
-    const todayData = D.health_data.find(d => d.date === today);
-    const todayFoods = todayData && todayData.food_notes ? todayData.food_notes.split(';').map(f => f.trim()).filter(Boolean) : [];
+    // Today: full card with add box; items are editable via the same Edit toggle.
+    const todayFoods = foodItemsForDate(today);
+    const todayEditing = _foodEditingDate === today;
     html += `<div class="card" style="border-left-color:var(--ongoing);margin-bottom:8px">`;
-    html += `<div style="font-size:12px;font-weight:600;color:var(--green);margin-bottom:4px">Today</div>`;
-    todayFoods.forEach(item => {
-        html += `<div class="card-item"><span class="item-text">${foodBadge(item)}${esc(item)}</span></div>`;
-    });
+    html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <span style="font-size:12px;font-weight:600;color:var(--green)">Today</span>
+        ${todayFoods.length ? `<button class="food-day-edit-btn" onclick="toggleFoodDayEdit('${today}')">${todayEditing ? 'Done' : 'Edit'}</button>` : ''}
+    </div>`;
+    if (todayEditing) {
+        html += renderEditableItems(today, todayFoods);
+    } else {
+        todayFoods.forEach(item => {
+            html += `<div class="card-item"><span class="item-text">${foodBadge(item)}${esc(item)}</span></div>`;
+        });
+    }
     html += `<div style="margin-top:8px;display:flex;gap:8px">
         <input type="text" id="food-input" placeholder="What did you eat..." style="flex:1;padding:7px 12px;border:1px solid var(--border);border-radius:6px;font-size:14px;outline:none;background:var(--bg)" onkeydown="if(event.key==='Enter')addFood()">
         <button onclick="addFood()" style="padding:7px 16px;border:none;border-radius:6px;background:var(--text);color:#fff;font-size:13px;font-weight:600;cursor:pointer">Add</button>

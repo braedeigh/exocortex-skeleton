@@ -35,6 +35,16 @@ function _stableSnapshot(data) {
 
 async function pollForUpdates() {
     try {
+        // Fallback for a render deferred by core.js's render() guard: normally
+        // the focusout handler above replays it the moment focus leaves, but
+        // iOS PWA can drop that event (backgrounding mid-blur, etc.), so also
+        // check here on every tick — if nothing's focused anymore, catch up.
+        if (_pendingRender) {
+            const a = document.activeElement;
+            const stillTyping = a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable);
+            if (!stillTyping) { _pendingRender = false; render(); }
+        }
+
         // Check if code itself changed — if so, full reload
         const vRes = await fetch('/api/version');
         const vData = await vRes.json();

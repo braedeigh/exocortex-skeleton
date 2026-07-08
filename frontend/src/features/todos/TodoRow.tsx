@@ -51,6 +51,9 @@ export function TodoRow({
       />
       <button type="button" className={styles.body} onClick={() => onOpen(item)}>
         <span className={`${styles.text} ${item.done ? styles.done : ''}`}>{item.text}</span>
+        {item.notes ? (
+          <span className={styles.notesPreview}>{item.notes.split('\n')[0].trim()}</span>
+        ) : null}
         {item.due_by || item.theme || (item.status && !item.done) ? (
           <span className={styles.chips}>
             {item.due_by ? (

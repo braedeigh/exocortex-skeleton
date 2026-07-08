@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { TodoRow } from './TodoRow';
+import { beginDrag, endDrag, getSectionItemIds, registerSectionDrag, updateDrag } from './dragCoordinator';
 import type { TodoItem } from './types';
 import styles from './TodoSection.module.css';
 
-const COLORS = ['var(--todo-1)', 'var(--todo-2)', 'var(--todo-3)'];
+const COLORS = ['var(--todo-1)', 'var(--todo-2)', 'var(--todo-later-accent, var(--todo-3))'];
 const DRAG_THRESHOLD_PX = 6;
 
 export interface TodoSectionProps {
@@ -19,6 +20,8 @@ export interface TodoSectionProps {
   onOpenDetail: (item: TodoItem) => void;
   onReorder: (section: string, ids: string[]) => void;
   onAutosort: (section: string) => void;
+  /** Lets a drag started in *this* section land in a different one — see dragCoordinator.ts. */
+  onMove: (id: string, toLabel: string) => void;
 }
 
 interface DragState {
@@ -40,52 +43,61 @@ export function TodoSection({
   onOpenDetail,
   onReorder,
   onAutosort,
+  onMove,
 }: TodoSectionProps) {
   const [open, setOpen] = useState(defaultOpen);
   const [dragId, setDragId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
+  const [hovered, setHovered] = useState(false);
 
+  const containerRef = useRef<HTMLDivElement>(null);
   const rowEls = useRef(new Map<string, HTMLDivElement>());
   const dragRef = useRef<DragState | null>(null);
-  const overIdRef = useRef<string | null>(null);
   const itemsRef = useRef(items);
   itemsRef.current = items;
   const cleanupRef = useRef<(() => void) | null>(null);
+
+  // Register once — the getters below always read the latest refs, so other
+  // sections can query this one's rows/items mid-drag without re-registering
+  // on every render.
+  useEffect(() => {
+    const unregister = registerSectionDrag({
+      label,
+      getItems: () => itemsRef.current,
+      getContainerEl: () => containerRef.current,
+      getRowEls: () => rowEls.current,
+      setOverId,
+      setHovered,
+    });
+    return unregister;
+  }, [label]);
 
   useEffect(() => () => cleanupRef.current?.(), []);
 
   const remaining = countMode === 'total' ? items.length : items.filter((it) => !it.done).length;
   const color = COLORS[Math.min(colorIndex, 2)];
 
-  function rowIdAt(clientY: number): string | null {
-    let lastId: string | null = null;
-    for (const it of itemsRef.current) {
-      const el = rowEls.current.get(it.id);
-      if (!el) continue;
-      const rect = el.getBoundingClientRect();
-      if (clientY < rect.top + rect.height / 2) return it.id;
-      lastId = it.id;
-    }
-    return lastId;
-  }
-
-  function endDrag(commit: boolean) {
+  function finishDrag(commit: boolean) {
     cleanupRef.current?.();
     cleanupRef.current = null;
     const drag = dragRef.current;
-    const target = overIdRef.current;
     dragRef.current = null;
-    overIdRef.current = null;
     setDragId(null);
-    setOverId(null);
-    if (!commit || !drag || !drag.active || !target || target === drag.id) return;
-    const ids = itemsRef.current.map((it) => it.id);
-    const from = ids.indexOf(drag.id);
-    const to = ids.indexOf(target);
-    if (from === -1 || to === -1) return;
-    ids.splice(from, 1);
-    ids.splice(to, 0, drag.id);
-    onReorder(label, ids);
+    const result = endDrag();
+    if (!commit || !drag || !drag.active || !result || !result.overLabel) return;
+    const { id, originLabel, overLabel, overId: dropId } = result;
+    if (overLabel === originLabel && (dropId === id || !dropId)) return;
+
+    const targetIds = getSectionItemIds(overLabel).filter((tid) => tid !== id);
+    let insertAt = targetIds.length;
+    if (dropId && dropId !== id) {
+      const idx = targetIds.indexOf(dropId);
+      if (idx !== -1) insertAt = idx;
+    }
+    targetIds.splice(insertAt, 0, id);
+
+    if (overLabel !== originLabel) onMove(id, overLabel);
+    onReorder(overLabel, targetIds);
   }
 
   function handlePointerDown(e: ReactPointerEvent<HTMLDivElement>, id: string) {
@@ -98,39 +110,42 @@ export function TodoSection({
     }
     dragRef.current = { pointerId: e.pointerId, id, startY: e.clientY, active: false };
 
-    const onMove = (ev: PointerEvent) => {
+    const onMovePointer = (ev: PointerEvent) => {
       const drag = dragRef.current;
       if (!drag || ev.pointerId !== drag.pointerId) return;
       if (!drag.active) {
         if (Math.abs(ev.clientY - drag.startY) < DRAG_THRESHOLD_PX) return;
         drag.active = true;
         setDragId(drag.id);
+        beginDrag(drag.id, label);
       }
-      const over = rowIdAt(ev.clientY);
-      overIdRef.current = over;
-      setOverId(over);
+      updateDrag(ev.clientX, ev.clientY);
     };
     const onUp = (ev: PointerEvent) => {
       if (dragRef.current && ev.pointerId !== dragRef.current.pointerId) return;
-      endDrag(true);
+      finishDrag(true);
     };
     const onCancel = (ev: PointerEvent) => {
       if (dragRef.current && ev.pointerId !== dragRef.current.pointerId) return;
-      endDrag(false);
+      finishDrag(false);
     };
 
-    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointermove', onMovePointer);
     window.addEventListener('pointerup', onUp);
     window.addEventListener('pointercancel', onCancel);
     cleanupRef.current = () => {
-      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointermove', onMovePointer);
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('pointercancel', onCancel);
     };
   }
 
   return (
-    <div className={styles.card} style={{ borderLeftColor: color }}>
+    <div
+      ref={containerRef}
+      className={`${styles.card} ${hovered ? styles.dropTarget : ''}`}
+      style={{ borderLeftColor: color }}
+    >
       <button type="button" className={styles.summary} onClick={() => setOpen((v) => !v)}>
         <span className={`${styles.arrow} ${open ? styles.open : ''}`} aria-hidden="true">
           &#9654;

@@ -1,0 +1,134 @@
+.panel {
+  position: absolute;
+  top: 100px;
+  right: var(--space-3);
+  z-index: 51;
+  width: min(380px, 88%);
+  max-height: 70vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--card-bg);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-xl);
+  padding: var(--space-3);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+}
+
+.title {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  margin-bottom: var(--space-3);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.select,
+.textInput,
+.textarea,
+.dateInput {
+  min-height: var(--tap-target);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  color-scheme: light dark;
+}
+
+.textarea {
+  padding: var(--space-2) var(--space-3);
+  resize: vertical;
+}
+
+.error {
+  color: var(--red);
+  font-size: var(--font-size-sm);
+}
+
+.addBtn {
+  min-height: var(--tap-target);
+  padding: 0 var(--space-4);
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--accent);
+  color: #fff;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.addBtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.jobs {
+  margin-top: var(--space-3);
+  font-size: var(--font-size-sm);
+}
+
+.sectionLabel {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: var(--space-2) 0 var(--space-1);
+}
+
+.empty {
+  color: var(--text-muted);
+  padding: var(--space-2) 0;
+}
+
+.job {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--border);
+}
+
+.jobRecent {
+  opacity: 0.55;
+}
+
+.jobBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.jobHead {
+  font-weight: 600;
+}
+
+.jobMeta {
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.jobPrompt {
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cancelBtn {
+  flex-shrink: 0;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--red);
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--red);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+}

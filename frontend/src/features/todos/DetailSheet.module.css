@@ -50,7 +50,7 @@
 }
 
 .chip {
-  min-height: 36px;
+  min-height: 40px;
   padding: 0 var(--space-4);
   border-radius: var(--radius-pill);
   border: 1px solid var(--border);
@@ -72,24 +72,78 @@
   flex-wrap: wrap;
   gap: var(--space-2);
   align-items: center;
+  margin-bottom: var(--space-2);
 }
 
-.snoozeCustom {
+.snoozeRow:last-of-type {
+  margin-bottom: 0;
+}
+
+/* "small until edit": title/notes read as plain text until tapped, then
+   grow into full inputs (.titleInput / .textarea) sized to the tap-target. */
+.titleDisplay {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: var(--space-2) 0;
+  min-height: var(--tap-target);
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.notesDisplay {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: var(--space-2) 0;
+  min-height: var(--tap-target);
+  font-size: var(--font-size-base);
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  cursor: pointer;
+}
+
+.placeholder {
+  color: var(--text-muted);
+}
+
+.titleInput {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+}
+
+.moreToggle {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  min-height: var(--tap-target);
+  padding: 0;
+  margin-bottom: var(--space-2);
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
 
-.snoozeCustom input {
-  width: 64px;
-  min-height: var(--tap-target);
-  padding: 0 var(--space-2);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border);
-  background: var(--bg);
-  color: var(--text);
-  font-size: var(--font-size-base);
-  text-align: center;
+.moreArrow {
+  font-size: 11px;
+  color: var(--text-muted);
+  transition: transform 0.15s ease;
+  display: inline-block;
+}
+
+.moreArrowOpen {
+  transform: rotate(90deg);
 }
 
 .actions {

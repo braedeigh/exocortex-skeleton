@@ -104,6 +104,23 @@ async function uploadRecipeImage(file) {
     setTimeout(fetchParsedRecipes, 45000);
 }
 
+let _recipeSearch = '';  // live filter, typed in the recipe list search bar
+
+function recipeSearchInput(val) {
+    _recipeSearch = val;
+    renderGroceryList();
+    const el = document.getElementById('recipe-search-input');
+    if (el) {
+        el.focus();
+        el.setSelectionRange(val.length, val.length);
+    }
+}
+
+function setRecipeSort(mode) {
+    localStorage.setItem('kitchen_recipe_sort', mode);
+    renderGroceryList();
+}
+
 function renderRecipeCards(recipes) {
     // Only show un-archived recipes in the main list. Archived ones live
     // under the "Past versions" section on each current recipe's detail page.
@@ -111,7 +128,43 @@ function renderRecipeCards(recipes) {
     if (!visible.length) {
         return '<div style="color:var(--text-muted);font-size:13px;font-style:italic;padding:8px 0">No saved recipes yet. Paste a URL above to get started.</div>';
     }
-    return visible.map(r => {
+
+    const sortMode = localStorage.getItem('kitchen_recipe_sort') || 'name';
+    const search = (_recipeSearch || '').trim().toLowerCase();
+    const filtered = search
+        ? visible.filter(r => {
+            if ((r.name || '').toLowerCase().includes(search)) return true;
+            return (r.ingredients || []).some(i => (i.item || '').toLowerCase().includes(search));
+        })
+        : visible;
+    const sorted = filtered.slice().sort((a, b) => {
+        if (sortMode === 'added') return (b.created || '').localeCompare(a.created || '');
+        if (sortMode === 'time') {
+            const ta = (Number(a.prep_min) || 0) + (Number(a.cook_min) || 0);
+            const tb = (Number(b.prep_min) || 0) + (Number(b.cook_min) || 0);
+            return ta - tb;
+        }
+        return (a.name || '').localeCompare(b.name || '');
+    });
+
+    const sortBtn = (mode, label) => {
+        const active = mode === sortMode;
+        return `<button onclick="setRecipeSort('${mode}')" style="min-height:28px;padding:3px 9px;border-radius:6px;border:1px solid ${active ? 'var(--accent)' : 'var(--border)'};background:${active ? 'rgba(124,92,191,0.12)' : 'none'};color:${active ? 'var(--accent)' : 'var(--text-muted)'};font-size:12px;font-weight:${active ? '700' : '500'};cursor:pointer">${esc(label)}</button>`;
+    };
+    const bar = `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+        <input type="text" id="recipe-search-input" value="${esc(_recipeSearch)}" placeholder="Search recipes or ingredients…" oninput="recipeSearchInput(this.value)" style="flex:1;min-width:160px;min-height:40px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:14px;box-sizing:border-box">
+        <span style="display:inline-flex;gap:4px" title="Sort by">
+            ${sortBtn('name', 'Name')}
+            ${sortBtn('added', 'Added')}
+            ${sortBtn('time', 'Time')}
+        </span>
+    </div>`;
+
+    if (!sorted.length) {
+        return bar + '<div style="color:var(--text-muted);font-size:13px;font-style:italic;padding:8px 0">No recipes match your search.</div>';
+    }
+
+    return bar + sorted.map(r => {
         const tags = (r.tags || []).map(t => `<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:rgba(124,92,191,0.15);color:var(--accent);font-size:12px;font-weight:600;margin-right:4px">${esc(t)}</span>`).join('');
         const timeBits = [];
         if (r.prep_min) timeBits.push(`${r.prep_min} min prep`);

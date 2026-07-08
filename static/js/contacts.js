@@ -24,6 +24,12 @@ function renderContactReminders() {
     const el = document.getElementById('contact-reminders');
     if (!D.contacts || !D.contacts.length) { el.innerHTML = ''; return; }
 
+    // This whole block (including the <details> wrapper) is rebuilt from
+    // scratch below, which used to reset it to closed on every poll/render
+    // tick — so tapping it open never "stuck" for more than a few seconds.
+    // Read the current open state first and reapply it after rebuilding.
+    const wasOpen = el.querySelector('details.contact-reminder-group')?.open || false;
+
     const snoozes = getContactSnoozes();
     const today = todayStr();
     let cards = '';
@@ -62,7 +68,7 @@ function renderContactReminders() {
     if (!count) { el.innerHTML = ''; return; }
     const summaryColor = hasRed ? 'var(--red)' : 'var(--orange)';
     const summaryLabel = `Calls & Contacts (${count})`;
-    el.innerHTML = `<details class="contact-reminder-group">
+    el.innerHTML = `<details class="contact-reminder-group" ${wasOpen ? 'open' : ''}>
         <summary style="cursor:pointer;font-size:15px;font-weight:600;color:${summaryColor};margin-bottom:8px;list-style:none;display:flex;align-items:center;gap:8px">
             <span class="contact-chevron" style="display:inline-block;transition:transform 0.2s;font-size:12px">&#9660;</span>
             ${summaryLabel}

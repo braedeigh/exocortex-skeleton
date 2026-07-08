@@ -232,6 +232,7 @@ async function saveDayEditor(dateStr) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ date: dateStr, food_notes: document.getElementById('day-food')?.value || '' })
     });
+    closeDayEditor();
     loadDashboard();
 }
 
