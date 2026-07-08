@@ -1,0 +1,157 @@
+import type { TodoItem, TodoSection } from './types';
+
+export interface TodoThemeDef {
+  key: string;
+  label: string;
+  emoji: string;
+}
+
+export const TODO_THEMES: TodoThemeDef[] = [
+  { key: 'move', label: 'Move', emoji: '🏠' },
+  { key: 'job', label: 'Job', emoji: '💼' },
+  { key: 'health', label: 'Health', emoji: '🩺' },
+  { key: 'admin', label: 'Admin', emoji: '📋' },
+  { key: 'life', label: 'Life', emoji: '🌱' },
+  { key: 'exocortex', label: 'Exocortex', emoji: '🧠' },
+];
+
+export interface TodoCategoryDef {
+  key: string;
+  label: string;
+}
+
+export const TODO_CATEGORIES: TodoCategoryDef[] = [
+  { key: 'body', label: 'Body' },
+  { key: 'kitchen', label: 'Kitchen' },
+  { key: 'money', label: 'Money' },
+  { key: 'car', label: 'Car' },
+  { key: 'inventory', label: 'Inventory' },
+  { key: 'meditation', label: 'Meditation' },
+  { key: 'media', label: 'Media' },
+  { key: 'movement', label: 'Movement' },
+  { key: 'map', label: 'Life Map' },
+];
+
+export interface TodoStatusDef {
+  key: string;
+  label: string;
+}
+
+export const TODO_STATUSES: TodoStatusDef[] = [
+  { key: 'ready', label: 'Ready' },
+  { key: 'check_first', label: 'Check first' },
+  { key: 'waiting', label: 'Waiting' },
+];
+
+export const LADDER_LABELS = ['Now', 'Up Next', 'Later', 'Someday'] as const;
+export const DONE_LABEL = 'Done';
+
+export function themeLabel(key: string | null | undefined): string {
+  if (key === '__none__') return '🏷️ Other';
+  const t = TODO_THEMES.find((x) => x.key === key);
+  return t ? `${t.emoji} ${t.label}` : key || '';
+}
+
+export function categoryLabel(key: string | null | undefined): string {
+  const c = TODO_CATEGORIES.find((x) => x.key === key);
+  return c ? c.label : key || '';
+}
+
+export function statusLabel(key: string | null | undefined): string {
+  const s = TODO_STATUSES.find((x) => x.key === key);
+  return s ? s.label : key || '';
+}
+
+export function isDoneSection(name: string): boolean {
+  return name
+    .toLowerCase()
+    .replace(/\s*—.*/, '')
+    .trim()
+    .startsWith('done');
+}
+
+export function isOverdue(dueBy: string | null | undefined, serverDate: string): boolean {
+  return !!dueBy && dueBy < serverDate;
+}
+
+export function isSnoozed(item: TodoItem, serverDate: string): boolean {
+  return !!item.snoozed_until && item.snoozed_until > serverDate && !item.done;
+}
+
+export function focusMatch(item: TodoItem, theme: string): boolean {
+  if (!theme) return true;
+  if (theme === '__none__') return !item.theme;
+  return item.theme === theme;
+}
+
+export function fmtTime(hhmm: string | null | undefined): string {
+  if (!hhmm) return '';
+  const [h, m] = hhmm.split(':').map(Number);
+  if (Number.isNaN(h)) return hhmm;
+  const ap = h < 12 ? 'am' : 'pm';
+  const h12 = ((h + 11) % 12) + 1;
+  return `${h12}:${String(m || 0).padStart(2, '0')}${ap}`;
+}
+
+export function fmtDuration(min: number | null | undefined): string {
+  const n = Number(min);
+  if (!n) return '';
+  if (n < 60) return `${n}m`;
+  const h = Math.floor(n / 60);
+  const m = n % 60;
+  return m ? `${h}h${m}` : `${h}h`;
+}
+
+export function fmtAddedDate(iso: string | null | undefined): string {
+  if (!iso) return '';
+  try {
+    const d = new Date(`${iso}T12:00:00`);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  } catch {
+    return iso;
+  }
+}
+
+export function addDays(iso: string, n: number): string {
+  const d = new Date(`${iso}T00:00:00`);
+  d.setDate(d.getDate() + n);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+export interface FocusCounts {
+  total: number;
+  none: number;
+  byTheme: Record<string, number>;
+}
+
+export function computeFocusCounts(sections: TodoSection[], serverDate: string): FocusCounts {
+  const byTheme: Record<string, number> = {};
+  let total = 0;
+  let none = 0;
+  for (const section of sections) {
+    if (isDoneSection(section.name)) continue;
+    for (const item of section.items) {
+      if (item.done) continue;
+      if (isSnoozed(item, serverDate)) continue;
+      total++;
+      if (item.theme) byTheme[item.theme] = (byTheme[item.theme] || 0) + 1;
+      else none++;
+    }
+  }
+  return { total, none, byTheme };
+}
+
+export function collectSnoozed(sections: TodoSection[], serverDate: string): TodoItem[] {
+  const out: TodoItem[] = [];
+  for (const section of sections) {
+    if (isDoneSection(section.name)) continue;
+    for (const item of section.items) {
+      if (isSnoozed(item, serverDate)) out.push(item);
+    }
+  }
+  return out.sort((a, b) => (a.snoozed_until || '').localeCompare(b.snoozed_until || ''));
+}
+
+export function visibleSectionItems(section: TodoSection, serverDate: string, theme: string): TodoItem[] {
+  return section.items.filter((item) => focusMatch(item, theme) && !isSnoozed(item, serverDate));
+}

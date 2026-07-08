@@ -1,0 +1,78 @@
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: var(--tap-target);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  cursor: grab;
+}
+
+.row:last-child {
+  border-bottom: none;
+}
+
+.row.dragOver {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+}
+
+.checkbox {
+  flex-shrink: 0;
+}
+
+.body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: var(--space-1) 0;
+  cursor: pointer;
+  color: var(--text);
+  font-size: var(--font-size-base);
+}
+
+.text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.text.done {
+  text-decoration: line-through;
+  opacity: 0.5;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+  padding: 1px 8px;
+}
+
+.chip.overdue {
+  color: #fff;
+  background: var(--red);
+}
+
+.expand {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: 18px;
+}
