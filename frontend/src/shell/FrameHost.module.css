@@ -1,6 +1,9 @@
 .host {
   position: absolute;
   inset: 0;
+  /* The host paints above the router Outlet (positioned vs. in-flow), so it
+     must not swallow clicks meant for native pages when no frame is shown. */
+  pointer-events: none;
 }
 
 .frame {
@@ -10,4 +13,5 @@
   height: 100%;
   border: none;
   display: block;
+  pointer-events: auto;
 }
