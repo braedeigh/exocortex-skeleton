@@ -1,0 +1,83 @@
+/* theme.css — base palette + spacing scale, extracted from the Flask skeleton's
+ * sky-theme.js (postDawn = light, twilight = dark) and style.css spacing scale.
+ * This is deliberately NOT the full time-of-day theme engine (no sun-position
+ * blending) — just the two static endpoints, switchable via prefers-color-scheme
+ * or an explicit data-theme override.
+ */
+
+:root {
+  color-scheme: light dark;
+
+  /* ---- spacing scale (4px base) ---- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 28px;
+  --space-8: 32px;
+
+  /* ---- radius scale ---- */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 12px;
+  --radius-pill: 999px;
+
+  /* ---- type ---- */
+  --font-sans: system-ui, 'Segoe UI', Roboto, sans-serif;
+  --font-size-base: 16px; /* default body — no text below 12px anywhere */
+  --font-size-sm: 12px; /* floor: captions, micro-labels only */
+  --font-size-lg: 18px;
+  --font-size-xl: 22px;
+
+  /* ---- touch-first ---- */
+  --tap-target: 44px;
+
+  /* ---- accents (theme-independent, from SKY_DEFAULT_ACCENTS) ---- */
+  --morning: #d4880a;
+  --evening: #6a7acc;
+  --ongoing: #3a9e8c;
+  --accent: #7c5cbf;
+  --danger: #d44035;
+
+  /* ---- palette: light ("post-dawn") — default ---- */
+  --bg: #aba3b2;
+  --card-bg: #b8b1c2;
+  --text: #1a1815;
+  --text-secondary: #2a2522;
+  --text-muted: rgba(30, 25, 20, 0.6);
+  --border: #888391;
+}
+
+/* OS prefers dark → "twilight" palette, unless explicitly overridden light */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #14101e;
+    --card-bg: #1e1830;
+    --text: #ddd0e8;
+    --text-secondary: rgba(200, 185, 220, 0.75);
+    --text-muted: rgba(170, 155, 190, 0.5);
+    --border: #2e2545;
+  }
+}
+
+/* explicit overrides always win, in either direction */
+:root[data-theme='dark'] {
+  --bg: #14101e;
+  --card-bg: #1e1830;
+  --text: #ddd0e8;
+  --text-secondary: rgba(200, 185, 220, 0.75);
+  --text-muted: rgba(170, 155, 190, 0.5);
+  --border: #2e2545;
+}
+
+:root[data-theme='light'] {
+  --bg: #aba3b2;
+  --card-bg: #b8b1c2;
+  --text: #1a1815;
+  --text-secondary: #2a2522;
+  --text-muted: rgba(30, 25, 20, 0.6);
+  --border: #888391;
+}

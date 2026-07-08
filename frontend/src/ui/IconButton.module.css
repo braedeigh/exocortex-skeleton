@@ -1,0 +1,46 @@
+.iconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--tap-target);
+  height: var(--tap-target);
+  min-width: var(--tap-target);
+  min-height: var(--tap-target);
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+/* icon glyphs (e.g. an "x" character or inline svg) must read clearly —
+ * never pair this control with sub-12px labels. */
+.iconButton svg,
+.iconButton .glyph {
+  width: 22px;
+  height: 22px;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.iconButton:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+.iconButton:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* delete/× actions: visible by default, not faint — solid tinted background
+ * rather than relying on hover state to reveal it. */
+.danger {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 22%, transparent);
+}
