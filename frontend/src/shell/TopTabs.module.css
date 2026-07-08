@@ -1,6 +1,70 @@
 /* Top tab strip — React port of the old dashboard's #tab-selector +
  * More ▾ menu (templates/index.html:24-52, static/js/core.js layoutTabs). */
 
+/* Row 1 — "dash bar", ported from templates/split.html:52-82 (.dash-bar).
+ * --tab-bg/--tab-active aren't part of the app's canonical theme palette
+ * (sky-theme.js never sets them, see theme.css) — in the old app they were
+ * hardcoded dark-purple values in split.html's own :root block, giving the
+ * dash bar its fixed "twilight purple" look independent of day/night theme.
+ * Scoped as local custom properties here rather than added to theme.css,
+ * to keep that behavior faithful without leaking into the global palette.
+ *
+ * --dash-text-muted is likewise fixed (not var(--text-muted)): in the old
+ * app --text-muted was itself a hardcoded light-lavender value (the whole
+ * page was permanently dark-themed), so it read fine against --tab-bg. In
+ * this app --text-muted is swapped day/night by sky-theme.js and can be a
+ * near-black day value, which is unreadable against the fixed dark navy
+ * --tab-bg. Active/hover states are unaffected — they pair var(--text) with
+ * var(--bg), both swapped together by the current theme, so contrast holds. */
+.dashBar {
+  display: flex;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  --tab-bg: #1a1a2e;
+  --tab-active: #7c5cbf;
+  --dash-text-muted: rgba(180, 160, 220, 0.6);
+}
+
+.dashBtn {
+  flex: 1;
+  min-height: 44px;
+  padding: 11px 0;
+  border: none;
+  background: var(--tab-bg);
+  color: var(--dash-text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  transition: all 0.15s;
+  border-bottom: 3px solid transparent;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.dashBtn.dashBtnActive {
+  color: var(--text);
+  background: var(--bg);
+  border-bottom-color: var(--tab-active);
+}
+
+.dashBtn:hover:not(.dashBtnActive) {
+  color: var(--text);
+  background: rgba(124, 92, 191, 0.1);
+}
+
+/* Settings gear — narrow, pushed to the right edge; 44px (not the old 36px)
+ * to meet the >=40px tap-target rule. */
+.gearBtn {
+  flex: 0 0 44px;
+  padding: 11px 0;
+  font-size: 18px;
+  margin-left: auto;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
 .strip {
   flex-shrink: 0;
   display: flex;

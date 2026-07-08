@@ -6,12 +6,20 @@ import { useMediaQuery, DESKTOP_QUERY } from './useMediaQuery';
 import styles from './TopTabs.module.css';
 
 /**
- * Top tab strip — React port of the old dashboard's #tab-selector row +
- * More ▾ menu (templates/index.html:24-52). Lives at the top of the right
- * pane (see routes/__root.tsx): primary tabs always shown, optional tabs
- * shown while they fit and overflowed into More when the pane is narrow
+ * Top tab strip — two stacked rows, restoring the old app's double tab bar.
+ *
+ * Row 1 ("dash bar") is a port of split.html's `.dash-bar` (lines 52-82):
+ * Dashboard / Journal / Research switcher plus a Settings gear, always
+ * rendered above everything else.
+ *
+ * Row 2 is the React port of the old dashboard's #tab-selector row + More ▾
+ * menu (templates/index.html:24-52): primary tabs always shown, optional
+ * tabs shown while they fit and overflowed into More when the pane is narrow
  * (layoutTabs port, static/js/core.js:2615), plus a fixed set of tabs/links
- * that always live in More.
+ * that always live in More. In the old app this row lived inside the
+ * dashboard iframe, so it only mounts here while a dashboard route (/todos
+ * or /legacy/*) is active — Journal/Research/Settings no longer need it
+ * since they're reachable from row 1.
  *
  * Hidden entirely for public (unauthenticated) visitors, mirroring
  * split.html's `body.public-mode .dash-bar { display: none; }`.
@@ -43,6 +51,10 @@ const FULL_PAGE_LINKS: ReadonlyArray<{ key: string; label: string; href: string 
   { key: 'personality', label: 'Personality', href: '/personality' },
 ];
 
+// Journal/Research/Settings moved to row 1 (the dash bar) — only Files still
+// needs a home in the More menu.
+const MORE_VIEWS = VIEW_META.filter((v) => v.key === 'files');
+
 type ActiveKey = 'today' | LegacyTab | `view:${(typeof VIEW_META)[number]['key']}` | null;
 
 function useActiveKey(pathname: string): ActiveKey {
@@ -50,10 +62,23 @@ function useActiveKey(pathname: string): ActiveKey {
     if (pathname === '/todos') return 'today';
     const legacyMatch = /^\/legacy\/([^/]+)$/.exec(pathname);
     if (legacyMatch && isValidTab(legacyMatch[1])) return legacyMatch[1];
-    const view = VIEW_META.find((v) => v.to === pathname);
+    const view = MORE_VIEWS.find((v) => v.to === pathname);
     if (view) return `view:${view.key}`;
     return null;
   }, [pathname]);
+}
+
+/** Dashboard routes are /todos and every /legacy/<tab> — the routes that, in
+ * the old app, lived inside the dashboard iframe under row 2. */
+type DashboardTarget = { to: '/todos' } | { to: '/legacy/$tab'; params: { tab: LegacyTab } };
+
+function parseDashboardTarget(pathname: string): DashboardTarget | null {
+  if (pathname === '/todos') return { to: '/todos' };
+  const legacyMatch = /^\/legacy\/([^/]+)$/.exec(pathname);
+  if (legacyMatch && isValidTab(legacyMatch[1])) {
+    return { to: '/legacy/$tab', params: { tab: legacyMatch[1] } };
+  }
+  return null;
 }
 
 function joinClass(...classes: Array<string | false | undefined>): string {
@@ -99,7 +124,7 @@ function MoreMenuContent({ overflowed, activeKey, onNavigate }: MoreMenuContentP
           {link.label}
         </a>
       ))}
-      {VIEW_META.map((view) => (
+      {MORE_VIEWS.map((view) => (
         <TapRow
           key={view.key}
           className={activeKey === `view:${view.key}` ? styles.menuActive : undefined}
@@ -115,17 +140,23 @@ function MoreMenuContent({ overflowed, activeKey, onNavigate }: MoreMenuContentP
   );
 }
 
-export function TopTabs() {
+/**
+ * Row 2 — the legacy dashboard tab strip (To Do / Life Map / Kitchen / optional
+ * tabs / More ▾). Only ever mounted while a dashboard route is active (see
+ * TopTabs below), so it's its own component: mounting fresh each time it
+ * reappears re-runs the layout()-on-mount effect below, which is what makes
+ * the ResizeObserver measurement correct again after being unmounted.
+ */
+function DashboardTabRow({ pathname }: { pathname: string }) {
   const [overflowed, setOverflowed] = useState<readonly LegacyTab[]>([]);
   const [moreOpen, setMoreOpen] = useState(false);
-  const location = useLocation();
   const isDesktop = useMediaQuery(DESKTOP_QUERY);
 
   const rowRef = useRef<HTMLDivElement | null>(null);
   const moreWrapRef = useRef<HTMLDivElement | null>(null);
   const optionalRefs = useRef<Partial<Record<LegacyTab, HTMLAnchorElement | null>>>({});
 
-  const activeKey = useActiveKey(location.pathname);
+  const activeKey = useActiveKey(pathname);
   const closeMore = useCallback(() => setMoreOpen(false), []);
 
   // Port of layoutTabs (static/js/core.js:2615) — measure with all optional
@@ -186,7 +217,7 @@ export function TopTabs() {
   // Close the menu on navigation (covers back/forward while it's open).
   useEffect(() => {
     setMoreOpen(false);
-  }, [location.pathname]);
+  }, [pathname]);
 
   // Desktop dropdown: click-outside + Escape to close (Sheet handles its own).
   useEffect(() => {
@@ -207,11 +238,9 @@ export function TopTabs() {
     };
   }, [isDesktop, moreOpen, closeMore]);
 
-  if (typeof window !== 'undefined' && window.VIEW_MODE === 'public') return null;
-
   const overflowedActive = OPTIONAL_TABS.includes(activeKey as LegacyTab) && overflowed.includes(activeKey as LegacyTab);
   const alwaysMoreMatch = ALWAYS_MORE_TABS.find((t) => t.tab === activeKey);
-  const viewMatch = VIEW_META.find((v) => `view:${v.key}` === activeKey);
+  const viewMatch = MORE_VIEWS.find((v) => `view:${v.key}` === activeKey);
 
   let moreLabel = 'More';
   let moreActive = false;
@@ -284,5 +313,71 @@ export function TopTabs() {
         </Sheet>
       ) : null}
     </div>
+  );
+}
+
+export function TopTabs() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  // Last dashboard route visited, so clicking Dashboard from Journal/Research
+  // returns you where you left off instead of always resetting to /todos.
+  const lastDashboardTarget = useRef<DashboardTarget>({ to: '/todos' });
+
+  const dashboardTarget = parseDashboardTarget(location.pathname);
+  const dashboardActive = dashboardTarget !== null;
+
+  useEffect(() => {
+    if (dashboardTarget) lastDashboardTarget.current = dashboardTarget;
+    // Deliberately keyed on pathname, not the freshly-allocated dashboardTarget
+    // object, so this doesn't re-run (harmlessly, but pointlessly) every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname]);
+
+  if (typeof window !== 'undefined' && window.VIEW_MODE === 'public') return null;
+
+  return (
+    <>
+      <div className={styles.dashBar}>
+        <button
+          type="button"
+          className={joinClass(styles.dashBtn, dashboardActive && styles.dashBtnActive)}
+          onClick={() => {
+            if (dashboardActive) return;
+            void navigate(lastDashboardTarget.current);
+          }}
+        >
+          Dashboard
+        </button>
+        <button
+          type="button"
+          className={joinClass(styles.dashBtn, location.pathname === '/journal' && styles.dashBtnActive)}
+          onClick={() => void navigate({ to: '/journal' })}
+        >
+          Journal
+        </button>
+        <button
+          type="button"
+          className={joinClass(styles.dashBtn, location.pathname === '/research' && styles.dashBtnActive)}
+          onClick={() => void navigate({ to: '/research' })}
+        >
+          Research
+        </button>
+        <button
+          type="button"
+          className={joinClass(
+            styles.dashBtn,
+            styles.gearBtn,
+            location.pathname === '/settings' && styles.dashBtnActive,
+          )}
+          onClick={() => void navigate({ to: '/settings' })}
+          title="Settings"
+          aria-label="Settings"
+        >
+          &#9881;&#65038;
+        </button>
+      </div>
+
+      {dashboardActive ? <DashboardTabRow pathname={location.pathname} /> : null}
+    </>
   );
 }
