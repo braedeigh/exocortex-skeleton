@@ -1,3 +1,4 @@
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import { Checkbox } from '../../ui';
 import { categoryLabel, fmtAddedDate, isOverdue, statusLabel, themeLabel } from './todoHelpers';
 import type { TodoItem } from './types';
@@ -6,45 +7,42 @@ import styles from './TodoRow.module.css';
 export interface TodoRowProps {
   item: TodoItem;
   serverDate: string;
-  draggable?: boolean;
   dragOver?: boolean;
+  dragging?: boolean;
   onToggle: (id: string) => void;
   onOpen: (item: TodoItem) => void;
-  onDragStart?: (id: string) => void;
-  onDragOverRow?: (id: string) => void;
-  onDrop?: () => void;
-  onDragEnd?: () => void;
+  onHandlePointerDown?: (e: ReactPointerEvent<HTMLDivElement>, id: string) => void;
+  rowRef?: (el: HTMLDivElement | null) => void;
 }
 
 export function TodoRow({
   item,
   serverDate,
-  draggable = false,
   dragOver = false,
+  dragging = false,
   onToggle,
   onOpen,
-  onDragStart,
-  onDragOverRow,
-  onDrop,
-  onDragEnd,
+  onHandlePointerDown,
+  rowRef,
 }: TodoRowProps) {
   const overdue = isOverdue(item.due_by, serverDate) && !item.done;
 
   return (
     <div
-      className={`${styles.row} ${dragOver ? styles.dragOver : ''}`}
-      draggable={draggable}
-      onDragStart={() => onDragStart?.(item.id)}
-      onDragOver={(e) => {
-        e.preventDefault();
-        onDragOverRow?.(item.id);
-      }}
-      onDrop={(e) => {
-        e.preventDefault();
-        onDrop?.();
-      }}
-      onDragEnd={() => onDragEnd?.()}
+      ref={rowRef}
+      className={`${styles.row} ${dragOver ? styles.dragOver : ''} ${dragging ? styles.dragging : ''}`}
     >
+      {onHandlePointerDown ? (
+        <div
+          className={styles.handle}
+          role="button"
+          aria-label={`Drag to reorder ${item.text}`}
+          title="Drag to reorder"
+          onPointerDown={(e) => onHandlePointerDown(e, item.id)}
+        >
+          &#8942;&#8942;
+        </div>
+      ) : null}
       <Checkbox
         className={styles.checkbox}
         checked={item.done}
