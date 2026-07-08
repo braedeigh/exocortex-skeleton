@@ -48,8 +48,13 @@ def _spa_response():
     routes/shell.py's _split_response uses.
     """
     view_mode = getattr(request, "view_mode", "authed")
-    theme_json = json.dumps(load_theme())
-    intro_json = json.dumps(_load_public_intro_html()) if view_mode == "public" else "null"
+    # "</" escaped so no value can close the injected <script> tag early
+    theme_json = json.dumps(load_theme()).replace("</", "<\\/")
+    intro_json = (
+        json.dumps(_load_public_intro_html()).replace("</", "<\\/")
+        if view_mode == "public"
+        else "null"
+    )
     injected = (
         "<script>"
         f"window.THEME_OVERRIDES = {theme_json};"

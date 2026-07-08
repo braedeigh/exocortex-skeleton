@@ -141,6 +141,7 @@ PUBLIC_PATHS = (
     "/manifest.webmanifest",
     "/registerSW.js",
     "/sw.js",
+    "/workbox-",  # hashed workbox runtime at dist root; see is_public_path prefix rule below
     "/todos",
     "/legacy/map",
     "/legacy/kitchen",
@@ -155,7 +156,8 @@ def is_public_path(path: str) -> bool:
         if p == "/":
             if path == "/":
                 return True
-        elif p.endswith("/"):
+        elif p.endswith(("/", "-")):
+            # trailing "-" covers hash-suffixed files like /workbox-<hash>.js
             if path.startswith(p):
                 return True
         else:
