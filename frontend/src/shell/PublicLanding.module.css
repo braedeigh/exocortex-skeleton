@@ -1,0 +1,58 @@
+.wrap {
+  flex: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  overflow: auto;
+  padding: var(--space-6) var(--space-5);
+}
+
+.card {
+  width: 100%;
+  max-width: 640px;
+  background: color-mix(in srgb, var(--card-bg) 70%, transparent);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  padding: var(--space-6) var(--space-5);
+  color: var(--text);
+}
+
+.intro {
+  font-size: var(--font-size-base);
+  line-height: 1.6;
+}
+
+.intro :global(p) {
+  margin: 0 0 var(--space-4);
+}
+
+.intro :global(p:last-child) {
+  margin-bottom: 0;
+}
+
+.actions {
+  margin-top: var(--space-6);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.signIn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap-target);
+  padding: var(--space-3) var(--space-6);
+  border-radius: var(--radius-md);
+  background: var(--accent);
+  color: #fff;
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.signIn:hover {
+  filter: brightness(1.08);
+}

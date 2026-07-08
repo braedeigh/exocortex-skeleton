@@ -37,10 +37,10 @@
 /* delete/× actions: visible by default, not faint — solid tinted background
  * rather than relying on hover state to reveal it. */
 .danger {
-  color: var(--danger);
-  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 12%, transparent);
 }
 
 .danger:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--danger) 22%, transparent);
+  background: color-mix(in srgb, var(--red) 22%, transparent);
 }

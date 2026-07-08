@@ -35,7 +35,22 @@ export default defineConfig({
       workbox: {
         // precache the app shell (JS/CSS/HTML/icons)
         globPatterns: ['**/*.{js,css,html,png,svg,ico,webmanifest}'],
-        navigateFallbackDenylist: [/^\/api\//, /^\/tab\//, /^\/login/],
+        // Never let the SPA's navigate-fallback hijack a Flask-owned or
+        // auth-gated path — these must always hit the network (and Flask),
+        // never fall back to the cached app-shell index.html.
+        navigateFallbackDenylist: [
+          /^\/api\//,
+          /^\/classic/,
+          /^\/tab\//,
+          /^\/static\//,
+          /^\/journal-view/,
+          /^\/research-view/,
+          /^\/settings-view/,
+          /^\/keeper/,
+          /^\/login/,
+          /^\/logout/,
+          /^\/auth\//,
+        ],
         runtimeCaching: [
           {
             urlPattern: /^\/api\//,
@@ -66,6 +81,8 @@ export default defineConfig({
       '/research-view': 'http://127.0.0.1:5000',
       '/settings-view': 'http://127.0.0.1:5000',
       '/keeper': 'http://127.0.0.1:5000',
+      '/classic': 'http://127.0.0.1:5000',
+      '/auth': 'http://127.0.0.1:5000',
     },
   },
 });

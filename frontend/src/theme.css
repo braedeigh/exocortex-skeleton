@@ -1,8 +1,15 @@
-/* theme.css — base palette + spacing scale, extracted from the Flask skeleton's
- * sky-theme.js (postDawn = light, twilight = dark) and style.css spacing scale.
- * This is deliberately NOT the full time-of-day theme engine (no sun-position
- * blending) — just the two static endpoints, switchable via prefers-color-scheme
- * or an explicit data-theme override.
+/* theme.css — base palette + spacing scale.
+ *
+ * The color variable *names* here are Flask's canonical set (static/css/style.css
+ * :root block) — sky-theme.js (loaded via a <script> tag in index.html, unmodified
+ * from the Flask skeleton) sets these same names as inline styles on
+ * documentElement at runtime, driven by window.THEME_OVERRIDES and the time of
+ * day. Inline styles always win over stylesheet rules, so the values below are
+ * only the pre-JS / JS-disabled fallback — deliberately identical to style.css's
+ * light "day" palette, not a lavender/indigo split. Do NOT add a
+ * prefers-color-scheme or data-theme block here: there is no static dark
+ * fallback in the Flask world either, sky-theme.js is the single source of
+ * truth for anything time-of-day/theme-mode dependent.
  */
 
 :root {
@@ -35,49 +42,23 @@
   /* ---- touch-first ---- */
   --tap-target: 44px;
 
-  /* ---- accents (theme-independent, from SKY_DEFAULT_ACCENTS) ---- */
+  /* ---- canonical palette (style.css:1-47) — sky-theme.js overrides these
+     inline at runtime; these are just the light/day defaults. ---- */
+  --bg: #f5f0e8;
+  --card-bg: #fff;
+  --text: #2a2520;
+  --text-secondary: #5a5048;
+  --text-muted: #998e82;
+  --border: #e0d8ce;
+  --accent: #7c5cbf;
   --morning: #d4880a;
   --evening: #6a7acc;
   --ongoing: #3a9e8c;
-  --accent: #7c5cbf;
-  --danger: #d44035;
-
-  /* ---- palette: light ("post-dawn") — default ---- */
-  --bg: #aba3b2;
-  --card-bg: #b8b1c2;
-  --text: #1a1815;
-  --text-secondary: #2a2522;
-  --text-muted: rgba(30, 25, 20, 0.6);
-  --border: #888391;
-}
-
-/* OS prefers dark → "twilight" palette, unless explicitly overridden light */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) {
-    --bg: #14101e;
-    --card-bg: #1e1830;
-    --text: #ddd0e8;
-    --text-secondary: rgba(200, 185, 220, 0.75);
-    --text-muted: rgba(170, 155, 190, 0.5);
-    --border: #2e2545;
-  }
-}
-
-/* explicit overrides always win, in either direction */
-:root[data-theme='dark'] {
-  --bg: #14101e;
-  --card-bg: #1e1830;
-  --text: #ddd0e8;
-  --text-secondary: rgba(200, 185, 220, 0.75);
-  --text-muted: rgba(170, 155, 190, 0.5);
-  --border: #2e2545;
-}
-
-:root[data-theme='light'] {
-  --bg: #aba3b2;
-  --card-bg: #b8b1c2;
-  --text: #1a1815;
-  --text-secondary: #2a2522;
-  --text-muted: rgba(30, 25, 20, 0.6);
-  --border: #888391;
+  --green: #3a9e8c;
+  --red: #d44035;
+  --orange: #d4700a;
+  --yellow: #d4a80a;
+  --todo-1: #3a9e8c;
+  --todo-2: #2e8a7c;
+  --todo-3: #7f8c9d;
 }

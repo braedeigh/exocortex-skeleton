@@ -40,7 +40,7 @@
 }
 
 .danger {
-  background: var(--danger);
+  background: var(--red);
   color: #fff;
 }
 

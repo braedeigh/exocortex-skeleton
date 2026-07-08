@@ -1,6 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { getData } from '../api/endpoints';
+import { useDeactivateFrames } from '../shell/useIframeView';
 
 export const Route = createFileRoute('/todos')({
   component: TodosPage,
@@ -11,6 +12,7 @@ export const Route = createFileRoute('/todos')({
  * render). Real todos UI comes later; for now just show the raw payload.
  */
 function TodosPage() {
+  useDeactivateFrames();
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ['data', 'today'],
     queryFn: ({ signal }) => getData('today', signal),
@@ -21,7 +23,7 @@ function TodosPage() {
       <h1 style={{ fontSize: 'var(--font-size-xl)' }}>Todos</h1>
       {isLoading ? <p>Loading&hellip;</p> : null}
       {isError ? (
-        <p style={{ color: 'var(--danger)' }}>
+        <p style={{ color: 'var(--red)' }}>
           Failed to load: {error instanceof Error ? error.message : 'unknown error'}
         </p>
       ) : null}
