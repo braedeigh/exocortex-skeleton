@@ -196,6 +196,8 @@ export function JournalPage() {
               const wasLastCard = bundle.cards.cards.length === 1;
               deleteCard.mutate({ id, wasLastCard }, { onSuccess: () => setEditingCardId(null) });
             }}
+            onNavigateDate={goTo}
+            onPersonClick={setPopoverSlug}
           />
         ) : mode === 'empty' ? (
           <div className={styles.empty}>No entries yet.</div>
