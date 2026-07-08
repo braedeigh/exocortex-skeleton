@@ -131,6 +131,22 @@ PUBLIC_PATHS = (
     "/api/data/item-buy",
     "/api/data/ecosystem",
     "/api/version",
+    # The React SPA shell (routes/spa.py) that now serves "/" — the app-shell
+    # HTML/JS/CSS/manifest/SW must all be reachable to render the public
+    # landing at all. "/todos" and "/legacy/<map|kitchen|inventory|money|
+    # ecosystem>" are the same previously-public dashboard tabs above, just
+    # under their new SPA-routed paths (old /dashboard/<tab> now redirects
+    # there instead of rendering the shell directly).
+    "/assets/",
+    "/manifest.webmanifest",
+    "/registerSW.js",
+    "/sw.js",
+    "/todos",
+    "/legacy/map",
+    "/legacy/kitchen",
+    "/legacy/inventory",
+    "/legacy/money",
+    "/legacy/ecosystem",
 )
 
 

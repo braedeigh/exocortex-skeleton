@@ -25,7 +25,7 @@ from routes import (
     devnotes, ideas, ecosystem, keeper, pending, housing, triage, decisions,
     entities, person, shell, cards, archivals, research,
     research_search, research_sources, research_import, research_text,
-    annotations,
+    annotations, spa,
 )
 from routes.shell import VALID_TABS
 
@@ -1151,6 +1151,7 @@ def vscode_stop():
 
 # --- Register route modules ---
 shell.register(app)
+spa.register(app)
 kitchen.register(app)
 habits.register(app)
 todos.register(app)

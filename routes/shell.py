@@ -1,16 +1,19 @@
-"""Shell/page routes — the split.html "app shell" and the handful of standalone
-pages (personality, about, food-map) that don't carry the shell chrome.
+"""Shell/page routes — the split.html "app shell", kept as a rollback path
+behind "/classic" now that routes/spa.py's React SPA serves "/" — plus the
+handful of standalone pages (personality, about, food-map) that don't carry
+the shell chrome.
 
-URL scheme (post-migration):
-  - "/"                     → the shell, dashboard view, "today" tab. Kept as a
-                              plain render (never redirected) — it's the PWA
-                              start_url and the public homepage.
+URL scheme (post React-shell migration):
+  - "/classic"              → the old shell, dashboard view, "today" tab.
+                              Rollback path; see routes/spa.py for "/".
+  - "/classic/<tab>"        → the old shell, dashboard view, that tab active.
+                              Unknown tabs fall back (302) to "/classic/today".
+  - "/classic/journal" "/classic/research" "/classic/files" "/classic/settings"
+                            → the old shell with that view active (journal/
+                              research/keeper/settings iframe in the right pane).
   - "/dashboard"            → 302 → "/dashboard/today"
-  - "/dashboard/<tab>"      → the shell, dashboard view, that tab active. Unknown
-                              tabs fall back (302) to "/dashboard/today".
-  - "/journal" "/research" "/files" "/settings"
-                            → the shell with that view active (journal/research/
-                              keeper/settings iframe shown in the right pane).
+  - "/dashboard/<tab>"      → 302 into the SPA: "/todos" for "today", otherwise
+                              "/legacy/<tab>". Unknown tabs → "/dashboard/today".
   - "/research-view"        → research.html standalone (iframe content for the
                               shell's research view — mirrors "/journal-view").
   - "/settings-view"        → settings.html standalone (iframe content for the
@@ -20,10 +23,11 @@ URL scheme (post-migration):
     /people) → 302 → the matching "/dashboard/<tab>" (302, not 301:
     still iterating on the scheme, don't want browsers caching the redirect forever).
   - "/dashboard/research"   → 302 → "/research" (research used to be a dashboard
-                              tab; now it's its own place).
-  - "/item/buy/<name>"      → the shell, dashboard view, inventory tab, with the
-                              buy-item drawer open.
+                              tab; now it's its own place, the SPA's /research).
+  - "/item/buy/<name>"      → the old shell, dashboard view, inventory tab, with
+                              the buy-item drawer open. Not yet ported to the SPA.
   - "/tab/<name>"           → iframe content for the dashboard pane (index.html).
+                              Unchanged — the SPA's /legacy/<tab> iframes this too.
   - "/journal-view", "/keeper" → iframe content, unchanged.
 """
 from flask import request, render_template, redirect, make_response
@@ -123,8 +127,8 @@ def _split_response(active_tab, item_name="", active_view="dashboard"):
 
 def register(app):
 
-    @app.route("/")
-    def split_home():
+    @app.route("/classic")
+    def classic_home():
         return _split_response("today")
 
     @app.route("/dashboard")
@@ -138,7 +142,9 @@ def register(app):
             return redirect("/research", code=302)
         if tab not in VALID_TABS:
             return redirect("/dashboard/today", code=302)
-        return _split_response(tab)
+        if tab == "today":
+            return redirect("/todos", code=302)
+        return redirect(f"/legacy/{tab}", code=302)
 
     def _make_legacy_redirect(tab):
         def view():
@@ -148,20 +154,26 @@ def register(app):
     for _path, _tab in _LEGACY_TAB_PATHS:
         app.add_url_rule(_path, endpoint=f"legacy_{_tab}", view_func=_make_legacy_redirect(_tab))
 
-    @app.route("/journal")
-    def journal_shell():
+    @app.route("/classic/<tab>")
+    def classic_tab(tab):
+        if tab not in VALID_TABS:
+            return redirect("/classic/today", code=302)
+        return _split_response(tab)
+
+    @app.route("/classic/journal")
+    def classic_journal():
         return _split_response("today", active_view="journal")
 
-    @app.route("/research")
-    def research_shell():
+    @app.route("/classic/research")
+    def classic_research():
         return _split_response("today", active_view="research")
 
-    @app.route("/files")
-    def files_shell():
+    @app.route("/classic/files")
+    def classic_files():
         return _split_response("today", active_view="files")
 
-    @app.route("/settings")
-    def settings_shell():
+    @app.route("/classic/settings")
+    def classic_settings():
         return _split_response("today", active_view="settings")
 
     @app.route("/settings-view")

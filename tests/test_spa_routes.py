@@ -1,0 +1,139 @@
+"""Route tests for routes/spa.py — the React SPA shell that now serves "/".
+
+Builds a minimal Flask app registering only routes.spa (plus routes.shell,
+since spa.py reuses its `_load_public_intro_html` helper and its "/classic"
+rollback route, and routes.settings for `/api/theme`'s `load_theme`).
+Exercises the real `frontend/dist/` build output — run `npm run build` in
+frontend/ first if this directory doesn't exist yet.
+
+Covers the verification gate from the design doc: "/" returns injected HTML
+(window.THEME_OVERRIDES / window.VIEW_MODE), /assets/<built asset> is 200,
+/classic still serves the old shell, /tab/<name> is unchanged.
+"""
+import json
+from pathlib import Path
+
+import pytest
+from flask import Flask
+
+from routes import shell, spa
+
+TEMPLATES_DIR = str(Path(__file__).resolve().parent.parent / "templates")
+
+pytestmark = pytest.mark.skipif(
+    not spa.INDEX_PATH.exists(),
+    reason="frontend/dist/index.html not built — run `npm run build` in frontend/",
+)
+
+
+def _make_app(view_mode=None):
+    app = Flask(__name__, template_folder=TEMPLATES_DIR)
+    app.config.update(TESTING=True)
+
+    @app.context_processor
+    def _stub_v_static():
+        return dict(v_static=lambda filename: f"/static/{filename}")
+
+    if view_mode is not None:
+        from flask import request
+
+        @app.before_request
+        def _stub_view_mode():
+            request.view_mode = view_mode
+
+    shell.register(app)
+    spa.register(app)
+    return app
+
+
+def _client(view_mode=None):
+    return _make_app(view_mode).test_client()
+
+
+def _first_asset_filename():
+    return next(p.name for p in spa.ASSETS_DIR.iterdir() if p.is_file())
+
+
+# --- "/" and the other SPA routes -----------------------------------------------
+
+def test_root_returns_injected_spa_html():
+    r = _client().get("/")
+    assert r.status_code == 200
+    assert b"window.THEME_OVERRIDES = " in r.data
+    assert b'window.VIEW_MODE = "authed"' in r.data
+    assert r.headers["Cache-Control"] == "no-store"
+
+
+def test_root_theme_overrides_is_valid_json_before_head_close():
+    r = _client().get("/")
+    html = r.data.decode()
+    marker = "window.THEME_OVERRIDES = "
+    start = html.index(marker) + len(marker)
+    end = html.index(";", start)
+    json.loads(html[start:end])  # raises if it's not valid JSON
+
+
+def test_root_public_intro_html_is_null_when_authed():
+    r = _client().get("/")
+    assert b"window.PUBLIC_INTRO_HTML = null;" in r.data
+
+
+def test_root_public_intro_html_is_a_string_when_public():
+    r = _client(view_mode="public").get("/")
+    assert b'window.VIEW_MODE = "public"' in r.data
+    assert b"window.PUBLIC_INTRO_HTML = null;" not in r.data
+
+
+@pytest.mark.parametrize("path", ["/todos", "/legacy/map", "/journal", "/research", "/settings", "/files"])
+def test_spa_routes_all_serve_the_injected_shell(path):
+    r = _client().get(path)
+    assert r.status_code == 200
+    assert b"window.VIEW_MODE" in r.data
+    assert b'<div id="root">' in r.data
+
+
+# --- /assets/<built asset> --------------------------------------------------------
+
+def test_asset_returns_200_and_is_immutably_cached():
+    filename = _first_asset_filename()
+    r = _client().get(f"/assets/{filename}")
+    assert r.status_code == 200
+    assert "immutable" in r.headers["Cache-Control"]
+
+
+def test_unknown_asset_404s():
+    r = _client().get("/assets/does-not-exist.js")
+    assert r.status_code == 404
+
+
+# --- root-level PWA files ---------------------------------------------------------
+
+def test_manifest_webmanifest_served_from_dist():
+    r = _client().get("/manifest.webmanifest")
+    assert r.status_code == 200
+
+
+def test_sw_js_is_never_cached():
+    r = _client().get("/sw.js")
+    assert r.status_code == 200
+    assert r.headers["Cache-Control"] == "no-store"
+
+
+def test_unknown_root_file_404s():
+    r = _client().get("/not-a-real-file.js")
+    assert r.status_code == 404
+
+
+# --- rollback + unchanged iframe content ------------------------------------------
+
+def test_classic_still_serves_the_old_shell():
+    r = _client().get("/classic")
+    assert r.status_code == 200
+    assert b'src="/tab/today"' in r.data
+    assert b"window.THEME_OVERRIDES" not in r.data
+
+
+def test_tab_today_is_unchanged():
+    r = _client().get("/tab/today")
+    assert r.status_code == 200
+    assert b'data-active-tab="today"' in r.data
