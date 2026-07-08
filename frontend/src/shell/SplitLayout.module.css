@@ -1,0 +1,47 @@
+.container {
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  height: 100%;
+  width: 100%;
+  min-height: 0;
+}
+
+.left {
+  flex: 0 0 50%;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Right pane hosts the SPA's routed content — same box the old <main> was:
+   positioned flex column so FrameHost (.host is absolute inset:0) fills it and
+   native routes lay out normally. */
+.right {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.divider {
+  flex: 0 0 6px;
+  background: var(--border);
+  cursor: col-resize;
+  transition: background 0.15s;
+}
+
+.divider:hover,
+.dragging .divider {
+  background: var(--accent);
+}
+
+/* While dragging, this sits above both iframes so the pointer doesn't get
+   swallowed by the terminal/content frames (split.html's .drag-overlay trick). */
+.dragOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  cursor: col-resize;
+}

@@ -1,3 +1,14 @@
+import type {
+  CadenceConfig,
+  HabitCadenceMap,
+  HabitMetaMap,
+  HabitSection,
+  HabitSettings,
+  HabitsLog,
+  HabitStarts,
+  Streak,
+} from '../habits/types';
+
 export interface TodoItem {
   id: string;
   text: string;
@@ -62,8 +73,22 @@ export interface ReminderDef {
   snoozed_until?: string | null;
 }
 
-export interface TodayData {
+export interface TodayDataHabitsFields {
+  habits?: HabitSection[];
+  habit_settings?: HabitSettings;
+  habit_starts?: HabitStarts;
+  habits_log?: HabitsLog;
+  habit_cadence?: HabitCadenceMap;
+  habit_meta?: HabitMetaMap;
+  cadence_config?: CadenceConfig;
+  streaks?: Streak[] | FrostedStream;
+}
+
+export interface TodayData extends TodayDataHabitsFields {
   server_date: string;
+  server_hour: number;
+  /** Human-readable date line, e.g. "Wednesday, July 8" (server.py's date_text). */
+  date?: string;
   time_of_day: TimeOfDay;
   todos: TodosStream;
   reminders?: ReminderDef[];

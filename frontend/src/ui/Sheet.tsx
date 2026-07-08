@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { IconButton } from './IconButton';
 import styles from './Sheet.module.css';
 
@@ -11,6 +11,15 @@ export interface SheetProps {
 
 /** Touch-first bottom sheet — full-bleed on mobile, close button 44x44px. */
 export function Sheet({ open, title, onClose, children }: SheetProps) {
+  useEffect(() => {
+    if (!open) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose();
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [open, onClose]);
+
   if (!open) return null;
 
   return (

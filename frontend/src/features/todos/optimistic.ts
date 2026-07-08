@@ -1,3 +1,4 @@
+import { habitKey } from '../habits/habitMath';
 import { addDays } from './todoHelpers';
 import { isFrosted } from './types';
 import type { TodayData, TodoItem, TodoSection } from './types';
@@ -109,4 +110,16 @@ export function applyActivityLog(data: TodayData, date: string, type: string): T
 
 export function applyActivityRemove(data: TodayData, date: string, type: string): TodayData {
   return { ...data, activity_log: data.activity_log.filter((e) => !(e.date === date && e.type === type)) };
+}
+
+/** Flip a single habit's completion for `date` — mirrors the server's toggle
+ * semantics (present -> removed, absent -> set true) so the optimistic
+ * update matches what /api/habits/toggle will actually do. */
+export function applyHabitToggle(data: TodayData, section: string, habit: string, date: string): TodayData {
+  const key = habitKey(section, habit);
+  const log = data.habits_log || {};
+  const day = { ...(log[date] || {}) };
+  if (day[key]) delete day[key];
+  else day[key] = true;
+  return { ...data, habits_log: { ...log, [date]: day } };
 }

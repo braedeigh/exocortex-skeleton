@@ -49,7 +49,10 @@ export function useFrameBridge(): void {
         case 'tab':
         case 'switchTo': {
           const name = typeof msg.name === 'string' ? msg.name : null;
-          if (name && isValidTab(name)) {
+          // 'today' is now the native /todos route, not a legacy iframe tab.
+          if (name === 'today') {
+            void navigate({ to: '/todos' });
+          } else if (name && isValidTab(name)) {
             void navigate({ to: '/legacy/$tab', params: { tab: name } });
           }
           break;

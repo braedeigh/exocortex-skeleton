@@ -1,0 +1,117 @@
+.card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--accent) 5%, var(--card-bg));
+  padding: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.context {
+  border-style: dashed;
+  background: color-mix(in srgb, var(--accent) 8%, var(--card-bg));
+  font-style: italic;
+}
+
+.editing {
+  border-color: var(--accent);
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+  min-height: var(--tap-target);
+}
+
+.who {
+  font-weight: 700;
+  font-size: var(--font-size-sm);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  letter-spacing: 0.02em;
+}
+
+.who_B {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+.who_K {
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--text-muted) 12%, transparent);
+  font-style: italic;
+}
+
+.time {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.body {
+  font-size: var(--font-size-base);
+  line-height: 1.65;
+}
+
+.body :global(p):last-child,
+.body :global(h1):last-child,
+.body :global(h2):last-child,
+.body :global(h3):last-child {
+  margin-bottom: 0;
+}
+
+.body_K {
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.body_context {
+  font-style: italic;
+}
+
+.editArea {
+  width: 100%;
+  min-height: 68px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: var(--font-size-base);
+  line-height: 1.6;
+  padding: var(--space-2) var(--space-3);
+  resize: vertical;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.controlsSpacer {
+  flex: 1;
+}
+
+.confirmPreview {
+  font-size: var(--font-size-base);
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 0 0 var(--space-4);
+}
+
+.confirmActions {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.confirmActions > * {
+  flex: 1;
+}

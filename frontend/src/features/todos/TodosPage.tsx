@@ -1,10 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ToastStack } from '../../ui';
+import { GraduationPrompts } from '../habits/GraduationPrompts';
+import { HabitsColumn } from '../habits/HabitsColumn';
+import { pickTimeSegment } from '../habits/habitMath';
+import type { TimeSegment } from '../habits/habitMath';
 import { AddBar } from './AddBar';
 import { DetailSheet } from './DetailSheet';
 import { FocusChips } from './FocusChips';
 import { ReminderCard } from './ReminderCard';
 import { SnoozedCard } from './SnoozedCard';
+import { StreaksRow } from './StreaksRow';
 import { TodoSection } from './TodoSection';
 import {
   DONE_LABEL,
@@ -16,10 +21,19 @@ import {
 } from './todoHelpers';
 import { isFrosted } from './types';
 import type { TodoItem } from './types';
-import { useTodayData, useTodoActions, useReminderActions, useToasts } from './useTodayData';
+import { useHabitActions, useTodayData, useTodoActions, useReminderActions, useToasts } from './useTodayData';
 import styles from './TodosPage.module.css';
 
 const FOCUS_STORAGE_KEY = 'todoFocusTheme';
+const GREETINGS: Record<TimeSegment, string> = {
+  morning: 'Good morning',
+  afternoon: 'Good afternoon',
+  evening: 'Good evening',
+};
+
+function isPublicMode(): boolean {
+  return typeof window !== 'undefined' && window.VIEW_MODE === 'public';
+}
 
 function readStoredFocus(): string {
   try {
@@ -42,9 +56,14 @@ export function TodosPage() {
   const { toasts, push, dismiss } = useToasts();
   const todoActions = useTodoActions(push);
   const reminderActions = useReminderActions(push);
+  const habitActions = useHabitActions(push);
+  const isPublic = isPublicMode();
 
   const [focusTheme, setFocusThemeState] = useState(readStoredFocus);
   const [selected, setSelected] = useState<TodoItem | null>(null);
+  // Controls both the greeting text and which habit cards show — mirrors the
+  // old page's single `selectedTime` global (core.js getTime()).
+  const [manualSegment, setManualSegment] = useState<TimeSegment | null>(null);
 
   function setFocusTheme(theme: string) {
     setFocusThemeState(theme);
@@ -98,6 +117,11 @@ export function TodosPage() {
     );
   }
 
+  const segment = manualSegment ?? pickTimeSegment(data.server_hour);
+  const habits = data.habits || [];
+  const habitsLog = data.habits_log || {};
+  const streaks = Array.isArray(data.streaks) ? data.streaks : [];
+
   return (
     <div className={styles.page}>
       {data.reminders ? (
@@ -112,6 +136,29 @@ export function TodosPage() {
         />
       ) : null}
 
+      <SnoozedCard items={snoozed} onUnsnooze={(id) => todoActions.snooze(id, 0)} />
+
+      {!isPublic ? (
+        <>
+          <div className={styles.greeting}>{GREETINGS[segment]}</div>
+          <div className={styles.dateLine}>{data.date}</div>
+          {/* TODO(habits phase 2): "Show hidden prompts" expand-all toggle
+              lived here (old #expand-btn next to date-text). */}
+          <StreaksRow streaks={streaks} />
+          <GraduationPrompts
+            habits={habits}
+            hidden={data.habit_settings?.hidden || []}
+            cadenceMap={data.habit_cadence}
+            metaMap={data.habit_meta}
+            log={habitsLog}
+            cadenceConfig={data.cadence_config}
+            serverDate={serverDate}
+            onPromote={habitActions.promote}
+            onRestore={habitActions.restore}
+          />
+        </>
+      ) : null}
+
       {frosted ? (
         <div className={styles.frosted}>
           {Array.from({ length: 5 }).map((_, i) => (
@@ -119,48 +166,65 @@ export function TodosPage() {
           ))}
         </div>
       ) : (
-        <>
-          <FocusChips counts={focusCounts} active={focusTheme} onChange={setFocusTheme} />
-          <AddBar onAdd={todoActions.add} />
+        <div className={styles.twoCol}>
+          {!isPublic ? (
+            <HabitsColumn
+              habits={habits}
+              habitSettings={data.habit_settings}
+              cadenceMap={data.habit_cadence}
+              metaMap={data.habit_meta}
+              log={habitsLog}
+              cadenceConfig={data.cadence_config}
+              starts={data.habit_starts}
+              segment={segment}
+              onSegmentChange={setManualSegment}
+              serverDate={serverDate}
+              onToggle={(item, section) => habitActions.toggle(item, section, serverDate)}
+            />
+          ) : null}
 
-          {focusTheme && focusCounts.total === 0 ? (
-            <div className={styles.emptyFocus}>Nothing here right now. 🎉</div>
-          ) : (
-            ladderSections.map((section, i) => (
+          <div>
+            <div className={styles.colHeader}>To Do</div>
+            <FocusChips counts={focusCounts} active={focusTheme} onChange={setFocusTheme} />
+            <AddBar onAdd={todoActions.add} />
+
+            {focusTheme && focusCounts.total === 0 ? (
+              <div className={styles.emptyFocus}>Nothing here right now. 🎉</div>
+            ) : (
+              ladderSections.map((section, i) => (
+                <TodoSection
+                  key={section.name}
+                  label={section.name}
+                  colorIndex={i}
+                  items={visibleSectionItems(section, serverDate, focusTheme)}
+                  manualOrder={section.manual_order}
+                  serverDate={serverDate}
+                  defaultOpen={section.name === 'Now'}
+                  onToggle={todoActions.toggle}
+                  onOpenDetail={setSelected}
+                  onReorder={todoActions.reorder}
+                  onAutosort={todoActions.autosort}
+                />
+              ))
+            )}
+
+            {doneSection ? (
               <TodoSection
-                key={section.name}
-                label={section.name}
-                colorIndex={i}
-                items={visibleSectionItems(section, serverDate, focusTheme)}
-                manualOrder={section.manual_order}
+                label={DONE_LABEL}
+                colorIndex={3}
+                items={doneSection.items}
+                manualOrder={false}
                 serverDate={serverDate}
-                defaultOpen={section.name === 'Now'}
+                defaultOpen={false}
+                countMode="total"
                 onToggle={todoActions.toggle}
                 onOpenDetail={setSelected}
                 onReorder={todoActions.reorder}
                 onAutosort={todoActions.autosort}
               />
-            ))
-          )}
-
-          {doneSection ? (
-            <TodoSection
-              label={DONE_LABEL}
-              colorIndex={3}
-              items={doneSection.items}
-              manualOrder={false}
-              serverDate={serverDate}
-              defaultOpen={false}
-              countMode="total"
-              onToggle={todoActions.toggle}
-              onOpenDetail={setSelected}
-              onReorder={todoActions.reorder}
-              onAutosort={todoActions.autosort}
-            />
-          ) : null}
-
-          <SnoozedCard items={snoozed} onUnsnooze={(id) => todoActions.snooze(id, 0)} />
-        </>
+            ) : null}
+          </div>
+        </div>
       )}
 
       <DetailSheet

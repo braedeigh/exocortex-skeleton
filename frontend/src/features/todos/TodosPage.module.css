@@ -2,6 +2,48 @@
   flex: 1;
   overflow-y: auto;
   padding-bottom: var(--space-8);
+  /* The two-col grid below needs to know this pane's own width, not the
+     viewport's — on desktop the split divider can drag the right pane much
+     narrower than the window, so a plain media query would keep the grid
+     side-by-side long after it's cramped. */
+  container-type: inline-size;
+  container-name: todos-page;
+}
+
+.greeting {
+  font-size: var(--font-size-xl);
+  font-weight: 700;
+  color: var(--text);
+  margin: var(--space-3) var(--space-4) 2px;
+}
+
+.dateLine {
+  font-size: var(--font-size-base);
+  color: var(--text-secondary);
+  margin: 0 var(--space-4) var(--space-4);
+}
+
+.colHeader {
+  font-size: var(--font-size-xl);
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: var(--space-3);
+}
+
+.twoCol {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-7);
+  margin: 0 var(--space-4) var(--space-8);
+}
+
+/* Stacks to one column once the PANE (not the viewport) is narrow — mirrors
+   style.css's .two-col breakpoint (700px) but keyed to the container so a
+   dragged-narrow desktop split pane stacks too. */
+@container todos-page (max-width: 700px) {
+  .twoCol {
+    grid-template-columns: 1fr;
+  }
 }
 
 .loading,

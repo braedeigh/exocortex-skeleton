@@ -22,6 +22,12 @@ body {
   -webkit-font-smoothing: antialiased;
   /* touch-first: no double-tap zoom flicker on iOS */
   touch-action: manipulation;
+  /* Mirrors split.html:25 — the page itself never scrolls. The terminal pane
+   * is pinned and only the right pane's content host (routes/__root.tsx)
+   * scrolls, via the flex chain #root -> main -> SplitLayout -> content host
+   * (all flex:1/min-height:0). Without this, the whole page could scroll and
+   * leave blank space below a short right-pane route. */
+  overflow: hidden;
 }
 
 #root {

@@ -1,0 +1,131 @@
+.loading {
+  color: var(--text-muted);
+  font-size: var(--font-size-base);
+  padding: var(--space-4) 0;
+}
+
+.headLine {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  align-items: baseline;
+  font-size: var(--font-size-base);
+  font-weight: 700;
+  margin-bottom: var(--space-3);
+}
+
+.aliases {
+  font-size: var(--font-size-sm);
+  font-weight: 400;
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.range {
+  font-size: var(--font-size-sm);
+  font-weight: 400;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.blurb {
+  font-size: var(--font-size-base);
+  line-height: 1.6;
+  color: var(--text);
+  margin: 0 0 var(--space-4);
+}
+
+.facts {
+  margin-bottom: var(--space-3);
+}
+
+.factRow {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  font-size: var(--font-size-sm);
+  border-bottom: 1px solid var(--border);
+}
+
+.factRow:last-child {
+  border-bottom: none;
+}
+
+.factLabel {
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.factVal {
+  color: var(--text);
+}
+
+.factEmpty {
+  color: var(--text-muted);
+  opacity: 0.55;
+}
+
+.mentions {
+  margin-bottom: var(--space-3);
+}
+
+.mentionRow {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-2);
+  color: var(--text);
+  cursor: pointer;
+  font-family: inherit;
+  min-height: var(--tap-target);
+  text-decoration: none;
+  box-sizing: border-box;
+}
+
+.mentionRow:hover {
+  border-color: var(--accent);
+}
+
+.mentionDate {
+  display: block;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.mentionSnip {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  margin-top: 2px;
+  line-height: 1.45;
+}
+
+.emptyMentions {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.openPerson {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: var(--tap-target);
+  background: var(--accent);
+  border-radius: var(--radius-lg);
+  color: #fff;
+  font-size: var(--font-size-base);
+  font-weight: 700;
+  text-decoration: none;
+  box-sizing: border-box;
+}

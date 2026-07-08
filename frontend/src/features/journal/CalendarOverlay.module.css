@@ -1,0 +1,65 @@
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-3);
+}
+
+.monthLabel {
+  font-size: var(--font-size-base);
+  font-weight: 700;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  text-align: center;
+}
+
+.dow {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: var(--space-1) 0;
+}
+
+.day,
+.empty {
+  min-height: 38px;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+}
+
+.day {
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.day.hasEntry {
+  color: var(--accent);
+  font-weight: 700;
+  cursor: pointer;
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+.day.hasEntry:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.day.today {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.day.selected {
+  background: var(--accent);
+  color: #fff;
+}
+
+.day:disabled {
+  cursor: default;
+}

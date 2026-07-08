@@ -1,0 +1,88 @@
+.overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  width: min(680px, 100%);
+  max-height: 100%;
+  padding: var(--space-3);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-xl);
+  background: var(--card-bg);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+}
+
+.header {
+  margin-bottom: var(--space-2);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.text {
+  flex: 1;
+  min-height: 240px;
+  width: 100%;
+  resize: none;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Berkeley Mono', 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.error {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+  color: var(--red);
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.copyBtn,
+.closeBtn {
+  min-height: var(--tap-target);
+  padding: 0 var(--space-5);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.copyBtn {
+  flex: 1;
+  background: var(--accent);
+  color: #fff;
+}
+
+.copyBtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.closeBtn {
+  background: var(--border);
+  color: var(--text-secondary);
+}

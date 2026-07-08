@@ -1,0 +1,123 @@
+.wrap {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.toggle {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.toggleBtn {
+  flex: 1;
+  min-height: var(--tap-target);
+  border: none;
+  background: none;
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.toggleBtn.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.textarea {
+  width: 100%;
+  min-height: 50vh;
+  border: none;
+  outline: none;
+  resize: vertical;
+  padding: var(--space-4) 0;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', Consolas, monospace;
+  font-size: var(--font-size-base);
+  line-height: 1.7;
+  color: var(--text);
+  background: transparent;
+  box-sizing: border-box;
+}
+
+.preview {
+  padding: var(--space-4) 0;
+  line-height: 1.7;
+  font-size: var(--font-size-base);
+}
+
+.preview :global(h1) {
+  font-size: var(--font-size-xl);
+  margin-bottom: var(--space-2);
+}
+
+.preview :global(h2) {
+  font-size: var(--font-size-lg);
+  margin-top: var(--space-5);
+  margin-bottom: var(--space-2);
+}
+
+.preview :global(h3) {
+  font-size: var(--font-size-base);
+  font-weight: 700;
+  margin-top: var(--space-4);
+  margin-bottom: var(--space-1);
+}
+
+.preview :global(hr) {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: var(--space-4) 0;
+}
+
+.preview :global(p) {
+  margin-bottom: var(--space-2);
+}
+
+.preview :global(code) {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: var(--font-size-sm);
+}
+
+.preview :global(em) {
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.preview :global(strong) {
+  font-weight: 700;
+}
+
+.preview :global(blockquote) {
+  border-left: 3px solid var(--accent);
+  padding-left: var(--space-3);
+  color: var(--text-muted);
+  margin: var(--space-2) 0;
+}
+
+.preview :global(ul),
+.preview :global(ol) {
+  padding-left: var(--space-5);
+  margin-bottom: var(--space-2);
+}
+
+.empty {
+  padding: var(--space-4) 0;
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: var(--font-size-base);
+}
+
+.status {
+  padding: var(--space-2) 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  text-align: right;
+  flex-shrink: 0;
+  min-height: 20px;
+}

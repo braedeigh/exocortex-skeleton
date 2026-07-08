@@ -1,0 +1,37 @@
+.selector {
+  display: inline-flex;
+  background: var(--bg);
+  border-radius: var(--radius-md);
+  padding: 3px;
+  gap: 2px;
+}
+
+.btn {
+  min-height: var(--tap-target);
+  padding: 0 var(--space-4);
+  border: none;
+  background: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.btn.active {
+  color: #fff;
+}
+
+.btn.morning.active {
+  background: var(--morning);
+}
+
+.btn.afternoon.active {
+  background: var(--ongoing);
+}
+
+.btn.evening.active {
+  background: var(--evening);
+}

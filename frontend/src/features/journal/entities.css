@@ -1,0 +1,26 @@
+/**
+ * entities.css — deliberately a plain (non-module) stylesheet, not a CSS
+ * Module. Entity spans are injected via dangerouslySetInnerHTML (see
+ * entityHighlight.ts) as raw HTML strings with a literal `class="entity"`,
+ * so a hashed CSS-module classname would never match. Per-entity color
+ * comes from an inline style (entityHue) set by the highlighter itself;
+ * this file only carries the interactive states that inline styles can't
+ * express (:hover, the find-bar's current-match highlight).
+ */
+
+.entity {
+  cursor: pointer;
+  border-bottom: 1px dotted currentColor;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.entity:hover {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+.entity.find-current {
+  background: var(--accent);
+  color: #fff !important;
+  border-radius: 3px;
+  border-bottom-color: transparent;
+}

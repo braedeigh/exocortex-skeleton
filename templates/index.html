@@ -11,6 +11,16 @@
 <script>window.THEME_OVERRIDES = {{ theme_overrides_json|safe }};</script>
 </head>
 <body data-active-tab="{{ active_tab }}" data-item-name="{{ item_name|default('', true) }}" data-view-mode="{{ view_mode }}" class="{{ 'public-mode' if view_mode == 'public' else '' }}">
+<script>
+// Set when the React shell iframes this page (FrameHost appends ?embed=spa to
+// /tab/<name> URLs) — TopTabs is the nav now, so this page's own tab selector
+// and public header are redundant chrome. Runs synchronously, first thing in
+// <body>, so there's no flash of the old selector before it's hidden. Direct
+// visits and /classic never carry embed=spa, so they render unaffected.
+if (location.search.indexOf('embed=spa') !== -1) {
+    document.body.classList.add('spa-embed');
+}
+</script>
 <div class="container">
     <div class="public-header">
         <div class="public-header-name">{% if owner_name %}{{ owner_name }} &nbsp;·&nbsp; {% endif %}{{ app_name }} v{{ app_version }}</div>
@@ -22,7 +32,7 @@
     <div id="app-banner"></div>
 
     <!-- Tab selector -->
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+    <div id="tab-selector-row" style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
         <div class="time-selector" id="tab-selector" style="margin-bottom:0">
             <a href="/" class="time-btn" data-tab="today" style="text-decoration:none" onclick="switchTab(event,'today')">To Do</a>
             <a href="/map" class="time-btn" data-tab="map" style="text-decoration:none" onclick="switchTab(event,'map')">Life Map</a>

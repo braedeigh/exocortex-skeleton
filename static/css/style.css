@@ -1690,3 +1690,15 @@ details.card-section > summary > span[style*="color:var(--text-muted)"] {
     transition: color 0.15s ease;
 }
 .buy-word-btn:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+
+/* React shell embed (?embed=spa, set on <body> by the inline script in
+   index.html) — TopTabs (frontend/src/shell/TopTabs.tsx) is the nav now, so
+   this page's own tab selector row (index.html #tab-selector-row) and public
+   header are redundant chrome inside the iframe. !important beats
+   frosted.css's `body.public-mode .public-header { display: flex; }`
+   regardless of stylesheet load order. Direct visits and /classic never carry
+   embed=spa, so they're unaffected. */
+body.spa-embed .public-header,
+body.spa-embed #tab-selector-row {
+    display: none !important;
+}
