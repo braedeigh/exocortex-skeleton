@@ -46,6 +46,8 @@
 
 .panel {
   position: fixed;
+  top: auto;
+  left: auto;
   right: var(--space-4);
   bottom: var(--space-4);
   z-index: 45;
@@ -58,6 +60,11 @@
   border-radius: var(--radius-xl);
   box-shadow: 0 10px 34px rgba(0, 0, 0, 0.4);
   overflow: hidden;
+  /* Only the corner offsets are true length values on both sides of the
+     toggle, so only they get an actual animation — width/height jump
+     between an explicit size and auto, which can't interpolate, but a snap
+     there is acceptable (see NotesPanel maximize toggle). */
+  transition: right 0.15s ease, bottom 0.15s ease, top 0.15s ease, left 0.15s ease;
 }
 
 @media (min-width: 700px) {
@@ -68,6 +75,23 @@
     max-width: calc(100vw - 24px);
     max-height: 82vh;
   }
+}
+
+/* Maximize toggle (Task 1) — grows from the same bottom-right corner into a
+   near-fullscreen sheet, inset ~12px on all sides. */
+.panelExpanded {
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  width: auto;
+  height: auto;
+  max-width: none;
+  max-height: none;
+}
+
+.panelExpanded .text {
+  font-size: var(--font-size-lg);
 }
 
 .head {
@@ -81,6 +105,10 @@
 
 .title {
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: var(--font-size-base);
   font-weight: 700;
   color: var(--text);
@@ -88,6 +116,36 @@
 
 .titleIdea {
   color: var(--green);
+}
+
+.allLink,
+.maximize {
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  line-height: 1;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.allLink:hover,
+.maximize:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.maximizeActive {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
 }
 
 .sort {
@@ -101,6 +159,9 @@
   height: 40px;
   cursor: pointer;
   white-space: nowrap;
+  /* Fixed width so toggling Newest ↔ Oldest doesn't resize the button. */
+  min-width: 96px;
+  text-align: center;
 }
 
 .sort:hover {
@@ -164,10 +225,38 @@
   color: var(--text);
 }
 
+/* Tap-to-expand (Task 2) — the whole text+hint block is the tap target;
+   editing is a separate explicit ✎ button, so this can't fight it. */
+.textWrap {
+  cursor: pointer;
+}
+
+.textClamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.moreHint {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--font-size-sm);
+  color: var(--accent);
+}
+
 .date {
   font-size: var(--font-size-sm);
   color: var(--text-muted);
   margin-top: var(--space-1);
+}
+
+/* × on top, ✎ below it — one narrow column instead of two side-by-side. */
+.acts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  align-items: center;
 }
 
 .act {

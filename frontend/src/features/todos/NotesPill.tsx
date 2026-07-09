@@ -2,18 +2,8 @@ import { useRef, useState } from 'react';
 import { useDismiss } from '../../shell/useDismiss';
 import { NotesPanel } from './NotesPanel';
 import type { NotesPillKind } from './useNotesPill';
+import { readStoredSort, writeStoredSort, type SortDir } from './noteHelpers';
 import styles from './NotesPill.module.css';
-
-type SortDir = 'newest' | 'oldest';
-const SORT_STORAGE_KEY = 'np-sort';
-
-function readStoredSort(): SortDir {
-  try {
-    return localStorage.getItem(SORT_STORAGE_KEY) === 'oldest' ? 'oldest' : 'newest';
-  } catch {
-    return 'newest';
-  }
-}
 
 export interface NotesPillProps {
   onError: (message: string) => void;
@@ -38,11 +28,7 @@ export function NotesPill({ onError }: NotesPillProps) {
   function toggleSort() {
     setSort((cur) => {
       const next: SortDir = cur === 'newest' ? 'oldest' : 'newest';
-      try {
-        localStorage.setItem(SORT_STORAGE_KEY, next);
-      } catch {
-        // localStorage unavailable — sort just won't persist across visits
-      }
+      writeStoredSort(next);
       return next;
     });
   }

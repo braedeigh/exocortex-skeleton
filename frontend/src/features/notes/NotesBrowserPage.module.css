@@ -1,0 +1,312 @@
+.page {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-4);
+  padding-bottom: var(--space-8);
+}
+
+.publicStub {
+  color: var(--text-muted);
+  font-size: var(--font-size-base);
+  padding: var(--space-6) 0;
+  text-align: center;
+}
+
+.header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-size-xl);
+  font-weight: 700;
+  color: var(--text);
+}
+
+.count {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.kindToggle {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.kindBtn {
+  background: var(--card-bg);
+  border: none;
+  border-right: 1px solid var(--border);
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  cursor: pointer;
+}
+
+.kindBtn:last-child {
+  border-right: none;
+}
+
+.kindBtn:hover {
+  color: var(--text);
+}
+
+.kindBtnActive {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
+
+.sortBtn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  padding: 0 var(--space-3);
+  height: 40px;
+  cursor: pointer;
+  white-space: nowrap;
+  /* Fixed width so toggling Newest ↔ Oldest doesn't resize the button. */
+  min-width: 96px;
+  text-align: center;
+}
+
+.sortBtn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.search {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  margin-bottom: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
+  color: var(--text);
+  font-size: var(--font-size-base);
+  font-family: inherit;
+  outline: none;
+}
+
+.search:focus {
+  border-color: var(--accent);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.chip {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  min-height: 36px;
+  padding: 0 var(--space-4);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.chip:hover {
+  color: var(--text);
+}
+
+.chipActive {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.empty {
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: var(--font-size-base);
+  padding: var(--space-6) 0;
+  text-align: center;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+  padding: var(--space-3);
+}
+
+.cardMeta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.kindTag {
+  font-size: var(--font-size-base);
+  line-height: 1;
+}
+
+.tabTag {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  padding: 2px var(--space-2);
+}
+
+.age {
+  margin-left: auto;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+  font-size: var(--font-size-base);
+}
+
+.textWrap {
+  cursor: pointer;
+}
+
+.textClamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.moreHint {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--font-size-sm);
+  color: var(--accent);
+}
+
+.cardActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.act {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  min-width: 40px;
+  min-height: 40px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-base);
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.act:hover {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--accent);
+}
+
+.actX {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.actSure {
+  background: color-mix(in srgb, var(--red) 15%, transparent);
+  color: var(--red);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.actSure:hover {
+  background: color-mix(in srgb, var(--red) 25%, transparent);
+  color: var(--red);
+}
+
+.cardEditing {
+  display: flex;
+  flex-direction: column;
+}
+
+.editArea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 70px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-base);
+  line-height: 1.4;
+  font-family: inherit;
+  background: var(--bg);
+  color: var(--text);
+  resize: none;
+  overflow: hidden;
+  outline: none;
+}
+
+.editBtns {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+  margin-top: var(--space-2);
+}
+
+.editBtns button {
+  min-height: 40px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.saveBtn {
+  border: none;
+  background: var(--accent);
+  color: #fff;
+}
+
+.cancelBtn {
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text-muted);
+}

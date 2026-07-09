@@ -6,6 +6,7 @@
 import { api } from './client';
 import type { TodayData, TodoItem } from '../features/todos/types';
 import type {
+  AllNotesResponse,
   BacklinksResponse,
   Card,
   CardsResponse,
@@ -197,6 +198,11 @@ export function getDevNotes(tab: string, signal?: AbortSignal): Promise<DevNotes
   return api.get(`/api/devnotes/${tab}`, signal);
 }
 
+/** GET /api/devnotes/all — every tab's dev notes at once. Backs /notes. */
+export function getAllDevNotes(signal?: AbortSignal): Promise<AllNotesResponse> {
+  return api.get('/api/devnotes/all', signal);
+}
+
 export function addDevNote(tab: string, text: string): Promise<OkResponse> {
   return api.post('/api/devnote/add', { tab, text });
 }
@@ -211,6 +217,11 @@ export function removeDevNote(tab: string, id: string): Promise<OkResponse> {
 
 export function getIdeaNotes(tab: string, signal?: AbortSignal): Promise<DevNotesResponse> {
   return api.get(`/api/ideanotes/${tab}`, signal);
+}
+
+/** GET /api/ideanotes/all — every tab's idea notes at once. Backs /notes. */
+export function getAllIdeaNotes(signal?: AbortSignal): Promise<AllNotesResponse> {
+  return api.get('/api/ideanotes/all', signal);
 }
 
 export function addIdeaNote(tab: string, text: string): Promise<OkResponse> {

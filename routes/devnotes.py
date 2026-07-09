@@ -86,6 +86,10 @@ def register(app):
         save_dev_notes(d)
         return jsonify({"ok": True})
 
+    @app.route("/api/devnotes/all", methods=["GET"])
+    def get_devnotes_all():
+        return jsonify({"tabs": load_dev_notes().get("tabs", {})})
+
     @app.route("/api/devnotes/<tab>", methods=["GET"])
     def get_devnotes(tab):
         notes = load_dev_notes().get("tabs", {}).get(tab, [])
@@ -166,6 +170,10 @@ def register(app):
         d.setdefault("tabs", {}).setdefault(tab, []).append(_new_note(text))
         save_idea_notes(d)
         return jsonify({"ok": True})
+
+    @app.route("/api/ideanotes/all", methods=["GET"])
+    def get_ideanotes_all():
+        return jsonify({"tabs": load_idea_notes().get("tabs", {})})
 
     @app.route("/api/ideanotes/<tab>", methods=["GET"])
     def get_ideanotes(tab):

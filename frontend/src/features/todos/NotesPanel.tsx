@@ -1,6 +1,8 @@
 import { forwardRef, useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
+import { Link } from '@tanstack/react-router';
 import { useNotesPillList, useNotesPillMutations, type NotesPillKind } from './useNotesPill';
+import { formatNoteAge, isLongNote, sortNotesByCreated } from './noteHelpers';
 import styles from './NotesPill.module.css';
 
 export interface NotesPanelProps {
@@ -36,6 +38,11 @@ export const NotesPanel = forwardRef<HTMLDivElement, NotesPanelProps>(function N
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  // Maximize + per-note tap-to-expand. Both live here (not lifted to
+  // NotesPill) because this component is mounted fresh each time the panel
+  // opens — see the class doc above — so they self-reset on close for free.
+  const [expanded, setExpanded] = useState(false);
+  const [expandedNoteIds, setExpandedNoteIds] = useState<ReadonlySet<string>>(() => new Set());
   const confirmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const editRef = useRef<HTMLTextAreaElement>(null);
@@ -59,12 +66,16 @@ export const NotesPanel = forwardRef<HTMLDivElement, NotesPanelProps>(function N
   }, [editingId]);
 
   const notes = data?.notes ?? [];
-  const sorted = notes.slice().sort((a, b) => {
-    const ca = String(a.created || '');
-    const cb = String(b.created || '');
-    if (ca === cb) return 0;
-    return sort === 'newest' ? (ca < cb ? 1 : -1) : ca < cb ? -1 : 1;
-  });
+  const sorted = sortNotesByCreated(notes, sort);
+
+  function toggleNoteExpanded(id: string) {
+    setExpandedNoteIds((cur) => {
+      const next = new Set(cur);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   function submitDraft() {
     const text = draft.trim();
@@ -73,8 +84,9 @@ export const NotesPanel = forwardRef<HTMLDivElement, NotesPanelProps>(function N
     setDraft('');
   }
 
+  // Enter sends, Shift+Enter makes a newline (dev note b3e6b136).
   function onDraftKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       submitDraft();
     }
@@ -106,11 +118,30 @@ export const NotesPanel = forwardRef<HTMLDivElement, NotesPanelProps>(function N
   }
 
   return (
-    <div className={styles.panel} ref={ref}>
+    <div className={`${styles.panel} ${expanded ? styles.panelExpanded : ''}`} ref={ref}>
       <div className={styles.head}>
         <span className={`${styles.title} ${kind === 'idea' ? styles.titleIdea : ''}`}>{LABEL[kind]}</span>
+        <Link
+          to="/notes"
+          className={styles.allLink}
+          title="Browse all notes"
+          aria-label="Browse all notes"
+          onClick={onClose}
+        >
+          &#8599;
+        </Link>
         <button type="button" className={styles.sort} onClick={onToggleSort}>
-          &#8597; {sort === 'newest' ? 'Newest' : 'Oldest'}
+          {/* ︎ = text variation selector: stops iOS rendering the arrow as emoji */}
+          {sort === 'newest' ? '\u2193\uFE0E Newest' : '\u2191\uFE0E Oldest'}
+        </button>
+        <button
+          type="button"
+          className={`${styles.maximize} ${expanded ? styles.maximizeActive : ''}`}
+          title={expanded ? 'Restore' : 'Maximize'}
+          aria-label={expanded ? 'Restore panel' : 'Maximize panel'}
+          onClick={() => setExpanded((v) => !v)}
+        >
+          &#9974;
         </button>
         <button type="button" className={styles.close} title="Close" aria-label="Close" onClick={onClose}>
           &times;
@@ -147,27 +178,49 @@ export const NotesPanel = forwardRef<HTMLDivElement, NotesPanelProps>(function N
             ) : (
               <div key={n.id} className={styles.item}>
                 <div className={styles.body}>
-                  <div className={styles.text}>{n.text}</div>
-                  <div className={styles.date}>{n.created}</div>
+                  {isLongNote(n.text) ? (
+                    <div
+                      className={styles.textWrap}
+                      onClick={() => toggleNoteExpanded(n.id)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          toggleNoteExpanded(n.id);
+                        }
+                      }}
+                    >
+                      <div className={`${styles.text} ${expandedNoteIds.has(n.id) ? '' : styles.textClamped}`}>
+                        {n.text}
+                      </div>
+                      <span className={styles.moreHint}>{expandedNoteIds.has(n.id) ? '▲ less' : '▼ more'}</span>
+                    </div>
+                  ) : (
+                    <div className={styles.text}>{n.text}</div>
+                  )}
+                  {n.created ? <div className={styles.date}>{formatNoteAge(n.created)}</div> : null}
                 </div>
-                <button
-                  type="button"
-                  className={styles.act}
-                  title="Edit"
-                  aria-label="Edit note"
-                  onClick={() => startEdit(n.id, n.text)}
-                >
-                  &#9998;
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.act} ${styles.actX} ${confirmDeleteId === n.id ? styles.actSure : ''}`}
-                  title="Delete"
-                  aria-label={confirmDeleteId === n.id ? 'Confirm delete note' : 'Delete note'}
-                  onClick={() => requestDelete(n.id)}
-                >
-                  {confirmDeleteId === n.id ? 'Sure?' : <>&times;</>}
-                </button>
+                <div className={styles.acts}>
+                  <button
+                    type="button"
+                    className={`${styles.act} ${styles.actX} ${confirmDeleteId === n.id ? styles.actSure : ''}`}
+                    title="Delete"
+                    aria-label={confirmDeleteId === n.id ? 'Confirm delete note' : 'Delete note'}
+                    onClick={() => requestDelete(n.id)}
+                  >
+                    {confirmDeleteId === n.id ? 'Sure?' : <>&times;</>}
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.act}
+                    title="Edit"
+                    aria-label="Edit note"
+                    onClick={() => startEdit(n.id, n.text)}
+                  >
+                    &#9998;
+                  </button>
+                </div>
               </div>
             ),
           )

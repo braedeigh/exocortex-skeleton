@@ -103,6 +103,12 @@ export interface DevNotesResponse {
   notes: DevNote[];
 }
 
+/** GET /api/devnotes/all and /api/ideanotes/all — every tab's notes at once,
+ * keyed by tab name. Backs the /notes browser page. */
+export interface AllNotesResponse {
+  tabs: Record<string, DevNote[]>;
+}
+
 /** Combined day fetch (journal blob + cards), what useJournalDay returns. */
 export interface JournalDayBundle {
   journal: JournalDay;
