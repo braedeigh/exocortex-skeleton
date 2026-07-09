@@ -25,8 +25,38 @@
   animation: slideIn 0.15s ease;
 }
 
+.toast.info {
+  background: var(--card-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.toast.info .close {
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+  color: var(--text);
+}
+
 .message {
   flex: 1;
+}
+
+.action {
+  flex-shrink: 0;
+  min-height: 32px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  border: none;
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+  font-weight: 700;
+  font-size: var(--font-size-base);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.toast.info .action {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--accent);
 }
 
 .close {

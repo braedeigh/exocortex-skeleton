@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useRef, useState } from 'react';
 import { ApiError } from '../../api/client';
+import type { ToastItem } from '../../ui';
 import {
   addJournalDevNote,
   editJournalDevNote,
@@ -83,19 +84,29 @@ export function useJournalDevNotes() {
   });
 }
 
-export interface Toast {
-  id: number;
-  message: string;
+export type Toast = ToastItem;
+
+export interface PushOptions {
+  /** 'error' (default, red) or 'info' (neutral — e.g. paired with an undo action). */
+  tone?: 'error' | 'info';
+  actionLabel?: string;
+  onAction?: () => void;
+  /** Auto-dismiss delay in ms (default 5000). */
+  duration?: number;
 }
 
 export function useToasts() {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const nextId = useRef(0);
 
-  const push = useCallback((message: string) => {
+  const push = useCallback((message: string, opts?: PushOptions) => {
     const id = nextId.current++;
-    setToasts((cur) => [...cur, { id, message }]);
-    setTimeout(() => setToasts((cur) => cur.filter((t) => t.id !== id)), 5000);
+    setToasts((cur) => [
+      ...cur,
+      { id, message, tone: opts?.tone ?? 'error', actionLabel: opts?.actionLabel, onAction: opts?.onAction },
+    ]);
+    setTimeout(() => setToasts((cur) => cur.filter((t) => t.id !== id)), opts?.duration ?? 5000);
+    return id;
   }, []);
 
   const dismiss = useCallback((id: number) => {

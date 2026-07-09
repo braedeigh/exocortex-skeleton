@@ -63,6 +63,12 @@ export function JournalPage() {
 
   const [editingCardId, setEditingCardId] = useState<string | null>(null);
   const [blobFocused, setBlobFocused] = useState(false);
+  // Cards mid "removed · Undo" toast — hidden from the stream immediately but
+  // not actually deleted server-side until the toast's timer fires (or the
+  // whole page unmounts). Undo just clears the pending id; nothing was ever
+  // sent to the server.
+  const [pendingDeleteIds, setPendingDeleteIds] = useState<Set<string>>(new Set());
+  const deleteTimers = useRef<Record<string, { timer: ReturnType<typeof setTimeout>; wasLastCard: boolean }>>({});
   const pausePolling = editingCardId !== null || blobFocused;
 
   const dayQuery = useJournalDay(currentDate, pausePolling);
@@ -75,6 +81,58 @@ export function JournalPage() {
   const updateCard = useUpdateCard(currentDate ?? '', push);
   const deleteCard = useDeleteCard(currentDate ?? '', push);
   const saveBlobMutation = useSaveJournalBlob(currentDate ?? '', push);
+
+  const UNDO_DELETE_MS = 5000;
+
+  /** Delete confirmed — hide the card immediately, but don't actually call the
+   * API yet. A "Removed · Undo" toast gives her UNDO_DELETE_MS to change her
+   * mind; only once that elapses (or Undo isn't tapped) does the real
+   * deleteCard mutation fire. */
+  function requestDeleteCard(id: string, wasLastCard: boolean) {
+    setPendingDeleteIds((cur) => new Set(cur).add(id));
+    setEditingCardId((cur) => (cur === id ? null : cur));
+    deleteTimers.current[id] = { timer: setTimeout(() => finalizeDelete(id), UNDO_DELETE_MS), wasLastCard };
+    push('Entry removed', {
+      tone: 'info',
+      actionLabel: 'Undo',
+      onAction: () => cancelPendingDelete(id),
+      duration: UNDO_DELETE_MS,
+    });
+  }
+
+  function finalizeDelete(id: string) {
+    const pending = deleteTimers.current[id];
+    delete deleteTimers.current[id];
+    setPendingDeleteIds((cur) => {
+      const next = new Set(cur);
+      next.delete(id);
+      return next;
+    });
+    deleteCard.mutate({ id, wasLastCard: pending?.wasLastCard ?? false });
+  }
+
+  function cancelPendingDelete(id: string) {
+    const pending = deleteTimers.current[id];
+    if (pending) {
+      clearTimeout(pending.timer);
+      delete deleteTimers.current[id];
+    }
+    setPendingDeleteIds((cur) => {
+      const next = new Set(cur);
+      next.delete(id);
+      return next;
+    });
+  }
+
+  // Page unmounting (navigating away from the journal entirely) — commit any
+  // still-pending deletes rather than silently dropping them; the undo
+  // window only makes sense while she can still see the toast.
+  useEffect(() => {
+    return () => {
+      for (const id of Object.keys(deleteTimers.current)) finalizeDelete(id);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState<CalendarMonth | null>(null);
@@ -164,6 +222,9 @@ export function JournalPage() {
       ? (deleteCard.variables?.id ?? null)
       : null;
 
+  // Cards not currently sitting behind a pending "Removed · Undo" toast.
+  const visibleCards = bundle ? bundle.cards.cards.filter((c) => !pendingDeleteIds.has(c.id)) : [];
+
   return (
     <div className={styles.page}>
       <JournalHeader
@@ -185,17 +246,14 @@ export function JournalPage() {
           <div className={styles.error}>Couldn&apos;t load this day.</div>
         ) : mode === 'cards' ? (
           <CardStream
-            cards={bundle.cards.cards}
+            cards={visibleCards}
             editingCardId={editingCardId}
             savingCardId={savingCardId}
             matcher={matcher}
             onEdit={setEditingCardId}
             onCancel={() => setEditingCardId(null)}
             onSave={(id, body) => updateCard.mutate({ id, body }, { onSuccess: () => setEditingCardId(null) })}
-            onConfirmDelete={(id) => {
-              const wasLastCard = bundle.cards.cards.length === 1;
-              deleteCard.mutate({ id, wasLastCard }, { onSuccess: () => setEditingCardId(null) });
-            }}
+            onConfirmDelete={(id) => requestDeleteCard(id, visibleCards.length === 1)}
             onNavigateDate={goTo}
             onPersonClick={setPopoverSlug}
           />

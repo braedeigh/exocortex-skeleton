@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { EntityMatcher } from './entityHighlight';
 import { highlightEntities } from './entityHighlight';
 import { mdToHtml } from './markdown';
+import { insertAtCursor, timestampMarker } from './timestampInsert';
 import styles from './BlobEditor.module.css';
 
 export type SaveStatus = 'idle' | 'unsaved' | 'saving' | 'saved' | 'error';
@@ -25,6 +26,7 @@ export function BlobEditor({ initialContent, matcher, save, onFocusChange }: Blo
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const valueRef = useRef(value);
   valueRef.current = value;
+  const taRef = useRef<HTMLTextAreaElement | null>(null);
 
   // Poll refresh landed new content while the day wasn't dirty — pick it up.
   useEffect(() => {
@@ -61,6 +63,14 @@ export function BlobEditor({ initialContent, matcher, save, onFocusChange }: Blo
     }, AUTOSAVE_DELAY_MS);
   }
 
+  /** Insert "*[8:46 AM]*" at the cursor — same marker stream.py writes at a
+   * time-gap boundary, so a hand-typed entry blends with a real capture. */
+  function addTimestamp() {
+    const el = taRef.current;
+    if (!el) return;
+    insertAtCursor(el, valueRef.current, `\n${timestampMarker()}\n`, onChange);
+  }
+
   useEffect(() => {
     function onBeforeUnload() {
       if (valueRef.current !== lastSavedRef.current) void save(valueRef.current);
@@ -88,17 +98,25 @@ export function BlobEditor({ initialContent, matcher, save, onFocusChange }: Blo
 
   return (
     <div className={styles.wrap}>
-      <div className={styles.toggle}>
-        <button type="button" className={`${styles.toggleBtn} ${mode === 'read' ? styles.active : ''}`} onClick={() => setMode('read')}>
-          Read
-        </button>
-        <button type="button" className={`${styles.toggleBtn} ${mode === 'edit' ? styles.active : ''}`} onClick={() => setMode('edit')}>
-          Edit
-        </button>
+      <div className={styles.header}>
+        <div className={styles.toggle}>
+          <button type="button" className={`${styles.toggleBtn} ${mode === 'read' ? styles.active : ''}`} onClick={() => setMode('read')}>
+            Read
+          </button>
+          <button type="button" className={`${styles.toggleBtn} ${mode === 'edit' ? styles.active : ''}`} onClick={() => setMode('edit')}>
+            Edit
+          </button>
+        </div>
+        {mode === 'edit' ? (
+          <button type="button" className={styles.timestampBtn} onClick={addTimestamp}>
+            + Timestamp
+          </button>
+        ) : null}
       </div>
 
       {mode === 'edit' ? (
         <textarea
+          ref={taRef}
           className={styles.textarea}
           spellCheck={false}
           value={value}

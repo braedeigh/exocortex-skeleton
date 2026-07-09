@@ -5,6 +5,7 @@ import { highlightEntities } from './entityHighlight';
 import { mdToHtml } from './markdown';
 import { classifyRef, refLabel } from './refTargets';
 import type { RefTarget } from './refTargets';
+import { insertAtCursor, timestampMarker } from './timestampInsert';
 import type { Card } from './types';
 import styles from './RefCard.module.css';
 
@@ -64,6 +65,12 @@ export function RefCard({
     ta.focus();
   }, [editing, draft]);
 
+  function addTimestamp() {
+    const el = taRef.current;
+    if (!el) return;
+    insertAtCursor(el, draft, timestampMarker(), setDraft);
+  }
+
   const bodyHtml = useMemo(() => highlightEntities(mdToHtml(card.body), matcher), [card.body, matcher]);
   const targets = useMemo(() => (card.refs ?? []).map(classifyRef), [card.refs]);
 
@@ -100,6 +107,9 @@ export function RefCard({
               Delete
             </Button>
             <span className={styles.controlsSpacer} />
+            <Button variant="secondary" onClick={addTimestamp} disabled={saving}>
+              + Timestamp
+            </Button>
             <Button variant="secondary" onClick={onCancel} disabled={saving}>
               Cancel
             </Button>

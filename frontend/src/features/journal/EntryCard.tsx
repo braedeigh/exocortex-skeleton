@@ -3,6 +3,7 @@ import { Button, IconButton, Sheet } from '../../ui';
 import type { EntityMatcher } from './entityHighlight';
 import { highlightEntities } from './entityHighlight';
 import { mdToHtml } from './markdown';
+import { insertAtCursor, timestampMarker } from './timestampInsert';
 import type { Card } from './types';
 import styles from './EntryCard.module.css';
 
@@ -43,6 +44,12 @@ export function EntryCard({ card, editing, saving, matcher, onEdit, onCancel, on
     ta.focus();
   }, [editing, draft]);
 
+  function addTimestamp() {
+    const el = taRef.current;
+    if (!el) return;
+    insertAtCursor(el, draft, timestampMarker(), setDraft);
+  }
+
   const bodyHtml = useMemo(() => highlightEntities(mdToHtml(card.body), matcher), [card.body, matcher]);
   const isContext = card.kind === 'context';
   const isK = card.who === 'K';
@@ -76,6 +83,9 @@ export function EntryCard({ card, editing, saving, matcher, onEdit, onCancel, on
               Delete
             </Button>
             <span className={styles.controlsSpacer} />
+            <Button variant="secondary" onClick={addTimestamp} disabled={saving}>
+              + Timestamp
+            </Button>
             <Button variant="secondary" onClick={onCancel} disabled={saving}>
               Cancel
             </Button>
