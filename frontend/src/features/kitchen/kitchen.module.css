@@ -4,6 +4,11 @@
  * Touch-first: interactive things are ≥40px tall, no text under 12px. */
 
 .page {
+  /* This is the pane's scroll container — body{overflow:hidden}, only pages
+     scroll (same as TodosPage/MediaPage). */
+  flex: 1;
+  overflow-y: auto;
+  width: 100%;
   max-width: 860px;
   margin: 0 auto;
   padding: var(--space-4);
