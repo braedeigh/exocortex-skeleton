@@ -3,6 +3,7 @@ import { Link, useNavigate, useLocation } from '@tanstack/react-router';
 import { Sheet, TapRow } from '../ui';
 import { TAB_META, VIEW_META, isValidTab, type LegacyTab } from './tabs';
 import { useMediaQuery, DESKTOP_QUERY } from './useMediaQuery';
+import { useSessionsContext } from './SessionsContext';
 import styles from './TopTabs.module.css';
 
 /**
@@ -51,9 +52,10 @@ const FULL_PAGE_LINKS: ReadonlyArray<{ key: string; label: string; href: string 
   { key: 'personality', label: 'Personality', href: '/personality' },
 ];
 
-// Journal/Research/Settings moved to row 1 (the dash bar) — only Files still
-// needs a home in the More menu.
-const MORE_VIEWS = VIEW_META.filter((v) => v.key === 'files');
+// Journal/Research/Settings moved to row 1 (the dash bar) — Files and the
+// /notes browser page (native route, not a dashboard tab) live in the More
+// menu instead.
+const MORE_VIEWS = VIEW_META.filter((v) => v.key === 'files' || v.key === 'notes');
 
 type ActiveKey = 'today' | LegacyTab | `view:${(typeof VIEW_META)[number]['key']}` | null;
 
@@ -319,6 +321,11 @@ function DashboardTabRow({ pathname }: { pathname: string }) {
 export function TopTabs() {
   const location = useLocation();
   const navigate = useNavigate();
+  const isDesktop = useMediaQuery(DESKTOP_QUERY);
+  // Mobile Chat tab's label — the active tmux session name (see ChatPage,
+  // which shares this same instance via SessionsContext, so switching
+  // sessions there updates this label immediately instead of only on reload).
+  const sessions = useSessionsContext();
   // Last dashboard route visited, so clicking Dashboard from Journal/Research
   // returns you where you left off instead of always resetting to /todos.
   const lastDashboardTarget = useRef<DashboardTarget>({ to: '/todos' });
@@ -355,6 +362,17 @@ export function TopTabs() {
         >
           Journal
         </button>
+        {!isDesktop ? (
+          // Mobile only — desktop already has the terminal permanently docked
+          // in the left split pane (SplitLayout), no need for a tab to it.
+          <button
+            type="button"
+            className={joinClass(styles.dashBtn, styles.chatBtn, location.pathname === '/chat' && styles.dashBtnActive)}
+            onClick={() => void navigate({ to: '/chat' })}
+          >
+            <span className={styles.chatLabel}>{sessions.active || 'Chat'}</span>
+          </button>
+        ) : null}
         <button
           type="button"
           className={joinClass(styles.dashBtn, location.pathname === '/research' && styles.dashBtnActive)}

@@ -1,0 +1,17 @@
+.page {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Fills everything below the session bar — PhoneFrames' iframe is itself
+ * flex:1 (see PhoneFrames.module.css), so it fills this with no page scroll. */
+.frames {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}

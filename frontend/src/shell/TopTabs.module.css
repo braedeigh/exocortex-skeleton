@@ -21,6 +21,10 @@
   background: var(--bg);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+  /* Installed-PWA: the page extends under the iOS status bar
+   * (viewport-fit=cover + black-translucent), so push the tab row
+   * below the clock/battery/camera. 0 in a normal browser tab. */
+  padding-top: env(safe-area-inset-top, 0px);
   --tab-bg: #1a1a2e;
   --tab-active: #7c5cbf;
   --dash-text-muted: rgba(180, 160, 220, 0.6);
@@ -52,6 +56,23 @@
 .dashBtn:hover:not(.dashBtnActive) {
   color: var(--text);
   background: rgba(124, 92, 191, 0.1);
+}
+
+/* Mobile Chat tab — label is a live tmux session name (arbitrary length, up
+ * to 30 chars), unlike its fixed-word siblings, so it needs its own
+ * min-width:0 (dashBtn's flex:1 alone won't let it shrink below its text)
+ * plus an ellipsis-truncating inner span so a long session name can't push
+ * the row wider than its share and break the other tabs' layout. */
+.chatBtn {
+  min-width: 0;
+}
+
+.chatLabel {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Settings gear — narrow, pushed to the right edge; 44px (not the old 36px)

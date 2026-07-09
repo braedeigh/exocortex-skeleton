@@ -5,7 +5,7 @@ reachable at "/classic" as a rollback path, and the design doc this implements
 
 URL scheme:
   - "/" and every SPA route ("/todos", "/legacy/<tab>", "/journal", "/research",
-    "/settings", "/files") → `frontend/dist/index.html`, with `window.THEME_OVERRIDES`,
+    "/settings", "/files", "/chat") → `frontend/dist/index.html`, with `window.THEME_OVERRIDES`,
     `window.VIEW_MODE`, and `window.PUBLIC_INTRO_HTML` injected before `</head>`.
     Client-side routing (TanStack Router) takes it from there. Cache-Control:
     no-store — this HTML is the one thing here that's never safe to cache (the
@@ -77,6 +77,7 @@ def register(app):
     @app.route("/research")
     @app.route("/settings")
     @app.route("/files")
+    @app.route("/chat")
     def spa_shell(tab=None):
         return _spa_response()
 
