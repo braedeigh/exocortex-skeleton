@@ -72,12 +72,57 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .cal-grid .cal-day.empty { visibility: hidden; }
 
 /* Dev-notes modal (journal tab) — same pattern as the terminal notes panel */
+/* Notes button — pinned to the corner, rides along while scrolling (same
+   pattern as the Research tab, which she likes). */
+.devnotes-btn {
+    position: fixed; top: 12px; right: 12px; z-index: 31;
+    min-width: 40px; min-height: 40px;
+    background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+    font-size: 16px; cursor: pointer; transition: all 0.12s;
+}
+.devnotes-btn:hover { border-color: var(--accent); color: var(--accent); }
 .devnotes-overlay {
-    display: none; position: absolute; top: 48px; right: 0; z-index: 21;
+    display: none; position: fixed; top: 60px; right: 12px; z-index: 31;
     background: var(--card-bg); border: 1px solid rgba(124, 92, 191, 0.5); border-radius: 12px;
     box-shadow: 0 8px 30px rgba(0,0,0,0.35); padding: 10px; width: min(320px, 86vw);
 }
 .devnotes-overlay.open { display: block; }
+
+/* Cutesy floating rail — People / Threads, riding under the notes button.
+   References the journal's own organization (the entities that annotate it). */
+.jrail {
+    position: fixed; top: 62px; right: 12px; z-index: 30;
+    display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
+}
+.jrail-btn {
+    display: flex; align-items: center; gap: 7px; min-height: 40px; padding: 0 13px 0 11px;
+    background: var(--card-bg); border: 1px solid var(--border); border-radius: 20px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+    color: var(--text); font-size: 13px; font-weight: 600; font-family: inherit; cursor: pointer;
+    transition: all 0.12s;
+}
+.jrail-btn:hover { border-color: var(--accent); color: var(--accent); transform: translateX(-2px); }
+.jrail-btn .jrail-ico { font-size: 15px; }
+.jrail-btn.active { border-color: var(--accent); color: var(--accent); background: var(--accent-light); }
+
+/* People / Threads list panels — same floating-card look as the notes panel. */
+.jlist-panel {
+    display: none; position: fixed; top: 60px; right: 12px; z-index: 30;
+    background: var(--card-bg); border: 1px solid rgba(124, 92, 191, 0.5); border-radius: 12px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.35); padding: 8px; width: min(300px, 86vw);
+    max-height: min(70vh, 560px); overflow-y: auto;
+}
+.jlist-panel.open { display: block; }
+.jlist-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+    color: var(--text-muted); padding: 4px 8px 8px; }
+.jlist-item {
+    display: block; width: 100%; text-align: left; min-height: 40px; padding: 8px 10px;
+    background: none; border: none; border-radius: 8px; color: var(--text);
+    font-size: 14px; font-family: inherit; cursor: pointer;
+}
+.jlist-item:hover { background: var(--accent-light); }
+.jlist-empty { color: var(--text-muted); font-style: italic; font-size: 13px; padding: 6px 8px; }
 .devnotes-row { display: flex; gap: 6px; align-items: flex-start; }
 .devnotes-row textarea {
     flex: 1; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
@@ -125,6 +170,31 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .preview .entity { color: var(--accent); cursor: pointer; border-bottom: 1px dotted var(--accent); }
 .preview .entity:hover { background: var(--accent-light); }
 .preview .entity.find-current { background: var(--accent); color: #fff !important; border-radius: 3px; border-bottom-color: transparent; }
+/* Groups / threads: a clickable inline chip — distinct from the per-person name underline. */
+.preview .entity-thread {
+    color: var(--accent); cursor: pointer; font-weight: 600;
+    background: var(--accent-light); border: 1px solid var(--accent);
+    border-radius: 6px; padding: 0 5px; border-bottom: 1px solid var(--accent);
+}
+.preview .entity-thread:hover { background: var(--accent); color: #fff; }
+/* Thread popover: fact-cards, each a ≤3-line statement + the sources it came from. */
+.ep-name-thread::before { content: "\29C9  "; opacity: 0.7; }
+.tp-section {
+    font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+    color: var(--text-muted); margin: 12px 0 6px;
+}
+.tp-card { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 9px 11px; margin-bottom: 6px; }
+.tp-text {
+    font-size: 14px; line-height: 1.5; color: var(--text);
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.tp-srcs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.tp-src {
+    background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 6px 10px; min-height: 36px; color: var(--accent); font-size: 13px; font-weight: 600;
+    cursor: pointer; font-family: inherit;
+}
+.tp-src:hover { border-color: var(--accent); background: var(--accent-light); }
 
 /* Find bar — lands on the first mention of a name in an entry, shows "n of N" */
 .find-bar {
@@ -271,16 +341,25 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
         </span>
         <button id="todayBtn" class="today-btn" onclick="goToday()" style="display:none">Today</button>
         <button id="nextBtn" onclick="nav(1)">&rarr;</button>
-        <button id="devNotesBtn" onclick="toggleDevNotes()" title="Journal dev notes" style="display:none">&#128221;</button>
         <div class="calendar-overlay" id="calOverlay"></div>
-        <div class="devnotes-overlay" id="devNotesPanel">
-            <div class="devnotes-row">
-                <textarea id="devNoteInput" rows="2" placeholder="Bug or idea for the journal&hellip;"></textarea>
-                <button onclick="addDevNote()">Add</button>
-            </div>
-            <div class="devnotes-list" id="devNotesList"></div>
-        </div>
     </div>
+
+    <!-- Floating corner: the notes button (pinned, rides the scroll) with the
+         cutesy People/Threads rail tucked beneath it. -->
+    <button id="devNotesBtn" class="devnotes-btn" onclick="toggleDevNotes()" title="Journal dev notes">&#128221;</button>
+    <div class="devnotes-overlay" id="devNotesPanel">
+        <div class="devnotes-row">
+            <textarea id="devNoteInput" rows="2" placeholder="Bug or idea for the journal&hellip;"></textarea>
+            <button onclick="addDevNote()">Add</button>
+        </div>
+        <div class="devnotes-list" id="devNotesList"></div>
+    </div>
+    <div class="jrail" id="journalRail">
+        <button class="jrail-btn" id="railPeopleBtn" onclick="toggleJList('people')"><span class="jrail-ico">&#128100;</span>People</button>
+        <button class="jrail-btn" id="railThreadsBtn" onclick="toggleJList('threads')"><span class="jrail-ico">&#10697;</span>Threads</button>
+    </div>
+    <div class="jlist-panel" id="peoplePanel"><div class="jlist-title">People</div><div id="peopleListBody"></div></div>
+    <div class="jlist-panel" id="threadsPanel"><div class="jlist-title">Threads</div><div id="threadsListBody"></div></div>
     <div class="mode-toggle">
         <button class="active" id="readBtn" onclick="setMode('read')">Read</button>
         <button id="editBtn" onclick="setMode('edit')">Edit</button>
@@ -352,6 +431,8 @@ const cardStream = document.getElementById('cardStream');
 let _entityRe = null;                 // one big \b(term|term|...)\b matcher, or null
 const _entityPath = new Map();        // person slug -> people-file path
 const _matchToSlug = new Map();       // matched term (name/alias, lowercased) -> slug
+const _threadPath = new Map();        // thread id -> Threads-file path
+const _threadMatch = new Map();       // matched term (group name/alias, lowercased) -> thread id
 let _popoverKey = null;               // whose popover is open (for find-on-jump)
 
 // entityHue() and mdToHtml() now live in md.js (shared with person.html).
@@ -363,11 +444,19 @@ async function loadEntities() {
         const resp = await fetch('/api/people');
         const data = await resp.json();
         const terms = [];
+        const claimed = (k) => !k || _matchToSlug.has(k) || _threadMatch.has(k);
         const addTerm = (term, slug) => {
             const t = (term || '').trim();
             const k = t.toLowerCase();
-            if (!k || _matchToSlug.has(k)) return;   // first person to claim a term wins
+            if (claimed(k)) return;                  // first claimer wins (people over threads)
             _matchToSlug.set(k, slug);
+            terms.push(t);
+        };
+        const addThreadTerm = (term, id) => {
+            const t = (term || '').trim();
+            const k = t.toLowerCase();
+            if (claimed(k)) return;
+            _threadMatch.set(k, id);
             terms.push(t);
         };
         for (const p of (data.people || [])) {
@@ -375,8 +464,18 @@ async function loadEntities() {
             addTerm(p.name.split(' ')[0], p.id);     // first name as written in prose
             (p.aliases || []).forEach(a => addTerm(a, p.id));  // "my landlord" -> sally
         }
+        // Groups/threads highlight too — a second entity type, own style + popover.
+        try {
+            const tr = await fetch('/api/threads');
+            const td = await tr.json();
+            for (const t of (td.threads || [])) {
+                _threadPath.set(t.id, t.file);
+                addThreadTerm(t.name, t.id);                       // "Office Hours"
+                (t.aliases || []).forEach(a => addThreadTerm(a, t.id));  // "TPOT", "tianmucord"
+            }
+        } catch (e) { /* threads are a nicety too — never break the page */ }
         if (terms.length) {
-            // Longest first so multi-word aliases win; word-boundary, case-insensitive.
+            // Longest first so multi-word names/aliases win; word-boundary, case-insensitive.
             terms.sort((a, b) => b.length - a.length);
             _entityRe = new RegExp('\\b(' + terms.map(escapeRe).join('|') + ')\\b', 'gi');
         }
@@ -407,7 +506,9 @@ function highlightEntities(root = preview) {
         _entityRe.lastIndex = 0;
         while ((m = _entityRe.exec(text))) {
             if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
-            const slug = _matchToSlug.get(m[0].toLowerCase());
+            const key = m[0].toLowerCase();
+            const slug = _matchToSlug.get(key);
+            const threadId = slug ? null : _threadMatch.get(key);
             if (slug) {
                 const span = document.createElement('span');
                 span.className = 'entity';
@@ -415,6 +516,12 @@ function highlightEntities(root = preview) {
                 span.dataset.path = _entityPath.get(slug) || '';
                 span.style.color = `hsl(${entityHue(slug)} 70% 66%)`;   // consistent color per person
                 span.style.borderBottomColor = `hsl(${entityHue(slug)} 70% 66%)`;
+                span.textContent = m[0];
+                frag.appendChild(span);
+            } else if (threadId) {
+                const span = document.createElement('span');
+                span.className = 'entity entity-thread';  // group/thread: its own chip style + popover
+                span.dataset.thread = threadId;
                 span.textContent = m[0];
                 frag.appendChild(span);
             } else {
@@ -469,9 +576,7 @@ async function loadDate(date) {
         const nextBtn = document.getElementById('nextBtn');
         nextBtn.disabled = !data.next;
         nextBtn.dataset.date = data.next || '';
-        // Most recent day: the → is dead anyway — swap it for the dev-notes 📝
         nextBtn.style.display = data.next ? '' : 'none';
-        document.getElementById('devNotesBtn').style.display = data.next ? 'none' : '';
         document.getElementById('todayBtn').style.display = data.date === localToday() ? 'none' : '';
         await loadCards(data.date);
         applyCardMode();
@@ -700,6 +805,8 @@ cardStream.addEventListener('click', (e) => {
     // Let her select/highlight text in a card without it snapping into edit mode.
     const sel = window.getSelection();
     if (sel && !sel.isCollapsed) return;
+    const tent = e.target.closest('.entity-thread[data-thread]');
+    if (tent) { openThreadPopover(tent.dataset.thread); return; }
     const ent = e.target.closest('.entity[data-name]');
     if (ent) { openEntityPopover(ent.dataset.name); return; }
     if (e.target.closest('button, textarea, a')) return;
@@ -728,6 +835,8 @@ function epEsc(s) {
 }
 
 preview.addEventListener('click', (e) => {
+    const tspan = e.target.closest('.entity-thread[data-thread]');
+    if (tspan) { openThreadPopover(tspan.dataset.thread); return; }
     const span = e.target.closest('.entity[data-name]');
     if (span) openEntityPopover(span.dataset.name);
 });
@@ -830,6 +939,60 @@ function renderEntityPopover(data) {
             ${factsHtml}
             ${body}
             ${openPersonBtn}
+        </div>`;
+}
+
+// --- Thread/group popover: click a group -> its fact-cards, each linking to the
+// journal record / people file / context it came from. Reuses the entity popover
+// shell + the same data-nav routing (journal:<date> jumps in-app, keeper:<path>
+// opens the Files tab). ---
+async function openThreadPopover(id) {
+    _popoverKey = null;   // a group, not a person — nothing to find-on-jump
+    entityPop.innerHTML = `<div class="ep-blurb">Loading…</div>`;
+    entityPop.classList.add('open');
+    entityBackdrop.classList.add('open');
+    try {
+        const resp = await fetch('/api/thread?name=' + encodeURIComponent(id));
+        if (!resp.ok) { entityPop.innerHTML = `<div class="ep-blurb">No thread found.</div>`; return; }
+        renderThreadPopover(await resp.json());
+    } catch (e) {
+        entityPop.innerHTML = `<div class="ep-blurb">Couldn't load thread.</div>`;
+    }
+}
+
+function renderThreadPopover(t) {
+    const cards = t.cards || [];
+    let body = '';
+    let lastHeading = null;
+    for (const c of cards) {
+        if (c.heading && c.heading !== lastHeading) {
+            body += `<div class="tp-section">${epEsc(c.heading)}</div>`;
+            lastHeading = c.heading;
+        }
+        let chips = '';
+        for (const s of (c.sources || [])) {
+            chips += `<button class="tp-src" data-nav="${epEsc(s.kind + ':' + s.val)}">${epEsc(s.label)} &rarr;</button>`;
+        }
+        body += `<div class="tp-card">
+            ${c.text ? `<div class="tp-text">${epEsc(c.text)}</div>` : ''}
+            ${chips ? `<div class="tp-srcs">${chips}</div>` : ''}
+        </div>`;
+    }
+    if (!cards.length) body = `<div class="ep-empty">No facts recorded yet.</div>`;
+    const openFull = t.file
+        ? `<button class="ep-openperson" data-nav="keeper:${epEsc(t.file)}">Open full thread &rarr;</button>` : '';
+    const status = t.status ? `<span class="ep-daterange">${epEsc(t.status)}</span>` : '';
+    entityPop.innerHTML = `
+        <div class="ep-sticky">
+            <div class="ep-head">
+                <span class="ep-name ep-name-thread" style="color:var(--accent)">${epEsc(t.name)}</span>
+                ${status}
+                <button class="ep-close" onclick="closeEntityPopover()" aria-label="Close">&times;</button>
+            </div>
+        </div>
+        <div class="ep-body">
+            ${body}
+            ${openFull}
         </div>`;
 }
 
@@ -1008,6 +1171,7 @@ function toggleDevNotes() {
     if (devNotesOpen) { closeDevNotes(); return; }
     devNotesOpen = true;
     closeCalendar();
+    closeJLists();
     devNotesPanel.classList.add('open');
     loadDevNotes();
     devNoteInput.focus();
@@ -1050,6 +1214,71 @@ document.addEventListener('click', (e) => {
     if (!path.includes(devNotesPanel) && !path.includes(document.getElementById('devNotesBtn'))) {
         closeDevNotes();
     }
+});
+
+// --- Floating People / Threads rail: quick launchers into the journal's own
+// organization. Each opens a list; a tap reuses the entity / thread popover the
+// journal already uses, so the rail and the in-text highlights share one surface. ---
+const _jPanels = {
+    people:  { panel: document.getElementById('peoplePanel'),  body: document.getElementById('peopleListBody'),
+               btn: document.getElementById('railPeopleBtn'),  url: '/api/people',  key: 'people',  loaded: false },
+    threads: { panel: document.getElementById('threadsPanel'), body: document.getElementById('threadsListBody'),
+               btn: document.getElementById('railThreadsBtn'), url: '/api/threads', key: 'threads', loaded: false },
+};
+let _jListOpen = null;
+
+function jEsc(s) {
+    return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function closeJLists() {
+    for (const k in _jPanels) { _jPanels[k].panel.classList.remove('open'); _jPanels[k].btn.classList.remove('active'); }
+    _jListOpen = null;
+}
+
+async function toggleJList(which) {
+    const cfg = _jPanels[which];
+    if (!cfg) return;
+    if (_jListOpen === which) { closeJLists(); return; }
+    closeJLists();
+    closeDevNotes();
+    closeCalendar();
+    _jListOpen = which;
+    cfg.panel.classList.add('open');
+    cfg.btn.classList.add('active');
+    if (!cfg.loaded) { cfg.loaded = true; await loadJList(which); }
+}
+
+async function loadJList(which) {
+    const cfg = _jPanels[which];
+    cfg.body.innerHTML = `<div class="jlist-empty">Loading&hellip;</div>`;
+    try {
+        const data = await (await fetch(cfg.url)).json();
+        const items = (data[cfg.key] || []).slice().sort((a, b) => a.name.localeCompare(b.name));
+        if (!items.length) { cfg.body.innerHTML = `<div class="jlist-empty">Nothing here yet.</div>`; return; }
+        cfg.body.innerHTML = items.map(it => {
+            const color = which === 'people'
+                ? `hsl(${entityHue(it.id)} 70% 66%)` : 'var(--accent)';
+            return `<button class="jlist-item" data-id="${jEsc(it.id)}" style="color:${color}">${jEsc(it.name)}</button>`;
+        }).join('');
+        cfg.body.querySelectorAll('.jlist-item').forEach(b => {
+            b.addEventListener('click', () => {
+                const id = b.dataset.id;
+                closeJLists();
+                if (which === 'people') openEntityPopover(id); else openThreadPopover(id);
+            });
+        });
+    } catch (e) {
+        cfg.body.innerHTML = `<div class="jlist-empty">Couldn't load.</div>`;
+    }
+}
+
+// Close an open list when tapping outside it and its rail button.
+document.addEventListener('click', (e) => {
+    if (!_jListOpen) return;
+    const cfg = _jPanels[_jListOpen];
+    const path = e.composedPath();
+    if (!path.includes(cfg.panel) && !path.includes(cfg.btn)) closeJLists();
 });
 
 // --- Polling ---

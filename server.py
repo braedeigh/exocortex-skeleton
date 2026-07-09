@@ -23,7 +23,7 @@ from routes import (
     kitchen, habits, todos, places, health, inventory, money, car,
     meditation, media, movement, reminders, food_test, terminal, settings,
     devnotes, ideas, ecosystem, keeper, pending, housing, triage, decisions,
-    entities, person, shell, cards, archivals, research,
+    entities, threads, person, shell, cards, archivals, research,
     research_search, research_sources, research_import, research_text,
     annotations, spa,
 )
@@ -1183,6 +1183,7 @@ pending.register(app)
 triage.register(app)
 decisions.register(app)
 entities.register(app)
+threads.register(app)
 person.register(app)
 cards.register(app)
 
