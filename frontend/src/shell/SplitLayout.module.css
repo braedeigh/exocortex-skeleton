@@ -12,6 +12,13 @@
   min-width: 0;
   height: 100%;
   overflow: hidden;
+  /* Own stacking context: the terminal's floating widgets (Copy/toolbar 50,
+     notes/schedule popovers 51, upload catcher 55/56, copy overlay 60 — all
+     absolute within this pane) otherwise compete at root level and paint over
+     app-level fixed overlays like the expanded NotesPill panel (z 45). The
+     pane already clips to itself (overflow: hidden), so containing its
+     z-indexes here changes nothing inside it, only keeps them from escaping. */
+  isolation: isolate;
 }
 
 /* Right pane hosts the SPA's routed content — same box the old <main> was:
