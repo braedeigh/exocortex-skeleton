@@ -70,16 +70,23 @@
     font-size: 17px; line-height: 1; width: 34px; height: 34px; cursor: pointer; border-radius: 8px; }
 .np-maxbtn:hover { background: var(--accent-light, rgba(124,92,191,0.18)); color: var(--text, #e8dcc8); }
 
-/* Expanded: grows up from the corner into a near-fullscreen sheet. */
-.np-panel.np-max { top: 12px; left: 12px; width: auto; height: auto;
+/* Expanded: grows up from the corner into a near-fullscreen sheet. top uses
+   env(safe-area-inset-top) (with a 12px floor for non-notched/browser
+   contexts) — a bare 12px put the × up under the iOS status bar/notch in a
+   standalone PWA, out of reach ("puts the x up in the corner behind the
+   charge button so it can't be accessed"). */
+.np-panel.np-max { top: max(12px, env(safe-area-inset-top, 0px)); left: 12px; width: auto; height: auto;
     max-width: none; max-height: none; resize: none; }
 
 .np-list { flex: 1; overflow-y: auto; padding: 4px 12px; min-height: 0; }
 
 .np-add { display: flex; gap: 6px; align-items: flex-start; padding: 8px 10px; flex-shrink: 0;
     border-top: 1px solid var(--border, rgba(124,92,191,0.25)); }
+/* 16px, not 13px — iOS Safari auto-zooms the viewport when a focused input's
+   font-size is under 16px (jarring in a PWA, and this add-input is the one
+   she hits on every tab, e.g. the map tab). */
 .np-add textarea { flex: 1; padding: 8px 10px; border: 1px solid var(--border, #2a2a4a); border-radius: 8px;
-    background: var(--bg, #0d0d1a); color: var(--text, #e8dcc8); font-size: 13px; font-family: inherit;
+    background: var(--bg, #0d0d1a); color: var(--text, #e8dcc8); font-size: 16px; font-family: inherit;
     resize: none; outline: none; }
 .np-add button { min-height: 40px; padding: 0 16px; border: none; border-radius: 8px;
     background: var(--accent, #7c5cbf); color: #fff; font-size: 13px; font-weight: 600; cursor: pointer; }

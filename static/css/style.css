@@ -582,6 +582,30 @@ textarea.todo-add-input { resize: none; overflow: hidden; min-height: 44px; }
 .dot-grid td { padding: 3px; text-align: center; }
 .dot-grid .metric-label { font-size: var(--text-md); font-weight: 600; color: var(--text); padding-right: var(--space-3); white-space: nowrap; text-align: left; position: sticky; left: 0; background: var(--bg); z-index: 2; }
 .dot-grid .date-label { font-size: var(--text-2xs); color: var(--text-muted); line-height: 1.3; }
+/* Habit Tracker: desktop is one shared table (unchanged) — mobile/PWA swaps
+   in a completely separate markup instead of trying to reshape the same
+   table, because a version built by adding a colspan title row above each
+   dot row (position:sticky on that wide cell, to survive the auto-scroll-to-
+   most-recent-day behavior below) turned out to be a real rendering
+   limitation: the sticky offset increasingly drifts from correct the further
+   a ~30-column table auto-scrolls, not a timing/CSS-cascade bug — reproduced
+   in isolation outside this app too. habits.js renders both structures;
+   .habit-grid-desktop / .habit-grid-mobile below is a plain responsive swap,
+   same pattern as the tab bar's overflow-into-More. */
+#habit-tracker .habit-grid-mobile { display: none; }
+#habit-tracker .habit-mobile-block { margin-bottom: var(--space-3); }
+#habit-tracker .habit-mobile-block .habit-title-cell {
+    font-size: var(--text-md); font-weight: 600; color: var(--text);
+    padding: 0 0 4px; white-space: normal; word-break: break-word;
+}
+#habit-tracker .habit-title-count { font-size: var(--text-2xs); color: var(--text-muted); font-weight: 400; margin-left: 6px; }
+@media (max-width: 768px) {
+    /* Full habit name doesn't fit next to 30 dots on a phone-width screen —
+       "the dots are above the habits and i can actually read the whole
+       thing" / "put the title of the habit above the habit on PWA". */
+    #habit-tracker .habit-grid-desktop { display: none; }
+    #habit-tracker .habit-grid-mobile { display: block; }
+}
 .habit-section-header {
     font-size: var(--text-sm);
     font-weight: 700;
@@ -1030,9 +1054,15 @@ textarea.habit-rename {
 .act-chip:hover { background: color-mix(in srgb, var(--act-color) 18%, var(--card-bg)); border-color: color-mix(in srgb, var(--act-color) 60%, var(--border)); }
 .stat-val.act-tint { color: color-mix(in srgb, var(--act-color) 60%, var(--text)); }
 .run-log-item {
-    display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) 0;
+    display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3); padding: var(--space-2) 0;
     font-size: var(--text-base); border-bottom: 1px solid var(--border);
 }
+/* The date label has a min-width floor and notes text doesn't shrink below
+   its longest word — on a narrow PWA width the row has nowhere to put that,
+   so without flex-wrap (above) the whole row would overflow and squeeze the
+   rest of the tab's content left. min-width:0 on notes lets it actually wrap
+   inside its own flex-basis instead of forcing the row wider. */
+.run-log-item > span:last-of-type { min-width: 0; }
 .run-log-item:last-child { border-bottom: none; }
 
 /* Footer */
@@ -1045,6 +1075,17 @@ input, select, textarea {
 input::placeholder, textarea::placeholder {
     color: var(--text-muted);
     opacity: 0.7;
+}
+/* iOS Safari auto-zooms the viewport when a focused input/textarea/select
+   computes to a font-size under 16px — jarring in a PWA (the zoom sticks
+   until you manually pinch back out). Plenty of controls across the legacy
+   JS (inline styles, component CSS) are sized smaller for visual density on
+   desktop, so rather than hunt every one down, force >=16px on touch
+   devices only (desktop with a mouse keeps its compact sizing). !important
+   because it has to beat inline `style="font-size:13px"` attributes
+   scattered through the JS-rendered HTML. */
+@media (pointer: coarse) {
+    input, select, textarea { font-size: 16px !important; }
 }
 
 /* More dropdown (Priority+ nav overflow) */

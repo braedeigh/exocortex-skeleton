@@ -22,7 +22,8 @@
 .mn-x { font-size:17px; line-height:1; }
 .mn-sure { background:#c0392b !important; color:#fff !important; font-size:12px !important; font-weight:600; }
 .mn-item.mn-editing { flex-direction:column; align-items:stretch; }
-.mn-edit { width:100%; box-sizing:border-box; min-height:60px; padding:8px 10px; border:1px solid var(--border,#2a2a4a); border-radius:8px; font-size:13px; line-height:1.4; font-family:inherit; background:var(--bg,#0d0d1a); color:var(--text,#e8dcc8); resize:none; overflow:hidden; outline:none; }
+/* 16px, not 13px — iOS Safari auto-zooms a focused input/textarea under 16px. */
+.mn-edit { width:100%; box-sizing:border-box; min-height:60px; padding:8px 10px; border:1px solid var(--border,#2a2a4a); border-radius:8px; font-size:16px; line-height:1.4; font-family:inherit; background:var(--bg,#0d0d1a); color:var(--text,#e8dcc8); resize:none; overflow:hidden; outline:none; }
 .mn-btns { display:flex; gap:6px; justify-content:flex-end; margin-top:6px; }
 .mn-btns button { min-height:34px; padding:0 14px; border-radius:8px; font-size:12px; font-weight:600; cursor:pointer; font-family:inherit; }
 .mn-save { border:none; background:var(--accent,#7c5cbf); color:#fff; }

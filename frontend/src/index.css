@@ -49,3 +49,18 @@ button {
 small {
   font-size: var(--font-size-sm);
 }
+
+/* iOS Safari auto-zooms the viewport when a focused input/textarea/select
+ * computes to a font-size under 16px — jarring in a PWA (the zoom sticks
+ * until she manually pinches back out). Most components already use
+ * --font-size-base (16px) for their inputs, but this is a global safety net
+ * (touch devices only — desktop-with-mouse keeps any deliberately compact
+ * sizing) for whatever slips through. !important because some component
+ * font-sizes are more specific than a bare element selector. */
+@media (pointer: coarse) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}

@@ -405,6 +405,7 @@ function renderHabits() {
 // --- Habit Tracker ---
 let _habitTrackerEditing = false;
 let _buildingNextEditing = false;
+let _dotGridResizeObserver = null;
 
 function renderHabitTracker() {
     const el = document.getElementById('habit-tracker');
@@ -455,31 +456,58 @@ function renderHabitTracker() {
         return row + '</tr>';
     }
 
-    function habitRow(habit, accentColor, sectionName) {
-        const total = habitCount(habit, sectionName);
+    // Shared by the desktop table row and the mobile per-habit block below —
+    // one <td class="dot"> per day, identical click-to-log/click-to-remove
+    // behavior either way.
+    function dayCellsHTML(habit, sectionName, accentColor) {
         const key = habitKey(sectionName, habit);
-        const maxLen = 30;
-        const shortName = habit.length > maxLen ? habit.slice(0, maxLen) + '...' : habit;
         // Habits recorded before this habit's own start date shouldn't show a
         // loggable dot — that history doesn't exist. Habits without a recorded
         // start (pre-dating this feature) aren't clamped.
         const startDate = (D.habit_starts || {})[habit] || null;
-        let row = `<tr><td class="metric-label">${esc(shortName)}<span style="font-size:12px;color:var(--text-muted);margin-left:6px">${habitStartLabel(habit)}${total}/60</span></td>`;
+        let cells = '';
         days.forEach(d => {
             if (startDate && d < startDate) {
-                row += `<td><div class="dot dot-prestart" title="Before this habit started"></div></td>`;
+                cells += `<td><div class="dot dot-prestart" title="Before this habit started"></div></td>`;
                 return;
             }
             const hit = log[d] && log[d][key];
             const color = hit ? accentColor : '#2a2a4a';
             if (hit) {
-                row += `<td><div class="dot" style="background:${color};cursor:pointer" title="Click to remove" onclick="confirmHabitDot('${escJs(habit)}','${d}','${escJs(sectionName)}')"></div></td>`;
+                cells += `<td><div class="dot" style="background:${color};cursor:pointer" title="Click to remove" onclick="confirmHabitDot('${escJs(habit)}','${d}','${escJs(sectionName)}')"></div></td>`;
             } else {
-                row += `<td><div class="dot" style="background:${color};cursor:pointer" title="Click to log" onclick="toggleHabitDate('${escJs(habit)}','${d}','${escJs(sectionName)}')"></div></td>`;
+                cells += `<td><div class="dot" style="background:${color};cursor:pointer" title="Click to log" onclick="toggleHabitDate('${escJs(habit)}','${d}','${escJs(sectionName)}')"></div></td>`;
             }
         });
+        return cells;
+    }
+
+    function habitRow(habit, accentColor, sectionName) {
+        const total = habitCount(habit, sectionName);
+        const maxLen = 30;
+        const shortName = habit.length > maxLen ? habit.slice(0, maxLen) + '...' : habit;
+        const countLabel = `${habitStartLabel(habit)}${total}/60`;
+        let row = `<tr><td class="metric-label">${esc(shortName)}<span style="font-size:12px;color:var(--text-muted);margin-left:6px">${esc(countLabel)}</span></td>`;
+        row += dayCellsHTML(habit, sectionName, accentColor);
         row += '</tr>';
         return row;
+    }
+
+    // Mobile/PWA-only: full, untruncated name on its own line above its own
+    // independently-scrolling dot row (a small single-row table, not part of
+    // the desktop's one big shared table — see the .habit-title-cell comment
+    // in style.css for why: position:sticky on a colspan cell that spans a
+    // ~30-column table turns out to drift increasingly out of place the
+    // further the table auto-scrolls, a real rendering limitation, not a
+    // timing bug). "the dots are above the habits and i can actually read
+    // the whole thing" / "put the title of the habit above the habit on PWA".
+    function habitMobileBlock(habit, accentColor, sectionName) {
+        const total = habitCount(habit, sectionName);
+        const countLabel = `${habitStartLabel(habit)}${total}/60`;
+        return `<div class="habit-mobile-block">
+            <div class="habit-title-cell">${esc(habit)}<span class="habit-title-count">${esc(countLabel)}</span></div>
+            <div class="dot-grid"><table><tr>${dayCellsHTML(habit, sectionName, accentColor)}</tr></table></div>
+        </div>`;
     }
 
     // Top Edit button now lives on the card's title line (see index.html);
@@ -542,32 +570,49 @@ function renderHabitTracker() {
 
     const symCount = D.health_data.filter(d => d.energy !== null).length;
 
-    function sectionBlock(title, color, habits, accentColor, extra, sectionName) {
+    // extra/extraMobile: the "Log symptoms" row tacked onto Morning — desktop
+    // form (goes inside the shared table) and mobile form (its own block),
+    // respectively.
+    function sectionBlock(title, color, habits, accentColor, extra, extraMobile, sectionName) {
         if (!habits.length && !extra) return '';
         let s = `<div class="habit-section-header" style="color:${color}">${title}</div>`;
-        s += '<div class="dot-grid"><table>' + dateHeaderRow();
+        // Desktop: one shared table, one shared horizontal scroll — unchanged.
+        s += '<div class="dot-grid habit-grid-desktop"><table>' + dateHeaderRow();
         habits.forEach(h => { s += habitRow(h, accentColor, sectionName); });
         if (extra) s += extra;
         s += '</table></div>';
+        // Mobile/PWA: title-above-dots, one independently-scrolling block per
+        // habit (see habitMobileBlock). No shared date header — each block
+        // auto-scrolls to show today on the right by default, same as desktop
+        // (renderHabitTracker's ResizeObserver below covers these grids too).
+        s += '<div class="habit-grid-mobile">';
+        habits.forEach(h => { s += habitMobileBlock(h, accentColor, sectionName); });
+        if (extraMobile) s += extraMobile;
+        s += '</div>';
         return s;
     }
 
     let symRow = `<tr><td class="metric-label">Log symptoms<span style="font-size:12px;color:var(--text-muted);margin-left:6px">${symCount}/60</span></td>`;
+    let symCellsHTML = '';
     days.forEach(d => {
         const dayData = D.health_data.find(h => h.date === d);
         const hit = dayData && dayData.energy !== null;
         const color = hit ? 'var(--morning)' : '#2a2a4a';
-        symRow += `<td><div class="dot" style="background:${color}" title="Symptoms: ${hit ? 'Logged' : 'Not logged'} on ${d}"></div></td>`;
+        symCellsHTML += `<td><div class="dot" style="background:${color}" title="Symptoms: ${hit ? 'Logged' : 'Not logged'} on ${d}"></div></td>`;
     });
-    symRow += '</tr>';
+    symRow += symCellsHTML + '</tr>';
+    const symRowMobile = `<div class="habit-mobile-block">
+        <div class="habit-title-cell">Log symptoms<span class="habit-title-count">${symCount}/60</span></div>
+        <div class="dot-grid"><table><tr>${symCellsHTML}</tr></table></div>
+    </div>`;
 
     // (The "ready to graduate" nudge lives on the To-Do page next to the reminders —
     // see renderGraduationPrompts. The Map keeps only the Graduated management list below.)
-    html += sectionBlock('Morning', 'var(--morning)', morningHabits, 'var(--morning)', symRow, sectionNames.morning || 'Morning');
+    html += sectionBlock('Morning', 'var(--morning)', morningHabits, 'var(--morning)', symRow, symRowMobile, sectionNames.morning || 'Morning');
     if (middayHabits.length) {
-        html += sectionBlock('Midday', 'var(--ongoing)', middayHabits, 'var(--ongoing)', '', sectionNames.midday || 'Midday');
+        html += sectionBlock('Midday', 'var(--ongoing)', middayHabits, 'var(--ongoing)', '', '', sectionNames.midday || 'Midday');
     }
-    html += sectionBlock('Evening', 'var(--evening)', nightHabits, 'var(--evening)', '', sectionNames.night || 'Evening / Night');
+    html += sectionBlock('Evening', 'var(--evening)', nightHabits, 'var(--evening)', '', '', sectionNames.night || 'Evening / Night');
 
     // Hidden count
     const hiddenCount = hidden.length;
@@ -695,9 +740,27 @@ function renderHabitTracker() {
 
     el.innerHTML = html;
 
-    // Auto-scroll to most recent days
+    // Auto-scroll to most recent days (dots run oldest→left, newest→right —
+    // snap the row's horizontal scroll to the far right so today's dot is
+    // what's visible without having to scroll). scrollWidth reads 0 while a
+    // grid is momentarily unrendered (its <details> still closed, or this is
+    // an inactive FrameHost iframe tab), so the direct assignment below is a
+    // no-op in that case — "all the habits start to the left" was this
+    // snap silently failing to take because the grid had no size yet. A
+    // ResizeObserver re-snaps the first time each grid actually gets a real
+    // size (details opens, tab becomes active, phone rotates), which the
+    // synchronous assignment alone can't cover. Torn down and recreated each
+    // render (rather than re-observing onto elements this innerHTML swap just
+    // replaced) so it never holds refs to detached nodes.
+    if (_dotGridResizeObserver) _dotGridResizeObserver.disconnect();
+    _dotGridResizeObserver = new ResizeObserver(entries => {
+        for (const entry of entries) {
+            if (entry.contentRect.width > 0) entry.target.scrollLeft = entry.target.scrollWidth;
+        }
+    });
     el.querySelectorAll('.dot-grid').forEach(g => {
         g.scrollLeft = g.scrollWidth;
+        _dotGridResizeObserver.observe(g);
     });
 
     // The edit panel lives in the shared editor modal.

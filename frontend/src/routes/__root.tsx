@@ -3,7 +3,9 @@ import { TopTabs } from '../shell/TopTabs';
 import { FrameHost } from '../shell/FrameHost';
 import { SplitLayout } from '../shell/SplitLayout';
 import { SessionsProvider } from '../shell/SessionsContext';
+import { ScrollTopStrip } from '../shell/ScrollTopStrip';
 import { useFrameBridge } from '../shell/frameBridge';
+import { useKeyboardScrollReset } from '../shell/useKeyboardScrollReset';
 import { useMediaQuery, DESKTOP_QUERY } from '../shell/useMediaQuery';
 
 export const Route = createRootRoute({
@@ -33,15 +35,22 @@ export const Route = createRootRoute({
  */
 function RootLayout() {
   useFrameBridge();
+  // iOS leaves the document scrolled after keyboard dismiss even with
+  // body{overflow:hidden} — snap it back (see useKeyboardScrollReset).
+  useKeyboardScrollReset();
   const isDesktop = useMediaQuery(DESKTOP_QUERY);
   const isPublic = typeof window !== 'undefined' && window.VIEW_MODE === 'public';
 
   return (
     <main style={{ flex: 1, minHeight: 0, position: 'relative', display: 'flex', flexDirection: 'column' }}>
+      <ScrollTopStrip />
       <SplitLayout>
         <SessionsProvider enabled={!isDesktop && !isPublic}>
           <TopTabs />
-          <div style={{ flex: 1, minHeight: 0, position: 'relative', display: 'flex', flexDirection: 'column' }}>
+          <div
+            id="content-host"
+            style={{ flex: 1, minHeight: 0, position: 'relative', display: 'flex', flexDirection: 'column' }}
+          >
             <FrameHost />
             <Outlet />
           </div>

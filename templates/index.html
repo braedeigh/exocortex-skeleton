@@ -8,6 +8,9 @@
 <link rel="stylesheet" href="{{ v_static('css/frosted.css') }}">
 <link rel="stylesheet" href="{{ v_static('vendor/leaflet/leaflet.css') }}">
 <script>window.VIEW_MODE = "{{ view_mode }}";</script>
+<script>/* Early no-op: pre-opened <details ontoggle=...> fire during parse, before
+   deferred core.js defines the real mapCardToggled. core.js redefines it. */
+function mapCardToggled() {}</script>
 <script>window.THEME_OVERRIDES = {{ theme_overrides_json|safe }};</script>
 </head>
 <body data-active-tab="{{ active_tab }}" data-item-name="{{ item_name|default('', true) }}" data-view-mode="{{ view_mode }}" class="{{ 'public-mode' if view_mode == 'public' else '' }}">

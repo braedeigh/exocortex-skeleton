@@ -1,0 +1,20 @@
+/* Deliberately not the usual ~40px tap-target rule — this mirrors iOS's own
+ * thin-but-full-width status bar, which is exactly what it's standing in
+ * for. Full-width makes it easy to hit despite being short; a floor of 12px
+ * keeps it usable on non-notched phones/desktop, and env(safe-area-inset-top)
+ * (typically 44-59px on a notched iPhone) gives it a comfortably large real
+ * target on the device that actually needs it. */
+.strip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: max(12px, env(safe-area-inset-top, 0px));
+  z-index: 200;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  -webkit-tap-highlight-color: transparent;
+  cursor: default;
+}
