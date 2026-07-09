@@ -19,46 +19,48 @@ export interface NotesPillNote {
   created: string;
 }
 
-/**
- * Tab the pill acts on. The legacy notes-pill.js followed core.js's
- * `currentTab` across every dashboard tab it was mounted on; the native
- * /todos page only ever shows one tab's worth of content, so this is fixed
- * rather than tracked.
- */
-const TAB = 'today';
-
-function notesQueryKey(kind: NotesPillKind) {
-  return ['notesPill', kind, TAB] as const;
+function notesQueryKey(kind: NotesPillKind, tab: string) {
+  return ['notesPill', kind, tab] as const;
 }
 
 function errorMessage(err: unknown, fallback: string): string {
   return err instanceof ApiError ? err.message : fallback;
 }
 
-export function useNotesPillList(kind: NotesPillKind) {
+/**
+ * `tab` is which page's notes the pill acts on. The legacy notes-pill.js
+ * followed core.js's `currentTab` across every dashboard tab it was mounted
+ * on; each native page mounts its own pill with a fixed tab instead
+ * ('today' on /todos, 'notes' on /notes).
+ */
+export function useNotesPillList(kind: NotesPillKind, tab: string) {
   return useQuery({
-    queryKey: notesQueryKey(kind),
-    queryFn: ({ signal }) => (kind === 'idea' ? getIdeaNotes(TAB, signal) : getDevNotes(TAB, signal)),
+    queryKey: notesQueryKey(kind, tab),
+    queryFn: ({ signal }) => (kind === 'idea' ? getIdeaNotes(tab, signal) : getDevNotes(tab, signal)),
   });
 }
 
-export function useNotesPillMutations(kind: NotesPillKind, onError: (message: string) => void) {
+export function useNotesPillMutations(kind: NotesPillKind, tab: string, onError: (message: string) => void) {
   const queryClient = useQueryClient();
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: notesQueryKey(kind) });
+  const invalidate = () => {
+    void queryClient.invalidateQueries({ queryKey: notesQueryKey(kind, tab) });
+    // The /notes browser shows every tab's notes — keep it fresh too.
+    void queryClient.invalidateQueries({ queryKey: ['notesAll', kind] });
+  };
 
   const add = useMutation({
-    mutationFn: (text: string) => (kind === 'idea' ? addIdeaNote(TAB, text) : addDevNote(TAB, text)),
+    mutationFn: (text: string) => (kind === 'idea' ? addIdeaNote(tab, text) : addDevNote(tab, text)),
     onError: (err) => onError(errorMessage(err, "Couldn't add note")),
     onSuccess: () => void invalidate(),
   });
   const edit = useMutation({
     mutationFn: (vars: { id: string; text: string }) =>
-      kind === 'idea' ? editIdeaNote(TAB, vars.id, vars.text) : editDevNote(TAB, vars.id, vars.text),
+      kind === 'idea' ? editIdeaNote(tab, vars.id, vars.text) : editDevNote(tab, vars.id, vars.text),
     onError: (err) => onError(errorMessage(err, "Couldn't save note")),
     onSuccess: () => void invalidate(),
   });
   const remove = useMutation({
-    mutationFn: (id: string) => (kind === 'idea' ? removeIdeaNote(TAB, id) : removeDevNote(TAB, id)),
+    mutationFn: (id: string) => (kind === 'idea' ? removeIdeaNote(tab, id) : removeDevNote(tab, id)),
     onError: (err) => onError(errorMessage(err, "Couldn't delete note")),
     onSuccess: () => void invalidate(),
   });

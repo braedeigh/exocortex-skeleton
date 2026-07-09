@@ -7,6 +7,8 @@ import styles from './NotesPill.module.css';
 
 export interface NotesPanelProps {
   kind: NotesPillKind;
+  tab: string;
+  showAllLink: boolean;
   sort: 'newest' | 'oldest';
   onToggleSort: () => void;
   onClose: () => void;
@@ -28,11 +30,11 @@ const PLACEHOLDER: Record<NotesPillKind, string> = {
  * rebuilt by hand for the same reason.
  */
 export const NotesPanel = forwardRef<HTMLDivElement, NotesPanelProps>(function NotesPanel(
-  { kind, sort, onToggleSort, onClose, onError },
+  { kind, tab, showAllLink, sort, onToggleSort, onClose, onError },
   ref,
 ) {
-  const { data, isLoading } = useNotesPillList(kind);
-  const { add, edit, remove } = useNotesPillMutations(kind, onError);
+  const { data, isLoading } = useNotesPillList(kind, tab);
+  const { add, edit, remove } = useNotesPillMutations(kind, tab, onError);
 
   const [draft, setDraft] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -121,15 +123,17 @@ export const NotesPanel = forwardRef<HTMLDivElement, NotesPanelProps>(function N
     <div className={`${styles.panel} ${expanded ? styles.panelExpanded : ''}`} ref={ref}>
       <div className={styles.head}>
         <span className={`${styles.title} ${kind === 'idea' ? styles.titleIdea : ''}`}>{LABEL[kind]}</span>
-        <Link
-          to="/notes"
-          className={styles.allLink}
-          title="Browse all notes"
-          aria-label="Browse all notes"
-          onClick={onClose}
-        >
-          &#8599;
-        </Link>
+        {showAllLink ? (
+          <Link
+            to="/notes"
+            className={styles.allLink}
+            title="Browse all notes"
+            aria-label="Browse all notes"
+            onClick={onClose}
+          >
+            &#8599;
+          </Link>
+        ) : null}
         <button type="button" className={styles.sort} onClick={onToggleSort}>
           {/* ︎ = text variation selector: stops iOS rendering the arrow as emoji */}
           {sort === 'newest' ? '\u2193\uFE0E Newest' : '\u2191\uFE0E Oldest'}
@@ -150,7 +154,7 @@ export const NotesPanel = forwardRef<HTMLDivElement, NotesPanelProps>(function N
 
       <div className={styles.list}>
         {isLoading ? null : sorted.length === 0 ? (
-          <div className={styles.empty}>No today notes yet</div>
+          <div className={styles.empty}>No notes here yet</div>
         ) : (
           sorted.map((n) =>
             n.id === editingId ? (

@@ -7,17 +7,21 @@ import styles from './NotesPill.module.css';
 
 export interface NotesPillProps {
   onError: (message: string) => void;
+  /** Which page's notes the pill acts on. */
+  tab?: string;
+  /** Hide the panel's "All ↗" link (pointless on /notes itself). */
+  showAllLink?: boolean;
 }
 
 /**
  * Floating corner pill — React port of static/js/notes-pill.js +
  * static/js/mini-notes.js. Closed: two 46px squares (📝 dev notes / 💡
  * ideas) fixed bottom-right. Clicking one replaces the pill in place with a
- * floating panel (NotesPanel); the tab acted on is always 'today' (see
- * useNotesPill.ts). Only mounted on the native /todos page — the legacy
- * iframe tabs still load the original scripts for the pill.
+ * floating panel (NotesPanel) acting on `tab`'s notes. Mounted on the
+ * native pages (/todos as 'today', /notes as 'notes') — the legacy iframe
+ * tabs still load the original scripts for the pill.
  */
-export function NotesPill({ onError }: NotesPillProps) {
+export function NotesPill({ onError, tab = 'today', showAllLink = true }: NotesPillProps) {
   const [openKind, setOpenKind] = useState<NotesPillKind | null>(null);
   const [sort, setSort] = useState<SortDir>(readStoredSort);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -38,6 +42,8 @@ export function NotesPill({ onError }: NotesPillProps) {
       <NotesPanel
         ref={containerRef}
         kind={openKind}
+        tab={tab}
+        showAllLink={showAllLink}
         sort={sort}
         onToggleSort={toggleSort}
         onClose={close}

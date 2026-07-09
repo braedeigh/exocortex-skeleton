@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ToastStack } from '../../ui';
 import { TAB_META, VALID_TABS, isValidTab } from '../../shell/tabs';
 import { useToasts } from '../todos/useTodayData';
+import { NotesPill } from '../todos/NotesPill';
 import { formatNoteAge, isLongNote, readStoredSort, sortNotesByCreated, writeStoredSort, type SortDir } from '../todos/noteHelpers';
 import { flattenNotes, useAllNotes, useNotesBrowserMutations, type FlatNote, type NotesBrowserKind } from './useNotesBrowser';
 import styles from './NotesBrowserPage.module.css';
@@ -302,6 +303,9 @@ export function NotesBrowserPage() {
           })}
         </div>
       )}
+
+      {/* Notes about the notes page land on their own 'notes' tab. */}
+      <NotesPill tab="notes" showAllLink={false} onError={push} />
 
       <ToastStack toasts={toasts} onDismiss={dismiss} />
     </div>
