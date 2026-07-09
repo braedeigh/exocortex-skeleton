@@ -1,8 +1,13 @@
+/* Pinned to the fixed twilight-indigo palette the tab rows use (see the
+ * header comment in TopTabs.module.css) — same literals as
+ * ChatSessionPicker.module.css, so the desktop terminal's session tabs read
+ * as part of the always-dark tab apparatus instead of theme-swapping with
+ * the page. */
 .bar {
   display: flex;
   flex-shrink: 0;
-  background: var(--bg);
-  border-bottom: 1px solid var(--border);
+  background: #1a1a2e;
+  border-bottom: 1px solid rgba(124, 92, 191, 0.25);
 }
 
 .tab {
@@ -15,19 +20,20 @@
 }
 
 .tab.active {
-  background: var(--card-bg);
-  border-bottom-color: var(--accent);
+  background: #2a2547;
+  border-bottom-color: #7c5cbf;
 }
 
 /* "a terminal that needs input... turns a different color until I open it" —
- * tinted while a background session is waiting on a response. */
+ * tinted while a background session is waiting on a response. Literal oranges
+ * (not the theme-swapped var(--orange)) so they sit right on the fixed indigo. */
 .needsInput {
-  background: color-mix(in srgb, var(--orange) 16%, transparent);
-  border-bottom-color: var(--orange);
+  background: rgba(212, 112, 10, 0.16);
+  border-bottom-color: #d4700a;
 }
 
 .needsInput .tabLabel {
-  color: var(--orange);
+  color: #e8a05c;
 }
 
 .tabLabel {
@@ -37,7 +43,7 @@
   padding: 0 var(--space-3);
   border: none;
   background: transparent;
-  color: var(--text-muted);
+  color: rgba(180, 160, 220, 0.6);
   font-size: var(--font-size-sm);
   font-weight: 600;
   text-transform: uppercase;
@@ -49,11 +55,11 @@
 }
 
 .tab.active .tabLabel {
-  color: var(--text);
+  color: #e8e2f5;
 }
 
 .tabLabel:hover {
-  color: var(--text);
+  color: #e8e2f5;
 }
 
 /* Close × for custom sessions — always visible (touch-friendly), reddens on hover. */
@@ -63,21 +69,21 @@
   padding: 0 var(--space-2);
   border: none;
   background: transparent;
-  color: var(--text-muted);
+  color: rgba(180, 160, 220, 0.6);
   font-size: 18px;
   line-height: 1;
   cursor: pointer;
 }
 
 .closeX:hover {
-  color: var(--red);
+  color: #d44035;
 }
 
 /* Two-step close confirm ("tap × again") — no native confirm(). */
 .closeConfirm {
   min-width: 52px;
   border-radius: var(--radius-sm);
-  background: var(--red);
+  background: #d44035;
   color: #fff;
   font-size: var(--font-size-sm);
   font-weight: 600;
@@ -92,11 +98,11 @@
   min-height: var(--tap-target);
   border: none;
   background: transparent;
-  color: var(--text-muted);
+  color: rgba(180, 160, 220, 0.6);
   font-size: 20px;
   cursor: pointer;
 }
 
 .addBtn:hover {
-  color: var(--text);
+  color: #e8e2f5;
 }

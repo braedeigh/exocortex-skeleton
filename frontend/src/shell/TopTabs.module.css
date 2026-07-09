@@ -1,33 +1,44 @@
 /* Top tab strip — React port of the old dashboard's #tab-selector +
  * More ▾ menu (templates/index.html:24-52, static/js/core.js layoutTabs). */
 
-/* Row 1 — "dash bar", ported from templates/split.html:52-82 (.dash-bar).
- * --tab-bg/--tab-active aren't part of the app's canonical theme palette
- * (sky-theme.js never sets them, see theme.css) — in the old app they were
- * hardcoded dark-purple values in split.html's own :root block, giving the
- * dash bar its fixed "twilight purple" look independent of day/night theme.
- * Scoped as local custom properties here rather than added to theme.css,
- * to keep that behavior faithful without leaking into the global palette.
+/* BOTH tab rows are pinned to a fixed "twilight indigo" palette at all times
+ * — per Bradie's explicit request, the tab apparatus never day/night swaps
+ * even though the rest of the page keeps theming normally. (Originally only
+ * the row-1 buttons were pinned, faithful to split.html's hardcoded
+ * dark-purple :root values; the bar/strip backgrounds and active states
+ * still used theme vars and went light in day mode.)
  *
- * --dash-text-muted is likewise fixed (not var(--text-muted)): in the old
- * app --text-muted was itself a hardcoded light-lavender value (the whole
- * page was permanently dark-themed), so it read fine against --tab-bg. In
- * this app --text-muted is swapped day/night by sky-theme.js and can be a
- * near-black day value, which is unreadable against the fixed dark navy
- * --tab-bg. Active/hover states are unaffected — they pair var(--text) with
- * var(--bg), both swapped together by the current theme, so contrast holds. */
+ * None of these are theme vars (sky-theme.js never sets them, see theme.css)
+ * — they're local custom properties scoped to the two rows, defined once
+ * here, rather than added to theme.css, so the pinned palette can't leak
+ * into the global day/night palette. Nothing in either row may use
+ * var(--bg)/--card-bg/--text/--text-muted/--border/--accent: every one of
+ * those is swapped at runtime by sky-theme.js and would break contrast
+ * against the fixed indigo in one mode or the other.
+ * ChatSessionPicker.module.css mirrors these same literals for the /chat
+ * session picker row. */
+.dashBar,
+.strip {
+  --tab-bg: #1a1a2e; /* row-1 bar + inactive buttons */
+  --tab-bg-raised: #2a2547; /* active row-1 tab; also row 2's whole strip, so
+                               the active Dashboard tab blends into its row */
+  --tab-active: #7c5cbf; /* underline */
+  --tab-text: #e8e2f5; /* active/hover text — fixed light lavender */
+  --dash-text-muted: rgba(180, 160, 220, 0.6); /* inactive text */
+  --tab-border: rgba(124, 92, 191, 0.25); /* hairlines that read on indigo */
+}
+
+/* Row 1 — "dash bar", ported from templates/split.html:52-82 (.dash-bar). */
 .dashBar {
   display: flex;
-  background: var(--bg);
-  border-bottom: 1px solid var(--border);
+  background: var(--tab-bg);
+  border-bottom: 1px solid var(--tab-border);
   flex-shrink: 0;
   /* Installed-PWA: the page extends under the iOS status bar
    * (viewport-fit=cover + black-translucent), so push the tab row
-   * below the clock/battery/camera. 0 in a normal browser tab. */
+   * below the clock/battery/camera — the indigo strip under the clock is
+   * intentional. 0 in a normal browser tab. */
   padding-top: env(safe-area-inset-top, 0px);
-  --tab-bg: #1a1a2e;
-  --tab-active: #7c5cbf;
-  --dash-text-muted: rgba(180, 160, 220, 0.6);
 }
 
 .dashBtn {
@@ -48,13 +59,13 @@
 }
 
 .dashBtn.dashBtnActive {
-  color: var(--text);
-  background: var(--bg);
+  color: var(--tab-text);
+  background: var(--tab-bg-raised);
   border-bottom-color: var(--tab-active);
 }
 
 .dashBtn:hover:not(.dashBtnActive) {
-  color: var(--text);
+  color: var(--tab-text);
   background: rgba(124, 92, 191, 0.1);
 }
 
@@ -90,8 +101,8 @@
   flex-shrink: 0;
   display: flex;
   align-items: stretch;
-  background: var(--card-bg);
-  border-bottom: 1px solid var(--border);
+  background: var(--tab-bg-raised);
+  border-bottom: 1px solid var(--tab-border);
   position: relative;
   z-index: 10;
 }
@@ -114,7 +125,7 @@
   padding: 0 var(--space-4);
   border: none;
   background: transparent;
-  color: var(--text-muted);
+  color: var(--dash-text-muted);
   font-size: 13px;
   font-weight: 600;
   text-transform: uppercase;
@@ -128,13 +139,15 @@
 }
 
 .tab:hover:not(.active) {
-  color: var(--text);
+  color: var(--tab-text);
   background: rgba(124, 92, 191, 0.08);
 }
 
+/* Underline pinned to --tab-active, not var(--accent): --accent is
+ * theme-swapped by sky-theme.js, and this row must never swap. */
 .tab.active {
-  color: var(--text);
-  border-bottom-color: var(--accent);
+  color: var(--tab-text);
+  border-bottom-color: var(--tab-active);
 }
 
 /* Applied to optional tabs the measurement pass decided don't fit — kept
@@ -150,6 +163,15 @@
   flex-shrink: 0;
 }
 
+/* Desktop dropdown — part of the pinned-indigo tab apparatus (it hangs off
+ * row 2 and inherits the .strip custom properties), so it's dark always,
+ * unlike the page's other menus. The TapRows inside come themed (var(--text)
+ * color, var(--border) hairlines — unreadable/invisible on indigo in day
+ * mode), so their colors are overridden by the descendant rules below; the
+ * `.strip .dropdown` prefix on the hover rule is for specificity, to beat
+ * TapRow's own `button.row:hover` regardless of CSS module import order.
+ * The mobile More menu is a Sheet (a page-level overlay, not part of the tab
+ * strip) and keeps normal theming. */
 .dropdown {
   position: absolute;
   top: 100%;
@@ -158,11 +180,26 @@
   min-width: 220px;
   max-height: 70vh;
   overflow-y: auto;
-  background: var(--card-bg);
-  border: 1px solid var(--border);
+  background: var(--tab-bg-raised);
+  border: 1px solid var(--tab-border);
   border-radius: var(--radius-md);
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
   padding: var(--space-2) 0;
+}
+
+.dropdown :is(button, a) {
+  color: var(--tab-text);
+  border-bottom-color: var(--tab-border);
+}
+
+.strip .dropdown :is(button, a):hover {
+  background: rgba(124, 92, 191, 0.15);
+}
+
+/* Lighter than --tab-active: the underline purple is too dim as small text
+ * on the indigo dropdown. */
+.dropdown .menuActive {
+  color: #b9a3e8;
 }
 
 .menuActive {

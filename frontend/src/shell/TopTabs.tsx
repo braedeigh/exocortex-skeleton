@@ -10,8 +10,8 @@ import styles from './TopTabs.module.css';
  * Top tab strip — two stacked rows, restoring the old app's double tab bar.
  *
  * Row 1 ("dash bar") is a port of split.html's `.dash-bar` (lines 52-82):
- * Dashboard / Journal / Research switcher plus a Settings gear, always
- * rendered above everything else.
+ * Chat (mobile only) / Journal / Dashboard / Research switcher plus a
+ * Settings gear, always rendered above everything else.
  *
  * Row 2 is the React port of the old dashboard's #tab-selector row + More ▾
  * menu (templates/index.html:24-52): primary tabs always shown, optional
@@ -322,9 +322,10 @@ export function TopTabs() {
   const location = useLocation();
   const navigate = useNavigate();
   const isDesktop = useMediaQuery(DESKTOP_QUERY);
-  // Mobile Chat tab's label — the active tmux session name (see ChatPage,
-  // which shares this same instance via SessionsContext, so switching
-  // sessions there updates this label immediately instead of only on reload).
+  // Mobile Chat tab's label (the active tmux session name) + the /chat
+  // session picker's toggle — shared with ChatPage via SessionsContext, so
+  // switching sessions there updates the label immediately, and tapping the
+  // Chat tab while on /chat opens/closes the picker ChatPage renders.
   const sessions = useSessionsContext();
   // Last dashboard route visited, so clicking Dashboard from Journal/Research
   // returns you where you left off instead of always resetting to /todos.
@@ -345,6 +346,30 @@ export function TopTabs() {
   return (
     <>
       <div className={styles.dashBar}>
+        {!isDesktop ? (
+          // Mobile only — desktop already has the terminal permanently docked
+          // in the left split pane (SplitLayout), no need for a tab to it.
+          // A second tap while already on /chat toggles the session picker
+          // row instead (rendered by ChatPage, shared via SessionsContext).
+          <button
+            type="button"
+            className={joinClass(styles.dashBtn, styles.chatBtn, location.pathname === '/chat' && styles.dashBtnActive)}
+            aria-expanded={location.pathname === '/chat' ? sessions.pickerOpen : undefined}
+            onClick={() => {
+              if (location.pathname === '/chat') sessions.togglePicker();
+              else void navigate({ to: '/chat' });
+            }}
+          >
+            <span className={styles.chatLabel}>{sessions.active || 'Chat'}</span>
+          </button>
+        ) : null}
+        <button
+          type="button"
+          className={joinClass(styles.dashBtn, location.pathname === '/journal' && styles.dashBtnActive)}
+          onClick={() => void navigate({ to: '/journal' })}
+        >
+          Journal
+        </button>
         <button
           type="button"
           className={joinClass(styles.dashBtn, dashboardActive && styles.dashBtnActive)}
@@ -355,24 +380,6 @@ export function TopTabs() {
         >
           Dashboard
         </button>
-        <button
-          type="button"
-          className={joinClass(styles.dashBtn, location.pathname === '/journal' && styles.dashBtnActive)}
-          onClick={() => void navigate({ to: '/journal' })}
-        >
-          Journal
-        </button>
-        {!isDesktop ? (
-          // Mobile only — desktop already has the terminal permanently docked
-          // in the left split pane (SplitLayout), no need for a tab to it.
-          <button
-            type="button"
-            className={joinClass(styles.dashBtn, styles.chatBtn, location.pathname === '/chat' && styles.dashBtnActive)}
-            onClick={() => void navigate({ to: '/chat' })}
-          >
-            <span className={styles.chatLabel}>{sessions.active || 'Chat'}</span>
-          </button>
-        ) : null}
         <button
           type="button"
           className={joinClass(styles.dashBtn, location.pathname === '/research' && styles.dashBtnActive)}
