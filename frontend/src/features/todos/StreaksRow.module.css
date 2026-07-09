@@ -3,7 +3,10 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
-  margin-bottom: var(--space-4);
+  /* Buffer off the left edge — these chips used to sit flush against it
+     (dev note 4cb0286e) since nothing else here provides the page's usual
+     var(--space-4) inset (greeting/date-line get theirs from margin). */
+  margin: 0 var(--space-4) var(--space-4);
 }
 
 /* A button now (opens the streak detail sheet), so it gets the ~40px tap

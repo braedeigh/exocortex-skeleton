@@ -1,0 +1,211 @@
+.card {
+  margin-top: var(--space-3);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--text-muted);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+  overflow: hidden;
+}
+
+.summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--tap-target);
+  padding: var(--space-2) var(--space-4);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  background: none;
+  border: none;
+  width: 100%;
+  text-align: left;
+  font-size: var(--font-size-base);
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.arrow {
+  font-size: 12px;
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+  display: inline-block;
+}
+
+.arrow.open {
+  transform: rotate(90deg);
+}
+
+.title {
+  flex: 1;
+}
+
+.count {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--bg);
+  border-radius: var(--radius-pill);
+  padding: 1px 8px;
+}
+
+.body {
+  padding: 0 var(--space-4) var(--space-3);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--tap-target);
+  border-top: 1px solid var(--border);
+}
+
+.text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: break-word;
+  color: var(--text-secondary);
+  font-size: var(--font-size-base);
+}
+
+.age {
+  flex-shrink: 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.incorporateBtn,
+.deleteBtn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  min-height: 40px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  font-size: 16px;
+}
+
+.incorporateBtn {
+  color: var(--green);
+}
+
+.incorporateBtn:hover {
+  border-color: var(--green);
+  background: color-mix(in srgb, var(--green) 14%, transparent);
+}
+
+.deleteBtn {
+  color: var(--text-muted);
+  font-size: 20px;
+  line-height: 1;
+}
+
+.deleteBtn:hover {
+  color: var(--red);
+  border-color: var(--red);
+  background: color-mix(in srgb, var(--red) 14%, transparent);
+}
+
+.empty {
+  padding: var(--space-2) 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.addForm {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.addInput {
+  flex: 1;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--font-size-base);
+}
+
+.addBtn {
+  flex-shrink: 0;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-md);
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.incorporatedWrap {
+  margin-top: var(--space-3);
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-2);
+}
+
+.incorporatedSummary {
+  min-height: 40px;
+  padding: 0 var(--space-2);
+  background: none;
+  border: none;
+  color: var(--green);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.incorporatedRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--tap-target);
+  padding: 0 var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.incorporatedText {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: break-word;
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+.journey {
+  flex-shrink: 0;
+  color: var(--green);
+  white-space: nowrap;
+}
+
+.reactivateBtn {
+  flex-shrink: 0;
+  min-width: 40px;
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.reactivateBtn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}

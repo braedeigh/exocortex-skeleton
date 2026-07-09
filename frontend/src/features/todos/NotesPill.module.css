@@ -19,6 +19,17 @@
   overflow: hidden;
   box-shadow: 0 6px 22px rgba(0, 0, 0, 0.28);
   border: 1px solid var(--border);
+  /* Transparent at rest, solid on hover/touch (dev note 26558d6a — this used
+     to be the opposite way round). Opacity on the whole pill (rather than
+     per-square backgrounds) fades the border/shadow along with the squares. */
+  opacity: 0.45;
+  transition: opacity 0.15s ease;
+}
+
+.pill:hover,
+.pill:focus-within,
+.pill:active {
+  opacity: 1;
 }
 
 .sq {

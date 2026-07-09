@@ -16,6 +16,11 @@ export interface TodoSectionProps {
   serverDate: string;
   defaultOpen?: boolean;
   countMode?: 'remaining' | 'total';
+  /** Current focus-chip filter theme (see FocusChips) — a *change* here (not
+   * the value itself) auto-opens this section when it still has something
+   * in it, so filtering a category surfaces its cards instead of leaving
+   * them collapsed (dev note 685eb5fa). */
+  focusTheme?: string;
   onToggle: (id: string) => void;
   onOpenDetail: (item: TodoItem) => void;
   onReorder: (section: string, ids: string[]) => void;
@@ -41,6 +46,7 @@ export function TodoSection({
   serverDate,
   defaultOpen = false,
   countMode = 'remaining',
+  focusTheme,
   onToggle,
   onOpenDetail,
   onReorder,
@@ -62,6 +68,19 @@ export function TodoSection({
   const itemsRef = useRef(items);
   itemsRef.current = items;
   const cleanupRef = useRef<(() => void) | null>(null);
+
+  // Auto-open on a filter change (not on mount — the persisted focusTheme
+  // shouldn't force every non-empty section open on first load, only an
+  // actual tap on a focus chip should).
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      return;
+    }
+    if (focusTheme && itemsRef.current.length > 0) setOpen(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusTheme]);
 
   // Register once — the getters below always read the latest refs, so other
   // sections can query this one's rows/items mid-drag without re-registering
@@ -159,6 +178,23 @@ export function TodoSection({
         <span className={styles.title} style={{ color }}>
           {label}
         </span>
+        {/* Sits directly right of the title (dev note 4b6b8e3e) — the count/
+            autosort/edit chips are pushed off to the far right by the
+            spacer below instead of hugging the title like this does. */}
+        {onAddClick ? (
+          <span
+            className={styles.headerAction}
+            role="button"
+            tabIndex={0}
+            onClick={(e) => {
+              e.stopPropagation();
+              onAddClick(label);
+            }}
+          >
+            + add
+          </span>
+        ) : null}
+        <span className={styles.spacer} aria-hidden="true" />
         <span className={styles.count}>{remaining}</span>
         {manualOrder ? (
           <span
@@ -175,19 +211,6 @@ export function TodoSection({
         ) : null}
         {/* Nested-interactive workaround, same as the autosort chip: the
             summary is itself a button, so these are role="button" spans. */}
-        {onAddClick ? (
-          <span
-            className={styles.headerAction}
-            role="button"
-            tabIndex={0}
-            onClick={(e) => {
-              e.stopPropagation();
-              onAddClick(label);
-            }}
-          >
-            + add
-          </span>
-        ) : null}
         <span
           className={`${styles.headerAction} ${editing ? styles.headerActionActive : ''}`}
           role="button"

@@ -11,7 +11,10 @@
 }
 
 .card {
-  margin: var(--space-3) var(--space-4);
+  /* Vertical only — horizontal margin here (on top of the todo column's own
+     inset) made these cards narrower than the habit cards beside them, which
+     have no horizontal margin of their own (dev note a6fe092c). */
+  margin: var(--space-3) 0;
   border: 1px solid var(--border);
   border-left-width: 4px;
   border-radius: var(--radius-lg);
@@ -52,6 +55,14 @@
 }
 
 .title {
+  /* No longer flex:1 — the "+ add" button sits right after this now, and
+     .spacer (below) is what pushes count/autosort/edit to the far right. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spacer {
   flex: 1;
 }
 

@@ -64,3 +64,17 @@ export interface Streak {
   since: string;
   notes?: string;
 }
+
+/** "Working On" aspirations tracker — port of growth_notes.json (see
+ * routes/habits.py _load_growth/_save_growth). Not a to-do and not a daily
+ * habit yet; a holding pen for habits she's still trying on before they earn
+ * a spot in the daily habit sections. Identified by `text` (no id). */
+export interface GrowthNote {
+  text: string;
+  /** YYYY-MM-DD it was added. */
+  added: string;
+  status: 'active' | 'incorporated';
+  /** YYYY-MM-DD it was marked incorporated, else null/absent. */
+  incorporated?: string | null;
+  notes?: string;
+}

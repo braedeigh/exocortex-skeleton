@@ -1,9 +1,11 @@
+import { GrowthNotes } from './GrowthNotes';
 import { HabitCard } from './HabitCard';
 import { dailySectionViews } from './habitMath';
 import type { TimeSegment } from './habitMath';
 import { TimeSelector } from './TimeSelector';
 import type {
   CadenceConfig,
+  GrowthNote,
   HabitCadenceMap,
   HabitMetaMap,
   HabitSection,
@@ -28,6 +30,11 @@ export interface HabitsColumnProps {
   onSegmentChange: (segment: TimeSegment) => void;
   serverDate: string;
   onToggle: (item: string, section: string) => void;
+  growthNotes: GrowthNote[] | undefined;
+  onGrowthAdd: (text: string) => void;
+  onGrowthRemove: (text: string) => void;
+  onGrowthIncorporate: (text: string) => void;
+  onGrowthReactivate: (text: string) => void;
 }
 
 /** Left column of the To Do page's two-col grid — header + time selector +
@@ -46,6 +53,11 @@ export function HabitsColumn({
   onSegmentChange,
   serverDate,
   onToggle,
+  growthNotes,
+  onGrowthAdd,
+  onGrowthRemove,
+  onGrowthIncorporate,
+  onGrowthReactivate,
 }: HabitsColumnProps) {
   const hidden = habitSettings?.hidden || [];
   const views = dailySectionViews(habits, segment, hidden, cadenceMap, metaMap, log, cadenceConfig, serverDate);
@@ -83,10 +95,17 @@ export function HabitsColumn({
         )
       )}
 
+      <GrowthNotes
+        notes={growthNotes}
+        onAdd={onGrowthAdd}
+        onRemove={onGrowthRemove}
+        onIncorporate={onGrowthIncorporate}
+        onReactivate={onGrowthReactivate}
+      />
+
       {/* TODO(habits phase 2): "Show hidden prompts" expand-all toggle so an
           all-done card can be expanded back open (old core.js expandedAll). */}
       {/* TODO(habits phase 2): evening kitchen close-out quiet checklist. */}
-      {/* TODO(habits phase 2): Growth Notes ("Working On" aspirations) card. */}
       {/* TODO(habits phase 2): "+ Tracked habit" -> habit config modal (name,
           time-of-day sections, optional course length). */}
       {/* TODO(habits phase 2): drag/reorder + rename + delete (edit mode),
