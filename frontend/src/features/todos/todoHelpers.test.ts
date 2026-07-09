@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   addDays,
+  buildTodoIndex,
   collectSnoozed,
+  collectWaiting,
   computeFocusCounts,
   focusMatch,
   fmtAddedDate,
@@ -10,6 +12,7 @@ import {
   isDoneSection,
   isOverdue,
   isSnoozed,
+  isWaiting,
   themeLabel,
 } from './todoHelpers';
 import type { TodoItem, TodoSection } from './types';
@@ -140,5 +143,89 @@ describe('collectSnoozed', () => {
     ];
     const snoozed = collectSnoozed(sections, TODAY);
     expect(snoozed.map((i) => i.id)).toEqual(['2', '1']);
+  });
+
+  it('excludes an item that is also waiting — Waiting wins over Snoozed', () => {
+    const sections: TodoSection[] = [
+      section('Now', [item({ id: '1', snoozed_until: '2026-07-20', after_date: '2026-08-01' })]),
+    ];
+    expect(collectSnoozed(sections, TODAY)).toEqual([]);
+  });
+});
+
+describe('isWaiting', () => {
+  it('blocks while after_date is in the future', () => {
+    const sections: TodoSection[] = [section('Now', [item({ id: '1', after_date: '2026-08-01' })])];
+    const index = buildTodoIndex(sections);
+    expect(isWaiting(item({ id: '1', after_date: '2026-08-01' }), TODAY, index)).toBe(true);
+  });
+
+  it('unblocks once the date arrives', () => {
+    const index = buildTodoIndex([]);
+    expect(isWaiting(item({ after_date: TODAY }), TODAY, index)).toBe(false);
+    expect(isWaiting(item({ after_date: '2026-07-01' }), TODAY, index)).toBe(false);
+  });
+
+  it('blocks while the referenced to-do exists and is not done', () => {
+    const sections: TodoSection[] = [
+      section('Now', [item({ id: 'blocker', done: false }), item({ id: 'a', after_id: 'blocker' })]),
+    ];
+    const index = buildTodoIndex(sections);
+    expect(isWaiting(item({ id: 'a', after_id: 'blocker' }), TODAY, index)).toBe(true);
+  });
+
+  it('unblocks once the referenced to-do is done', () => {
+    const sections: TodoSection[] = [
+      section('Done', [item({ id: 'blocker', done: true })]),
+      section('Now', [item({ id: 'a', after_id: 'blocker' })]),
+    ];
+    const index = buildTodoIndex(sections);
+    expect(isWaiting(item({ id: 'a', after_id: 'blocker' }), TODAY, index)).toBe(false);
+  });
+
+  it('unblocks when the referenced to-do no longer exists', () => {
+    const index = buildTodoIndex([section('Now', [item({ id: 'a', after_id: 'gone' })])]);
+    expect(isWaiting(item({ id: 'a', after_id: 'gone' }), TODAY, index)).toBe(false);
+  });
+
+  it('with both fields set, unblocking is OR: still waiting only while both still block', () => {
+    const sections: TodoSection[] = [
+      section('Now', [item({ id: 'blocker', done: false })]),
+    ];
+    const index = buildTodoIndex(sections);
+    const both = item({ id: 'a', after_date: '2026-08-01', after_id: 'blocker' });
+    expect(isWaiting(both, TODAY, index)).toBe(true);
+
+    // Date has arrived but blocker still open — unblocked (OR).
+    const dateArrived = item({ id: 'a', after_date: '2026-07-01', after_id: 'blocker' });
+    expect(isWaiting(dateArrived, TODAY, index)).toBe(false);
+
+    // Blocker done but date still in the future — unblocked (OR).
+    const doneIndex = buildTodoIndex([section('Done', [item({ id: 'blocker', done: true })])]);
+    const blockerDone = item({ id: 'a', after_date: '2026-08-01', after_id: 'blocker' });
+    expect(isWaiting(blockerDone, TODAY, doneIndex)).toBe(false);
+  });
+
+  it('a done item is never waiting', () => {
+    const index = buildTodoIndex([]);
+    expect(isWaiting(item({ after_date: '2026-08-01', done: true }), TODAY, index)).toBe(false);
+  });
+});
+
+describe('collectWaiting', () => {
+  it('collects waiting items with a human reason, excluding done sections', () => {
+    const sections: TodoSection[] = [
+      section('Now', [
+        item({ id: '1', text: 'Unpack boxes', after_date: '2026-08-01' }),
+        item({ id: 'blocker', text: 'Finish the move', done: false }),
+        item({ id: '2', text: 'Celebrate', after_id: 'blocker' }),
+        item({ id: '3', text: 'Not waiting' }),
+      ]),
+      section('Done', [item({ id: '4', after_date: '2026-08-01', done: true })]),
+    ];
+    const waiting = collectWaiting(sections, TODAY);
+    expect(waiting.map((w) => w.item.id)).toEqual(['2', '1']);
+    expect(waiting.find((w) => w.item.id === '1')?.reason).toBe('after Aug 1');
+    expect(waiting.find((w) => w.item.id === '2')?.reason).toBe('after: Finish the move');
   });
 });

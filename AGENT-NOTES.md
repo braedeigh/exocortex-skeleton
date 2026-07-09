@@ -189,3 +189,25 @@ call); journal undo + tweet ripper + session-next-to-entry (design-heavy);
 while she sleeps).
 
 — Spark ⚡
+
+---
+
+## 2026-07-09 ~15:0x — Spark swarm session (dev-notes bug sweep)
+
+To the dependencies/editor session: hi! 👋 I ran a 4-agent sweep over Bradie's
+dev notes (~24 fixes: journal, terminal shell, PWA/map legacy, to-do page) and
+committed in four batches: cd6e1a2 (journal), 6f8d73e (shell), 4f5ffdc (pwa/map),
+5084be2 (todos partial).
+
+**Left uncommitted for YOU (interleaved with your WIP):** TodosPage.tsx,
+TodosPage.module.css, useTodayData.ts, features/todos/types.ts, api/endpoints.ts.
+These carry BOTH your blocker/waiting/editor work AND my swarm's wiring:
+growth-notes card (GrowthNotes via HabitsColumn — props flow from TodosPage),
+ReminderCard moved below the greeting, useGrowthActions + growth endpoints +
+growth_notes on TodayData. Please fold them into your commits when you ship —
+everything typechecks + 166/166 tests green on the combined tree as of now.
+
+Also: I ran `npm run build` at ~15:00 (includes your WIP — it was clean), and
+Sheet.tsx now portals to document.body (6f8d73e), which your new sheets inherit.
+
+— Spark ⚡

@@ -3,14 +3,19 @@ import type { UseMutationResult } from '@tanstack/react-query';
 import { useCallback, useRef, useState } from 'react';
 import { ApiError } from '../../api/client';
 import {
+  addGrowthNote,
   addTodo,
   autosortTodos,
+  bulkTodos,
   getSymptomDefinitions,
+  incorporateGrowthNote,
   logActivity,
   logSymptoms,
   moveTodo,
   promoteHabitCadence,
+  reactivateGrowthNote,
   removeActivity,
+  removeGrowthNote,
   removeStreak,
   removeTodo,
   renameTodo,
@@ -24,12 +29,13 @@ import {
   getTodayData,
   updateStreakNotes,
 } from '../../api/endpoints';
-import type { AddTodoPayload, SymptomLevels, TodoDetailsPatch } from '../../api/endpoints';
+import type { AddTodoPayload, BulkTodoAction, SymptomLevels, TodoDetailsPatch } from '../../api/endpoints';
 import {
   applyActivityLog,
   applyActivityRemove,
   applyAdd,
   applyAutosort,
+  applyBulk,
   applyDetails,
   applyHabitToggle,
   applyMove,
@@ -145,6 +151,11 @@ export function useTodoActions(onError: (message: string) => void) {
     (data, vars) => applyAdd(data, vars.tempItem, vars.section),
     onError,
   );
+  const bulk = useOptimisticMutation(
+    (vars: { ids: string[]; action: BulkTodoAction }) => bulkTodos(vars.ids, vars.action),
+    (data, vars) => applyBulk(data, vars.ids, vars.action),
+    onError,
+  );
 
   return {
     toggle: (id: string) => toggle.mutate(id),
@@ -155,6 +166,7 @@ export function useTodoActions(onError: (message: string) => void) {
     move: (id: string, toLabel: string) => move.mutate({ id, toLabel }),
     reorder: (section: string, ids: string[]) => reorder.mutate({ section, ids }),
     autosort: (section: string) => autosort.mutate(section),
+    bulk: (ids: string[], action: BulkTodoAction) => bulk.mutate({ ids, action }),
     add: (payload: AddTodoPayload) => {
       const item: TodoItem = {
         id: tempId(),
@@ -168,6 +180,8 @@ export function useTodoActions(onError: (message: string) => void) {
         status: payload.status || null,
         theme: payload.theme || null,
         duration_min: payload.duration_min || null,
+        after_date: payload.after_date || null,
+        after_id: payload.after_id || null,
       };
       add.mutate({ ...payload, tempItem: item });
     },
@@ -272,5 +286,34 @@ export function useHabitActions(onError: (message: string) => void) {
     toggle: (habit: string, section: string, date: string) => toggle.mutate({ habit, section, date }),
     promote: (section: string, habit: string) => promote.mutate({ section, habit }),
     restore: (section: string, habit: string) => restore.mutate({ section, habit }),
+  };
+}
+
+/**
+ * Growth Notes ("Working On" aspirations) mutations. Like promote/restore
+ * above, these skip the optimistic cache write — the list is short and
+ * low-frequency enough that the 5s poll / onSettled invalidate picking up
+ * the real result isn't perceptibly slower, and it avoids duplicating the
+ * add/remove/incorporate bookkeeping client-side.
+ */
+export function useGrowthActions(onError: (message: string) => void) {
+  const add = useOptimisticMutation((text: string) => addGrowthNote(text), (data) => data, onError);
+  const remove = useOptimisticMutation((text: string) => removeGrowthNote(text), (data) => data, onError);
+  const incorporate = useOptimisticMutation(
+    (text: string) => incorporateGrowthNote(text),
+    (data) => data,
+    onError,
+  );
+  const reactivate = useOptimisticMutation(
+    (text: string) => reactivateGrowthNote(text),
+    (data) => data,
+    onError,
+  );
+
+  return {
+    add: (text: string) => add.mutate(text),
+    remove: (text: string) => remove.mutate(text),
+    incorporate: (text: string) => incorporate.mutate(text),
+    reactivate: (text: string) => reactivate.mutate(text),
   };
 }

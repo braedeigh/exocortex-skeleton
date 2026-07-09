@@ -84,7 +84,7 @@ def test_root_public_intro_html_is_a_string_when_public():
     assert b"window.PUBLIC_INTRO_HTML = null;" not in r.data
 
 
-@pytest.mark.parametrize("path", ["/todos", "/legacy/map", "/journal", "/research", "/settings", "/files"])
+@pytest.mark.parametrize("path", ["/todos", "/todos/editor", "/legacy/map", "/journal", "/research", "/settings", "/files"])
 def test_spa_routes_all_serve_the_injected_shell(path):
     r = _client().get(path)
     assert r.status_code == 200

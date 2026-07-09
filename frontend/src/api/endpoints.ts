@@ -56,6 +56,8 @@ export interface AddTodoPayload {
   status?: string;
   theme?: string;
   duration_min?: number;
+  after_date?: string;
+  after_id?: string;
 }
 
 export interface OkResponse {
@@ -92,11 +94,42 @@ export function renameTodo(id: string, next: string): Promise<OkResponse> {
 }
 
 export type TodoDetailsPatch = Partial<
-  Pick<TodoItem, 'notes' | 'due_by' | 'due_time' | 'place_id' | 'category' | 'status' | 'theme' | 'duration_min'>
+  Pick<
+    TodoItem,
+    | 'notes'
+    | 'due_by'
+    | 'due_time'
+    | 'place_id'
+    | 'category'
+    | 'status'
+    | 'theme'
+    | 'duration_min'
+    | 'after_date'
+    | 'after_id'
+  >
 >;
 
 export function todoDetails(id: string, patch: TodoDetailsPatch): Promise<OkResponse> {
   return api.post('/api/todos/details', { id, ...patch });
+}
+
+/** One bulk operation for POST /api/todos/bulk — the discriminant is
+ * `action`, and the extra fields ride along flat in the request body
+ * (`{ids, action, ...}`), matching the route's open envelope. */
+export type BulkTodoAction =
+  | { action: 'details'; patch: TodoDetailsPatch }
+  | { action: 'snooze'; days: number }
+  | { action: 'move'; to_section: string }
+  | { action: 'remove' };
+
+export interface BulkTodoResponse extends OkResponse {
+  updated: number;
+  /** ids that matched nothing server-side (item vanished between poll and tap). */
+  missing: string[];
+}
+
+export function bulkTodos(ids: string[], action: BulkTodoAction): Promise<BulkTodoResponse> {
+  return api.post('/api/todos/bulk', { ids, ...action });
 }
 
 export function reorderTodos(section: string, items: string[]): Promise<OkResponse> {
@@ -158,6 +191,25 @@ export function restoreHabitCadence(section: string, habit: string): Promise<OkR
 
 // TODO(habits phase 2): add/remove/move/reorder/rename/settings/configure —
 // wire up once the habit config modal and tracker grid/edit mode land.
+
+// --- Growth Notes ("Working On" aspirations) — see routes/habits.py ---
+// Identified by `text` (no id), matching the legacy JS callers this mirrors.
+
+export function addGrowthNote(text: string): Promise<OkResponse> {
+  return api.post('/api/growth/add', { text });
+}
+
+export function removeGrowthNote(text: string): Promise<OkResponse> {
+  return api.post('/api/growth/remove', { text });
+}
+
+export function incorporateGrowthNote(text: string): Promise<OkResponse> {
+  return api.post('/api/growth/incorporate', { text });
+}
+
+export function reactivateGrowthNote(text: string): Promise<OkResponse> {
+  return api.post('/api/growth/reactivate', { text });
+}
 
 // --- Journal (routes: server.py journal_*, routes/cards.py, routes/entities.py, routes/devnotes.py) ---
 

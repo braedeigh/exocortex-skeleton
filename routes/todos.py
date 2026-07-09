@@ -50,7 +50,7 @@ def register(app):
                     new_item["notes"] = notes
                 # Optional attributes from the add modal's "More details" —
                 # same vocabulary the detail editor manages.
-                for f in ("due_time", "place_id", "category", "status", "theme"):
+                for f in ("due_time", "place_id", "category", "status", "theme", "after_date", "after_id"):
                     val = (data.get(f) or "").strip()
                     if val:
                         new_item[f] = val
@@ -114,14 +114,18 @@ def register(app):
 
     # Optional string attributes the detail editor can set/clear on a to-do.
     # An empty value removes the key (we keep items lean — absent = unset).
-    TODO_STR_FIELDS = ("notes", "due_by", "due_time", "place_id", "category", "status", "theme")
+    # after_date/after_id back the "do after" feature: a to-do stays hidden
+    # (client-side, same model as snooze) until the date arrives or the
+    # referenced to-do is done/gone.
+    TODO_STR_FIELDS = ("notes", "due_by", "due_time", "place_id", "category", "status", "theme",
+                        "after_date", "after_id")
 
     @app.route("/api/todos/details", methods=["POST"])
     def todo_details():
         """Set optional attributes on a to-do (empty clears). Only the fields
         present in the payload are touched, so the inline notes editor and the
         detail modal can each send just what they manage. Handles notes/due_by
-        plus the scheduling/place/category/duration/status attributes."""
+        plus the scheduling/place/category/duration/status/after attributes."""
         data = request.json or {}
         ident = data.get("id") or data.get("item", "")
         with store.mutate("todos", {}) as todos:
@@ -163,6 +167,90 @@ def register(app):
                         items.pop(i)
                         return jsonify({"ok": True})
         return jsonify({"ok": True})
+
+    @app.route("/api/todos/bulk", methods=["POST"])
+    def bulk_todos():
+        """Apply one action to many to-dos in a single atomic write:
+        {"ids": [...], "action": "details"|"snooze"|"move"|"remove"} plus
+        "patch" (details), "days" (snooze), or "to_section" (move). Missing
+        ids are not an error — an id can vanish between poll and tap — so
+        matched items are updated and the rest come back in "missing"."""
+        from datetime import timedelta
+        data = request.json or {}
+        action = data.get("action")
+        if action not in ("details", "snooze", "move", "remove"):
+            return jsonify({"error": "Unknown action"}), 400
+        to_key = None
+        if action == "move":
+            to_key = find_section_key(data.get("to_section", ""))
+            if not to_key:  # checked before mutate so nothing is touched
+                return jsonify({"error": "Section not found"}), 404
+        idents = set(data.get("ids") or [])
+        if not idents:
+            return jsonify({"ok": True, "updated": 0, "missing": []})
+        patch = data.get("patch") or {}
+        days = int(data.get("days", 0) or 0)
+
+        def _hits(item):
+            """Idents this item answers to (id, plus text as legacy fallback)."""
+            return {v for v in (item.get("id"), item.get("text")) if v in idents}
+
+        found = set()
+        updated = 0
+        with store.mutate("todos", {}) as todos:
+            moved = []
+            for key in todos:
+                if not isinstance(todos[key], dict):
+                    continue
+                items = todos[key].get("items", [])
+                if action in ("move", "remove"):
+                    keep = []
+                    for item in items:
+                        hit = _hits(item)
+                        if not hit:
+                            keep.append(item)
+                            continue
+                        found.update(hit)
+                        if action == "move" and key == to_key:
+                            keep.append(item)  # already home — don't churn order
+                        else:
+                            if action == "move":
+                                moved.append(item)
+                            updated += 1
+                    todos[key]["items"] = keep
+                else:
+                    for item in items:
+                        hit = _hits(item)
+                        if not hit:
+                            continue
+                        found.update(hit)
+                        updated += 1
+                        if action == "snooze":
+                            if days > 0:
+                                item["snoozed_until"] = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
+                            else:
+                                item.pop("snoozed_until", None)
+                        else:  # details — same set/clear contract as /details
+                            for f in TODO_STR_FIELDS:
+                                if f in patch:
+                                    val = (patch.get(f) or "").strip()
+                                    if val:
+                                        item[f] = val
+                                    else:
+                                        item.pop(f, None)
+                            if "duration_min" in patch:
+                                try:
+                                    dm = int(patch.get("duration_min") or 0)
+                                except (TypeError, ValueError):
+                                    dm = 0
+                                if dm > 0:
+                                    item["duration_min"] = dm
+                                else:
+                                    item.pop("duration_min", None)
+            if action == "move":
+                todos.setdefault(to_key, {"items": []}).setdefault("items", []).extend(moved)
+        return jsonify({"ok": True, "updated": updated,
+                        "missing": sorted(i for i in idents if i not in found)})
 
     @app.route("/api/todos/toggle", methods=["POST"])
     def toggle_todo():

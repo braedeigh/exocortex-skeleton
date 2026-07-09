@@ -1,12 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, Sheet } from '../../ui';
+import { BlockerPicker } from './BlockerPicker';
 import { LADDER_LABELS, TODO_CATEGORIES } from './todoHelpers';
 import type { AddTodoPayload } from '../../api/endpoints';
+import type { TodoItem } from './types';
 import styles from './AddTodoSheet.module.css';
 
 export interface AddTodoSheetProps {
   /** Section the sheet opens preset to; null = closed. */
   section: string | null;
+  /** Not-done ladder to-dos, offered as "do after" blockers. */
+  candidates: TodoItem[];
   onClose: () => void;
   onAdd: (payload: AddTodoPayload) => void;
 }
@@ -18,11 +22,13 @@ export interface AddTodoSheetProps {
  * actually used (text, description, due date, category); the full attribute
  * set stays one tap away in the DetailSheet after adding.
  */
-export function AddTodoSheet({ section, onClose, onAdd }: AddTodoSheetProps) {
+export function AddTodoSheet({ section, candidates, onClose, onAdd }: AddTodoSheetProps) {
   const [text, setText] = useState('');
   const [notes, setNotes] = useState('');
   const [dueBy, setDueBy] = useState('');
   const [category, setCategory] = useState('');
+  const [afterDate, setAfterDate] = useState('');
+  const [afterId, setAfterId] = useState('');
   const [target, setTarget] = useState<string>(LADDER_LABELS[0]);
   const textInputRef = useRef<HTMLInputElement>(null);
 
@@ -35,6 +41,8 @@ export function AddTodoSheet({ section, onClose, onAdd }: AddTodoSheetProps) {
     setNotes('');
     setDueBy('');
     setCategory('');
+    setAfterDate('');
+    setAfterId('');
     setTarget(section);
     textInputRef.current?.focus();
   }, [section]);
@@ -53,6 +61,8 @@ export function AddTodoSheet({ section, onClose, onAdd }: AddTodoSheetProps) {
       notes: notes.trim() || undefined,
       due_by: dueBy || undefined,
       category: category || undefined,
+      after_date: afterDate || undefined,
+      after_id: afterId || undefined,
     });
     onClose();
   }
@@ -106,6 +116,21 @@ export function AddTodoSheet({ section, onClose, onAdd }: AddTodoSheetProps) {
             value={dueBy}
             onChange={(e) => setDueBy(e.target.value)}
           />
+        </div>
+
+        <div className={styles.field}>
+          <label className={styles.label} htmlFor="at-after-date">
+            Do after <span className={styles.optional}>(optional)</span>
+          </label>
+          <input
+            id="at-after-date"
+            className={styles.input}
+            type="date"
+            value={afterDate}
+            onChange={(e) => setAfterDate(e.target.value)}
+            aria-label="Do after date"
+          />
+          <BlockerPicker candidates={candidates} value={afterId} onChange={setAfterId} />
         </div>
 
         <div className={styles.field}>

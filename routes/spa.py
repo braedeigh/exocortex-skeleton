@@ -72,6 +72,7 @@ def register(app):
 
     @app.route("/")
     @app.route("/todos")
+    @app.route("/todos/editor")
     @app.route("/legacy/<tab>")
     @app.route("/journal")
     @app.route("/research")

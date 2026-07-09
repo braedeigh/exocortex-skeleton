@@ -27,11 +27,38 @@
   margin: 0 var(--space-4) var(--space-4);
 }
 
+.colHeaderRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
 .colHeader {
   font-size: var(--font-size-xl);
   font-weight: 700;
   color: var(--text);
-  margin-bottom: var(--space-3);
+}
+
+.editorLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.editorLink:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .twoCol {

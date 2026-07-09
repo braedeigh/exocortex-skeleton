@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { applyStreakNotes, applyStreakRemove, applySymptomLog } from './optimistic';
-import type { TodayData } from './types';
+import {
+  applyBulk,
+  applyBulkDetails,
+  applyBulkMove,
+  applyBulkRemove,
+  applyBulkSnooze,
+  applyStreakNotes,
+  applyStreakRemove,
+  applySymptomLog,
+} from './optimistic';
+import type { TodayData, TodoItem, TodoSection } from './types';
 
 const TODAY = '2026-07-08';
 
@@ -15,6 +24,84 @@ function baseData(overrides: Partial<TodayData> = {}): TodayData {
     ...overrides,
   };
 }
+
+function todo(id: string, overrides: Partial<TodoItem> = {}): TodoItem {
+  return { id, text: `Task ${id}`, done: false, ...overrides };
+}
+
+function bulkData(): TodayData {
+  return baseData({
+    todos: [
+      { name: 'Now', manual_order: false, items: [todo('a'), todo('b', { theme: 'job' })] },
+      { name: 'Later', manual_order: false, items: [todo('c'), todo('d')] },
+    ],
+  });
+}
+
+function sectionItems(data: TodayData, name: string): TodoItem[] {
+  const sections = data.todos as TodoSection[];
+  return sections.find((s) => s.name === name)?.items ?? [];
+}
+
+describe('applyBulkDetails', () => {
+  it('patches only the matched ids', () => {
+    const next = applyBulkDetails(bulkData(), ['a', 'c'], { theme: 'health' });
+    expect(sectionItems(next, 'Now').map((it) => it.theme)).toEqual(['health', 'job']);
+    expect(sectionItems(next, 'Later').map((it) => it.theme)).toEqual(['health', undefined]);
+  });
+  it('an empty-string value pops the key (details-route semantics)', () => {
+    const next = applyBulkDetails(bulkData(), ['b'], { theme: '' });
+    expect('theme' in sectionItems(next, 'Now')[1]).toBe(false);
+  });
+});
+
+describe('applyBulkSnooze', () => {
+  it('sets snoozed_until on every matched id', () => {
+    const next = applyBulkSnooze(bulkData(), ['a', 'd'], 3);
+    expect(sectionItems(next, 'Now')[0].snoozed_until).toBe('2026-07-11');
+    expect(sectionItems(next, 'Now')[1].snoozed_until).toBeUndefined();
+    expect(sectionItems(next, 'Later')[1].snoozed_until).toBe('2026-07-11');
+  });
+  it('days 0 clears the snooze', () => {
+    const data = baseData({
+      todos: [{ name: 'Now', manual_order: false, items: [todo('a', { snoozed_until: '2026-07-20' })] }],
+    });
+    const next = applyBulkSnooze(data, ['a'], 0);
+    expect(sectionItems(next, 'Now')[0].snoozed_until).toBeNull();
+  });
+});
+
+describe('applyBulkMove', () => {
+  it('strips matched items from other sections and APPENDS to the target', () => {
+    const next = applyBulkMove(bulkData(), ['a', 'b'], 'Later');
+    expect(sectionItems(next, 'Now').map((it) => it.id)).toEqual([]);
+    expect(sectionItems(next, 'Later').map((it) => it.id)).toEqual(['c', 'd', 'a', 'b']);
+  });
+  it('leaves items already in the target where they are', () => {
+    const next = applyBulkMove(bulkData(), ['b', 'c'], 'Later');
+    expect(sectionItems(next, 'Now').map((it) => it.id)).toEqual(['a']);
+    expect(sectionItems(next, 'Later').map((it) => it.id)).toEqual(['c', 'd', 'b']);
+  });
+});
+
+describe('applyBulkRemove', () => {
+  it('filters matched ids out of every section', () => {
+    const next = applyBulkRemove(bulkData(), ['b', 'c']);
+    expect(sectionItems(next, 'Now').map((it) => it.id)).toEqual(['a']);
+    expect(sectionItems(next, 'Later').map((it) => it.id)).toEqual(['d']);
+  });
+});
+
+describe('applyBulk', () => {
+  it('dispatches on the action discriminant', () => {
+    const next = applyBulk(bulkData(), ['a'], { action: 'remove' });
+    expect(sectionItems(next, 'Now').map((it) => it.id)).toEqual(['b']);
+  });
+  it('passes frosted todos through untouched', () => {
+    const data = baseData({ todos: { _frosted: true, shape: 'sections' } });
+    expect(applyBulk(data, ['a'], { action: 'snooze', days: 3 })).toBe(data);
+  });
+});
 
 describe('applySymptomLog', () => {
   it('merges into an existing health_data row', () => {

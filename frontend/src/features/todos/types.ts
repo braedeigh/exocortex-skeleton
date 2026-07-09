@@ -1,5 +1,6 @@
 import type {
   CadenceConfig,
+  GrowthNote,
   HabitCadenceMap,
   HabitMetaMap,
   HabitSection,
@@ -24,6 +25,10 @@ export interface TodoItem {
   duration_min?: number | null;
   done_at?: string | null;
   snoozed_until?: string | null;
+  /** "Do after" — hidden until this date arrives (see isWaiting in todoHelpers). */
+  after_date?: string | null;
+  /** "Do after" — hidden while the referenced to-do (by id) exists and isn't done. */
+  after_id?: string | null;
 }
 
 export interface TodoSection {
@@ -99,6 +104,7 @@ export interface TodayDataHabitsFields {
   habit_meta?: HabitMetaMap;
   cadence_config?: CadenceConfig;
   streaks?: Streak[] | FrostedStream;
+  growth_notes?: GrowthNote[];
 }
 
 export interface TodayData extends TodayDataHabitsFields {

@@ -12,4 +12,4 @@ export type Todo = { id: string, text: string, done: boolean, created?: string |
  * Legacy completion-date field. Newer rows use `done_at` instead; both
  * are kept because live data still has both in different rows.
  */
-completed?: string | null, done_at?: string | null, category?: string | null, status?: string | null, duration_min?: number | null, };
+completed?: string | null, done_at?: string | null, category?: string | null, status?: string | null, duration_min?: number | null, after_date?: string | null, after_id?: string | null, };

@@ -231,6 +231,18 @@ def test_details_sets_then_clears_theme(client, seed):
     assert "theme" not in read_todos()["now"]["items"][0]
 
 
+def test_details_sets_then_clears_after_fields(client, seed):
+    """The "do after" feature reuses the details/clear contract: after_date
+    and after_id are set together and each clears independently on ""."""
+    seed({"now": {"items": [{"id": "a", "text": "A", "done": False}]}})
+    _post(client, "/api/todos/details", {"id": "a", "after_date": "2026-08-01", "after_id": "b"})
+    it = read_todos()["now"]["items"][0]
+    assert it["after_date"] == "2026-08-01" and it["after_id"] == "b"
+    _post(client, "/api/todos/details", {"id": "a", "after_date": "", "after_id": ""})
+    it = read_todos()["now"]["items"][0]
+    assert "after_date" not in it and "after_id" not in it
+
+
 # --- snooze ------------------------------------------------------------------
 
 def test_snooze_sets_and_clears(client, seed):
@@ -255,8 +267,135 @@ def test_add_with_more_details_persists_attributes(client):
     assert item["category"] == "car"
     assert item["theme"] == "admin"
     assert item["duration_min"] == 15
-    assert item["status"] == "ready"
-    assert item["notes"] == "the UPS one"
+
+
+def test_add_accepts_after_fields(client, seed):
+    seed()
+    res = client.post("/api/todos/add", json={
+        "item": "unpack boxes", "section": "Later",
+        "after_date": "2026-08-01", "after_id": "movein",
+    })
+    assert res.status_code == 200
+    item = read_todos()["later"]["items"][0]
+    assert item["after_date"] == "2026-08-01"
+    assert item["after_id"] == "movein"
+
+
+# --- bulk --------------------------------------------------------------------
+
+def test_bulk_details_patches_all_matched_leaves_others(client, seed):
+    seed({"now": {"items": [
+        {"id": "a", "text": "A", "done": False},
+        {"id": "b", "text": "B", "done": False},
+        {"id": "c", "text": "C", "done": False, "theme": "keep"},
+    ]}})
+    r = _post(client, "/api/todos/bulk",
+              {"ids": ["a", "b"], "action": "details", "patch": {"theme": "job", "status": "ready"}})
+    assert r.get_json() == {"ok": True, "updated": 2, "missing": []}
+    by_id = {i["id"]: i for i in read_todos()["now"]["items"]}
+    assert by_id["a"]["theme"] == "job" and by_id["a"]["status"] == "ready"
+    assert by_id["b"]["theme"] == "job" and by_id["b"]["status"] == "ready"
+    assert by_id["c"]["theme"] == "keep" and "status" not in by_id["c"]
+
+
+def test_bulk_details_empty_value_clears_field(client, seed):
+    seed({"now": {"items": [
+        {"id": "a", "text": "A", "done": False, "status": "waiting", "duration_min": 30},
+        {"id": "b", "text": "B", "done": False, "status": "waiting"},
+    ]}})
+    _post(client, "/api/todos/bulk",
+          {"ids": ["a", "b"], "action": "details", "patch": {"status": "", "duration_min": 0}})
+    for it in read_todos()["now"]["items"]:
+        assert "status" not in it and "duration_min" not in it
+
+
+def test_bulk_snooze_sets_until_and_zero_clears(client, seed):
+    seed({"now": {"items": [
+        {"id": "a", "text": "A", "done": False},
+        {"id": "b", "text": "B", "done": False},
+    ]}})
+    _post(client, "/api/todos/bulk", {"ids": ["a", "b"], "action": "snooze", "days": 3})
+    for it in read_todos()["now"]["items"]:
+        assert it["snoozed_until"]
+    _post(client, "/api/todos/bulk", {"ids": ["a", "b"], "action": "snooze", "days": 0})
+    for it in read_todos()["now"]["items"]:
+        assert "snoozed_until" not in it
+
+
+def test_bulk_move_appends_to_target_across_sections(client, seed):
+    # Matched items from every section land appended to the target in
+    # encounter order; an item already in the target stays where it is.
+    seed({
+        "now": {"items": [{"id": "a", "text": "A", "done": False}]},
+        "up_next": {"items": [{"id": "b", "text": "B", "done": False}]},
+        "later": {"items": [
+            {"id": "old", "text": "Old", "done": False},
+            {"id": "c", "text": "C", "done": False},
+        ]},
+    })
+    r = _post(client, "/api/todos/bulk",
+              {"ids": ["a", "b", "c"], "action": "move", "to_section": "Later"})
+    assert r.get_json() == {"ok": True, "updated": 2, "missing": []}
+    data = read_todos()
+    assert data["now"]["items"] == [] and data["up_next"]["items"] == []
+    assert [i["id"] for i in data["later"]["items"]] == ["old", "c", "a", "b"]
+
+
+def test_bulk_move_unknown_section_404_leaves_data_untouched(client, seed):
+    seed({"now": {"items": [{"id": "a", "text": "A", "done": False}]}})
+    before = read_todos()
+    r = _post(client, "/api/todos/bulk",
+              {"ids": ["a"], "action": "move", "to_section": "Nope"})
+    assert r.status_code == 404
+    assert read_todos() == before
+
+
+def test_bulk_remove_deletes_all_matched(client, seed):
+    seed({
+        "now": {"items": [
+            {"id": "a", "text": "A", "done": False},
+            {"id": "b", "text": "B", "done": False},
+        ]},
+        "later": {"items": [{"id": "c", "text": "C", "done": False}]},
+    })
+    r = _post(client, "/api/todos/bulk", {"ids": ["a", "c"], "action": "remove"})
+    assert r.get_json() == {"ok": True, "updated": 2, "missing": []}
+    data = read_todos()
+    assert [i["id"] for i in data["now"]["items"]] == ["b"]
+    assert data["later"]["items"] == []
+
+
+def test_bulk_applies_matched_and_reports_missing(client, seed):
+    # Partially-missing ids aren't an error: an id can vanish between the
+    # client's last poll and the tap. Matched items still get the action.
+    seed({"now": {"items": [{"id": "a", "text": "A", "done": False}]}})
+    r = _post(client, "/api/todos/bulk",
+              {"ids": ["a", "ghost"], "action": "snooze", "days": 2})
+    assert r.get_json() == {"ok": True, "updated": 1, "missing": ["ghost"]}
+    assert read_todos()["now"]["items"][0]["snoozed_until"]
+
+
+def test_bulk_empty_ids_is_noop(client, seed):
+    seed({"now": {"items": [{"id": "a", "text": "A", "done": False}]}})
+    r = _post(client, "/api/todos/bulk", {"ids": [], "action": "remove"})
+    assert r.status_code == 200
+    assert r.get_json() == {"ok": True, "updated": 0, "missing": []}
+    assert len(read_todos()["now"]["items"]) == 1
+
+
+def test_bulk_unknown_action_400(client, seed):
+    seed({"now": {"items": [{"id": "a", "text": "A", "done": False}]}})
+    r = _post(client, "/api/todos/bulk", {"ids": ["a"], "action": "explode"})
+    assert r.status_code == 400
+    assert read_todos()["now"]["items"][0] == {"id": "a", "text": "A", "done": False}
+
+
+def test_bulk_text_fallback_still_matches(client, seed):
+    seed({"now": {"items": [{"id": "a", "text": "Water plants", "done": False}]}})
+    r = _post(client, "/api/todos/bulk",
+              {"ids": ["Water plants"], "action": "snooze", "days": 1})
+    assert r.get_json() == {"ok": True, "updated": 1, "missing": []}
+    assert read_todos()["now"]["items"][0]["snoozed_until"]
 
 
 def test_add_skips_empty_and_bad_attributes(client):

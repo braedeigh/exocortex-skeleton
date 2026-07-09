@@ -1,3 +1,4 @@
+import { Link } from '@tanstack/react-router';
 import { useEffect, useMemo, useState } from 'react';
 import { ToastStack } from '../../ui';
 import { GraduationPrompts } from '../habits/GraduationPrompts';
@@ -15,10 +16,13 @@ import { StreakSheet } from './StreakSheet';
 import { StreaksRow } from './StreaksRow';
 import { SymptomCard } from './SymptomCard';
 import { TodoSection } from './TodoSection';
+import { WaitingCard } from './WaitingCard';
 import {
   DONE_LABEL,
   LADDER_LABELS,
+  buildTodoIndex,
   collectSnoozed,
+  collectWaiting,
   computeFocusCounts,
   focusMatch,
   visibleSectionItems,
@@ -26,6 +30,7 @@ import {
 import { isFrosted } from './types';
 import type { TodoItem } from './types';
 import {
+  useGrowthActions,
   useHabitActions,
   useStreakActions,
   useSymptomActions,
@@ -69,6 +74,7 @@ export function TodosPage() {
   const todoActions = useTodoActions(push);
   const reminderActions = useReminderActions(push);
   const habitActions = useHabitActions(push);
+  const growthActions = useGrowthActions(push);
   const streakActions = useStreakActions(push);
   const symptomActions = useSymptomActions(push);
   const isPublic = isPublicMode();
@@ -98,8 +104,19 @@ export function TodosPage() {
 
   const ladderSections = useMemo(() => sections.filter((s) => LADDER_LABELS.includes(s.name as (typeof LADDER_LABELS)[number])), [sections]);
   const doneSection = useMemo(() => sections.find((s) => s.name === DONE_LABEL), [sections]);
+  const todoIndex = useMemo(() => buildTodoIndex(sections), [sections]);
+  // "Do after" blocker candidates: not-done ladder items, offered in the
+  // detail/add sheets' blocker picker.
+  const blockerCandidates = useMemo(
+    () => ladderSections.flatMap((s) => s.items).filter((it) => !it.done),
+    [ladderSections],
+  );
   const snoozed = useMemo(
     () => collectSnoozed(sections, serverDate).filter((it) => focusMatch(it, focusTheme)),
+    [sections, serverDate, focusTheme],
+  );
+  const waiting = useMemo(
+    () => collectWaiting(sections, serverDate).filter((w) => focusMatch(w.item, focusTheme)),
     [sections, serverDate, focusTheme],
   );
   const focusCounts = useMemo(() => computeFocusCounts(sections, serverDate), [sections, serverDate]);
@@ -146,19 +163,8 @@ export function TodosPage() {
 
   return (
     <div className={styles.page}>
-      {data.reminders ? (
-        <ReminderCard
-          reminders={data.reminders}
-          activityLog={data.activity_log}
-          serverDate={data.server_date}
-          timeOfDay={data.time_of_day}
-          onLog={reminderActions.log}
-          onUndo={reminderActions.undo}
-          onSnooze={reminderActions.snooze}
-        />
-      ) : null}
-
       <SnoozedCard items={snoozed} onUnsnooze={(id) => todoActions.snooze(id, 0)} />
+      <WaitingCard entries={waiting} onClear={(id) => todoActions.details(id, { after_date: '', after_id: '' })} />
 
       {!isPublic ? (
         <>
@@ -167,6 +173,20 @@ export function TodosPage() {
           {/* TODO(habits phase 2): "Show hidden prompts" expand-all toggle
               lived here (old #expand-btn next to date-text). */}
           <StreaksRow streaks={streaks} onOpen={(s) => setStreakKey({ label: s.label, since: s.since })} />
+          {/* Push notifications (sheets, estradiol, etc.) — moved down here
+              with the day trackers, below the greeting (dev note 3c3a4dd3;
+              used to render above the greeting at the very top of the page). */}
+          {data.reminders ? (
+            <ReminderCard
+              reminders={data.reminders}
+              activityLog={data.activity_log}
+              serverDate={data.server_date}
+              timeOfDay={data.time_of_day}
+              onLog={reminderActions.log}
+              onUndo={reminderActions.undo}
+              onSnooze={reminderActions.snooze}
+            />
+          ) : null}
           <GraduationPrompts
             habits={habits}
             hidden={data.habit_settings?.hidden || []}
@@ -203,11 +223,25 @@ export function TodosPage() {
               onSegmentChange={setManualSegment}
               serverDate={serverDate}
               onToggle={(item, section) => habitActions.toggle(item, section, serverDate)}
+              growthNotes={data.growth_notes}
+              onGrowthAdd={growthActions.add}
+              onGrowthRemove={growthActions.remove}
+              onGrowthIncorporate={growthActions.incorporate}
+              onGrowthReactivate={growthActions.reactivate}
             />
           ) : null}
 
           <div>
-            <div className={styles.colHeader}>To Do</div>
+            <div className={styles.colHeaderRow}>
+              <div className={styles.colHeader}>To Do</div>
+              {/* Entry to the full-page editor — inside the non-frosted branch,
+                  so `!frosted` is already guaranteed here. */}
+              {!isPublic ? (
+                <Link to="/todos/editor" className={styles.editorLink}>
+                  &#9998; Edit all
+                </Link>
+              ) : null}
+            </div>
             <FocusChips counts={focusCounts} active={focusTheme} onChange={setFocusTheme} />
             <AddBar onAdd={todoActions.add} />
 
@@ -219,10 +253,11 @@ export function TodosPage() {
                   key={section.name}
                   label={section.name}
                   colorIndex={i}
-                  items={visibleSectionItems(section, serverDate, focusTheme)}
+                  items={visibleSectionItems(section, serverDate, focusTheme, todoIndex)}
                   manualOrder={section.manual_order}
                   serverDate={serverDate}
                   defaultOpen={section.name === 'Now'}
+                  focusTheme={focusTheme}
                   onToggle={todoActions.toggle}
                   onOpenDetail={setSelected}
                   onReorder={todoActions.reorder}
@@ -253,7 +288,12 @@ export function TodosPage() {
         </div>
       )}
 
-      <AddTodoSheet section={addSection} onClose={() => setAddSection(null)} onAdd={todoActions.add} />
+      <AddTodoSheet
+        section={addSection}
+        candidates={blockerCandidates}
+        onClose={() => setAddSection(null)}
+        onAdd={todoActions.add}
+      />
 
       <StreakSheet
         streak={openStreak}
@@ -267,6 +307,9 @@ export function TodosPage() {
         item={selected}
         open={!!selected}
         currentSection={currentSection}
+        serverDate={serverDate}
+        todoIndex={todoIndex}
+        candidates={blockerCandidates}
         onClose={() => setSelected(null)}
         onSave={(id, patch, newText) => {
           if (selected && newText !== selected.text) todoActions.rename(id, newText);

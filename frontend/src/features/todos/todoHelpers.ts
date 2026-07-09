@@ -78,6 +78,49 @@ export function isSnoozed(item: TodoItem, serverDate: string): boolean {
   return !!item.snoozed_until && item.snoozed_until > serverDate && !item.done;
 }
 
+/** id -> item, across every section (ladder + Done) — lets "do after" look
+ * up a blocker to-do wherever it lives, including once it's been completed. */
+export function buildTodoIndex(sections: TodoSection[]): Map<string, TodoItem> {
+  const index = new Map<string, TodoItem>();
+  for (const section of sections) {
+    for (const item of section.items) {
+      index.set(item.id, item);
+    }
+  }
+  return index;
+}
+
+/** "Do after": hidden while a date hasn't arrived yet and/or a referenced
+ * to-do still exists and isn't done. With both fields set, unblocking is
+ * OR — either the date arriving or the blocker finishing frees the item —
+ * so it's still waiting only while BOTH conditions are still blocking. */
+export function isWaiting(item: TodoItem, serverDate: string, index: Map<string, TodoItem>): boolean {
+  if (item.done) return false;
+  const hasDate = !!item.after_date;
+  const hasBlocker = !!item.after_id;
+  if (!hasDate && !hasBlocker) return false;
+  const blockedByDate = hasDate && serverDate < (item.after_date as string);
+  const blocker = hasBlocker ? index.get(item.after_id as string) : undefined;
+  const blockedByTodo = hasBlocker && !!blocker && !blocker.done;
+  if (hasDate && hasBlocker) return blockedByDate && blockedByTodo;
+  return blockedByDate || blockedByTodo;
+}
+
+export function truncate(text: string, max = 40): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+/** Human reason a waiting item is still hidden — prefers the blocker to-do's
+ * text when that's the thing still holding it back, else the date. */
+export function waitingReason(item: TodoItem, index: Map<string, TodoItem>): string {
+  if (item.after_id) {
+    const blocker = index.get(item.after_id);
+    if (blocker && !blocker.done) return `after: ${truncate(blocker.text)}`;
+  }
+  if (item.after_date) return `after ${fmtAddedDate(item.after_date)}`;
+  return '';
+}
+
 export function focusMatch(item: TodoItem, theme: string): boolean {
   if (!theme) return true;
   if (theme === '__none__') return !item.theme;
@@ -125,6 +168,7 @@ export interface FocusCounts {
 }
 
 export function computeFocusCounts(sections: TodoSection[], serverDate: string): FocusCounts {
+  const index = buildTodoIndex(sections);
   const byTheme: Record<string, number> = {};
   let total = 0;
   let none = 0;
@@ -133,6 +177,7 @@ export function computeFocusCounts(sections: TodoSection[], serverDate: string):
     for (const item of section.items) {
       if (item.done) continue;
       if (isSnoozed(item, serverDate)) continue;
+      if (isWaiting(item, serverDate, index)) continue;
       total++;
       if (item.theme) byTheme[item.theme] = (byTheme[item.theme] || 0) + 1;
       else none++;
@@ -142,16 +187,43 @@ export function computeFocusCounts(sections: TodoSection[], serverDate: string):
 }
 
 export function collectSnoozed(sections: TodoSection[], serverDate: string): TodoItem[] {
+  const index = buildTodoIndex(sections);
   const out: TodoItem[] = [];
   for (const section of sections) {
     if (isDoneSection(section.name)) continue;
     for (const item of section.items) {
-      if (isSnoozed(item, serverDate)) out.push(item);
+      // Waiting takes precedence — an item snoozed AND waiting only ever
+      // shows in the Waiting card, never both.
+      if (isSnoozed(item, serverDate) && !isWaiting(item, serverDate, index)) out.push(item);
     }
   }
   return out.sort((a, b) => (a.snoozed_until || '').localeCompare(b.snoozed_until || ''));
 }
 
-export function visibleSectionItems(section: TodoSection, serverDate: string, theme: string): TodoItem[] {
-  return section.items.filter((item) => focusMatch(item, theme) && !isSnoozed(item, serverDate));
+export interface WaitingEntry {
+  item: TodoItem;
+  reason: string;
+}
+
+export function collectWaiting(sections: TodoSection[], serverDate: string): WaitingEntry[] {
+  const index = buildTodoIndex(sections);
+  const out: WaitingEntry[] = [];
+  for (const section of sections) {
+    if (isDoneSection(section.name)) continue;
+    for (const item of section.items) {
+      if (isWaiting(item, serverDate, index)) out.push({ item, reason: waitingReason(item, index) });
+    }
+  }
+  return out.sort((a, b) => (a.item.after_date || '').localeCompare(b.item.after_date || ''));
+}
+
+export function visibleSectionItems(
+  section: TodoSection,
+  serverDate: string,
+  theme: string,
+  index: Map<string, TodoItem>,
+): TodoItem[] {
+  return section.items.filter(
+    (item) => focusMatch(item, theme) && !isSnoozed(item, serverDate) && !isWaiting(item, serverDate, index),
+  );
 }

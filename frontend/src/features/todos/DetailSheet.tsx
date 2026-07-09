@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, IconButton, Sheet } from '../../ui';
-import { LADDER_LABELS, TODO_CATEGORIES, TODO_STATUSES, TODO_THEMES, fmtAddedDate } from './todoHelpers';
+import { BlockerPicker } from './BlockerPicker';
+import {
+  LADDER_LABELS,
+  TODO_STATUSES,
+  TODO_THEMES,
+  fmtAddedDate,
+  isWaiting,
+  waitingReason,
+} from './todoHelpers';
 import type { TodoDetailsPatch } from '../../api/endpoints';
 import type { TodoItem } from './types';
 import styles from './DetailSheet.module.css';
@@ -9,6 +17,10 @@ export interface DetailSheetProps {
   item: TodoItem | null;
   open: boolean;
   currentSection: string | null;
+  serverDate: string;
+  todoIndex: Map<string, TodoItem>;
+  /** Not-done to-dos from the ladder sections, offered as "do after" blockers. */
+  candidates: TodoItem[];
   onClose: () => void;
   onSave: (id: string, patch: TodoDetailsPatch, newText: string) => void;
   onMove: (id: string, toLabel: string) => void;
@@ -19,15 +31,28 @@ export interface DetailSheetProps {
 const SNOOZE_DAYS = [1, 2, 3, 4, 5, 6];
 const SNOOZE_WEEKS = [1, 2, 3, 4];
 
-export function DetailSheet({ item, open, currentSection, onClose, onSave, onMove, onSnooze, onRemove }: DetailSheetProps) {
+export function DetailSheet({
+  item,
+  open,
+  currentSection,
+  serverDate,
+  todoIndex,
+  candidates,
+  onClose,
+  onSave,
+  onMove,
+  onSnooze,
+  onRemove,
+}: DetailSheetProps) {
   const [text, setText] = useState('');
   const [notes, setNotes] = useState('');
   const [dueBy, setDueBy] = useState('');
   const [dueTime, setDueTime] = useState('');
   const [theme, setTheme] = useState('');
-  const [category, setCategory] = useState('');
   const [status, setStatus] = useState('');
   const [durationMin, setDurationMin] = useState('');
+  const [afterDate, setAfterDate] = useState('');
+  const [afterId, setAfterId] = useState('');
   const [confirmingRemove, setConfirmingRemove] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -43,9 +68,10 @@ export function DetailSheet({ item, open, currentSection, onClose, onSave, onMov
     setDueBy(item.due_by || '');
     setDueTime(item.due_time || '');
     setTheme(item.theme || '');
-    setCategory(item.category || '');
     setStatus(item.status || '');
     setDurationMin(item.duration_min ? String(item.duration_min) : '');
+    setAfterDate(item.after_date || '');
+    setAfterId(item.after_id || '');
     setConfirmingRemove(false);
     setMoreOpen(false);
     setEditingTitle(false);
@@ -71,23 +97,26 @@ export function DetailSheet({ item, open, currentSection, onClose, onSave, onMov
         due_by: dueBy,
         due_time: dueTime,
         theme,
-        category,
         status,
         duration_min: durationMin ? Number(durationMin) : 0,
+        after_date: afterDate,
+        after_id: afterId,
       },
       text.trim() || item.text,
     );
     onClose();
   }
 
-  function pickCategory(key: string) {
+  function pickTheme(key: string) {
     if (!item) return;
-    const next = category === key ? '' : key;
-    setCategory(next);
-    // Category is a one-tap, immediately-committed change — it doesn't wait
+    const next = theme === key ? '' : key;
+    setTheme(next);
+    // Focus is a one-tap, immediately-committed change — it doesn't wait
     // for the Save button, and deliberately doesn't touch the title so an
     // in-progress (unsaved) title edit isn't force-committed as a side effect.
-    onSave(item.id, { category: next }, item.text);
+    // (Same contract the category chips had before focus replaced them here;
+    // category stays in the data model, it's just not edited from this modal.)
+    onSave(item.id, { theme: next }, item.text);
   }
 
   return (
@@ -140,16 +169,16 @@ export function DetailSheet({ item, open, currentSection, onClose, onSave, onMov
       </div>
 
       <div className={styles.field}>
-        <span className={styles.label}>Category</span>
+        <span className={styles.label}>Focus</span>
         <div className={styles.chips}>
-          {TODO_CATEGORIES.map((c) => (
+          {TODO_THEMES.map((t) => (
             <button
               type="button"
-              key={c.key}
-              className={`${styles.chip} ${category === c.key ? styles.active : ''}`}
-              onClick={() => pickCategory(c.key)}
+              key={t.key}
+              className={`${styles.chip} ${theme === t.key ? styles.active : ''}`}
+              onClick={() => pickTheme(t.key)}
             >
-              {c.label}
+              {t.emoji} {t.label}
             </button>
           ))}
         </div>
@@ -202,17 +231,32 @@ export function DetailSheet({ item, open, currentSection, onClose, onSave, onMov
           </div>
 
           <div className={styles.field}>
-            <label className={styles.label} htmlFor="td-theme">
-              Focus
+            <span className={styles.label}>Do after</span>
+            <input
+              className={styles.input}
+              type="date"
+              value={afterDate}
+              onChange={(e) => setAfterDate(e.target.value)}
+              aria-label="Do after date"
+            />
+            {afterDate ? (
+              <button type="button" className={styles.chip} onClick={() => setAfterDate('')}>
+                &#8617; Remove date
+              </button>
+            ) : null}
+            <label className={styles.label} htmlFor="td-after-todo">
+              After another to-do
             </label>
-            <select id="td-theme" className={styles.select} value={theme} onChange={(e) => setTheme(e.target.value)}>
-              <option value="">🏷️ Other</option>
-              {TODO_THEMES.map((t) => (
-                <option key={t.key} value={t.key}>
-                  {t.emoji} {t.label}
-                </option>
-              ))}
-            </select>
+            <BlockerPicker
+              inputId="td-after-todo"
+              candidates={candidates.filter((c) => c.id !== item.id)}
+              value={afterId}
+              selectedLabel={afterId ? todoIndex.get(afterId)?.text : undefined}
+              onChange={setAfterId}
+            />
+            {isWaiting(item, serverDate, todoIndex) ? (
+              <span className={styles.meta}>Waiting {waitingReason(item, todoIndex)}</span>
+            ) : null}
           </div>
 
           <div className={styles.field}>

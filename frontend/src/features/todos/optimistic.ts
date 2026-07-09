@@ -2,7 +2,7 @@ import { habitKey } from '../habits/habitMath';
 import { addDays } from './todoHelpers';
 import { isFrosted } from './types';
 import type { TodayData, TodoItem, TodoSection } from './types';
-import type { SymptomLevels } from '../../api/endpoints';
+import type { BulkTodoAction, SymptomLevels } from '../../api/endpoints';
 
 function withSections(data: TodayData, fn: (sections: TodoSection[]) => TodoSection[]): TodayData {
   if (isFrosted(data.todos)) return data;
@@ -47,11 +47,24 @@ export function applySnooze(data: TodayData, id: string, days: number): TodayDat
   );
 }
 
+/** Merge a details patch onto an item, mirroring /api/todos/details' own
+ * contract: an empty-string value pops the key rather than storing "" — so
+ * the truncated-text/blocker lookups (waitingReason etc.) that key off
+ * "key present" don't flicker between the optimistic state and the refetch. */
+function mergeDetailsPatch(item: TodoItem, patch: Partial<TodoItem>): TodoItem {
+  const next = { ...item } as unknown as Record<string, unknown>;
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === '') delete next[key];
+    else next[key] = value;
+  }
+  return next as unknown as TodoItem;
+}
+
 export function applyDetails(data: TodayData, id: string, patch: Partial<TodoItem>): TodayData {
   return withSections(data, (sections) =>
     sections.map((sec) => ({
       ...sec,
-      items: sec.items.map((it) => (it.id === id ? { ...it, ...patch } : it)),
+      items: sec.items.map((it) => (it.id === id ? mergeDetailsPatch(it, patch) : it)),
     })),
   );
 }
@@ -92,6 +105,75 @@ export function applyAdd(data: TodayData, tempItem: TodoItem, sectionLabel: stri
   return withSections(data, (sections) =>
     sections.map((sec) => (sec.name === sectionLabel ? { ...sec, items: [tempItem, ...sec.items] } : sec)),
   );
+}
+
+// --- Bulk appliers (POST /api/todos/bulk) — same per-item semantics as the
+// single-item appliers above, applied to every matched id. ---
+
+export function applyBulkDetails(data: TodayData, ids: string[], patch: Partial<TodoItem>): TodayData {
+  const idSet = new Set(ids);
+  return withSections(data, (sections) =>
+    sections.map((sec) => ({
+      ...sec,
+      items: sec.items.map((it) => (idSet.has(it.id) ? mergeDetailsPatch(it, patch) : it)),
+    })),
+  );
+}
+
+export function applyBulkSnooze(data: TodayData, ids: string[], days: number): TodayData {
+  const idSet = new Set(ids);
+  const until = days > 0 ? addDays(data.server_date, days) : null;
+  return withSections(data, (sections) =>
+    sections.map((sec) => ({
+      ...sec,
+      items: sec.items.map((it) => (idSet.has(it.id) ? { ...it, snoozed_until: until } : it)),
+    })),
+  );
+}
+
+/** Unlike single applyMove (which prepends), bulk APPENDS to the target in
+ * encounter order and leaves items already in the target where they are —
+ * mirroring the server's bulk move so the optimistic state doesn't jump
+ * around when the refetch lands. */
+export function applyBulkMove(data: TodayData, ids: string[], toLabel: string): TodayData {
+  return withSections(data, (sections) => {
+    const idSet = new Set(ids);
+    const moved: TodoItem[] = [];
+    const stripped = sections.map((sec) => {
+      if (sec.name === toLabel) return sec;
+      if (!sec.items.some((it) => idSet.has(it.id))) return sec;
+      const kept: TodoItem[] = [];
+      for (const it of sec.items) {
+        if (idSet.has(it.id)) moved.push(it);
+        else kept.push(it);
+      }
+      return { ...sec, items: kept };
+    });
+    if (!moved.length) return stripped;
+    return stripped.map((sec) =>
+      sec.name === toLabel ? { ...sec, items: [...sec.items, ...moved] } : sec,
+    );
+  });
+}
+
+export function applyBulkRemove(data: TodayData, ids: string[]): TodayData {
+  const idSet = new Set(ids);
+  return withSections(data, (sections) =>
+    sections.map((sec) => ({ ...sec, items: sec.items.filter((it) => !idSet.has(it.id)) })),
+  );
+}
+
+export function applyBulk(data: TodayData, ids: string[], action: BulkTodoAction): TodayData {
+  switch (action.action) {
+    case 'details':
+      return applyBulkDetails(data, ids, action.patch);
+    case 'snooze':
+      return applyBulkSnooze(data, ids, action.days);
+    case 'move':
+      return applyBulkMove(data, ids, action.to_section);
+    case 'remove':
+      return applyBulkRemove(data, ids);
+  }
 }
 
 export function applyReminderSnooze(data: TodayData, id: string, days: number): TodayData {
