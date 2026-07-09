@@ -78,6 +78,7 @@ def register(app):
     @app.route("/settings")
     @app.route("/files")
     @app.route("/chat")
+    @app.route("/notes")
     def spa_shell(tab=None):
         return _spa_response()
 
