@@ -107,6 +107,8 @@ body {
    squeezing them onto the same row. */
 @media (display-mode: standalone) {
     .hrt-bar { flex-direction: column; align-items: center; gap: var(--space-4); text-align: center; }
+    /* Dev-note / idea "date added" lines are noise on the phone. */
+    .note-created { display: none; }
 }
 
 /* Contact reminder collapsible */
