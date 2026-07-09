@@ -188,3 +188,39 @@ export function editJournalDevNote(id: string, text: string): Promise<OkResponse
 export function removeJournalDevNote(id: string): Promise<OkResponse> {
   return api.post('/api/devnote/remove', { tab: 'journal', id });
 }
+
+// --- Dev notes / idea notes, generic tab-scoped (routes/devnotes.py) —
+// backs the floating notes pill (src/features/todos/NotesPill.tsx) on any
+// page, not just journal. ---
+
+export function getDevNotes(tab: string, signal?: AbortSignal): Promise<DevNotesResponse> {
+  return api.get(`/api/devnotes/${tab}`, signal);
+}
+
+export function addDevNote(tab: string, text: string): Promise<OkResponse> {
+  return api.post('/api/devnote/add', { tab, text });
+}
+
+export function editDevNote(tab: string, id: string, text: string): Promise<OkResponse> {
+  return api.post('/api/devnote/edit', { tab, id, text });
+}
+
+export function removeDevNote(tab: string, id: string): Promise<OkResponse> {
+  return api.post('/api/devnote/remove', { tab, id });
+}
+
+export function getIdeaNotes(tab: string, signal?: AbortSignal): Promise<DevNotesResponse> {
+  return api.get(`/api/ideanotes/${tab}`, signal);
+}
+
+export function addIdeaNote(tab: string, text: string): Promise<OkResponse> {
+  return api.post('/api/ideanote/add', { tab, text });
+}
+
+export function editIdeaNote(tab: string, id: string, text: string): Promise<OkResponse> {
+  return api.post('/api/ideanote/edit', { tab, id, text });
+}
+
+export function removeIdeaNote(tab: string, id: string): Promise<OkResponse> {
+  return api.post('/api/ideanote/remove', { tab, id });
+}

@@ -7,6 +7,7 @@ import type { TimeSegment } from '../habits/habitMath';
 import { AddBar } from './AddBar';
 import { DetailSheet } from './DetailSheet';
 import { FocusChips } from './FocusChips';
+import { NotesPill } from './NotesPill';
 import { ReminderCard } from './ReminderCard';
 import { SnoozedCard } from './SnoozedCard';
 import { StreaksRow } from './StreaksRow';
@@ -244,6 +245,11 @@ export function TodosPage() {
       />
 
       <ToastStack toasts={toasts} onDismiss={dismiss} />
+
+      {/* Legacy iframe tabs still get this from static/js/notes-pill.js;
+          the native /todos page needs its own mount. Public mode never
+          reaches this page, but the guard is cheap insurance. */}
+      {!isPublic ? <NotesPill onError={push} /> : null}
     </div>
   );
 }

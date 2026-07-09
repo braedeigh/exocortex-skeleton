@@ -1,7 +1,11 @@
 .page {
   flex: 1;
   overflow-y: auto;
-  padding-bottom: var(--space-8);
+  /* Extra clearance for NotesPill (fixed bottom-right, ~46px tall + 16px
+     offset) so it can't sit on top of AddBar's controls when they scroll
+     near the bottom of the viewport — same idea as phone.html's
+     padding-bottom on its terminal frame for its own fixed bottom bar. */
+  padding-bottom: calc(var(--space-8) + 64px);
   /* The two-col grid below needs to know this pane's own width, not the
      viewport's — on desktop the split divider can drag the right pane much
      narrower than the window, so a plain media query would keep the grid
@@ -37,10 +41,25 @@
   margin: 0 var(--space-4) var(--space-8);
 }
 
+/* Grid children default to min-width:auto, so one long unbreakable line
+   inside a column can push it wider than the pane. */
+.twoCol > * {
+  min-width: 0;
+}
+
 /* Stacks to one column once the PANE (not the viewport) is narrow — mirrors
    style.css's .two-col breakpoint (700px) but keyed to the container so a
    dragged-narrow desktop split pane stacks too. */
 @container todos-page (max-width: 700px) {
+  .twoCol {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Also stack whenever the pane is half the viewport or narrower — on a wide
+   monitor the right split pane can be 700px+ yet still too cramped for two
+   comfortable columns. */
+@container todos-page (max-width: 50vw) {
   .twoCol {
     grid-template-columns: 1fr;
   }

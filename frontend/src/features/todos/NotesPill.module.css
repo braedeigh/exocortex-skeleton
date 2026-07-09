@@ -1,0 +1,295 @@
+/* NotesPill.module.css — React port of notes-pill.js's injected <style> +
+ * mini-notes.js's .mn-* rules, merged into one module (the two always render
+ * together here). Uses the app's theme vars (theme.css) instead of the
+ * hardcoded dark-mode fallbacks the legacy CSS shipped with.
+ *
+ * Sizes deviate from the legacy pill in one place: the sort/close/edit/
+ * delete controls were 30-34px there. Bumped to a 40px hit area everywhere
+ * per the app's touch-first floor (CLAUDE.md UI guidelines) — the 📝/💡
+ * squares were already 46px and are left as-is.
+ */
+
+.pill {
+  position: fixed;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  z-index: 45; /* below Sheet (100) / Toast (200) overlays */
+  display: flex;
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.28);
+  border: 1px solid var(--border);
+}
+
+.sq {
+  width: 46px;
+  height: 46px;
+  border: none;
+  cursor: pointer;
+  font-size: 22px;
+  line-height: 1;
+  background: var(--card-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: background 0.12s;
+}
+
+.sq:hover {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.sqDev {
+  border-right: 1px solid var(--border);
+}
+
+.panel {
+  position: fixed;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  z-index: 45;
+  display: flex;
+  flex-direction: column;
+  width: min(340px, calc(100vw - 24px));
+  height: min(62vh, 470px);
+  background: var(--card-bg);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+
+@media (min-width: 700px) {
+  .panel {
+    resize: both;
+    min-width: 260px;
+    min-height: 220px;
+    max-width: calc(100vw - 24px);
+    max-height: 82vh;
+  }
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.title {
+  flex: 1;
+  font-size: var(--font-size-base);
+  font-weight: 700;
+  color: var(--text);
+}
+
+.titleIdea {
+  color: var(--green);
+}
+
+.sort {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  padding: 0 var(--space-3);
+  height: 40px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.sort:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 24px;
+  line-height: 1;
+  width: 40px;
+  height: 40px;
+  cursor: pointer;
+  border-radius: var(--radius-md);
+}
+
+.close:hover {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--text);
+}
+
+.list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-1) var(--space-3);
+  min-height: 0;
+}
+
+.empty {
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: var(--font-size-base);
+  padding: var(--space-2) 0;
+}
+
+.item {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--border);
+  font-size: var(--font-size-base);
+}
+
+.item:first-child {
+  border-top: none;
+}
+
+.body {
+  flex: 1;
+  padding-top: var(--space-1);
+  min-width: 0;
+}
+
+.text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+}
+
+.date {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  margin-top: var(--space-1);
+}
+
+.act {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  min-width: 40px;
+  min-height: 40px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-base);
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.act:hover {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--accent);
+}
+
+.actX {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.actSure {
+  background: color-mix(in srgb, var(--red) 15%, transparent);
+  color: var(--red);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.actSure:hover {
+  background: color-mix(in srgb, var(--red) 25%, transparent);
+  color: var(--red);
+}
+
+.itemEditing {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.editArea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 60px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-base);
+  line-height: 1.4;
+  font-family: inherit;
+  background: var(--bg);
+  color: var(--text);
+  resize: none;
+  overflow: hidden;
+  outline: none;
+}
+
+.editBtns {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+  margin-top: var(--space-2);
+}
+
+.editBtns button {
+  min-height: 40px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.saveBtn {
+  border: none;
+  background: var(--accent);
+  color: #fff;
+}
+
+.cancelBtn {
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text-muted);
+}
+
+.add {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  padding: var(--space-3);
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+}
+
+.add textarea {
+  flex: 1;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--font-size-base);
+  font-family: inherit;
+  resize: none;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.add button {
+  flex: 0 0 auto;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-4);
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--accent);
+  color: #fff;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
