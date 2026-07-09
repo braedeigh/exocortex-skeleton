@@ -30,3 +30,25 @@
   font-size: var(--font-size-base);
   text-align: center;
 }
+
+/* "Start today's page" seeder — legacy #startDay button, empty today only. */
+.startDay {
+  display: block;
+  width: 100%;
+  min-height: var(--tap-target);
+  margin-top: var(--space-4);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--accent);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  font-style: normal;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.startDay:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

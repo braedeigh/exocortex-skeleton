@@ -1,0 +1,145 @@
+/* Port of the compose-cell inline styles from renderMeditationStream().
+ * Old accent rgba(124,92,191,…) tints -> color-mix on var(--accent);
+ * old undefined var(--bg-card) -> kept (transparent fallback), see
+ * TimerCard.module.css. Tap targets grown to the house 40/44px floor. */
+
+.card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 14px;
+  margin-bottom: 18px;
+  background: var(--bg-card, transparent);
+}
+
+.metaRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.dateInput,
+.durationInput {
+  min-height: 40px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.durationInput {
+  width: 80px;
+}
+
+.metaHint {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.tagRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.tagChip,
+.tagChipDashed {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  font-size: 13px;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tagChip {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.tagChipActive {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.tagChipDashed {
+  background: none;
+  border: 1px dashed var(--border);
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.tagInputRow {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.tagInput {
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  width: 200px;
+  max-width: 50vw;
+}
+
+.notes {
+  width: 100%;
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  resize: vertical;
+  font-family: inherit;
+  font-size: 14px;
+  box-sizing: border-box;
+  margin-bottom: 10px;
+  line-height: 1.5;
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.saveBtn,
+.clearBtn {
+  min-height: var(--tap-target);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--font-size-base);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.saveBtn {
+  background: var(--ongoing);
+  color: #fff;
+  border: none;
+  font-weight: 600;
+}
+
+.saveBtn:hover {
+  filter: brightness(1.08);
+}
+
+.clearBtn {
+  background: none;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}

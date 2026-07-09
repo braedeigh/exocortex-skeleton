@@ -1,0 +1,40 @@
+.page {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-4);
+  /* Clearance so the floating notes pill never covers the last card. */
+  padding-bottom: calc(var(--space-8) + 64px);
+}
+
+/* Port of style.css .section-title (with the old tab's margin-top:0). */
+.sectionTitle {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 var(--space-4);
+  padding-bottom: var(--space-2);
+  border-bottom: 2px solid var(--border);
+}
+
+.subtitle {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  margin: -8px 0 var(--space-3) 0;
+}
+
+.loading,
+.error {
+  padding: var(--space-5) 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-base);
+}
+
+.error {
+  color: var(--red);
+}
+
+.empty {
+  color: var(--text-muted);
+  font-style: italic;
+  padding: 14px;
+}

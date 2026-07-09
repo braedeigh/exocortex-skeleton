@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useLocation } from '@tanstack/react-router';
 import { Sheet, TapRow } from '../ui';
-import { TAB_META, VIEW_META, isValidTab, type LegacyTab } from './tabs';
+import { TAB_META, TAB_ROUTES, VIEW_META, isValidTab, tabForPath, type LegacyTab } from './tabs';
 import { useMediaQuery, DESKTOP_QUERY } from './useMediaQuery';
 import { useSessionsContext } from './SessionsContext';
 import styles from './TopTabs.module.css';
@@ -61,7 +61,8 @@ type ActiveKey = 'today' | LegacyTab | `view:${(typeof VIEW_META)[number]['key']
 
 function useActiveKey(pathname: string): ActiveKey {
   return useMemo<ActiveKey>(() => {
-    if (pathname === '/todos') return 'today';
+    const native = tabForPath(pathname);
+    if (native) return native;
     const legacyMatch = /^\/legacy\/([^/]+)$/.exec(pathname);
     if (legacyMatch && isValidTab(legacyMatch[1])) return legacyMatch[1];
     const view = MORE_VIEWS.find((v) => v.to === pathname);
@@ -70,16 +71,15 @@ function useActiveKey(pathname: string): ActiveKey {
   }, [pathname]);
 }
 
-/** Dashboard routes are /todos and every /legacy/<tab> — the routes that, in
- * the old app, lived inside the dashboard iframe under row 2. */
-type DashboardTarget = { to: '/todos' } | { to: '/legacy/$tab'; params: { tab: LegacyTab } };
+/** Dashboard routes are every native tab route (plus /legacy/<tab> fallbacks)
+ * — the routes that, in the old app, lived inside the dashboard iframe under
+ * row 2. */
+type DashboardTarget = { to: string };
 
 function parseDashboardTarget(pathname: string): DashboardTarget | null {
-  if (pathname === '/todos') return { to: '/todos' };
+  if (tabForPath(pathname)) return { to: pathname };
   const legacyMatch = /^\/legacy\/([^/]+)$/.exec(pathname);
-  if (legacyMatch && isValidTab(legacyMatch[1])) {
-    return { to: '/legacy/$tab', params: { tab: legacyMatch[1] } };
-  }
+  if (legacyMatch && isValidTab(legacyMatch[1])) return { to: pathname };
   return null;
 }
 
@@ -103,7 +103,7 @@ function MoreMenuContent({ overflowed, activeKey, onNavigate }: MoreMenuContentP
           className={activeKey === tab ? styles.menuActive : undefined}
           onClick={() => {
             onNavigate();
-            void navigate({ to: '/legacy/$tab', params: { tab } });
+            void navigate({ to: TAB_ROUTES[tab] });
           }}
         >
           {TAB_META[tab].label}
@@ -115,7 +115,7 @@ function MoreMenuContent({ overflowed, activeKey, onNavigate }: MoreMenuContentP
           className={activeKey === tab ? styles.menuActive : undefined}
           onClick={() => {
             onNavigate();
-            void navigate({ to: '/legacy/$tab', params: { tab } });
+            void navigate({ to: TAB_ROUTES[tab] });
           }}
         >
           {label}
@@ -263,16 +263,11 @@ function DashboardTabRow({ pathname }: { pathname: string }) {
         <Link to="/todos" className={joinClass(styles.tab, activeKey === 'today' && styles.active)}>
           {PRIMARY_TABS[0].label}
         </Link>
-        <Link
-          to="/legacy/$tab"
-          params={{ tab: 'map' }}
-          className={joinClass(styles.tab, activeKey === 'map' && styles.active)}
-        >
+        <Link to={TAB_ROUTES.map} className={joinClass(styles.tab, activeKey === 'map' && styles.active)}>
           {PRIMARY_TABS[1].label}
         </Link>
         <Link
-          to="/legacy/$tab"
-          params={{ tab: 'kitchen' }}
+          to={TAB_ROUTES.kitchen}
           className={joinClass(styles.tab, activeKey === 'kitchen' && styles.active)}
         >
           {PRIMARY_TABS[2].label}
@@ -280,8 +275,7 @@ function DashboardTabRow({ pathname }: { pathname: string }) {
         {OPTIONAL_TABS.map((tab) => (
           <Link
             key={tab}
-            to="/legacy/$tab"
-            params={{ tab }}
+            to={TAB_ROUTES[tab]}
             ref={(el) => {
               optionalRefs.current[tab] = el;
             }}

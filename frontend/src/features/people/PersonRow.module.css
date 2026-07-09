@@ -1,0 +1,112 @@
+/* PersonRow — port of style.css `#tab-people .p-row-item` and the
+   `.pr-*` expanded block. Relies on --ppl-accent-light / --ppl-hm-empty
+   set on PeoplePage's root (custom properties inherit through the DOM),
+   so the tints track whatever palette sky-theme.js is running. */
+
+.row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 10px var(--space-3);
+  margin-bottom: var(--space-2);
+  color: var(--text);
+  cursor: pointer;
+  font-family: inherit;
+  min-height: 56px;
+}
+
+.row:hover {
+  border-color: var(--accent);
+}
+
+.line1 {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.name {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.lastSeen {
+  font-size: 13px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.blurb {
+  margin-top: 3px;
+  font-size: 14px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Expanded content */
+.expanded {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+  cursor: default;
+}
+
+.stats {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: var(--space-2);
+}
+
+.spark {
+  width: 100%;
+  height: 36px;
+  display: block;
+  margin-bottom: 10px;
+}
+
+.tag {
+  font-size: var(--font-size-sm);
+  padding: 3px 9px;
+  border-radius: var(--radius-pill);
+  background: var(--ppl-accent-light);
+  color: var(--accent);
+  font-weight: 600;
+  margin: 0 6px 6px 0;
+  display: inline-block;
+}
+
+.note {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin-bottom: 10px;
+}
+
+.openLink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-lg);
+  background: var(--ppl-accent-light);
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.openLink:hover {
+  background: var(--accent);
+  color: #fff;
+}

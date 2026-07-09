@@ -1,0 +1,208 @@
+/* Edit mode — ported from movement.js inline styles
+ * (_movementRoutineEditor / _movementMoveEditRow / _movementAddMove).
+ * Control heights are lifted to the 44px touch floor; the legacy soft-red
+ * #e07a7a delete color is kept as-is (it was hardcoded in the old tab). */
+
+.editor {
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-xl);
+  padding: 16px;
+  margin-bottom: 18px;
+  background: var(--bg);
+}
+
+.input {
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  box-sizing: border-box;
+  min-height: var(--tap-target);
+  width: 100%;
+  outline: none;
+}
+
+.input:focus {
+  border-color: var(--accent);
+}
+
+.nameInput {
+  font-size: 17px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.noteInput {
+  margin-bottom: 14px;
+}
+
+.movesLabel {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+
+.emptyMoves {
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 14px;
+  margin-bottom: 10px;
+}
+
+.moveRow {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 10px;
+  margin-bottom: 10px;
+  background: var(--bg);
+}
+
+.moveTop {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 7px;
+}
+
+.arrows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.arrowBtn {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text-muted);
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.arrowBtn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.arrowSpacer {
+  width: 40px;
+  height: 40px;
+  flex: none;
+}
+
+.moveNameInput {
+  flex: 1;
+  width: auto;
+  font-weight: 600;
+}
+
+.removeBtn {
+  flex: none;
+  min-width: var(--tap-target);
+  min-height: var(--tap-target);
+  border: none;
+  background: none;
+  color: #e07a7a;
+  font-size: 22px;
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.removeConfirm {
+  background: color-mix(in srgb, #e07a7a 18%, transparent);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.fieldInput {
+  margin-bottom: 7px;
+}
+
+.fieldInputLast {
+  margin-bottom: 0;
+}
+
+.addBox {
+  border: 1px dashed var(--border);
+  border-radius: 9px;
+  padding: 10px;
+  margin-top: 4px;
+}
+
+.addRow {
+  display: flex;
+  gap: 8px;
+}
+
+.addNoteInput {
+  flex: 1;
+  width: auto;
+}
+
+.addBtn {
+  flex: none;
+  min-height: var(--tap-target);
+  padding: 0 18px;
+  border-radius: var(--radius-md);
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.footer {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.doneBtn {
+  min-height: var(--tap-target);
+  padding: 0 20px;
+  border-radius: var(--radius-md);
+  border: none;
+  background: var(--ongoing);
+  color: #fff;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.deleteRoutineBtn {
+  min-height: var(--tap-target);
+  padding: 0 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: none;
+  color: #e07a7a;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-left: auto;
+}
+
+.deleteRoutineConfirm {
+  background: color-mix(in srgb, #e07a7a 18%, transparent);
+  border-color: #e07a7a;
+  font-weight: 700;
+}

@@ -1,0 +1,59 @@
+/* Port of style.css .modal-overlay/.modal/.modal-buttons/.modal-btn. */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal {
+  background: var(--card-bg);
+  border-radius: var(--radius-xl);
+  padding: var(--space-7);
+  min-width: 320px;
+  max-width: min(92vw, 480px);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
+  text-align: center;
+}
+
+.text {
+  font-size: var(--font-size-base);
+  margin: 0 0 var(--space-5);
+  color: var(--text);
+  overflow-wrap: break-word;
+}
+
+.buttons {
+  display: flex;
+  gap: var(--space-3);
+  justify-content: center;
+}
+
+.btn {
+  min-height: var(--tap-target);
+  padding: var(--space-2) var(--space-6);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.confirm {
+  background: var(--red);
+  color: #fff;
+}
+
+.confirm:hover {
+  filter: brightness(1.08);
+}
+
+.cancel {
+  background: var(--border);
+  color: var(--text);
+}

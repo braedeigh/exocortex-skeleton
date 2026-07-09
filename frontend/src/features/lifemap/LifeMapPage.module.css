@@ -1,0 +1,22 @@
+.page {
+  flex: 1;
+  overflow-y: auto;
+  /* Clearance for the fixed NotesPill bottom-right (same as TodosPage). */
+  padding-bottom: calc(var(--space-8) + 64px);
+}
+
+.inner {
+  padding: var(--space-3) var(--space-4);
+  max-width: 1100px;
+}
+
+.loading,
+.error {
+  padding: var(--space-6) var(--space-4);
+  color: var(--text-muted);
+  font-size: var(--font-size-base);
+}
+
+.error {
+  color: var(--red);
+}

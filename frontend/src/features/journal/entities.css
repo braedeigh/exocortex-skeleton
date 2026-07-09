@@ -24,3 +24,22 @@
   border-radius: 3px;
   border-bottom-color: transparent;
 }
+
+/* Groups / threads: a clickable inline chip — distinct from the per-person
+   name underline (ported from journal.html's .entity-thread). Injected as a
+   raw `class="entity entity-thread"` string, same reason this file isn't a
+   CSS Module. */
+.entity-thread {
+  color: var(--accent);
+  font-weight: 600;
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 0 5px;
+  border-bottom: 1px solid var(--accent);
+}
+
+.entity-thread:hover {
+  background: var(--accent);
+  color: #fff;
+}

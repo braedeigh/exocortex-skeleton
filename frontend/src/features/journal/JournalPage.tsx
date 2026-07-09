@@ -11,7 +11,9 @@ import './entities.css';
 import { buildEntityMatcher } from './entityHighlight';
 import { FindBar } from './FindBar';
 import { JournalHeader } from './JournalHeader';
+import { JournalRail } from './JournalRail';
 import { PersonPopover } from './PersonPopover';
+import { ThreadPopover } from './ThreadPopover';
 import { resolveDayMode } from './types';
 import {
   useDeleteCard,
@@ -20,6 +22,7 @@ import {
   usePeople,
   useSaveJournalBlob,
   useServerDate,
+  useThreads,
   useToasts,
   useUpdateCard,
 } from './useJournalData';
@@ -74,8 +77,12 @@ export function JournalPage() {
   const dayQuery = useJournalDay(currentDate, pausePolling);
   const datesQuery = useJournalDates();
   const peopleQuery = usePeople();
+  const threadsQuery = useThreads();
 
-  const matcher = useMemo(() => buildEntityMatcher(peopleQuery.data?.people ?? []), [peopleQuery.data]);
+  const matcher = useMemo(
+    () => buildEntityMatcher(peopleQuery.data?.people ?? [], threadsQuery.data?.threads ?? []),
+    [peopleQuery.data, threadsQuery.data],
+  );
   const journalDates = useMemo(() => new Set(datesQuery.data?.dates ?? []), [datesQuery.data]);
 
   const updateCard = useUpdateCard(currentDate ?? '', push);
@@ -138,6 +145,10 @@ export function JournalPage() {
   const [calendarMonth, setCalendarMonth] = useState<CalendarMonth | null>(null);
   const [devNotesOpen, setDevNotesOpen] = useState(false);
   const [popoverSlug, setPopoverSlug] = useState<string | null>(null);
+  const [threadPopoverId, setThreadPopoverId] = useState<string | null>(null);
+  // Day just seeded via "Start today's page" — mount its BlobEditor in edit
+  // mode with the cursor ready (legacy startToday() switched to Edit + focused).
+  const [seededDate, setSeededDate] = useState<string | null>(null);
 
   const [pendingFind, setPendingFind] = useState<PendingFind | null>(null);
   const [findState, setFindState] = useState<FindState | null>(null);
@@ -203,9 +214,27 @@ export function JournalPage() {
   }
 
   function onBodyClick(e: MouseEvent<HTMLDivElement>) {
+    // Threads first (their spans are .entity.entity-thread, so a plain
+    // .entity check would swallow them) — same order as the legacy handler.
+    const threadEl = (e.target as HTMLElement).closest<HTMLElement>('.entity-thread');
+    const threadId = threadEl?.dataset.thread;
+    if (threadId) {
+      setThreadPopoverId(threadId);
+      return;
+    }
     const target = (e.target as HTMLElement).closest<HTMLElement>('.entity');
     const slug = target?.dataset.slug;
     if (slug) setPopoverSlug(slug);
+  }
+
+  /** Seed today's page with the standard header (what the keeper would write)
+   * so a journal day can start without a keeper session — port of legacy
+   * startToday(). The save invalidates the day query; the refetched content
+   * flips the day into blob mode, where `seededDate` mounts it in edit mode. */
+  function startToday() {
+    if (!currentDate) return;
+    const seed = `# ${currentDate}\n\n\`B = Bradie | K = Keeper\`\n\n---\n\n`;
+    saveBlobMutation.mutate(seed, { onSuccess: () => setSeededDate(currentDate) });
   }
 
   if (!currentDate) {
@@ -239,6 +268,8 @@ export function JournalPage() {
         onOpenDevNotes={() => setDevNotesOpen(true)}
       />
 
+      <JournalRail onOpenPerson={setPopoverSlug} onOpenThread={setThreadPopoverId} />
+
       <div className={styles.body} ref={bodyRef} onClick={onBodyClick}>
         {dayQuery.isLoading ? (
           <div className={styles.loading}>Loading…</div>
@@ -258,7 +289,19 @@ export function JournalPage() {
             onPersonClick={setPopoverSlug}
           />
         ) : mode === 'empty' ? (
-          <div className={styles.empty}>No entries yet.</div>
+          <div className={styles.empty}>
+            No entries yet.
+            {serverDate && currentDate === serverDate ? (
+              <button
+                type="button"
+                className={styles.startDay}
+                onClick={startToday}
+                disabled={saveBlobMutation.isPending}
+              >
+                &#9999;&#65039; Start today&apos;s page
+              </button>
+            ) : null}
+          </div>
         ) : (
           <BlobEditor
             key={currentDate}
@@ -266,6 +309,7 @@ export function JournalPage() {
             matcher={matcher}
             save={(content) => saveBlobMutation.mutateAsync(content)}
             onFocusChange={setBlobFocused}
+            initialMode={seededDate === currentDate ? 'edit' : 'read'}
           />
         )}
       </div>
@@ -289,6 +333,8 @@ export function JournalPage() {
       <DevNotesPanel open={devNotesOpen} onClose={() => setDevNotesOpen(false)} onError={push} />
 
       <PersonPopover slug={popoverSlug} onClose={() => setPopoverSlug(null)} onJournalMention={onJournalMention} />
+
+      <ThreadPopover id={threadPopoverId} onClose={() => setThreadPopoverId(null)} onNavigateDate={goTo} />
 
       {findState ? (
         <FindBar

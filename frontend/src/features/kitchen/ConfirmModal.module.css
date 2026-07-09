@@ -1,0 +1,60 @@
+/* Port of style.css .modal-overlay / .modal / .modal-btn (the delete confirm). */
+
+.overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 160;
+  padding: 16px;
+}
+
+.modal {
+  background: var(--card-bg);
+  border-radius: 12px;
+  padding: 28px;
+  min-width: 300px;
+  max-width: 420px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
+  text-align: center;
+}
+
+.text {
+  font-size: 17px;
+  margin: 0 0 20px;
+  color: var(--text);
+  overflow-wrap: break-word;
+}
+
+.buttons {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+
+.confirm,
+.cancel {
+  padding: 8px 24px;
+  border: none;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 44px;
+  font-family: inherit;
+}
+
+.confirm {
+  background: var(--red);
+  color: #fff;
+}
+
+.cancel {
+  background: var(--border);
+  color: var(--text);
+}

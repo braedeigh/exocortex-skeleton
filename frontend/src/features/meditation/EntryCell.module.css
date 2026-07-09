@@ -1,0 +1,62 @@
+/* Port of the dated-cell inline styles from renderMeditationStream(). */
+
+.cell {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 14px;
+  margin-bottom: var(--space-3);
+  background: var(--bg-card, transparent);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.date {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.tagPill {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--accent);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.duration {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.notes {
+  margin-top: var(--space-2);
+  white-space: pre-wrap;
+  line-height: 1.55;
+  font-size: 14px;
+  color: var(--text);
+  overflow-wrap: break-word;
+}
+
+.noNotes {
+  margin-top: 6px;
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 13px;
+}

@@ -1,0 +1,76 @@
+/* Floating People / Threads rail — rides the top-right of the journal body
+   while it scrolls (legacy .jrail was position:fixed; here the page is the
+   scroll container, so sticky-in-a-zero-height-strip gives the same "pinned
+   to the corner" ride without escaping the pane). */
+.rail {
+  position: sticky;
+  top: var(--space-2);
+  z-index: 5;
+  height: 0;
+  overflow: visible;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-items: flex-end;
+  padding-right: var(--space-3);
+  pointer-events: none;
+}
+
+.railBtn {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--tap-target);
+  padding: 0 var(--space-4) 0 var(--space-3);
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  color: var(--text);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.12s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.railBtn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  transform: translateX(-2px);
+}
+
+.railIcon {
+  font-size: var(--font-size-base);
+  line-height: 1;
+}
+
+/* Launcher panel list rows (inside the People / Threads Sheets). */
+.listItem {
+  display: block;
+  width: 100%;
+  text-align: left;
+  min-height: var(--tap-target);
+  padding: var(--space-2) var(--space-3);
+  background: none;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.listItem:hover {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+.listEmpty {
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: var(--font-size-base);
+  padding: var(--space-2) 0;
+}

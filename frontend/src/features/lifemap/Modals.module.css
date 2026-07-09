@@ -1,0 +1,123 @@
+/* Ports of style.css .modal-overlay / .modal / .modal.panel-modal — the
+   confirm-delete modal, companion prompt, and the generic editor modal
+   (habit edit / manage reminders / manage contacts). */
+
+.overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal {
+  background: var(--card-bg);
+  border-radius: var(--radius-xl);
+  padding: var(--space-7);
+  min-width: 320px;
+  max-width: 92vw;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
+  text-align: center;
+}
+
+.modalText {
+  font-size: var(--font-size-lg);
+  margin-bottom: var(--space-5);
+  color: var(--text);
+}
+
+.buttons {
+  display: flex;
+  gap: var(--space-3);
+  justify-content: center;
+}
+
+.btn {
+  padding: var(--space-2) var(--space-6);
+  min-height: var(--tap-target);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.confirm {
+  composes: btn;
+  background: var(--red);
+  color: #fff;
+}
+
+.confirm:hover {
+  background: #c0392b;
+}
+
+.confirmOngoing {
+  composes: btn;
+  background: var(--ongoing);
+  color: #fff;
+}
+
+.cancel {
+  composes: btn;
+  background: var(--border);
+  color: var(--text);
+}
+
+/* --- Generic editor modal (wider, scrollable, left-aligned) --- */
+
+.panel {
+  background: var(--card-bg);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
+  text-align: left;
+  padding: 0;
+  min-width: 0;
+  width: 92vw;
+  max-width: 560px;
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.panelHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+
+.panelTitle {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.panelX {
+  flex: 0 0 auto;
+  background: none;
+  border: none;
+  font-size: 24px;
+  line-height: 1;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0 4px;
+  min-width: var(--tap-target);
+  min-height: var(--tap-target);
+}
+
+.panelBody {
+  padding: 16px 18px;
+  overflow-y: auto;
+}

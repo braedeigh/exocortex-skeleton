@@ -1,0 +1,134 @@
+/* Place card — old _housingCard() inline styles, status accent on the left
+   border (set inline per status), buttons grown to touch targets. */
+
+.card {
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--text-muted); /* overridden inline per status */
+  border-radius: var(--radius-md);
+  padding: 14px;
+  margin-bottom: var(--space-3);
+}
+
+.nameRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.name {
+  flex: 1;
+  font-weight: 700;
+  font-size: 16px;
+  color: var(--text);
+}
+
+.link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--tap-target);
+  min-height: var(--tap-target);
+  margin: -10px -10px -10px 0; /* comfortable hit area without inflating the row */
+  text-decoration: none;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.statusRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-2);
+}
+
+.statusSelect {
+  min-height: var(--tap-target);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  font-weight: 600;
+  font-size: 13px;
+  font-family: inherit;
+  /* text color set inline from the status accent */
+}
+
+.avail {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.meta {
+  font-size: 14px;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+
+.notes {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.actBtn {
+  min-width: var(--tap-target);
+  min-height: var(--tap-target);
+  padding: 0 var(--space-2);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.deleteBtn {
+  color: var(--red);
+}
+
+.sure {
+  background: color-mix(in srgb, var(--red) 15%, transparent);
+  border-color: var(--red);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.editActions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: 10px;
+}
+
+.saveBtn {
+  padding: 9px 16px;
+  min-height: var(--tap-target);
+  background: var(--ongoing);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.cancelBtn {
+  padding: 9px 16px;
+  min-height: var(--tap-target);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 14px;
+}

@@ -1,0 +1,106 @@
+/* Compose / inline-edit form — old media.js compose card + _mediaRenderEditor. */
+
+.form {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  margin-bottom: 18px;
+  background: var(--card-bg);
+}
+
+/* The inline editor swaps the border to the accent color and sits in the
+   card list, so it uses the card's tighter bottom margin. */
+.editing {
+  border-color: var(--accent);
+  margin-bottom: var(--space-3);
+}
+
+.chipRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: var(--space-3);
+}
+
+.typeChip {
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.typeChipActive {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.input {
+  box-sizing: border-box;
+  min-height: var(--tap-target);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card-bg);
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.titleInput {
+  width: 100%;
+  margin-bottom: var(--space-2);
+}
+
+.fieldRow {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-2);
+}
+
+.grow {
+  flex: 1;
+  min-width: 160px;
+}
+
+.notes {
+  width: 100%;
+  resize: vertical;
+  margin-bottom: var(--space-3);
+}
+
+.buttonRow {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* Old Add/Save button: teal (--ongoing) background, white, weight 600. */
+.submitBtn {
+  min-height: var(--tap-target);
+  padding: 0 var(--space-4);
+  background: var(--ongoing);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ghostBtn {
+  min-height: var(--tap-target);
+  padding: 0 var(--space-4);
+  background: none;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  cursor: pointer;
+}

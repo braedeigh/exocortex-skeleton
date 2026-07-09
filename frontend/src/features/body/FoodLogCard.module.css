@@ -1,0 +1,271 @@
+/* Port of the food-log rendering in food.js + the .food-* rules (style.css). */
+
+.moreRow {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.moreBtn {
+  font-size: 13px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-4);
+  min-height: 40px;
+  cursor: pointer;
+  color: var(--text-muted);
+}
+
+.moreBtn:hover {
+  color: var(--text-secondary);
+  background: rgba(124, 92, 191, 0.06);
+}
+
+.pastCard,
+.todayCard {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--ongoing);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--space-2);
+  padding: 6px var(--space-3);
+}
+
+.todayCard {
+  padding: var(--space-3);
+}
+
+.pastRow {
+  display: flex;
+  gap: 10px;
+  padding: var(--space-1) 0;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+  line-height: 1.4;
+  align-items: center;
+}
+
+.pastRow:first-child,
+.pastEditing:first-child {
+  border-top: none;
+}
+
+.pastEditing {
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+}
+
+.pastEditHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2px;
+}
+
+.pastLabel {
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 13px;
+  white-space: nowrap;
+  min-width: 70px;
+}
+
+.pastFoods {
+  flex: 1;
+  min-width: 0;
+}
+
+.comma {
+  color: var(--text-muted);
+}
+
+.emptyDash {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.dayEditBtn {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  min-height: 32px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.dayEditBtn:hover {
+  color: var(--text-secondary);
+  background: rgba(124, 92, 191, 0.08);
+}
+
+.todayHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-1);
+}
+
+.todayLabel {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--green);
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  padding: var(--space-1) 0;
+  font-size: var(--font-size-base);
+  color: var(--text);
+  min-width: 0;
+}
+
+.itemText {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: var(--space-1) 0;
+  min-height: 36px;
+  font-size: var(--font-size-base);
+  font-family: inherit;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.itemTextStatic {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+.badge {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: var(--space-2);
+  flex-shrink: 0;
+}
+
+.itemEditing {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: var(--space-1) 0;
+}
+
+.itemInput {
+  flex: 1;
+  min-width: 80px;
+  padding: var(--space-2) 10px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.itemSave {
+  background: none;
+  border: none;
+  color: var(--green);
+  font-size: 20px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+  min-width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* Delete/cancel × — always visible at a comfortable tap size inside the
+   explicit per-day edit view. */
+.itemDel {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 20px;
+  cursor: pointer;
+  padding: 0;
+  min-width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.itemDel:hover {
+  color: var(--red);
+}
+
+/* Armed state — the × has been tapped once and awaits confirmation. */
+.itemDelSure {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: #fff;
+  background: var(--red);
+  border-radius: var(--radius-sm);
+}
+
+.itemDelSure:hover {
+  color: #fff;
+}
+
+.emptyDay {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-style: italic;
+  padding: var(--space-1) 0;
+}
+
+.addRow {
+  margin-top: var(--space-2);
+  display: flex;
+  gap: var(--space-2);
+}
+
+.addInput {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  min-height: var(--tap-target);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  outline: none;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.addInput:focus {
+  border-color: var(--accent);
+}
+
+.addBtn {
+  padding: var(--space-2) var(--space-4);
+  min-height: var(--tap-target);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--text);
+  color: var(--bg);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}

@@ -48,6 +48,34 @@ export const TAB_META: Record<LegacyTab, TabMeta> = {
   people: { key: 'people', label: 'People', icon: '👥' },
 };
 
+/**
+ * Native SPA route for each dashboard tab. Every tab is now ported — the
+ * /legacy/$tab iframe route remains only as a fallback for old deep links.
+ */
+export const TAB_ROUTES: Record<LegacyTab, string> = {
+  today: '/todos',
+  map: '/map',
+  kitchen: '/kitchen',
+  inventory: '/inventory',
+  money: '/money',
+  car: '/car',
+  meditation: '/meditation',
+  media: '/media',
+  movement: '/movement',
+  body: '/body',
+  ideas: '/ideas',
+  ecosystem: '/ecosystem',
+  housing: '/housing',
+  people: '/people',
+};
+
+export function tabForPath(pathname: string): LegacyTab | null {
+  for (const tab of VALID_TABS) {
+    if (TAB_ROUTES[tab] === pathname) return tab;
+  }
+  return null;
+}
+
 /** Non-legacy view routes offered from the More sheet, alongside the remaining tabs. */
 export const VIEW_META = [
   { key: 'journal', label: 'Journal', icon: '📓', to: '/journal' },

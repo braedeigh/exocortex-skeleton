@@ -1,0 +1,119 @@
+/* Port of renderMeditationTimer()'s inline styles. The old code's
+ * `var(--bg-card)` was never defined anywhere (style.css only has
+ * --card-bg), so those "cards" actually rendered transparent — kept that
+ * way for pixel parity. Accent tints use color-mix on var(--accent) instead
+ * of the old hardcoded rgba(124,92,191,…) so sky-theming recolors them. */
+
+.card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  margin-bottom: 18px;
+  background: var(--bg-card, transparent);
+}
+
+.cardTitle {
+  font-weight: 600;
+  margin-bottom: 10px;
+  color: var(--text);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.chip,
+.chipDashed {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-pill);
+  font-size: 14px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.chip {
+  border: 1px solid var(--border);
+  background: var(--bg-card, transparent);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.chipDashed {
+  border: 1px dashed var(--border);
+  background: none;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.customRow {
+  display: inline-flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.customInput {
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  width: 220px;
+  max-width: 55vw;
+}
+
+/* Running banner */
+.running {
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  margin-bottom: 18px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.runningLeft {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.emoji {
+  font-size: 22px;
+}
+
+.runningType {
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--text);
+}
+
+.elapsed {
+  font-size: 24px;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.stopBtn {
+  min-height: var(--tap-target);
+  padding: var(--space-2) var(--space-5);
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: var(--font-size-base);
+  -webkit-tap-highlight-color: transparent;
+}

@@ -1,0 +1,389 @@
+/* Port of kitchen.js renderFoodExperiments' inline styles. */
+
+.intro {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  margin: var(--space-2) 0 var(--space-3);
+}
+
+.safeWord {
+  color: var(--green);
+}
+
+.suspectWord {
+  color: var(--orange);
+}
+
+.blockKicker {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 4px;
+}
+
+.activeBlock {
+  border: 1px solid var(--accent);
+  border-left: 3px solid var(--accent);
+  background: rgba(124, 92, 191, 0.06);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  margin-bottom: 14px;
+}
+
+.activeFood {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.activeMeta {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
+.activeNotes {
+  font-size: 13px;
+  color: var(--text);
+  font-style: italic;
+  margin-bottom: 10px;
+}
+
+.btnRow {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.clearedBtn {
+  padding: var(--space-2) 14px;
+  min-height: var(--tap-target);
+  background: var(--green);
+  color: #fff;
+  border: 1px solid var(--green);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.flaredBtn {
+  padding: var(--space-2) 14px;
+  min-height: var(--tap-target);
+  background: var(--orange);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ghostBtn {
+  padding: var(--space-2) var(--space-3);
+  min-height: var(--tap-target);
+  background: none;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.cancelBtn {
+  padding: var(--space-2) var(--space-3);
+  min-height: var(--tap-target);
+  background: none;
+  color: var(--red);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  margin-left: auto;
+}
+
+.cancelSure {
+  background: var(--red);
+  color: #fff;
+  border-color: var(--red);
+  font-weight: 700;
+}
+
+.disabledBtn {
+  background: none !important;
+  color: var(--text-muted) !important;
+  cursor: not-allowed !important;
+  opacity: 0.5;
+}
+
+.flareForm {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.recoveringBlock {
+  border: 1px solid var(--orange);
+  border-left: 3px solid var(--orange);
+  background: rgba(212, 140, 68, 0.06);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  margin-bottom: 14px;
+}
+
+.recoveringFood {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.recoveringHint {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
+.baselineBtn {
+  padding: var(--space-2) 14px;
+  min-height: var(--tap-target);
+  background: var(--green);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.clearBlock {
+  border: 1px solid var(--green);
+  border-left: 3px solid var(--green);
+  background: rgba(58, 158, 140, 0.06);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  margin-bottom: 14px;
+}
+
+.clearHeading {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: var(--space-2);
+}
+
+.nextUpRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.nextUpLabel {
+  font-size: 13px;
+}
+
+.startBtn {
+  padding: var(--space-2) 14px;
+  min-height: var(--tap-target);
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.emptyQueueNote {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.subDetails {
+  margin-bottom: 14px;
+}
+
+.subSummary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  padding: var(--space-2) 0;
+  min-height: 32px;
+  color: var(--text-muted);
+}
+
+.subBody {
+  padding-top: var(--space-2);
+}
+
+.queueRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: var(--space-1) var(--space-1);
+  border-bottom: 1px solid var(--border);
+}
+
+.queueNum {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  width: 24px;
+  text-align: right;
+}
+
+.queueFood {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.queueMoveBtn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  padding: 0;
+  min-width: 40px;
+  min-height: 40px;
+}
+
+.queueMoveBtn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.queueRemoveBtn {
+  background: none;
+  border: none;
+  color: var(--red);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0;
+  min-width: 40px;
+  min-height: 40px;
+}
+
+.emptyQueue {
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: var(--space-2) 0;
+  font-style: italic;
+}
+
+.queueAddRow {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.textInput {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-2) 10px;
+  min-height: 40px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+}
+
+.textInput:focus {
+  border-color: var(--accent);
+}
+
+.queueAddBtn {
+  padding: var(--space-2) var(--space-3);
+  min-height: 40px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pastRow {
+  padding: var(--space-2) var(--space-1);
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+}
+
+.pastIconCleared {
+  color: var(--green);
+  font-weight: 700;
+}
+
+.pastIconFlared {
+  color: var(--orange);
+  font-weight: 700;
+}
+
+.pastDates {
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  min-width: 90px;
+}
+
+.pastText {
+  flex: 1;
+  min-width: 0;
+}
+
+.pastNote {
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.retroSummary {
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  padding: var(--space-2) 0;
+  min-height: 32px;
+}
+
+.retroBody {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  background: var(--card-bg);
+  margin-top: var(--space-2);
+}
+
+.retroHint {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  margin-bottom: var(--space-2);
+}
+
+.retroInput {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 6px;
+}
+
+.retroBtn {
+  padding: var(--space-2) 14px;
+  min-height: var(--tap-target);
+  background: var(--orange);
+  color: #fff;
+  border: 1px solid var(--orange);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 2px;
+}

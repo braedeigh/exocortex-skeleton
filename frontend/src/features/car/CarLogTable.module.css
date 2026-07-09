@@ -1,0 +1,95 @@
+.empty {
+  color: var(--text-muted);
+  font-style: italic;
+  padding: 14px;
+}
+
+.wrap {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  /* Old container was overflow:hidden; auto keeps the rounded corners but
+     lets the table scroll sideways on narrow screens instead of crushing. */
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.headRow {
+  background: var(--card-bg);
+  text-align: left;
+}
+
+.th {
+  padding: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  font-weight: 600;
+  text-align: left;
+}
+
+.td {
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.dueOverdue {
+  color: var(--red);
+  font-weight: 600;
+}
+
+.dueSoon {
+  color: var(--orange);
+  font-weight: 600;
+}
+
+.notesCell {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.removeCell {
+  text-align: right;
+  white-space: nowrap;
+  /* The 40px button governs row height; keep cell padding slim. */
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+
+.removeBtn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  min-width: 40px;
+  min-height: 40px;
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.removeBtn:hover {
+  background: color-mix(in srgb, var(--red) 12%, transparent);
+  color: var(--red);
+}
+
+.removeSure {
+  background: color-mix(in srgb, var(--red) 15%, transparent);
+  color: var(--red);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.removeSure:hover {
+  background: color-mix(in srgb, var(--red) 25%, transparent);
+  color: var(--red);
+}

@@ -1,0 +1,45 @@
+/* Shared add/edit field block — old _housingFields() inline styles, with
+   inputs grown to the 44px touch target. */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-bottom: 10px;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.last {
+  margin-bottom: 0;
+}
+
+.input {
+  width: 100%;
+  min-height: var(--tap-target);
+  padding: var(--space-2) var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+.textarea {
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+/* The grid's own labels carry the row rhythm. */
+.grid .field {
+  margin-bottom: 0;
+}

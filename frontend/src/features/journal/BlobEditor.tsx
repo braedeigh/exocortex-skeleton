@@ -13,13 +13,15 @@ export interface BlobEditorProps {
   matcher: EntityMatcher;
   save: (content: string) => Promise<unknown>;
   onFocusChange: (focused: boolean) => void;
+  /** Mount straight into edit mode (the "Start today's page" seeder lands here ready to type). Default 'read'. */
+  initialMode?: 'read' | 'edit';
 }
 
 const AUTOSAVE_DELAY_MS = 1500;
 
 /** Markdown-blob mode (pre-cutover days): read/edit toggle over the whole-day file, debounced autosave. */
-export function BlobEditor({ initialContent, matcher, save, onFocusChange }: BlobEditorProps) {
-  const [mode, setMode] = useState<'read' | 'edit'>('read');
+export function BlobEditor({ initialContent, matcher, save, onFocusChange, initialMode = 'read' }: BlobEditorProps) {
+  const [mode, setMode] = useState<'read' | 'edit'>(initialMode);
   const [value, setValue] = useState(initialContent);
   const [status, setStatus] = useState<SaveStatus>('idle');
   const lastSavedRef = useRef(initialContent);
@@ -27,6 +29,19 @@ export function BlobEditor({ initialContent, matcher, save, onFocusChange }: Blo
   const valueRef = useRef(value);
   valueRef.current = value;
   const taRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // Seeder mount ("Start today's page"): land in the editor, cursor at the
+  // end, ready to type — same as legacy startToday(). The focus event also
+  // fires onFocusChange(true) via the textarea's own handler.
+  useEffect(() => {
+    if (initialMode !== 'edit') return;
+    const el = taRef.current;
+    if (el) {
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Poll refresh landed new content while the day wasn't dirty — pick it up.
   useEffect(() => {

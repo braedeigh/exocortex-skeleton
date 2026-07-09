@@ -1,0 +1,95 @@
+.allDone {
+  color: var(--green);
+  font-size: 13px;
+  padding: var(--space-2) 0;
+  font-style: italic;
+}
+
+.intro {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
+.safeWord {
+  color: var(--green);
+}
+
+.suspectWord {
+  color: var(--orange);
+}
+
+.inflammatoryWord {
+  color: #c2185b;
+}
+
+.list {
+  max-height: 60vh;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-1) var(--space-3);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-1);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.row:last-child {
+  border-bottom: none;
+}
+
+.name {
+  flex: 1;
+  min-width: 120px;
+  font-size: 14px;
+}
+
+.meta {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  margin-left: var(--space-2);
+}
+
+.tagBtn {
+  padding: var(--space-1) var(--space-3);
+  min-height: 40px;
+  background: none;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tagSafe {
+  border: 1px solid var(--green);
+  color: var(--green);
+}
+
+.tagSafe:hover {
+  background: rgba(58, 158, 140, 0.08);
+}
+
+.tagSuspect {
+  border: 1px solid var(--orange);
+  color: var(--orange);
+}
+
+.tagSuspect:hover {
+  background: rgba(212, 140, 68, 0.08);
+}
+
+.tagInflammatory {
+  border: 1px solid #c2185b;
+  color: #c2185b;
+}
+
+.tagInflammatory:hover {
+  background: rgba(194, 24, 91, 0.08);
+}

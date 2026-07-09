@@ -1,0 +1,45 @@
+/* Media tab page — old #tab-media chrome (section title, muted subtitle)
+   plus the empty-state boxes from _mediaCardsHtml. */
+
+.page {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-4);
+  /* Clearance for the fixed NotesPill (same idea as TodosPage). */
+  padding-bottom: calc(var(--space-8) + 64px);
+}
+
+.sectionTitle {
+  font-size: var(--font-size-xl);
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 var(--space-4);
+  padding-bottom: var(--space-2);
+  border-bottom: 2px solid var(--border);
+}
+
+.subtitle {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  margin: -2px 0 var(--space-3);
+}
+
+.empty {
+  color: var(--text-muted);
+  font-style: italic;
+  padding: 18px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  text-align: center;
+}
+
+.loading,
+.error {
+  padding: var(--space-6);
+  color: var(--text-muted);
+  font-size: var(--font-size-base);
+}
+
+.error {
+  color: var(--red);
+}

@@ -1,0 +1,172 @@
+/* Port of the safety chip clouds (kitchen.js _renderSafetyChip/_renderSafetyCloud). */
+
+.editBtn {
+  margin-left: auto;
+  font-size: var(--font-size-sm);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) 10px;
+  min-height: 32px;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.editBtn:hover {
+  color: var(--text-secondary);
+}
+
+.heading {
+  font-size: 13px;
+  font-weight: 600;
+  margin: var(--space-2) 0 2px;
+}
+
+.heading:first-child {
+  margin-top: var(--space-2);
+}
+
+.headSafe {
+  color: var(--green);
+}
+
+.headSuspect {
+  color: var(--orange);
+  margin-top: 14px;
+}
+
+.headInflammatory {
+  color: #c2185b;
+  margin-top: 14px;
+}
+
+.cloud {
+  border-radius: var(--radius-md);
+}
+
+.cloudEditing {
+  min-height: 38px;
+  border: 1px dashed var(--border);
+  padding: 2px var(--space-2);
+}
+
+.cloudDragOver {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 6px 0;
+}
+
+.chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  min-height: 32px;
+  border-radius: 14px;
+  font-size: 13px;
+  margin: 3px;
+}
+
+.cloudEditing .chip {
+  cursor: grab;
+}
+
+.chip_safe {
+  border: 1px solid rgba(58, 158, 140, 0.35);
+  background: rgba(58, 158, 140, 0.1);
+  color: var(--green);
+}
+
+.chip_suspect {
+  border: 1px solid rgba(212, 140, 68, 0.35);
+  background: rgba(212, 140, 68, 0.1);
+  color: var(--orange);
+}
+
+.chip_inflammatory {
+  border: 1px solid rgba(194, 24, 91, 0.35);
+  background: rgba(194, 24, 91, 0.1);
+  color: #c2185b;
+}
+
+.chipBtn {
+  background: none;
+  border: none;
+  color: inherit;
+  opacity: 0.75;
+  font-size: 16px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0;
+  min-width: 32px;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+}
+
+.chipBtn:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.moveMenu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  z-index: 50;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.moveMenuBtn {
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  min-height: 40px;
+  font-size: var(--font-size-sm);
+  border: none;
+  background: none;
+  cursor: pointer;
+  border-radius: 4px;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.moveMenuBtn:hover {
+  background: var(--border);
+}
+
+.menuSafe {
+  color: var(--green);
+}
+
+.menuSuspect {
+  color: var(--orange);
+}
+
+.menuInflammatory {
+  color: #c2185b;
+}
+
+.empty {
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: var(--space-2) 0;
+  font-style: italic;
+}

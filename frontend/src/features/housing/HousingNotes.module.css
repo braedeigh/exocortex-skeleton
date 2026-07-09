@@ -1,0 +1,41 @@
+/* Criteria & plan notes box — old renderHousingNotes() inline styles.
+   (The old page's background:var(--bg-card) referenced an undefined var and
+   rendered transparent — kept transparent here for parity.) */
+
+.card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  margin-bottom: 18px;
+}
+
+.head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-2);
+}
+
+.title {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.status {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.textarea {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  resize: vertical;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  box-sizing: border-box;
+}

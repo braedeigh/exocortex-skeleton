@@ -1,0 +1,85 @@
+.details {
+  margin-top: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.summary {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: var(--space-2) 0;
+  min-height: 32px;
+}
+
+.body {
+  margin-top: var(--space-2);
+}
+
+.intro {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  margin-bottom: var(--space-2);
+}
+
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.fieldLabel {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: var(--space-1);
+}
+
+.levels {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.levelRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.levelNum {
+  width: 18px;
+  text-align: center;
+  font-weight: 600;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.levelInput {
+  flex: 1;
+  min-height: 40px;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  background: var(--bg);
+  color: var(--text);
+  outline: none;
+}
+
+.levelInput:focus {
+  border-color: var(--accent);
+}
+
+.saveBtn {
+  margin-top: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  min-height: var(--tap-target);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--text);
+  color: var(--bg);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+}

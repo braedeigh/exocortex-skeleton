@@ -1,0 +1,221 @@
+/* Manage-reminders panel — port of reminders.js inline styles. */
+
+.blurb {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.actionsTop {
+  margin-bottom: 14px;
+}
+
+.actionsBottom {
+  margin-top: 14px;
+}
+
+.cancelBtn {
+  padding: 8px 16px;
+  min-height: 40px;
+  background: none;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.saveBtn {
+  padding: 8px 16px;
+  min-height: 40px;
+  background: var(--ongoing);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.empty {
+  color: var(--text-muted);
+  font-style: italic;
+  padding: 10px 0;
+}
+
+.row {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 8px;
+  background: var(--bg);
+}
+
+.headRow {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.input {
+  padding: 6px 8px;
+  min-height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  box-sizing: border-box;
+}
+
+.emojiInput {
+  width: 46px;
+  text-align: center;
+  font-size: 16px;
+  flex: none;
+}
+
+.labelInput {
+  flex: 1;
+  min-width: 0;
+}
+
+.colorInput {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+  flex: none;
+}
+
+.delBtn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--red);
+  border-radius: 6px;
+  width: 40px;
+  height: 40px;
+  cursor: pointer;
+  flex: none;
+  font-size: 15px;
+}
+
+.chipRow {
+  display: flex;
+  gap: 4px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.optionRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 8px;
+}
+
+.chipGroup {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.schedChips {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.chip {
+  padding: 4px 9px;
+  min-height: 40px;
+  border-radius: 12px;
+  cursor: pointer;
+  font-size: 12px;
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+.chipActive {
+  background: rgba(124, 92, 191, 0.18);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.weekdayGroup {
+  display: flex;
+  gap: 3px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.weekdayBtn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 12px;
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+.numInput {
+  width: 52px;
+  text-align: center;
+}
+
+.dueInput {
+  flex: 1;
+  min-width: 140px;
+}
+
+.companionSelect {
+  max-width: 200px;
+}
+
+.faint {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.privacyRow {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 8px;
+  cursor: pointer;
+  min-height: 40px;
+}
+
+.privacyRow input {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+.addBtn {
+  padding: 7px 14px;
+  min-height: 40px;
+  border-radius: 6px;
+  border: 1px dashed var(--border);
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 13px;
+  margin-top: 4px;
+}

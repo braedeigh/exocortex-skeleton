@@ -92,6 +92,44 @@ export interface BacklinksResponse {
   stats: BacklinksStats | null;
 }
 
+/** GET /api/threads roster entry (routes/threads.py threads_list). */
+export interface Thread {
+  id: string;
+  name: string;
+  file: string;
+  aliases: string[];
+}
+
+export interface ThreadsResponse {
+  threads: Thread[];
+}
+
+/**
+ * One routable source chip on a thread fact-card (routes/threads.py
+ * _classify_source): kind "journal" navigates in-app to `val` (a
+ * YYYY-MM-DD date), kind "keeper" opens the Files tab on `val` (a
+ * vault-relative path).
+ */
+export interface ThreadSource {
+  ref: string;
+  kind: 'journal' | 'keeper';
+  val: string;
+  label: string;
+}
+
+/** One fact-card: a short statement + the sources it came from. */
+export interface ThreadFactCard {
+  heading: string;
+  text: string;
+  sources: ThreadSource[];
+}
+
+/** GET /api/thread?name=<slug|name|alias> (routes/threads.py thread_detail). */
+export interface ThreadDetail extends Thread {
+  status: string;
+  cards: ThreadFactCard[];
+}
+
 export interface DevNote {
   id: string;
   text: string;

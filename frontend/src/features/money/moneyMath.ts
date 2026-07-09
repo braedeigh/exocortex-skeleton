@@ -1,0 +1,354 @@
+/**
+ * moneyMath.ts — pure logic ported 1:1 from static/js/money.js: money
+ * formatting (incl. the public $••• mask), month tallies, subscription
+ * ordering/renewal urgency, the spending-breakdown aggregation (month bars +
+ * income gauge), and the tax set-aside math.
+ */
+import type { Budget, BudgetCategory, Expense, Subscription, TaxSetasideEntry } from './types';
+
+/** Money figure for display. Public visitors see a masked placeholder ($•••)
+ * in place of every dollar amount; the underlying values still power the
+ * bars/percentages. (money.js _m) */
+export function formatMoney(n: unknown, masked: boolean): string {
+  if (masked) return '$•••';
+  return '$' + (Number(n) || 0).toFixed(2);
+}
+
+/** Plain, never-masked dollar figure — the auth-only Budget setup / Set Aside
+ * cards printed raw values even in the old page. */
+export function dollars(n: unknown): string {
+  return '$' + (Number(n) || 0).toFixed(2);
+}
+
+/** YYYY-MM for `now` (money.js _thisMonthKey). */
+export function thisMonthKey(now: Date = new Date()): string {
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+export function expensesInMonth(expenses: Expense[], monthKey: string): Expense[] {
+  return expenses.filter((e) => (e.date || '').startsWith(monthKey));
+}
+
+export function spentByCategory(expenses: Expense[]): Record<string, number> {
+  const tally: Record<string, number> = {};
+  expenses.forEach((e) => {
+    const c = e.category || 'Uncategorized';
+    tally[c] = (tally[c] || 0) + (e.amount || 0);
+  });
+  return tally;
+}
+
+// --- This Month budget bars ---
+
+export interface BudgetBarRow {
+  name: string;
+  spent: number;
+  planned: number;
+  /** Fill width 0–100 (capped). */
+  pct: number;
+  over: boolean;
+  /** CSS var for the fill: red when over, yellow past 80%, else green. */
+  barColor: string;
+}
+
+export interface ThisMonthSummary {
+  rows: BudgetBarRow[];
+  totalSpent: number;
+  totalPlanned: number;
+}
+
+/** Non-savings budget categories vs this month's spending (renderThisMonth). */
+export function thisMonthSummary(budget: Budget, monthExpenses: Expense[]): ThisMonthSummary {
+  const cats = (budget.categories || []).filter((c) => c.type !== 'savings');
+  const spent = spentByCategory(monthExpenses);
+  let totalSpent = 0;
+  let totalPlanned = 0;
+  const rows = cats.map((c) => {
+    const s = spent[c.name] || 0;
+    const p = c.planned || 0;
+    totalSpent += s;
+    totalPlanned += p;
+    const pct = p > 0 ? Math.min(100, (s / p) * 100) : 0;
+    const over = p > 0 && s > p;
+    const barColor = over ? 'var(--red)' : pct > 80 ? 'var(--yellow)' : 'var(--green)';
+    return { name: c.name, spent: s, planned: p, pct, over, barColor };
+  });
+  return { rows, totalSpent, totalPlanned };
+}
+
+// --- Subscriptions ---
+
+/** Whole days from `today` (midnight) to dateStr; null when unset (money.js _daysUntil). */
+export function daysUntil(dateStr: string | undefined, today: Date = new Date()): number | null {
+  if (!dateStr) return null;
+  const target = new Date(dateStr + 'T12:00:00');
+  const t = new Date(today);
+  t.setHours(0, 0, 0, 0);
+  return Math.round((target.getTime() - t.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+/** 1 -> "1st", 22 -> "22nd" … empty for non-numbers (money.js _ordinal). */
+export function ordinal(n: number | string): string {
+  const num = parseInt(String(n), 10);
+  if (!num) return '';
+  const suf = ['th', 'st', 'nd', 'rd'];
+  const v = num % 100;
+  return num + (suf[(v - 20) % 10] || suf[v] || suf[0]);
+}
+
+/** Soonest renewal first; no-renewal-date subs sink to the bottom. */
+export function sortSubscriptions(subs: Subscription[], today: Date = new Date()): Subscription[] {
+  return [...subs].sort((a, b) => {
+    const da = daysUntil(a.next_renewal, today);
+    const db = daysUntil(b.next_renewal, today);
+    if (da === null && db === null) return 0;
+    if (da === null) return 1;
+    if (db === null) return -1;
+    return da - db;
+  });
+}
+
+/** Monthly-equivalent total: yearly amounts /12. */
+export function subscriptionsMonthlyTotal(subs: Subscription[]): number {
+  let total = 0;
+  subs.forEach((s) => {
+    const amt = s.amount || 0;
+    total += s.frequency === 'yearly' ? amt / 12 : amt;
+  });
+  return total;
+}
+
+export type RenewalUrgency = 'none' | 'soon' | 'upcoming' | 'far';
+
+/** Red ≤7d, yellow ≤30d, muted otherwise (renderSubscriptions renewCell). */
+export function renewalUrgency(days: number | null): RenewalUrgency {
+  if (days === null) return 'none';
+  if (days <= 7) return 'soon';
+  if (days <= 30) return 'upcoming';
+  return 'far';
+}
+
+// --- Spending breakdown (per-month bars + income gauge) ---
+
+export const BREAKDOWN_PALETTE = [
+  '#1abc9c', '#3498db', '#9b59b6', '#e67e22', '#e74c3c',
+  '#f1c40f', '#2ecc71', '#34495e', '#16a085', '#d35400',
+  '#8e44ad', '#27ae60', '#c0392b', '#7f8c8d',
+];
+
+/** Stable category → palette color (money.js _breakdownColorFor). */
+export function breakdownColorFor(cat: string): string {
+  let h = 0;
+  for (let i = 0; i < cat.length; i++) h = (h * 31 + cat.charCodeAt(i)) >>> 0;
+  return BREAKDOWN_PALETTE[h % BREAKDOWN_PALETTE.length];
+}
+
+/** Categories that don't count as spending (money.js SKIP set). */
+export const NON_SPENDING_CATEGORIES = new Set(['income', 'savings/transfer', 'transfer (in)']);
+
+export function isIncomeCategory(e: Expense): boolean {
+  return (e.category || '').toLowerCase() === 'income';
+}
+
+export function isSpendingExpense(e: Expense): boolean {
+  return !NON_SPENDING_CATEGORIES.has((e.category || '').toLowerCase());
+}
+
+export interface MonthBar {
+  category: string;
+  amount: number;
+  /** Width relative to the month's biggest category, 0–100. */
+  pct: number;
+  /** Share of the month's spending, 0–100. */
+  sharePct: number;
+  color: string;
+}
+
+/** Per-category bars for one month, biggest first (money.js _renderMonthBars). */
+export function monthBars(items: Expense[]): MonthBar[] {
+  const tally = spentByCategory(items);
+  const sorted = Object.entries(tally).sort((a, b) => b[1] - a[1]);
+  const total = sorted.reduce((s, [, v]) => s + v, 0);
+  const max = sorted[0]?.[1] || 1;
+  return sorted.map(([category, amount]) => ({
+    category,
+    amount,
+    pct: (amount / max) * 100,
+    sharePct: total > 0 ? (amount / total) * 100 : 0,
+    color: breakdownColorFor(category),
+  }));
+}
+
+export interface GaugeSegment {
+  category: string;
+  amount: number;
+  pct: number;
+  color: string;
+}
+
+export interface IncomeGauge {
+  income: number;
+  spent: number;
+  leftover: number;
+  segments: GaugeSegment[];
+  /** Grey "unspent" tail, 0 when nothing left. */
+  unspentPct: number;
+  /** Vertical income line, only when overspent (spent > income > 0). */
+  incomeMarkerPct: number | null;
+  /** Both zero → old code rendered nothing. */
+  empty: boolean;
+}
+
+/** Earned-vs-spent stacked bar for one month (money.js _renderIncomeGauge). */
+export function incomeGauge(monthItems: Expense[]): IncomeGauge {
+  const spendingItems = monthItems.filter(isSpendingExpense);
+  const incomeItems = monthItems.filter(isIncomeCategory);
+  const spent = spendingItems.reduce((s, e) => s + (e.amount || 0), 0);
+  const income = incomeItems.reduce((s, e) => s + (e.amount || 0), 0);
+
+  const tally = spentByCategory(spendingItems);
+  const sortedCats = Object.entries(tally).sort((a, b) => b[1] - a[1]);
+  const denom = Math.max(income, spent, 1);
+  const segments = sortedCats.map(([category, amount]) => ({
+    category,
+    amount,
+    pct: (amount / denom) * 100,
+    color: breakdownColorFor(category),
+  }));
+
+  const leftover = income - spent;
+  const unspentPct = leftover > 0 ? (leftover / denom) * 100 : 0;
+  const incomeMarkerPct = spent > income && income > 0 ? (income / denom) * 100 : null;
+
+  return {
+    income,
+    spent,
+    leftover,
+    segments,
+    unspentPct,
+    incomeMarkerPct,
+    empty: income === 0 && spent === 0,
+  };
+}
+
+export interface MonthGroup {
+  monthKey: string;
+  items: Expense[];
+  spendingOnly: Expense[];
+  totalSpent: number;
+  totalIncome: number;
+}
+
+/** Expenses grouped by YYYY-MM, newest month first (renderSpendingBreakdown). */
+export function groupByMonth(expenses: Expense[]): MonthGroup[] {
+  const byMonth: Record<string, Expense[]> = {};
+  expenses.forEach((e) => {
+    const key = (e.date || '').substring(0, 7);
+    if (!key) return;
+    (byMonth[key] ||= []).push(e);
+  });
+  return Object.keys(byMonth)
+    .sort()
+    .reverse()
+    .map((monthKey) => {
+      const items = byMonth[monthKey];
+      const spendingOnly = items.filter(isSpendingExpense);
+      return {
+        monthKey,
+        items,
+        spendingOnly,
+        totalSpent: spendingOnly.reduce((s, e) => s + (e.amount || 0), 0),
+        totalIncome: items.filter(isIncomeCategory).reduce((s, e) => s + (e.amount || 0), 0),
+      };
+    });
+}
+
+export interface GrandTotals {
+  grandSpent: number;
+  grandIncome: number;
+}
+
+export function grandTotals(expenses: Expense[]): GrandTotals {
+  return {
+    grandSpent: expenses.filter(isSpendingExpense).reduce((s, e) => s + (e.amount || 0), 0),
+    grandIncome: expenses.filter(isIncomeCategory).reduce((s, e) => s + (e.amount || 0), 0),
+  };
+}
+
+/** "July 2026" from a YYYY-MM key (noon avoids TZ back-shift). */
+export function monthLabel(monthKey: string): string {
+  return new Date(monthKey + '-01T12:00:00').toLocaleDateString('en-US', {
+    month: 'long',
+    year: 'numeric',
+  });
+}
+
+/** Transactions in `category` (Uncategorized = no category), newest first (drill-down). */
+export function drillTransactions(items: Expense[], category: string): Expense[] {
+  return items
+    .filter((e) => (e.category || 'Uncategorized') === category)
+    .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+}
+
+/** Budget categories + every category observed on an expense, sorted (money.js _allKnownCategories). */
+export function allKnownCategories(categories: BudgetCategory[], expenses: Expense[]): string[] {
+  const fromBudget = categories.map((c) => c.name);
+  const fromExpenses = expenses.map((e) => e.category).filter((c): c is string => !!c);
+  return [...new Set([...fromBudget, ...fromExpenses])].sort();
+}
+
+// --- Set Aside (savings + tax obligation) ---
+
+export const TAX_RATE = 0.25;
+
+/** Income rows whose comments mention Vidala — paychecks the 25% applies to. */
+export function vidalaIncome(expenses: Expense[]): Expense[] {
+  return expenses.filter((e) => {
+    const c = (e.comments || '').toLowerCase();
+    return isIncomeCategory(e) && c.includes('vidala');
+  });
+}
+
+/** Rows categorized Savings/Transfer (created during CSV import for "transfer to savings"). */
+export function savingsTransfers(expenses: Expense[]): Expense[] {
+  return expenses.filter((e) => (e.category || '').toLowerCase() === 'savings/transfer');
+}
+
+export interface SetAsideSummary {
+  vidalaPaychecks: Expense[];
+  vidalaTotal: number;
+  taxOwed: number;
+  taxAside: number;
+  /** Positive → still owes; negative/zero → ahead. */
+  taxBalance: number;
+  savings: Expense[];
+  savingsTotal: number;
+}
+
+export function setAsideSummary(expenses: Expense[], taxSetaside: TaxSetasideEntry[]): SetAsideSummary {
+  const vidalaPaychecks = vidalaIncome(expenses);
+  const vidalaTotal = vidalaPaychecks.reduce((s, e) => s + (e.amount || 0), 0);
+  const taxOwed = vidalaTotal * TAX_RATE;
+  const taxAside = taxSetaside.reduce((s, t) => s + (t.amount || 0), 0);
+  const savings = savingsTransfers(expenses);
+  return {
+    vidalaPaychecks,
+    vidalaTotal,
+    taxOwed,
+    taxAside,
+    taxBalance: taxOwed - taxAside,
+    savings,
+    savingsTotal: savings.reduce((s, e) => s + (e.amount || 0), 0),
+  };
+}
+
+/** Newest-first tax log, capped at 8 rows like the old table. */
+export function recentTaxLog(taxSetaside: TaxSetasideEntry[]): TaxSetasideEntry[] {
+  return [...taxSetaside].sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 8);
+}
+
+/** Recent-expenses table: newest first, capped at 30 (renderRecentExpenses). */
+export function recentExpenses(expenses: Expense[]): { recent: Expense[]; total: number } {
+  const items = [...expenses].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  return { recent: items.slice(0, 30), total: items.length };
+}

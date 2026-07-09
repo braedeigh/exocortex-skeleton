@@ -1,0 +1,96 @@
+.loading {
+  color: var(--text-muted);
+  font-size: var(--font-size-base);
+  padding: var(--space-4) 0;
+}
+
+.status {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  margin-bottom: var(--space-3);
+}
+
+.empty {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* "## Heading" section label above its run of fact-cards (legacy .tp-section). */
+.section {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin: var(--space-3) 0 var(--space-2);
+}
+
+.section:first-child {
+  margin-top: 0;
+}
+
+/* One fact-card: a ≤3-line statement + the sources it came from (legacy .tp-card). */
+.factCard {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.factText {
+  font-size: var(--font-size-base);
+  line-height: 1.5;
+  color: var(--text);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.sourceChip {
+  display: inline-flex;
+  align-items: center;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-1) var(--space-3);
+  min-height: var(--tap-target);
+  color: var(--accent);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  text-decoration: none;
+  box-sizing: border-box;
+}
+
+.sourceChip:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+/* Same look as PersonPopover's "Open person page →". */
+.openFull {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: var(--tap-target);
+  margin-top: var(--space-2);
+  background: var(--accent);
+  border-radius: var(--radius-lg);
+  color: #fff;
+  font-size: var(--font-size-base);
+  font-weight: 700;
+  text-decoration: none;
+  box-sizing: border-box;
+}

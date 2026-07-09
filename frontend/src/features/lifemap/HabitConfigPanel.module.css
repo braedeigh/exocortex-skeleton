@@ -1,0 +1,103 @@
+/* Habit config modal fields — port of the .habit-config / .tm-field styles. */
+
+.field {
+  margin: 12px 0;
+}
+
+.field:first-child {
+  margin-top: 0;
+}
+
+.label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  display: block;
+  margin-bottom: 5px;
+}
+
+.input {
+  padding: 8px 10px;
+  min-height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 15px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.checks {
+  margin-top: 4px;
+}
+
+.checkLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 40px;
+  margin-right: 16px;
+  font-size: 15px;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.check {
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+  flex: none;
+}
+
+.courseFields {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+  font-size: 15px;
+  color: var(--text);
+}
+
+.courseEnd {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.deleteBtn {
+  background: none;
+  border: 1px solid var(--red);
+  color: var(--red);
+  border-radius: var(--radius-sm);
+  padding: 8px 16px;
+  min-height: 40px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.deleteBtn:hover {
+  background: var(--red);
+  color: #fff;
+}
+
+.saveBtn {
+  background: var(--accent);
+  border: none;
+  color: #fff;
+  border-radius: var(--radius-sm);
+  padding: 8px 16px;
+  min-height: 40px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}

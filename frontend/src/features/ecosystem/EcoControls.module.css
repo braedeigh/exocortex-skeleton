@@ -1,0 +1,58 @@
+.bar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.addBtn {
+  height: 40px;
+  padding: 0 14px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  background: var(--green);
+  color: #fff;
+}
+
+.recipePicker {
+  height: 40px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  padding: 0 10px;
+  max-width: 220px;
+  cursor: pointer;
+}
+
+.recipePickerActive {
+  border-color: var(--accent);
+}
+
+.viewSeg {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.segBtn {
+  height: 40px;
+  padding: 0 14px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text);
+}
+
+.segBtnOn {
+  border-color: var(--accent);
+  background: rgba(124, 92, 191, 0.12);
+}

@@ -1,0 +1,363 @@
+/* Contact calendar + manage grid — port of style.css .contact-calendar /
+   .cal-dot-wrap / .log-picker / .contacts-grid / .contact-card. */
+
+.calendar {
+  margin-bottom: var(--space-6);
+  overflow-x: auto;
+}
+
+.calendar table {
+  border-collapse: collapse;
+}
+
+.calendar td {
+  padding: 2px;
+  text-align: center;
+}
+
+.calName {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  padding-right: var(--space-3);
+  white-space: nowrap;
+  text-align: left;
+  position: sticky;
+  left: 0;
+  background: var(--bg);
+  z-index: 1;
+  min-width: 100px;
+}
+
+.calDate {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.2;
+}
+
+.dotWrap {
+  position: relative;
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+}
+
+.dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  display: inline-block;
+  cursor: default;
+  border: none;
+  padding: 0;
+}
+
+.dotFilled {
+  cursor: pointer;
+}
+
+.dotFilled:hover {
+  opacity: 0.7;
+}
+
+.dotEmpty {
+  background: var(--border);
+  cursor: pointer;
+}
+
+@media (max-width: 768px) {
+  .calName {
+    font-size: var(--font-size-base);
+  }
+
+  .dotWrap {
+    width: 18px;
+    height: 18px;
+  }
+
+  .dot {
+    width: 18px !important;
+    height: 18px !important;
+  }
+}
+
+.calX {
+  position: absolute;
+  top: -1px;
+  left: 0;
+  width: 14px;
+  height: 14px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  pointer-events: none;
+  text-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
+  line-height: 1;
+}
+
+.dotWrap:hover .calX {
+  display: flex;
+}
+
+.tooltip {
+  display: none;
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--text);
+  color: var(--bg);
+  font-size: 12px;
+  padding: 3px var(--space-2);
+  border-radius: 4px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 10;
+  margin-bottom: var(--space-1);
+}
+
+.dotWrap:hover .tooltip {
+  display: block;
+}
+
+.logPicker {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  padding: var(--space-2);
+  z-index: 20;
+  display: flex;
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
+  white-space: nowrap;
+}
+
+.logPicker button {
+  padding: var(--space-1) var(--space-2);
+  min-height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+
+.logPicker button:hover {
+  background: var(--card-bg);
+  border-color: #aaa;
+}
+
+.legend {
+  margin-top: 8px;
+  display: flex;
+  gap: 14px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.legendSwatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+/* --- Manage panel grid --- */
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--space-6);
+}
+
+.card {
+  background: var(--card-bg);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  position: relative;
+}
+
+.remove {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-3);
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 20px;
+  cursor: pointer;
+  line-height: 1;
+  min-width: 40px;
+  min-height: 40px;
+}
+
+.remove:hover {
+  color: var(--red);
+}
+
+.reorderBtns {
+  position: absolute;
+  top: 8px;
+  left: 10px;
+  display: flex;
+  gap: 3px;
+}
+
+.reorderBtn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 2px 5px;
+  min-width: 40px;
+  min-height: 40px;
+}
+
+.name {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--text);
+  margin-top: 32px;
+}
+
+.status {
+  font-size: 14px;
+  margin-top: var(--space-1);
+  font-weight: 600;
+}
+
+.method {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.cadence {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 4px 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.cadenceInput {
+  width: 52px;
+  padding: 3px 5px;
+  min-height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+  text-align: center;
+}
+
+.actionsRow {
+  margin-top: var(--space-2);
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.actionsRow button {
+  padding: var(--space-1) var(--space-3);
+  min-height: 40px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+
+.actionsRow button:hover {
+  background: var(--card-bg);
+  border-color: #aaa;
+}
+
+/* Add-person form */
+
+.addTrigger {
+  font-size: 14px;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: var(--space-2) 0 0;
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  background: none;
+  border: none;
+}
+
+.addTrigger:hover {
+  color: var(--text-secondary);
+}
+
+.addForm {
+  display: flex;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+  margin-bottom: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.addForm input[type='text'] {
+  flex: 1;
+  min-width: 120px;
+  padding: var(--space-2) var(--space-3);
+  min-height: 40px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-base);
+  background: var(--bg);
+  color: var(--text);
+}
+
+.addForm input[type='number'] {
+  width: 60px;
+  text-align: center;
+  padding: var(--space-2);
+  min-height: 40px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-base);
+  background: var(--bg);
+  color: var(--text);
+}
+
+.addForm button {
+  padding: var(--space-2) var(--space-4);
+  min-height: 40px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--text);
+  color: var(--bg);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.addLabel {
+  font-size: 12px;
+  color: var(--text-muted);
+}

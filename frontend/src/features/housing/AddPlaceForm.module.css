@@ -1,0 +1,46 @@
+/* Collapsed-until-tapped add form — old renderHousingAddForm() styles. */
+
+.details {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  margin-bottom: 18px;
+}
+
+.summary {
+  cursor: pointer;
+  list-style: none;
+  padding: var(--space-3) 14px;
+  font-weight: 600;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--tap-target);
+  box-sizing: border-box;
+}
+
+.summary::-webkit-details-marker {
+  display: none;
+}
+
+.plus {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.body {
+  padding: 0 14px 14px 14px;
+}
+
+.addBtn {
+  margin-top: 10px;
+  padding: 10px 18px;
+  min-height: var(--tap-target);
+  background: var(--ongoing);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 14px;
+}

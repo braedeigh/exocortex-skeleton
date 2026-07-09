@@ -1,0 +1,86 @@
+/* Port of details.map-section.kitchen-section (style.css) — soft pill card
+   with a left accent, chevron summary, edit button on the title line. */
+
+.card {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border);
+  border-radius: 10px;
+  background: rgba(124, 92, 191, 0.025);
+  margin-bottom: 10px;
+  padding: 2px 14px;
+  transition: border-color 0.18s, background 0.18s, box-shadow 0.18s;
+}
+
+.card[open] {
+  border-color: var(--border);
+  border-left-color: var(--accent);
+  background: rgba(124, 92, 191, 0.06);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.card:not([open]):hover {
+  border-left-color: rgba(124, 92, 191, 0.45);
+}
+
+/* Habit Tracker card gets the evening-blue accent instead of purple. */
+.cardHabit,
+.cardHabit[open],
+.cardHabit:not([open]):hover {
+  border-left-color: var(--evening);
+}
+
+.summary {
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 8px 0;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--tap-target);
+  border-radius: 6px;
+  color: var(--text);
+}
+
+.summary::-webkit-details-marker {
+  display: none;
+}
+
+.card[open] > .summary {
+  border-bottom: 1px dashed rgba(124, 92, 191, 0.18);
+  margin-bottom: 4px;
+}
+
+.arrow {
+  font-size: 12px;
+  transition: transform 0.15s;
+  display: inline-block;
+}
+
+.card[open] .arrow {
+  color: var(--accent);
+  transform: rotate(90deg);
+}
+
+/* Title-line edit/manage button — hidden while the card is closed. */
+.editBtn {
+  margin-left: auto;
+  font-size: 12px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 10px;
+  min-height: 40px;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.editBtn:hover {
+  color: var(--text-secondary);
+}
+
+.card:not([open]) .editBtn {
+  display: none;
+}

@@ -1,0 +1,81 @@
+/* Backlog entry card — old inline styles from _mediaRenderCard. */
+
+.card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  margin-bottom: var(--space-3);
+  background: var(--card-bg);
+}
+
+.done {
+  opacity: 0.7;
+}
+
+.row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+/* Checkbox label already provides the 44px hit row; keep it snug to the top. */
+.check {
+  flex: none;
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+}
+
+.titleLine {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.typeLabel {
+  font-size: var(--font-size-sm);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.title {
+  font-weight: 700;
+  font-size: 16px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.done .title {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.author {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.metaLine {
+  margin-top: 2px;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.notes {
+  margin-top: var(--space-2);
+  white-space: pre-wrap;
+  line-height: 1.55;
+  font-size: 14px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-1);
+  flex: none;
+}

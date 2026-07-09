@@ -1,0 +1,36 @@
+.page {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-4);
+  /* Clearance so the floating notes pill never covers the last table row. */
+  padding-bottom: calc(var(--space-8) + 64px);
+}
+
+/* Port of style.css .section-title (18px/700, 2px underline), margin-top:0
+   as the old #tab-car inline style forced. */
+.sectionTitle {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 var(--space-2);
+  padding-bottom: var(--space-2);
+  border-bottom: 2px solid var(--border);
+}
+
+.subtitle {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  margin: 0 0 var(--space-3);
+}
+
+.loading,
+.error {
+  color: var(--text-muted);
+  font-size: var(--font-size-base);
+  padding: var(--space-6) 0;
+  text-align: center;
+}
+
+.error {
+  color: var(--red);
+}

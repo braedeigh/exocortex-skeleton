@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useRef, useState } from 'react';
-import { ApiError } from '../../api/client';
+import { api, ApiError } from '../../api/client';
 import type { ToastItem } from '../../ui';
 import {
   addJournalDevNote,
@@ -17,11 +17,26 @@ import {
   updateCard,
   deleteCard as deleteCardRequest,
 } from '../../api/endpoints';
-import type { JournalDayBundle } from './types';
+import type { JournalDayBundle, ThreadDetail, ThreadsResponse } from './types';
 
 export const JOURNAL_DATES_KEY = ['journal', 'dates'] as const;
 export const JOURNAL_PEOPLE_KEY = ['journal', 'people'] as const;
+export const JOURNAL_THREADS_KEY = ['journal', 'threads'] as const;
 export const JOURNAL_DEVNOTES_KEY = ['journal', 'devnotes'] as const;
+
+// Threads fetchers live here (not api/endpoints.ts) because only the journal
+// feature consumes them today; hoist to endpoints.ts if another feature (e.g.
+// a future Threads page) needs them.
+
+/** GET /api/threads — roster for the highlighter + Threads launcher panel. */
+function getThreads(signal?: AbortSignal): Promise<ThreadsResponse> {
+  return api.get('/api/threads', signal);
+}
+
+/** GET /api/thread?name=<slug|name|alias> — one thread's parsed fact-cards. */
+function getThread(name: string, signal?: AbortSignal): Promise<ThreadDetail> {
+  return api.get(`/api/thread?name=${encodeURIComponent(name)}`, signal);
+}
 
 export function journalDayKey(date: string) {
   return ['journal', 'day', date] as const;
@@ -66,6 +81,22 @@ export function usePeople() {
     queryKey: JOURNAL_PEOPLE_KEY,
     queryFn: ({ signal }) => getPeople(signal),
     staleTime: 10 * 60_000,
+  });
+}
+
+export function useThreads() {
+  return useQuery({
+    queryKey: JOURNAL_THREADS_KEY,
+    queryFn: ({ signal }) => getThreads(signal),
+    staleTime: 10 * 60_000,
+  });
+}
+
+export function useThread(id: string | null) {
+  return useQuery({
+    queryKey: ['journal', 'thread', id ?? ''],
+    queryFn: ({ signal }) => getThread(id as string, signal),
+    enabled: !!id,
   });
 }
 

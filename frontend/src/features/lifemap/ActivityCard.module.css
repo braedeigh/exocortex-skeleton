@@ -1,0 +1,360 @@
+/* Port of style.css .activity-cal / .activity-legend / .activity-stats /
+   .activity-btns / .act-chip / .run-log-item + activity.js inline styles. */
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--text);
+  margin: var(--space-4) 0;
+  padding-bottom: var(--space-2);
+  border-bottom: 2px solid var(--border);
+}
+
+.navBtn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 9px;
+  min-width: 40px;
+  min-height: 40px;
+}
+
+.navHidden {
+  visibility: hidden;
+}
+
+.cal {
+  margin-bottom: var(--space-6);
+}
+
+.cal table {
+  border-collapse: collapse;
+  width: 100%;
+  table-layout: fixed;
+}
+
+.cal th {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: var(--space-1) 2px;
+  text-align: center;
+}
+
+.cal td {
+  padding: 4px 2px;
+  text-align: center;
+  vertical-align: top;
+  height: 64px;
+  border: 1px solid var(--border);
+}
+
+.cellToday {
+  background: rgba(76, 175, 80, 0.08);
+}
+
+.emptyCell {
+  background: none !important;
+  border-color: transparent !important;
+}
+
+.cellClickable {
+  cursor: pointer;
+}
+
+.cellPast {
+  opacity: 0.78;
+}
+
+.cellFuture {
+  opacity: 0.4;
+}
+
+.cellSelected {
+  outline: 2px solid var(--orange);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+
+.calDay {
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 3px;
+}
+
+.cellToday .calDay {
+  color: var(--green);
+}
+
+.calDots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  justify-content: center;
+}
+
+/* --- Dot shapes: shape = family, --dot-color = the individual ritual --- */
+
+.dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  cursor: pointer;
+  background: var(--dot-color, var(--text-muted));
+  border: none;
+  padding: 0;
+  display: inline-block;
+}
+
+.dot:hover {
+  opacity: 0.7;
+  transform: scale(1.3);
+}
+
+.ldot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+  background: var(--dot-color, var(--text-muted));
+}
+
+.shapeSquare {
+  border-radius: 2px;
+}
+
+.shapeDiamond {
+  border-radius: 2px;
+  transform: rotate(45deg) scale(0.82);
+}
+
+.dot.shapeDiamond:hover {
+  transform: rotate(45deg) scale(1.05);
+}
+
+.shapeTriangle {
+  border-radius: 0;
+  clip-path: polygon(50% 2%, 100% 98%, 0% 98%);
+}
+
+.shapeRing {
+  background: transparent;
+  border: 2px solid var(--dot-color, var(--text-muted));
+  box-sizing: border-box;
+}
+
+@media (max-width: 768px) {
+  .shapeRing {
+    border-width: 3px;
+  }
+}
+
+.legend {
+  display: flex;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin: var(--space-2) 0 var(--space-3);
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.legend span {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.stats {
+  display: flex;
+  gap: var(--space-5);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-3);
+  font-size: var(--font-size-base);
+}
+
+.statVal {
+  font-size: 22px;
+  font-weight: 700;
+  color: color-mix(in srgb, var(--act-color, var(--text)) 60%, var(--text));
+}
+
+.statMuted {
+  color: var(--text-muted);
+}
+
+.logForRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+
+.logForLabel {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.logForBackdated {
+  color: var(--orange);
+}
+
+.backBtn {
+  font-size: 12px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 8px;
+  min-height: 40px;
+  cursor: pointer;
+  color: var(--text-muted);
+}
+
+.btns {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-3);
+}
+
+.chip {
+  --act-color: var(--accent);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--act-color) 45%, var(--border));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--act-color) 10%, var(--card-bg));
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  color: color-mix(in srgb, var(--act-color) 55%, var(--text));
+  min-height: var(--tap-target);
+}
+
+.chip:hover {
+  background: color-mix(in srgb, var(--act-color) 18%, var(--card-bg));
+  border-color: color-mix(in srgb, var(--act-color) 60%, var(--border));
+}
+
+/* --- Run form --- */
+
+.runForm {
+  background: var(--card-bg);
+  padding: 16px;
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  margin-bottom: 16px;
+}
+
+.runFormRow {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.runField label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  display: block;
+  margin-bottom: 4px;
+}
+
+.runField input {
+  padding: 6px 10px;
+  min-height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+  background: var(--bg);
+  color: var(--text);
+  box-sizing: border-box;
+}
+
+.runMinutes {
+  width: 80px;
+}
+
+.runNotes {
+  width: 200px;
+}
+
+.runSave {
+  padding: 7px 16px;
+  min-height: var(--tap-target);
+  font-size: 13px;
+  font-weight: 600;
+  background: var(--green);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+/* --- Recent runs --- */
+
+.recentRuns {
+  margin-top: var(--space-2);
+}
+
+.recentSummary {
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--text-muted);
+  min-height: var(--tap-target);
+  display: flex;
+  align-items: center;
+}
+
+.runItem {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  font-size: var(--font-size-base);
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+
+.runItem:last-child {
+  border-bottom: none;
+}
+
+.runDate {
+  min-width: 100px;
+  font-weight: 600;
+}
+
+.runNotesText {
+  color: var(--text-muted);
+  flex: 1;
+  min-width: 0;
+}
+
+.runDelete {
+  opacity: 0.5;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 18px;
+  min-width: 40px;
+  min-height: 40px;
+}
+
+.runDelete:hover {
+  color: var(--red);
+  opacity: 1;
+}

@@ -1,0 +1,108 @@
+/* Centered modal — port of style.css .modal-overlay/.modal (the old buy-item
+ * and archival modals were centered overlays, not bottom sheets). */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal {
+  background: var(--card-bg);
+  border-radius: var(--radius-xl);
+  padding: var(--space-7);
+  min-width: 320px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
+  text-align: center;
+}
+
+/* Wide editor variant (buy-item / archival modals). */
+.editor {
+  text-align: left;
+  max-width: 560px;
+  width: calc(100% - 32px);
+  min-width: 0;
+  max-height: 88vh;
+  overflow-y: auto;
+  padding: var(--space-5) var(--space-5) var(--space-5);
+}
+
+.modalHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: 14px;
+}
+
+.modalTitle {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.closeBtn {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  border: none;
+  background: none;
+  font-size: 22px;
+  cursor: pointer;
+  color: var(--text-muted);
+  border-radius: var(--radius-md);
+  line-height: 1;
+}
+.closeBtn:hover {
+  color: var(--text);
+  background: rgba(124, 92, 191, 0.08);
+}
+
+/* Confirm dialog */
+.confirmText {
+  font-size: var(--font-size-lg);
+  margin-bottom: var(--space-5);
+  color: var(--text);
+  overflow-wrap: break-word;
+}
+.confirmButtons {
+  display: flex;
+  gap: var(--space-3);
+  justify-content: center;
+}
+.modalBtn {
+  min-height: 44px;
+  padding: var(--space-2) var(--space-6);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  cursor: pointer;
+}
+.confirmBtn {
+  composes: modalBtn;
+  background: var(--red);
+  color: #fff;
+}
+.confirmBtn:hover {
+  background: #c0392b;
+}
+.cancelBtn {
+  composes: modalBtn;
+  background: var(--border);
+  color: var(--text);
+}
+
+/* Prompt dialog (retire review / edit review — the old prompt() flow) */
+.promptMessage {
+  font-size: 14px;
+  color: var(--text);
+  margin-bottom: var(--space-3);
+  text-align: left;
+  line-height: 1.5;
+  overflow-wrap: break-word;
+}

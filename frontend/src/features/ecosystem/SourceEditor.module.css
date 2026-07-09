@@ -1,0 +1,288 @@
+.input {
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 40px;
+  margin-bottom: 8px;
+}
+
+.noteInput {
+  margin-bottom: 12px;
+}
+
+.axisLabel {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.btnRow {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.txBtn {
+  flex: 1;
+  min-height: 40px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+
+.txDot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.geoBtn {
+  flex: 1;
+  min-height: 40px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.geoBtnOn {
+  border-color: var(--accent);
+  background: rgba(124, 92, 191, 0.12);
+}
+
+.segRow {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.segBtn {
+  flex: 1;
+  height: 40px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.segBtnOn {
+  border-color: var(--accent);
+  background: rgba(124, 92, 191, 0.12);
+}
+
+.regionInfo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.useCircleBtn {
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.radiusWrap {
+  margin-bottom: 10px;
+}
+
+.radiusLabel {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  display: block;
+  margin-bottom: 4px;
+}
+
+.radiusSlider {
+  width: 100%;
+  min-height: 32px;
+}
+
+.pointWrap {
+  margin-bottom: 10px;
+}
+
+.pointHint {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.addrRow {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.addrRow .input {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+.findBtn {
+  height: 40px;
+  padding: 0 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  flex: none;
+}
+
+.msg {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  min-height: 1em;
+}
+
+.coordRow {
+  display: flex;
+  gap: 6px;
+}
+
+.coordRow .input {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+.usdaWrap {
+  margin-bottom: 10px;
+}
+
+.usdaBtn {
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.usdaWrap .msg {
+  margin-top: 6px;
+  margin-bottom: 0;
+}
+
+.keyWrap {
+  margin-top: 8px;
+}
+
+.keyRow {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.keySaveBtn {
+  height: 40px;
+  padding: 0 14px;
+  border-radius: 7px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.keyLink {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.locLine {
+  font-size: var(--font-size-sm);
+  margin-bottom: 12px;
+}
+
+.locSet {
+  color: var(--green);
+}
+
+.locUnset {
+  color: var(--text-muted);
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.saveBtn {
+  height: 40px;
+  padding: 0 20px;
+  border-radius: var(--radius-md);
+  border: none;
+  background: var(--green);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.cancelBtn {
+  height: 40px;
+  padding: 0 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.deleteBtn {
+  height: 40px;
+  padding: 0 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid #e0b4b4;
+  background: none;
+  color: #c0392b;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  margin-left: auto;
+}

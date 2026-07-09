@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { getFrameWindows } from './frameStore';
-import { isValidTab } from './tabs';
+import { TAB_ROUTES, isValidTab } from './tabs';
 
 interface ShellMessage {
   type: string;
@@ -49,11 +49,9 @@ export function useFrameBridge(): void {
         case 'tab':
         case 'switchTo': {
           const name = typeof msg.name === 'string' ? msg.name : null;
-          // 'today' is now the native /todos route, not a legacy iframe tab.
-          if (name === 'today') {
-            void navigate({ to: '/todos' });
-          } else if (name && isValidTab(name)) {
-            void navigate({ to: '/legacy/$tab', params: { tab: name } });
+          // Every dashboard tab is now a native SPA route.
+          if (name && isValidTab(name)) {
+            void navigate({ to: TAB_ROUTES[name] });
           }
           break;
         }
@@ -96,7 +94,7 @@ export function useFrameBridge(): void {
         // route in the SPA yet — stopgap until one exists: land on Today,
         // the tab triage was launched from.
         case 'openTerminalSession': {
-          void navigate({ to: '/legacy/$tab', params: { tab: 'today' } });
+          void navigate({ to: '/todos' });
           break;
         }
 

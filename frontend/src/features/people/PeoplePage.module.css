@@ -1,0 +1,101 @@
+/* PeoplePage — port of style.css's `#tab-people` block. Everything reads
+   the live theme vars (set inline by sky-theme.js at runtime), and the two
+   tints the old block derived per-tab are recreated here on the page root
+   so they stay translucent over whatever sits underneath in any theme.
+   Custom properties inherit, so PersonRow.module.css sees them too. */
+
+.page {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-4);
+  /* Clearance so the floating notes pill can't cover the last row. */
+  padding-bottom: calc(var(--space-8) + 64px);
+  --ppl-accent-light: color-mix(in srgb, var(--accent) 15%, transparent);
+  --ppl-hm-empty: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+/* The old tab's `.section-title` header (margin-top zeroed inline). */
+.title {
+  font-size: var(--font-size-xl);
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 var(--space-4);
+  padding-bottom: var(--space-2);
+  border-bottom: 2px solid var(--border);
+}
+
+.controlsRow {
+  display: flex;
+  gap: var(--space-2);
+  overflow-x: auto;
+  padding: var(--space-1) 0 var(--space-3);
+  border-bottom: 1px solid var(--border);
+  -webkit-overflow-scrolling: touch;
+  margin-bottom: var(--space-1);
+}
+
+.chip {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-target);
+  padding: 0 14px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  font-family: inherit;
+}
+
+.sortChip {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--ppl-accent-light);
+}
+
+.chipActive {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.chipSep {
+  flex-shrink: 0;
+  width: 1px;
+  background: var(--border);
+  margin: 6px 2px;
+}
+
+.loading {
+  padding: var(--space-6) 0;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.list {
+  padding-top: var(--space-2);
+}
+
+.tierTitle {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin: 18px 0 var(--space-2);
+}
+
+.tierTitle:first-child {
+  margin-top: var(--space-3);
+}
+
+.empty {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-style: italic;
+  padding: var(--space-3) 0;
+}
