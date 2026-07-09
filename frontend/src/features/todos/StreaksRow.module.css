@@ -6,17 +6,21 @@
   margin-bottom: var(--space-4);
 }
 
+/* A button now (opens the streak detail sheet), so it gets the ~40px tap
+   height the read-only chip could shirk. */
 .chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 32px;
+  min-height: 40px;
   background: color-mix(in srgb, var(--accent) 8%, transparent);
   border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
   border-radius: var(--radius-pill);
   padding: 4px 12px;
   font-size: var(--font-size-sm);
   color: var(--text-secondary);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .num {

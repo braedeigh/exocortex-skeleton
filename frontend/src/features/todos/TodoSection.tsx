@@ -22,6 +22,8 @@ export interface TodoSectionProps {
   onAutosort: (section: string) => void;
   /** Lets a drag started in *this* section land in a different one — see dragCoordinator.ts. */
   onMove: (id: string, toLabel: string) => void;
+  /** Header "+ add" — opens the add sheet preset to this section. Omitted for Done. */
+  onAddClick?: (label: string) => void;
 }
 
 interface DragState {
@@ -44,8 +46,12 @@ export function TodoSection({
   onReorder,
   onAutosort,
   onMove,
+  onAddClick,
 }: TodoSectionProps) {
   const [open, setOpen] = useState(defaultOpen);
+  // "small until edit": drag handles only exist while this is on (the
+  // header's edit/done toggle), so a stray touch can't reorder the list.
+  const [editing, setEditing] = useState(false);
   const [dragId, setDragId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
   const [hovered, setHovered] = useState(false);
@@ -167,6 +173,33 @@ export function TodoSection({
             &#8597; Auto-sort
           </span>
         ) : null}
+        {/* Nested-interactive workaround, same as the autosort chip: the
+            summary is itself a button, so these are role="button" spans. */}
+        {onAddClick ? (
+          <span
+            className={styles.headerAction}
+            role="button"
+            tabIndex={0}
+            onClick={(e) => {
+              e.stopPropagation();
+              onAddClick(label);
+            }}
+          >
+            + add
+          </span>
+        ) : null}
+        <span
+          className={`${styles.headerAction} ${editing ? styles.headerActionActive : ''}`}
+          role="button"
+          tabIndex={0}
+          onClick={(e) => {
+            e.stopPropagation();
+            setEditing((v) => !v);
+            if (!editing) setOpen(true); // entering edit mode on a collapsed card should show its rows
+          }}
+        >
+          {editing ? 'done' : 'edit'}
+        </span>
       </button>
       {open ? (
         items.length ? (
@@ -179,7 +212,7 @@ export function TodoSection({
               dragging={dragId === item.id}
               onToggle={onToggle}
               onOpen={onOpenDetail}
-              onHandlePointerDown={handlePointerDown}
+              onHandlePointerDown={editing ? handlePointerDown : undefined}
               rowRef={(el) => {
                 if (el) rowEls.current.set(item.id, el);
                 else rowEls.current.delete(item.id);

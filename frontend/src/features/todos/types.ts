@@ -49,6 +49,23 @@ export interface ActivityEntry {
   type: string;
 }
 
+/** One row of server.py's load_health_data() (habits.csv). Only the symptom
+ * columns the today page reads are typed; the CSV carries many more. */
+export interface HealthDay {
+  date: string;
+  energy?: number | null;
+  nose_congestion?: number | null;
+  brain_fog?: number | null;
+  abdominal_pain?: number | null;
+  hand_pain?: number | null;
+  headache?: number | null;
+  nose_spray?: number | null;
+  [key: string]: unknown;
+}
+
+/** symptom column -> level ("0".."3") -> the user's own definition text. */
+export type SymptomDefinitions = Record<string, Record<string, string>>;
+
 export type ReminderShape = 'circle' | 'square' | 'diamond' | 'triangle' | 'ring';
 export type ReminderSchedule = 'interval' | 'weekly';
 export type ReminderMode = 'log' | 'countdown' | 'track';
@@ -92,6 +109,7 @@ export interface TodayData extends TodayDataHabitsFields {
   time_of_day: TimeOfDay;
   todos: TodosStream;
   reminders?: ReminderDef[];
+  health_data?: HealthDay[];
   activity_log: ActivityEntry[];
   private_act_types: string[];
   [key: string]: unknown;

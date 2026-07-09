@@ -76,6 +76,35 @@
   cursor: pointer;
 }
 
+/* "+ add" / "edit" title-row buttons — port of the legacy card's add-toggle /
+   edit-toggle, at the ~40px tap height (the 44px summary row absorbs it
+   without growing). */
+.headerAction {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  min-width: 40px;
+  padding: 0 12px;
+  /* negative margin = full-size hit area without inflating the summary row
+     (the expand-btn idiom from the legacy header) */
+  margin: -8px 0;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.headerActionActive {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
 .empty {
   padding: var(--space-4);
   color: var(--text-muted);

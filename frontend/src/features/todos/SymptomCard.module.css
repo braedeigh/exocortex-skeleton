@@ -1,0 +1,165 @@
+.card {
+  margin: var(--space-3) var(--space-4);
+  padding: var(--space-5);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--orange);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+}
+
+.heading {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--orange);
+}
+
+.dateField {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
+  max-width: 200px;
+}
+
+.dateLabel {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.dateInput {
+  min-height: var(--tap-target);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--font-size-base);
+}
+
+.key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  margin-bottom: var(--space-2);
+}
+
+.keyItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.keyDot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.keyEnergy {
+  font-size: var(--font-size-sm);
+  font-style: italic;
+  color: var(--text-muted);
+  margin-bottom: var(--space-4);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-3);
+}
+
+.fieldLabel {
+  display: block;
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: var(--space-2);
+}
+
+.btnGroup {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.symBtn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--font-size-base);
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.12s;
+  padding: 0;
+}
+
+.symBtn:active {
+  transform: scale(0.9);
+}
+
+/* Selected fill matches the legacy .sym-btn palette (style.css): green→red
+   for symptoms; energy runs the other way (0 Crashed is the bad end). */
+.symBtn.selected {
+  border-color: transparent;
+  color: #fff;
+}
+
+.symBtn.selected[data-col='symptom'][data-val='0'],
+.symBtn.selected[data-col='energy'][data-val='3'] {
+  background: var(--green);
+}
+
+.symBtn.selected[data-col='symptom'][data-val='1'],
+.symBtn.selected[data-col='energy'][data-val='2'] {
+  background: var(--yellow);
+  color: #333;
+}
+
+.symBtn.selected[data-col='symptom'][data-val='2'],
+.symBtn.selected[data-col='energy'][data-val='1'] {
+  background: var(--orange);
+}
+
+.symBtn.selected[data-col='symptom'][data-val='3'],
+.symBtn.selected[data-col='energy'][data-val='0'] {
+  background: var(--red);
+}
+
+.spray {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--tap-target);
+  margin-bottom: var(--space-2);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.sprayBox {
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+}
+
+.trackerLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-target);
+  margin-top: var(--space-1);
+  font-size: var(--font-size-sm);
+  color: var(--accent);
+  text-decoration: none;
+}

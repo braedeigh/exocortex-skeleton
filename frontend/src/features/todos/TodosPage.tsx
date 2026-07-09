@@ -5,12 +5,15 @@ import { HabitsColumn } from '../habits/HabitsColumn';
 import { pickTimeSegment } from '../habits/habitMath';
 import type { TimeSegment } from '../habits/habitMath';
 import { AddBar } from './AddBar';
+import { AddTodoSheet } from './AddTodoSheet';
 import { DetailSheet } from './DetailSheet';
 import { FocusChips } from './FocusChips';
 import { NotesPill } from './NotesPill';
 import { ReminderCard } from './ReminderCard';
 import { SnoozedCard } from './SnoozedCard';
+import { StreakSheet } from './StreakSheet';
 import { StreaksRow } from './StreaksRow';
+import { SymptomCard } from './SymptomCard';
 import { TodoSection } from './TodoSection';
 import {
   DONE_LABEL,
@@ -22,7 +25,15 @@ import {
 } from './todoHelpers';
 import { isFrosted } from './types';
 import type { TodoItem } from './types';
-import { useHabitActions, useTodayData, useTodoActions, useReminderActions, useToasts } from './useTodayData';
+import {
+  useHabitActions,
+  useStreakActions,
+  useSymptomActions,
+  useTodayData,
+  useTodoActions,
+  useReminderActions,
+  useToasts,
+} from './useTodayData';
 import styles from './TodosPage.module.css';
 
 const FOCUS_STORAGE_KEY = 'todoFocusTheme';
@@ -58,10 +69,17 @@ export function TodosPage() {
   const todoActions = useTodoActions(push);
   const reminderActions = useReminderActions(push);
   const habitActions = useHabitActions(push);
+  const streakActions = useStreakActions(push);
+  const symptomActions = useSymptomActions(push);
   const isPublic = isPublicMode();
 
   const [focusTheme, setFocusThemeState] = useState(readStoredFocus);
   const [selected, setSelected] = useState<TodoItem | null>(null);
+  // Streaks are keyed by label+since (no id) — the sheet re-derives its
+  // streak from the polled data so "Day N" stays live while it's open.
+  const [streakKey, setStreakKey] = useState<{ label: string; since: string } | null>(null);
+  // Which section's "+ add" opened the add sheet; null = closed.
+  const [addSection, setAddSection] = useState<string | null>(null);
   // Controls both the greeting text and which habit cards show — mirrors the
   // old page's single `selectedTime` global (core.js getTime()).
   const [manualSegment, setManualSegment] = useState<TimeSegment | null>(null);
@@ -122,6 +140,9 @@ export function TodosPage() {
   const habits = data.habits || [];
   const habitsLog = data.habits_log || {};
   const streaks = Array.isArray(data.streaks) ? data.streaks : [];
+  const openStreak = streakKey
+    ? streaks.find((s) => s.label === streakKey.label && s.since === streakKey.since) || null
+    : null;
 
   return (
     <div className={styles.page}>
@@ -145,7 +166,7 @@ export function TodosPage() {
           <div className={styles.dateLine}>{data.date}</div>
           {/* TODO(habits phase 2): "Show hidden prompts" expand-all toggle
               lived here (old #expand-btn next to date-text). */}
-          <StreaksRow streaks={streaks} />
+          <StreaksRow streaks={streaks} onOpen={(s) => setStreakKey({ label: s.label, since: s.since })} />
           <GraduationPrompts
             habits={habits}
             hidden={data.habit_settings?.hidden || []}
@@ -157,6 +178,7 @@ export function TodosPage() {
             onPromote={habitActions.promote}
             onRestore={habitActions.restore}
           />
+          <SymptomCard healthData={data.health_data} serverDate={serverDate} onLog={symptomActions.log} />
         </>
       ) : null}
 
@@ -206,6 +228,7 @@ export function TodosPage() {
                   onReorder={todoActions.reorder}
                   onAutosort={todoActions.autosort}
                   onMove={todoActions.move}
+                  onAddClick={setAddSection}
                 />
               ))
             )}
@@ -229,6 +252,16 @@ export function TodosPage() {
           </div>
         </div>
       )}
+
+      <AddTodoSheet section={addSection} onClose={() => setAddSection(null)} onAdd={todoActions.add} />
+
+      <StreakSheet
+        streak={openStreak}
+        open={!!openStreak}
+        onClose={() => setStreakKey(null)}
+        onSaveNotes={streakActions.saveNotes}
+        onRemove={streakActions.remove}
+      />
 
       <DetailSheet
         item={selected}

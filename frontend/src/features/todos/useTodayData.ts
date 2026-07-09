@@ -5,10 +5,13 @@ import { ApiError } from '../../api/client';
 import {
   addTodo,
   autosortTodos,
+  getSymptomDefinitions,
   logActivity,
+  logSymptoms,
   moveTodo,
   promoteHabitCadence,
   removeActivity,
+  removeStreak,
   removeTodo,
   renameTodo,
   reorderTodos,
@@ -19,8 +22,9 @@ import {
   toggleHabit,
   toggleTodo,
   getTodayData,
+  updateStreakNotes,
 } from '../../api/endpoints';
-import type { AddTodoPayload, TodoDetailsPatch } from '../../api/endpoints';
+import type { AddTodoPayload, SymptomLevels, TodoDetailsPatch } from '../../api/endpoints';
 import {
   applyActivityLog,
   applyActivityRemove,
@@ -34,6 +38,9 @@ import {
   applyReminderSnooze,
   applyReorder,
   applySnooze,
+  applyStreakNotes,
+  applyStreakRemove,
+  applySymptomLog,
   applyToggle,
 } from './optimistic';
 import type { TodayData, TodoItem } from './types';
@@ -188,6 +195,49 @@ export function useReminderActions(onError: (message: string) => void) {
     log: (date: string, type: string) => log.mutate({ date, type }),
     undo: (date: string, type: string) => undo.mutate({ date, type }),
     snooze: (id: string, days: number) => snooze.mutate({ id, days }),
+  };
+}
+
+/** Custom "what 0–3 means" tooltips for the symptom buttons. Definitions only
+ * change from the Body tab's editor, so a long staleTime keeps this off the
+ * 5s poll cadence. */
+export function useSymptomDefinitions() {
+  return useQuery({
+    queryKey: ['data', 'symptom-definitions'] as const,
+    queryFn: ({ signal }) => getSymptomDefinitions(signal),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useSymptomActions(onError: (message: string) => void) {
+  const log = useOptimisticMutation(
+    (vars: { date: string; symptoms: SymptomLevels }) => logSymptoms(vars.date, vars.symptoms),
+    (data, vars) => applySymptomLog(data, vars.date, vars.symptoms),
+    onError,
+  );
+
+  return {
+    log: (date: string, symptoms: SymptomLevels) => log.mutate({ date, symptoms }),
+  };
+}
+
+/** Streak (day-counter) mutations — label+since is the identity key. */
+export function useStreakActions(onError: (message: string) => void) {
+  const saveNotes = useOptimisticMutation(
+    (vars: { label: string; since: string; notes: string }) =>
+      updateStreakNotes(vars.label, vars.since, vars.notes),
+    (data, vars) => applyStreakNotes(data, vars.label, vars.since, vars.notes),
+    onError,
+  );
+  const remove = useOptimisticMutation(
+    (vars: { label: string; since: string }) => removeStreak(vars.label, vars.since),
+    (data, vars) => applyStreakRemove(data, vars.label, vars.since),
+    onError,
+  );
+
+  return {
+    saveNotes: (label: string, since: string, notes: string) => saveNotes.mutate({ label, since, notes }),
+    remove: (label: string, since: string) => remove.mutate({ label, since }),
   };
 }
 
