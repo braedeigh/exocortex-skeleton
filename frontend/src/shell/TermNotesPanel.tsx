@@ -57,6 +57,13 @@ export function TermNotesPanel({
     if (!text) return;
     await addTermNote(text);
     setDraft('');
+    // onDraftInput grows the textarea by writing a pixel height straight to
+    // the DOM node (needed since it auto-grows while typing) — clearing
+    // `draft` alone doesn't touch that inline style, so without this the box
+    // stays at its expanded size after the note posts instead of collapsing
+    // back to its initial small size ("the expansion of the note add remains
+    // after i send the note").
+    if (inputRef.current) inputRef.current.style.height = '';
     load();
   };
 

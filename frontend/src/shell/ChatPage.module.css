@@ -1,9 +1,18 @@
+/* Pinned to the same fixed indigo as the terminal's tab apparatus (see the
+ * header comment in TopTabs.module.css / SessionBar.module.css) rather than
+ * var(--bg) — "make the bottom of the PWA match the color of the
+ * background... indigo on the terminal." PhoneFrames' iframe (below) covers
+ * almost all of this, but the iOS PWA's bottom safe-area strip (home
+ * indicator) sits below the iframe's own viewport-fit=cover content, so
+ * whatever this page's own background is shows through there — it needs to
+ * read as terminal-indigo, not day/night var(--bg), while on this tab. */
 .page {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  background: #1a1a2e;
 }
 
 /* Fills everything below the (usually collapsed) session picker —

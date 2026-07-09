@@ -16,7 +16,14 @@ import styles from './SessionBar.module.css';
  * - Closing a session is a two-step "tap × again to confirm" (3s window,
  *   same pattern as the mini-notes delete button), not `window.confirm`.
  * - A tab whose session is waiting on input (and isn't the open one) gets a
- *   tint — see useNeedsInput.
+ *   tint — see useNeedsInput. The 'chat' session is excluded from that tint:
+ *   the needs-input heuristic keys off Claude Code's own status line ("? for
+ *   shortcuts"), which is on screen almost continuously while Claude Code is
+ *   running — so chat's tab read as orange essentially all the time ("make
+ *   the chat session not orange all the time"). It still gets its own fixed,
+ *   always-on accent when idle so it stays easy to spot at a glance ("still
+ *   make it a different color though, because i like that"), just not the
+ *   shared warning-orange.
  */
 export function SessionBar({ sessions }: { sessions: SessionState }) {
   const { sessions: list, active, setActive, addSession, removeSession, isCustom } = sessions;
@@ -54,7 +61,9 @@ export function SessionBar({ sessions }: { sessions: SessionState }) {
   return (
     <div className={styles.bar} role="tablist" aria-label="Terminal sessions">
       {list.map((s) => {
-        const tinted = needsInput[s] && s !== active;
+        const isChat = s === 'chat';
+        const tinted = needsInput[s] && s !== active && !isChat;
+        const chatIdle = isChat && s !== active;
         const confirming = confirmCloseId === s;
         return (
           <div
@@ -63,6 +72,7 @@ export function SessionBar({ sessions }: { sessions: SessionState }) {
               styles.tab,
               s === active ? styles.active : '',
               tinted ? styles.needsInput : '',
+              chatIdle ? styles.chatIdle : '',
             ]
               .filter(Boolean)
               .join(' ')}

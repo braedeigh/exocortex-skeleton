@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { SessionState } from './useSessions';
+import { useSettledFrames } from './useSettledFrames';
 import styles from './TerminalFrames.module.css';
 
 /**
@@ -22,10 +23,17 @@ import styles from './TerminalFrames.module.css';
  * tmux session — tmux supports multiple simultaneous attaches to the same
  * session fine), so this is architecturally the same as FrameHost.tsx's
  * approach for the dashboard pane's legacy iframes.
+ *
+ * "the terminal pane can get stuck empty... loads fine if i click another
+ * tab and then navigate back" — see useSettledFrames for why: every newly
+ * mounted iframe here is forced through one display:none->block cycle
+ * before it's ever shown, instead of hoping the user stumbles into an
+ * unrelated navigation that happens to do the same thing.
  */
 export function TerminalFrames({ sessions }: { sessions: SessionState }) {
   const { active, sessions: list } = sessions;
   const [visited, setVisited] = useState<string[]>(() => [active]);
+  const settled = useSettledFrames(visited);
 
   // Mount a new iframe the first time a session becomes active.
   useEffect(() => {
@@ -49,7 +57,7 @@ export function TerminalFrames({ sessions }: { sessions: SessionState }) {
           className={styles.frame}
           src={`/terminal/?arg=${encodeURIComponent(s)}`}
           scrolling="no"
-          style={{ display: s === active ? 'block' : 'none' }}
+          style={{ display: s === active && settled.has(s) ? 'block' : 'none' }}
         />
       ))}
     </>

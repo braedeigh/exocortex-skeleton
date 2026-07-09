@@ -1,6 +1,7 @@
 .panel {
   position: absolute;
-  top: 100px;
+  /* Just below the top-right segmented pill (12px offset + 40px tall + gap). */
+  top: 64px;
   right: var(--space-3);
   z-index: 51;
   width: min(340px, 80%);
@@ -137,7 +138,9 @@
   border-radius: var(--radius-md);
   background: var(--bg);
   color: var(--text);
-  font-size: var(--font-size-sm);
+  /* base, not sm — iOS Safari auto-zooms a focused input/textarea under 16px
+     ("terminal notes input" zooming when tapped to edit). */
+  font-size: var(--font-size-base);
   line-height: 1.4;
   font-family: inherit;
   resize: none;

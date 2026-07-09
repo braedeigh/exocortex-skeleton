@@ -1,6 +1,7 @@
 .panel {
   position: absolute;
-  top: 100px;
+  /* Just below the top-right segmented pill (12px offset + 40px tall + gap). */
+  top: 64px;
   right: var(--space-3);
   z-index: 51;
   width: min(380px, 88%);

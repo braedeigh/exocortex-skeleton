@@ -1,9 +1,12 @@
+/* Pinned indigo, not var(--bg) — matches the terminal's always-dark tab
+ * apparatus (SessionBar.module.css) instead of day/night theme-swapping.
+ * See ChatPage.module.css's .page for the same fix on the mobile side. */
 .pane {
   display: flex;
   flex-direction: column;
   height: 100%;
   min-width: 0;
-  background: var(--bg);
+  background: #1a1a2e;
 }
 
 .body {
@@ -12,41 +15,64 @@
   min-height: 0;
 }
 
-/* Copy affordance — floats top-right of the terminal, above the iframe. */
-.copyBtn {
+/* All floating overlay buttons live in one of two top corners: paperclip
+ * (upload) alone top-left, Copy/Schedule/Notes top-right — "put all of the
+ * popup buttons all in one corner... put the paperclip button on the top
+ * left." Both float above the iframe. */
+.topLeft {
   position: absolute;
   top: var(--space-3);
-  right: var(--space-3);
-  z-index: 50;
-  min-height: 34px;
-  padding: 0 var(--space-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: rgba(26, 26, 46, 0.85);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  color: var(--text);
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.copyBtn:hover {
-  border-color: var(--accent);
-  background: rgba(124, 92, 191, 0.35);
-}
-
-/* Toolbar — Upload / Schedule / Notes, stacked below the Copy button so none
- * of them overlap on narrower split widths. */
-.toolbar {
-  position: absolute;
-  top: 54px;
-  right: var(--space-3);
+  left: var(--space-3);
   z-index: 50;
   display: flex;
   gap: var(--space-2);
 }
 
+/* Top-right: one fused segmented pill — the container owns the background,
+ * border, radius, and blur; the three buttons inside are borderless
+ * segments separated by thin dividers. */
+.topRight {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  z-index: 50;
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: rgba(26, 26, 46, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  overflow: hidden; /* clip segment hover fills to the rounded corners */
+}
+
+.topRight:hover {
+  border-color: var(--accent);
+}
+
+/* One segment of the fused pill (copy 📋 / schedule ⏰ / notes 📝). */
+.segBtn {
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  min-height: 40px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.segBtn + .segBtn {
+  border-left: 1px solid var(--border);
+}
+
+.segBtn:hover {
+  background: rgba(124, 92, 191, 0.35);
+  color: var(--text);
+}
+
+/* Standalone floating tool button — now only the top-left paperclip
+ * (UploadWidget's trigger). */
 .toolBtn {
   width: 40px;
   height: 40px;

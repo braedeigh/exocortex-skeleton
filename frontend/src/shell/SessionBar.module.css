@@ -36,6 +36,17 @@
   color: #e8a05c;
 }
 
+/* Chat's own fixed idle accent — a calm blue instead of the needs-input
+ * orange, so the tab still stands out at a glance without reading as a
+ * "something's waiting" warning every time (see the header comment). */
+.chatIdle {
+  border-bottom-color: #6a7acc;
+}
+
+.chatIdle .tabLabel {
+  color: #a9b4e8;
+}
+
 .tabLabel {
   flex: 1;
   min-width: 0;

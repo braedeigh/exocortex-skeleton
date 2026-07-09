@@ -120,7 +120,12 @@ export function ChatSessionPicker({ sessions }: { sessions: SessionsUiState }) {
     <div className={styles.picker} role="tablist" aria-label="Terminal sessions">
       <div className={styles.row} ref={rowRef}>
         {list.map((s) => {
-          const tinted = needsInput[s] && s !== active;
+          const isChat = s === 'chat';
+          // Chat is excluded from the shared needs-input tint and gets its
+          // own fixed idle accent instead — see SessionBar.tsx's header
+          // comment ("make the chat session not orange all the time").
+          const tinted = needsInput[s] && s !== active && !isChat;
+          const chatIdle = isChat && s !== active;
           const confirming = confirmCloseId === s;
           return (
             <div
@@ -132,6 +137,7 @@ export function ChatSessionPicker({ sessions }: { sessions: SessionsUiState }) {
                 styles.tab,
                 s === active ? styles.active : '',
                 tinted ? styles.needsInput : '',
+                chatIdle ? styles.chatIdle : '',
                 overflowed.includes(s) ? styles.hidden : '',
               ]
                 .filter(Boolean)

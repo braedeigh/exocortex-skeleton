@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { SessionState } from './useSessions';
+import { useSettledFrames } from './useSettledFrames';
 import styles from './PhoneFrames.module.css';
 
 /**
@@ -15,6 +16,9 @@ import styles from './PhoneFrames.module.css';
 export function PhoneFrames({ sessions }: { sessions: SessionState }) {
   const { active, sessions: list } = sessions;
   const [visited, setVisited] = useState<string[]>(() => [active]);
+  // See useSettledFrames — same first-mount blank-iframe workaround as
+  // TerminalFrames' desktop counterpart.
+  const settled = useSettledFrames(visited);
 
   // Mount a new iframe the first time a session becomes active.
   useEffect(() => {
@@ -38,7 +42,7 @@ export function PhoneFrames({ sessions }: { sessions: SessionState }) {
           className={styles.frame}
           src={`/phone?session=${encodeURIComponent(s)}`}
           scrolling="no"
-          style={{ display: s === active ? 'block' : 'none' }}
+          style={{ display: s === active && settled.has(s) ? 'block' : 'none' }}
         />
       ))}
     </>

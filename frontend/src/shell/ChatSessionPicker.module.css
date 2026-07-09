@@ -43,6 +43,17 @@
   color: #e8a05c;
 }
 
+/* Chat's own fixed idle accent — same fix as SessionBar.module.css's
+ * .chatIdle: a calm blue instead of the needs-input orange, so chat still
+ * stands out without reading as a constant "waiting on you" warning. */
+.chatIdle {
+  border-bottom-color: #6a7acc;
+}
+
+.chatIdle .tabLabel {
+  color: #a9b4e8;
+}
+
 .tabLabel {
   min-width: 0;
   min-height: var(--tap-target, 44px);

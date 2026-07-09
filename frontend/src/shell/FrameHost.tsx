@@ -6,6 +6,7 @@ import {
   registerFrameWindow,
   unregisterFrameWindow,
 } from './frameStore';
+import { useSettledFrames } from './useSettledFrames';
 import styles from './FrameHost.module.css';
 
 /**
@@ -28,10 +29,15 @@ function withEmbedSpa(src: string): string {
  * Renders every iframe "view" ever visited (legacy tabs + journal/research/
  * settings/files), absolutely positioned under the router's <Outlet/>, only
  * one visible at a time. Never unmounted once mounted — see frameStore.ts.
+ *
+ * Newly mounted frames are held at `display: none` for one animation frame
+ * before being allowed to show — see useSettledFrames for why (the same
+ * blank-iframe-on-first-show bug reported for the terminal pane).
  */
 export function FrameHost() {
   const entries = useSyncExternalStore(subscribe, getEntriesSnapshot);
   const active = useSyncExternalStore(subscribe, getActiveSnapshot);
+  const settled = useSettledFrames(entries.map((e) => e.key));
 
   return (
     <div className={styles.host}>
@@ -41,7 +47,7 @@ export function FrameHost() {
           title={entry.title}
           src={withEmbedSpa(entry.src)}
           className={styles.frame}
-          style={{ display: entry.key === active ? 'block' : 'none' }}
+          style={{ display: entry.key === active && settled.has(entry.key) ? 'block' : 'none' }}
           ref={(el) => {
             if (el?.contentWindow) {
               registerFrameWindow(entry.key, el.contentWindow);

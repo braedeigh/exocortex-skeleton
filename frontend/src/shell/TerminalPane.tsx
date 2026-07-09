@@ -36,22 +36,30 @@ export function TerminalPane({ sessions }: { sessions: SessionState }) {
       <div className={styles.body}>
         <TerminalFrames sessions={sessions} />
 
-        <button
-          type="button"
-          className={styles.copyBtn}
-          title="Copy text from the terminal"
-          aria-label="Copy text from the terminal"
-          onClick={() => setCopyOpen(true)}
-        >
-          Copy
-        </button>
-
-        <div className={styles.toolbar}>
+        {/* Paperclip alone, top-left — dragging a file anywhere over the pane
+            still triggers the same upload (UploadWidget's document-wide
+            dragenter listener), this is just the click-to-pick trigger. */}
+        <div className={styles.topLeft}>
           <UploadWidget session={active} triggerClassName={styles.toolBtn} />
+        </div>
+
+        {/* Copy / Schedule / Notes fused into one segmented pill top-right —
+            one shared container background/border/radius, thin dividers
+            between the three segments (see .topRight/.segBtn). */}
+        <div className={styles.topRight}>
+          <button
+            type="button"
+            className={styles.segBtn}
+            title="Copy text from the terminal"
+            aria-label="Copy"
+            onClick={() => setCopyOpen(true)}
+          >
+            &#128203;
+          </button>
           <button
             ref={schedBtnRef}
             type="button"
-            className={styles.toolBtn}
+            className={styles.segBtn}
             title="Schedule a prompt"
             aria-label="Schedule a prompt"
             onClick={() => togglePanel('schedule')}
@@ -61,7 +69,7 @@ export function TerminalPane({ sessions }: { sessions: SessionState }) {
           <button
             ref={notesBtnRef}
             type="button"
-            className={styles.toolBtn}
+            className={styles.segBtn}
             title="Terminal notes"
             aria-label="Terminal notes"
             onClick={() => togglePanel('notes')}
