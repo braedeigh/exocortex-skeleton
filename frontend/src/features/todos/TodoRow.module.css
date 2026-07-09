@@ -65,9 +65,7 @@
 }
 
 .text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .text.done {
@@ -78,10 +76,7 @@
 .notesPreview {
   font-size: var(--font-size-sm);
   color: var(--text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 .chips {
