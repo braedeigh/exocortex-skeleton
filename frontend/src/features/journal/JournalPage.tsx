@@ -284,6 +284,7 @@ export function JournalPage() {
         onOpenPerson={setPopoverSlug}
         onOpenThread={setThreadPopoverId}
         onAddNote={mode === 'cards' ? () => cardStreamRef.current?.focusBottomComposer() : undefined}
+        onError={push}
       />
 
       <div className={styles.body} ref={bodyRef} onClick={onBodyClick}>
