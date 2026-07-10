@@ -65,23 +65,18 @@ function useActiveKey(pathname: string): ActiveKey {
   return useMemo<ActiveKey>(() => {
     const native = tabForPath(pathname);
     if (native) return native;
-    const legacyMatch = /^\/legacy\/([^/]+)$/.exec(pathname);
-    if (legacyMatch && isValidTab(legacyMatch[1])) return legacyMatch[1];
     const view = MORE_VIEWS.find((v) => v.to === pathname);
     if (view) return `view:${view.key}`;
     return null;
   }, [pathname]);
 }
 
-/** Dashboard routes are every native tab route (plus /legacy/<tab> fallbacks)
- * — the routes that, in the old app, lived inside the dashboard iframe under
- * row 2. */
+/** Dashboard routes are the native tab routes — the routes that, in the old
+ * app, lived inside the dashboard iframe under row 2. */
 type DashboardTarget = { to: string };
 
 function parseDashboardTarget(pathname: string): DashboardTarget | null {
   if (tabForPath(pathname)) return { to: pathname };
-  const legacyMatch = /^\/legacy\/([^/]+)$/.exec(pathname);
-  if (legacyMatch && isValidTab(legacyMatch[1])) return { to: pathname };
   return null;
 }
 

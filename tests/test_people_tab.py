@@ -1,10 +1,7 @@
-"""The People roster moved from a standalone page (`/people` rendering
-templates/people.html directly) to a proper dashboard tab: `/people` is now a
-legacy path that 302-redirects to `/dashboard/people` (routes/shell.py), which
-302-redirects into the React SPA at `/legacy/people` (routes/spa.py), same as
-`/housing`. The old split.html shell iframing `/tab/people` still exists as a
-rollback at `/classic/people`. Uses the real server app (the split/tab/SPA
-machinery lives there, not in a blueprint) against an isolated temp data dir —
+"""The People roster is a native SPA route: `/people` serves the React shell
+(routes/spa.py) and `/legacy/people` 302-redirects there for old bookmarks.
+The split.html/classic/tab machinery was retired 2026-07-09 with the legacy
+frontend. Uses the real server app against an isolated temp data dir —
 mirrors test_recipe_sourcing_payload.py's authed_client pattern.
 """
 import pytest
@@ -37,16 +34,11 @@ def test_dashboard_people_redirects_to_the_native_tab(authed_client):
     assert resp.headers["Location"] == "/people"
 
 
-def test_legacy_people_serves_the_spa_shell(authed_client):
+def test_legacy_people_redirects_to_the_native_tab(authed_client):
+    # /legacy/<tab> survives only as a bookmark redirect (routes/spa.py).
     resp = authed_client.get("/legacy/people")
-    assert resp.status_code == 200
-    assert b"window.VIEW_MODE" in resp.data
-
-
-def test_classic_people_still_renders_the_old_split_shell(authed_client):
-    resp = authed_client.get("/classic/people")
-    assert resp.status_code == 200
-    assert b'src="/tab/people"' in resp.data
+    assert resp.status_code == 302
+    assert resp.headers["Location"] == "/people"
 
 
 def test_people_page_requires_auth(data_dir):
@@ -56,10 +48,3 @@ def test_people_page_requires_auth(data_dir):
     # Not a public path (like /housing) -> the auth gate redirects to /login.
     assert resp.status_code == 302
     assert "/login" in resp.headers["Location"]
-
-
-def test_tab_people_renders_index_with_active_tab(authed_client):
-    resp = authed_client.get("/tab/people")
-    assert resp.status_code == 200
-    assert b'id="tab-people"' in resp.data
-    assert b'data-active-tab="people"' in resp.data

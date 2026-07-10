@@ -14,7 +14,7 @@ All vault parsing (frontmatter, blurb/impression extraction, mention counting)
 lives in entities.py — this module only orchestrates: resolve -> assemble ->
 respond. See dev_todo.md's rule against a 4th independent people-file parser.
 """
-from flask import jsonify, render_template, request
+from flask import jsonify, request
 
 import store
 from routes import entities

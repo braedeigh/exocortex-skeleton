@@ -1,6 +1,7 @@
 /**
- * The 14 legacy dashboard tabs still served by Flask at /tab/<name>
- * (routes/shell.py). Order matches KNOWN_TABS in templates/split.html:1454.
+ * The 14 dashboard tabs — all native SPA routes (see TAB_ROUTES). Order
+ * matches the old dashboard's tab order; "Legacy" in the type names is
+ * historical (the Flask /tab/<name> pages are gone).
  */
 export const VALID_TABS = [
   'today',

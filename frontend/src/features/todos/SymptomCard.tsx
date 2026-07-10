@@ -107,7 +107,7 @@ export function SymptomCard({ healthData, serverDate, onLog }: SymptomCardProps)
         Log
       </Button>
       <div>
-        <Link className={styles.trackerLink} to="/legacy/$tab" params={{ tab: 'body' }}>
+        <Link className={styles.trackerLink} to="/body">
           View full symptom tracker &#8599;
         </Link>
       </div>

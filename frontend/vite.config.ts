@@ -40,13 +40,6 @@ export default defineConfig({
         // never fall back to the cached app-shell index.html.
         navigateFallbackDenylist: [
           /^\/api\//,
-          /^\/classic/,
-          /^\/tab\//,
-          /^\/static\//,
-          /^\/journal-view/,
-          /^\/research-view/,
-          /^\/settings-view/,
-          /^\/keeper/,
           /^\/login/,
           /^\/logout/,
           /^\/auth\//,
@@ -54,7 +47,6 @@ export default defineConfig({
           // as navigations too — the SW must never hand these the app shell):
           /^\/terminal\//, // ttyd web terminal
           /^\/files\//, // code-server (note trailing slash — /files itself IS the SPA)
-          /^\/phone/, // legacy mobile terminal page (still used by /classic)
           /^\/receipts\//, // uploaded receipt files
           /^\/archivals\//, // archival photos
         ],
@@ -80,16 +72,12 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': 'http://127.0.0.1:5000',
-      '/tab': 'http://127.0.0.1:5000',
       '/login': 'http://127.0.0.1:5000',
       '/logout': 'http://127.0.0.1:5000',
-      '/static': 'http://127.0.0.1:5000',
-      '/journal-view': 'http://127.0.0.1:5000',
-      '/research-view': 'http://127.0.0.1:5000',
-      '/settings-view': 'http://127.0.0.1:5000',
-      '/keeper': 'http://127.0.0.1:5000',
-      '/classic': 'http://127.0.0.1:5000',
       '/auth': 'http://127.0.0.1:5000',
+      '/terminal': 'http://127.0.0.1:5000',
+      '/receipts': 'http://127.0.0.1:5000',
+      '/archivals': 'http://127.0.0.1:5000',
     },
   },
 });

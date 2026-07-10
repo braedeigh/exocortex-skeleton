@@ -1,14 +1,14 @@
 """Route tests for routes/spa.py — the React SPA shell that now serves "/".
 
 Builds a minimal Flask app registering only routes.spa (plus routes.shell,
-since spa.py reuses its `_load_public_intro_html` helper and its "/classic"
-rollback route, and routes.settings for `/api/theme`'s `load_theme`).
-Exercises the real `frontend/dist/` build output — run `npm run build` in
-frontend/ first if this directory doesn't exist yet.
+since spa.py reuses its `_load_public_intro_html` helper, and routes.settings
+for `/api/theme`'s `load_theme`). Exercises the real `frontend/dist/` build
+output — run `npm run build` in frontend/ first if this directory doesn't
+exist yet.
 
-Covers the verification gate from the design doc: "/" returns injected HTML
-(window.THEME_OVERRIDES / window.VIEW_MODE), /assets/<built asset> is 200,
-/classic still serves the old shell, /tab/<name> is unchanged.
+Covers: "/" returns injected HTML (window.THEME_OVERRIDES / window.VIEW_MODE),
+every native page path serves the shell, /assets/<built asset> is 200, and
+/legacy/<tab> redirects to the native tab (the legacy frontend is retired).
 """
 import json
 from pathlib import Path
@@ -85,7 +85,7 @@ def test_root_public_intro_html_is_a_string_when_public():
 
 
 @pytest.mark.parametrize("path", [
-    "/todos", "/todos/editor", "/legacy/map", "/journal", "/research", "/settings", "/files",
+    "/todos", "/todos/editor", "/journal", "/research", "/settings", "/files",
     # native dashboard tabs (ported from /tab/<name>)
     "/map", "/kitchen", "/inventory", "/money", "/car", "/meditation", "/media",
     "/movement", "/body", "/ideas", "/ecosystem", "/housing", "/people",
@@ -131,16 +131,15 @@ def test_unknown_root_file_404s():
     assert r.status_code == 404
 
 
-# --- rollback + unchanged iframe content ------------------------------------------
+# --- legacy bookmark redirects ------------------------------------------------------
 
-def test_classic_still_serves_the_old_shell():
-    r = _client().get("/classic")
-    assert r.status_code == 200
-    assert b'src="/tab/today"' in r.data
-    assert b"window.THEME_OVERRIDES" not in r.data
+def test_legacy_tab_redirects_to_native_tab():
+    r = _client().get("/legacy/map")
+    assert r.status_code == 302
+    assert r.headers["Location"] == "/map"
 
 
-def test_tab_today_is_unchanged():
-    r = _client().get("/tab/today")
-    assert r.status_code == 200
-    assert b'data-active-tab="today"' in r.data
+def test_legacy_unknown_tab_redirects_to_todos():
+    r = _client().get("/legacy/nonsense")
+    assert r.status_code == 302
+    assert r.headers["Location"] == "/todos"

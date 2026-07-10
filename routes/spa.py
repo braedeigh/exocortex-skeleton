@@ -18,8 +18,10 @@ URL scheme:
     the service worker itself, which is no-store (it must never come from a
     stale cache or updates can't reach clients).
 
-Unported tabs still render inside the SPA as same-origin iframes at
-`/tab/<name>` — that route is untouched, owned by routes/shell.py.
+Every page is native now (2026-07-09) — the strangler-fig `/tab/<name>`
+iframes and the `/classic` rollback shell are gone with the legacy frontend
+(archived at /opt/exocortex/personal/reference/old-frontend/). `/legacy/<tab>`
+survives only as a redirect for old bookmarks.
 """
 import json
 from pathlib import Path
@@ -30,6 +32,12 @@ from routes.settings import load_theme
 from routes.shell import _load_public_intro_html
 
 DIST_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+
+# Tabs with a native SPA route at /<tab> (today lives at /todos).
+_NATIVE_TABS = frozenset(
+    ("map", "kitchen", "inventory", "money", "car", "meditation", "media",
+     "movement", "body", "ideas", "ecosystem", "housing", "people")
+)
 ASSETS_DIR = DIST_DIR / "assets"
 INDEX_PATH = DIST_DIR / "index.html"
 
@@ -73,7 +81,6 @@ def register(app):
     @app.route("/")
     @app.route("/todos")
     @app.route("/todos/editor")
-    @app.route("/legacy/<tab>")
     @app.route("/journal")
     @app.route("/research")
     @app.route("/settings")
@@ -103,6 +110,15 @@ def register(app):
     @app.route("/about")
     def spa_shell(tab=None, slug=None):
         return _spa_response()
+
+    @app.route("/legacy/<tab>")
+    def spa_legacy_tab(tab):
+        # The strangler-fig iframe route is gone — every tab is native now.
+        # Keep old /legacy/<tab> bookmarks working.
+        from flask import redirect
+
+        target = f"/{tab}" if tab in _NATIVE_TABS else "/todos"
+        return redirect(target, code=302)
 
     @app.route("/assets/<path:filename>")
     def spa_asset(filename):

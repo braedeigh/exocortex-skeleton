@@ -1,5 +1,10 @@
-"""Terminal, sessions, notes, and phone routes."""
-from flask import request, jsonify, render_template, Response
+"""Terminal, sessions, and notes-dump API routes.
+
+The legacy /notes scratchpad page and /phone mobile-terminal page were retired
+2026-07-09 — both are native SPA routes now (/scratchpad and the Chat tab's
+PhoneTerminal; see frontend/MIGRATION_NOTES.md). Their APIs below are unchanged.
+"""
+from flask import request, jsonify, Response
 from pathlib import Path
 from datetime import datetime
 from data_helpers import DATA_DIR, UPLOAD_DIR, sweep_uploads
@@ -129,10 +134,6 @@ def _scroll_copy_mode(sess, direction, mode, data):
 
 
 def register(app):
-    @app.route("/notes")
-    def notes_page():
-        return render_template("notes.html")
-
     @app.route("/api/notes", methods=["GET"])
     def get_notes():
         content = NOTES_PATH.read_text() if NOTES_PATH.exists() else ""
@@ -143,12 +144,6 @@ def register(app):
         data = request.json or {}
         NOTES_PATH.write_text(data.get("content", ""))
         return jsonify({"ok": True})
-
-    @app.route("/phone")
-    def phone():
-        resp = app.make_response(render_template("phone.html"))
-        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-        return resp
 
     @app.route("/api/terminal/send", methods=["POST"])
     def terminal_send():

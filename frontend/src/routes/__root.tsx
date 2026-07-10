@@ -1,7 +1,6 @@
 import { createRootRoute, Outlet } from '@tanstack/react-router';
 import { ApprovalsHost } from '../features/approvals';
 import { TopTabs } from '../shell/TopTabs';
-import { FrameHost } from '../shell/FrameHost';
 import { SplitLayout } from '../shell/SplitLayout';
 import { SessionsProvider } from '../shell/SessionsContext';
 import { ScrollTopStrip } from '../shell/ScrollTopStrip';
@@ -52,7 +51,6 @@ function RootLayout() {
             id="content-host"
             style={{ flex: 1, minHeight: 0, position: 'relative', display: 'flex', flexDirection: 'column' }}
           >
-            <FrameHost />
             <Outlet />
           </div>
           {/* Keeper-staged change queue — polls /api/pending, renders nothing
