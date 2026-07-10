@@ -6,6 +6,7 @@ import { BlobEditor } from './BlobEditor';
 import { CalendarOverlay } from './CalendarOverlay';
 import type { CalendarMonth } from './calendarMath';
 import { CardStream } from './CardStream';
+import type { CardStreamHandle } from './CardStream';
 import { DevNotesPanel } from './DevNotesPanel';
 import './entities.css';
 import { buildEntityMatcher } from './entityHighlight';
@@ -67,16 +68,22 @@ export function JournalPage() {
 
   const [editingCardId, setEditingCardId] = useState<string | null>(null);
   const [blobFocused, setBlobFocused] = useState(false);
-  // "+ Add a note" composer open at the top or bottom of the stream — one
-  // editing surface at a time, same rule as editingCardId.
-  const [composingPosition, setComposingPosition] = useState<'top' | 'bottom' | null>(null);
+  // "+ Add a note" composer open at the top of the stream — one editing
+  // surface at a time, same rule as editingCardId. (The bottom composer is
+  // always open, so it doesn't live in this state — see bottomComposerActive.)
+  const [composingPosition, setComposingPosition] = useState<'top' | null>(null);
+  // Mirrors the bottom composer's focused-or-has-draft state (reported via
+  // CardStream's onBottomActiveChange), since it's always mounted and can't
+  // be tracked by composingPosition like the top slot.
+  const [bottomComposerActive, setBottomComposerActive] = useState(false);
   // Cards mid "removed · Undo" toast — hidden from the stream immediately but
   // not actually deleted server-side until the toast's timer fires (or the
   // whole page unmounts). Undo just clears the pending id; nothing was ever
   // sent to the server.
   const [pendingDeleteIds, setPendingDeleteIds] = useState<Set<string>>(new Set());
   const deleteTimers = useRef<Record<string, { timer: ReturnType<typeof setTimeout>; wasLastCard: boolean }>>({});
-  const pausePolling = editingCardId !== null || blobFocused || composingPosition !== null;
+  const cardStreamRef = useRef<CardStreamHandle>(null);
+  const pausePolling = editingCardId !== null || blobFocused || composingPosition !== null || bottomComposerActive;
 
   const dayQuery = useJournalDay(currentDate, pausePolling);
   const datesQuery = useJournalDates();
@@ -273,7 +280,11 @@ export function JournalPage() {
         onOpenDevNotes={() => setDevNotesOpen(true)}
       />
 
-      <JournalRail onOpenPerson={setPopoverSlug} onOpenThread={setThreadPopoverId} />
+      <JournalRail
+        onOpenPerson={setPopoverSlug}
+        onOpenThread={setThreadPopoverId}
+        onAddNote={mode === 'cards' ? () => cardStreamRef.current?.focusBottomComposer() : undefined}
+      />
 
       <div className={styles.body} ref={bodyRef} onClick={onBodyClick}>
         {dayQuery.isLoading ? (
@@ -282,6 +293,7 @@ export function JournalPage() {
           <div className={styles.error}>Couldn&apos;t load this day.</div>
         ) : mode === 'cards' ? (
           <CardStream
+            ref={cardStreamRef}
             cards={visibleCards}
             editingCardId={editingCardId}
             savingCardId={savingCardId}
@@ -295,16 +307,23 @@ export function JournalPage() {
             onConfirmDelete={(id) => requestDeleteCard(id, visibleCards.length === 1)}
             onNavigateDate={goTo}
             onPersonClick={setPopoverSlug}
-            composingPosition={composingPosition}
+            composingTop={composingPosition === 'top'}
             addSaving={addCard.isPending}
-            onComposeStart={(position) => {
+            onComposeStart={() => {
               setEditingCardId(null);
-              setComposingPosition(position);
+              setComposingPosition('top');
             }}
             onComposeCancel={() => setComposingPosition(null)}
-            onComposeSave={(position, body) =>
-              addCard.mutate({ position, body }, { onSuccess: () => setComposingPosition(null) })
-            }
+            onComposeSave={async (position, body) => {
+              try {
+                await addCard.mutateAsync({ position, body });
+                if (position === 'top') setComposingPosition(null);
+                return true;
+              } catch {
+                return false;
+              }
+            }}
+            onBottomActiveChange={setBottomComposerActive}
           />
         ) : mode === 'empty' ? (
           <div className={styles.empty}>

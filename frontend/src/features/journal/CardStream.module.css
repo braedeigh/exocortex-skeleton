@@ -55,6 +55,18 @@
   margin-top: var(--space-3);
 }
 
+/* Bottom composer: textarea and Save sit side by side instead of stacked —
+   the button rides the row's bottom edge as the textarea grows. */
+.composerRow {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+
+.composerRow .editArea {
+  flex: 1;
+}
+
 .controlsSpacer {
   flex: 1;
   min-width: var(--space-2);

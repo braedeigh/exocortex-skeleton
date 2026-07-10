@@ -16,30 +16,51 @@
   pointer-events: none;
 }
 
-.railBtn {
+/* One merged pill instead of separate stacked buttons, mostly transparent at
+   rest — same scheme as the shared NotesPill (opacity on the whole pill so
+   the border/shadow fade with it; solid on hover/touch). */
+.pill {
   pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.28);
+  opacity: 0.45;
+  transition: opacity 0.15s ease;
+}
+
+.pill:hover,
+.pill:focus-within,
+.pill:active {
+  opacity: 1;
+}
+
+.railBtn {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   min-height: var(--tap-target);
   padding: 0 var(--space-4) 0 var(--space-3);
   background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  border: none;
   color: var(--text);
   font-size: var(--font-size-sm);
   font-weight: 600;
   font-family: inherit;
   cursor: pointer;
-  transition: all 0.12s;
+  transition: background 0.12s;
   -webkit-tap-highlight-color: transparent;
 }
 
+.railBtn + .railBtn {
+  border-top: 1px solid var(--border);
+}
+
 .railBtn:hover {
-  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
   color: var(--accent);
-  transform: translateX(-2px);
 }
 
 .railIcon {
