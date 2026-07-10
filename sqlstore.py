@@ -1,0 +1,174 @@
+"""SQLite backing for store.py — the database of record, one collection at a time.
+
+The plan (see frontend/MIGRATION_NOTES.md for the frontend side of the story):
+JSON files stay the language of the EDGES — LLM agents, git-diffable backups,
+"download my data" — while SQLite becomes the CENTER: what the app writes,
+what the app reads, and therefore what the UI displays. A collection listed in
+store.SQL_COLLECTIONS routes its read/write/mutate through here; everything
+else keeps using plain JSON files until it, too, is migrated.
+
+Guarantees per SQL-backed collection:
+  - Reads come from SQLite (what you see is what's stored).
+  - Writes commit to SQLite first, then export a canonical JSON MIRROR file at
+    the collection's old path — so the hourly git backup keeps producing
+    readable diffs and external readers keep working. The mirror is derived
+    output; the database is the truth.
+  - `mutate()` runs the whole read-modify-write inside one BEGIN IMMEDIATE
+    transaction, which is a stronger, simpler version of store.mutate's flock:
+    concurrent writers queue on SQLite's write lock (busy_timeout 5s).
+  - First touch of a collection that has a legacy JSON file but no DB row
+    seeds the row from the file — the same lazy back-fill-on-read migration
+    style data_helpers uses, so flipping a collection on requires no script.
+
+Storage model: one `docs` row per collection (name -> JSON text). Deliberately
+file-granular for now — it keeps every route's code unchanged and makes the
+per-collection flip trivial. Typed tables (real columns, an ops log for sync)
+are the next layer and can be introduced per-entity without touching callers.
+
+Multi-user: `_db_path()` is the seam, same rule as store._path() — when users
+arrive this becomes DATA_DIR/<user>/exo.db and nothing else moves.
+
+Kill switch: EXOCORTEX_SQL_OFF=1 makes store.py treat SQL_COLLECTIONS as
+empty (pure file mode). The mirrors are always current, so flipping back and
+forth is safe in either direction.
+"""
+from contextlib import contextmanager
+import json
+import sqlite3
+
+import store
+
+_SCHEMA_VERSION = 1
+
+
+def _db_path():
+    """The per-user seam — today one DB beside the JSON files.
+
+    Resolved at call time (not import time) so tests that monkeypatch
+    store.DATA_DIR get an isolated database, same as they get isolated files.
+    """
+    return store.DATA_DIR / "exo.db"
+
+
+def _connect() -> sqlite3.Connection:
+    """Open a connection with the house pragmas, migrated to the latest schema.
+
+    One short-lived connection per operation: the data is tiny, gevent workers
+    stay independent, and tests get isolation for free. WAL + busy_timeout is
+    what lets the two gunicorn workers (and, later, the agent watcher) share
+    the file safely.
+    """
+    conn = sqlite3.connect(_db_path(), timeout=5, isolation_level=None)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA busy_timeout=5000")
+    conn.execute("PRAGMA foreign_keys=ON")
+    _migrate(conn)
+    return conn
+
+
+def _migrate(conn):
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    if version < 1:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS docs ("
+            "  name TEXT PRIMARY KEY,"
+            "  data TEXT NOT NULL,"
+            "  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+            ")"
+        )
+        conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
+
+
+def _seed_from_file(conn, name):
+    """Lazy one-time migration: adopt the legacy JSON file as the initial row."""
+    legacy = store.file_path(name)
+    if not legacy.exists():
+        return None
+    text = legacy.read_text()
+    json.loads(text)  # malformed legacy file -> raise, don't adopt garbage
+    conn.execute(
+        "INSERT INTO docs (name, data) VALUES (?, ?) ON CONFLICT(name) DO NOTHING",
+        (name, text),
+    )
+    return text
+
+
+def _export_mirror(name, data):
+    """Write the canonical JSON mirror at the collection's old file path.
+
+    Derived output only — kept current so git diffs, external readers, and the
+    kill switch all keep working. Uses store's atomic file writer directly
+    (NOT store.write, which would dispatch right back here).
+    """
+    store.write_file(name, data)
+
+
+def get(name, default=None):
+    conn = _connect()
+    try:
+        row = conn.execute("SELECT data FROM docs WHERE name = ?", (name,)).fetchone()
+        if row is None:
+            seeded = _seed_from_file(conn, name)
+            if seeded is None:
+                return {} if default is None else default
+            return json.loads(seeded)
+        return json.loads(row[0])
+    finally:
+        conn.close()
+
+
+def put(name, data):
+    text = json.dumps(data, indent=2, ensure_ascii=False)
+    conn = _connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute(
+            "INSERT INTO docs (name, data, updated_at)"
+            " VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+            " ON CONFLICT(name) DO UPDATE SET"
+            "   data = excluded.data, updated_at = excluded.updated_at",
+            (name, text),
+        )
+        conn.execute("COMMIT")
+    finally:
+        conn.close()
+    _export_mirror(name, data)
+
+
+@contextmanager
+def mutate(name, default=None):
+    """Read-modify-write one collection inside a single write transaction.
+
+    BEGIN IMMEDIATE takes SQLite's write lock up front, so concurrent mutates
+    (other workers, the future agent watcher) serialize instead of losing
+    updates. An exception inside the block rolls the transaction back — same
+    contract as store.mutate on files (nothing is written).
+    """
+    conn = _connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT data FROM docs WHERE name = ?", (name,)).fetchone()
+        if row is None:
+            seeded = _seed_from_file(conn, name)
+            data = json.loads(seeded) if seeded is not None else ({} if default is None else default)
+        else:
+            data = json.loads(row[0])
+        yield data
+        conn.execute(
+            "INSERT INTO docs (name, data, updated_at)"
+            " VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+            " ON CONFLICT(name) DO UPDATE SET"
+            "   data = excluded.data, updated_at = excluded.updated_at",
+            (name, json.dumps(data, indent=2, ensure_ascii=False)),
+        )
+        conn.execute("COMMIT")
+    except BaseException:
+        try:
+            conn.execute("ROLLBACK")
+        except sqlite3.OperationalError:
+            pass  # no transaction active (failed before BEGIN)
+        raise
+    finally:
+        conn.close()
+    _export_mirror(name, data)

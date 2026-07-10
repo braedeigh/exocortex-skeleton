@@ -90,16 +90,51 @@ def _path(name: str) -> Path:
     return DATA_DIR / name
 
 
+def file_path(name: str) -> Path:
+    """Public alias of _path for sqlstore (mirror-export and seed paths)."""
+    return _path(name)
+
+
+# --- SQLite migration (see sqlstore.py) ---
+# Collections listed here are backed by SQLite: reads/writes/mutates route
+# through sqlstore, which commits to the database of record and keeps the JSON
+# file current as a derived MIRROR (git diffs + external readers keep
+# working). Migrate a collection by adding its bare name (no .json) here —
+# sqlstore adopts the existing file on first touch. EXOCORTEX_SQL_OFF=1 is the
+# kill switch back to pure files (mirrors are always current, so it's safe to
+# flip either way).
+SQL_COLLECTIONS = frozenset((
+    "car_maintenance",
+    "car_notes",
+))
+_SQL_OFF = os.environ.get("EXOCORTEX_SQL_OFF", "") == "1"
+
+
+def _key(name: str) -> str:
+    """Canonical collection key: the file name without the .json suffix."""
+    return name[:-5] if name.endswith(".json") else name
+
+
+def _sql_backed(name: str) -> bool:
+    return not _SQL_OFF and _key(name) in SQL_COLLECTIONS
+
+
 def read(name, default=None):
-    """Read a JSON data file. Returns `default` (or {} ) if it doesn't exist yet."""
+    """Read a collection. SQL-backed collections read from SQLite — what the
+    app displays is what's in the database. Everything else reads its JSON
+    file. Returns `default` (or {}) if the collection doesn't exist yet."""
+    if _sql_backed(name):
+        import sqlstore
+        return sqlstore.get(_key(name), default)
     path = _path(name)
     if not path.exists():
         return {} if default is None else default
     return json.loads(path.read_text())
 
 
-def write(name, data):
-    """Write a JSON data file ATOMICALLY.
+def write_file(name, data):
+    """Write a JSON data file ATOMICALLY (no SQL dispatch — sqlstore calls
+    this for mirror exports; app code should call write()).
 
     We write to a temp file in the same directory, fsync it, then os.replace()
     it over the target. os.replace() is atomic on Linux: any reader sees either
@@ -119,17 +154,34 @@ def write(name, data):
         raise
 
 
+def write(name, data):
+    """Write a collection. SQL-backed collections commit to SQLite first, then
+    export the JSON mirror; everything else writes its JSON file atomically."""
+    if _sql_backed(name):
+        import sqlstore
+        sqlstore.put(_key(name), data)
+        return
+    write_file(name, data)
+
+
 @contextmanager
 def mutate(name, default=None):
-    """Read-modify-write a file safely, under a cross-process lock.
+    """Read-modify-write a collection safely, serialized across processes.
 
         with store.mutate("activity_log", {"entries": []}) as data:
             data["entries"].append(entry)
         # ^ written back atomically when the block exits
 
-    The flock serializes the whole read->modify->write against other workers, so
-    two simultaneous updates can't lose each other. The write itself is atomic.
+    SQL-backed collections run the whole block inside one BEGIN IMMEDIATE
+    transaction (sqlstore.mutate). File-backed collections serialize under an
+    flock. Either way: two simultaneous updates can't lose each other, and an
+    exception inside the block writes nothing.
     """
+    if _sql_backed(name):
+        import sqlstore
+        with sqlstore.mutate(_key(name), default) as data:
+            yield data
+        return
     path = _path(name)
     lock_path = path.with_suffix(path.suffix + ".lock")
     with open(lock_path, "w") as lock_file:
