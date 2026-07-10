@@ -317,6 +317,20 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 }
 .card-delete-btn:hover:not(:disabled) { background: rgba(255, 107, 107, 0.18); }
 
+/* "+ Add a note" affordances — top-of-day (right under the keeper's summary)
+   and end-of-day. Starts as a quiet dashed prompt; tapping swaps it for a
+   composer styled like an editing entry card. */
+.card-add-btn {
+    display: block; width: 100%; min-height: 40px; margin-bottom: 10px;
+    border: 1px dashed var(--border); border-radius: 10px; background: none;
+    color: var(--text-muted); font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.card-add-btn:hover { border-color: var(--accent); color: var(--accent); }
+.card-add.composing {
+    border: 1px solid var(--accent); border-radius: 10px; background: rgba(124, 92, 191, 0.05);
+    padding: 10px 12px; margin-bottom: 10px;
+}
+
 /* Confirm-delete modal (card delete) — same pattern as research.html's .rsrch-modal */
 .confirm-modal-wrap { display: none; position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,0.5); align-items: center; justify-content: center; padding: 20px; }
 .confirm-modal-wrap.open { display: flex; }
@@ -419,6 +433,7 @@ let calOpen = false;
 let cardMode = false;
 let dayCards = [];
 let editingCardId = null;
+let composingPosition = null;   // 'top' | 'bottom' | null — an add-a-note composer is open
 
 const editor = document.getElementById('editor');
 const preview = document.getElementById('preview');
@@ -673,9 +688,28 @@ function cardClock(ts) {
 function renderCardStream() {
     const context = dayCards.filter(c => c.kind === 'context');
     const lines = dayCards.filter(c => c.kind !== 'context');
+    composingPosition = null;
     cardStream.innerHTML = '';
-    for (const c of [...context, ...lines]) cardStream.appendChild(buildCardEl(c));
+    for (const c of context) cardStream.appendChild(buildCardEl(c));
+    cardStream.appendChild(buildCardAddEl('top'));      // slot right under the keeper's summary
+    for (const c of lines) cardStream.appendChild(buildCardEl(c));
+    cardStream.appendChild(buildCardAddEl('bottom'));   // end of the day
     highlightEntities(cardStream);
+}
+
+// "+ Add a note" wrapper — starts as a dashed prompt button; enterCardAdd()
+// swaps its contents for a composer in place.
+function buildCardAddEl(position) {
+    const wrap = document.createElement('div');
+    wrap.className = 'card-add';
+    wrap.dataset.position = position;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'card-add-btn';
+    btn.textContent = '+ Add a note';
+    btn.addEventListener('click', (e) => { e.stopPropagation(); enterCardAdd(position); });
+    wrap.appendChild(btn);
+    return wrap;
 }
 
 function buildCardEl(c) {
@@ -736,6 +770,39 @@ function exitCardEdit() {
     renderCardStream();   // rebuild = restore read state
 }
 
+function enterCardAdd(position) {
+    if (composingPosition === position) return;   // already open here — no duplicate
+    const wrap = cardStream.querySelector(`.card-add[data-position="${position}"]`);
+    if (!wrap) return;
+    composingPosition = position;
+    wrap.classList.add('composing');
+    wrap.innerHTML = '';
+
+    const ta = document.createElement('textarea');
+    ta.className = 'card-edit-textarea';
+    ta.placeholder = position === 'top' ? 'Note for the top of the day…' : 'Note for the end of the day…';
+    const autoSize = () => { ta.style.height = 'auto'; ta.style.height = Math.max(68, ta.scrollHeight + 2) + 'px'; };
+    ta.addEventListener('input', autoSize);
+
+    const controls = document.createElement('div');
+    controls.className = 'card-controls';
+    controls.innerHTML = `<div class="card-controls-spacer"></div>`
+        + `<button class="card-btn card-cancel-btn">Cancel</button>`
+        + `<button class="card-btn card-save-btn">Save</button>`;
+    wrap.appendChild(ta);
+    wrap.appendChild(controls);
+    autoSize();
+    ta.focus();
+
+    controls.querySelector('.card-cancel-btn').addEventListener('click', (e) => { e.stopPropagation(); exitCardAdd(); });
+    controls.querySelector('.card-save-btn').addEventListener('click', (e) => { e.stopPropagation(); saveNewCard(position, ta.value, controls); });
+}
+
+function exitCardAdd() {
+    composingPosition = null;
+    renderCardStream();   // rebuild = restore the button
+}
+
 function setCardControlsDisabled(controls, disabled) {
     controls.querySelectorAll('button').forEach(b => { b.disabled = disabled; });
 }
@@ -757,6 +824,28 @@ async function saveCard(id, body, controls) {
         setTimeout(() => { if (status.textContent === 'Saved') status.textContent = ''; }, 2000);
     } catch (e) {
         status.textContent = 'Save failed';
+        setCardControlsDisabled(controls, false);
+    }
+}
+
+async function saveNewCard(position, body, controls) {
+    if (!body.trim()) { status.textContent = 'Card body cannot be empty'; return; }
+    setCardControlsDisabled(controls, true);
+    try {
+        const r = await fetch('/api/cards/add', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ date: currentDate, position, body })
+        });
+        const d = await r.json();
+        if (!r.ok) { status.textContent = d.error || 'Add failed'; setCardControlsDisabled(controls, false); return; }
+        editingCardId = null;
+        composingPosition = null;
+        await refreshCardDay();
+        status.textContent = 'Added';
+        setTimeout(() => { if (status.textContent === 'Added') status.textContent = ''; }, 2000);
+    } catch (e) {
+        status.textContent = 'Add failed';
         setCardControlsDisabled(controls, false);
     }
 }
@@ -1305,8 +1394,9 @@ async function pollJournal() {
             lastSaved = data.content;
             // A changed day usually means new/changed cards (the keeper hook
             // re-renders after every message) — refresh the stream too, unless
-            // she's mid-edit on a card (never yank a textarea out from under her).
-            if (editingCardId) return;
+            // she's mid-edit on a card or mid-composer on a new note (never yank
+            // a textarea out from under her).
+            if (editingCardId || composingPosition) return;
             await loadCards(currentDate);
             applyCardMode();
         }
