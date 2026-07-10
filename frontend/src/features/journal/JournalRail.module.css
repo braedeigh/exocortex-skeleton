@@ -30,7 +30,7 @@
   flex-direction: row;
   align-items: center;
   margin-right: calc(-1 * var(--space-3) - 3px);
-  opacity: 0.2;
+  opacity: 0.45;
   transition: opacity 0.15s ease;
 }
 
