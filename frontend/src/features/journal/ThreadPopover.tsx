@@ -59,7 +59,7 @@ export function ThreadPopover({ id, onClose, onNavigateDate }: ThreadPopoverProp
                     <div className={styles.sources}>
                       {c.sources.map((s, j) =>
                         s.kind === 'keeper' ? (
-                          <a key={j} className={styles.sourceChip} href={`/keeper#${encodeURIComponent(s.val)}`}>
+                          <a key={j} className={styles.sourceChip} href={`/files?path=${encodeURIComponent(s.val)}`}>
                             {s.label} &rarr;
                           </a>
                         ) : (
@@ -76,7 +76,7 @@ export function ThreadPopover({ id, onClose, onNavigateDate }: ThreadPopoverProp
           })}
 
           {data.file ? (
-            <a className={styles.openFull} href={`/keeper#${encodeURIComponent(data.file)}`}>
+            <a className={styles.openFull} href={`/files?path=${encodeURIComponent(data.file)}`}>
               Open full thread &rarr;
             </a>
           ) : null}

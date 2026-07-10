@@ -1,0 +1,106 @@
+.sidebar {
+  width: 280px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+}
+
+.group {
+  border-bottom: 1px solid var(--border);
+}
+
+.summary {
+  list-style: none;
+  cursor: pointer;
+  padding: var(--space-3) var(--space-4);
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--tap-target);
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.summary::-webkit-details-marker {
+  display: none;
+}
+
+.summary:hover {
+  color: var(--accent);
+}
+
+.chev {
+  transition: transform 0.15s;
+  font-size: var(--font-size-sm);
+}
+
+.group[open] > .summary .chev {
+  transform: rotate(90deg);
+}
+
+.count {
+  margin-left: auto;
+  font-weight: 600;
+  font-size: var(--font-size-sm);
+  opacity: 0.7;
+}
+
+/* Brief flash on the folder you get bumped into after a delete. */
+.bump > .summary {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+.fileRow {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+  padding: var(--space-2) var(--space-4) var(--space-2) 30px;
+  min-height: var(--tap-target);
+  border-left: 3px solid transparent;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.fileRow:hover {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+.fileRow.active {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  border-left-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+@media (max-width: 700px) {
+  .sidebar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 30;
+    width: 82%;
+    max-width: 320px;
+    background: var(--bg);
+    transform: translateX(-100%);
+    transition: transform 0.2s;
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.4);
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+  }
+}

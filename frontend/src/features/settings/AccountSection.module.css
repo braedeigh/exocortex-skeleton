@@ -1,0 +1,117 @@
+/* Account section — change-password disclosure + sign-out (legacy
+ * .pw-change/.pw-form/.signout-link), touch-first sizing. */
+
+.pwChange {
+  margin-bottom: var(--space-4);
+}
+
+.summary {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+  min-height: var(--tap-target);
+  display: flex;
+  align-items: center;
+  list-style: none;
+  user-select: none;
+}
+
+.summary::-webkit-details-marker {
+  display: none;
+}
+
+.summary::before {
+  content: '▸ ';
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  margin-right: var(--space-1);
+}
+
+.pwChange[open] .summary::before {
+  content: '▾ ';
+}
+
+.form {
+  padding: var(--space-2) 0 var(--space-1);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-width: 420px;
+}
+
+.input {
+  box-sizing: border-box;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+}
+
+.input:focus {
+  border-color: var(--text-muted);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.changeBtn {
+  min-height: var(--tap-target);
+  padding: 0 var(--space-4);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--text);
+  color: var(--bg);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.changeBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.msg {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.msgError {
+  color: #c0392b;
+}
+
+.msgSuccess {
+  color: #2a9e3c;
+}
+
+.signoutRow {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-4);
+}
+
+.signoutLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 13px;
+}
+
+.signoutLink:hover {
+  color: var(--text);
+}

@@ -46,10 +46,12 @@ const ALWAYS_MORE_TABS: ReadonlyArray<{ tab: LegacyTab; label: string }> = [
   { tab: 'car', label: 'Car Maintenance' },
 ].filter((entry): entry is { tab: LegacyTab; label: string } => isValidTab(entry.tab));
 
-// Full Flask pages — not SPA routes, so plain <a href> (full page load), not <Link>.
-const FULL_PAGE_LINKS: ReadonlyArray<{ key: string; label: string; href: string }> = [
-  { key: 'keeper', label: 'Keeper', href: '/keeper' },
-  { key: 'personality', label: 'Personality', href: '/personality' },
+// Native standalone pages in the More menu (Keeper is covered by the Files
+// view below; Personality/Scratchpad/VS Code are SPA routes now).
+const MORE_PAGES: ReadonlyArray<{ key: string; label: string; to: string }> = [
+  { key: 'personality', label: 'Personality', to: '/personality' },
+  { key: 'scratchpad', label: 'Scratchpad', to: '/scratchpad' },
+  { key: 'vscode', label: 'VS Code', to: '/vscode' },
 ];
 
 // Journal/Research/Settings moved to row 1 (the dash bar) — Files and the
@@ -121,10 +123,16 @@ function MoreMenuContent({ overflowed, activeKey, onNavigate }: MoreMenuContentP
           {label}
         </TapRow>
       ))}
-      {FULL_PAGE_LINKS.map((link) => (
-        <a key={link.key} href={link.href} className={styles.menuLink} onClick={onNavigate}>
-          {link.label}
-        </a>
+      {MORE_PAGES.map((page) => (
+        <TapRow
+          key={page.key}
+          onClick={() => {
+            onNavigate();
+            void navigate({ to: page.to });
+          }}
+        >
+          {page.label}
+        </TapRow>
       ))}
       {MORE_VIEWS.map((view) => (
         <TapRow

@@ -1,0 +1,76 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-5);
+}
+
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: var(--space-5);
+  width: min(400px, 92vw);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+.title {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  margin-bottom: var(--space-2);
+}
+
+.name {
+  font-size: 14px;
+  color: var(--accent);
+  word-break: break-all;
+  margin-bottom: var(--space-2);
+}
+
+.msg {
+  font-size: 14px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin-bottom: 18px;
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-3);
+  justify-content: flex-end;
+}
+
+.actions button {
+  min-height: var(--tap-target);
+  padding: 0 18px;
+  border-radius: var(--radius-lg);
+  font-size: 15px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.cancelBtn {
+  background: none;
+  color: var(--text);
+}
+
+.cancelBtn:hover {
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.deleteBtn {
+  background: var(--red);
+  border-color: var(--red);
+  color: #fff;
+}
+
+.deleteBtn:hover {
+  background: color-mix(in srgb, var(--red) 85%, black);
+}

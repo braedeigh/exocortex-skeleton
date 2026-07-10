@@ -4,6 +4,20 @@
 `templates/` + `static/`. The old files will be archived (tarball + browsable
 copy) before removal; git history keeps them too.*
 
+> **STATUS UPDATE (2026-07-09, end of day): the port is complete.** All 13
+> legacy dashboard tabs, Research, Settings (+ the sky-theme engine as
+> `src/theme/`), Keeper/Files, the phone terminal, person pages, Personality,
+> the scratchpad (`/scratchpad`), the VS Code launcher, the public food map
+> (`/food-map`), About, and the pending-approvals UI (`ApprovalsHost`, mounted
+> in `__root`) are native React. Flask serves the SPA at every native path
+> (routes/spa.py); the old tab redirects and template routes for ported pages
+> are gone. **Login deliberately stays Flask** (session issuance — a frontend
+> build failure must never lock the owner out). Remaining work: verify in real
+> use, then the archive pass below (`/classic`, `/tab`, `*-view`, `/keeper`,
+> `/phone`, templates/, static/) and the FrameHost/legacy.$tab removal.
+> Per-page parity notes live in the wave-1/wave-2 agent reports (session
+> transcripts); deliberate deviations are commented in the feature code.
+
 ---
 
 ## How each frontend is organized

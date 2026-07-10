@@ -39,22 +39,11 @@ from data_helpers import CONTENT_DIR
 VALID_TABS = ("today", "map", "kitchen", "inventory", "money", "car", "meditation",
               "media", "movement", "body", "ideas", "ecosystem", "housing", "people")
 
-# Legacy path -> tab key. The path can differ from the tab key (car-maintenance
-# -> "car"); everything here 302-redirects to "/dashboard/<tab>".
+# Legacy path -> tab key. The bare tab paths (/map, /kitchen, …) are native
+# SPA routes now, owned by routes/spa.py — only paths that differ from the tab
+# key still need a redirect here.
 _LEGACY_TAB_PATHS = [
-    ("/map", "map"),
-    ("/kitchen", "kitchen"),
-    ("/inventory", "inventory"),
-    ("/money", "money"),
     ("/car-maintenance", "car"),
-    ("/meditation", "meditation"),
-    ("/media", "media"),
-    ("/movement", "movement"),
-    ("/body", "body"),
-    ("/ideas", "ideas"),
-    ("/ecosystem", "ecosystem"),
-    ("/housing", "housing"),
-    ("/people", "people"),
 ]
 
 # Path to the file that backs the public homepage fake-terminal intro.
@@ -144,7 +133,8 @@ def register(app):
             return redirect("/dashboard/today", code=302)
         if tab == "today":
             return redirect("/todos", code=302)
-        return redirect(f"/legacy/{tab}", code=302)
+        # Every tab is a native SPA route now.
+        return redirect(f"/{tab}", code=302)
 
     def _make_legacy_redirect(tab):
         def view():
@@ -199,20 +189,8 @@ def register(app):
         resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
         return resp
 
-    @app.route("/personality")
-    def personality_page():
-        return render_template("personality.html")
-
-    @app.route("/about")
-    def about_page():
-        return render_template("about.html")
-
-    @app.route("/food-map")
-    def food_map_page():
-        """Standalone, shareable food-sourcing map — no dashboard chrome. Public; the
-        map renders read-only for visitors (no Add/Edit/Delete) and pulls its data
-        from the public /api/data/ecosystem stream."""
-        return render_template("food_map.html")
+    # /personality, /about, and /food-map are native SPA routes now, owned by
+    # routes/spa.py (their templates stay on disk until the archive pass).
 
     @app.route("/journal-view")
     def journal_view():

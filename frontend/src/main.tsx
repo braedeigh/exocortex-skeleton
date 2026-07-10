@@ -4,6 +4,15 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createRouter, RouterProvider } from '@tanstack/react-router';
 import './index.css';
 import { routeTree } from './routeTree.gen';
+import { initTheme } from './theme';
+
+// Boot the theming engine (src/theme — the port of static/js/sky-theme.js)
+// before first paint of the app: reads window.THEME_OVERRIDES (injected by
+// routes/spa.py at the end of <head>, so it's already set by the time this
+// module runs), applies the palette as CSS custom properties on
+// documentElement, re-computes every 2 minutes, and handles cross-frame
+// 'theme-changed' messages.
+initTheme();
 
 // split.html (the old shell) registered a service worker at /static/sw.js,
 // scope /static/. The SPA's own SW (vite-plugin-pwa) registers at / scope —

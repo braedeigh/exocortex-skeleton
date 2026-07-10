@@ -14,19 +14,14 @@
   <body>
     <div id="root"></div>
     <!--
-      Flask (routes/spa.py _spa_response) injects
+      Theming: Flask (routes/spa.py _spa_response) injects
       `<script>window.THEME_OVERRIDES = {...}; ...</script>` immediately
-      before `</head>` on every server-rendered load — i.e. as the very last
-      thing in <head>, after anything we put there ourselves. sky-theme.js
-      must run *after* that assignment lands, so it's loaded here in <body>
-      (a plain, non-module script — runs synchronously as the parser reaches
-      it, ahead of the deferred `main.tsx` module below) rather than in
-      <head>. Unmodified from the Flask skeleton (static/js/sky-theme.js):
-      self-boots off window.THEME_OVERRIDES (falls back to `{}` if unset,
-      e.g. under `vite dev`), sets --bg/--card-bg/--text/... on
-      documentElement, and listens for postMessage 'theme-changed' itself.
+      before `</head>` on every server-rendered load. The theming engine is
+      the bundled src/theme/ module (the TS port of static/js/sky-theme.js);
+      main.tsx calls initTheme() at module scope, which runs after <head> is
+      parsed, so the overrides are always in place first (absent under
+      `vite dev`, where the built-in defaults apply).
     -->
-    <script src="/static/js/sky-theme.js"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

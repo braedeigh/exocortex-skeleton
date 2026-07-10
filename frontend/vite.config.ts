@@ -50,6 +50,13 @@ export default defineConfig({
           /^\/login/,
           /^\/logout/,
           /^\/auth\//,
+          // Reverse proxies + Flask-served content (iframe navigations count
+          // as navigations too — the SW must never hand these the app shell):
+          /^\/terminal\//, // ttyd web terminal
+          /^\/files\//, // code-server (note trailing slash — /files itself IS the SPA)
+          /^\/phone/, // legacy mobile terminal page (still used by /classic)
+          /^\/receipts\//, // uploaded receipt files
+          /^\/archivals\//, // archival photos
         ],
         runtimeCaching: [
           {

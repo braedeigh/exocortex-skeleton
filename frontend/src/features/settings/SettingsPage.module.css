@@ -1,0 +1,262 @@
+/* Settings page — port of settings.html + the .settings-* block of
+ * static/css/style.css, on theme.css custom properties so sky-theme keeps
+ * re-skinning it. Touch-first: every control is 44px-tall (or 40px where the
+ * legacy "small until edit" pattern applies), no text under 12px. */
+
+.page {
+  flex: 1;
+  overflow-y: auto;
+  background: var(--bg);
+}
+
+.publicStub {
+  color: var(--text-muted);
+  font-size: var(--font-size-base);
+  padding: var(--space-6) 0;
+  text-align: center;
+}
+
+.wrap {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: var(--space-3) var(--space-4) 64px;
+}
+
+.titlebar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) 0 var(--space-3);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  z-index: 10;
+}
+
+.title {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  flex: 1;
+  margin: 0;
+  color: var(--text);
+}
+
+.saveStatus {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.saveBtn {
+  min-height: var(--tap-target);
+  padding: 0 var(--space-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.saveBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.saveBtnDirty:not(:disabled) {
+  background: var(--text);
+  color: var(--bg);
+  border-color: var(--text);
+}
+
+.saveBtnDirty:not(:disabled):hover {
+  opacity: 0.85;
+}
+
+.section {
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+}
+
+.section:first-of-type {
+  border-top: none;
+  padding-top: var(--space-1);
+}
+
+.heading {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-secondary);
+  margin: 0 0 var(--space-1);
+}
+
+.sub {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  margin-bottom: var(--space-3);
+}
+
+.modeSelect {
+  box-sizing: border-box;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+  max-width: 360px;
+  width: 100%;
+}
+
+.toggleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+  margin-bottom: var(--space-3);
+  cursor: pointer;
+  min-height: var(--tap-target);
+}
+
+.toggleLabel {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.toggleDesc {
+  display: block;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.toggleInput {
+  width: 22px;
+  height: 22px;
+  cursor: pointer;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+}
+
+/* Phase timing + accents share the open-card look (legacy `.phase-card.open`
+ * wrappers in settings.html). */
+.rulesCard,
+.accentsCard {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-2) var(--space-3) var(--space-3);
+}
+
+.ruleRow {
+  display: grid;
+  grid-template-columns: minmax(90px, 1fr) 70px 1fr 90px;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.ruleRow:last-child {
+  border-bottom: none;
+}
+
+.ruleLabel {
+  color: var(--text);
+}
+
+.ruleAnchor {
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.ruleFormula {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.ruleInput {
+  box-sizing: border-box;
+  width: 90px;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-monospace, 'SF Mono', Monaco, monospace;
+  font-size: var(--font-size-sm);
+  outline: none;
+  text-align: right;
+}
+
+.ruleInput:focus {
+  border-color: var(--text-muted);
+}
+
+.accentPreview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 var(--space-3);
+  padding: var(--space-3);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.swatchPill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #fff;
+}
+
+.swatchDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85);
+}
+
+@media (max-width: 560px) {
+  .ruleRow {
+    grid-template-columns: 1fr 90px;
+  }
+
+  .ruleAnchor {
+    display: none;
+  }
+
+  .ruleFormula {
+    grid-column: 1;
+  }
+
+  .ruleInput {
+    grid-row: 1 / span 2;
+    grid-column: 2;
+  }
+}

@@ -22,11 +22,8 @@ from routes.kitchen import shared
 
 
 def register(app):
-    @app.route("/person/<slug>")
-    def person_page(slug):
-        if entities.resolve_person(slug) is None:
-            return "Not found", 404
-        return render_template("person.html", slug=slug)
+    # /person/<slug> is a native SPA route now, owned by routes/spa.py (the
+    # SPA's person page 404-handles unknown slugs via the API response).
 
     @app.route("/api/person/<slug>")
     def person_api(slug):

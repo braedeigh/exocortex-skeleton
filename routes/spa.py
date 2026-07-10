@@ -80,7 +80,28 @@ def register(app):
     @app.route("/files")
     @app.route("/chat")
     @app.route("/notes")
-    def spa_shell(tab=None):
+    # Native dashboard tabs (ported from /tab/<name>):
+    @app.route("/map")
+    @app.route("/kitchen")
+    @app.route("/inventory")
+    @app.route("/money")
+    @app.route("/car")
+    @app.route("/meditation")
+    @app.route("/media")
+    @app.route("/movement")
+    @app.route("/body")
+    @app.route("/ideas")
+    @app.route("/ecosystem")
+    @app.route("/housing")
+    @app.route("/people")
+    # Native standalone pages (ported from their Flask templates):
+    @app.route("/person/<slug>")
+    @app.route("/personality")
+    @app.route("/scratchpad")
+    @app.route("/vscode")
+    @app.route("/food-map")
+    @app.route("/about")
+    def spa_shell(tab=None, slug=None):
         return _spa_response()
 
     @app.route("/assets/<path:filename>")

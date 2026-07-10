@@ -1102,9 +1102,8 @@ def _top_processes(n=5):
         return []
 
 
-@app.route("/vscode")
-def vscode_launcher():
-    return render_template("vscode_launcher.html")
+# /vscode is a native SPA route now (routes/spa.py); the launcher's API
+# endpoints below are unchanged.
 
 
 @app.route("/api/vscode/status")

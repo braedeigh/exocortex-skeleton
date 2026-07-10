@@ -1,0 +1,54 @@
+/* Paired color-picker + text input (legacy .color-row), grown to touch-first
+ * sizing: both inputs sit in a 44px row, picker enlarged from 36×28. */
+
+.row {
+  display: grid;
+  grid-template-columns: minmax(110px, 160px) 1fr;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+}
+
+.label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--tap-target);
+  cursor: pointer;
+}
+
+.labelText {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.picker {
+  width: 44px;
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+  cursor: pointer;
+  background: var(--bg);
+  flex-shrink: 0;
+}
+
+.text {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-monospace, 'SF Mono', Monaco, monospace;
+  font-size: var(--font-size-sm);
+  outline: none;
+}
+
+.text:focus {
+  border-color: var(--text-muted);
+}

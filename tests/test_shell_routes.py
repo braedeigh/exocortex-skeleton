@@ -68,10 +68,10 @@ def test_dashboard_today_redirects_to_todos():
     assert r.headers["Location"] == "/todos"
 
 
-def test_dashboard_tab_redirects_to_legacy_tab():
+def test_dashboard_tab_redirects_to_native_tab():
     r = _client().get("/dashboard/map")
     assert r.status_code == 302
-    assert r.headers["Location"] == "/legacy/map"
+    assert r.headers["Location"] == "/map"
 
 
 def test_dashboard_nonsense_falls_back_to_dashboard_today():
@@ -94,22 +94,19 @@ def test_dashboard_research_redirects_to_research_place():
 
 # --- legacy path redirects ------------------------------------------------------
 
-def test_legacy_map_redirects_to_dashboard_map():
-    r = _client().get("/map")
-    assert r.status_code == 302
-    assert r.headers["Location"] == "/dashboard/map"
+def test_bare_tab_paths_are_no_longer_shell_owned():
+    # /map, /people, ... are native SPA routes now (routes/spa.py) — the shell
+    # blueprint must not register them, or its redirects would shadow the SPA.
+    # In this shell-only test app that means they 404.
+    for path in ("/map", "/people"):
+        r = _client().get(path)
+        assert r.status_code == 404, path
 
 
 def test_legacy_car_maintenance_redirects_to_dashboard_car():
     r = _client().get("/car-maintenance")
     assert r.status_code == 302
     assert r.headers["Location"] == "/dashboard/car"
-
-
-def test_legacy_people_redirects_to_dashboard_people():
-    r = _client().get("/people")
-    assert r.status_code == 302
-    assert r.headers["Location"] == "/dashboard/people"
 
 
 # --- classic shell views: journal / files / research / settings ----------------

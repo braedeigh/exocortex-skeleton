@@ -1,31 +1,40 @@
 import { useEffect, useState } from 'react';
 import type { SessionState } from './useSessions';
 import { useSettledFrames } from './useSettledFrames';
-import styles from './PhoneFrames.module.css';
+import { PhoneTerminal } from '../features/phone/PhoneTerminal';
 
 /**
- * Mobile counterpart to TerminalFrames.tsx: one iframe per visited tmux
- * session, `src="/phone?session=<name>"` (templates/phone.html — the same
- * mobile-optimized ttyd view the old split.html Chat tab used), keeping every
- * visited session's iframe mounted and toggling CSS `display` on switch
- * instead of swapping `src`. Same reasoning as TerminalFrames: an unmounted-
- * then-remounted iframe re-triggers ttyd's own "leave site?" unload prompt
- * and loses the websocket handshake for a beat, which reads as "I have to
- * tap the tab twice."
+ * Mobile counterpart to TerminalFrames.tsx: one native PhoneTerminal
+ * (features/phone — the React port of templates/phone.html, which this used
+ * to load as a `/phone?session=…` iframe) per visited tmux session, keeping
+ * every visited session mounted and toggling visibility on switch instead of
+ * unmounting. Same reasoning as TerminalFrames: each PhoneTerminal contains
+ * a live ttyd iframe, and an unmounted-then-remounted iframe re-triggers
+ * ttyd's own "leave site?" unload prompt and loses the websocket handshake
+ * for a beat, which reads as "I have to tap the tab twice." Keeping the
+ * component mounted also preserves its chrome state (draft message, open
+ * panels) across session switches.
+ *
+ * closePicker (present when ChatPage passes its SessionsUiState) is handed
+ * down as PhoneTerminal's onInteract: tapping into the /phone iframe used to
+ * blur the window, which ChatPage treated as "done picking — fold the picker
+ * away"; a native tap doesn't blur anything, so the terminal reports the
+ * interaction explicitly instead.
  */
-export function PhoneFrames({ sessions }: { sessions: SessionState }) {
+export function PhoneFrames({ sessions }: { sessions: SessionState & { closePicker?: () => void } }) {
   const { active, sessions: list } = sessions;
   const [visited, setVisited] = useState<string[]>(() => [active]);
   // See useSettledFrames — same first-mount blank-iframe workaround as
-  // TerminalFrames' desktop counterpart.
+  // TerminalFrames' desktop counterpart (the ttyd iframe inside PhoneTerminal
+  // still needs its one display:none->visible settle frame).
   const settled = useSettledFrames(visited);
 
-  // Mount a new iframe the first time a session becomes active.
+  // Mount a new terminal the first time a session becomes active.
   useEffect(() => {
     setVisited((prev) => (prev.includes(active) ? prev : [...prev, active]));
   }, [active]);
 
-  // Unmount iframes for sessions that no longer exist (closed elsewhere).
+  // Unmount terminals for sessions that no longer exist (closed elsewhere).
   useEffect(() => {
     setVisited((prev) => {
       const next = prev.filter((s) => list.includes(s));
@@ -36,13 +45,12 @@ export function PhoneFrames({ sessions }: { sessions: SessionState }) {
   return (
     <>
       {visited.map((s) => (
-        <iframe
+        <PhoneTerminal
           key={s}
-          title={`Chat — ${s}`}
-          className={styles.frame}
-          src={`/phone?session=${encodeURIComponent(s)}`}
-          scrolling="no"
-          style={{ display: s === active && settled.has(s) ? 'block' : 'none' }}
+          session={s}
+          active={s === active}
+          visible={s === active && settled.has(s)}
+          onInteract={sessions.closePicker}
         />
       ))}
     </>

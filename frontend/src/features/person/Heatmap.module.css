@@ -1,0 +1,57 @@
+/* Heatmap — port of person.html's .heatmap-* block. Cells stay the old
+   14px (the grid is dense by design, like GitHub's — the whole strip
+   scrolls horizontally and pins to the newest side). */
+
+.scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: var(--space-1);
+  -webkit-overflow-scrolling: touch;
+}
+
+.inner {
+  display: inline-block;
+  min-width: 100%;
+}
+
+.months {
+  display: flex;
+  gap: 3px;
+  margin-bottom: var(--space-1);
+}
+
+.monthCol {
+  width: 14px;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.grid {
+  display: flex;
+  gap: 3px;
+}
+
+.week {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.cell {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.empty {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-style: italic;
+}

@@ -1,0 +1,123 @@
+/* FactsSection — port of person.html's .pf-* block onto the theme vars,
+   tap targets grown to the 44px --tap-target. */
+
+.row {
+  display: flex;
+  align-items: center;
+  min-height: var(--tap-target);
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  gap: var(--space-3);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.row:last-of-type {
+  border-bottom: none;
+}
+
+.label {
+  flex: 0 0 100px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: capitalize;
+}
+
+.value {
+  flex: 1;
+  font-size: 14px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.placeholder {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.rowEditing {
+  display: flex;
+  align-items: center;
+  min-height: var(--tap-target);
+  padding: 6px 0;
+  gap: var(--space-2);
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--tap-target);
+  padding: var(--space-2) 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.keyInput {
+  composes: input;
+  flex: 0 0 100px;
+}
+
+.btn {
+  min-height: var(--tap-target);
+  min-width: var(--tap-target);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card-bg);
+  color: var(--text);
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.addRow {
+  display: flex;
+  align-items: center;
+  min-height: var(--tap-target);
+  padding: 6px 0;
+  gap: var(--space-2);
+  border-top: 1px solid var(--border);
+  margin-top: var(--space-1);
+}
+
+.addBtn {
+  font-size: 13px;
+  color: var(--accent);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  min-height: var(--tap-target);
+  display: flex;
+  align-items: center;
+  font-family: inherit;
+  font-weight: 600;
+}
+
+.addBtn:hover {
+  text-decoration: underline;
+}

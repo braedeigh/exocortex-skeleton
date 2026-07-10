@@ -1,0 +1,42 @@
+/* ApprovalsHost — the floating "changes awaiting approval" pill. Sits above
+   page content (z 90) but under the Sheet (100) and ToastStack (200). */
+
+.banner {
+  position: fixed;
+  right: var(--space-4);
+  bottom: calc(var(--tap-target) + env(safe-area-inset-bottom) + var(--space-4));
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--tap-target);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--text);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  font-family: inherit;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+  cursor: pointer;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: #fff;
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+}
+
+.review {
+  color: var(--accent);
+  font-weight: 700;
+}

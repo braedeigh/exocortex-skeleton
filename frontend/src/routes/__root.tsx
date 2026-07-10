@@ -1,4 +1,5 @@
 import { createRootRoute, Outlet } from '@tanstack/react-router';
+import { ApprovalsHost } from '../features/approvals';
 import { TopTabs } from '../shell/TopTabs';
 import { FrameHost } from '../shell/FrameHost';
 import { SplitLayout } from '../shell/SplitLayout';
@@ -54,6 +55,10 @@ function RootLayout() {
             <FrameHost />
             <Outlet />
           </div>
+          {/* Keeper-staged change queue — polls /api/pending, renders nothing
+              when empty. Mounted at the root so approvals surface on every
+              page (the legacy dashboard polled this globally too). */}
+          {!isPublic ? <ApprovalsHost /> : null}
         </SessionsProvider>
       </SplitLayout>
     </main>

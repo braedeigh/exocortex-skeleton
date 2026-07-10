@@ -128,7 +128,7 @@ export function RefCard({
                   <a
                     key={i}
                     className={styles.chip}
-                    href={`/keeper#${encodeURIComponent(target.path)}`}
+                    href={`/files?path=${encodeURIComponent(target.path)}`}
                   >
                     {refLabel(target)}
                   </a>

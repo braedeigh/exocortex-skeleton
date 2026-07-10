@@ -1,0 +1,225 @@
+/* Native port of templates/phone.html's inline styles. Like SessionBar /
+ * ChatSessionPicker (see their header comments), the chrome is pinned to the
+ * fixed twilight-indigo literals the terminal apparatus uses everywhere —
+ * phone.html was hard-dark and never theme-swapped, so var(--bg)/var(--text)
+ * would be wrong here. Scale tokens (spacing/radius/type/tap-target) come
+ * from theme.css. Tap targets grown from the old 36-40px to var(--tap-target)
+ * (44px) — this is THE touch surface of the app. */
+
+.root {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #000;
+}
+
+/* phone.html's .terminal-frame: safe-area padding at the sides, and a bottom
+ * reserve so ttyd's content isn't hidden behind the absolutely-positioned
+ * bottom bar (was 85px; grown for the 44px tap targets, plus the bottom
+ * safe-area inset that used to read as 0 inside the /phone iframe). */
+.terminalArea {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+  padding-bottom: calc(108px + env(safe-area-inset-bottom, 0px));
+}
+
+/* Read-only: all touch goes to .touchLayer, all typing goes through the API. */
+.frame {
+  width: 100%;
+  height: 100%;
+  border: none;
+  display: block;
+  pointer-events: none;
+  background: #000;
+}
+
+.touchLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+}
+
+.cornerButtons {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 5;
+}
+
+.cornerBtn {
+  width: var(--tap-target);
+  height: var(--tap-target);
+  border-radius: var(--radius-xl);
+  border: 1px solid rgba(124, 92, 191, 0.4);
+  background: rgba(124, 92, 191, 0.04);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  color: rgba(124, 92, 191, 0.9);
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-user-select: none;
+  user-select: none;
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.cornerBtn:active {
+  background: rgba(124, 92, 191, 0.3);
+  color: #e0d0ff;
+}
+
+.jumpBtn {
+  font-size: var(--font-size-sm);
+}
+
+/* Absolutely positioned (not a flex row) on purpose: the textarea growing
+ * expands the bar upward over the terminal instead of resizing the iframe. */
+.bottomBar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 4;
+  background: #0d0d1a;
+  border-top: 1px solid #2a2a4a;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.toolbar {
+  display: flex;
+  gap: 5px;
+  padding: 5px 6px;
+}
+
+.toolBtn {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--tap-target);
+  padding: 0;
+  background: #1a1a2e;
+  border: 1px solid #2a2a4a;
+  border-radius: var(--radius-md);
+  color: #8888aa;
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  cursor: pointer;
+  text-align: center;
+}
+
+.toolBtn:active {
+  background: #2a2a4a;
+  color: #c8c8e0;
+}
+
+.fileInput {
+  display: none;
+}
+
+.inputArea {
+  display: flex;
+  gap: 6px;
+  padding: 4px 6px 2px 6px;
+  align-items: flex-end;
+}
+
+.input {
+  flex: 1;
+  min-height: var(--tap-target);
+  max-height: 100px;
+  background: #1a1a2e;
+  border: 1px solid #2a2a4a;
+  border-radius: 18px;
+  padding: 11px 14px;
+  color: #e0e0e0;
+  /* 16px floor — under that, iOS Safari auto-zooms the focused textarea. */
+  font-size: var(--font-size-base);
+  font-family: inherit;
+  outline: none;
+  resize: none;
+  line-height: 1.4;
+}
+
+.input::placeholder {
+  color: #555;
+}
+
+.input:focus {
+  border-color: #7c5cbf;
+}
+
+.sendBtn {
+  width: var(--tap-target);
+  height: var(--tap-target);
+  flex-shrink: 0;
+  background: #7c5cbf;
+  border: none;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sendBtn:active {
+  background: #9b7dd4;
+}
+
+.uploadOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.75);
+}
+
+.uploadBox {
+  background: #1a1a2e;
+  border: 1px solid #2a2a4a;
+  border-radius: 14px;
+  padding: 22px 28px;
+  color: #e0e0e0;
+  font-size: 15px;
+  text-align: center;
+  min-width: 180px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+
+.uploadError {
+  border-color: #b04050;
+  color: #ffb0b0;
+}
+
+.spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid #2a2a4a;
+  border-top-color: #7c5cbf;
+  border-radius: 50%;
+  margin: 0 auto 12px;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

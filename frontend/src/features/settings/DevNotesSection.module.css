@@ -1,0 +1,168 @@
+/* Cross-tab dev notes — legacy inline styles from settings.html/settings.js,
+ * lifted into a module and grown to touch-first sizing. */
+
+.addRow {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-end;
+  margin: var(--space-2) 0;
+}
+
+.addInput {
+  flex: 1;
+  box-sizing: border-box;
+  min-height: var(--tap-target);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  line-height: 1.4;
+  font-family: inherit;
+  outline: none;
+  background: var(--bg);
+  color: var(--text);
+  resize: none;
+  overflow: hidden;
+}
+
+.addInput:focus {
+  border-color: var(--text-muted);
+}
+
+.addBtn {
+  min-height: var(--tap-target);
+  padding: 0 var(--space-4);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--text);
+  color: var(--bg);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.addBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.empty {
+  font-size: 13px;
+  color: var(--text-muted);
+  padding: var(--space-2) 0;
+}
+
+.noteRow {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.noteText {
+  flex: 1;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  /* keep the text vertically centered against the 40px action buttons */
+  padding-top: 10px;
+}
+
+.noteDate {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  white-space: nowrap;
+  padding-top: 12px;
+}
+
+.act {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  min-width: 40px;
+  min-height: 40px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-base);
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.act:hover {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--accent);
+}
+
+.actX {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.actSure {
+  background: color-mix(in srgb, var(--red) 15%, transparent);
+  color: var(--red);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.actSure:hover {
+  background: color-mix(in srgb, var(--red) 25%, transparent);
+  color: var(--red);
+}
+
+.editWrap {
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--border);
+}
+
+.editArea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 72px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  line-height: 1.4;
+  font-family: inherit;
+  background: var(--bg);
+  color: var(--text);
+  resize: none;
+  overflow: hidden;
+  outline: none;
+}
+
+.editBtns {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  justify-content: flex-end;
+}
+
+.editBtns button {
+  min-height: 40px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.saveBtn {
+  border: none;
+  background: var(--text);
+  color: var(--bg);
+}
+
+.cancelBtn {
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text-muted);
+}

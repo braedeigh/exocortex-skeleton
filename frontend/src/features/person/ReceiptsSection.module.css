@@ -1,0 +1,77 @@
+/* ReceiptsSection — port of person.html's .p-row / .p-badge / .p-subhead. */
+
+.subhead {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin: 14px 0 6px;
+}
+
+.subhead:first-child {
+  margin-top: 0;
+}
+
+.row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 9px 11px;
+  margin-bottom: 6px;
+  color: var(--text);
+  cursor: pointer;
+  font-family: inherit;
+  min-height: var(--tap-target);
+  position: relative;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.row:hover {
+  border-color: var(--accent);
+}
+
+.rowDate {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.rowNote {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.rowSnip {
+  display: block;
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  line-height: 1.45;
+}
+
+.badge {
+  float: right;
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--text-muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  padding: 1px 8px;
+}
+
+.rowCardView {
+  color: var(--accent);
+  font-weight: 600;
+  text-align: center;
+}
+
+.empty {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-style: italic;
+}

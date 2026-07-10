@@ -1,0 +1,227 @@
+/* PersonPage — port of person.html's inline <style> onto the theme vars
+   (set live by sky-theme.js). The page scrolls inside itself like every
+   native route; the header stays sticky against that scroll. The two tints
+   the old page hardcoded are derived from the live palette here, and
+   custom properties inherit so Heatmap.module.css sees --p-hm-empty. */
+
+.page {
+  flex: 1;
+  overflow-y: auto;
+  --p-accent-light: color-mix(in srgb, var(--accent) 15%, transparent);
+  --p-hm-empty: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.container {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 0 var(--space-4) var(--space-8);
+  overflow-x: hidden;
+}
+
+/* Sticky header */
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--bg);
+  padding: var(--space-3) 0 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.backLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-1);
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.backLink:hover {
+  color: var(--accent);
+}
+
+.name {
+  font-size: var(--font-size-xl);
+  font-weight: 700;
+  margin-top: 6px;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.tag {
+  font-size: var(--font-size-sm);
+  padding: 3px 9px;
+  border-radius: var(--radius-pill);
+  background: var(--p-accent-light);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.metaSep {
+  color: var(--text-muted);
+}
+
+.dates {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.headerActions {
+  margin-top: 10px;
+}
+
+/* The old .p-btn — accent-tinted pill button, used by Open file + Regenerate. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-lg);
+  background: var(--p-accent-light);
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--accent);
+  color: #fff;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Sections */
+.section {
+  padding: 18px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.section:last-child {
+  border-bottom: none;
+}
+
+/* Facts + Activity two-up: side by side on wide screens, stacked on the PWA. */
+.duo {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0 var(--space-7);
+  border-bottom: 1px solid var(--border);
+}
+
+.duo .section {
+  border-bottom: none;
+}
+
+@media (max-width: 640px) {
+  .duo {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .duo .section:first-child {
+    border-bottom: 1px solid var(--border);
+  }
+}
+
+.sectionTitle {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
+.sectionActions {
+  margin-top: 10px;
+}
+
+/* Markdown bodies (Impression + Story) — the old .p-body/.p-impression. */
+.mdBody {
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+.mdBody h1 {
+  font-size: 20px;
+  margin-bottom: var(--space-2);
+}
+
+.mdBody h2 {
+  font-size: 17px;
+  margin-top: 18px;
+  margin-bottom: 6px;
+}
+
+.mdBody h3 {
+  font-size: 15px;
+  margin-top: 14px;
+  margin-bottom: var(--space-1);
+}
+
+.mdBody hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 14px 0;
+}
+
+.mdBody p {
+  margin-bottom: var(--space-2);
+}
+
+.mdBody code {
+  background: var(--p-accent-light);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 13px;
+}
+
+.mdBody em {
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.mdBody strong {
+  font-weight: 700;
+}
+
+.mdBody blockquote {
+  border-left: 3px solid var(--accent);
+  padding-left: var(--space-3);
+  color: var(--text-muted);
+  margin: var(--space-2) 0;
+}
+
+.mdBody ul {
+  padding-left: var(--space-5);
+  margin-bottom: var(--space-2);
+}
+
+.empty {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.loading {
+  padding: var(--space-6) 0;
+  color: var(--text-muted);
+  font-size: 14px;
+}

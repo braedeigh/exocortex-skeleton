@@ -1,0 +1,239 @@
+/* Annotator.module.css — the char-anchored highlight overlay
+ * (templates/research.html .ann-panel/.ann-main/.ann-text/.ann-list,
+ * mark.ann-mark, .ann-pop) . */
+
+.panel {
+  width: min(980px, 100%);
+}
+
+.main {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+}
+
+.text {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 16px 20px;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  line-height: 1.7;
+  font-size: 14px;
+  color: var(--text);
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.list {
+  flex: none;
+  width: 300px;
+  overflow-y: auto;
+  border-left: 1px solid var(--border);
+  padding: 12px 14px;
+}
+
+@media (max-width: 720px) {
+  .main {
+    flex-direction: column;
+  }
+
+  .list {
+    width: auto;
+    max-height: 38vh;
+    border-left: none;
+    border-top: 1px solid var(--border);
+  }
+}
+
+.mark {
+  background: rgba(212, 168, 10, 0.3);
+  color: inherit;
+  border-radius: 3px;
+  cursor: pointer;
+  padding: 1px 0;
+}
+
+.markReviewed {
+  background: rgba(58, 158, 140, 0.28);
+}
+
+.markActive {
+  outline: 2px solid var(--accent);
+}
+
+.row {
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+
+.row:first-of-type {
+  border-top: none;
+}
+
+.quote {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  font-family: inherit;
+  min-height: 28px;
+}
+
+.note {
+  font-size: 14px;
+  margin-top: 4px;
+  color: var(--text);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: var(--space-2);
+  align-items: center;
+}
+
+.pop {
+  position: fixed;
+  z-index: 60;
+  height: var(--tap-target);
+  padding: 0 16px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--accent);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+}
+
+.empty {
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 13px;
+  padding: 8px 0;
+}
+
+.batchBar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px 0 10px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+  flex-wrap: wrap;
+}
+
+.batchCount {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.batchSelectBtn {
+  min-height: 38px;
+  padding: 0 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--accent);
+  background: none;
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.batchSelectBtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.batchSendBtn {
+  min-height: 38px;
+  padding: 0 16px;
+  border-radius: var(--radius-md);
+  border: none;
+  background: var(--ongoing);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.batchSendBtn:disabled {
+  background: var(--border);
+  cursor: default;
+}
+
+.batchMsg {
+  font-size: 13px;
+  color: var(--green);
+  padding: 4px 0 6px;
+  word-break: break-word;
+}
+
+.selectCb {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  flex: none;
+}
+
+/* small note form replacing the old prompt() on create/edit */
+.noteForm {
+  position: fixed;
+  z-index: 70;
+  left: 50%;
+  top: 18vh;
+  transform: translateX(-50%);
+  width: min(420px, calc(100vw - 32px));
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+}
+
+.noteFormLabel {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: var(--space-2);
+}
+
+.noteFormQuote {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+  margin-bottom: var(--space-2);
+  max-height: 80px;
+  overflow: hidden;
+}
+
+.noteFormArea {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 64px;
+}
+
+.noteFormBtns {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+  margin-top: var(--space-2);
+}

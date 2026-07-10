@@ -24,16 +24,17 @@ def test_people_is_a_valid_tab():
     assert "people" in server.VALID_TABS
 
 
-def test_people_legacy_path_redirects_to_dashboard_tab(authed_client):
+def test_people_path_serves_the_spa_shell(authed_client):
+    # /people is a native SPA route now (routes/spa.py), not a redirect chain.
     resp = authed_client.get("/people")
-    assert resp.status_code == 302
-    assert resp.headers["Location"] == "/dashboard/people"
+    assert resp.status_code == 200
+    assert b"window.VIEW_MODE" in resp.data
 
 
-def test_dashboard_people_redirects_into_the_spa(authed_client):
+def test_dashboard_people_redirects_to_the_native_tab(authed_client):
     resp = authed_client.get("/dashboard/people")
     assert resp.status_code == 302
-    assert resp.headers["Location"] == "/legacy/people"
+    assert resp.headers["Location"] == "/people"
 
 
 def test_legacy_people_serves_the_spa_shell(authed_client):

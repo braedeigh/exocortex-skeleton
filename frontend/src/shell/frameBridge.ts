@@ -66,25 +66,13 @@ export function useFrameBridge(): void {
           break;
         }
 
-        // journal-view asks the shell to open a file in the Files/keeper view
-        // (templates/split.html:1491-1514 openKeeperFile, "open-keeper":
-        // journal -> shell, "keeper-open": shell -> files iframe). FrameHost
-        // keeps the files frame mounted once visited, so if it's already up
-        // just relay 'keeper-open' straight to it; navigating there either
-        // way lands the lazy src load (?/keeper) or brings the existing frame
-        // to front.
+        // A legacy iframe asks the shell to open a file in the Files view
+        // (templates/split.html:1491-1514 openKeeperFile). The keeper browser
+        // is native now — deep-link it via its ?path= search param.
         case 'open-keeper': {
           const path = typeof msg.path === 'string' ? msg.path : null;
           if (path) {
-            const filesWin = getFrameWindows().get('files');
-            if (filesWin) {
-              try {
-                filesWin.postMessage({ type: 'keeper-open', path }, window.location.origin);
-              } catch {
-                // ignore
-              }
-            }
-            void navigate({ to: '/files' });
+            void navigate({ to: '/files', search: { path } });
           }
           break;
         }

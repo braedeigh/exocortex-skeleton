@@ -1,0 +1,169 @@
+/* SectionDetail.module.css — the section-detail half of
+ * templates/personality.html (.section-detail / .section-mode-toggle /
+ * .section-preview / .section-editor / .save-status), on theme.css custom
+ * properties so sky-theme.js's runtime palette applies. Controls grown to the
+ * 44px touch-first floor; nothing under 12px. */
+
+.detail {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.backBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 14px;
+  font-family: inherit;
+  padding: 0 var(--space-3);
+  min-height: var(--tap-target);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  background: none;
+}
+
+.backBtn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.modeToggle {
+  display: flex;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.modeBtn {
+  padding: 0 var(--space-4);
+  min-height: calc(var(--tap-target) - 2px);
+  border: none;
+  background: none;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.modeBtn.active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+/* --- Read view (markdown, element styles ported from the old page's
+ * .section-preview block — element selectors aren't hashed by CSS Modules,
+ * so they hit the injected HTML). --- */
+
+.preview {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-4) 0;
+  line-height: 1.7;
+  font-size: var(--font-size-base);
+  color: var(--text);
+}
+
+.preview h1 {
+  font-size: 22px;
+  margin-bottom: var(--space-2);
+}
+
+.preview h2 {
+  font-size: 20px;
+  margin-bottom: var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.preview h3 {
+  font-size: 16px;
+  margin-top: var(--space-4);
+  margin-bottom: var(--space-1);
+}
+
+.preview hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: var(--space-4) 0;
+}
+
+.preview p {
+  margin-bottom: var(--space-2);
+}
+
+.preview code {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 13px;
+}
+
+.preview em {
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.preview strong {
+  font-weight: 700;
+}
+
+.preview blockquote {
+  border-left: 3px solid var(--accent);
+  padding-left: var(--space-3);
+  color: var(--text-muted);
+  margin: var(--space-2) 0;
+}
+
+.preview ul,
+.preview ol {
+  padding-left: 20px;
+  margin-bottom: var(--space-2);
+}
+
+.emptyMsg {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* --- Edit view --- */
+
+.editor {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border: none;
+  outline: none;
+  resize: none;
+  padding: var(--space-4) 0;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', Consolas, monospace;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text);
+  background: transparent;
+}
+
+.status {
+  padding: 6px 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  text-align: right;
+  flex-shrink: 0;
+  min-height: 24px;
+}

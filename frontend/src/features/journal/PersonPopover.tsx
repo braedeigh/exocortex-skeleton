@@ -87,7 +87,7 @@ export function PersonPopover({ slug, onClose, onJournalMention }: PersonPopover
                   {content}
                 </button>
               ) : (
-                <a key={i} className={styles.mentionRow} href={`/keeper#${encodeURIComponent(m.file)}`}>
+                <a key={i} className={styles.mentionRow} href={`/files?path=${encodeURIComponent(m.file)}`}>
                   {content}
                 </a>
               );

@@ -1,0 +1,230 @@
+/* Shared styles for every per-kind approval editor — same field vocabulary
+   as AddTodoSheet.module.css / DetailSheet.module.css so an approval sheet
+   reads exactly like the native editor it mirrors. Touch-first: 44px inputs
+   and buttons, nothing under 12px. */
+
+.summary {
+  margin: 0 0 var(--space-4);
+  font-size: var(--font-size-base);
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.row {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.row > .field {
+  flex: 1;
+}
+
+.label {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.optional {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.input,
+.textarea,
+.select {
+  min-height: var(--tap-target);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--font-size-base);
+  font-family: inherit;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.chip {
+  min-height: 40px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.chip.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
+
+/* "From journal" display-only block (contact approvals). */
+.reason {
+  font-size: var(--font-size-base);
+  color: var(--text-muted);
+  line-height: 1.4;
+  padding: var(--space-2) 0;
+}
+
+.error {
+  color: var(--red);
+  font-size: var(--font-size-base);
+  margin: 0 0 var(--space-3);
+}
+
+/* Deny + Approve — explicit taps, equal weight, 44px (Button enforces). */
+.actions {
+  display: flex;
+  gap: var(--space-3);
+  margin-top: var(--space-5);
+}
+
+.actions > * {
+  flex: 1;
+}
+
+/* ── Symptom editor (mirrors SymptomCard.module.css) ── */
+
+.key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  margin-bottom: var(--space-2);
+}
+
+.keyItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.keyDot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.keyEnergy {
+  font-size: var(--font-size-sm);
+  font-style: italic;
+  color: var(--text-muted);
+  margin-bottom: var(--space-4);
+}
+
+.symGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-3);
+}
+
+.symLabel {
+  display: block;
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: var(--space-2);
+}
+
+.symGroup {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.symBtn {
+  min-width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--font-size-base);
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.12s;
+  padding: 0;
+}
+
+.symBtn:active {
+  transform: scale(0.9);
+}
+
+/* Selected fill matches the legacy .sym-btn palette (style.css): green→red
+   for symptoms; energy runs the other way (0 Crashed is the bad end). */
+.symBtn.selected {
+  border-color: transparent;
+  color: #fff;
+}
+
+.symBtn.selected[data-col='symptom'][data-val='0'],
+.symBtn.selected[data-col='energy'][data-val='3'] {
+  background: var(--green);
+}
+
+.symBtn.selected[data-col='symptom'][data-val='1'],
+.symBtn.selected[data-col='energy'][data-val='2'] {
+  background: var(--yellow);
+  color: #333;
+}
+
+.symBtn.selected[data-col='symptom'][data-val='2'],
+.symBtn.selected[data-col='energy'][data-val='1'] {
+  background: var(--orange);
+}
+
+.symBtn.selected[data-col='symptom'][data-val='3'],
+.symBtn.selected[data-col='energy'][data-val='0'] {
+  background: var(--red);
+}
+
+/* Yes/No flare buttons — pill twins of .symBtn. */
+.flareBtn {
+  min-width: 72px;
+  height: 44px;
+  border-radius: var(--radius-pill);
+  border: 2px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--font-size-base);
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0 var(--space-4);
+}
+
+.flareBtn.selected {
+  border-color: transparent;
+  background: var(--accent);
+  color: #fff;
+}

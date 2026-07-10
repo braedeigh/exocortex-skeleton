@@ -1,6 +1,14 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { IframeRoute } from '../shell/IframeRoute';
+import { SettingsPage } from '../features/settings/SettingsPage';
+import { useDeactivateFrames } from '../shell/useIframeView';
 
+// Native Settings page (theme editor, dev notes, account) — replaces the
+// /settings-view iframe of templates/settings.html.
 export const Route = createFileRoute('/settings')({
-  component: () => <IframeRoute frameKey="settings" src="/settings-view" title="Settings" />,
+  component: SettingsRoute,
 });
+
+function SettingsRoute() {
+  useDeactivateFrames();
+  return <SettingsPage />;
+}
