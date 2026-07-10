@@ -37,7 +37,7 @@ function canEditNow(): boolean {
 }
 
 export function EcosystemPage({ initialRecipeId = '' }: { initialRecipeId?: string } = {}) {
-  const { data, isLoading, isError, error } = useEcosystemData();
+  const { data, isLoading, error } = useEcosystemData();
   const { toasts, push, dismiss } = useToasts();
   const { save, remove } = useSourceMutations(push);
   const canEdit = canEditNow();
@@ -233,7 +233,9 @@ export function EcosystemPage({ initialRecipeId = '' }: { initialRecipeId?: stri
       </div>
     );
   }
-  if (isError || !data) {
+  // Error page only when there's nothing to show — a failed background poll
+  // must keep rendering the data we have (and never unmount the Leaflet map).
+  if (!data) {
     return (
       <div className={styles.page}>
         <div className={styles.error}>
@@ -305,6 +307,7 @@ export function EcosystemPage({ initialRecipeId = '' }: { initialRecipeId?: stri
             onSave={saveDraft}
             onCancel={cancelDraft}
             onDelete={requestDeleteFromEdit}
+            onError={push}
             map={mapRef}
           />
         </div>
@@ -332,6 +335,7 @@ export function EcosystemPage({ initialRecipeId = '' }: { initialRecipeId?: stri
             onSave={saveDraft}
             onCancel={cancelDraft}
             onDelete={requestDeleteFromEdit}
+            onError={push}
             map={mapRef}
           />
         ) : null}

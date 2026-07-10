@@ -66,7 +66,10 @@ export function useNotesBrowserMutations(onError: (message: string) => void) {
   });
 
   return {
-    edit: (kind: NotesBrowserKind, tab: string, id: string, text: string) => edit.mutate({ kind, tab, id, text }),
+    /** Rejects on failure (after the error toast fires) so the caller can keep
+     * the edit composer — and the draft — open instead of dropping the text. */
+    edit: (kind: NotesBrowserKind, tab: string, id: string, text: string) =>
+      edit.mutateAsync({ kind, tab, id, text }),
     remove: (kind: NotesBrowserKind, tab: string, id: string) => remove.mutate({ kind, tab, id }),
   };
 }

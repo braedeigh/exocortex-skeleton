@@ -53,7 +53,7 @@ export function Reader({ path, onAnnotate, onClose }: ReaderProps) {
         </div>
         {query.isLoading ? (
           <div className={readerStyles.loading}>Loading&hellip;</div>
-        ) : query.isError ? (
+        ) : query.isError && !query.data ? (
           <div className={readerStyles.loading}>Could not open file.</div>
         ) : (
           <div className={readerStyles.body} dangerouslySetInnerHTML={{ __html: mdToHtml(query.data?.text ?? '') }} />

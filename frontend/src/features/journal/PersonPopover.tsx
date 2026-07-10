@@ -19,7 +19,7 @@ function monthYear(dateStr: string): string {
 }
 
 export function PersonPopover({ slug, onClose, onJournalMention }: PersonPopoverProps) {
-  const { data, isLoading } = useBacklinks(slug);
+  const { data, isLoading, isError } = useBacklinks(slug);
 
   if (!slug) return null;
 
@@ -48,6 +48,10 @@ export function PersonPopover({ slug, onClose, onJournalMention }: PersonPopover
     <Sheet open={!!slug} onClose={onClose} title={data?.name || slug}>
       {isLoading ? (
         <div className={styles.loading}>Loading…</div>
+      ) : isError && !data ? (
+        // Distinct from the legit "no file yet" empty states below — a failed
+        // fetch must not read as "this person has no records".
+        <div className={styles.loading}>Couldn&apos;t load.</div>
       ) : (
         <>
           <div className={styles.headLine} style={{ color }}>

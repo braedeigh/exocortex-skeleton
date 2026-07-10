@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { ToastStack } from '../../ui';
+import { useToasts } from '../journal/useJournalData';
 import {
   PHASE_ORDER,
   commitThemeOverrides,
@@ -65,6 +67,7 @@ export function SettingsPage() {
   const [status, setStatus] = useState<SaveStatus>('');
   const [saving, setSaving] = useState(false);
   const statusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { toasts, push, dismiss } = useToasts();
 
   useEffect(() => {
     return () => {
@@ -173,7 +176,13 @@ export function SettingsPage() {
       <div className={styles.wrap}>
         <div className={styles.titlebar}>
           <h1 className={styles.title}>Settings</h1>
-          <span className={styles.saveStatus}>{status}</span>
+          <span
+            className={
+              status === 'save failed' ? `${styles.saveStatus} ${styles.saveStatusError}` : styles.saveStatus
+            }
+          >
+            {status}
+          </span>
           <button
             type="button"
             className={`${styles.saveBtn} ${dirty ? styles.saveBtnDirty : ''}`}
@@ -309,7 +318,7 @@ export function SettingsPage() {
         <section className={styles.section}>
           <h2 className={styles.heading}>Cross-tab dev notes</h2>
           <div className={styles.sub}>Ideas that don&rsquo;t fit any one page.</div>
-          <DevNotesSection />
+          <DevNotesSection onError={push} />
         </section>
 
         <section className={styles.section}>
@@ -317,6 +326,8 @@ export function SettingsPage() {
           <AccountSection />
         </section>
       </div>
+
+      <ToastStack toasts={toasts} onDismiss={dismiss} />
     </div>
   );
 }

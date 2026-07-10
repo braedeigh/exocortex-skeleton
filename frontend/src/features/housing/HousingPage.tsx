@@ -97,13 +97,15 @@ export function HousingPage() {
 
       {isLoading ? (
         <div className={styles.loading}>Loading&hellip;</div>
-      ) : isError ? (
+      ) : isError && !data ? (
+        // Error card only when there's nothing to show — a failed background
+        // poll keeps rendering the data we already have.
         <div className={styles.error}>
           Couldn&rsquo;t load housing data{error instanceof Error ? ` — ${error.message}` : ''}.
         </div>
       ) : (
         <>
-          <HousingNotes notes={housing?.notes ?? ''} />
+          <HousingNotes notes={housing?.notes ?? ''} onError={push} />
           <AddPlaceForm onAdd={actions.add} />
           {entries.length === 0 ? (
             <div className={styles.empty}>No places yet &mdash; tap &ldquo;Add a place&rdquo; above.</div>

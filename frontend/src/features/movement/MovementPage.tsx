@@ -169,7 +169,9 @@ export function MovementPage() {
 
       {isLoading ? (
         <div className={styles.empty}>Loading&hellip;</div>
-      ) : isError ? (
+      ) : isError && !data ? (
+        // Error state only when there's nothing to show — a failed background
+        // poll must not blank a working page while cached data exists.
         <div className={styles.empty}>
           Failed to load: {error instanceof Error ? error.message : 'unknown error'}
         </div>

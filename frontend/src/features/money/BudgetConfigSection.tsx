@@ -71,7 +71,7 @@ export function BudgetConfigSection({
           value={income}
           onChange={(e) => setIncome(e.target.value)}
         />
-        <Button onClick={() => void onSaveIncome(income)}>Save</Button>
+        <Button onClick={() => void onSaveIncome(income).catch(() => {/* failure already toasted */})}>Save</Button>
       </div>
 
       <div className={styles.formRow} style={{ marginBottom: 12 }}>
@@ -87,7 +87,7 @@ export function BudgetConfigSection({
           value={bankUrl}
           onChange={(e) => setBankUrl(e.target.value)}
         />
-        <Button onClick={() => void onSaveBankUrl(bankUrl.trim())}>Save</Button>
+        <Button onClick={() => void onSaveBankUrl(bankUrl.trim()).catch(() => {/* failure already toasted */})}>Save</Button>
       </div>
 
       {cats.length ? (

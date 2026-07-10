@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ApiError } from '../../api/client';
 import { addDevNote, editDevNote, getDevNotes, removeDevNote } from '../../api/endpoints';
 import type { DevNote, DevNotesResponse } from '../journal/types';
 import styles from './DevNotesSection.module.css';
@@ -8,8 +9,13 @@ const TAB = 'global';
 const QUERY_KEY = ['devnotes', TAB] as const;
 
 interface AddRowProps {
-  onAdd: (text: string) => void;
+  /** Resolves on success; rejection keeps the typed text in the box. */
+  onAdd: (text: string) => Promise<unknown>;
   disabled: boolean;
+}
+
+function errorMessage(err: unknown, fallback: string): string {
+  return err instanceof ApiError && err.message ? err.message : fallback;
 }
 
 function autosize(el: HTMLTextAreaElement) {
@@ -23,8 +29,12 @@ function AddRow({ onAdd, disabled }: AddRowProps) {
   function submit() {
     const trimmed = text.trim();
     if (!trimmed) return;
-    onAdd(trimmed);
-    setText('');
+    // Only clear on success — a failed add must not eat the typed note
+    // (the failure itself is toasted by the mutation).
+    void onAdd(trimmed).then(
+      () => setText(''),
+      () => {},
+    );
   }
 
   return (
@@ -56,7 +66,7 @@ function AddRow({ onAdd, disabled }: AddRowProps) {
  * remove). Add rows above and below the list (legacy parity), inline edit,
  * two-step delete instead of confirm().
  */
-export function DevNotesSection() {
+export function DevNotesSection({ onError }: { onError: (message: string) => void }) {
   const queryClient = useQueryClient();
   const notesQuery = useQuery({
     queryKey: QUERY_KEY,
@@ -90,14 +100,17 @@ export function DevNotesSection() {
 
   const addMutation = useMutation({
     mutationFn: (text: string) => addDevNote(TAB, text),
+    onError: (err) => onError(errorMessage(err, "Couldn't add note.")),
     onSettled: invalidate,
   });
   const editMutation = useMutation({
     mutationFn: ({ id, text }: { id: string; text: string }) => editDevNote(TAB, id, text),
+    onError: (err) => onError(errorMessage(err, "Couldn't save note.")),
     onSettled: invalidate,
   });
   const removeMutation = useMutation({
     mutationFn: (id: string) => removeDevNote(TAB, id),
+    onError: (err) => onError(errorMessage(err, "Couldn't remove note.")),
     onSettled: invalidate,
   });
 
@@ -115,8 +128,12 @@ export function DevNotesSection() {
   function saveEdit(id: string) {
     const text = editDraft.trim();
     if (!text) return;
-    editMutation.mutate({ id, text });
-    setEditingId(null);
+    // Close the editor only once the server accepts — a failed save keeps
+    // the draft on screen (and toasts) instead of silently reverting.
+    editMutation.mutate(
+      { id, text },
+      { onSuccess: () => setEditingId((cur) => (cur === id ? null : cur)) },
+    );
   }
 
   const notes: DevNote[] = (notesQuery.data as DevNotesResponse | undefined)?.notes ?? [];
@@ -124,7 +141,7 @@ export function DevNotesSection() {
 
   return (
     <>
-      <AddRow onAdd={(t) => addMutation.mutate(t)} disabled={anyMutating} />
+      <AddRow onAdd={(t) => addMutation.mutateAsync(t)} disabled={anyMutating} />
 
       {notesQuery.isLoading ? (
         <div className={styles.empty}>Loading&hellip;</div>
@@ -189,7 +206,7 @@ export function DevNotesSection() {
         </div>
       )}
 
-      {notes.length > 0 ? <AddRow onAdd={(t) => addMutation.mutate(t)} disabled={anyMutating} /> : null}
+      {notes.length > 0 ? <AddRow onAdd={(t) => addMutation.mutateAsync(t)} disabled={anyMutating} /> : null}
     </>
   );
 }

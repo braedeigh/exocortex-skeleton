@@ -41,6 +41,7 @@ function useOptimisticMutation<TVars>(
   mutationFn: (vars: TVars) => Promise<unknown>,
   updater: (data: MapData, vars: TVars) => MapData,
   onError: (message: string) => void,
+  failMessage: string,
 ): UseMutationResult<unknown, unknown, TVars, { previous?: MapData }> {
   const queryClient = useQueryClient();
   return useMutation({
@@ -55,7 +56,7 @@ function useOptimisticMutation<TVars>(
     },
     onError: (err, _vars, context) => {
       if (context?.previous) queryClient.setQueryData(MAP_QUERY_KEY, context.previous);
-      onError(err instanceof ApiError ? err.message : 'Something went wrong');
+      onError(err instanceof ApiError ? err.message : failMessage);
     },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: MAP_QUERY_KEY });
@@ -69,11 +70,12 @@ function useOptimisticMutation<TVars>(
 function useServerMutation<TVars>(
   mutationFn: (vars: TVars) => Promise<unknown>,
   onError: (message: string) => void,
+  failMessage: string,
 ): UseMutationResult<unknown, unknown, TVars, unknown> {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn,
-    onError: (err) => onError(err instanceof ApiError ? err.message : 'Something went wrong'),
+    onError: (err) => onError(err instanceof ApiError ? err.message : failMessage),
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: MAP_QUERY_KEY });
     },
@@ -87,31 +89,37 @@ export function useActivityActions(onError: (message: string) => void) {
     (v: { date: string; type: string }) => apiMap.logActivity(v.date, v.type),
     (data, v) => applyActivityLog(data, v.date, v.type),
     onError,
+    "Couldn't log activity — try again",
   );
   const removeAct = useOptimisticMutation(
     (v: { date: string; type: string }) => apiMap.removeActivity(v.date, v.type),
     (data, v) => applyActivityRemove(data, v.date, v.type),
     onError,
+    "Couldn't remove that activity — try again",
   );
   const logRun = useOptimisticMutation(
     (v: { date: string; minutes: number | null; notes: string }) => apiMap.logRun(v.date, v.minutes, v.notes),
     (data, v) => applyRunLog(data, v.date, v.minutes, v.notes),
     onError,
+    "Couldn't log the run — try again",
   );
   const removeRun = useOptimisticMutation(
     (date: string) => apiMap.removeRun(date),
     (data, date) => applyRunRemove(data, date),
     onError,
+    "Couldn't remove that run — try again",
   );
   const logTrip = useOptimisticMutation(
     (date: string) => apiMap.logKitchenTrip(date),
     (data, date) => applyTripLog(data, date),
     onError,
+    "Couldn't log the kitchen trip — try again",
   );
   const removeTrip = useOptimisticMutation(
     (date: string) => apiMap.removeKitchenTrip(date),
     (data, date) => applyTripRemove(data, date),
     onError,
+    "Couldn't remove that kitchen trip — try again",
   );
 
   return {
@@ -143,7 +151,7 @@ export function useReminderRegistryActions(onError: (message: string) => void) {
     },
     onError: (err, _vars, context) => {
       if (context?.previous) queryClient.setQueryData(MAP_QUERY_KEY, context.previous);
-      onError(err instanceof ApiError ? err.message : 'Save failed.');
+      onError(err instanceof ApiError ? err.message : "Couldn't save reminders — try again");
     },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: MAP_QUERY_KEY });
@@ -163,30 +171,36 @@ export function useContactActions(onError: (message: string) => void) {
     (v: { name: string; method: string; date: string }) => apiMap.logContact(v.name, v.method, v.date),
     (data, v) => applyContactLog(data, v.name, v.method, v.date),
     onError,
+    "Couldn't log that contact — try again",
   );
   const threshold = useOptimisticMutation(
     (v: { name: string; days: number }) => apiMap.updateContactThreshold(v.name, v.days),
     (data, v) => applyContactThreshold(data, v.name, v.days),
     onError,
+    "Couldn't update the contact cadence — try again",
   );
   const reorder = useOptimisticMutation(
     (order: string[]) => apiMap.reorderContacts(order),
     (data, order) => applyContactReorder(data, order),
     onError,
+    "Couldn't reorder contacts — try again",
   );
   const remove = useOptimisticMutation(
     (name: string) => apiMap.removeContact(name),
     (data, name) => applyContactRemove(data, name),
     onError,
+    "Couldn't remove that contact — try again",
   );
   const removeHistory = useOptimisticMutation(
     (v: { name: string; date: string; method: string }) => apiMap.removeContactHistory(v.name, v.date, v.method),
     (data, v) => applyContactHistoryRemove(data, v.name, v.date, v.method),
     onError,
+    "Couldn't remove that contact log — try again",
   );
   const add = useServerMutation(
     (v: { name: string; threshold: number }) => apiMap.addContact(v.name, v.threshold),
     onError,
+    "Couldn't add that contact — try again",
   );
 
   return {
@@ -206,42 +220,55 @@ export function useHabitTrackerActions(onError: (message: string) => void) {
     (v: { habit: string; date: string; section: string }) => apiMap.toggleHabitDate(v.habit, v.date, v.section),
     (data, v) => applyHabitToggle(data, v.section, v.habit, v.date),
     onError,
+    "Couldn't save that habit check — try again",
   );
   const reorder = useOptimisticMutation(
     (v: { section: string; items: string[] }) => apiMap.reorderHabits(v.section, v.items),
     (data, v) => applyHabitReorder(data, v.section, v.items),
     onError,
+    "Couldn't reorder habits — try again",
   );
   const setHidden = useOptimisticMutation(
     (hidden: string[]) => apiMap.saveHabitSettings(hidden),
     (data, hidden) => applyHabitHidden(data, hidden),
     onError,
+    "Couldn't update hidden habits — try again",
   );
   const remove = useOptimisticMutation(
     (item: string) => apiMap.removeHabit(item),
     (data, item) => applyHabitRemove(data, item),
     onError,
+    "Couldn't remove that habit — try again",
   );
-  const add = useServerMutation((v: { item: string; section: string }) => apiMap.addHabit(v.item, v.section), onError);
+  const add = useServerMutation(
+    (v: { item: string; section: string }) => apiMap.addHabit(v.item, v.section),
+    onError,
+    "Couldn't add that habit — try again",
+  );
   const move = useServerMutation(
     (v: { item: string; toSection: string }) => apiMap.moveHabit(v.item, v.toSection),
     onError,
+    "Couldn't move that habit — try again",
   );
   const rename = useServerMutation(
     (v: { oldName: string; newName: string; section: string }) => apiMap.renameHabit(v.oldName, v.newName, v.section),
     onError,
+    "Couldn't rename that habit — try again",
   );
   const promote = useServerMutation(
     (v: { section: string; habit: string }) => apiMap.promoteHabitCadence(v.section, v.habit),
     onError,
+    "Couldn't promote that habit's cadence — try again",
   );
   const restore = useServerMutation(
     (v: { section: string; habit: string }) => apiMap.restoreHabitCadence(v.section, v.habit),
     onError,
+    "Couldn't restore that habit's cadence — try again",
   );
   const configure = useServerMutation(
     (payload: apiMap.HabitConfigurePayload) => apiMap.configureHabit(payload),
     onError,
+    "Couldn't save that habit — try again",
   );
 
   return {

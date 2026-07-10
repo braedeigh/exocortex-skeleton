@@ -59,10 +59,12 @@ export function RecipesSection({
       const res = await parseRecipeUrl(trimmed);
       if (res?.error) {
         setStatus(`Failed: ${res.error}`);
+        onError(`Recipe parse failed: ${res.error}`);
         return;
       }
     } catch (e) {
       setStatus(`Failed: ${e instanceof Error ? e.message : e}`);
+      onError(`Recipe parse failed: ${e instanceof Error ? e.message : e}`);
       return;
     }
     setUrl('');
@@ -76,6 +78,7 @@ export function RecipesSection({
       const res = await scanRecipeImage(file);
       if (res?.error) {
         setStatus(`Failed: ${res.error}`);
+        onError(`Upload failed: ${res.error}`);
         return;
       }
     } catch (e) {

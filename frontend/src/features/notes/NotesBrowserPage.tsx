@@ -127,8 +127,11 @@ export function NotesBrowserPage() {
   function saveEdit(n: FlatNote) {
     const text = editDraft.trim();
     if (!text) return;
-    edit(n.kind, n.tab, n.id, text);
-    setEditingKey(null);
+    // Close the composer only on success — a failed save already toasts, and
+    // closing would throw away her edited text.
+    edit(n.kind, n.tab, n.id, text)
+      .then(() => setEditingKey((cur) => (cur === noteKey(n) ? null : cur)))
+      .catch(() => {});
   }
 
   function requestDelete(n: FlatNote) {
@@ -152,7 +155,12 @@ export function NotesBrowserPage() {
   }
 
   const isLoading = devQuery.isLoading || ideaQuery.isLoading;
-  const isError = devQuery.isError || ideaQuery.isError;
+  // Error state only when a query failed AND has nothing cached — one failed
+  // background refetch must not blank a list that's already on screen.
+  const devFailed = devQuery.isError && !devQuery.data;
+  const ideaFailed = ideaQuery.isError && !ideaQuery.data;
+  const isError = devFailed && ideaFailed;
+  const partialError = !isError && (devFailed || ideaFailed);
 
   return (
     <div className={styles.page}>
@@ -209,6 +217,10 @@ export function NotesBrowserPage() {
             </button>
           ))}
         </div>
+      ) : null}
+
+      {partialError ? (
+        <div className={styles.empty}>{devFailed ? 'Dev notes' : 'Ideas'} failed to load.</div>
       ) : null}
 
       {isLoading ? (

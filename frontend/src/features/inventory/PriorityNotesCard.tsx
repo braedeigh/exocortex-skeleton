@@ -39,6 +39,9 @@ export function PriorityNotesCard({ serverText }: PriorityNotesCardProps) {
       setStatus('saved');
       setTimeout(() => setStatus((s) => (s === 'saved' ? '' : s)), 1500);
     } catch {
+      // Still dirty: keeps the next poll from clobbering the unsaved text and
+      // lets the next blur retry the save.
+      dirtyRef.current = true;
       setStatus('save failed');
     }
   }

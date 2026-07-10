@@ -125,9 +125,11 @@ export function ArchivalModal({
     const files = [...fileRef.current.files];
     try {
       await onAddPhotos(item.id, files);
-      if (fileRef.current) fileRef.current.value = '';
     } catch (e) {
-      onError(e instanceof Error && e.message ? e.message : 'Upload failed');
+      onError(e instanceof Error && e.message ? e.message : 'Photo upload failed');
+    } finally {
+      // Reset even on failure — a same-file re-pick wouldn't fire onChange.
+      if (fileRef.current) fileRef.current.value = '';
     }
   }
 
@@ -162,7 +164,7 @@ export function ArchivalModal({
                   title="Delete photo"
                   aria-label="Delete photo"
                   onClick={() =>
-                    void onRemovePhoto(item.id, p.id).catch(() => onError('Delete failed'))
+                    void onRemovePhoto(item.id, p.id).catch(() => onError("Couldn't delete the photo"))
                   }
                 >
                   &times;
@@ -174,7 +176,7 @@ export function ArchivalModal({
                     title="Make main photo"
                     aria-label="Make main photo"
                     onClick={() =>
-                      void onSetMainPhoto(item.id, p.id).catch(() => onError('Update failed'))
+                      void onSetMainPhoto(item.id, p.id).catch(() => onError("Couldn't set the main photo"))
                     }
                   >
                     ★

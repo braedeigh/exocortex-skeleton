@@ -160,10 +160,13 @@ export function useHousingActions(onError: (message: string) => void) {
  * textarea holds a local draft while editing — but on success the cache's
  * copy is patched so the 5s poll doesn't flash stale text back.
  */
-export function useSaveNotes() {
+export function useSaveNotes(onError: (message: string) => void) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (text: string) => saveHousingNotes(text),
+    onError: (err) => {
+      onError(err instanceof ApiError ? err.message : 'Could not save notes.');
+    },
     onSuccess: (_res, text) => {
       const cur = queryClient.getQueryData<HousingResponse>(HOUSING_QUERY_KEY);
       if (cur?.housing) {

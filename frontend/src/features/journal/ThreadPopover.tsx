@@ -39,8 +39,10 @@ export function ThreadPopover({ id, onClose, onNavigateDate }: ThreadPopoverProp
     <Sheet open={!!id} onClose={onClose} title={`⧉ ${data?.name ?? 'Thread'}`}>
       {isLoading ? (
         <div className={styles.loading}>Loading…</div>
-      ) : isError || !data ? (
-        <div className={styles.loading}>No thread found.</div>
+      ) : !data ? (
+        // Cached data survives a failed refetch — only a truly empty result
+        // shows this (a fetch error without data lands here too).
+        <div className={styles.loading}>{isError ? 'Couldn’t load this thread.' : 'No thread found.'}</div>
       ) : (
         <>
           {data.status ? <div className={styles.status}>{data.status}</div> : null}

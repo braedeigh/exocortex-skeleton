@@ -9,11 +9,17 @@ import styles from './CarNotesCard.module.css';
  * dirty the 5s poll never clobbers the draft (the old core.js render loop
  * preserved the focused field the same way).
  */
-export function CarNotesCard({ serverText }: { serverText: string }) {
+export function CarNotesCard({
+  serverText,
+  onError,
+}: {
+  serverText: string;
+  onError: (message: string) => void;
+}) {
   const [draft, setDraft] = useState(serverText);
   const [dirty, setDirty] = useState(false);
   const focusedRef = useRef(false);
-  const save = useSaveCarNotes();
+  const save = useSaveCarNotes(onError);
 
   useEffect(() => {
     if (!dirty && !focusedRef.current) setDraft(serverText);

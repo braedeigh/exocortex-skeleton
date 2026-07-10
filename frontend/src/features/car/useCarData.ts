@@ -72,15 +72,18 @@ export function useCarActions(onError: (message: string) => void) {
 }
 
 /**
- * Notepad autosave (blur-triggered, like the old carNotesSave). No toast on
- * failure — the old page surfaced "save failed" in the card's status line,
- * which the component derives from this mutation's state. The cache is
+ * Notepad autosave (blur-triggered, like the old carNotesSave). Failures show
+ * both ways: the card's status line ("save failed", derived from this
+ * mutation's state) and an error toast via `onError`. The cache is
  * patched on success so the 5s poll doesn't flash stale text back.
  */
-export function useSaveCarNotes() {
+export function useSaveCarNotes(onError: (message: string) => void) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (text: string) => saveCarNotes(text),
+    onError: (err) => {
+      onError(err instanceof ApiError ? err.message : "Couldn't save car notes — try again");
+    },
     onSuccess: (_result, text) => {
       const previous = queryClient.getQueryData<CarData>(CAR_QUERY_KEY);
       if (previous) {

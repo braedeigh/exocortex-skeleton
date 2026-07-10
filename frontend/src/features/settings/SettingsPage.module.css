@@ -47,6 +47,11 @@
   color: var(--text-muted);
 }
 
+.saveStatusError {
+  color: var(--red);
+  font-weight: 600;
+}
+
 .saveBtn {
   min-height: var(--tap-target);
   padding: 0 var(--space-5);

@@ -99,14 +99,21 @@ export function FileView({
   // Never lose an edit: flush on tab close and on unmount (switching files,
   // navigating away). Skips cleanly when nothing is dirty.
   useEffect(() => {
+    // The status line lives in KeeperPage, which stays mounted when switching
+    // files — a failed unmount flush still lands "Save failed" somewhere visible
+    // (and never throws as an unhandled rejection).
     function onBeforeUnload() {
-      if (valueRef.current !== lastSavedRef.current) void saveRef.current(valueRef.current);
+      if (valueRef.current !== lastSavedRef.current) {
+        saveRef.current(valueRef.current).catch(() => setStatusRef.current('Save failed'));
+      }
     }
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => {
       window.removeEventListener('beforeunload', onBeforeUnload);
       if (timerRef.current) clearTimeout(timerRef.current);
-      if (valueRef.current !== lastSavedRef.current) void saveRef.current(valueRef.current);
+      if (valueRef.current !== lastSavedRef.current) {
+        saveRef.current(valueRef.current).catch(() => setStatusRef.current('Save failed'));
+      }
       onFocusChangeRef.current(false); // unmounting while focused must not leave the poll paused
     };
   }, []);

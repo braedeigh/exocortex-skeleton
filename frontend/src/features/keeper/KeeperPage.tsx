@@ -129,6 +129,10 @@ export function KeeperPage() {
   useEffect(() => {
     if (fileQuery.isError) {
       setStatusText(`Error: ${fileQuery.error instanceof ApiError ? fileQuery.error.message : 'load failed'}`);
+    } else {
+      // A later poll succeeded — don't leave a stale load error stuck in the
+      // status line (save statuses aren't prefixed "Error:", so they survive).
+      setStatusText((s) => (s.startsWith('Error:') ? '' : s));
     }
   }, [fileQuery.isError, fileQuery.error]);
 
@@ -201,6 +205,9 @@ export function KeeperPage() {
       await restoreKeeperFile(deleted.path, deleted.content);
     } catch (err) {
       setStatusText(`Undo failed: ${err instanceof ApiError ? err.message : 'network'}`);
+      // Tapping Undo dismissed the toast — put it back so she can retry
+      // (lastDeleted still holds the content).
+      showUndoToast(deleted.path);
       return;
     }
     lastDeleted.current = null;
@@ -272,6 +279,10 @@ export function KeeperPage() {
             />
           ) : currentPath && fileQuery.isLoading ? (
             <div className={styles.emptyState}>Loading…</div>
+          ) : treeQuery.isError && !treeQuery.data ? (
+            // The sidebar renders nothing when the tree never loaded — say so
+            // instead of an unexplained "pick a file" over an empty tree.
+            <div className={styles.emptyState}>Couldn&apos;t load the file tree.</div>
           ) : (
             <div className={styles.emptyState}>Pick a file to see what the keeper remembers.</div>
           )}

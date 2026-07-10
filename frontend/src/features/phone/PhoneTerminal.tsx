@@ -75,6 +75,14 @@ export function PhoneTerminal({
   const placeholderTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const uploadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  /** Flash a failure in the (shared) status overlay — the same red box the
+   * photo-upload path already uses, so send/key failures aren't silent. */
+  const flashError = (label: string) => {
+    clearTimeout(uploadTimer.current ?? undefined);
+    setUpload({ label, error: true });
+    uploadTimer.current = setTimeout(() => setUpload(null), 2200);
+  };
+
   // The iframe onLoad focus check reads this instead of `active` so the
   // load listener doesn't need re-binding on every session switch.
   const activeRef = useRef(active);
@@ -187,12 +195,17 @@ export function PhoneTerminal({
         placeholderTimer.current = setTimeout(() => setPlaceholder(DEFAULT_PLACEHOLDER), 3000);
       }
     } catch {
-      // same silent failure mode as phone.html's un-caught fetch
+      // Failed send must not eat the message (phone.html silently did):
+      // put it back — ahead of anything typed mid-flight — and say so.
+      el.value = el.value ? `${text}\n${el.value}` : text;
+      el.style.height = 'auto';
+      el.style.height = `${autosizeHeight(el.scrollHeight)}px`;
+      flashError('Send failed — message restored');
     }
   };
 
   const sendSpecial = (key: string) => {
-    sendTerminalKey(session, key).catch(() => {});
+    sendTerminalKey(session, key).catch(() => flashError(`Couldn't send ${key}`));
   };
 
   const jump = (direction: 'up' | 'down') => {
@@ -212,11 +225,7 @@ export function PhoneTerminal({
       await sendTerminalText(session, uploadedPathsMessage(data.paths), false);
       setUpload(null);
     } catch (e) {
-      setUpload({
-        label: `Upload failed: ${e instanceof Error ? e.message : 'unknown error'}`,
-        error: true,
-      });
-      uploadTimer.current = setTimeout(() => setUpload(null), 2200);
+      flashError(`Upload failed: ${e instanceof Error ? e.message : 'unknown error'}`);
     }
   };
 

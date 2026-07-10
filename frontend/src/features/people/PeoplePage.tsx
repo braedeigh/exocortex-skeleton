@@ -76,7 +76,9 @@ export function PeoplePage() {
     <PersonRow key={p.id} person={p} now={now} expanded={expanded === p.id} onToggle={() => toggleExpanded(p.id)} />
   );
 
-  const ready = !isLoading && !isError;
+  // Chips (and the roster below) render off whatever data we have — a failed
+  // background refetch must not blank a roster that's already in the cache.
+  const ready = !!data;
 
   return (
     <div className={styles.page}>
@@ -114,7 +116,7 @@ export function PeoplePage() {
 
       {isLoading ? (
         <div className={styles.loading}>Loading&hellip;</div>
-      ) : isError ? (
+      ) : isError && !data ? (
         <div className={styles.list}>
           <div className={styles.empty}>Sign in to see your people.</div>
         </div>

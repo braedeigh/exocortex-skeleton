@@ -28,7 +28,7 @@ export const TEXTS_KEY = ['research', 'texts'] as const;
 export const annotationsKey = (doc: string) => ['annotations', doc] as const;
 export const docTextKey = (doc: string) => ['annotations', 'doc-text', doc] as const;
 
-type PushToast = (message: string) => void;
+type PushToast = (message: string, opts?: { tone?: 'error' | 'info' }) => void;
 
 function normalize(blob: Partial<ResearchState> | undefined): ResearchState {
   return {
@@ -214,7 +214,7 @@ export function useResearchMutations(push: PushToast) {
     mutationFn: (ids: string[] | null) => apiR.sendEntries(ids),
     onSuccess: (body) => {
       invalidateResearch();
-      if (body.sent > 0) push(`Sent ${body.sent} to Claude — replies land in the thread.`);
+      if (body.sent > 0) push(`Sent ${body.sent} to Claude — replies land in the thread.`, { tone: 'info' });
     },
     onError: (err) => push(researchErrorMessage(err, 'Could not send.', 'Send')),
   });

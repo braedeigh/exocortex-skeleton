@@ -160,7 +160,9 @@ export function IdeasPage() {
 
       {notesQuery.isLoading ? (
         <div className={styles.empty}>Loading&hellip;</div>
-      ) : notesQuery.isError ? (
+      ) : notesQuery.isError && !notesQuery.data ? (
+        // Only when there's nothing to show — a failed background poll must
+        // not blank the cards while cached data exists.
         <div className={styles.empty}>Failed to load ideas.</div>
       ) : (
         tabs.map((tab) => {
@@ -293,6 +295,8 @@ export function IdeasPage() {
 
           {docQuery.isLoading ? (
             <div className={styles.empty}>Loading&hellip;</div>
+          ) : docQuery.isError && !docQuery.data ? (
+            <div className={styles.empty}>Failed to load the vision doc.</div>
           ) : !docSections ? (
             <div className={styles.docEmpty}>No vision doc yet.</div>
           ) : (

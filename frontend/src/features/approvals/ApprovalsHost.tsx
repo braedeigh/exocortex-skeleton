@@ -128,13 +128,18 @@ export function ApprovalsHost({ onToast }: ApprovalsHostProps) {
       void (async () => {
         try {
           await undo.run();
-        } catch {
-          // best-effort undo (legacy)
+        } catch (e) {
+          // Undo is best-effort (legacy), but say it failed — the change is
+          // still applied and silence would read as a successful revert.
+          pushToast({
+            message: e instanceof ApiError ? e.message : 'Undo failed — the change is still applied',
+            tone: 'error',
+          });
         }
         refreshDashboard();
       })();
     },
-    [refreshDashboard],
+    [refreshDashboard, pushToast],
   );
 
   async function runApprove(change: PendingChange, plan: ApprovalCommitPlan) {

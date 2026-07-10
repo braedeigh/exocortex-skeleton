@@ -261,9 +261,11 @@ export function ResearchPage() {
       onSuccess: () => {
         // Deleting the thread we're viewing bounces to the directory.
         if (threadId === t.id) void navigate({ search: {}, replace: true });
+        // Not optimistic — only claim "deleted" once the server agrees
+        // (failure is toasted by the mutation and the thread stays put).
+        push('Thread deleted — its entries kept their other tags', { tone: 'info' });
       },
     });
-    push('Thread deleted — its entries kept their other tags', { tone: 'info' });
   }
 
   // --- per-entry fetches with busy chips ---
@@ -378,7 +380,7 @@ export function ResearchPage() {
 
         {researchQuery.isLoading ? (
           <div className={styles.loading}>Loading&hellip;</div>
-        ) : researchQuery.isError ? (
+        ) : researchQuery.isError && !researchQuery.data ? (
           <div className={styles.loading}>Couldn&rsquo;t load research.</div>
         ) : topic ? (
           <ThreadView topic={topic} />

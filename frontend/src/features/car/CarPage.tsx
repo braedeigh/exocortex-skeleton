@@ -92,20 +92,22 @@ export function CarPage() {
     [allEntries, pendingDeleteIds],
   );
 
-  if (isLoading) {
-    return (
-      <div className={styles.page}>
-        <div className={styles.loading}>Loading&hellip;</div>
-      </div>
-    );
-  }
-
-  if (isError || !data) {
+  // Error page only when there's nothing to show — a failed background poll
+  // must not blank a working page while cached data exists.
+  if (isError && !data) {
     return (
       <div className={styles.page}>
         <div className={styles.error}>
           Failed to load: {error instanceof Error ? error.message : 'unknown error'}
         </div>
+      </div>
+    );
+  }
+
+  if (isLoading || !data) {
+    return (
+      <div className={styles.page}>
+        <div className={styles.loading}>Loading&hellip;</div>
       </div>
     );
   }
@@ -118,7 +120,7 @@ export function CarPage() {
       <div className={styles.sectionTitle}>Car Maintenance</div>
       <div className={styles.subtitle}>Log oil changes, brakes, registration, anything.</div>
 
-      <CarNotesCard serverText={serverText} />
+      <CarNotesCard serverText={serverText} onError={push} />
       <CarAddForm today={today} onAdd={actions.add} />
       <CarLogTable entries={entries} today={localTodayISO()} onRemove={requestDelete} />
 

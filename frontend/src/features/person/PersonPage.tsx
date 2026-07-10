@@ -81,7 +81,7 @@ export function PersonPage({ slug }: PersonPageProps) {
     else goKeeper(nav.path);
   }
 
-  if (isLoading) {
+  if (isLoading || (!data && !isError)) {
     return (
       <div className={styles.page}>
         <div className={styles.container}>
@@ -91,7 +91,9 @@ export function PersonPage({ slug }: PersonPageProps) {
     );
   }
 
-  if (isError || !data || !person) {
+  // Inline error only when there's nothing cached to show — a failed
+  // background refetch keeps rendering the last good data.
+  if (!data || !person) {
     return (
       <div className={styles.page}>
         <div className={styles.container}>

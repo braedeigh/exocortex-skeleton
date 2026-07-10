@@ -73,20 +73,22 @@ export function MediaPage() {
     });
   }
 
-  if (isLoading) {
-    return (
-      <div className={styles.page}>
-        <div className={styles.loading}>Loading&hellip;</div>
-      </div>
-    );
-  }
-
-  if (isError || !data) {
+  // Error page only when there's nothing to show — a failed background poll
+  // must not blank a working page while cached data exists.
+  if (isError && !data) {
     return (
       <div className={styles.page}>
         <div className={styles.error}>
           Failed to load: {error instanceof Error ? error.message : 'unknown error'}
         </div>
+      </div>
+    );
+  }
+
+  if (isLoading || !data) {
+    return (
+      <div className={styles.page}>
+        <div className={styles.loading}>Loading&hellip;</div>
       </div>
     );
   }

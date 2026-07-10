@@ -114,6 +114,13 @@ export function InventoryPage({ buyName }: InventoryPageProps) {
       <div className={styles.page}>
         {isLoading && !data ? (
           <div className={styles.bannerLoading}>Loading…</div>
+        ) : isError && !data ? (
+          <div className={styles.bannerError}>
+            <span>{error instanceof Error && error.message ? error.message : "Couldn't load data."}</span>
+            <button type="button" onClick={() => void refetch()}>
+              Retry
+            </button>
+          </div>
         ) : (
           <BuyItemDetail
             item={item}
@@ -142,7 +149,7 @@ export function InventoryPage({ buyName }: InventoryPageProps) {
         </div>
 
         {isLoading && !data ? <div className={styles.bannerLoading}>Loading…</div> : null}
-        {isError ? (
+        {isError && !data ? (
           <div className={styles.bannerError}>
             <span>{error instanceof Error && error.message ? error.message : "Couldn't load data."}</span>
             <button type="button" onClick={() => void refetch()}>

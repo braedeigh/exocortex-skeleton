@@ -5,6 +5,9 @@ import styles from './HousingNotes.module.css';
 export interface HousingNotesProps {
   /** Server copy of the notes blob (housing.notes). */
   notes: string;
+  /** Failure toast (page's ToastStack) — the corner "save failed" readout
+   * alone is too quiet for a lost save. */
+  onError: (message: string) => void;
 }
 
 type SaveStatus = '' | 'unsaved…' | 'saving…' | 'saved' | 'save failed';
@@ -17,13 +20,13 @@ type SaveStatus = '' | 'unsaved…' | 'saving…' | 'saved' | 'save failed';
  * While she's typing, the textarea shows a local draft so the 5s poll can't
  * clobber keystrokes; the draft clears once a save round-trips.
  */
-export function HousingNotes({ notes }: HousingNotesProps) {
+export function HousingNotes({ notes, onError }: HousingNotesProps) {
   const [draft, setDraft] = useState<string | null>(null);
   const [status, setStatus] = useState<SaveStatus>('');
   // Mirror of `draft` for the async save callbacks — if she typed more while
   // the POST was in flight, keep the newer draft instead of clearing it.
   const draftRef = useRef<string | null>(null);
-  const save = useSaveNotes();
+  const save = useSaveNotes(onError);
 
   function handleChange(text: string) {
     setDraft(text);

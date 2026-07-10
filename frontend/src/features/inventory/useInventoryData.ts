@@ -173,7 +173,14 @@ export function useInventoryActions(onError: (message: string) => void): Invento
 
   return {
     addBuy: async (payload) => {
-      await addBuyItem(payload);
+      try {
+        await addBuyItem(payload);
+      } catch (err) {
+        // Callers swallow the rethrow (keeping the form inputs), so the toast
+        // has to happen here — otherwise a failed add is silent.
+        onError(err instanceof ApiError ? err.message : "Couldn't add to the buy list");
+        throw err;
+      }
       await invalidate();
     },
     updateBuy: (payload) => update.mutateAsync(payload).then(() => undefined),

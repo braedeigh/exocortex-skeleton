@@ -26,6 +26,9 @@ export interface SourceEditorProps {
   onCancel: () => void;
   /** Editing only — runs the shared confirm flow (page closes this editor first). */
   onDelete: (id: string, name: string) => void;
+  /** Failure toast (page's ToastStack) — for assist calls that error out.
+   * "No match" answers stay inline; only real failures escalate to a toast. */
+  onError: (message: string) => void;
   map: RefObject<EcoMapHandle | null>;
 }
 
@@ -33,7 +36,7 @@ function coordText(v: number | null): string {
   return typeof v === 'number' ? String(v) : '';
 }
 
-export function SourceEditor({ draft, editing, onPatch, onSave, onCancel, onDelete, map }: SourceEditorProps) {
+export function SourceEditor({ draft, editing, onPatch, onSave, onCancel, onDelete, onError, map }: SourceEditorProps) {
   const [addr, setAddr] = useState('');
   const [addrMsg, setAddrMsg] = useState('');
   const [usdaMsg, setUsdaMsg] = useState('');
@@ -104,6 +107,7 @@ export function SourceEditor({ draft, editing, onPatch, onSave, onCancel, onDele
       j = await geocodeAddress(q);
     } catch {
       setAddrMsg('Network error reaching the geocoder.');
+      onError('Address lookup failed.');
       return;
     }
     if (!j || !j.ok || typeof j.lat !== 'number' || typeof j.lng !== 'number') {
@@ -128,6 +132,7 @@ export function SourceEditor({ draft, editing, onPatch, onSave, onCancel, onDele
       j = await usdaSuggest(draft.name.trim());
     } catch {
       setUsdaMsg('Network error reaching USDA.');
+      onError('USDA region suggestion failed.');
       return;
     }
     if (j?.ok && j.mode === 'counties') {
@@ -206,6 +211,7 @@ export function SourceEditor({ draft, editing, onPatch, onSave, onCancel, onDele
       setUsdaMsg('Key saved — tap “Suggest region” again.');
     } catch {
       setUsdaMsg('Could not save the key.');
+      onError('Saving the USDA key failed.');
     }
   }
 

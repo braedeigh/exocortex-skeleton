@@ -87,14 +87,18 @@ export function BlobEditor({ initialContent, matcher, save, onFocusChange, initi
   }
 
   useEffect(() => {
+    // Failures here can't reach this component's status line (it's unmounting /
+    // the tab is closing) — swallow the rejection; the save mutation's own
+    // onError still raises the page-level "Save failed" toast when the journal
+    // page itself is still mounted (e.g. switching days).
     function onBeforeUnload() {
-      if (valueRef.current !== lastSavedRef.current) void save(valueRef.current);
+      if (valueRef.current !== lastSavedRef.current) save(valueRef.current).catch(() => {});
     }
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => {
       window.removeEventListener('beforeunload', onBeforeUnload);
       if (timerRef.current) clearTimeout(timerRef.current);
-      if (valueRef.current !== lastSavedRef.current) void save(valueRef.current);
+      if (valueRef.current !== lastSavedRef.current) save(valueRef.current).catch(() => {});
     };
   }, [save]);
 

@@ -32,6 +32,37 @@ import styles from './ScratchpadPage.module.css';
 
 const SAVE_DEBOUNCE_MS = 800;
 
+/** Dirty text stashed at unmount/beforeunload while its flush save is in
+ * flight — if that save never lands (network drop, tab killed), the next
+ * mount restores it instead of silently losing the draft. */
+const DRAFT_KEY = 'scratchpad.pendingDraft';
+
+function stashDraft(content: string): void {
+  try {
+    localStorage.setItem(DRAFT_KEY, content);
+  } catch {
+    // localStorage unavailable — the flush save below is still attempted
+  }
+}
+
+function clearDraft(): void {
+  try {
+    localStorage.removeItem(DRAFT_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+function takeDraft(): string | null {
+  try {
+    const draft = localStorage.getItem(DRAFT_KEY);
+    localStorage.removeItem(DRAFT_KEY);
+    return draft;
+  } catch {
+    return null;
+  }
+}
+
 interface StatusMsg {
   label: string;
   ok: boolean;
@@ -67,6 +98,13 @@ export function ScratchpadPage() {
   // Load once on mount — the only server read, so nothing can later clobber
   // in-progress typing (legacy loadNotes()).
   useEffect(() => {
+    // A previous visit's unmount flush may not have landed — restore its
+    // stashed draft (it reads as unsaved, so the post-load flush persists it).
+    const draft = takeDraft();
+    if (draft) {
+      setValue(draft);
+      showStatus({ label: 'restored unsaved draft', ok: false });
+    }
     const ac = new AbortController();
     getScratchpad(ac.signal)
       .then((data) => {
@@ -76,10 +114,18 @@ export function ScratchpadPage() {
         if (valueRef.current === lastSavedRef.current) {
           setValue(content);
           lastSavedRef.current = content;
+        } else {
+          // Her text (typed before the load landed, or a restored draft) wins
+          // — and is dirty, so persist it now rather than waiting for the next
+          // keystroke (a debounced save that fired pre-load was skipped).
+          void flushSave();
         }
       })
       .catch(() => {
         if (ac.signal.aborted) return;
+        // Saving is disabled until a load succeeds — put a restored draft back
+        // in the stash so the not-saving session can't be the one that loses it.
+        if (valueRef.current !== lastSavedRef.current) stashDraft(valueRef.current);
         showStatus({ label: 'load failed — not saving', ok: false, sticky: true });
       });
     return () => ac.abort();
@@ -95,19 +141,24 @@ export function ScratchpadPage() {
   // SPA safety net (legacy iframe never unmounted): flush a pending save when
   // navigating away or closing the tab — never lose the last 800ms of typing.
   useEffect(() => {
-    function onBeforeUnload() {
+    // No status line survives an unmount, so a failed flush can't be surfaced
+    // — instead the dirty text is stashed synchronously first and only cleared
+    // once the save confirms, so the draft is never lost either way.
+    function flushOnLeave() {
       if (loadedRef.current && valueRef.current !== lastSavedRef.current) {
-        void saveScratchpad(valueRef.current);
+        const pending = valueRef.current;
+        stashDraft(pending);
+        saveScratchpad(pending)
+          .then(() => clearDraft())
+          .catch(() => {});
       }
     }
-    window.addEventListener('beforeunload', onBeforeUnload);
+    window.addEventListener('beforeunload', flushOnLeave);
     return () => {
-      window.removeEventListener('beforeunload', onBeforeUnload);
+      window.removeEventListener('beforeunload', flushOnLeave);
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
       if (statusTimerRef.current) clearTimeout(statusTimerRef.current);
-      if (loadedRef.current && valueRef.current !== lastSavedRef.current) {
-        void saveScratchpad(valueRef.current);
-      }
+      flushOnLeave();
     };
   }, []);
 
@@ -127,6 +178,9 @@ export function ScratchpadPage() {
     try {
       await saveScratchpad(content);
       lastSavedRef.current = content;
+      // A stash from an earlier leave attempt is now stale — never let it
+      // resurrect over what just saved.
+      clearDraft();
       showStatus({ label: 'saved', ok: true }, 2000);
     } catch {
       showStatus({ label: 'save failed', ok: false });
@@ -148,8 +202,16 @@ export function ScratchpadPage() {
     stacksRef.current = result.stacks;
     setRedoVisible(canRedo(result.stacks));
     setValue(result.value);
+    const prevSaved = lastSavedRef.current;
     lastSavedRef.current = result.value;
-    saveScratchpad(result.value).catch(() => showStatus({ label: 'save failed', ok: false }));
+    saveScratchpad(result.value)
+      .then(() => clearDraft())
+      .catch(() => {
+        // Mark the restored text dirty again so the next flush (typing,
+        // unmount) retries it, instead of it silently never reaching the server.
+        if (lastSavedRef.current === result.value) lastSavedRef.current = prevSaved;
+        showStatus({ label: 'save failed', ok: false });
+      });
     showStatus({ label, ok: true }, 2000);
   }
 

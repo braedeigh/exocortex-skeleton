@@ -207,11 +207,13 @@ export function KitchenPage() {
     );
   }
 
-  if (isError || !data) {
+  // Error page only when there's nothing to show — a failed background poll
+  // (isError with stale data still cached) must not blank a working page.
+  if (!data) {
     return (
       <div className={styles.page}>
         <div className={styles.error}>
-          Failed to load: {error instanceof Error ? error.message : 'unknown error'}
+          Failed to load: {isError && error instanceof Error ? error.message : 'unknown error'}
         </div>
       </div>
     );

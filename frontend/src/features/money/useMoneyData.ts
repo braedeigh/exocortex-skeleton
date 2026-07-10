@@ -91,6 +91,8 @@ function useOptimisticMutation<TVars>(
   mutationFn: (vars: TVars) => Promise<unknown>,
   updater: (data: MoneyData, vars: TVars) => MoneyData,
   onError: (message: string) => void,
+  /** Toast fallback naming the action, for errors without a server message. */
+  fallback?: string,
 ): UseMutationResult<unknown, unknown, TVars, { previous?: MoneyData }> {
   const queryClient = useQueryClient();
   return useMutation({
@@ -105,7 +107,7 @@ function useOptimisticMutation<TVars>(
     },
     onError: (err, _vars, context) => {
       if (context?.previous) queryClient.setQueryData(MONEY_QUERY_KEY, context.previous);
-      onError(errorMessage(err));
+      onError(errorMessage(err, fallback));
     },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: MONEY_QUERY_KEY });
@@ -151,12 +153,14 @@ export function useExpenseActions(onError: (message: string) => void) {
         },
       ]),
     onError,
+    "Couldn't log the expense",
   );
 
   const remove = useOptimisticMutation(
     (id: string) => removeExpense(id),
     (data, id) => mapExpenses(data, (items) => items.filter((e) => e.id !== id)),
     onError,
+    "Couldn't remove the expense — it's back in the list",
   );
 
   const update = useOptimisticMutation(
@@ -174,6 +178,7 @@ export function useExpenseActions(onError: (message: string) => void) {
         ),
       ),
     onError,
+    "Couldn't update the expense",
   );
 
   const receipt = useMutation({
@@ -205,6 +210,7 @@ export function useSubscriptionActions(onError: (message: string) => void) {
     (name: string) => removeSubscription(name),
     (data, name) => mapSubscriptions(data, (items) => items.filter((s) => s.name !== name)),
     onError,
+    "Couldn't remove the subscription — it's back in the list",
   );
 
   const update = useOptimisticMutation(
@@ -215,6 +221,7 @@ export function useSubscriptionActions(onError: (message: string) => void) {
         items.map((s) => (s.name === vars.name ? { ...s, ...vars.patch } : s)),
       ),
     onError,
+    "Couldn't update the subscription",
   );
 
   const autoDetect = useMutation({
@@ -259,6 +266,7 @@ export function useBudgetActions(onError: (message: string) => void) {
       };
     },
     onError,
+    "Couldn't remove the category — it's back in the list",
   );
 
   return {
@@ -280,12 +288,14 @@ export function useTaxActions(onError: (message: string) => void) {
         { id: tempId(), date: vars.date, amount: Number(vars.amount) || 0, notes: vars.notes },
       ]),
     onError,
+    "Couldn't log the tax setaside",
   );
 
   const remove = useOptimisticMutation(
     (id: string) => removeTaxSetaside(id),
     (data, id) => mapTax(data, (items) => items.filter((t) => t.id !== id)),
     onError,
+    "Couldn't remove the setaside entry — it's back in the list",
   );
 
   return {
@@ -300,7 +310,7 @@ export function useTabTodoActions(onError: (message: string) => void) {
   const queryClient = useQueryClient();
   const toggle = useMutation({
     mutationFn: (id: string) => toggleTabTodo(id),
-    onError: (err) => onError(errorMessage(err)),
+    onError: (err) => onError(errorMessage(err, "Couldn't toggle the to-do")),
     onSettled: () => void queryClient.invalidateQueries({ queryKey: MONEY_QUERY_KEY }),
   });
   return { toggle: (id: string) => toggle.mutate(id) };

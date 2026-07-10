@@ -49,21 +49,24 @@ export function SectionDetail({ section, save, onBack }: SectionDetailProps) {
     if (mode === 'edit') taRef.current?.focus();
   }, [mode]);
 
-  async function flush() {
+  /** Returns false when the save failed (status shows the sticky "Save error"). */
+  async function flush(): Promise<boolean> {
     if (timerRef.current) {
       clearTimeout(timerRef.current);
       timerRef.current = null;
     }
     const current = valueRef.current;
-    if (current === lastSavedRef.current) return;
+    if (current === lastSavedRef.current) return true;
     setStatus('saving');
     try {
       await save(current);
       lastSavedRef.current = current;
       setStatus('saved');
       setTimeout(() => setStatus((s) => (s === 'saved' ? 'idle' : s)), 2000);
+      return true;
     } catch {
       setStatus('error');
+      return false;
     }
   }
 
@@ -79,20 +82,24 @@ export function SectionDetail({ section, save, onBack }: SectionDetailProps) {
   // Leaving the page (or unmounting the route) with a pending edit saves it,
   // like the legacy beforeunload + closeSection handlers.
   useEffect(() => {
+    // Swallow rejections here — the component is unmounting (or the tab is
+    // closing), so there's no status line left to show a failure on. The
+    // in-app back path goes through handleBack below, which does block.
     function onBeforeUnload() {
-      if (valueRef.current !== lastSavedRef.current) void save(valueRef.current);
+      if (valueRef.current !== lastSavedRef.current) save(valueRef.current).catch(() => {});
     }
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => {
       window.removeEventListener('beforeunload', onBeforeUnload);
       if (timerRef.current) clearTimeout(timerRef.current);
-      if (valueRef.current !== lastSavedRef.current) void save(valueRef.current);
+      if (valueRef.current !== lastSavedRef.current) save(valueRef.current).catch(() => {});
     };
   }, [save]);
 
   async function handleBack() {
-    await flush();
-    onBack();
+    // A failed save keeps her on the section — leaving would unmount the
+    // editor and silently drop the unsaved block ("Save error" stays up).
+    if (await flush()) onBack();
   }
 
   const previewHtml = useMemo(() => renderSectionHtml(value), [value]);

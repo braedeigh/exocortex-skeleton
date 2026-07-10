@@ -67,7 +67,7 @@ export function LifeMapPage() {
     setConfirm({ text, action });
   }
 
-  if (isLoading) {
+  if (isLoading || (!data && !isError)) {
     return (
       <div className={styles.page}>
         <div className={styles.loading}>Loading&hellip;</div>
@@ -75,7 +75,9 @@ export function LifeMapPage() {
     );
   }
 
-  if (isError || !data) {
+  // Inline error only when there's nothing cached to show — a failed
+  // background poll keeps rendering the last good data.
+  if (!data) {
     return (
       <div className={styles.page}>
         <div className={styles.error}>

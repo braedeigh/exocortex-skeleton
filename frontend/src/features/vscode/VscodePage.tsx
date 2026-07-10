@@ -66,6 +66,9 @@ export function VscodePage() {
   // off→running transition (or start failure). A ref because the status
   // effect must read the value the moment data lands, not a stale closure.
   const startingRef = useRef(false);
+  // Set when the stop POST itself failed — the next status render says so
+  // instead of silently flipping back to "running".
+  const stopFailedRef = useRef(false);
   const checkedInitialRef = useRef(false);
   const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -107,11 +110,17 @@ export function VscodePage() {
         }, REDIRECT_DELAY_MS);
         return;
       }
-      // Reachable when a stop fails: running again, buttons back to normal.
-      setPill({ tone: 'on', text: 'running' });
+      // Reachable when a stop fails: running again, buttons back to normal —
+      // and say the stop failed rather than pretending nothing happened.
+      setPill(
+        stopFailedRef.current
+          ? { tone: 'on', text: 'stop failed — still running' }
+          : { tone: 'on', text: 'running' },
+      );
     } else {
       setPill({ tone: 'off', text: 'off' });
     }
+    stopFailedRef.current = false;
     setPrimaryOverride(null);
   }, [data, dataUpdatedAt, redirecting]);
 
@@ -142,7 +151,9 @@ export function VscodePage() {
       await stopVscode();
       await sleep(STOP_SETTLE_MS);
     } catch {
-      // Old page ignored stop errors too — the re-check below tells the truth.
+      // The re-check below tells the truth about running state; flag the
+      // failure so that render doesn't read as a silent no-op.
+      stopFailedRef.current = true;
     } finally {
       setStopDisabled(false);
       void refetch();
