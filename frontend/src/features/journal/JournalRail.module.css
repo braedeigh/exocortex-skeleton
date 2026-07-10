@@ -30,22 +30,6 @@
   flex-direction: row;
   align-items: center;
   margin-right: calc(-1 * var(--space-3) - 3px);
-  opacity: 0.45;
-  transition: opacity 0.15s ease;
-}
-
-.railGroup:hover,
-.railGroup:focus-within,
-.railGroup:active {
-  opacity: 1;
-}
-
-/* Collapsed: only the tab remains, and it needs to stay findable rather than
-   fading like the rest of the rail — full opacity always, exempt from the
-   hover-to-reveal rule above. (Declared after .railGroup so it wins the tie
-   on specificity.) */
-.railGroupCollapsed {
-  opacity: 1;
 }
 
 /* One merged pill instead of separate stacked buttons. */
@@ -60,6 +44,17 @@
   border-radius: var(--radius-xl);
   overflow: hidden;
   box-shadow: 0 6px 22px rgba(0, 0, 0, 0.28);
+  /* Tab and pill each fade at rest and reveal independently — only the piece
+     under the pointer goes solid, and its border lights up with it. */
+  opacity: 0.45;
+  transition: opacity 0.15s ease, border-color 0.15s ease;
+}
+
+.pill:hover,
+.pill:focus-within,
+.pill:active {
+  opacity: 1;
+  border-color: var(--accent);
 }
 
 /* Little collapse/expand tab hanging off the middle of the pill's left
@@ -82,19 +77,24 @@
   line-height: 1;
   cursor: pointer;
   box-shadow: 0 6px 22px rgba(0, 0, 0, 0.28);
-  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  opacity: 0.45;
+  transition: background 0.12s, color 0.12s, border-color 0.12s, opacity 0.15s ease;
   -webkit-tap-highlight-color: transparent;
 }
 
 .collapseTab:hover {
   background: color-mix(in srgb, var(--accent) 22%, transparent);
   color: var(--accent);
+  border-color: var(--accent);
+  opacity: 1;
 }
 
 /* Collapsed state: bright purple outline so the tab is obvious even at full
    opacity with no pill beside it — top/left/bottom only, still no right
    border (flush to the edge). */
 .collapseTabCollapsed {
+  /* Collapsed it's the only landmark left — always solid, never faded. */
+  opacity: 1;
   border-top: 2px solid var(--accent);
   border-left: 2px solid var(--accent);
   border-bottom: 2px solid var(--accent);
