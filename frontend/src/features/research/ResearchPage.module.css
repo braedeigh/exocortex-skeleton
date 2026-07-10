@@ -9,6 +9,11 @@
   --purple: #8d67cf;
   --accent-light: rgba(124, 92, 191, 0.15);
 
+  /* This is the pane's scroll container — body{overflow:hidden}, only pages
+     scroll (same as TodosPage/MediaPage). */
+  flex: 1;
+  overflow-y: auto;
+  width: 100%;
   max-width: 800px;
   margin: 0 auto;
   padding: var(--space-4) var(--space-4) 48px;
