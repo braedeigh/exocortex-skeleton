@@ -23,9 +23,14 @@
 .railGroup {
   pointer-events: auto;
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  opacity: 0.45;
+  /* Tab on the left, pill on the right, tab vertically centered on the
+     pill's left edge. The negative margin pulls the whole cluster past
+     .rail's padding so the pill sits flush with the screen edge and pokes
+     a few px off it. */
+  flex-direction: row;
+  align-items: center;
+  margin-right: calc(-1 * var(--space-3) - 3px);
+  opacity: 0.2;
   transition: opacity 0.15s ease;
 }
 
@@ -57,15 +62,14 @@
   box-shadow: 0 6px 22px rgba(0, 0, 0, 0.28);
 }
 
-/* Little collapse/expand tab, sitting above the pill and hugging the
-   viewport edge (counteracts .rail's padding-right so it reads as emerging
-   from the edge rather than floating inset like the pill). */
+/* Little collapse/expand tab hanging off the middle of the pill's left
+   edge (row layout + centered alignment); no border on its right side so
+   it merges into the pill. Collapsed, it's the lone survivor at the
+   screen edge. */
 .collapseTab {
   flex-shrink: 0;
   width: 28px;
   height: 40px;
-  margin-bottom: var(--space-2);
-  margin-right: calc(-1 * var(--space-3));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -91,7 +95,6 @@
    opacity with no pill beside it — top/left/bottom only, still no right
    border (flush to the edge). */
 .collapseTabCollapsed {
-  margin-bottom: 0;
   border-top: 2px solid var(--accent);
   border-left: 2px solid var(--accent);
   border-bottom: 2px solid var(--accent);
