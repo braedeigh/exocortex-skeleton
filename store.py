@@ -104,9 +104,69 @@ def file_path(name: str) -> Path:
 # kill switch back to pure files (mirrors are always current, so it's safe to
 # flip either way).
 SQL_COLLECTIONS = frozenset((
+    "active_inventory",
+    "activity_log",
+    "annotations",
+    "archivals",
+    "budget",
+    "buy_list",
     "car_maintenance",
     "car_notes",
+    "contacts",
+    "deity_profiles",
+    "dev_notes",
+    "ecosystem",
+    "ecosystem_config",
+    "expense_receipts",
+    "expenses",
+    "food_tests",
+    "grocery_item_rules",
+    "grocery_trips",
+    "growth_notes",
+    "habit_cadence",
+    "habit_meta",
+    "habit_settings",
+    "habit_start_dates",
+    "habits_log",
+    "housing",
+    "idea_notes",
+    "kitchen",
+    "kitchen_trips",
+    "meal_defaults",
+    "meal_notes",
+    "media",
+    "meditation_log",
+    "meditation_notes",
+    "merchant_categories",
+    "merchant_labels",
+    "movement",
+    "places",
+    "priority_notes",
+    "recipes",
+    "reminders",
+    "research",
+    "research_vectors",
+    "runs",
+    "scheduled_prompts",
+    "shrike_applied",
+    "streaks",
+    "subscriptions",
+    "supplements",
+    "symptom_definitions",
+    "tax_setaside",
+    "test_queue",
+    "theme_settings",
 ))
+# Deliberately NOT SQL-backed (each needs its writer normalized first):
+#   todos, pending_changes — the add-todo Rust binary writes these FILES
+#     directly (the "narrow door"); flipping them would make the app read a
+#     database the binary doesn't write. They flip when the binary learns
+#     SQLite or an ingest watcher lands.
+#   sessions — routes/terminal.py does raw file I/O + mtime-watching for the
+#     SSE stream; normalize it through store first.
+#   shrike_seen / shrike_catches — written directly by the Shrike agent;
+#     Flask never writes them (shrike_applied IS Flask-written, so it's in).
+#   auth — read directly at startup, deliberately outside the store.
 _SQL_OFF = os.environ.get("EXOCORTEX_SQL_OFF", "") == "1"
 
 
