@@ -21,6 +21,10 @@
    the border/shadow fade with it; solid on hover/touch). */
 .pill {
   pointer-events: auto;
+  /* The rail strip is height: 0; overflow: hidden zeroes this flex item's
+     automatic minimum size, so without this the pill squashes flat and
+     clips its own buttons out of existence. */
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
   border: 1px solid var(--border);
