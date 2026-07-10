@@ -16,6 +16,7 @@ import { PersonPopover } from './PersonPopover';
 import { ThreadPopover } from './ThreadPopover';
 import { resolveDayMode } from './types';
 import {
+  useAddCard,
   useDeleteCard,
   useJournalDates,
   useJournalDay,
@@ -66,13 +67,16 @@ export function JournalPage() {
 
   const [editingCardId, setEditingCardId] = useState<string | null>(null);
   const [blobFocused, setBlobFocused] = useState(false);
+  // "+ Add a note" composer open at the top or bottom of the stream — one
+  // editing surface at a time, same rule as editingCardId.
+  const [composingPosition, setComposingPosition] = useState<'top' | 'bottom' | null>(null);
   // Cards mid "removed · Undo" toast — hidden from the stream immediately but
   // not actually deleted server-side until the toast's timer fires (or the
   // whole page unmounts). Undo just clears the pending id; nothing was ever
   // sent to the server.
   const [pendingDeleteIds, setPendingDeleteIds] = useState<Set<string>>(new Set());
   const deleteTimers = useRef<Record<string, { timer: ReturnType<typeof setTimeout>; wasLastCard: boolean }>>({});
-  const pausePolling = editingCardId !== null || blobFocused;
+  const pausePolling = editingCardId !== null || blobFocused || composingPosition !== null;
 
   const dayQuery = useJournalDay(currentDate, pausePolling);
   const datesQuery = useJournalDates();
@@ -87,6 +91,7 @@ export function JournalPage() {
 
   const updateCard = useUpdateCard(currentDate ?? '', push);
   const deleteCard = useDeleteCard(currentDate ?? '', push);
+  const addCard = useAddCard(currentDate ?? '', push);
   const saveBlobMutation = useSaveJournalBlob(currentDate ?? '', push);
 
   const UNDO_DELETE_MS = 5000;
@@ -281,12 +286,25 @@ export function JournalPage() {
             editingCardId={editingCardId}
             savingCardId={savingCardId}
             matcher={matcher}
-            onEdit={setEditingCardId}
+            onEdit={(id) => {
+              setComposingPosition(null);
+              setEditingCardId(id);
+            }}
             onCancel={() => setEditingCardId(null)}
             onSave={(id, body) => updateCard.mutate({ id, body }, { onSuccess: () => setEditingCardId(null) })}
             onConfirmDelete={(id) => requestDeleteCard(id, visibleCards.length === 1)}
             onNavigateDate={goTo}
             onPersonClick={setPopoverSlug}
+            composingPosition={composingPosition}
+            addSaving={addCard.isPending}
+            onComposeStart={(position) => {
+              setEditingCardId(null);
+              setComposingPosition(position);
+            }}
+            onComposeCancel={() => setComposingPosition(null)}
+            onComposeSave={(position, body) =>
+              addCard.mutate({ position, body }, { onSuccess: () => setComposingPosition(null) })
+            }
           />
         ) : mode === 'empty' ? (
           <div className={styles.empty}>

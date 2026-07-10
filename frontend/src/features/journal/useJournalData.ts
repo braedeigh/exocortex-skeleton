@@ -15,6 +15,7 @@ import {
   removeJournalDevNote,
   saveJournalDay,
   updateCard,
+  addCard,
   deleteCard as deleteCardRequest,
 } from '../../api/endpoints';
 import type { JournalDayBundle, ThreadDetail, ThreadsResponse } from './types';
@@ -168,6 +169,17 @@ export function useUpdateCard(date: string, onError: (message: string) => void) 
   return useMutation({
     mutationFn: (vars: { id: string; body: string }) => updateCard(vars.id, vars.body),
     onError: (err) => onError(errorMessage(err, 'Save failed')),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: journalDayKey(date) });
+    },
+  });
+}
+
+export function useAddCard(date: string, onError: (message: string) => void) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { position: 'top' | 'bottom'; body: string }) => addCard(date, vars.position, vars.body),
+    onError: (err) => onError(errorMessage(err, 'Add failed')),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: journalDayKey(date) });
     },
