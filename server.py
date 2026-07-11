@@ -208,9 +208,7 @@ def inject_view_mode():
     return {"view_mode": "authed"}
 
 
-# App version — single source of truth for the version label shown in the UI
-# (dashboard footer, public header, fake-terminal banner). Bump here only.
-APP_VERSION = "0.6"
+APP_VERSION = config.APP_VERSION  # re-export; canonical value lives in config.py
 
 
 @app.context_processor

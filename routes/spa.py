@@ -28,6 +28,7 @@ from pathlib import Path
 
 from flask import request, make_response, send_from_directory, abort
 
+import config
 from routes.settings import load_theme
 from routes.shell import _load_public_intro_html
 
@@ -63,11 +64,15 @@ def _spa_response():
         if view_mode == "public"
         else "null"
     )
+    meta_json = json.dumps(
+        {"name": config.APP_NAME, "owner": config.OWNER_NAME, "version": config.APP_VERSION}
+    ).replace("</", "<\\/")
     injected = (
         "<script>"
         f"window.THEME_OVERRIDES = {theme_json};"
         f'window.VIEW_MODE = "{view_mode}";'
         f"window.PUBLIC_INTRO_HTML = {intro_json};"
+        f"window.APP_META = {meta_json};"
         "</script></head>"
     )
     html = INDEX_PATH.read_text().replace("</head>", injected, 1)
@@ -119,6 +124,17 @@ def register(app):
 
         target = f"/{tab}" if tab in _NATIVE_TABS else "/todos"
         return redirect(target, code=302)
+
+    @app.route("/index.html")
+    def spa_index_file():
+        # The service worker precaches "index.html" verbatim (vite-plugin-pwa
+        # computes its revision hash from the raw build output), so this must
+        # serve the un-injected dist file — and must exist: if it 404s, every
+        # SW update fails to install and clients keep their stale service
+        # worker (and its cached shell) forever.
+        resp = make_response(send_from_directory(DIST_DIR, "index.html"))
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
 
     @app.route("/assets/<path:filename>")
     def spa_asset(filename):

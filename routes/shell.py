@@ -18,7 +18,7 @@ in this repo's git history. What remains here:
 """
 from urllib.parse import quote
 
-from flask import redirect
+from flask import jsonify, redirect
 
 from data_helpers import CONTENT_DIR
 
@@ -35,6 +35,9 @@ _LEGACY_TAB_PATHS = [
 
 # Path to the file that backs the public homepage fake-terminal intro.
 PUBLIC_INTRO_PATH = CONTENT_DIR / "public_intro.md"
+
+# Path to the file that backs the public /about page (served via /api/about).
+PUBLIC_ABOUT_PATH = CONTENT_DIR / "public_about.md"
 
 
 def _render_inline(s):
@@ -79,7 +82,57 @@ def _load_public_intro_html():
     return "\n".join(blocks)
 
 
+def _render_about_inline(s):
+    """Escape HTML, then convert [text](url) links and `code` spans."""
+    import html as _html
+    import re as _re
+    s = _html.escape(s)
+    # http(s) links only — this HTML lands in the public page unsanitized
+    # client-side, so never let a javascript: href through.
+    s = _re.sub(
+        r"\[([^\]]+)\]\((https?://[^)\s]+)\)",
+        r'<a href="\2" target="_blank" rel="noopener noreferrer">\1</a>',
+        s,
+    )
+    return _re.sub(r"`([^`]+)`", r"<code>\1</code>", s)
+
+
+def _load_public_about_html():
+    """Read CONTENT_DIR/public_about.md and render the small markdown subset
+    the /about page supports: # / ## headings, "- " bullet lists, paragraphs,
+    `code` spans, and [text](http…) links. Everything is HTML-escaped first —
+    like the intro, this string is injected verbatim into the public page, so
+    no raw HTML may pass through. You edit the .md file directly; the server
+    re-reads it per request. Returns "" when the file doesn't exist (the SPA
+    falls back to its generic blurb).
+    """
+    if not PUBLIC_ABOUT_PATH.exists():
+        return ""
+    text = PUBLIC_ABOUT_PATH.read_text().strip()
+    blocks = []
+    for para in text.split("\n\n"):
+        para = para.strip()
+        if not para:
+            continue
+        lines = [ln.strip() for ln in para.split("\n") if ln.strip()]
+        if all(ln.startswith("- ") for ln in lines):
+            items = "\n".join(f"<li>{_render_about_inline(ln[2:])}</li>" for ln in lines)
+            blocks.append(f"<ul>\n{items}\n</ul>")
+        elif len(lines) == 1 and lines[0].startswith("## "):
+            blocks.append(f"<h2>{_render_about_inline(lines[0][3:])}</h2>")
+        elif len(lines) == 1 and lines[0].startswith("# "):
+            blocks.append(f"<h1>{_render_about_inline(lines[0][2:])}</h1>")
+        else:
+            blocks.append(f"<p>{_render_about_inline(' '.join(lines))}</p>")
+    return "\n".join(blocks)
+
+
 def register(app):
+
+    @app.route("/api/about")
+    def api_about():
+        # Public (whitelisted in public_config.PUBLIC_PATHS) — backs /about.
+        return jsonify({"html": _load_public_about_html()})
 
     @app.route("/dashboard")
     def dashboard_bare():

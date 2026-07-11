@@ -56,6 +56,14 @@ export function useKitchenData() {
   });
 }
 
+/** The kitchen data stream is public (public_config.py), but the receipt/
+ * recipe import machinery is auth-only — a logged-out fetch 401s and the api
+ * client hard-redirects to /login, kicking anonymous visitors off the page.
+ * Never fire these two queries in public view. */
+function isPublicView(): boolean {
+  return typeof window !== 'undefined' && window.VIEW_MODE === 'public';
+}
+
 /** Parsed-but-unimported receipts. The old page fetched once per load and
  * after imports; a slow poll keeps the "ready to import" banner live while
  * Claude parses in the background. */
@@ -64,6 +72,7 @@ export function useParsedReceipts() {
     queryKey: PARSED_RECEIPTS_KEY,
     queryFn: ({ signal }) => listParsedReceipts(signal),
     refetchInterval: 20000,
+    enabled: !isPublicView(),
   });
 }
 
@@ -72,6 +81,7 @@ export function useParsedRecipes() {
     queryKey: PARSED_RECIPES_KEY,
     queryFn: ({ signal }) => listParsedRecipes(signal),
     refetchInterval: 20000,
+    enabled: !isPublicView(),
   });
 }
 

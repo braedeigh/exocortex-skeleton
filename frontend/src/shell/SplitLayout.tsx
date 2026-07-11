@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { TerminalPane } from './TerminalPane';
+import { FakeTerminal } from './FakeTerminal';
 import { useSessions } from './useSessions';
 import { useMediaQuery, DESKTOP_QUERY } from './useMediaQuery';
 import styles from './SplitLayout.module.css';
@@ -10,10 +11,13 @@ import styles from './SplitLayout.module.css';
  * 505-570). The right pane is the SPA's normal routed content (FrameHost +
  * the router Outlet), passed in as children, so navigation is unchanged.
  *
- * The terminal pane only mounts on desktop (>=769px) and only for authed
+ * The real terminal pane only mounts on desktop (>=769px) and only for authed
  * users — mirroring split.html, where `.split-container` is display:none
- * under 768px and the terminal never loads for public visitors. On mobile the
- * children render full-bleed exactly as before this component existed.
+ * under 768px and the terminal never loads for public visitors. Desktop
+ * *public* visitors keep the split, but the left pane is the FakeTerminal
+ * (the old public mode's `.cc-fake` intro) — no sessions are polled and
+ * nothing private mounts. On mobile the children render full-bleed exactly
+ * as before this component existed.
  *
  * Divider position is a percentage persisted to localStorage so a resize
  * sticks across reloads.
@@ -74,8 +78,8 @@ export function SplitLayout({ children }: { children: ReactNode }) {
     };
   }, [dragging, onPointerMove, endDrag]);
 
-  if (!terminalEnabled) {
-    // Mobile / public: no split — content fills, exactly as before.
+  if (!isDesktop) {
+    // Mobile: no split — content fills, exactly as before.
     return (
       <div className={styles.container} ref={containerRef}>
         <div className={styles.right}>{children}</div>
@@ -86,7 +90,7 @@ export function SplitLayout({ children }: { children: ReactNode }) {
   return (
     <div className={[styles.container, dragging ? styles.dragging : ''].filter(Boolean).join(' ')} ref={containerRef}>
       <div className={styles.left} style={{ flexBasis: `${width}%` }}>
-        <TerminalPane sessions={sessions} />
+        {isPublic ? <FakeTerminal /> : <TerminalPane sessions={sessions} />}
       </div>
       <div
         className={styles.divider}

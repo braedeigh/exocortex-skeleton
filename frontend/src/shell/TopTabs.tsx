@@ -22,8 +22,12 @@ import styles from './TopTabs.module.css';
  * or /legacy/*) is active — Journal/Research/Settings no longer need it
  * since they're reachable from row 1.
  *
- * Hidden entirely for public (unauthenticated) visitors, mirroring
- * split.html's `body.public-mode .dash-bar { display: none; }`.
+ * Public (unauthenticated) visitors get neither row — row 1's views are all
+ * auth-only (mirroring split.html's `body.public-mode .dash-bar
+ * { display: none; }`). Instead they get the PublicHeader (port of
+ * frosted.css's .public-header: site name · About · Sign in) plus row 2
+ * restricted to the public tabs, so the pages public_config.py exposes are
+ * actually reachable without typing URLs.
  */
 
 const PRIMARY_TABS: ReadonlyArray<{ key: 'today' | LegacyTab; label: string }> = [
@@ -35,6 +39,13 @@ const PRIMARY_TABS: ReadonlyArray<{ key: 'today' | LegacyTab; label: string }> =
 // Order matches the optional (.tab-opt) tabs in templates/index.html:32-38.
 const OPTIONAL_TABS: readonly LegacyTab[] = (
   ['ideas', 'body', 'money', 'meditation', 'media', 'movement', 'ecosystem'] as const
+).filter(isValidTab);
+
+// Public visitors only get the tabs whose pages AND /api/data payloads are
+// actually reachable logged-out (public_config.py PUBLIC_PATHS) — the old tab
+// row showed tabs that bounced strangers to /login; don't repeat that.
+const PUBLIC_OPTIONAL_TABS: readonly LegacyTab[] = (
+  ['money', 'inventory', 'ecosystem'] as const
 ).filter(isValidTab);
 
 // Always-in-More legacy tabs, in the order given in the spec (templates/index.html
@@ -88,9 +99,11 @@ interface MoreMenuContentProps {
   overflowed: readonly LegacyTab[];
   activeKey: ActiveKey;
   onNavigate: () => void;
+  /** false for public visitors: only overflowed tabs, none of the authed-only statics. */
+  includeStatic: boolean;
 }
 
-function MoreMenuContent({ overflowed, activeKey, onNavigate }: MoreMenuContentProps) {
+function MoreMenuContent({ overflowed, activeKey, onNavigate, includeStatic }: MoreMenuContentProps) {
   const navigate = useNavigate();
   return (
     <>
@@ -106,7 +119,7 @@ function MoreMenuContent({ overflowed, activeKey, onNavigate }: MoreMenuContentP
           {TAB_META[tab].label}
         </TapRow>
       ))}
-      {ALWAYS_MORE_TABS.map(({ tab, label }) => (
+      {(includeStatic ? ALWAYS_MORE_TABS : []).map(({ tab, label }) => (
         <TapRow
           key={tab}
           className={activeKey === tab ? styles.menuActive : undefined}
@@ -118,7 +131,7 @@ function MoreMenuContent({ overflowed, activeKey, onNavigate }: MoreMenuContentP
           {label}
         </TapRow>
       ))}
-      {MORE_PAGES.map((page) => (
+      {(includeStatic ? MORE_PAGES : []).map((page) => (
         <TapRow
           key={page.key}
           onClick={() => {
@@ -129,7 +142,7 @@ function MoreMenuContent({ overflowed, activeKey, onNavigate }: MoreMenuContentP
           {page.label}
         </TapRow>
       ))}
-      {MORE_VIEWS.map((view) => (
+      {(includeStatic ? MORE_VIEWS : []).map((view) => (
         <TapRow
           key={view.key}
           className={activeKey === `view:${view.key}` ? styles.menuActive : undefined}
@@ -146,13 +159,41 @@ function MoreMenuContent({ overflowed, activeKey, onNavigate }: MoreMenuContentP
 }
 
 /**
+ * Public-mode header — React port of the old frosted.css `.public-header`
+ * (site identity left; About + Sign in right). Themed with the normal page
+ * palette, unlike the pinned-indigo tab rows: in the old app too, this bar
+ * lived in the dashboard page and day/night-swapped with it.
+ */
+function PublicHeader() {
+  const meta = typeof window !== 'undefined' ? window.APP_META : undefined;
+  return (
+    <div className={styles.publicHeader}>
+      <div className={styles.publicName}>
+        {meta?.owner ? `${meta.owner}  ·  ` : ''}
+        {meta?.name ?? 'Exocortex'}
+        {meta?.version ? ` v${meta.version}` : ''}
+      </div>
+      <div className={styles.publicLinks}>
+        <Link to="/about" className={styles.publicLink}>
+          About
+        </Link>
+        <a href="/login" className={joinClass(styles.publicLink, styles.signInBtn)}>
+          Sign in
+        </a>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Row 2 — the legacy dashboard tab strip (To Do / Life Map / Kitchen / optional
  * tabs / More ▾). Only ever mounted while a dashboard route is active (see
  * TopTabs below), so it's its own component: mounting fresh each time it
  * reappears re-runs the layout()-on-mount effect below, which is what makes
  * the ResizeObserver measurement correct again after being unmounted.
  */
-function DashboardTabRow({ pathname }: { pathname: string }) {
+function DashboardTabRow({ pathname, isPublic = false }: { pathname: string; isPublic?: boolean }) {
+  const optionalTabs = isPublic ? PUBLIC_OPTIONAL_TABS : OPTIONAL_TABS;
   const [overflowed, setOverflowed] = useState<readonly LegacyTab[]>([]);
   const [moreOpen, setMoreOpen] = useState(false);
   const isDesktop = useMediaQuery(DESKTOP_QUERY);
@@ -176,39 +217,39 @@ function DashboardTabRow({ pathname }: { pathname: string }) {
     // Explicit inline value (not '') so previously-overflowed tabs, still
     // carrying the .hidden class from the last committed state, actually
     // reappear for this measurement pass.
-    for (const tab of OPTIONAL_TABS) {
+    for (const tab of optionalTabs) {
       const el = optionalRefs.current[tab];
       if (el) el.style.display = 'inline-flex';
     }
     const newOverflow: LegacyTab[] = [];
-    for (let i = OPTIONAL_TABS.length - 1; i >= 0; i--) {
+    for (let i = optionalTabs.length - 1; i >= 0; i--) {
       if (row.scrollWidth <= row.clientWidth) break;
-      const tab = OPTIONAL_TABS[i];
+      const tab = optionalTabs[i];
       if (tab === activeKey) continue;
       const el = optionalRefs.current[tab];
       if (el) el.style.display = 'none';
       newOverflow.unshift(tab);
     }
-    if (row.scrollWidth > row.clientWidth && OPTIONAL_TABS.includes(activeKey as LegacyTab)) {
+    if (row.scrollWidth > row.clientWidth && optionalTabs.includes(activeKey as LegacyTab)) {
       const activeTab = activeKey as LegacyTab;
       const el = optionalRefs.current[activeTab];
       if (el) el.style.display = 'none';
-      const idx = OPTIONAL_TABS.indexOf(activeTab);
-      let at = newOverflow.findIndex((t) => OPTIONAL_TABS.indexOf(t) > idx);
+      const idx = optionalTabs.indexOf(activeTab);
+      let at = newOverflow.findIndex((t) => optionalTabs.indexOf(t) > idx);
       if (at === -1) at = newOverflow.length;
       newOverflow.splice(at, 0, activeTab);
     }
     // Leave inline styles exactly matching the decision — the committed state
     // re-applies the same answer via the .hidden class, so render and
     // measurement never fight.
-    for (const tab of OPTIONAL_TABS) {
+    for (const tab of optionalTabs) {
       const el = optionalRefs.current[tab];
       if (el) el.style.display = newOverflow.includes(tab) ? 'none' : 'inline-flex';
     }
     setOverflowed((prev) =>
       prev.length === newOverflow.length && prev.every((t, i) => t === newOverflow[i]) ? prev : newOverflow,
     );
-  }, [activeKey]);
+  }, [activeKey, optionalTabs]);
 
   useEffect(() => {
     const row = rowRef.current;
@@ -243,9 +284,9 @@ function DashboardTabRow({ pathname }: { pathname: string }) {
     };
   }, [isDesktop, moreOpen, closeMore]);
 
-  const overflowedActive = OPTIONAL_TABS.includes(activeKey as LegacyTab) && overflowed.includes(activeKey as LegacyTab);
-  const alwaysMoreMatch = ALWAYS_MORE_TABS.find((t) => t.tab === activeKey);
-  const viewMatch = MORE_VIEWS.find((v) => `view:${v.key}` === activeKey);
+  const overflowedActive = optionalTabs.includes(activeKey as LegacyTab) && overflowed.includes(activeKey as LegacyTab);
+  const alwaysMoreMatch = isPublic ? undefined : ALWAYS_MORE_TABS.find((t) => t.tab === activeKey);
+  const viewMatch = isPublic ? undefined : MORE_VIEWS.find((v) => `view:${v.key}` === activeKey);
 
   let moreLabel = 'More';
   let moreActive = false;
@@ -275,7 +316,7 @@ function DashboardTabRow({ pathname }: { pathname: string }) {
         >
           {PRIMARY_TABS[2].label}
         </Link>
-        {OPTIONAL_TABS.map((tab) => (
+        {optionalTabs.map((tab) => (
           <Link
             key={tab}
             to={TAB_ROUTES[tab]}
@@ -289,26 +330,40 @@ function DashboardTabRow({ pathname }: { pathname: string }) {
         ))}
       </div>
 
-      <div className={styles.moreWrap} ref={moreWrapRef}>
-        <button
-          type="button"
-          className={joinClass(styles.tab, moreActive && styles.active)}
-          onClick={() => setMoreOpen((v) => !v)}
-          aria-expanded={moreOpen}
-          aria-haspopup="menu"
-        >
-          {moreLabel} &#9662;
-        </button>
-        {isDesktop && moreOpen ? (
-          <div className={styles.dropdown} role="menu">
-            <MoreMenuContent overflowed={overflowed} activeKey={activeKey} onNavigate={closeMore} />
-          </div>
-        ) : null}
-      </div>
+      {/* Public visitors' More holds only overflowed tabs — hide it while
+          everything fits, since there'd be nothing inside. */}
+      {!isPublic || overflowed.length > 0 ? (
+        <div className={styles.moreWrap} ref={moreWrapRef}>
+          <button
+            type="button"
+            className={joinClass(styles.tab, moreActive && styles.active)}
+            onClick={() => setMoreOpen((v) => !v)}
+            aria-expanded={moreOpen}
+            aria-haspopup="menu"
+          >
+            {moreLabel} &#9662;
+          </button>
+          {isDesktop && moreOpen ? (
+            <div className={styles.dropdown} role="menu">
+              <MoreMenuContent
+                overflowed={overflowed}
+                activeKey={activeKey}
+                onNavigate={closeMore}
+                includeStatic={!isPublic}
+              />
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {!isDesktop ? (
         <Sheet open={moreOpen} title="More" onClose={closeMore}>
-          <MoreMenuContent overflowed={overflowed} activeKey={activeKey} onNavigate={closeMore} />
+          <MoreMenuContent
+            overflowed={overflowed}
+            activeKey={activeKey}
+            onNavigate={closeMore}
+            includeStatic={!isPublic}
+          />
         </Sheet>
       ) : null}
     </div>
@@ -338,7 +393,14 @@ export function TopTabs() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname]);
 
-  if (typeof window !== 'undefined' && window.VIEW_MODE === 'public') return null;
+  if (typeof window !== 'undefined' && window.VIEW_MODE === 'public') {
+    return (
+      <>
+        <PublicHeader />
+        {dashboardActive ? <DashboardTabRow pathname={location.pathname} isPublic /> : null}
+      </>
+    );
+  }
 
   return (
     <>

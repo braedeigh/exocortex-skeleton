@@ -12,5 +12,7 @@ declare global {
     VIEW_MODE?: 'authed' | 'public';
     /** Rendered HTML (already sanitized server-side) for the public landing page, or null when authed. */
     PUBLIC_INTRO_HTML?: string | null;
+    /** App identity for chrome that names the site (public header, fake terminal banner). */
+    APP_META?: { name: string; owner: string; version: string };
   }
 }

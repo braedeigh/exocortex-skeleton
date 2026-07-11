@@ -206,6 +206,67 @@
   color: var(--accent);
 }
 
+/* Public-mode header — port of frosted.css .public-header. Themed with the
+ * page palette (NOT the pinned indigo above): sky-theme.js swaps --card-bg /
+ * --text / --border at runtime and this bar swaps with the page, exactly as
+ * the old dashboard's public header did. */
+.publicHeader {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  min-height: var(--tap-target, 44px);
+  padding: var(--space-1) var(--space-5);
+  padding-top: calc(var(--space-1) + env(safe-area-inset-top, 0px));
+  background: var(--card-bg);
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+
+.publicName {
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.publicLinks {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.publicLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-weight: 600;
+  border-radius: var(--radius-md);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.publicLink:hover {
+  color: var(--text);
+}
+
+.signInBtn {
+  background: var(--text);
+  color: var(--card-bg);
+  padding: 0 var(--space-4);
+}
+
+.signInBtn:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
 /* Keeper/Personality — full Flask pages, plain <a href>, not TapRow/router Link. */
 .menuLink {
   display: flex;

@@ -35,22 +35,36 @@ export default defineConfig({
       workbox: {
         // precache the app shell (JS/CSS/HTML/icons)
         globPatterns: ['**/*.{js,css,html,png,svg,ico,webmanifest}'],
-        // Never let the SPA's navigate-fallback hijack a Flask-owned or
-        // auth-gated path — these must always hit the network (and Flask),
-        // never fall back to the cached app-shell index.html.
-        navigateFallbackDenylist: [
-          /^\/api\//,
-          /^\/login/,
-          /^\/logout/,
-          /^\/auth\//,
-          // Reverse proxies + Flask-served content (iframe navigations count
-          // as navigations too — the SW must never hand these the app shell):
-          /^\/terminal\//, // ttyd web terminal
-          /^\/files\//, // code-server (note trailing slash — /files itself IS the SPA)
-          /^\/receipts\//, // uploaded receipt files
-          /^\/archivals\//, // archival photos
-        ],
+        // Navigations are NETWORK-FIRST, never precache-first: Flask injects
+        // per-request boot globals (VIEW_MODE / PUBLIC_INTRO_HTML /
+        // THEME_OVERRIDES / APP_META) into the shell HTML, and the precached
+        // dist/index.html carries none of them. Served to a public visitor it
+        // makes the app think it's authed → private queries fire → 401 → the
+        // api client hard-redirects to /login, kicking strangers off every
+        // page after the SW's first install. This mirrors the old
+        // static/sw.js (network-first, offline fallback only): online always
+        // gets Flask's injected HTML; offline falls back to the last cached
+        // copy of that page. So: no navigateFallback at all — the runtime
+        // route below owns navigations.
+        navigateFallback: null,
         runtimeCaching: [
+          {
+            // All top-level navigations EXCEPT Flask-owned/auth/proxied paths
+            // (ttyd, code-server, receipts, archival photos — iframe
+            // navigations count as navigations too). Keep this function
+            // self-contained: workbox serializes it into the generated sw.js.
+            urlPattern: ({ request, url }) =>
+              request.mode === 'navigate' &&
+              !/^\/(api\/|login|logout|auth\/|terminal\/|files\/|receipts\/|archivals\/)/.test(
+                url.pathname,
+              ),
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'pages',
+              networkTimeoutSeconds: 5,
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
           {
             urlPattern: /^\/api\//,
             handler: 'NetworkFirst',

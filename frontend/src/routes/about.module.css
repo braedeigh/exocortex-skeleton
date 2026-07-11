@@ -1,0 +1,72 @@
+/* Public About page — themed prose over the server-rendered HTML from
+ * /api/about (bare h1/h2/p/ul/code/a tags, see routes/shell.py). */
+
+.page {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--bg);
+}
+
+.prose {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: var(--space-8) var(--space-5) var(--space-8);
+  line-height: 1.6;
+  color: var(--text);
+  font-size: var(--font-size-base);
+}
+
+.prose :global(h1) {
+  font-size: 28px;
+  margin: var(--space-4) 0 var(--space-4);
+}
+
+.prose :global(h2) {
+  font-size: var(--font-size-xl);
+  margin: var(--space-6) 0 var(--space-3);
+}
+
+.prose :global(p) {
+  margin: 0 0 var(--space-4);
+  color: var(--text-secondary);
+}
+
+.prose :global(ul) {
+  margin: 0 0 var(--space-4);
+  padding-left: var(--space-6);
+  color: var(--text-secondary);
+}
+
+.prose :global(li) {
+  margin-bottom: var(--space-2);
+}
+
+.prose :global(code) {
+  font-family: 'Berkeley Mono', 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  border-radius: var(--radius-sm);
+  padding: 1px 5px;
+}
+
+.prose :global(a) {
+  color: var(--accent);
+}
+
+.backRow {
+  margin-top: var(--space-6);
+}
+
+.back {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-target);
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.back:hover {
+  text-decoration: underline;
+}

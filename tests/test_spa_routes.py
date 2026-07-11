@@ -84,6 +84,22 @@ def test_root_public_intro_html_is_a_string_when_public():
     assert b"window.PUBLIC_INTRO_HTML = null;" not in r.data
 
 
+def test_root_injects_app_meta():
+    # name/owner/version chrome (public header, fake-terminal banner) —
+    # injected for every view mode.
+    import config
+
+    r = _client().get("/")
+    marker = b"window.APP_META = "
+    assert marker in r.data
+    start = r.data.index(marker) + len(marker)
+    end = r.data.index(b";window", start) if b";window" in r.data[start:] else r.data.index(b";</script>", start)
+    meta = json.loads(r.data[start:end])
+    assert meta["name"] == config.APP_NAME
+    assert meta["version"] == config.APP_VERSION
+    assert "owner" in meta
+
+
 @pytest.mark.parametrize("path", [
     "/todos", "/todos/editor", "/journal", "/research", "/settings", "/files",
     # native dashboard tabs (ported from /tab/<name>)
@@ -129,6 +145,25 @@ def test_sw_js_is_never_cached():
 def test_unknown_root_file_404s():
     r = _client().get("/not-a-real-file.js")
     assert r.status_code == 404
+
+
+def test_index_html_serves_raw_uninjected_shell():
+    # The SW precache manifest lists "index.html"; if this 404s, every service
+    # worker update fails to install and clients keep the stale SW forever.
+    r = _client().get("/index.html")
+    assert r.status_code == 200
+    assert b'<div id="root">' in r.data
+    # Raw dist file, byte-identical to what vite hashed — no injected globals.
+    assert b"window.VIEW_MODE" not in r.data
+    assert r.data == spa.INDEX_PATH.read_bytes()
+
+
+def test_sw_precache_root_files_are_public():
+    from public_config import is_public_path
+
+    for path in ("/index.html", "/icon-192.png", "/icon-512.png", "/sw.js",
+                 "/registerSW.js", "/manifest.webmanifest"):
+        assert is_public_path(path), path
 
 
 # --- legacy bookmark redirects ------------------------------------------------------

@@ -130,6 +130,7 @@ PUBLIC_PATHS = (
     "/api/data/item-buy",
     "/api/data/ecosystem",
     "/api/version",
+    "/api/about",
     # The React SPA shell (routes/spa.py) — the app-shell HTML/JS/CSS/
     # manifest/SW must all be reachable to render the public landing at all.
     # "/legacy/<tab>" entries stay so old public bookmarks can follow the
@@ -139,6 +140,11 @@ PUBLIC_PATHS = (
     "/registerSW.js",
     "/sw.js",
     "/workbox-",  # hashed workbox runtime at dist root; see is_public_path prefix rule below
+    # Everything the SW precache manifest lists must be public, or a logged-out
+    # browser's SW install caches login redirects (or fails) instead of assets.
+    "/index.html",
+    "/icon-192.png",
+    "/icon-512.png",
     "/todos",
     "/legacy/map",
     "/legacy/kitchen",

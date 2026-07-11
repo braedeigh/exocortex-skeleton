@@ -89,3 +89,47 @@ def test_retired_shell_routes_are_gone():
                  "/research-view", "/settings-view", "/keeper"):
         r = _client().get(path)
         assert r.status_code == 404, path
+
+
+# --- /api/about (backs the public About page) -----------------------------------
+
+def _about(monkeypatch, tmp_path, text=None):
+    """Point shell.PUBLIC_ABOUT_PATH at a tmp file (or a missing one) and GET /api/about."""
+    path = tmp_path / "public_about.md"
+    if text is not None:
+        path.write_text(text)
+    monkeypatch.setattr(shell, "PUBLIC_ABOUT_PATH", path)
+    r = _client().get("/api/about")
+    assert r.status_code == 200
+    return r.get_json()["html"]
+
+
+def test_api_about_missing_file_returns_empty_html(monkeypatch, tmp_path):
+    assert _about(monkeypatch, tmp_path) == ""
+
+
+def test_api_about_renders_headings_paragraphs_and_bullets(monkeypatch, tmp_path):
+    html = _about(monkeypatch, tmp_path, "# Title\n\n## Sub\n\nA `code` span.\n\n- one\n- two\n")
+    assert "<h1>Title</h1>" in html
+    assert "<h2>Sub</h2>" in html
+    assert "<p>A <code>code</code> span.</p>" in html
+    assert "<li>one</li>" in html and "<li>two</li>" in html
+
+
+def test_api_about_joins_wrapped_paragraph_lines(monkeypatch, tmp_path):
+    html = _about(monkeypatch, tmp_path, "line one\nline two\n")
+    assert "<p>line one line two</p>" in html
+
+
+def test_api_about_renders_http_links_only(monkeypatch, tmp_path):
+    html = _about(monkeypatch, tmp_path, "[ok](https://example.com) [bad](javascript:alert(1))")
+    assert '<a href="https://example.com" target="_blank" rel="noopener noreferrer">ok</a>' in html
+    # the javascript: pseudo-link must NOT become an anchor — it stays literal text
+    assert '<a href="javascript' not in html
+    assert "[bad](javascript:alert(1))" in html
+
+
+def test_api_about_escapes_raw_html(monkeypatch, tmp_path):
+    html = _about(monkeypatch, tmp_path, "hello <script>alert(1)</script>")
+    assert "<script>" not in html
+    assert "&lt;script&gt;" in html

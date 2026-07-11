@@ -16,6 +16,10 @@ APP_NAME = os.environ.get("EXOCORTEX_APP_NAME", "Exocortex")
 # Shown next to the app name in the header/footer. Blank = omitted entirely.
 OWNER_NAME = os.environ.get("EXOCORTEX_OWNER_NAME", "")
 
+# App version — single source of truth for the version label shown in the UI
+# (dashboard footer, public header, fake-terminal banner). Bump here only.
+APP_VERSION = "0.6"
+
 # First-run admin password — only used to SEED auth.json on first boot.
 # Change it in Settings after logging in; this value is ignored afterward.
 DEFAULT_PASSWORD = os.environ.get("EXOCORTEX_DEFAULT_PASSWORD", "exocortex")

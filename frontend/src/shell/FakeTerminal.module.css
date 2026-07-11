@@ -1,0 +1,117 @@
+/* Fake Claude Code terminal — port of split.html's public-mode .cc-fake styles
+ * (archived old frontend). Deliberately NOT themed: like the real terminal
+ * pane, it's a dark monospace surface at every time of day, so none of the
+ * sky-theme variables appear here. Font sizes stay >=12px (13.5px body, 12px
+ * status bars) per the touch-first/legibility floor. */
+
+.fake {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #161618;
+  color: #ececec;
+  font-family: 'Berkeley Mono', 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 13.5px;
+  line-height: 1.65;
+  overflow: hidden;
+}
+
+.content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 24px 26px 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start; /* start at the top; visitor scrolls down to read */
+}
+
+.banner {
+  color: #9ca3af;
+  margin-bottom: 14px;
+}
+
+.mark {
+  color: #d97757; /* ◆ */
+}
+
+.dim {
+  color: #9ca3af;
+}
+
+.prompt {
+  color: #d97757;
+  font-weight: 600;
+}
+
+.user {
+  color: #cdcdd2; /* user input — slightly brighter than response body */
+}
+
+.row {
+  margin: 10px 0;
+}
+
+.cursorRow {
+  margin-top: 16px;
+}
+
+.cursor {
+  color: #cdcdd2;
+}
+
+/* The intro HTML arrives pre-rendered from routes/shell.py with global cc-*
+ * classes — style them under this module's scoped root. */
+.intro :global(.cc-p) {
+  margin: 0 0 10px;
+  color: #a8a8b0; /* Claude Code chat body gray */
+}
+
+.intro :global(.cc-dim) {
+  color: #9ca3af;
+}
+
+.intro :global(.cc-tool) {
+  color: #9ca3af;
+  padding-left: 4px;
+  margin: 2px 0;
+}
+
+.intro :global(.cc-file) {
+  color: #d6d6dc;
+}
+
+/* Bottom status bars — mimic Claude Code's permission line + tmux session bar.
+ * The link one is a real navigation target, so it gets a comfortable tap
+ * height (unlike the old 4px-padded div it ports). */
+.statusbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 4px 14px;
+  font-size: 12px;
+  color: #9ca3af;
+  background: #1a1a1d;
+  border-top: 1px solid #2a2a2e;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.warn {
+  background: #2a1f12;
+  color: #d97757;
+}
+
+.statusbarLink {
+  min-height: var(--tap-target, 44px);
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.statusbarLink:hover {
+  text-decoration: underline;
+  filter: brightness(1.1);
+}
