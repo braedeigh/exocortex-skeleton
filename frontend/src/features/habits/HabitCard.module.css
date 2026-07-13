@@ -26,6 +26,17 @@
   flex-shrink: 0;
 }
 
+/* Read-only (public visitor) checkboxes: the checked/unchecked fill in
+   Checkbox.module.css is driven by the input's :checked state, not
+   :disabled, so the done/undone visual still reads fine on its own — this
+   just kills the pointer cursor so a public visitor doesn't get a false
+   affordance that the row is clickable. Two classes on one element (see
+   HabitCard.tsx) beats Checkbox's own .label rule on specificity without
+   needing !important. */
+.checkbox.checkboxReadOnly {
+  cursor: default;
+}
+
 .text {
   flex: 1;
   min-width: 0;

@@ -35,6 +35,11 @@ export interface HabitsColumnProps {
   onGrowthRemove: (text: string) => void;
   onGrowthIncorporate: (text: string) => void;
   onGrowthReactivate: (text: string) => void;
+  /** Public (logged-out) visitors see the habits column but can't edit it —
+   * checkboxes go inert (HabitCard) and Growth Notes (an editing surface,
+   * not a display one) doesn't render at all. The TimeSelector stays
+   * interactive either way: it's pure local view state, not a write. */
+  readOnly?: boolean;
 }
 
 /** Left column of the To Do page's two-col grid — header + time selector +
@@ -58,6 +63,7 @@ export function HabitsColumn({
   onGrowthRemove,
   onGrowthIncorporate,
   onGrowthReactivate,
+  readOnly = false,
 }: HabitsColumnProps) {
   const hidden = habitSettings?.hidden || [];
   const views = dailySectionViews(habits, segment, hidden, cadenceMap, metaMap, log, cadenceConfig, serverDate);
@@ -90,18 +96,24 @@ export function HabitsColumn({
               metaMap={metaMap || {}}
               starts={starts || {}}
               onToggle={onToggle}
+              readOnly={readOnly}
             />
           ),
         )
       )}
 
-      <GrowthNotes
-        notes={growthNotes}
-        onAdd={onGrowthAdd}
-        onRemove={onGrowthRemove}
-        onIncorporate={onGrowthIncorporate}
-        onReactivate={onGrowthReactivate}
-      />
+      {/* Growth Notes is an editing surface (add/remove/incorporate an
+          aspiration) — public visitors don't get it at all, not even
+          read-only, since there's nothing here worth showing half-baked. */}
+      {!readOnly ? (
+        <GrowthNotes
+          notes={growthNotes}
+          onAdd={onGrowthAdd}
+          onRemove={onGrowthRemove}
+          onIncorporate={onGrowthIncorporate}
+          onReactivate={onGrowthReactivate}
+        />
+      ) : null}
 
       {/* TODO(habits phase 2): "Show hidden prompts" expand-all toggle so an
           all-done card can be expanded back open (old core.js expandedAll). */}

@@ -21,11 +21,18 @@ import styles from './SplitLayout.module.css';
  *
  * Divider position is a percentage persisted to localStorage so a resize
  * sticks across reloads.
+ *
+ * Desktop public visitors can also collapse the FakeTerminal pane entirely
+ * (via the control cluster it renders — see FakeTerminal's onCollapse prop)
+ * into a slim vertical rail pinned to the left edge, persisted the same way
+ * as the divider width. This is public-only: authed users' TerminalPane has
+ * no collapse affordance and this state is never consulted for them.
  */
 
 const WIDTH_KEY = 'exo-split-width';
 const MIN_PCT = 20;
 const MAX_PCT = 80;
+const COLLAPSE_KEY = 'exo-intro-collapsed';
 
 function readWidth(): number {
   try {
@@ -37,6 +44,14 @@ function readWidth(): number {
   return 50;
 }
 
+function readCollapsed(): boolean {
+  try {
+    return localStorage.getItem(COLLAPSE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
 export function SplitLayout({ children }: { children: ReactNode }) {
   const isDesktop = useMediaQuery(DESKTOP_QUERY);
   const isPublic = typeof window !== 'undefined' && window.VIEW_MODE === 'public';
@@ -45,7 +60,19 @@ export function SplitLayout({ children }: { children: ReactNode }) {
   const sessions = useSessions(terminalEnabled);
   const [width, setWidth] = useState(readWidth);
   const [dragging, setDragging] = useState(false);
+  // Lazily read like readWidth() above. Harmless to read for authed users
+  // too (the value just never gets consulted in their render path below).
+  const [collapsed, setCollapsedState] = useState(readCollapsed);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  const setCollapsed = useCallback((value: boolean) => {
+    setCollapsedState(value);
+    try {
+      localStorage.setItem(COLLAPSE_KEY, value ? '1' : '0');
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const onPointerMove = useCallback((e: PointerEvent) => {
     const el = containerRef.current;
@@ -87,10 +114,30 @@ export function SplitLayout({ children }: { children: ReactNode }) {
     );
   }
 
+  // Collapsed rail only ever applies to the desktop public split — authed
+  // desktop always falls through to the normal left pane + divider below,
+  // regardless of what's in localStorage.
+  if (isPublic && collapsed) {
+    return (
+      <div className={[styles.container, dragging ? styles.dragging : ''].filter(Boolean).join(' ')} ref={containerRef}>
+        <button
+          type="button"
+          className={styles.rail}
+          aria-expanded={false}
+          title="Show intro"
+          onClick={() => setCollapsed(false)}
+        >
+          <span className={styles.railMark}>&#9670;</span> about me
+        </button>
+        <div className={styles.right}>{children}</div>
+      </div>
+    );
+  }
+
   return (
     <div className={[styles.container, dragging ? styles.dragging : ''].filter(Boolean).join(' ')} ref={containerRef}>
       <div className={styles.left} style={{ flexBasis: `${width}%` }}>
-        {isPublic ? <FakeTerminal /> : <TerminalPane sessions={sessions} />}
+        {isPublic ? <FakeTerminal onCollapse={() => setCollapsed(true)} /> : <TerminalPane sessions={sessions} />}
       </div>
       <div
         className={styles.divider}

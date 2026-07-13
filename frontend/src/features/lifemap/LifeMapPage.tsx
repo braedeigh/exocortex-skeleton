@@ -131,8 +131,8 @@ export function LifeMapPage() {
           cardKey="habit"
           title="Habit Tracker"
           defaultOpen
-          editLabel={panel === 'habits' ? 'Done' : 'Edit'}
-          onEdit={() => setPanel((p) => (p === 'habits' ? null : 'habits'))}
+          editLabel={!isPublic ? (panel === 'habits' ? 'Done' : 'Edit') : undefined}
+          onEdit={!isPublic ? () => setPanel((p) => (p === 'habits' ? null : 'habits')) : undefined}
         >
           <HabitTrackerCard
             data={data}

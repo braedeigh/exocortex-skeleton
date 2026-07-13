@@ -202,91 +202,105 @@ export function TodosPage() {
         </>
       ) : null}
 
-      {frosted ? (
-        <div className={styles.frosted}>
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div className={styles.frostedRow} key={i} />
-          ))}
-        </div>
-      ) : (
-        <div className={styles.twoCol}>
-          {!isPublic ? (
-            <HabitsColumn
-              habits={habits}
-              habitSettings={data.habit_settings}
-              cadenceMap={data.habit_cadence}
-              metaMap={data.habit_meta}
-              log={habitsLog}
-              cadenceConfig={data.cadence_config}
-              starts={data.habit_starts}
-              segment={segment}
-              onSegmentChange={setManualSegment}
-              serverDate={serverDate}
-              onToggle={(item, section) => habitActions.toggle(item, section, serverDate)}
-              growthNotes={data.growth_notes}
-              onGrowthAdd={growthActions.add}
-              onGrowthRemove={growthActions.remove}
-              onGrowthIncorporate={growthActions.incorporate}
-              onGrowthReactivate={growthActions.reactivate}
-            />
-          ) : null}
+      {/* The grid now always renders once data is loaded — for public
+          visitors the habits column shows read-only (see HabitsColumn's
+          `readOnly` prop) while the To Do column stays frosted below. This
+          replaces the old "frosted -> whole grid replaced by placeholder"
+          branch, which hid the habits she wants public visitors to see. */}
+      <div className={styles.twoCol}>
+        <HabitsColumn
+          habits={habits}
+          habitSettings={data.habit_settings}
+          cadenceMap={data.habit_cadence}
+          metaMap={data.habit_meta}
+          log={habitsLog}
+          cadenceConfig={data.cadence_config}
+          starts={data.habit_starts}
+          segment={segment}
+          onSegmentChange={setManualSegment}
+          serverDate={serverDate}
+          onToggle={(item, section) => habitActions.toggle(item, section, serverDate)}
+          // growth_notes arrives "frosted" (a {_frosted:true} placeholder
+          // object, not an array) for public visitors — guard with
+          // Array.isArray rather than trusting the declared type, since
+          // that's a server-side redaction the TS types don't encode.
+          growthNotes={Array.isArray(data.growth_notes) ? data.growth_notes : undefined}
+          onGrowthAdd={growthActions.add}
+          onGrowthRemove={growthActions.remove}
+          onGrowthIncorporate={growthActions.incorporate}
+          onGrowthReactivate={growthActions.reactivate}
+          readOnly={isPublic}
+        />
 
-          <div>
-            <div className={styles.colHeaderRow}>
-              <div className={styles.colHeader}>To Do</div>
-              {/* Entry to the full-page editor — inside the non-frosted branch,
-                  so `!frosted` is already guaranteed here. */}
-              {!isPublic ? (
-                <Link to="/todos/editor" className={styles.editorLink}>
-                  &#9998; Edit all
-                </Link>
-              ) : null}
-            </div>
-            <FocusChips counts={focusCounts} active={focusTheme} onChange={setFocusTheme} />
-            <AddBar onAdd={todoActions.add} />
+        <div>
+          <div className={styles.colHeaderRow}>
+            <div className={styles.colHeader}>To Do</div>
+            {!isPublic ? (
+              <Link to="/todos/editor" className={styles.editorLink}>
+                &#9998; Edit all
+              </Link>
+            ) : null}
+          </div>
 
-            {focusTheme && focusCounts.total === 0 ? (
-              <div className={styles.emptyFocus}>Nothing here right now. 🎉</div>
-            ) : (
-              ladderSections.map((section, i) => (
+          {frosted ? (
+            <>
+              <div className={styles.frostedNote}>The to-do list itself is private.</div>
+              <div className={styles.frosted}>
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <div className={styles.frostedRow} key={i} />
+                ))}
+              </div>
+            </>
+          ) : (
+            <>
+              <FocusChips counts={focusCounts} active={focusTheme} onChange={setFocusTheme} />
+              <AddBar onAdd={todoActions.add} />
+
+              {focusTheme && focusCounts.total === 0 ? (
+                <div className={styles.emptyFocus}>Nothing here right now. 🎉</div>
+              ) : (
+                ladderSections.map((section, i) => (
+                  <TodoSection
+                    key={section.name}
+                    label={section.name}
+                    colorIndex={i}
+                    items={visibleSectionItems(section, serverDate, focusTheme, todoIndex)}
+                    manualOrder={section.manual_order}
+                    serverDate={serverDate}
+                    defaultOpen={section.name === 'Now'}
+                    focusTheme={focusTheme}
+                    onToggle={todoActions.toggle}
+                    onOpenDetail={setSelected}
+                    onSubtaskToggle={todoActions.subtaskToggle}
+                    onReorder={todoActions.reorder}
+                    onAutosort={todoActions.autosort}
+                    onMove={todoActions.move}
+                    onAddClick={setAddSection}
+                  />
+                ))
+              )}
+
+              {doneSection ? (
                 <TodoSection
-                  key={section.name}
-                  label={section.name}
-                  colorIndex={i}
-                  items={visibleSectionItems(section, serverDate, focusTheme, todoIndex)}
-                  manualOrder={section.manual_order}
+                  label={DONE_LABEL}
+                  colorIndex={3}
+                  items={doneSection.items}
+                  manualOrder={false}
                   serverDate={serverDate}
-                  defaultOpen={section.name === 'Now'}
-                  focusTheme={focusTheme}
+                  defaultOpen={false}
+                  countMode="total"
                   onToggle={todoActions.toggle}
                   onOpenDetail={setSelected}
+                  onSubtaskToggle={todoActions.subtaskToggle}
                   onReorder={todoActions.reorder}
                   onAutosort={todoActions.autosort}
                   onMove={todoActions.move}
-                  onAddClick={setAddSection}
                 />
-              ))
-            )}
-
-            {doneSection ? (
-              <TodoSection
-                label={DONE_LABEL}
-                colorIndex={3}
-                items={doneSection.items}
-                manualOrder={false}
-                serverDate={serverDate}
-                defaultOpen={false}
-                countMode="total"
-                onToggle={todoActions.toggle}
-                onOpenDetail={setSelected}
-                onReorder={todoActions.reorder}
-                onAutosort={todoActions.autosort}
-                onMove={todoActions.move}
-              />
-            ) : null}
-          </div>
+              ) : null}
+            </>
+          )}
         </div>
-      )}
+      </div>
 
       <AddTodoSheet
         section={addSection}

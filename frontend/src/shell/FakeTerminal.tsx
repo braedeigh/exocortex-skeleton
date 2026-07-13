@@ -17,15 +17,32 @@ import styles from './FakeTerminal.module.css';
  * The intro HTML carries global cc-* classes (cc-p, cc-dim, cc-tool, cc-file)
  * emitted by routes/shell.py's mini-renderer; FakeTerminal.module.css styles
  * them via :global under the scoped root.
+ *
+ * `onCollapse` is optional and only passed by SplitLayout's desktop public
+ * split: when present, a top-right control cluster (about-me link + hide
+ * button) renders inside the terminal, and clicking hide calls it so the
+ * parent can collapse the pane into the slim rail. PublicLanding's mobile
+ * usage omits the prop, so mobile visitors never see the cluster — there's
+ * no pane to collapse there.
  */
-export function FakeTerminal() {
+export function FakeTerminal({ onCollapse }: { onCollapse?: () => void }) {
   const introHtml = typeof window !== 'undefined' ? window.PUBLIC_INTRO_HTML : null;
   const version = typeof window !== 'undefined' ? window.APP_META?.version : null;
 
   return (
     <div className={styles.fake}>
+      {onCollapse ? (
+        <div className={styles.controls}>
+          <Link to="/about" className={styles.controlBtn}>
+            about me
+          </Link>
+          <button type="button" className={styles.controlBtn} aria-label="Hide this pane" onClick={onCollapse}>
+            <span aria-hidden="true">&#8249;</span> hide
+          </button>
+        </div>
+      ) : null}
       <div className={styles.content}>
-        <div className={styles.banner}>
+        <div className={`${styles.banner} ${onCollapse ? styles.bannerControlsPad : ''}`}>
           <span className={styles.mark}>&#9670;</span> Claude Code{' '}
           <span className={styles.dim}>&middot; ~/exocortex{version ? ` · v${version}` : ''}</span>
         </div>

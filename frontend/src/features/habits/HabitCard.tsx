@@ -16,13 +16,20 @@ export interface HabitCardProps {
   metaMap: HabitMetaMap;
   starts: HabitStarts;
   onToggle: (item: string, section: string) => void;
+  /** Public (logged-out) visitors — checkbox goes visually inert and never
+   * calls onToggle. This matters beyond "don't let them edit her habits":
+   * an authed-only POST from a logged-out browser 401s, and the shared api
+   * client hard-redirects to /login on 401, which would boot the visitor
+   * off the public site entirely. `disabled` on the native input is what
+   * actually blocks the click from ever firing onChange. */
+  readOnly?: boolean;
 }
 
 /** One daily habit card — port of habitCardHTML in static/js/core.js.
  * Drag-reorder, rename, delete, and the ↗ companion-page link are edit-mode
  * affordances; deferred along with the rest of edit/reorder mode (see
  * HabitsColumn.tsx TODO). */
-export function HabitCard({ label, color, sectionName, items, todayISO, log, cadenceMap, metaMap, starts, onToggle }: HabitCardProps) {
+export function HabitCard({ label, color, sectionName, items, todayISO, log, cadenceMap, metaMap, starts, onToggle, readOnly = false }: HabitCardProps) {
   return (
     <div className={styles.card} style={{ borderLeftColor: color }}>
       <div className={styles.title} style={{ color }}>
@@ -38,8 +45,9 @@ export function HabitCard({ label, color, sectionName, items, todayISO, log, cad
         return (
           <div className={styles.row} key={item}>
             <Checkbox
-              className={styles.checkbox}
+              className={`${styles.checkbox} ${readOnly ? styles.checkboxReadOnly : ''}`}
               checked={done}
+              disabled={readOnly}
               onChange={() => onToggle(item, sectionName)}
               aria-label={done ? `Mark ${item} not done` : `Mark ${item} done`}
             />

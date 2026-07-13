@@ -19,6 +19,12 @@ import styles from './HabitTrackerCard.module.css';
 const UNHIT_COLOR = '#2a2a4a';
 const TARGET = 60;
 
+// Same check as LifeMapPage — public visitors see the tracker grid but get
+// no edit affordances (the "+ Add habit" flow just 401s for them anyway).
+function isPublicMode(): boolean {
+  return typeof window !== 'undefined' && !!window.VIEW_MODE && window.VIEW_MODE !== 'authed';
+}
+
 function fmtShort(iso: string): string {
   return new Date(`${iso}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
@@ -222,8 +228,11 @@ export function HabitTrackerCard({ data, actions, onConfirm, onOpenConfig }: Hab
     );
   }
 
-  // "Log symptoms" row tacked onto Morning (view-only dots).
-  const healthData = data.health_data || [];
+  // "Log symptoms" row tacked onto Morning (view-only dots). Public view
+  // frosts health_data into an OBJECT placeholder ({_frosted: true, …}), so
+  // `|| []` isn't enough — a truthy non-array here crashed the whole page
+  // for logged-out visitors.
+  const healthData = Array.isArray(data.health_data) ? data.health_data : [];
   const symCount = healthData.filter((h) => h.energy !== null && h.energy !== undefined).length;
   const symCells = days.map((d) => {
     const dayData = healthData.find((h) => h.date === d);
@@ -290,14 +299,16 @@ export function HabitTrackerCard({ data, actions, onConfirm, onOpenConfig }: Hab
   return (
     <div>
       {/* Easy-add: same "New habit" flow, without leaving the Map tab. */}
-      <button
-        type="button"
-        className={styles.addHabitBtn}
-        title="Add a habit with time-of-day and an optional course length"
-        onClick={() => onOpenConfig(null, null)}
-      >
-        + Add habit
-      </button>
+      {!isPublicMode() ? (
+        <button
+          type="button"
+          className={styles.addHabitBtn}
+          title="Add a habit with time-of-day and an optional course length"
+          onClick={() => onOpenConfig(null, null)}
+        >
+          + Add habit
+        </button>
+      ) : null}
 
       {sectionBlock('Morning', 'var(--morning)', morningHabits, 'var(--morning)', sectionNames.morning, symRow, symRowMobile)}
       {middayHabits.length

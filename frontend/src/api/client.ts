@@ -35,7 +35,12 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   });
 
   if (res.status === 401) {
-    if (typeof window !== 'undefined') {
+    // Authed session expired → send the owner to log back in. But in the
+    // public view a 401 just means "that action needs auth" (a stray poll or
+    // a tap on an owner-only control) — hard-redirecting kicked logged-out
+    // visitors off the site, so there the error surfaces to the caller
+    // (toast / ignored) and the visitor stays put.
+    if (typeof window !== 'undefined' && window.VIEW_MODE !== 'public') {
       window.location.href = '/login';
     }
     throw new ApiError(401, 'Unauthorized');

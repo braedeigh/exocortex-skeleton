@@ -52,3 +52,42 @@
   z-index: 40;
   cursor: col-resize;
 }
+
+/* Collapsed state of the desktop public split (FakeTerminal's hide button,
+   via SplitLayout's collapsed state) — replaces `.left` + `.divider` with a
+   slim vertical tab pinned to the left edge. Pinned dark palette to match
+   the terminal chrome it collapsed, not theme vars — same reasoning as
+   FakeTerminal.module.css. Never rendered for authed users. */
+.rail {
+  flex: 0 0 44px;
+  width: 44px;
+  height: 100%;
+  padding: 12px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: #161618;
+  border: none;
+  border-right: 1px solid #2a2a2e;
+  color: #9ca3af;
+  font-family: 'Berkeley Mono', 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+  cursor: pointer;
+  /* Rotated so "about me" reads bottom-to-top in the narrow tab, matching
+     the vertical-tab convention rather than trying to wrap horizontal text. */
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 0.15s, background-color 0.15s;
+}
+
+.rail:hover,
+.rail:focus-visible {
+  color: #ececec;
+  background: #1c1c1f;
+}
+
+.railMark {
+  color: #d97757;
+}

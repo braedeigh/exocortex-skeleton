@@ -2,11 +2,12 @@
  * More ▾ menu (templates/index.html:24-52, static/js/core.js layoutTabs). */
 
 /* BOTH tab rows are pinned to a fixed "twilight indigo" palette at all times
- * — per Bradie's explicit request, the tab apparatus never day/night swaps
- * even though the rest of the page keeps theming normally. (Originally only
- * the row-1 buttons were pinned, faithful to split.html's hardcoded
- * dark-purple :root values; the bar/strip backgrounds and active states
- * still used theme vars and went light in day mode.)
+ * in the owner's authed app — per Bradie's explicit request, the tab
+ * apparatus never day/night swaps there even though the rest of the page
+ * keeps theming normally. (Originally only the row-1 buttons were pinned,
+ * faithful to split.html's hardcoded dark-purple :root values; the bar/strip
+ * backgrounds and active states still used theme vars and went light in day
+ * mode.)
  *
  * None of these are theme vars (sky-theme.js never sets them, see theme.css)
  * — they're local custom properties scoped to the two rows, defined once
@@ -16,7 +17,15 @@
  * those is swapped at runtime by sky-theme.js and would break contrast
  * against the fixed indigo in one mode or the other.
  * ChatSessionPicker.module.css mirrors these same literals for the /chat
- * session picker row. */
+ * session picker row.
+ *
+ * Public visitors are the deliberate exception: they aren't the owner's
+ * authed app, so row 2's public strip gets the .publicStrip variant below,
+ * which overrides these same custom properties with the normal theme vars
+ * so it day/night swaps with the rest of the public page — see
+ * PublicHeader's comment for the same call on row 2's sibling bar. Row 1
+ * (the dash bar) has no public variant because public visitors never see
+ * it at all (TopTabs renders PublicHeader instead). */
 .dashBar,
 .strip {
   --tab-bg: #1a1a2e; /* row-1 bar + inactive buttons */
@@ -26,6 +35,24 @@
   --tab-text: #e8e2f5; /* active/hover text — fixed light lavender */
   --dash-text-muted: rgba(180, 160, 220, 0.6); /* inactive text */
   --tab-border: rgba(124, 92, 191, 0.25); /* hairlines that read on indigo */
+}
+
+/* Public row 2 variant — combined with .strip via
+ * `joinClass(styles.strip, isPublic && styles.publicStrip)` in TopTabs.tsx.
+ * Overrides the pinned-indigo custom properties above with the app's normal
+ * theme vars (swapped by sky-theme.js), so the public tab row themes with
+ * the page instead of staying fixed dark-indigo. The `.strip.publicStrip`
+ * compound selector outranks the plain `.strip` rule above regardless of
+ * source order, so this always wins when both classes are present. The
+ * hardcoded rgba(124, 92, 191, …) hover tints on .tab/.dropdown further down
+ * are left as-is: a faint purple tint reads fine on a light --card-bg too. */
+.strip.publicStrip {
+  --tab-bg: var(--card-bg);
+  --tab-bg-raised: var(--card-bg);
+  --tab-active: var(--accent);
+  --tab-text: var(--text);
+  --dash-text-muted: var(--text-secondary);
+  --tab-border: var(--border);
 }
 
 /* Row 1 — "dash bar", ported from templates/split.html:52-82 (.dash-bar). */
@@ -114,6 +141,20 @@
   min-width: 0;
   overflow: hidden;
   flex-wrap: nowrap;
+}
+
+/* Public mode skips the overflow measurement entirely (see DashboardTabRow's
+ * layout effect in TopTabs.tsx) — there's no More menu to hide tabs into, so
+ * instead the row itself scrolls horizontally to reveal whatever doesn't
+ * fit. Scrollbar hidden (still fully scrollable via touch/trackpad/drag) to
+ * match the old app's tab strip, which never showed a visible scrollbar. */
+.publicScroll {
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.publicScroll::-webkit-scrollbar {
+  display: none;
 }
 
 .tab {
@@ -231,6 +272,21 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* The " · {name} v{version}" tail, only rendered when there's an owner name
+ * (see PublicHeader) — de-emphasized like a subtitle, and dropped on narrow
+ * phones (390px was truncating the owner's own name to fit this) so the
+ * owner name — the part visitors actually need to read — is never the part
+ * that gets cut. */
+.publicNameDetail {
+  color: var(--text-secondary);
+}
+
+@media (max-width: 559px) {
+  .publicNameDetail {
+    display: none;
+  }
 }
 
 .publicLinks {

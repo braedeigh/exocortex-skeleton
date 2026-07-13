@@ -41,12 +41,12 @@ const OPTIONAL_TABS: readonly LegacyTab[] = (
   ['ideas', 'body', 'money', 'meditation', 'media', 'movement', 'ecosystem'] as const
 ).filter(isValidTab);
 
-// Public visitors only get the tabs whose pages AND /api/data payloads are
-// actually reachable logged-out (public_config.py PUBLIC_PATHS) — the old tab
-// row showed tabs that bounced strangers to /login; don't repeat that.
-const PUBLIC_OPTIONAL_TABS: readonly LegacyTab[] = (
-  ['money', 'inventory', 'ecosystem'] as const
-).filter(isValidTab);
+// Public visitors get exactly To Do / Life Map / Kitchen (the PRIMARY_TABS,
+// always shown) plus Ecosystem here — Bradie's explicit call on what the
+// public site shows, not just "whatever public_config.py happens to expose."
+// Money and Inventory are reachable logged-out too, but stay off the public
+// row on purpose.
+const PUBLIC_OPTIONAL_TABS: readonly LegacyTab[] = (['ecosystem'] as const).filter(isValidTab);
 
 // Always-in-More legacy tabs, in the order given in the spec (templates/index.html
 // more-menu order differs slightly; this is the order Bradie asked for).
@@ -166,12 +166,31 @@ function MoreMenuContent({ overflowed, activeKey, onNavigate, includeStatic }: M
  */
 function PublicHeader() {
   const meta = typeof window !== 'undefined' ? window.APP_META : undefined;
+  // The owner's name is the part visitors actually need to read; the
+  // " · {name} v{version}" tail is secondary attribution. Rendering them as
+  // one ellipsizing string truncated the owner's own name away on phones
+  // (390px cut "Bradie Lee · Exoc…" mid-word) — so when there's an owner, it's
+  // the primary text and the tail lives in its own de-emphasized span that
+  // CSS drops on narrow screens instead. With no owner, {name} v{version} *is*
+  // the primary text and is never hidden.
   return (
     <div className={styles.publicHeader}>
       <div className={styles.publicName}>
-        {meta?.owner ? `${meta.owner}  ·  ` : ''}
-        {meta?.name ?? 'Exocortex'}
-        {meta?.version ? ` v${meta.version}` : ''}
+        {meta?.owner ? (
+          <>
+            {meta.owner}
+            <span className={styles.publicNameDetail}>
+              {' · '}
+              {meta?.name ?? 'Exocortex'}
+              {meta?.version ? ` v${meta.version}` : ''}
+            </span>
+          </>
+        ) : (
+          <>
+            {meta?.name ?? 'Exocortex'}
+            {meta?.version ? ` v${meta.version}` : ''}
+          </>
+        )}
       </div>
       <div className={styles.publicLinks}>
         <Link to="/about" className={styles.publicLink}>
@@ -252,13 +271,34 @@ function DashboardTabRow({ pathname, isPublic = false }: { pathname: string; isP
   }, [activeKey, optionalTabs]);
 
   useEffect(() => {
+    // Public mode never hides tabs into a More menu (the row scrolls
+    // instead — see the .publicScroll effect below and the `!isPublic ||
+    // overflowed.length > 0` check on the More button), so the overflow
+    // measurement this effect exists for would just be wasted work: skip it
+    // entirely and leave `overflowed` at its initial `[]` forever.
+    if (isPublic) return;
     const row = rowRef.current;
     if (!row) return;
     layout();
     const ro = new ResizeObserver(() => layout());
     ro.observe(row);
     return () => ro.disconnect();
-  }, [layout]);
+  }, [layout, isPublic]);
+
+  // Public mode: keep the active tab in view as the row scrolls horizontally
+  // instead of measuring overflow. Computed manually (not
+  // el.scrollIntoView()) so it only ever adjusts this row's scrollLeft —
+  // scrollIntoView can also scroll the whole page vertically to bring the
+  // element into the viewport, which isn't wanted here since the row is
+  // already on-screen.
+  useEffect(() => {
+    if (!isPublic) return;
+    const row = rowRef.current;
+    if (!row) return;
+    const el = row.querySelector('.' + styles.active) as HTMLElement | null;
+    if (!el) return;
+    row.scrollLeft = el.offsetLeft - (row.clientWidth - el.offsetWidth) / 2;
+  }, [isPublic, activeKey]);
 
   // Close the menu on navigation (covers back/forward while it's open).
   useEffect(() => {
@@ -302,8 +342,8 @@ function DashboardTabRow({ pathname, isPublic = false }: { pathname: string; isP
   }
 
   return (
-    <div className={styles.strip}>
-      <div className={styles.row} ref={rowRef}>
+    <div className={joinClass(styles.strip, isPublic && styles.publicStrip)}>
+      <div className={joinClass(styles.row, isPublic && styles.publicScroll)} ref={rowRef}>
         <Link to="/todos" className={joinClass(styles.tab, activeKey === 'today' && styles.active)}>
           {PRIMARY_TABS[0].label}
         </Link>
@@ -356,7 +396,11 @@ function DashboardTabRow({ pathname, isPublic = false }: { pathname: string; isP
         </div>
       ) : null}
 
-      {!isDesktop ? (
+      {/* Public mode never renders the mobile Sheet: it has no More button to
+          open it (see the `!isPublic || overflowed.length > 0` guard above,
+          which is always false here since overflowed never populates), so
+          the Sheet could never actually open. */}
+      {!isPublic && !isDesktop ? (
         <Sheet open={moreOpen} title="More" onClose={closeMore}>
           <MoreMenuContent
             overflowed={overflowed}

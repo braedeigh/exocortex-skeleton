@@ -7,8 +7,23 @@
 .fake {
   flex: 1;
   min-height: 0;
+  /* Belt-and-suspenders height source: in PublicLanding, `.fake` is a flex
+     child of a column flex container (`.wrap`) with `flex-basis: 0` (from the
+     `flex: 1` shorthand above), so `height: 100%` is inert there — the
+     flex-basis already governs main-axis sizing and flex-grow fills the rest.
+     But in SplitLayout's desktop public split, the parent `.left` pane is
+     NOT a flex container (it only sets height/overflow for the authed
+     TerminalPane, which sizes itself independently) — so `flex: 1` on this
+     element is a no-op there and it was falling back to auto height, growing
+     past `.left` and getting clipped by `.left`'s `overflow: hidden` before
+     `.content`'s own `overflow-y: auto` ever got a bounded box to scroll
+     within. `.left` has a definite height (flex-row stretch under
+     SplitLayout's `.container`), so this resolves against that and gives
+     `.content` room to scroll. */
+  height: 100%;
   display: flex;
   flex-direction: column;
+  position: relative; /* anchors the collapse/about-me control cluster, desktop split only */
   background: #161618;
   color: #ececec;
   font-family: 'Berkeley Mono', 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
@@ -30,6 +45,18 @@
 .banner {
   color: #9ca3af;
   margin-bottom: 14px;
+}
+
+/* Applied only when the collapse/about-me control cluster is rendered
+ * (SplitLayout's desktop public split — see FakeTerminal's onCollapse prop).
+ * The cluster is absolutely positioned top-right inside `.fake`, floating
+ * above `.content`'s own padding, so without this the banner text can run
+ * underneath it once the pane gets narrow (draggable divider). Reserve
+ * enough right-hand room for both controls plus their gap so the banner
+ * simply wraps a line earlier instead of colliding with the buttons. Not
+ * applied on PublicLanding's mobile usage, which never gets the cluster. */
+.bannerControlsPad {
+  padding-right: 150px;
 }
 
 .mark {
@@ -114,4 +141,49 @@
 .statusbarLink:hover {
   text-decoration: underline;
   filter: brightness(1.1);
+}
+
+/* Collapse/about-me control cluster — desktop public split only (passed via
+ * FakeTerminal's onCollapse prop; absent entirely on PublicLanding's mobile
+ * usage). Floats top-right over the terminal chrome, styled like the rest of
+ * the fake session (dim monospace "status line" look) rather than as an app
+ * chrome button, so it reads as part of the terminal rather than bolted on. */
+.controls {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  display: flex;
+  gap: 6px;
+}
+
+/* Shared look for both the "about me" link and the hide button — >=40px tall
+ * per the repo's tap-target floor (this cluster lives on desktop, but the
+ * rule is "whenever layout allows," and it does here), >=12px type, dim by
+ * default and brightening on hover/focus like the statusbar link above. */
+.controlBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 40px;
+  padding: 0 12px;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1;
+  color: #9ca3af;
+  background: #1a1a1d;
+  border: 1px solid #2a2a2e;
+  border-radius: 4px;
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 0.15s, border-color 0.15s, background-color 0.15s;
+}
+
+.controlBtn:hover,
+.controlBtn:focus-visible {
+  color: #ececec;
+  border-color: #3a3a3f;
+  background: #202024;
 }

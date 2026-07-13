@@ -109,6 +109,15 @@
   font-size: var(--font-size-base);
 }
 
+/* Sits above the frosted placeholder rows to tell a public visitor *why*
+   the To Do column is blank, since the habits column beside it is real
+   (not frosted) — without this the mix reads as a bug rather than intent. */
+.frostedNote {
+  font-size: var(--font-size-sm); /* 12px floor, per repo's min-text rule */
+  color: var(--text-secondary);
+  margin: 0 0 var(--space-2);
+}
+
 .frosted {
   margin: var(--space-4);
   padding: var(--space-5);
