@@ -4,7 +4,7 @@ Topics are tags/lenses over the pool, not containers: an entry can carry
 several topic ids (or none at all — it shows up in "Unfiled"). Removing a
 topic strips that id from every entry's `topics` list; the entries survive.
 
-    {"topics": [{"id", "name", "status", "created"}],
+    {"topics": [{"id", "name", "status", "created", "fronts"}],
      "entries": [{"id", "kind", "text", "topics", "url", "verdict",
                   "status", "reply_to", "created",
                   "flagged", "processed", "author", "reviewed", "session"}],
@@ -29,6 +29,13 @@ deep-research dive (research-deep) rather than the regular runner. `"mode":
 `topics`) that synthesizes the topic's REVIEWED replies + reports into
 research/edge/<topic-id>.md — see /api/research/topic/distill and
 scripts/research_dispatcher.py's spawn_worker.
+
+Topics can also carry an optional `fronts` list — ids from the shared
+life-domain vocabulary in fronts.json (routes/fronts.py), tagging a topic to
+one or more life domains (health, finances, ...). Optional/backward
+compatible: old topics simply lack the key (treat as `[]`). Removing a front
+strips its id from every topic's `fronts` list (routes/fronts.py's
+remove_front); removing a topic here has no effect on fronts.json.
 """
 import os
 import re
@@ -135,10 +142,16 @@ def register(app):
         name = (body.get("name") or "").strip()
         if not name:
             return jsonify({"error": "missing name"}), 400
+        fronts = body.get("fronts")
+        if not isinstance(fronts, list):
+            fronts = []
         with store.mutate("research.json", {"topics": [], "entries": []}) as data:
             topics = data.setdefault("topics", [])
             tid = _unique_id(_slugify(name), {t["id"] for t in topics})
-            topics.append({"id": tid, "name": name, "status": "active", "created": _now_stamp()})
+            topics.append({
+                "id": tid, "name": name, "status": "active", "created": _now_stamp(),
+                "fronts": [str(f) for f in fronts],
+            })
         return _blob(data)
 
     @app.route("/api/research/topic/edit", methods=["POST"])
@@ -147,6 +160,8 @@ def register(app):
         tid = body.get("id")
         if "status" in body and body["status"] not in TOPIC_STATUSES:
             return jsonify({"error": "bad status"}), 400
+        if "fronts" in body and not isinstance(body.get("fronts"), list):
+            return jsonify({"error": "fronts must be a list"}), 400
         with store.mutate("research.json", {"topics": [], "entries": []}) as data:
             topic = next((t for t in data.get("topics", []) if t["id"] == tid), None)
             if not topic:
@@ -158,6 +173,8 @@ def register(app):
                 topic["name"] = name
             if "status" in body:
                 topic["status"] = body["status"]
+            if "fronts" in body:
+                topic["fronts"] = [str(f) for f in body["fronts"]]
         return _blob(data)
 
     @app.route("/api/research/topic/remove", methods=["POST"])

@@ -26,6 +26,7 @@ import { DistillButton } from './Pills';
 import { useResearchCtx } from './ResearchContext';
 import { SendStrip } from './SendStrip';
 import { SessionsCard } from './SessionsCard';
+import { useFronts } from './useResearchData';
 import type { Entry, Topic } from './types';
 import styles from './ResearchPage.module.css';
 
@@ -80,6 +81,9 @@ function ThreadBlock({
 function TopicEditor({ topic }: { topic: Topic }) {
   const { mutations, actions, requestConfirm, confirmKey } = useResearchCtx();
   const [name, setName] = useState(topic.name);
+  const frontsQuery = useFronts();
+  const fronts = frontsQuery.data ?? [];
+  const topicFronts = topic.fronts ?? [];
   const deleteKey = `topic:${topic.id}`;
   const armed = confirmKey === deleteKey;
 
@@ -87,6 +91,11 @@ function TopicEditor({ topic }: { topic: Topic }) {
     const next = name.trim();
     if (!next || next === topic.name) return;
     mutations.editTopic.mutate({ id: topic.id, name: next });
+  }
+
+  function toggleFront(id: string) {
+    const next = topicFronts.includes(id) ? topicFronts.filter((f) => f !== id) : [...topicFronts, id];
+    mutations.editTopic.mutate({ id: topic.id, fronts: next });
   }
 
   return (
@@ -122,6 +131,21 @@ function TopicEditor({ topic }: { topic: Topic }) {
           {armed ? 'Sure? Entries keep their other tags' : 'Delete topic'}
         </button>
       </div>
+      {fronts.length ? (
+        <div className={styles.topicEditorRow}>
+          <span className={styles.contextHead}>Fronts</span>
+          {fronts.map((f) => (
+            <button
+              type="button"
+              key={f.id}
+              className={`${styles.chip} ${topicFronts.includes(f.id) ? styles.chipActive : ''}`}
+              onClick={() => toggleFront(f.id)}
+            >
+              {f.name}
+            </button>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

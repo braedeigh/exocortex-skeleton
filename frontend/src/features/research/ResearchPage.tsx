@@ -64,6 +64,10 @@ export function ResearchPage() {
   // --- composer (one per view; the annotator + questions card can aim it) ---
   const [composer, setComposer] = useState<ComposerState>(emptyComposer);
 
+  // --- fronts filter (Threads card pills; lifted so NewThreadRow can
+  // auto-tag a new thread with whichever front is selected) ---
+  const [frontFilter, setFrontFilter] = useState('all');
+
   // --- busy sets for per-entry fetches (the old _rsrchAnnotating/_rsrchFetchingText) ---
   const [fetchingText, setFetchingText] = useState<Set<string>>(new Set());
   const [annotatingMeta, setAnnotatingMeta] = useState<Set<string>>(new Set());
@@ -390,11 +394,11 @@ export function ResearchPage() {
             <SendStrip flagged={flaggedQueue(state.entries)} scope="all" />
             <SearchCard />
             <QuestionsCard />
-            <ThreadsDirectoryCard />
+            <ThreadsDirectoryCard frontFilter={frontFilter} onFrontFilterChange={setFrontFilter} />
             <UnfiledCard />
             <ArticlesCard />
             <LibraryCard />
-            <NewThreadRow />
+            <NewThreadRow frontFilter={frontFilter} />
           </>
         )}
       </div>

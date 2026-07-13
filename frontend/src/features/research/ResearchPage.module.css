@@ -893,6 +893,22 @@
   margin-top: 2px;
 }
 
+.dirFronts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.dirFrontChip {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--bg);
+  border-radius: var(--radius-pill);
+  padding: 2px 8px;
+}
+
 .dirBadges {
   display: flex;
   align-items: center;

@@ -73,6 +73,37 @@ def test_topic_add_empty_name_400(client):
     assert _read()["topics"] == []
 
 
+def test_topic_add_with_fronts_persists(client):
+    r = _post(client, "/api/research/topic/add", {"name": "Sleep", "fronts": ["health"]})
+    assert r.status_code == 200
+    topics = r.get_json()["topics"]
+    assert topics[0]["fronts"] == ["health"]
+
+
+def test_topic_add_without_fronts_defaults_empty_list(client):
+    r = _post(client, "/api/research/topic/add", {"name": "Sleep"})
+    assert r.status_code == 200
+    assert r.get_json()["topics"][0]["fronts"] == []
+
+
+def test_topic_edit_fronts_persists(client):
+    _post(client, "/api/research/topic/add", {"name": "Sleep"})
+    tid = _read()["topics"][0]["id"]
+    r = _post(client, "/api/research/topic/edit", {"id": tid, "fronts": ["health", "hobbies"]})
+    assert r.status_code == 200
+    topic = r.get_json()["topics"][0]
+    assert topic["fronts"] == ["health", "hobbies"]
+    assert _read()["topics"][0]["fronts"] == ["health", "hobbies"]
+
+
+def test_topic_edit_fronts_must_be_a_list(client):
+    _post(client, "/api/research/topic/add", {"name": "Sleep"})
+    tid = _read()["topics"][0]["id"]
+    r = _post(client, "/api/research/topic/edit", {"id": tid, "fronts": "health"})
+    assert r.status_code == 400
+    assert _read()["topics"][0]["fronts"] == []
+
+
 def test_topic_remove_strips_tag_but_keeps_entries(client):
     _post(client, "/api/research/topic/add", {"name": "Sleep"})
     _post(client, "/api/research/entry/add", {"text": "melatonin timing", "topics": ["sleep"]})

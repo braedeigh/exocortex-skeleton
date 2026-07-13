@@ -25,6 +25,7 @@ import type { Annotation, AnnotationContent, Entry, ResearchBlob, ResearchState 
 export const RESEARCH_KEY = ['research'] as const;
 export const LIBRARY_KEY = ['research', 'library'] as const;
 export const TEXTS_KEY = ['research', 'texts'] as const;
+export const FRONTS_KEY = ['fronts'] as const;
 export const annotationsKey = (doc: string) => ['annotations', doc] as const;
 export const docTextKey = (doc: string) => ['annotations', 'doc-text', doc] as const;
 
@@ -70,6 +71,14 @@ export function useDocTexts() {
   return useQuery({
     queryKey: TEXTS_KEY,
     queryFn: async ({ signal }) => (await apiR.getDocTexts(signal)).docs ?? [],
+  });
+}
+
+/** The shared fronts vocabulary (routes/fronts.py) — rarely changes, no polling. */
+export function useFronts() {
+  return useQuery({
+    queryKey: FRONTS_KEY,
+    queryFn: async ({ signal }) => (await apiR.getFronts(signal)).fronts ?? [],
   });
 }
 
@@ -120,18 +129,23 @@ export function useResearchMutations(push: PushToast) {
   const queryClient = useQueryClient();
 
   // --- Topics ---
-  const addTopic = useBlobMutation<string>(push, {
-    mutationFn: (name) => apiR.addTopic(name),
+  const addTopic = useBlobMutation<{ name: string; fronts?: string[] }>(push, {
+    mutationFn: ({ name, fronts }) => apiR.addTopic(name, fronts),
     errorFallback: 'Save failed.',
   });
-  const editTopic = useBlobMutation<{ id: string; name?: string; status?: string }>(push, {
+  const editTopic = useBlobMutation<{ id: string; name?: string; status?: string; fronts?: string[] }>(push, {
     mutationFn: (body) => apiR.editTopic(body),
     errorFallback: 'Save failed.',
     optimistic: (state, body) => ({
       ...state,
       topics: state.topics.map((t) =>
         t.id === body.id
-          ? { ...t, ...(body.name !== undefined ? { name: body.name } : {}), ...(body.status !== undefined ? { status: body.status } : {}) }
+          ? {
+              ...t,
+              ...(body.name !== undefined ? { name: body.name } : {}),
+              ...(body.status !== undefined ? { status: body.status } : {}),
+              ...(body.fronts !== undefined ? { fronts: body.fronts } : {}),
+            }
           : t,
       ),
     }),

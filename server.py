@@ -25,7 +25,7 @@ from routes import (
     devnotes, ideas, ecosystem, keeper, pending, housing, triage, decisions,
     entities, threads, person, shell, cards, archivals, research,
     research_search, research_sources, research_import, research_text,
-    annotations, spa,
+    annotations, spa, fronts,
 )
 from routes.shell import VALID_TABS
 
@@ -1163,6 +1163,7 @@ meditation.register(app)
 media.register(app)
 movement.register(app)
 research.register(app)
+fronts.register(app)
 research_search.register(app)
 research_sources.register(app)
 research_import.register(app)

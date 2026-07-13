@@ -11,6 +11,7 @@ import type {
   AnnotationContent,
   AnnotationsResponse,
   DocTextResponse,
+  Front,
   LibraryFileResponse,
   LibraryResponse,
   ResearchBlob,
@@ -27,16 +28,24 @@ export function getResearch(signal?: AbortSignal): Promise<{ research?: Partial<
 
 // --- Topics ---
 
-export function addTopic(name: string): Promise<ResearchBlob> {
-  return api.post('/api/research/topic/add', { name });
+export function addTopic(name: string, fronts?: string[]): Promise<ResearchBlob> {
+  return api.post('/api/research/topic/add', fronts !== undefined ? { name, fronts } : { name });
 }
 
-export function editTopic(body: { id: string; name?: string; status?: string }): Promise<ResearchBlob> {
+export function editTopic(
+  body: { id: string; name?: string; status?: string; fronts?: string[] },
+): Promise<ResearchBlob> {
   return api.post('/api/research/topic/edit', body);
 }
 
 export function removeTopic(id: string): Promise<ResearchBlob> {
   return api.post('/api/research/topic/remove', { id });
+}
+
+// --- Fronts ---
+
+export function getFronts(signal?: AbortSignal): Promise<{ fronts: Front[] }> {
+  return api.get('/api/fronts', signal);
 }
 
 // --- Entries ---
