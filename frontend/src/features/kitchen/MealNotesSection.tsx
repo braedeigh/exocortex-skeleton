@@ -10,6 +10,9 @@ export interface MealNotesSectionProps {
   onError: (message: string) => void;
   /** two-step confirm; deletes by index into the full list */
   onConfirmDelete: (index: number, note: MealNote) => void;
+  /** logged-out visitor — hide the add box + per-note delete; notes stay
+   * viewable read-only. */
+  isPublic?: boolean;
 }
 
 function noteDateLabel(date: string): string {
@@ -19,7 +22,7 @@ function noteDateLabel(date: string): string {
 
 /** Port of the Meal Notes card — textarea (Enter saves), last 3 shown, the
  * rest behind an "older notes" disclosure, delete-with-confirm. */
-export function MealNotesSection({ notes, invalidate, onError, onConfirmDelete }: MealNotesSectionProps) {
+export function MealNotesSection({ notes, invalidate, onError, onConfirmDelete, isPublic = false }: MealNotesSectionProps) {
   const [text, setText] = useState('');
 
   async function save() {
@@ -51,15 +54,17 @@ export function MealNotesSection({ notes, invalidate, onError, onConfirmDelete }
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
         <span className={styles.muted12}>{noteDateLabel(note.date)}</span>
-        <button
-          type="button"
-          className={styles.deleteBtn}
-          style={{ fontSize: 16, opacity: 0.6 }}
-          title="Delete"
-          onClick={() => onConfirmDelete(index, note)}
-        >
-          &times;
-        </button>
+        {!isPublic ? (
+          <button
+            type="button"
+            className={styles.deleteBtn}
+            style={{ fontSize: 16, opacity: 0.6 }}
+            title="Delete"
+            onClick={() => onConfirmDelete(index, note)}
+          >
+            &times;
+          </button>
+        ) : null}
       </div>
       <div style={{ fontSize: 14, whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{note.text}</div>
     </div>
@@ -67,24 +72,26 @@ export function MealNotesSection({ notes, invalidate, onError, onConfirmDelete }
 
   return (
     <Section title="Meal Notes" badge={notes.length ? <span className={styles.muted13}>({notes.length})</span> : undefined}>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-        <textarea
-          className={styles.textarea}
-          style={{ flex: 1, minHeight: 60 }}
-          placeholder="Meal idea, recipe note, what you liked/disliked..."
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              void save();
-            }
-          }}
-        />
-        <button type="button" className={styles.primaryBtn} style={{ alignSelf: 'flex-end' }} onClick={() => void save()}>
-          Save
-        </button>
-      </div>
+      {!isPublic ? (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <textarea
+            className={styles.textarea}
+            style={{ flex: 1, minHeight: 60 }}
+            placeholder="Meal idea, recipe note, what you liked/disliked..."
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                void save();
+              }
+            }}
+          />
+          <button type="button" className={styles.primaryBtn} style={{ alignSelf: 'flex-end' }} onClick={() => void save()}>
+            Save
+          </button>
+        </div>
+      ) : null}
 
       {showNotes.map((n, i) => noteCard(n, i, false))}
 

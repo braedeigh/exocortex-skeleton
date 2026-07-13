@@ -44,6 +44,10 @@ import styles from './kitchen.module.css';
 
 const AISLES_SENTINEL = '@aisles';
 
+function isPublicMode(): boolean {
+  return typeof window !== 'undefined' && window.VIEW_MODE === 'public';
+}
+
 interface CatModalState {
   name: string;
   resolve: (category: string | null) => void;
@@ -64,6 +68,7 @@ export function KitchenPage() {
   const recipeActions = useRecipeActions(push);
   const invalidate = useInvalidateKitchen();
   const { request: confirmRequest, confirm, close: closeConfirm } = useConfirm();
+  const isPublic = isPublicMode();
 
   // --- view state ---
   const [recipeView, setRecipeView] = useState<string | null>(null);
@@ -227,7 +232,7 @@ export function KitchenPage() {
 
   return (
     <div className={styles.page}>
-      {viewedRecipe && recipeEditing ? (
+      {viewedRecipe && recipeEditing && !isPublic ? (
         <RecipeEditView
           key={viewedRecipe.id}
           recipe={viewedRecipe}
@@ -275,6 +280,7 @@ export function KitchenPage() {
             window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior });
           }}
           saveMyNotes={recipeActions.saveMyNotes}
+          isPublic={isPublic}
         />
       ) : (
         <div style={{ marginBottom: 20 }}>
@@ -291,17 +297,20 @@ export function KitchenPage() {
             onConfirmRemove={confirmRemoveGrocery}
             onConfirmClearAll={confirmClearAll}
             onAllChecked={() => setDoneModalOpen(true)}
+            isPublic={isPublic}
           />
 
-          <AddToListSection
-            data={data}
-            actions={actions}
-            pickCategory={pickCategory}
-            addWithCategory={actions.addWithCategory}
-            onOpenCatalogEditor={() => setCatalogEditorOpen(true)}
-            onOpenItemNote={setItemNoteFor}
-            onItemAdded={() => setReceiptDismissed(false)}
-          />
+          {!isPublic ? (
+            <AddToListSection
+              data={data}
+              actions={actions}
+              pickCategory={pickCategory}
+              addWithCategory={actions.addWithCategory}
+              onOpenCatalogEditor={() => setCatalogEditorOpen(true)}
+              onOpenItemNote={setItemNoteFor}
+              onItemAdded={() => setReceiptDismissed(false)}
+            />
+          ) : null}
 
           <RecipesSection
             recipes={recipes}
@@ -316,12 +325,14 @@ export function KitchenPage() {
             onSendToList={setSendRecipeId}
             onError={push}
             refetchParsed={() => void parsedRecipesQuery.refetch()}
+            isPublic={isPublic}
           />
 
           <MealNotesSection
             notes={data.meal_notes || []}
             invalidate={invalidate}
             onError={push}
+            isPublic={isPublic}
             onConfirmDelete={(index, note) => {
               const preview = (note.text || '').slice(0, 60) + ((note.text || '').length > 60 ? '…' : '');
               confirm({
@@ -511,7 +522,7 @@ export function KitchenPage() {
 
       <ConfirmModal request={confirmRequest} onClose={closeConfirm} />
 
-      <NotesPill onError={push} tab="kitchen" />
+      {!isPublic ? <NotesPill onError={push} tab="kitchen" /> : null}
       <ToastStack toasts={toasts} onDismiss={dismiss} />
     </div>
   );

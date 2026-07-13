@@ -28,6 +28,10 @@ export interface GroceryListCardProps {
   onConfirmClearAll: () => void;
   /** fired after check-all / a toggle that completes the list (opens the Done modal) */
   onAllChecked: () => void;
+  /** logged-out visitor — every write here 401s server-side. Render the list
+   * read-only: no toggle/note/location/safety/remove affordances, no scan/
+   * order/bulk-action controls (old frosted.css hid this outright). */
+  isPublic?: boolean;
 }
 
 /** Tap-to-edit location badge — swaps to a <select> in place, commits on
@@ -38,15 +42,25 @@ function AisleBadge({
   currentCat,
   categoryOrder,
   onSet,
+  isPublic,
 }: {
   item: GroceryItem;
   aisle: number | undefined;
   currentCat: string;
   categoryOrder: string[];
   onSet: (location: string) => void;
+  isPublic?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const committed = useRef(false);
+
+  // Public visitors get the location info if there is one, but not the
+  // tap-to-edit affordance — and no empty pin badge cluttering every row.
+  if (isPublic) {
+    return aisle != null ? (
+      <span className={styles.aisleBadge} style={{ cursor: 'default' }}>{`A${aisle}`}</span>
+    ) : null;
+  }
 
   if (!editing) {
     return (
@@ -124,6 +138,7 @@ export function GroceryListCard({
   onConfirmRemove,
   onConfirmClearAll,
   onAllChecked,
+  isPublic = false,
 }: GroceryListCardProps) {
   const items = data.kitchen_list || [];
   const unchecked = items.filter((i) => !i.checked);
@@ -133,7 +148,7 @@ export function GroceryListCard({
   const safetyTags = data.kitchen_safety_tags || {};
 
   const allChecked = unchecked.length === 0 && checked.length > 0;
-  const showReceiptBanner = allChecked && !receiptDismissed;
+  const showReceiptBanner = allChecked && !receiptDismissed && !isPublic;
   const groups = groupGroceryItems(unchecked, categoryOrder, categoryLabels, aislesMap);
 
   function handleToggle(item: GroceryItem) {
@@ -197,45 +212,51 @@ export function GroceryListCard({
       <div className={styles.rowFlex} style={{ padding: '8px 0' }}>
         <span className={styles.pageTitle}>Grocery List</span>
         {items.length ? <span className={styles.muted13}>({unchecked.length} items)</span> : null}
-        <label className={`${styles.fileLabel} ${styles.smallBtn} ${styles.smallBtnOngoing}`} style={{ marginLeft: 'auto' }}>
-          📷 Scan receipt
-          <input
-            type="file"
-            accept="image/*,.heic,.heif,.pdf"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) onScanReceipt(f);
-              e.target.value = '';
-            }}
-          />
-        </label>
-        <button type="button" className={styles.smallBtn} onClick={onEditOrder}>
-          Edit order
-        </button>
+        {!isPublic ? (
+          <>
+            <label className={`${styles.fileLabel} ${styles.smallBtn} ${styles.smallBtnOngoing}`} style={{ marginLeft: 'auto' }}>
+              📷 Scan receipt
+              <input
+                type="file"
+                accept="image/*,.heic,.heif,.pdf"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) onScanReceipt(f);
+                  e.target.value = '';
+                }}
+              />
+            </label>
+            <button type="button" className={styles.smallBtn} onClick={onEditOrder}>
+              Edit order
+            </button>
+          </>
+        ) : null}
       </div>
 
-      <div className={styles.rowFlex} style={{ marginBottom: 8 }}>
-        {unchecked.length ? (
-          <button type="button" className={styles.smallBtn} onClick={handleCheckAll}>
-            Mark all purchased
-          </button>
-        ) : null}
-        {checked.length ? (
-          <button type="button" className={styles.smallBtn} onClick={() => actions.clearChecked()}>
-            Clear checked
-          </button>
-        ) : null}
-        {items.length ? (
-          <button
-            type="button"
-            className={`${styles.smallBtn} ${styles.smallBtnDanger}`}
-            style={{ marginLeft: 'auto' }}
-            onClick={onConfirmClearAll}
-          >
-            Clear all
-          </button>
-        ) : null}
-      </div>
+      {!isPublic ? (
+        <div className={styles.rowFlex} style={{ marginBottom: 8 }}>
+          {unchecked.length ? (
+            <button type="button" className={styles.smallBtn} onClick={handleCheckAll}>
+              Mark all purchased
+            </button>
+          ) : null}
+          {checked.length ? (
+            <button type="button" className={styles.smallBtn} onClick={() => actions.clearChecked()}>
+              Clear checked
+            </button>
+          ) : null}
+          {items.length ? (
+            <button
+              type="button"
+              className={`${styles.smallBtn} ${styles.smallBtnDanger}`}
+              style={{ marginLeft: 'auto' }}
+              onClick={onConfirmClearAll}
+            >
+              Clear all
+            </button>
+          ) : null}
+        </div>
+      ) : null}
 
       {items.length ? (
         <div className={styles.card}>
@@ -248,38 +269,48 @@ export function GroceryListCard({
                 const safety = safetyTags[key] || '';
                 return (
                   <div className={styles.cardItem} key={item.name}>
-                    <button
-                      type="button"
-                      className={styles.checkCircle}
-                      aria-label={`Mark ${item.name} purchased`}
-                      onClick={() => handleToggle(item)}
-                    >
-                      &#9675;
-                    </button>
+                    {isPublic ? (
+                      <span className={styles.checkCircle} style={{ cursor: 'default' }} aria-hidden="true">
+                        &#9675;
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        className={styles.checkCircle}
+                        aria-label={`Mark ${item.name} purchased`}
+                        onClick={() => handleToggle(item)}
+                      >
+                        &#9675;
+                      </button>
+                    )}
                     <span className={styles.itemText}>
                       {item.name}
                       {noteText ? (
-                        <>
-                          {' '}
-                          <span
-                            className={styles.inlineNote}
-                            title="Tap to edit note"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onEditNote(item.name);
-                            }}
-                            role="button"
-                            tabIndex={0}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') onEditNote(item.name);
-                            }}
-                          >
-                            — {noteText}
-                          </span>
-                        </>
+                        isPublic ? (
+                          <span className={styles.inlineNote} style={{ cursor: 'default' }}> — {noteText}</span>
+                        ) : (
+                          <>
+                            {' '}
+                            <span
+                              className={styles.inlineNote}
+                              title="Tap to edit note"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onEditNote(item.name);
+                              }}
+                              role="button"
+                              tabIndex={0}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') onEditNote(item.name);
+                              }}
+                            >
+                              — {noteText}
+                            </span>
+                          </>
+                        )
                       ) : null}
                     </span>
-                    {!noteText ? (
+                    {!noteText && !isPublic ? (
                       <button type="button" className={styles.addNoteBtn} title="Add a note" onClick={() => onEditNote(item.name)}>
                         + note
                       </button>
@@ -290,18 +321,29 @@ export function GroceryListCard({
                       currentCat={(data.kitchen_known_items || {})[key] || ''}
                       categoryOrder={categoryOrder}
                       onSet={(loc) => actions.location(key, loc)}
+                      isPublic={isPublic}
                     />
-                    <button
-                      type="button"
-                      className={styles.safetyBtn}
-                      title="Tap to cycle: untagged → safe → suspect → inflammatory"
-                      onClick={() => actions.safety(item.name, nextSafetyTag(safety))}
-                    >
-                      <SafetyIcon tag={safety} />
-                    </button>
-                    <button type="button" className={styles.deleteBtn} title="Remove" onClick={() => onConfirmRemove(item.name)}>
-                      &times;
-                    </button>
+                    {isPublic ? (
+                      safety ? (
+                        <span className={styles.safetyBtn} style={{ cursor: 'default' }}>
+                          <SafetyIcon tag={safety} />
+                        </span>
+                      ) : null
+                    ) : (
+                      <button
+                        type="button"
+                        className={styles.safetyBtn}
+                        title="Tap to cycle: untagged → safe → suspect → inflammatory"
+                        onClick={() => actions.safety(item.name, nextSafetyTag(safety))}
+                      >
+                        <SafetyIcon tag={safety} />
+                      </button>
+                    )}
+                    {!isPublic ? (
+                      <button type="button" className={styles.deleteBtn} title="Remove" onClick={() => onConfirmRemove(item.name)}>
+                        &times;
+                      </button>
+                    ) : null}
                   </div>
                 );
               })}
@@ -315,21 +357,29 @@ export function GroceryListCard({
                 const noteText = (item.note || '').trim();
                 return (
                   <div className={`${styles.cardItem} ${styles.cardItemChecked}`} key={item.name}>
-                    <button
-                      type="button"
-                      className={`${styles.checkCircle} ${styles.checkCircleDone}`}
-                      aria-label={`Uncheck ${item.name}`}
-                      onClick={() => handleToggle(item)}
-                    >
-                      &#9679;
-                    </button>
+                    {isPublic ? (
+                      <span className={`${styles.checkCircle} ${styles.checkCircleDone}`} style={{ cursor: 'default' }} aria-hidden="true">
+                        &#9679;
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        className={`${styles.checkCircle} ${styles.checkCircleDone}`}
+                        aria-label={`Uncheck ${item.name}`}
+                        onClick={() => handleToggle(item)}
+                      >
+                        &#9679;
+                      </button>
+                    )}
                     <span className={`${styles.itemText} ${styles.strike}`}>
                       {item.name}
                       {noteText ? <span className={`${styles.inlineNote} ${styles.strike}`}> — {noteText}</span> : null}
                     </span>
-                    <button type="button" className={styles.deleteBtn} title="Remove" onClick={() => onConfirmRemove(item.name)}>
-                      &times;
-                    </button>
+                    {!isPublic ? (
+                      <button type="button" className={styles.deleteBtn} title="Remove" onClick={() => onConfirmRemove(item.name)}>
+                        &times;
+                      </button>
+                    ) : null}
                   </div>
                 );
               })}

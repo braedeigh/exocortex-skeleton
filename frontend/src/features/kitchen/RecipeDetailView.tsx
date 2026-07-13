@@ -14,6 +14,9 @@ export interface RecipeDetailViewProps {
   onSendToList: () => void;
   onViewRecipe: (id: string) => void;
   saveMyNotes: (id: string, notes: string) => Promise<unknown>;
+  /** logged-out visitor — hide Edit/Send-to-list and the "My notes" editor
+   * (autosaving write surface); the note text still shows read-only if set. */
+  isPublic?: boolean;
 }
 
 /** Port of renderRecipeDetailInto — read view with the sourcing card
@@ -27,6 +30,7 @@ export function RecipeDetailView({
   onSendToList,
   onViewRecipe,
   saveMyNotes,
+  isPublic = false,
 }: RecipeDetailViewProps) {
   const [myNotes, setMyNotes] = useState(recipe.my_notes || '');
   const [notesStatus, setNotesStatus] = useState('');
@@ -67,24 +71,28 @@ export function RecipeDetailView({
         <button type="button" className={styles.mutedBtn} onClick={onBack}>
           ← Back
         </button>
-        <div style={{ flex: '1 1 auto', display: 'flex', justifyContent: 'center', minWidth: 120 }}>
-          <button
-            type="button"
-            className={styles.greenBtn}
-            title="Pick ingredients (the ones you need are pre-checked) and add to your grocery list"
-            onClick={onSendToList}
-          >
-            Send to list
-          </button>
-        </div>
-        <button
-          type="button"
-          className={styles.mutedBtn}
-          style={{ color: 'var(--text)', borderColor: 'var(--accent)', fontWeight: 600 }}
-          onClick={onEdit}
-        >
-          Edit
-        </button>
+        {!isPublic ? (
+          <>
+            <div style={{ flex: '1 1 auto', display: 'flex', justifyContent: 'center', minWidth: 120 }}>
+              <button
+                type="button"
+                className={styles.greenBtn}
+                title="Pick ingredients (the ones you need are pre-checked) and add to your grocery list"
+                onClick={onSendToList}
+              >
+                Send to list
+              </button>
+            </div>
+            <button
+              type="button"
+              className={styles.mutedBtn}
+              style={{ color: 'var(--text)', borderColor: 'var(--accent)', fontWeight: 600 }}
+              onClick={onEdit}
+            >
+              Edit
+            </button>
+          </>
+        ) : null}
       </div>
 
       <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>{recipe.name}</div>
@@ -214,27 +222,35 @@ export function RecipeDetailView({
         </div>
       ) : null}
 
-      <div style={{ paddingTop: 14, borderTop: '1px solid var(--border)', marginTop: 8 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-          <div style={{ fontWeight: 700, fontSize: 15 }}>My notes</div>
-          <div className={styles.muted12}>{notesStatus}</div>
+      {!isPublic ? (
+        <div style={{ paddingTop: 14, borderTop: '1px solid var(--border)', marginTop: 8 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <div style={{ fontWeight: 700, fontSize: 15 }}>My notes</div>
+            <div className={styles.muted12}>{notesStatus}</div>
+          </div>
+          <textarea
+            className={styles.textarea}
+            style={{ width: '100%', maxHeight: 300, overflowY: 'auto' }}
+            rows={4}
+            placeholder="What you tweaked, how it turned out, who liked it…"
+            value={myNotes}
+            onChange={(e) => {
+              setMyNotes(e.target.value);
+              setNotesStatus('unsaved…');
+              // auto-grow like the old autoGrow(el)
+              e.target.style.height = 'auto';
+              e.target.style.height = `${Math.min(e.target.scrollHeight, 300)}px`;
+            }}
+            onBlur={() => void persistNotes()}
+          />
         </div>
-        <textarea
-          className={styles.textarea}
-          style={{ width: '100%', maxHeight: 300, overflowY: 'auto' }}
-          rows={4}
-          placeholder="What you tweaked, how it turned out, who liked it…"
-          value={myNotes}
-          onChange={(e) => {
-            setMyNotes(e.target.value);
-            setNotesStatus('unsaved…');
-            // auto-grow like the old autoGrow(el)
-            e.target.style.height = 'auto';
-            e.target.style.height = `${Math.min(e.target.scrollHeight, 300)}px`;
-          }}
-          onBlur={() => void persistNotes()}
-        />
-      </div>
+      ) : recipe.my_notes ? (
+        // Read-only view: show the note text without the autosaving editor.
+        <div style={{ paddingTop: 14, borderTop: '1px solid var(--border)', marginTop: 8 }}>
+          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 6 }}>My notes</div>
+          <div style={{ fontSize: 14, whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{recipe.my_notes}</div>
+        </div>
+      ) : null}
 
       {chain.length ? (
         <div style={{ marginTop: 18 }}>

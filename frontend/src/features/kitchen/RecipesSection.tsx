@@ -19,6 +19,9 @@ export interface RecipesSectionProps {
   onSendToList: (id: string) => void;
   onError: (message: string) => void;
   refetchParsed: () => void;
+  /** logged-out visitor — hide parse-URL/image-upload and "Send to list"
+   * (all server writes); browsing/searching/viewing recipes stays live. */
+  isPublic?: boolean;
 }
 
 /** Port of the Recipes card — parsed-recipes banner, URL/image parse inputs,
@@ -32,6 +35,7 @@ export function RecipesSection({
   onSendToList,
   onError,
   refetchParsed,
+  isPublic = false,
 }: RecipesSectionProps) {
   const [url, setUrl] = useState('');
   const [status, setStatus] = useState('');
@@ -145,37 +149,41 @@ export function RecipesSection({
         </div>
       ) : null}
 
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '10px 0' }}>
-        <input
-          type="url"
-          className={styles.textInput}
-          style={{ flex: 1, minWidth: 200, fontSize: 13 }}
-          placeholder="Paste recipe URL…"
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') void submitUrl();
-          }}
-        />
-        <button type="button" className={styles.ongoingBtn} onClick={() => void submitUrl()}>
-          Parse URL
-        </button>
-        <label className={`${styles.fileLabel} ${styles.smallBtn} ${styles.smallBtnAccent}`}>
-          📷 Image
-          <input
-            type="file"
-            accept="image/*,.heic,.heif,.pdf"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) void uploadImage(f);
-              e.target.value = '';
-            }}
-          />
-        </label>
-      </div>
-      <div className={styles.muted12} style={{ minHeight: 18, marginBottom: 10 }}>
-        {status}
-      </div>
+      {!isPublic ? (
+        <>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '10px 0' }}>
+            <input
+              type="url"
+              className={styles.textInput}
+              style={{ flex: 1, minWidth: 200, fontSize: 13 }}
+              placeholder="Paste recipe URL…"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void submitUrl();
+              }}
+            />
+            <button type="button" className={styles.ongoingBtn} onClick={() => void submitUrl()}>
+              Parse URL
+            </button>
+            <label className={`${styles.fileLabel} ${styles.smallBtn} ${styles.smallBtnAccent}`}>
+              📷 Image
+              <input
+                type="file"
+                accept="image/*,.heic,.heif,.pdf"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) void uploadImage(f);
+                  e.target.value = '';
+                }}
+              />
+            </label>
+          </div>
+          <div className={styles.muted12} style={{ minHeight: 18, marginBottom: 10 }}>
+            {status}
+          </div>
+        </>
+      ) : null}
 
       {unarchivedCount ? (
         <>
@@ -246,18 +254,20 @@ export function RecipesSection({
                         ) : null}
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      className={styles.greenBtn}
-                      style={{ minHeight: 40, padding: '5px 10px', fontSize: 12 }}
-                      title="Pick ingredients (the ones you need are pre-checked) and add to your grocery list"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onSendToList(r.id);
-                      }}
-                    >
-                      Send to list
-                    </button>
+                    {!isPublic ? (
+                      <button
+                        type="button"
+                        className={styles.greenBtn}
+                        style={{ minHeight: 40, padding: '5px 10px', fontSize: 12 }}
+                        title="Pick ingredients (the ones you need are pre-checked) and add to your grocery list"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSendToList(r.id);
+                        }}
+                      >
+                        Send to list
+                      </button>
+                    ) : null}
                     <span aria-hidden="true" style={{ color: 'var(--text-muted)', fontSize: 20, lineHeight: 1, marginLeft: 2 }}>
                       &rsaquo;
                     </span>
