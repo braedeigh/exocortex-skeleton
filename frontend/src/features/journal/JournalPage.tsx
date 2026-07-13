@@ -250,9 +250,15 @@ export function JournalPage() {
   }
 
   if (!currentDate) {
+    // No ?date and the server-date fetch failed — say so instead of a
+    // permanent "Loading…".
     return (
       <div className={styles.page}>
-        <div className={styles.loading}>Loading…</div>
+        {serverDateQuery.isError ? (
+          <div className={styles.error}>Couldn&apos;t load the journal.</div>
+        ) : (
+          <div className={styles.loading}>Loading…</div>
+        )}
       </div>
     );
   }
@@ -290,7 +296,9 @@ export function JournalPage() {
       <div className={styles.body} ref={bodyRef} onClick={onBodyClick}>
         {dayQuery.isLoading ? (
           <div className={styles.loading}>Loading…</div>
-        ) : dayQuery.isError || !bundle ? (
+        ) : !bundle ? (
+          // Error only when there's nothing to show — a failed background poll
+          // (dayQuery.isError with data still cached) must not blank a working day.
           <div className={styles.error}>Couldn&apos;t load this day.</div>
         ) : mode === 'cards' ? (
           <CardStream
