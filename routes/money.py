@@ -4,6 +4,7 @@ from data_helpers import DATA_DIR, RECEIPTS_DIR
 from datetime import datetime
 from pathlib import Path
 import csv
+import json
 import re
 import uuid
 import store
@@ -592,3 +593,109 @@ def register(app):
         if "session" in request.cookies and not request.cookies.get("session"):
             return "", 401
         return send_from_directory(str(RECEIPTS_DIR), filename)
+
+    # --- Money-tab receipt parsing ingest -----------------------------------------
+    # A receipt uploaded here (root of receipts/, via upload_receipt above — NOT
+    # the grocery/ subfolder) gets parsed by the "receipts" Claude session per
+    # personal/receipts/CLAUDE.md. That agent's job stops at transcription: it
+    # writes a sibling staging file `<filename>.parsed.json` (same convention as
+    # the grocery pipeline, routes/kitchen/receipts.py) and NEVER touches
+    # expense_receipts.json or grocery_trips.json directly. Both are SQL-backed
+    # (store.SQL_COLLECTIONS): a raw file write is invisible to the app (which
+    # reads SQLite) and gets silently clobbered the next time anything writes
+    # that collection through store.py. These two routes are the only door in —
+    # they apply a staged transcription through store.mutate.
+
+    def _parsed_receipt_staging_path(filename):
+        return RECEIPTS_DIR / f"{filename}.parsed.json"
+
+    @app.route("/api/expense-receipts/parsed/list")
+    def list_parsed_expense_receipts():
+        """Money-tab receipts with a staged transcription ready to import."""
+        results = []
+        if not RECEIPTS_DIR.exists():
+            return jsonify({"receipts": results})
+        rmap = _load_receipts_map()
+        for staged in sorted(RECEIPTS_DIR.glob("*.parsed.json")):
+            if staged.with_suffix(".imported").exists():
+                continue
+            filename = staged.name[: -len(".parsed.json")]
+            eid = next((k for k, v in rmap.items() if v.get("filename") == filename), None)
+            if not eid:
+                continue  # staged file with no matching expense — orphaned, skip
+            try:
+                pdata = json.loads(staged.read_text())
+            except (json.JSONDecodeError, OSError):
+                continue
+            results.append({
+                "eid": eid,
+                "filename": filename,
+                "store": pdata.get("store", ""),
+                "date": pdata.get("date", ""),
+                "total": pdata.get("total", 0),
+                "items_count": len(pdata.get("line_items", [])),
+            })
+        return jsonify({"receipts": results})
+
+    @app.route("/api/expense-receipts/parsed/import", methods=["POST"])
+    def import_parsed_expense_receipt():
+        """Apply a staged transcription: write the trip into grocery_trips.json and
+        flip `parsed` in expense_receipts.json — both through store.mutate, never a
+        direct file write (see module note above)."""
+        data = request.json or {}
+        eid = data.get("eid", "")
+        rmap = _load_receipts_map()
+        entry = rmap.get(eid)
+        if not entry:
+            return jsonify({"error": "No receipt on file for this expense"}), 404
+        filename = entry.get("filename", "")
+        staged = _parsed_receipt_staging_path(filename)
+        if not staged.exists():
+            return jsonify({"error": "No parsed staging file found"}), 404
+        try:
+            pdata = json.loads(staged.read_text())
+        except json.JSONDecodeError:
+            return jsonify({"error": "Staged file is not valid JSON"}), 400
+
+        line_items = [
+            {
+                "name": li.get("name", ""),
+                "qty": li.get("qty", 1),
+                "price": li.get("price", 0),
+            }
+            for li in pdata.get("line_items", [])
+        ]
+        trip = {
+            "date": pdata.get("date") or (entry.get("uploaded") or "")[:10],
+            "store": pdata.get("store", ""),
+            "total": pdata.get("total", 0),
+            "saved": pdata.get("saved", 0),
+            "items": sum(int(li.get("qty") or 1) for li in line_items),
+            "line_count": len(line_items),
+            "receipt": f"receipts/{filename}",
+            "expense_id": eid,
+            "line_items": line_items,
+        }
+
+        # Write the trip (append, or update the one already linked to this expense).
+        with store.mutate("grocery_trips.json", {"trips": []}) as tdata:
+            tdata.setdefault("trips", [])
+            merged = False
+            for existing in tdata["trips"]:
+                if existing.get("expense_id") == eid:
+                    existing.update(trip)
+                    merged = True
+                    break
+            if not merged:
+                tdata["trips"].append(trip)
+
+        # Flip the map entry's `parsed` flag — through store.mutate, so a concurrent
+        # writer (another receipt import, a new upload) can't lose this update.
+        with store.mutate("expense_receipts.json", {}) as rmap2:
+            if eid in rmap2:
+                rmap2[eid]["parsed"] = True
+
+        # Mark the staging file consumed (mirrors the grocery pipeline's marker).
+        staged.with_suffix(".imported").write_text(datetime.now().strftime("%Y-%m-%d"))
+
+        return jsonify({"ok": True, "trip_items": len(line_items)})

@@ -1,5 +1,8 @@
 # Build TODO
 
+## Money tab
+- [ ] **Money-tab "receipt ready to import" affordance.** Fixed the silent-data-loss bug (2026-07-13) where the receipts agent wrote `expense_receipts.json`/`grocery_trips.json` directly, invisible to the SQL-backed app and clobbered by the next mirror export — it now writes a staging `<file>.parsed.json` and `GET/POST /api/expense-receipts/parsed/list|import` (routes/money.py) apply it through `store.mutate`, mirroring the Kitchen tab's grocery-receipt pipeline. But there's no UI trigger for the import yet — `SpendingBreakdownSection.tsx`'s `ReceiptCell` shows the photo link but never checks `parsed` or offers an import action. Add a small "N receipts ready to import" affordance (poll `parsed/list`, one-tap import per receipt), same shape as the Kitchen tab's parsed-receipts list.
+
 ## Movement tab
 - [ ] Habit → routine deep-link: tap a habit (e.g. an evening stretch habit) and jump straight to its routine in the Movement tab. Deferred — decide the interaction (▶ icon on the habit row, scroll-to-routine on open). Tab + data model already built.
 

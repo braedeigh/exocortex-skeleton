@@ -7,7 +7,11 @@ contract of each.
 
 The CSV parse tests write fixture files into the import-time CSV dir
 (data_helpers.DATA_DIR / "bank_csvs" — an isolated temp dir during tests);
-everything else is JSON through the per-test `data_dir` store.
+the parsed-receipt-ingest tests write into the import-time receipts dir
+(data_helpers.RECEIPTS_DIR) the same way, for the same reason: both dirs are
+module-level constants resolved once at import time (not reachable through the
+per-test `data_dir` fixture, which only patches `store.DATA_DIR`). Everything
+else is JSON through the per-test `data_dir` store.
 
 Same shape as the other route tests: minimal app, only this blueprint.
 """
@@ -19,6 +23,7 @@ import pytest
 
 import store
 from data_helpers import DATA_DIR as IMPORT_DATA_DIR
+from data_helpers import RECEIPTS_DIR
 
 
 @pytest.fixture
@@ -311,3 +316,103 @@ def test_receipt_delete_clears_map_entry(client):
                 content_type="multipart/form-data")
     client.delete(f"/api/expense/{eid}/receipt")
     assert store.read("expense_receipts", {}) == {}
+
+
+# --- parsed expense-receipt ingest (staging file -> store, never a raw file write) --------
+#
+# Regression coverage for the silent-data-loss bug: the receipts CLAUDE.md used to
+# instruct the agent to write ../data/grocery_trips.json and
+# ../data/expense_receipts.json directly. Both are SQL-backed (store.SQL_COLLECTIONS),
+# so a raw file write is invisible to the app and gets clobbered by the next mirror
+# export. These routes are the only safe door in: they read a staged
+# `<filename>.parsed.json` sibling (the agent's transcription) and apply it through
+# store.mutate, exactly like the grocery preview/import pipeline.
+
+def _upload_receipt(client, amount=54.32, comments="HEB grocery run", date="2026-06-01"):
+    """Add an expense + upload its receipt photo, returning (eid, filename)."""
+    _post(client, "/api/expense/add", {"amount": amount, "category": "Groceries",
+                                       "comments": comments, "date": date})
+    eid = read_expenses()[-1]["id"]
+    r = client.post(f"/api/expense/{eid}/receipt",
+                    data={"file": (io.BytesIO(b"fake-jpg-bytes"), "photo.jpg")},
+                    content_type="multipart/form-data")
+    return eid, r.get_json()["filename"]
+
+
+def _write_staged_receipt(filename, data):
+    """Drop a staging <filename>.parsed.json into the real receipts/ root — the
+    same file the receipts agent would write per personal/receipts/CLAUDE.md."""
+    path = RECEIPTS_DIR / f"{filename}.parsed.json"
+    path.write_text(json.dumps(data))
+    return path
+
+
+def test_parsed_receipt_list_surfaces_staged_receipts_for_known_expenses(client):
+    eid, fname = _upload_receipt(client)
+    _write_staged_receipt(fname, {
+        "store": "HEB", "date": "2026-06-01", "total": 54.32, "saved": 1.10,
+        "line_items": [{"name": "MILK", "qty": 1, "price": 4.5}],
+    })
+    r = client.get("/api/expense-receipts/parsed/list")
+    assert r.status_code == 200
+    receipts = r.get_json()["receipts"]
+    assert [x for x in receipts if x["eid"] == eid] == [{
+        "eid": eid, "filename": fname, "store": "HEB", "date": "2026-06-01",
+        "total": 54.32, "items_count": 1,
+    }]
+
+
+def test_parsed_receipt_import_writes_trip_and_flips_parsed_through_store(client):
+    eid, fname = _upload_receipt(client, amount=54.32, date="2026-06-01")
+    _write_staged_receipt(fname, {
+        "store": "HEB", "date": "2026-06-01", "total": 54.32, "saved": 1.10,
+        "line_items": [
+            {"name": "MILK", "qty": 1, "price": 4.5},
+            {"name": "BREAD", "qty": 2, "price": 3.0},
+        ],
+    })
+    r = _post(client, "/api/expense-receipts/parsed/import", {"eid": eid})
+    assert r.status_code == 200
+    assert r.get_json() == {"ok": True, "trip_items": 2}
+
+    # The canonical collections were updated through store — not a raw file write.
+    rmap = store.read("expense_receipts", {})
+    assert rmap[eid]["parsed"] is True
+    trips = store.read("grocery_trips", {"trips": []})["trips"]
+    trip = next(t for t in trips if t.get("expense_id") == eid)
+    assert trip["store"] == "HEB"
+    assert trip["total"] == 54.32
+    assert trip["items"] == 3  # 1 milk + 2 bread
+    assert trip["receipt"] == f"receipts/{fname}"
+    assert trip["line_items"] == [
+        {"name": "MILK", "qty": 1, "price": 4.5},
+        {"name": "BREAD", "qty": 2, "price": 3.0},
+    ]
+
+    # Re-importing after the staging file is consumed no longer surfaces it.
+    assert client.get("/api/expense-receipts/parsed/list").get_json()["receipts"] == []
+
+
+def test_parsed_receipt_import_updates_existing_trip_instead_of_duplicating(client):
+    eid, fname = _upload_receipt(client)
+    store.write("grocery_trips", {"trips": [
+        {"date": "placeholder", "store": "", "expense_id": eid, "line_items": []},
+    ]})
+    _write_staged_receipt(fname, {"store": "HEB", "date": "2026-06-01", "total": 54.32,
+                                   "line_items": [{"name": "EGGS", "qty": 1, "price": 5.0}]})
+    _post(client, "/api/expense-receipts/parsed/import", {"eid": eid})
+    trips = store.read("grocery_trips", {"trips": []})["trips"]
+    assert len(trips) == 1
+    assert trips[0]["store"] == "HEB"
+
+
+def test_parsed_receipt_import_404s_without_staged_file(client):
+    eid, _fname = _upload_receipt(client)
+    r = _post(client, "/api/expense-receipts/parsed/import", {"eid": eid})
+    assert r.status_code == 404
+    assert store.read("expense_receipts", {})[eid]["parsed"] is False
+
+
+def test_parsed_receipt_import_404s_for_unknown_expense(client):
+    r = _post(client, "/api/expense-receipts/parsed/import", {"eid": "nope"})
+    assert r.status_code == 404
