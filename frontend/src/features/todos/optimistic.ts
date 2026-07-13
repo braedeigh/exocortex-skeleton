@@ -1,7 +1,7 @@
 import { habitKey } from '../habits/habitMath';
 import { addDays } from './todoHelpers';
 import { isFrosted } from './types';
-import type { TodayData, TodoItem, TodoSection } from './types';
+import type { SubTask, TodayData, TodoItem, TodoSection } from './types';
 import type { BulkTodoAction, SymptomLevels } from '../../api/endpoints';
 
 function withSections(data: TodayData, fn: (sections: TodoSection[]) => TodoSection[]): TodayData {
@@ -13,11 +13,55 @@ export function applyToggle(data: TodayData, id: string): TodayData {
   return withSections(data, (sections) =>
     sections.map((sec) => ({
       ...sec,
+      items: sec.items.map((it) => {
+        if (it.id !== id) return it;
+        const done = !it.done;
+        return {
+          ...it,
+          done,
+          done_at: done ? data.server_date : null,
+          // Checking the main task marks every sub-task done too (mirrors
+          // /api/todos/toggle); un-checking leaves them as they are.
+          subtasks: done && it.subtasks ? it.subtasks.map((s) => ({ ...s, done: true })) : it.subtasks,
+        };
+      }),
+    })),
+  );
+}
+
+export function applySubtaskAdd(data: TodayData, id: string, subtask: SubTask): TodayData {
+  return withSections(data, (sections) =>
+    sections.map((sec) => ({
+      ...sec,
+      items: sec.items.map((it) => (it.id === id ? { ...it, subtasks: [...(it.subtasks || []), subtask] } : it)),
+    })),
+  );
+}
+
+export function applySubtaskToggle(data: TodayData, id: string, subId: string): TodayData {
+  return withSections(data, (sections) =>
+    sections.map((sec) => ({
+      ...sec,
       items: sec.items.map((it) =>
         it.id === id
-          ? { ...it, done: !it.done, done_at: !it.done ? data.server_date : null }
+          ? { ...it, subtasks: (it.subtasks || []).map((s) => (s.id === subId ? { ...s, done: !s.done } : s)) }
           : it,
       ),
+    })),
+  );
+}
+
+export function applySubtaskRemove(data: TodayData, id: string, subId: string): TodayData {
+  return withSections(data, (sections) =>
+    sections.map((sec) => ({
+      ...sec,
+      items: sec.items.map((it) => {
+        if (it.id !== id) return it;
+        const remaining = (it.subtasks || []).filter((s) => s.id !== subId);
+        if (remaining.length) return { ...it, subtasks: remaining };
+        const { subtasks: _drop, ...rest } = it;
+        return rest as TodoItem;
+      }),
     })),
   );
 }

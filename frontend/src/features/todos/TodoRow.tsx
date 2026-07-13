@@ -11,6 +11,7 @@ export interface TodoRowProps {
   dragging?: boolean;
   onToggle: (id: string) => void;
   onOpen: (item: TodoItem) => void;
+  onSubtaskToggle: (parentId: string, subId: string) => void;
   onHandlePointerDown?: (e: ReactPointerEvent<HTMLDivElement>, id: string) => void;
   rowRef?: (el: HTMLDivElement | null) => void;
 }
@@ -22,6 +23,7 @@ export function TodoRow({
   dragging = false,
   onToggle,
   onOpen,
+  onSubtaskToggle,
   onHandlePointerDown,
   rowRef,
 }: TodoRowProps) {
@@ -71,6 +73,21 @@ export function TodoRow({
       <span className={styles.expand} aria-hidden="true">
         &#8250;
       </span>
+      {item.subtasks?.length ? (
+        <div className={styles.subtasks}>
+          {item.subtasks.map((sub) => (
+            <div key={sub.id} className={styles.subtaskRow}>
+              <Checkbox
+                className={styles.subtaskCheckbox}
+                checked={sub.done}
+                onChange={() => onSubtaskToggle(item.id, sub.id)}
+                aria-label={sub.done ? `Mark ${sub.text} not done` : `Mark ${sub.text} done`}
+              />
+              <span className={`${styles.subtaskText} ${sub.done ? styles.done : ''}`}>{sub.text}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

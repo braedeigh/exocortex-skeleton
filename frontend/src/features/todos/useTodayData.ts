@@ -4,6 +4,7 @@ import { useCallback, useRef, useState } from 'react';
 import { ApiError } from '../../api/client';
 import {
   addGrowthNote,
+  addSubtask,
   addTodo,
   autosortTodos,
   bulkTodos,
@@ -17,6 +18,7 @@ import {
   removeActivity,
   removeGrowthNote,
   removeStreak,
+  removeSubtask,
   removeTodo,
   renameTodo,
   reorderTodos,
@@ -25,6 +27,7 @@ import {
   snoozeTodo,
   todoDetails,
   toggleHabit,
+  toggleSubtask,
   toggleTodo,
   getTodayData,
   updateStreakNotes,
@@ -46,10 +49,13 @@ import {
   applySnooze,
   applyStreakNotes,
   applyStreakRemove,
+  applySubtaskAdd,
+  applySubtaskRemove,
+  applySubtaskToggle,
   applySymptomLog,
   applyToggle,
 } from './optimistic';
-import type { TodayData, TodoItem } from './types';
+import type { SubTask, TodayData, TodoItem } from './types';
 
 export const TODAY_QUERY_KEY = ['data', 'today'] as const;
 
@@ -156,6 +162,21 @@ export function useTodoActions(onError: (message: string) => void) {
     (data, vars) => applyBulk(data, vars.ids, vars.action),
     onError,
   );
+  const subtaskAdd = useOptimisticMutation(
+    (vars: { id: string; text: string; tempSub: SubTask }) => addSubtask(vars.id, vars.text),
+    (data, vars) => applySubtaskAdd(data, vars.id, vars.tempSub),
+    onError,
+  );
+  const subtaskToggle = useOptimisticMutation(
+    (vars: { id: string; subId: string }) => toggleSubtask(vars.id, vars.subId),
+    (data, vars) => applySubtaskToggle(data, vars.id, vars.subId),
+    onError,
+  );
+  const subtaskRemove = useOptimisticMutation(
+    (vars: { id: string; subId: string }) => removeSubtask(vars.id, vars.subId),
+    (data, vars) => applySubtaskRemove(data, vars.id, vars.subId),
+    onError,
+  );
 
   return {
     toggle: (id: string) => toggle.mutate(id),
@@ -167,6 +188,12 @@ export function useTodoActions(onError: (message: string) => void) {
     reorder: (section: string, ids: string[]) => reorder.mutate({ section, ids }),
     autosort: (section: string) => autosort.mutate(section),
     bulk: (ids: string[], action: BulkTodoAction) => bulk.mutate({ ids, action }),
+    subtaskAdd: (id: string, text: string) => {
+      const tempSub: SubTask = { id: tempId(), text, done: false };
+      subtaskAdd.mutate({ id, text, tempSub });
+    },
+    subtaskToggle: (id: string, subId: string) => subtaskToggle.mutate({ id, subId }),
+    subtaskRemove: (id: string, subId: string) => subtaskRemove.mutate({ id, subId }),
     add: (payload: AddTodoPayload) => {
       const item: TodoItem = {
         id: tempId(),

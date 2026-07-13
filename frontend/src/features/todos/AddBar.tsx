@@ -57,15 +57,19 @@ export function AddBar({ onAdd }: AddBarProps) {
     <form ref={formRef} className={styles.bar} onSubmit={submit} onBlur={handleBlur}>
       {/* Single-line field — Enter already submits the form natively (no
           textarea/multiline mode here, so there's no Shift+Enter case to
-          handle). */}
-      <input
-        className={styles.input}
-        type="text"
-        placeholder="Add a to-do…"
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onFocus={() => setFocused(true)}
-      />
+          handle). Add sits on the same line as the field once it's active;
+          the section/category/due details stay on the row below. */}
+      <div className={styles.topRow}>
+        <input
+          className={styles.input}
+          type="text"
+          placeholder="Add a to-do…"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onFocus={() => setFocused(true)}
+        />
+        {expanded ? <Button type="submit">Add</Button> : null}
+      </div>
       {expanded ? (
         <div className={styles.extra}>
           <select className={styles.select} value={section} onChange={(e) => setSection(e.target.value)}>
@@ -117,7 +121,6 @@ export function AddBar({ onAdd }: AddBarProps) {
               ))}
             </div>
           ) : null}
-          <Button type="submit">Add</Button>
         </div>
       ) : null}
     </form>

@@ -398,6 +398,76 @@ def test_bulk_text_fallback_still_matches(client, seed):
     assert read_todos()["now"]["items"][0]["snoozed_until"]
 
 
+# --- subtasks ------------------------------------------------------------------
+
+def test_subtask_add_persists_with_id_text_and_done_false(client, seed):
+    seed({"now": {"items": [{"id": "a", "text": "Plan trip", "done": False}]}})
+    r = _post(client, "/api/todos/subtask/add", {"id": "a", "text": "book flights"})
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["ok"] is True and body["sub_id"]
+    subs = read_todos()["now"]["items"][0]["subtasks"]
+    assert len(subs) == 1
+    assert subs[0] == {"id": body["sub_id"], "text": "book flights", "done": False}
+
+
+def test_subtask_add_strips_and_ignores_empty_text(client, seed):
+    seed({"now": {"items": [{"id": "a", "text": "Plan trip", "done": False}]}})
+    _post(client, "/api/todos/subtask/add", {"id": "a", "text": "   "})
+    assert "subtasks" not in read_todos()["now"]["items"][0]
+    _post(client, "/api/todos/subtask/add", {"id": "a", "text": "  book hotel  "})
+    subs = read_todos()["now"]["items"][0]["subtasks"]
+    assert subs[0]["text"] == "book hotel"
+
+
+def test_subtask_toggle_flips_only_that_one(client, seed):
+    seed({"now": {"items": [{"id": "a", "text": "Plan trip", "done": False, "subtasks": [
+        {"id": "s1", "text": "book flights", "done": False},
+        {"id": "s2", "text": "book hotel", "done": False},
+    ]}]}})
+    _post(client, "/api/todos/subtask/toggle", {"id": "a", "sub_id": "s1"})
+    subs = {s["id"]: s for s in read_todos()["now"]["items"][0]["subtasks"]}
+    assert subs["s1"]["done"] is True
+    assert subs["s2"]["done"] is False
+    _post(client, "/api/todos/subtask/toggle", {"id": "a", "sub_id": "s1"})
+    subs = {s["id"]: s for s in read_todos()["now"]["items"][0]["subtasks"]}
+    assert subs["s1"]["done"] is False
+
+
+def test_subtask_remove_deletes_it_and_pops_key_when_last(client, seed):
+    seed({"now": {"items": [{"id": "a", "text": "Plan trip", "done": False, "subtasks": [
+        {"id": "s1", "text": "book flights", "done": False},
+        {"id": "s2", "text": "book hotel", "done": False},
+    ]}]}})
+    _post(client, "/api/todos/subtask/remove", {"id": "a", "sub_id": "s1"})
+    it = read_todos()["now"]["items"][0]
+    assert [s["id"] for s in it["subtasks"]] == ["s2"]
+    _post(client, "/api/todos/subtask/remove", {"id": "a", "sub_id": "s2"})
+    it = read_todos()["now"]["items"][0]
+    assert "subtasks" not in it
+
+
+def test_toggle_parent_to_done_marks_all_subtasks_done(client, seed):
+    seed({"now": {"items": [{"id": "a", "text": "Plan trip", "done": False, "subtasks": [
+        {"id": "s1", "text": "book flights", "done": False},
+        {"id": "s2", "text": "book hotel", "done": True},
+    ]}]}})
+    _post(client, "/api/todos/toggle", {"id": "a"})
+    subs = read_todos()["now"]["items"][0]["subtasks"]
+    assert all(s["done"] for s in subs)
+
+
+def test_toggle_parent_back_to_not_done_leaves_subtasks_done(client, seed):
+    seed({"now": {"items": [{"id": "a", "text": "Plan trip", "done": False, "subtasks": [
+        {"id": "s1", "text": "book flights", "done": False},
+    ]}]}})
+    _post(client, "/api/todos/toggle", {"id": "a"})   # -> done, cascades subtasks
+    _post(client, "/api/todos/toggle", {"id": "a"})   # -> not done again
+    it = read_todos()["now"]["items"][0]
+    assert it["done"] is False
+    assert it["subtasks"][0]["done"] is True   # left as-is, not un-cascaded
+
+
 def test_add_skips_empty_and_bad_attributes(client):
     client.post("/api/todos/add", json={
         "item": "plain one", "section": "Now",

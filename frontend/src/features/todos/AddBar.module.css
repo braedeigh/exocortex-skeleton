@@ -5,8 +5,16 @@
   padding: var(--space-3) var(--space-4);
 }
 
+/* Text field + Add button share the top line; the details row sits below. */
+.topRow {
+  display: flex;
+  gap: var(--space-2);
+  align-items: stretch;
+}
+
 .input {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   box-sizing: border-box;
   min-height: var(--tap-target);
   padding: 0 var(--space-3);

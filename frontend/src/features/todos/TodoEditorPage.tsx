@@ -305,6 +305,9 @@ export function TodoEditorPage() {
         onMove={(id, toLabel) => todoActions.move(id, toLabel)}
         onSnooze={(id, days) => todoActions.snooze(id, days)}
         onRemove={(id) => todoActions.remove(id)}
+        onSubtaskAdd={(id, text) => todoActions.subtaskAdd(id, text)}
+        onSubtaskToggle={(id, subId) => todoActions.subtaskToggle(id, subId)}
+        onSubtaskRemove={(id, subId) => todoActions.subtaskRemove(id, subId)}
       />
 
       <ToastStack toasts={toasts} onDismiss={dismiss} />

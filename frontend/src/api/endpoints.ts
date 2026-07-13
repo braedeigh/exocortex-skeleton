@@ -113,6 +113,22 @@ export function todoDetails(id: string, patch: TodoDetailsPatch): Promise<OkResp
   return api.post('/api/todos/details', { id, ...patch });
 }
 
+export interface AddSubtaskResponse extends OkResponse {
+  sub_id: string;
+}
+
+export function addSubtask(id: string, text: string): Promise<AddSubtaskResponse> {
+  return api.post('/api/todos/subtask/add', { id, text });
+}
+
+export function toggleSubtask(id: string, sub_id: string): Promise<OkResponse> {
+  return api.post('/api/todos/subtask/toggle', { id, sub_id });
+}
+
+export function removeSubtask(id: string, sub_id: string): Promise<OkResponse> {
+  return api.post('/api/todos/subtask/remove', { id, sub_id });
+}
+
 /** One bulk operation for POST /api/todos/bulk — the discriminant is
  * `action`, and the extra fields ride along flat in the request body
  * (`{ids, action, ...}`), matching the route's open envelope. */

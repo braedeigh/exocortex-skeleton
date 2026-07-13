@@ -1,10 +1,13 @@
 .row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
   width: 100%;
   min-height: var(--tap-target);
-  padding: var(--space-2) var(--space-3) var(--space-2) var(--space-2);
+  /* left inset matches the habit cards' --space-5 padding so the two
+     columns' checkboxes/text line up */
+  padding: var(--space-2) var(--space-3) var(--space-2) var(--space-5);
   border-bottom: 1px solid var(--border);
   background: transparent;
 }
@@ -105,4 +108,35 @@
   flex-shrink: 0;
   color: var(--text-muted);
   font-size: 18px;
+}
+
+.subtasks {
+  /* wraps onto its own line under the row's flex layout, and lines up
+     under the main text — checkbox box width (24px) + the row's own
+     gap (var(--space-2)) past the row's left padding. */
+  flex-basis: 100%;
+  padding-left: calc(24px + var(--space-2));
+  display: flex;
+  flex-direction: column;
+}
+
+.subtaskRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 40px;
+}
+
+.subtaskCheckbox {
+  flex-shrink: 0;
+}
+
+.subtaskText {
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+.subtaskText.done {
+  text-decoration: line-through;
+  opacity: 0.5;
 }

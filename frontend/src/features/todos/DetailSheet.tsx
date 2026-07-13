@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, IconButton, Sheet } from '../../ui';
+import { Button, Checkbox, IconButton, Sheet } from '../../ui';
 import { BlockerPicker } from './BlockerPicker';
 import {
   LADDER_LABELS,
@@ -26,6 +26,9 @@ export interface DetailSheetProps {
   onMove: (id: string, toLabel: string) => void;
   onSnooze: (id: string, days: number) => void;
   onRemove: (id: string) => void;
+  onSubtaskAdd: (id: string, text: string) => void;
+  onSubtaskToggle: (id: string, subId: string) => void;
+  onSubtaskRemove: (id: string, subId: string) => void;
 }
 
 const SNOOZE_DAYS = [1, 2, 3, 4, 5, 6];
@@ -43,6 +46,9 @@ export function DetailSheet({
   onMove,
   onSnooze,
   onRemove,
+  onSubtaskAdd,
+  onSubtaskToggle,
+  onSubtaskRemove,
 }: DetailSheetProps) {
   const [text, setText] = useState('');
   const [notes, setNotes] = useState('');
@@ -57,6 +63,7 @@ export function DetailSheet({
   const [moreOpen, setMoreOpen] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
   const [editingNotes, setEditingNotes] = useState(false);
+  const [newSubtask, setNewSubtask] = useState('');
 
   const titleInputRef = useRef<HTMLInputElement>(null);
   const notesInputRef = useRef<HTMLTextAreaElement>(null);
@@ -76,6 +83,7 @@ export function DetailSheet({
     setMoreOpen(false);
     setEditingTitle(false);
     setEditingNotes(false);
+    setNewSubtask('');
   }, [item]);
 
   useEffect(() => {
@@ -182,6 +190,55 @@ export function DetailSheet({
             </button>
           ))}
         </div>
+      </div>
+
+      <div className={styles.field}>
+        <span className={styles.label}>Sub-tasks</span>
+        {item.subtasks?.length ? (
+          <div className={styles.subtaskList}>
+            {item.subtasks.map((sub) => (
+              <div key={sub.id} className={styles.subtaskRow}>
+                <Checkbox
+                  checked={sub.done}
+                  onChange={() => onSubtaskToggle(item.id, sub.id)}
+                  aria-label={sub.done ? `Mark ${sub.text} not done` : `Mark ${sub.text} done`}
+                />
+                <span className={`${styles.subtaskText} ${sub.done ? styles.subtaskDone : ''}`}>
+                  {sub.text}
+                </span>
+                <IconButton
+                  danger
+                  aria-label={`Remove sub-task ${sub.text}`}
+                  onClick={() => onSubtaskRemove(item.id, sub.id)}
+                >
+                  &times;
+                </IconButton>
+              </div>
+            ))}
+          </div>
+        ) : null}
+        <form
+          className={styles.subtaskAddRow}
+          onSubmit={(e) => {
+            e.preventDefault();
+            const trimmed = newSubtask.trim();
+            if (!trimmed) return;
+            onSubtaskAdd(item.id, trimmed);
+            setNewSubtask('');
+          }}
+        >
+          <input
+            className={styles.input}
+            type="text"
+            value={newSubtask}
+            onChange={(e) => setNewSubtask(e.target.value)}
+            placeholder="Add a sub-task…"
+            aria-label="New sub-task"
+          />
+          <Button type="submit" variant="secondary">
+            Add
+          </Button>
+        </form>
       </div>
 
       <button

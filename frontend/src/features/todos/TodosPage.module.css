@@ -14,17 +14,29 @@
   container-name: todos-page;
 }
 
+/* Greeting + date share one baseline line ("Good afternoon · Thursday, July 9");
+   the date wraps underneath when the pane is too narrow for both. */
+.greetingRow {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  column-gap: var(--space-2);
+  margin: var(--space-3) var(--space-4) var(--space-2);
+}
+
 .greeting {
   font-size: var(--font-size-xl);
   font-weight: 700;
   color: var(--text);
-  margin: var(--space-3) var(--space-4) 2px;
+}
+
+.greetingDot {
+  color: var(--text-muted);
 }
 
 .dateLine {
   font-size: var(--font-size-base);
   color: var(--text-secondary);
-  margin: 0 var(--space-4) var(--space-4);
 }
 
 .colHeaderRow {
@@ -65,7 +77,9 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-7);
-  margin: 0 var(--space-4) var(--space-8);
+  /* Top margin keeps the push-notification banners (and streak chips, when
+     no banners show) clear of the Habits / To Do headers. */
+  margin: var(--space-5) var(--space-4) var(--space-8);
 }
 
 /* Grid children default to min-width:auto, so one long unbreakable line

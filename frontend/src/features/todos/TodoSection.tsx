@@ -23,6 +23,7 @@ export interface TodoSectionProps {
   focusTheme?: string;
   onToggle: (id: string) => void;
   onOpenDetail: (item: TodoItem) => void;
+  onSubtaskToggle: (parentId: string, subId: string) => void;
   onReorder: (section: string, ids: string[]) => void;
   onAutosort: (section: string) => void;
   /** Lets a drag started in *this* section land in a different one — see dragCoordinator.ts. */
@@ -49,6 +50,7 @@ export function TodoSection({
   focusTheme,
   onToggle,
   onOpenDetail,
+  onSubtaskToggle,
   onReorder,
   onAutosort,
   onMove,
@@ -235,6 +237,7 @@ export function TodoSection({
               dragging={dragId === item.id}
               onToggle={onToggle}
               onOpen={onOpenDetail}
+              onSubtaskToggle={onSubtaskToggle}
               onHandlePointerDown={editing ? handlePointerDown : undefined}
               rowRef={(el) => {
                 if (el) rowEls.current.set(item.id, el);

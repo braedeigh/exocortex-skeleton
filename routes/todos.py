@@ -269,10 +269,71 @@ def register(app):
                             # Stamp the completion day: it lingers struck-through
                             # in place today, then load_todos sweeps it to Done.
                             item["done_at"] = datetime.now().strftime("%Y-%m-%d")
+                            # Checking the main task marks every sub-task done too;
+                            # un-checking leaves them as they are (no symmetric undo).
+                            for sub in item.get("subtasks", []):
+                                sub["done"] = True
                             items.append(item)
                         else:
                             item.pop("done_at", None)
                             items.insert(0, item)
+                        return jsonify({"ok": True})
+        return jsonify({"ok": True})
+
+    @app.route("/api/todos/subtask/add", methods=["POST"])
+    def add_subtask():
+        data = request.json or {}
+        ident = data.get("id") or data.get("item", "")
+        text = (data.get("text") or "").strip()
+        if not text:
+            return jsonify({"ok": True})
+        sub_id = uuid.uuid4().hex[:8]
+        with store.mutate("todos", {}) as todos:
+            for key in todos:
+                if not isinstance(todos[key], dict):
+                    continue
+                for item in todos[key].get("items", []):
+                    if _match(item, ident):
+                        item.setdefault("subtasks", []).append(
+                            {"id": sub_id, "text": text, "done": False}
+                        )
+                        return jsonify({"ok": True, "sub_id": sub_id})
+        return jsonify({"ok": True})
+
+    @app.route("/api/todos/subtask/toggle", methods=["POST"])
+    def toggle_subtask():
+        data = request.json or {}
+        ident = data.get("id") or data.get("item", "")
+        sub_id = data.get("sub_id")
+        with store.mutate("todos", {}) as todos:
+            for key in todos:
+                if not isinstance(todos[key], dict):
+                    continue
+                for item in todos[key].get("items", []):
+                    if _match(item, ident):
+                        for sub in item.get("subtasks", []):
+                            if sub.get("id") == sub_id:
+                                sub["done"] = not sub["done"]
+                                break
+                        return jsonify({"ok": True})
+        return jsonify({"ok": True})
+
+    @app.route("/api/todos/subtask/remove", methods=["POST"])
+    def remove_subtask():
+        data = request.json or {}
+        ident = data.get("id") or data.get("item", "")
+        sub_id = data.get("sub_id")
+        with store.mutate("todos", {}) as todos:
+            for key in todos:
+                if not isinstance(todos[key], dict):
+                    continue
+                for item in todos[key].get("items", []):
+                    if _match(item, ident):
+                        subs = [s for s in item.get("subtasks", []) if s.get("id") != sub_id]
+                        if subs:
+                            item["subtasks"] = subs
+                        else:
+                            item.pop("subtasks", None)
                         return jsonify({"ok": True})
         return jsonify({"ok": True})
 

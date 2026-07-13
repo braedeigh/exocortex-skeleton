@@ -153,7 +153,10 @@ export function TodosPage() {
     );
   }
 
-  const segment = manualSegment ?? pickTimeSegment(data.server_hour);
+  // The greeting always follows the server clock; the Morning/Midday/Evening
+  // selector only changes which habit cards show, not the greeting.
+  const clockSegment = pickTimeSegment(data.server_hour);
+  const segment = manualSegment ?? clockSegment;
   const habits = data.habits || [];
   const habitsLog = data.habits_log || {};
   const streaks = Array.isArray(data.streaks) ? data.streaks : [];
@@ -168,8 +171,11 @@ export function TodosPage() {
 
       {!isPublic ? (
         <>
-          <div className={styles.greeting}>{GREETINGS[segment]}</div>
-          <div className={styles.dateLine}>{data.date}</div>
+          <div className={styles.greetingRow}>
+            <span className={styles.greeting}>{GREETINGS[clockSegment]}</span>
+            <span className={styles.greetingDot} aria-hidden="true">&middot;</span>
+            <span className={styles.dateLine}>{data.date}</span>
+          </div>
           {/* TODO(habits phase 2): "Show hidden prompts" expand-all toggle
               lived here (old #expand-btn next to date-text). */}
           <StreaksRow streaks={streaks} onOpen={(s) => setStreakKey({ label: s.label, since: s.since })} />
@@ -332,6 +338,9 @@ export function TodosPage() {
         onMove={(id, toLabel) => todoActions.move(id, toLabel)}
         onSnooze={(id, days) => todoActions.snooze(id, days)}
         onRemove={(id) => todoActions.remove(id)}
+        onSubtaskAdd={(id, text) => todoActions.subtaskAdd(id, text)}
+        onSubtaskToggle={(id, subId) => todoActions.subtaskToggle(id, subId)}
+        onSubtaskRemove={(id, subId) => todoActions.subtaskRemove(id, subId)}
       />
 
       <ToastStack toasts={toasts} onDismiss={dismiss} />

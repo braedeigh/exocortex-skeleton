@@ -10,6 +10,12 @@ import type {
   Streak,
 } from '../habits/types';
 
+export interface SubTask {
+  id: string;
+  text: string;
+  done: boolean;
+}
+
 export interface TodoItem {
   id: string;
   text: string;
@@ -29,6 +35,8 @@ export interface TodoItem {
   after_date?: string | null;
   /** "Do after" — hidden while the referenced to-do (by id) exists and isn't done. */
   after_id?: string | null;
+  /** Small checkable items under this to-do. Absent = none (see routes/todos.py subtask endpoints). */
+  subtasks?: SubTask[] | null;
 }
 
 export interface TodoSection {
