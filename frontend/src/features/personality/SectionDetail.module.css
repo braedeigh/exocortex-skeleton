@@ -74,6 +74,7 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: var(--space-4) 0;
   line-height: 1.7;
   font-size: var(--font-size-base);

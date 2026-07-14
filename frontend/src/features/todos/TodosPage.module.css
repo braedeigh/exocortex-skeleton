@@ -1,6 +1,7 @@
 .page {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   /* Extra clearance for NotesPill (fixed bottom-right, ~46px tall + 16px
      offset) so it can't sit on top of AddBar's controls when they scroll
      near the bottom of the viewport — same idea as phone.html's

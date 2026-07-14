@@ -14,6 +14,7 @@
   max-width: 560px;
   max-height: 85vh;
   overflow-y: auto;
+  overflow-x: hidden;
   background: var(--card-bg);
   border-top-left-radius: var(--radius-xl);
   border-top-right-radius: var(--radius-xl);

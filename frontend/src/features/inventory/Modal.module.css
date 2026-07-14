@@ -28,6 +28,7 @@
   min-width: 0;
   max-height: 88vh;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: var(--space-5) var(--space-5) var(--space-5);
 }
 

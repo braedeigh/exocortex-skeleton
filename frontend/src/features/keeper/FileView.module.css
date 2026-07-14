@@ -90,6 +90,7 @@
 .preview {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 18px 22px;
   line-height: 1.7;
   font-size: 15px;

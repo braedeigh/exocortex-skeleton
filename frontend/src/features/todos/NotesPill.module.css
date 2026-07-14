@@ -200,6 +200,7 @@
 .list {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: var(--space-1) var(--space-3);
   min-height: 0;
 }

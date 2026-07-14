@@ -7,6 +7,7 @@
 .page {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   --p-accent-light: color-mix(in srgb, var(--accent) 15%, transparent);
   --p-hm-empty: color-mix(in srgb, var(--text) 8%, transparent);
 }

@@ -51,6 +51,7 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: var(--space-4) 0;
   /* Clearance so the floating notes pill never covers the last card. */
   padding-bottom: calc(var(--space-8) + 64px);

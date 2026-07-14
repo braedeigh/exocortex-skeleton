@@ -1,6 +1,7 @@
 .page {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: var(--space-4);
   /* Clearance so nothing hides behind the last row on short viewports. */
   padding-bottom: calc(var(--space-8) + 64px);

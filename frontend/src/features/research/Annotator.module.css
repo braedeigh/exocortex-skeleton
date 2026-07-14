@@ -16,6 +16,7 @@
   flex: 1;
   min-width: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 16px 20px;
   white-space: pre-wrap;
   overflow-wrap: break-word;
@@ -30,6 +31,7 @@
   flex: none;
   width: 300px;
   overflow-y: auto;
+  overflow-x: hidden;
   border-left: 1px solid var(--border);
   padding: 12px 14px;
 }

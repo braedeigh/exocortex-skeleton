@@ -221,6 +221,7 @@
   min-width: 220px;
   max-height: 70vh;
   overflow-y: auto;
+  overflow-x: hidden;
   background: var(--tab-bg-raised);
   border: 1px solid var(--tab-border);
   border-radius: var(--radius-md);

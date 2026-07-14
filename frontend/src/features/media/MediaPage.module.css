@@ -4,6 +4,7 @@
 .page {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: var(--space-4);
   /* Clearance for the fixed NotesPill (same idea as TodosPage). */
   padding-bottom: calc(var(--space-8) + 64px);

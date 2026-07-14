@@ -7,6 +7,7 @@
   width: min(380px, 88%);
   max-height: 70vh;
   overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
   background: var(--card-bg);

@@ -34,6 +34,7 @@
   font-family: inherit;
   resize: none;
   overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .addBtn {
@@ -56,6 +57,7 @@
 
 .list {
   overflow-y: auto;
+  overflow-x: hidden;
   margin-top: var(--space-2);
   font-size: var(--font-size-sm);
 }

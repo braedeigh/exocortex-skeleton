@@ -1,6 +1,7 @@
 .page {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   /* Clearance for the fixed NotesPill bottom-right (same as TodosPage). */
   padding-bottom: calc(var(--space-8) + 64px);
 }

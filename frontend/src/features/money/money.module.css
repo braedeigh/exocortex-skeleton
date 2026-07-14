@@ -8,6 +8,7 @@
 .page {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 0 var(--space-4);
   /* Clearance for the fixed NotesPill so it never covers the last card. */
   padding-bottom: calc(var(--space-8) + 64px);

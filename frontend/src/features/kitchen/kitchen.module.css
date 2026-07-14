@@ -8,6 +8,7 @@
      scroll (same as TodosPage/MediaPage). */
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   width: 100%;
   max-width: 860px;
   margin: 0 auto;
@@ -622,6 +623,7 @@
 .modalBody {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   min-height: 0;
   padding-right: 6px;
 }
