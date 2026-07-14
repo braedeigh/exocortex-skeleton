@@ -86,6 +86,13 @@
   font-family: inherit;
 }
 
+/* "Show all" while the gates are lifted — accent so the non-default view
+   state is visible at a glance. */
+.headerBtnActive {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .twoCol {
   display: grid;
   grid-template-columns: 1fr 1fr;

@@ -10,7 +10,10 @@ import { AddTodoSheet } from './AddTodoSheet';
 import { DetailSheet } from './DetailSheet';
 import { FocusChips } from './FocusChips';
 import { useFronts } from '../fronts/useFronts';
+import { NotNowCard } from './NotNowCard';
+import type { NotNowEntry } from './NotNowCard';
 import { NotesPill } from './NotesPill';
+import { UpNowCard } from './UpNowCard';
 import { ReminderCard } from './ReminderCard';
 import { SnoozedCard } from './SnoozedCard';
 import { StreakSheet } from './StreakSheet';
@@ -23,9 +26,11 @@ import {
   LADDER_LABELS,
   buildTodoIndex,
   collectSnoozed,
+  collectUpNow,
   collectWaiting,
   computeFocusCounts,
   focusMatch,
+  gateHides,
   visibleSectionItems,
   withFocusTheme,
 } from './todoHelpers';
@@ -105,6 +110,9 @@ export function TodosPage() {
   // Desktop breathing room: collapse the habits column so To Do spans the
   // whole pane. Never offered to public visitors — habits are their view.
   const [habitsHidden, setHabitsHiddenState] = useState(readStoredHabitsHidden);
+  // Context gates off — everything shows. Deliberately NOT persisted: a
+  // fresh visit always starts back in the auto (gated) view.
+  const [showAll, setShowAll] = useState(false);
   const [selected, setSelected] = useState<TodoItem | null>(null);
   // Streaks are keyed by label+since (no id) — the sheet re-derives its
   // streak from the polled data so "Day N" stays live while it's open.
@@ -156,6 +164,37 @@ export function TodosPage() {
     [sections, serverDate, focusTheme],
   );
   const focusCounts = useMemo(() => computeFocusCounts(sections, serverDate), [sections, serverDate]);
+
+  // Context gating (todo_view_rules): compare the client clock against each
+  // front's visibility window. The page re-renders at least every 5s (the
+  // today poll), so the clock stays fresh without its own timer. Gates are
+  // off entirely for public visitors and while "Show all" is on.
+  const hhmm = new Date().toTimeString().slice(0, 5);
+  const gateRules = !isPublic && !showAll ? data?.todo_view_rules : undefined;
+  const hasGateRules = !isPublic && !!data?.todo_view_rules?.windows;
+  const gatedBySection = useMemo(() => {
+    const shown = new Map<string, TodoItem[]>();
+    const notNow: NotNowEntry[] = [];
+    for (const s of ladderSections) {
+      const base = visibleSectionItems(s, serverDate, focusTheme, todoIndex);
+      if (!gateRules) {
+        shown.set(s.name, base);
+        continue;
+      }
+      const keep: TodoItem[] = [];
+      for (const item of base) {
+        if (gateHides(item, s.name, gateRules, hhmm, serverDate)) notNow.push({ item, section: s.name });
+        else keep.push(item);
+      }
+      shown.set(s.name, keep);
+    }
+    return { shown, notNow };
+  }, [ladderSections, serverDate, focusTheme, todoIndex, gateRules, hhmm]);
+
+  const upNow = useMemo(
+    () => collectUpNow(sections, serverDate).filter((it) => focusMatch(it, focusTheme)),
+    [sections, serverDate, focusTheme],
+  );
 
   const currentSection = useMemo(() => {
     if (!selected) return null;
@@ -291,6 +330,16 @@ export function TodosPage() {
                     &#9666; Show habits
                   </button>
                 ) : null}
+                {hasGateRules ? (
+                  <button
+                    type="button"
+                    className={`${styles.headerBtn} ${showAll ? styles.headerBtnActive : ''}`}
+                    onClick={() => setShowAll((v) => !v)}
+                    title={showAll ? 'Back to the auto view' : 'Show everything, gates off'}
+                  >
+                    {showAll ? '✓ Showing all' : '👁 Show all'}
+                  </button>
+                ) : null}
                 <Link to="/todos/editor" className={styles.editorLink}>
                   &#9998; Edit all
                 </Link>
@@ -311,6 +360,12 @@ export function TodosPage() {
             <>
               <FocusChips counts={focusCounts} active={focusTheme} fronts={fronts} onChange={setFocusTheme} />
               <AddBar onAdd={addTodo} focusTheme={focusTheme} fronts={fronts} />
+              <UpNowCard
+                items={upNow}
+                serverDate={serverDate}
+                onToggle={todoActions.toggle}
+                onOpenDetail={setSelected}
+              />
 
               {focusTheme && focusCounts.total === 0 ? (
                 <div className={styles.emptyFocus}>Nothing here right now. 🎉</div>
@@ -320,7 +375,7 @@ export function TodosPage() {
                     key={section.name}
                     label={section.name}
                     colorIndex={i}
-                    items={visibleSectionItems(section, serverDate, focusTheme, todoIndex)}
+                    items={gatedBySection.shown.get(section.name) || []}
                     manualOrder={section.manual_order}
                     serverDate={serverDate}
                     fronts={fronts}
@@ -336,6 +391,8 @@ export function TodosPage() {
                   />
                 ))
               )}
+
+              <NotNowCard entries={gatedBySection.notNow} fronts={fronts} onOpenDetail={setSelected} />
 
               {doneSection ? (
                 <TodoSection

@@ -102,6 +102,19 @@ export interface ReminderDef {
   snoozed_until?: string | null;
 }
 
+/** One visibility window, "HH:MM"–"HH:MM"; start > end wraps past midnight
+ * (e.g. 15:00→06:00 = afternoon through early morning). */
+export interface GateWindow {
+  start: string;
+  end: string;
+}
+
+/** Context-gating rules (vault's todo_view_rules.json): per-front visibility
+ * windows, keyed by front id; "*" is the default for unlisted/untagged. */
+export interface TodoViewRules {
+  windows?: Record<string, GateWindow>;
+}
+
 export interface TodayDataHabitsFields {
   habits?: HabitSection[];
   habit_settings?: HabitSettings;
@@ -125,5 +138,6 @@ export interface TodayData extends TodayDataHabitsFields {
   health_data?: HealthDay[];
   activity_log: ActivityEntry[];
   private_act_types: string[];
+  todo_view_rules?: TodoViewRules;
   [key: string]: unknown;
 }

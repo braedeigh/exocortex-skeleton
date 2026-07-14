@@ -4,9 +4,12 @@ import {
   buildTodoIndex,
   collectSnoozed,
   collectWaiting,
+  collectUpNow,
   computeFocusCounts,
   focusMatch,
   fmtAddedDate,
+  gateHides,
+  inWindow,
   fmtDuration,
   fmtTime,
   isDoneSection,
@@ -114,6 +117,85 @@ describe('addDays', () => {
   it('adds days and clears/handles month rollover', () => {
     expect(addDays('2026-07-08', 3)).toBe('2026-07-11');
     expect(addDays('2026-07-30', 3)).toBe('2026-08-02');
+  });
+});
+
+describe('inWindow', () => {
+  it('plain window: start inclusive, end exclusive', () => {
+    const win = { start: '06:00', end: '17:00' };
+    expect(inWindow(win, '06:00')).toBe(true);
+    expect(inWindow(win, '12:30')).toBe(true);
+    expect(inWindow(win, '17:00')).toBe(false);
+    expect(inWindow(win, '05:59')).toBe(false);
+  });
+  it('start > end wraps past midnight', () => {
+    const win = { start: '15:00', end: '06:00' };
+    expect(inWindow(win, '15:00')).toBe(true);
+    expect(inWindow(win, '23:45')).toBe(true);
+    expect(inWindow(win, '02:00')).toBe(true);
+    expect(inWindow(win, '06:00')).toBe(false);
+    expect(inWindow(win, '12:00')).toBe(false);
+  });
+  it('degenerate windows never hide', () => {
+    expect(inWindow({ start: '', end: '' }, '12:00')).toBe(true);
+    expect(inWindow({ start: '09:00', end: '09:00' }, '12:00')).toBe(true);
+  });
+});
+
+describe('gateHides', () => {
+  // Bradie's real config: job shows 6am–5pm, everything else 3pm–6am.
+  const rules = {
+    windows: {
+      job: { start: '06:00', end: '17:00' },
+      '*': { start: '15:00', end: '06:00' },
+    },
+  };
+  const MORNING = '09:00';
+  const EVENING = '19:00';
+
+  it('no rules = nothing hidden', () => {
+    expect(gateHides(item({ theme: 'job' }), 'Later', undefined, EVENING, TODAY)).toBe(false);
+    expect(gateHides(item({ theme: 'job' }), 'Later', {}, EVENING, TODAY)).toBe(false);
+  });
+  it('job hides in the evening, shows in the morning', () => {
+    expect(gateHides(item({ theme: 'job' }), 'Later', rules, EVENING, TODAY)).toBe(true);
+    expect(gateHides(item({ theme: 'job' }), 'Later', rules, MORNING, TODAY)).toBe(false);
+  });
+  it('life stuff (other fronts + untagged fall to *) hides in the morning, shows in the evening', () => {
+    expect(gateHides(item({ theme: 'health' }), 'Later', rules, MORNING, TODAY)).toBe(true);
+    expect(gateHides(item({}), 'Later', rules, MORNING, TODAY)).toBe(true);
+    expect(gateHides(item({ theme: 'health' }), 'Later', rules, EVENING, TODAY)).toBe(false);
+  });
+  it('the Now section always punches through', () => {
+    expect(gateHides(item({ theme: 'job' }), 'Now', rules, EVENING, TODAY)).toBe(false);
+  });
+  it('overdue and due-today punch through; future due dates do not', () => {
+    expect(gateHides(item({ theme: 'job', due_by: '2026-07-01' }), 'Later', rules, EVENING, TODAY)).toBe(false);
+    expect(gateHides(item({ theme: 'job', due_by: TODAY }), 'Later', rules, EVENING, TODAY)).toBe(false);
+    expect(gateHides(item({ theme: 'job', due_by: '2026-08-01' }), 'Later', rules, EVENING, TODAY)).toBe(true);
+  });
+  it('a front with no window of its own and no * is never hidden', () => {
+    const jobOnly = { windows: { job: { start: '06:00', end: '17:00' } } };
+    expect(gateHides(item({ theme: 'health' }), 'Later', jobOnly, MORNING, TODAY)).toBe(false);
+  });
+});
+
+describe('collectUpNow', () => {
+  it('gathers overdue + due-today, skips done/snoozed/waiting/future, soonest first', () => {
+    const sections: TodoSection[] = [
+      section('Now', [
+        item({ id: 'today', due_by: TODAY }),
+        item({ id: 'future', due_by: '2026-08-01' }),
+      ]),
+      section('Later', [
+        item({ id: 'overdue', due_by: '2026-07-01' }),
+        item({ id: 'done', due_by: '2026-07-01', done: true }),
+        item({ id: 'snoozed', due_by: '2026-07-01', snoozed_until: '2026-07-20' }),
+        item({ id: 'waiting', due_by: '2026-07-01', after_date: '2026-08-01' }),
+      ]),
+      section('Done', [item({ id: 'in-done', due_by: '2026-07-01' })]),
+    ];
+    expect(collectUpNow(sections, TODAY).map((i) => i.id)).toEqual(['overdue', 'today']);
   });
 });
 

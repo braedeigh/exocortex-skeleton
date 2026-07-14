@@ -1,5 +1,5 @@
 import type { AddTodoPayload } from '../../api/endpoints';
-import type { TodoItem, TodoSection } from './types';
+import type { GateWindow, TodoItem, TodoSection, TodoViewRules } from './types';
 
 export interface TodoStatusDef {
   key: string;
@@ -194,4 +194,49 @@ export function visibleSectionItems(
   return section.items.filter(
     (item) => focusMatch(item, theme) && !isSnoozed(item, serverDate) && !isWaiting(item, serverDate, index),
   );
+}
+
+export function inWindow(win: GateWindow, hhmm: string): boolean {
+  if (!win.start || !win.end || win.start === win.end) return true;
+  if (win.start < win.end) return hhmm >= win.start && hhmm < win.end;
+  // start > end wraps past midnight (e.g. 15:00→06:00)
+  return hhmm >= win.start || hhmm < win.end;
+}
+
+/**
+ * Context gating: does the current time hide this item? An item's front
+ * picks its window (falling back to "*"); outside the window it sinks into
+ * the "Not now" group. Exempt — so they always punch through the gates:
+ * the hand-picked Now section, anything overdue or due today, and done
+ * items (Done has its own card). No rules or no matching window = never
+ * hidden.
+ */
+export function gateHides(
+  item: TodoItem,
+  sectionName: string,
+  rules: TodoViewRules | undefined,
+  hhmm: string,
+  serverDate: string,
+): boolean {
+  const windows = rules?.windows;
+  if (!windows || item.done || sectionName === LADDER_LABELS[0]) return false;
+  if (item.due_by && item.due_by <= serverDate) return false;
+  const win = windows[item.theme || ''] ?? windows['*'];
+  if (!win) return false;
+  return !inWindow(win, hhmm);
+}
+
+/** The "Up now" strip: overdue + due-today items across the ladder (not
+ * done/snoozed/waiting), soonest due date first. */
+export function collectUpNow(sections: TodoSection[], serverDate: string): TodoItem[] {
+  const index = buildTodoIndex(sections);
+  const out: TodoItem[] = [];
+  for (const section of sections) {
+    if (isDoneSection(section.name)) continue;
+    for (const item of section.items) {
+      if (item.done || isSnoozed(item, serverDate) || isWaiting(item, serverDate, index)) continue;
+      if (item.due_by && item.due_by <= serverDate) out.push(item);
+    }
+  }
+  return out.sort((a, b) => (a.due_by || '').localeCompare(b.due_by || ''));
 }
