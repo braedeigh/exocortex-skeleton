@@ -105,6 +105,20 @@ export function SplitLayout({ children }: { children: ReactNode }) {
     };
   }, [dragging, onPointerMove, endDrag]);
 
+  // Other features can flip the docked terminal to a named tmux session
+  // (research's "follow live") — this instance owns desktop session state,
+  // so the request arrives as a window event rather than through context.
+  const { setActive } = sessions;
+  useEffect(() => {
+    if (!terminalEnabled) return;
+    function onSetSession(e: Event) {
+      const name = (e as CustomEvent).detail;
+      if (typeof name === 'string' && name) setActive(name);
+    }
+    window.addEventListener('exo:set-session', onSetSession);
+    return () => window.removeEventListener('exo:set-session', onSetSession);
+  }, [terminalEnabled, setActive]);
+
   if (!isDesktop) {
     // Mobile: no split — content fills, exactly as before.
     return (
