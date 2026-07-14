@@ -15,7 +15,7 @@ function draft(overrides: Partial<TodoDraft> = {}): TodoDraft {
     dueBy: '',
     dueTime: '',
     notes: '',
-    theme: '',
+    fronts: [],
     status: '',
     placeId: '',
     durationMin: '',
@@ -44,7 +44,7 @@ describe('todoDraftFromPayload', () => {
       due_by: '2026-07-12',
       due_time: '09:30',
       notes: 'pharmacy on 5th',
-      theme: 'health',
+      fronts: ['health', 'connection'],
       status: 'ready',
       place_id: 'p1',
       duration_min: 30,
@@ -55,7 +55,7 @@ describe('todoDraftFromPayload', () => {
       dueBy: '2026-07-12',
       dueTime: '09:30',
       notes: 'pharmacy on 5th',
-      theme: 'health',
+      fronts: ['health', 'connection'],
       status: 'ready',
       placeId: 'p1',
       durationMin: '30',
@@ -64,6 +64,14 @@ describe('todoDraftFromPayload', () => {
 
   it('defaults a missing bucket to Now (legacy `p.bucket || "now"`)', () => {
     expect(todoDraftFromPayload({ text: 'x' }).sectionLabel).toBe('Now');
+  });
+
+  it('treats a legacy theme/category string as a one-front list (older staged items)', () => {
+    expect(todoDraftFromPayload({ text: 'x', theme: 'health' }).fronts).toEqual(['health']);
+    expect(todoDraftFromPayload({ text: 'x', category: 'body' }).fronts).toEqual(['body']);
+    expect(todoDraftFromPayload({ text: 'x' }).fronts).toEqual([]);
+    // the live fronts list wins over any legacy string riding along
+    expect(todoDraftFromPayload({ text: 'x', fronts: ['job'], theme: 'health' }).fronts).toEqual(['job']);
   });
 });
 
@@ -81,7 +89,7 @@ describe('buildTodoAdd', () => {
         dueBy: '2026-07-12',
         dueTime: '09:30',
         notes: ' bring records ',
-        theme: 'health',
+        fronts: ['health', 'errands'],
         status: 'waiting',
         placeId: 'p1',
         durationMin: '45',
@@ -96,7 +104,7 @@ describe('buildTodoAdd', () => {
         notes: 'bring records',
         due_time: '09:30',
         place_id: 'p1',
-        theme: 'health',
+        fronts: ['health', 'errands'],
         status: 'waiting',
         duration_min: 45,
       },
@@ -130,11 +138,11 @@ describe('todoFinalForLedger', () => {
       'due_by',
       'due_time',
       'duration_min',
+      'fronts',
       'notes',
       'place_id',
       'status',
       'text',
-      'theme',
     ]);
   });
 });

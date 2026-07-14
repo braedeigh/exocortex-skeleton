@@ -31,7 +31,8 @@ export function normalizePlaceId(placeId: string): string {
   return placeId === '__new__' ? '' : placeId;
 }
 
-/** Editor state — one string per form control, exactly like the legacy DOM reads. */
+/** Editor state — one string per form control, exactly like the legacy DOM
+ * reads, except `fronts`: a to-do can sit on several fronts at once. */
 export interface TodoDraft {
   text: string;
   /** Section LABEL ("Now"/"Up Next"/…) — the value /api/todos/add wants. */
@@ -39,10 +40,21 @@ export interface TodoDraft {
   dueBy: string;
   dueTime: string;
   notes: string;
-  theme: string;
+  fronts: string[];
   status: string;
   placeId: string;
   durationMin: string;
+}
+
+/** Staged front ids. Current payloads (Rust add-todo tool) carry
+ * `fronts: [ids]`; older staged items may still carry the retired single
+ * `theme` or `category` string — treat a non-empty one as [that id]. */
+function frontsFromPayload(payload: Record<string, JsonValue>): string[] {
+  if (Array.isArray(payload.fronts)) {
+    return payload.fronts.filter((f): f is string => typeof f === 'string' && f !== '');
+  }
+  const legacy = asString(payload.theme) || asString(payload.category);
+  return legacy ? [legacy] : [];
 }
 
 /** Staged payload → initial form state (openTodoApproval's field prefill). */
@@ -53,7 +65,7 @@ export function todoDraftFromPayload(payload: Record<string, JsonValue>): TodoDr
     dueBy: asString(payload.due_by),
     dueTime: asString(payload.due_time),
     notes: asString(payload.notes),
-    theme: asString(payload.theme),
+    fronts: frontsFromPayload(payload),
     status: asString(payload.status),
     placeId: asString(payload.place_id),
     durationMin: asString(payload.duration_min),
@@ -77,7 +89,7 @@ export function buildTodoAdd(draft: TodoDraft): BuildResult<AddTodoPayload> {
     notes: draft.notes.trim(),
     due_time: draft.dueTime,
     place_id: normalizePlaceId(draft.placeId),
-    theme: draft.theme,
+    fronts: draft.fronts,
     status: draft.status,
   };
   const duration = draft.durationMin.trim();
@@ -91,7 +103,7 @@ export function todoFinalForLedger(draft: TodoDraft): Record<string, JsonValue> 
   return {
     text: draft.text.trim(),
     bucket: draft.sectionLabel,
-    theme: draft.theme,
+    fronts: draft.fronts,
     due_by: draft.dueBy,
     notes: draft.notes.trim(),
     due_time: draft.dueTime,

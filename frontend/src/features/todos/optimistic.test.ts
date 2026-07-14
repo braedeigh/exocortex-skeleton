@@ -32,7 +32,7 @@ function todo(id: string, overrides: Partial<TodoItem> = {}): TodoItem {
 function bulkData(): TodayData {
   return baseData({
     todos: [
-      { name: 'Now', manual_order: false, items: [todo('a'), todo('b', { theme: 'job' })] },
+      { name: 'Now', manual_order: false, items: [todo('a'), todo('b', { fronts: ['job'] })] },
       { name: 'Later', manual_order: false, items: [todo('c'), todo('d')] },
     ],
   });
@@ -44,14 +44,21 @@ function sectionItems(data: TodayData, name: string): TodoItem[] {
 }
 
 describe('applyBulkDetails', () => {
-  it('patches only the matched ids', () => {
-    const next = applyBulkDetails(bulkData(), ['a', 'c'], { theme: 'health' });
-    expect(sectionItems(next, 'Now').map((it) => it.theme)).toEqual(['health', 'job']);
-    expect(sectionItems(next, 'Later').map((it) => it.theme)).toEqual(['health', undefined]);
+  it('patches only the matched ids (fronts REPLACE, matching the bulk tag sheet)', () => {
+    const next = applyBulkDetails(bulkData(), ['a', 'c'], { fronts: ['health'] });
+    expect(sectionItems(next, 'Now').map((it) => it.fronts)).toEqual([['health'], ['job']]);
+    expect(sectionItems(next, 'Later').map((it) => it.fronts)).toEqual([['health'], undefined]);
   });
   it('an empty-string value pops the key (details-route semantics)', () => {
-    const next = applyBulkDetails(bulkData(), ['b'], { theme: '' });
-    expect('theme' in sectionItems(next, 'Now')[1]).toBe(false);
+    const data = baseData({
+      todos: [{ name: 'Now', manual_order: false, items: [todo('a', { status: 'waiting' })] }],
+    });
+    const next = applyBulkDetails(data, ['a'], { status: '' });
+    expect('status' in sectionItems(next, 'Now')[0]).toBe(false);
+  });
+  it('an empty fronts list clears the key ("clear all fronts")', () => {
+    const next = applyBulkDetails(bulkData(), ['b'], { fronts: [] });
+    expect('fronts' in sectionItems(next, 'Now')[1]).toBe(false);
   });
 });
 

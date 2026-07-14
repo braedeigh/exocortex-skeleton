@@ -137,14 +137,23 @@ export function TodoApprovalEditor({ change, busy, onApprove, onDeny }: Approval
       </div>
 
       <div className={styles.field}>
-        <span className={styles.label}>Theme</span>
+        <span className={styles.label}>Fronts</span>
         <div className={styles.chips}>
+          {/* Multi-select: tapping toggles membership — a to-do can sit on
+              several fronts at once (same semantics as DetailSheet). */}
           {fronts.map((f) => (
             <button
               type="button"
               key={f.id}
-              className={`${styles.chip} ${draft.theme === f.id ? styles.active : ''}`}
-              onClick={() => set('theme', draft.theme === f.id ? '' : f.id)}
+              className={`${styles.chip} ${draft.fronts.includes(f.id) ? styles.active : ''}`}
+              onClick={() =>
+                set(
+                  'fronts',
+                  draft.fronts.includes(f.id)
+                    ? draft.fronts.filter((x) => x !== f.id)
+                    : [...draft.fronts, f.id],
+                )
+              }
             >
               {FRONT_EMOJI[f.id] || '🏷️'} {f.name}
             </button>

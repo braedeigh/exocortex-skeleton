@@ -94,11 +94,12 @@ export function applySnooze(data: TodayData, id: string, days: number): TodayDat
 /** Merge a details patch onto an item, mirroring /api/todos/details' own
  * contract: an empty-string value pops the key rather than storing "" — so
  * the truncated-text/blocker lookups (waitingReason etc.) that key off
- * "key present" don't flicker between the optimistic state and the refetch. */
+ * "key present" don't flicker between the optimistic state and the refetch.
+ * An empty `fronts` list ("clear all fronts") pops the key the same way. */
 function mergeDetailsPatch(item: TodoItem, patch: Partial<TodoItem>): TodoItem {
   const next = { ...item } as unknown as Record<string, unknown>;
   for (const [key, value] of Object.entries(patch)) {
-    if (value === '') delete next[key];
+    if (value === '' || (Array.isArray(value) && value.length === 0)) delete next[key];
     else next[key] = value;
   }
   return next as unknown as TodoItem;

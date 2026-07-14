@@ -79,28 +79,28 @@ export function waitingReason(item: TodoItem, index: Map<string, TodoItem>): str
   return '';
 }
 
-/** An item's front ids, whichever field it carries: the `fronts` list (the
- * live contract) or the legacy single `theme` string. Empty = untagged. */
+/** An item's front ids. Absent/empty list = untagged. */
 export function itemFronts(item: TodoItem): string[] {
-  if (Array.isArray(item.fronts) && item.fronts.length) return item.fronts;
-  return item.theme ? [item.theme] : [];
+  return Array.isArray(item.fronts) ? item.fronts : [];
 }
 
-export function focusMatch(item: TodoItem, theme: string): boolean {
-  if (!theme) return true;
+/** '' matches all; '__none__' matches untagged; a front id matches items
+ * whose fronts list includes it (items can sit on several fronts). */
+export function focusMatch(item: TodoItem, front: string): boolean {
+  if (!front) return true;
   const fronts = itemFronts(item);
-  if (theme === '__none__') return fronts.length === 0;
-  return fronts.includes(theme);
+  if (front === '__none__') return fronts.length === 0;
+  return fronts.includes(front);
 }
 
 /**
  * Quick-adds inherit the active focus filter, so a new item lands in the
  * view being looked at instead of vanishing behind it. "All" ('') and
- * "Other" ('__none__') stamp nothing, and an explicit theme wins.
+ * "Other" ('__none__') stamp nothing, and explicit fronts win.
  */
-export function withFocusTheme(payload: AddTodoPayload, focusTheme: string): AddTodoPayload {
-  if (!focusTheme || focusTheme === '__none__' || payload.theme) return payload;
-  return { ...payload, theme: focusTheme };
+export function withFocusFront(payload: AddTodoPayload, focusFront: string): AddTodoPayload {
+  if (!focusFront || focusFront === '__none__' || payload.fronts?.length) return payload;
+  return { ...payload, fronts: [focusFront] };
 }
 
 export function fmtTime(hhmm: string | null | undefined): string {
@@ -138,14 +138,17 @@ export function addDays(iso: string, n: number): string {
 }
 
 export interface FocusCounts {
+  /** Live items, each counted once (multi-front items still count once here). */
   total: number;
   none: number;
-  byTheme: Record<string, number>;
+  /** front id -> live-item count. A multi-front item increments EVERY front
+   * it sits on, so these can sum to more than `total` — that's intended. */
+  byFront: Record<string, number>;
 }
 
 export function computeFocusCounts(sections: TodoSection[], serverDate: string): FocusCounts {
   const index = buildTodoIndex(sections);
-  const byTheme: Record<string, number> = {};
+  const byFront: Record<string, number> = {};
   let total = 0;
   let none = 0;
   for (const section of sections) {
@@ -156,11 +159,11 @@ export function computeFocusCounts(sections: TodoSection[], serverDate: string):
       if (isWaiting(item, serverDate, index)) continue;
       total++;
       const fronts = itemFronts(item);
-      if (fronts.length) for (const f of fronts) byTheme[f] = (byTheme[f] || 0) + 1;
+      if (fronts.length) for (const f of fronts) byFront[f] = (byFront[f] || 0) + 1;
       else none++;
     }
   }
-  return { total, none, byTheme };
+  return { total, none, byFront };
 }
 
 export function collectSnoozed(sections: TodoSection[], serverDate: string): TodoItem[] {
@@ -197,11 +200,11 @@ export function collectWaiting(sections: TodoSection[], serverDate: string): Wai
 export function visibleSectionItems(
   section: TodoSection,
   serverDate: string,
-  theme: string,
+  front: string,
   index: Map<string, TodoItem>,
 ): TodoItem[] {
   return section.items.filter(
-    (item) => focusMatch(item, theme) && !isSnoozed(item, serverDate) && !isWaiting(item, serverDate, index),
+    (item) => focusMatch(item, front) && !isSnoozed(item, serverDate) && !isWaiting(item, serverDate, index),
   );
 }
 

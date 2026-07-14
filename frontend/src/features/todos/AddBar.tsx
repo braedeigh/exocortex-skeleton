@@ -9,7 +9,7 @@ import styles from './AddBar.module.css';
 export interface AddBarProps {
   onAdd: (payload: { item: string; section: string; due_by?: string }) => void;
   /** Active focus filter — the page stamps it onto the add, so show it. */
-  focusTheme?: string;
+  focusFront?: string;
   fronts: Front[];
 }
 
@@ -19,7 +19,7 @@ export interface AddBarProps {
  * focused or has text in it, rather than sitting there permanently (dev note
  * 3621915a). Collapses back once it's blurred with nothing typed.
  */
-export function AddBar({ onAdd, focusTheme, fronts }: AddBarProps) {
+export function AddBar({ onAdd, focusFront, fronts }: AddBarProps) {
   const [text, setText] = useState('');
   const [section, setSection] = useState<string>('Now');
   const [showDue, setShowDue] = useState(false);
@@ -64,8 +64,8 @@ export function AddBar({ onAdd, focusTheme, fronts }: AddBarProps) {
           className={styles.input}
           type="text"
           placeholder={
-            focusTheme && focusTheme !== '__none__'
-              ? `Add a to-do… → ${frontLabel(fronts, focusTheme)}`
+            focusFront && focusFront !== '__none__'
+              ? `Add a to-do… → ${frontLabel(fronts, focusFront)}`
               : 'Add a to-do…'
           }
           value={text}

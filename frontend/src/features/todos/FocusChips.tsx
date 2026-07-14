@@ -7,7 +7,7 @@ export interface FocusChipsProps {
   counts: FocusCounts;
   active: string;
   fronts: Front[];
-  onChange: (theme: string) => void;
+  onChange: (front: string) => void;
 }
 
 export function FocusChips({ counts, active, fronts, onChange }: FocusChipsProps) {
@@ -22,7 +22,7 @@ export function FocusChips({ counts, active, fronts, onChange }: FocusChipsProps
         <span className={styles.count}>{counts.total}</span>
       </button>
       {fronts.map((f) => {
-        const c = counts.byTheme[f.id] || 0;
+        const c = counts.byFront[f.id] || 0;
         if (!c && f.id !== active) return null;
         return (
           <button

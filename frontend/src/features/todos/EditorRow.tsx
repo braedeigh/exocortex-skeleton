@@ -1,7 +1,7 @@
 import { Checkbox } from '../../ui';
 import { frontLabel } from '../fronts/useFronts';
 import type { Front } from '../fronts/useFronts';
-import { fmtAddedDate, isOverdue, statusLabel } from './todoHelpers';
+import { fmtAddedDate, isOverdue, itemFronts, statusLabel } from './todoHelpers';
 import type { TodoItem } from './types';
 import styles from './EditorRow.module.css';
 
@@ -69,7 +69,18 @@ export function EditorRow({
               {fmtAddedDate(item.due_by)}
             </span>
           ) : null}
-          {item.theme ? <span className={styles.chip}>{frontLabel(fronts, item.theme)}</span> : null}
+          {/* One chip per front, capped at 2 + a "+N" overflow so a
+              heavily-tagged item can't flood the row. */}
+          {itemFronts(item)
+            .slice(0, 2)
+            .map((f) => (
+              <span key={f} className={styles.chip}>
+                {frontLabel(fronts, f)}
+              </span>
+            ))}
+          {itemFronts(item).length > 2 ? (
+            <span className={styles.chip}>+{itemFronts(item).length - 2}</span>
+          ) : null}
           {item.status && !item.done ? <span className={styles.chip}>{statusLabel(item.status)}</span> : null}
           {snoozed ? (
             <span className={styles.chip}>&#128164; until {fmtAddedDate(item.snoozed_until)}</span>

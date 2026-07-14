@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, Checkbox, IconButton, Sheet } from '../../ui';
 import { BlockerPicker } from './BlockerPicker';
-import { LADDER_LABELS, TODO_STATUSES, fmtAddedDate, isWaiting, waitingReason } from './todoHelpers';
+import { LADDER_LABELS, TODO_STATUSES, fmtAddedDate, itemFronts, isWaiting, waitingReason } from './todoHelpers';
 import { FRONT_EMOJI } from '../fronts/useFronts';
 import type { Front } from '../fronts/useFronts';
 import type { TodoDetailsPatch } from '../../api/endpoints';
@@ -51,7 +51,7 @@ export function DetailSheet({
   const [notes, setNotes] = useState('');
   const [dueBy, setDueBy] = useState('');
   const [dueTime, setDueTime] = useState('');
-  const [theme, setTheme] = useState('');
+  const [itemFrontIds, setItemFrontIds] = useState<string[]>([]);
   const [status, setStatus] = useState('');
   const [durationMin, setDurationMin] = useState('');
   const [afterDate, setAfterDate] = useState('');
@@ -71,7 +71,7 @@ export function DetailSheet({
     setNotes(item.notes || '');
     setDueBy(item.due_by || '');
     setDueTime(item.due_time || '');
-    setTheme(item.theme || '');
+    setItemFrontIds(itemFronts(item));
     setStatus(item.status || '');
     setDurationMin(item.duration_min ? String(item.duration_min) : '');
     setAfterDate(item.after_date || '');
@@ -101,7 +101,7 @@ export function DetailSheet({
         notes,
         due_by: dueBy,
         due_time: dueTime,
-        theme,
+        fronts: itemFrontIds,
         status,
         duration_min: durationMin ? Number(durationMin) : 0,
         after_date: afterDate,
@@ -112,14 +112,18 @@ export function DetailSheet({
     onClose();
   }
 
-  function pickTheme(key: string) {
+  // MULTI-select: tapping a chip toggles that front's membership in the
+  // item's fronts list (an item can sit on several fronts at once).
+  function toggleFront(id: string) {
     if (!item) return;
-    const next = theme === key ? '' : key;
-    setTheme(next);
-    // Focus is a one-tap, immediately-committed change — it doesn't wait
+    const next = itemFrontIds.includes(id)
+      ? itemFrontIds.filter((f) => f !== id)
+      : [...itemFrontIds, id];
+    setItemFrontIds(next);
+    // Fronts are a one-tap, immediately-committed change — it doesn't wait
     // for the Save button, and deliberately doesn't touch the title so an
     // in-progress (unsaved) title edit isn't force-committed as a side effect.
-    onSave(item.id, { theme: next }, item.text);
+    onSave(item.id, { fronts: next }, item.text);
   }
 
   return (
@@ -178,8 +182,8 @@ export function DetailSheet({
             <button
               type="button"
               key={f.id}
-              className={`${styles.chip} ${theme === f.id ? styles.active : ''}`}
-              onClick={() => pickTheme(f.id)}
+              className={`${styles.chip} ${itemFrontIds.includes(f.id) ? styles.active : ''}`}
+              onClick={() => toggleFront(f.id)}
             >
               {FRONT_EMOJI[f.id] || '🏷️'} {f.name}
             </button>

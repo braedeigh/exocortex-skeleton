@@ -36,8 +36,10 @@ export interface EditorFilters {
   section: string;
   /** Case-insensitive substring match against text AND notes. */
   search: string;
-  /** Focus theme key; '' = any, '__none__' = untagged (same as focusMatch). */
-  theme: string;
+  /** Front id; '' = any, '__none__' = untagged. Single-select, but matches
+   * LIST membership — a multi-front item matches each of its fronts'
+   * filters (same as focusMatch). */
+  front: string;
   /** Status key; '' = any. */
   status: string;
 }
@@ -45,7 +47,7 @@ export interface EditorFilters {
 export const EMPTY_EDITOR_FILTERS: EditorFilters = {
   section: '',
   search: '',
-  theme: '',
+  front: '',
   status: '',
 };
 
@@ -59,7 +61,7 @@ export function filterEditorTodos(entries: EditorEntry[], filters: EditorFilters
   const q = filters.search.trim().toLowerCase();
   return entries.filter((e) => {
     if (!sectionMatch(e.section, filters.section)) return false;
-    if (!focusMatch(e.item, filters.theme)) return false;
+    if (!focusMatch(e.item, filters.front)) return false;
     if (filters.status && e.item.status !== filters.status) return false;
     if (q) {
       const haystack = `${e.item.text}\n${e.item.notes || ''}`.toLowerCase();

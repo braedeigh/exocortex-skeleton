@@ -32,7 +32,7 @@ import {
   focusMatch,
   gateHides,
   visibleSectionItems,
-  withFocusTheme,
+  withFocusFront,
 } from './todoHelpers';
 import type { AddTodoPayload } from '../../api/endpoints';
 import { isFrosted } from './types';
@@ -49,6 +49,8 @@ import {
 } from './useTodayData';
 import styles from './TodosPage.module.css';
 
+// Key name predates the fronts vocabulary — kept so the persisted filter
+// (already a front id) survives the rename.
 const FOCUS_STORAGE_KEY = 'todoFocusTheme';
 const HABITS_HIDDEN_KEY = 'todoHabitsHidden';
 const GREETINGS: Record<TimeSegment, string> = {
@@ -69,9 +71,9 @@ function readStoredFocus(): string {
   }
 }
 
-function writeStoredFocus(theme: string) {
+function writeStoredFocus(front: string) {
   try {
-    localStorage.setItem(FOCUS_STORAGE_KEY, theme);
+    localStorage.setItem(FOCUS_STORAGE_KEY, front);
   } catch {
     // localStorage unavailable — focus just won't persist across visits
   }
@@ -106,7 +108,7 @@ export function TodosPage() {
   const symptomActions = useSymptomActions(push);
   const isPublic = isPublicMode();
 
-  const [focusTheme, setFocusThemeState] = useState(readStoredFocus);
+  const [focusFront, setFocusFrontState] = useState(readStoredFocus);
   // Desktop breathing room: collapse the habits column so To Do spans the
   // whole pane. Never offered to public visitors — habits are their view.
   const [habitsHidden, setHabitsHiddenState] = useState(readStoredHabitsHidden);
@@ -123,9 +125,9 @@ export function TodosPage() {
   // old page's single `selectedTime` global (core.js getTime()).
   const [manualSegment, setManualSegment] = useState<TimeSegment | null>(null);
 
-  function setFocusTheme(theme: string) {
-    setFocusThemeState(theme);
-    writeStoredFocus(theme);
+  function setFocusFront(front: string) {
+    setFocusFrontState(front);
+    writeStoredFocus(front);
   }
 
   function setHabitsHidden(hidden: boolean) {
@@ -134,9 +136,9 @@ export function TodosPage() {
   }
 
   // Both add paths (quick-add bar, per-section "+ add" sheet) stamp the
-  // active focus theme so the new item stays visible under the filter.
+  // active focus front so the new item stays visible under the filter.
   function addTodo(payload: AddTodoPayload) {
-    todoActions.add(withFocusTheme(payload, focusTheme));
+    todoActions.add(withFocusFront(payload, focusFront));
   }
 
   const frosted = data ? isFrosted(data.todos) : false;
@@ -156,12 +158,12 @@ export function TodosPage() {
     [ladderSections],
   );
   const snoozed = useMemo(
-    () => collectSnoozed(sections, serverDate).filter((it) => focusMatch(it, focusTheme)),
-    [sections, serverDate, focusTheme],
+    () => collectSnoozed(sections, serverDate).filter((it) => focusMatch(it, focusFront)),
+    [sections, serverDate, focusFront],
   );
   const waiting = useMemo(
-    () => collectWaiting(sections, serverDate).filter((w) => focusMatch(w.item, focusTheme)),
-    [sections, serverDate, focusTheme],
+    () => collectWaiting(sections, serverDate).filter((w) => focusMatch(w.item, focusFront)),
+    [sections, serverDate, focusFront],
   );
   const focusCounts = useMemo(() => computeFocusCounts(sections, serverDate), [sections, serverDate]);
 
@@ -176,7 +178,7 @@ export function TodosPage() {
     const shown = new Map<string, TodoItem[]>();
     const notNow: NotNowEntry[] = [];
     for (const s of ladderSections) {
-      const base = visibleSectionItems(s, serverDate, focusTheme, todoIndex);
+      const base = visibleSectionItems(s, serverDate, focusFront, todoIndex);
       if (!gateRules) {
         shown.set(s.name, base);
         continue;
@@ -189,11 +191,11 @@ export function TodosPage() {
       shown.set(s.name, keep);
     }
     return { shown, notNow };
-  }, [ladderSections, serverDate, focusTheme, todoIndex, gateRules, hhmm]);
+  }, [ladderSections, serverDate, focusFront, todoIndex, gateRules, hhmm]);
 
   const upNow = useMemo(
-    () => collectUpNow(sections, serverDate).filter((it) => focusMatch(it, focusTheme)),
-    [sections, serverDate, focusTheme],
+    () => collectUpNow(sections, serverDate).filter((it) => focusMatch(it, focusFront)),
+    [sections, serverDate, focusFront],
   );
 
   const currentSection = useMemo(() => {
@@ -358,8 +360,8 @@ export function TodosPage() {
             </>
           ) : (
             <>
-              <FocusChips counts={focusCounts} active={focusTheme} fronts={fronts} onChange={setFocusTheme} />
-              <AddBar onAdd={addTodo} focusTheme={focusTheme} fronts={fronts} />
+              <FocusChips counts={focusCounts} active={focusFront} fronts={fronts} onChange={setFocusFront} />
+              <AddBar onAdd={addTodo} focusFront={focusFront} fronts={fronts} />
               <UpNowCard
                 items={upNow}
                 serverDate={serverDate}
@@ -367,7 +369,7 @@ export function TodosPage() {
                 onOpenDetail={setSelected}
               />
 
-              {focusTheme && focusCounts.total === 0 ? (
+              {focusFront && focusCounts.total === 0 ? (
                 <div className={styles.emptyFocus}>Nothing here right now. 🎉</div>
               ) : (
                 ladderSections.map((section, i) => (
@@ -380,7 +382,7 @@ export function TodosPage() {
                     serverDate={serverDate}
                     fronts={fronts}
                     defaultOpen={section.name === 'Now'}
-                    focusTheme={focusTheme}
+                    focusFront={focusFront}
                     onToggle={todoActions.toggle}
                     onOpenDetail={setSelected}
                     onSubtaskToggle={todoActions.subtaskToggle}

@@ -26,10 +26,8 @@ export interface TodoItem {
   notes?: string | null;
   place_id?: string | null;
   status?: string | null;
-  theme?: string | null;
-  /** Front ids (fronts.json) — the live tagging contract since 2026-07-14;
-   * `theme` (single string) is the legacy field still on older items. Read
-   * both via todoHelpers.itemFronts, never either field directly. */
+  /** Front ids (fronts.json) — a to-do can sit on several life fronts at
+   * once. Absent or empty = untagged. Read via todoHelpers.itemFronts. */
   fronts?: string[] | null;
   duration_min?: number | null;
   done_at?: string | null;

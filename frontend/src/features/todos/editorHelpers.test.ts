@@ -15,7 +15,7 @@ function sections(): TodoSection[] {
       name: 'Now',
       manual_order: false,
       items: [
-        item('a', { text: 'Call the pharmacy', theme: 'health', notes: 'ask about refills' }),
+        item('a', { text: 'Call the pharmacy', fronts: ['health', 'errands'], notes: 'ask about refills' }),
         item('b', { text: 'Snoozed thing', snoozed_until: '2026-07-12' }),
       ],
     },
@@ -76,12 +76,14 @@ describe('filterEditorTodos', () => {
     const out = filterEditorTodos(flattenAllTodos(sections(), TODAY), filters({ search: 'refills' }));
     expect(out.map((e) => e.item.id)).toEqual(['a']);
   });
-  it('filters by focus theme', () => {
-    const out = filterEditorTodos(flattenAllTodos(sections(), TODAY), filters({ theme: 'health' }));
-    expect(out.map((e) => e.item.id)).toEqual(['a']);
+  it('filters by front — a multi-front item matches each of its fronts', () => {
+    const flat = flattenAllTodos(sections(), TODAY);
+    expect(filterEditorTodos(flat, filters({ front: 'health' })).map((e) => e.item.id)).toEqual(['a']);
+    expect(filterEditorTodos(flat, filters({ front: 'errands' })).map((e) => e.item.id)).toEqual(['a']);
+    expect(filterEditorTodos(flat, filters({ front: 'job' })).map((e) => e.item.id)).toEqual([]);
   });
-  it('__none__ theme matches only untagged items', () => {
-    const out = filterEditorTodos(flattenAllTodos(sections(), TODAY), filters({ theme: '__none__' }));
+  it('__none__ front matches only untagged items', () => {
+    const out = filterEditorTodos(flattenAllTodos(sections(), TODAY), filters({ front: '__none__' }));
     expect(out.map((e) => e.item.id)).toEqual(['b', 'c', 'd', 'e']);
   });
   it('filters by status', () => {
@@ -98,7 +100,7 @@ describe('filterEditorTodos', () => {
   it('returns nothing when the combo matches nothing', () => {
     const out = filterEditorTodos(
       flattenAllTodos(sections(), TODAY),
-      filters({ section: 'Later', theme: 'health' }),
+      filters({ section: 'Later', front: 'health' }),
     );
     expect(out).toEqual([]);
   });

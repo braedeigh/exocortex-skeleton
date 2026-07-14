@@ -38,7 +38,7 @@ export function TodoEditorPage() {
 
   const [search, setSearch] = useState('');
   const [sectionFilter, setSectionFilter] = useState('');
-  const [themeFilter, setThemeFilter] = useState('');
+  const [frontFilter, setFrontFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [selecting, setSelecting] = useState(false);
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(() => new Set());
@@ -58,10 +58,10 @@ export function TodoEditorPage() {
       filterEditorTodos(entries, {
         section: sectionFilter,
         search,
-        theme: themeFilter,
+        front: frontFilter,
         status: statusFilter,
       }),
-    [entries, sectionFilter, search, themeFilter, statusFilter],
+    [entries, sectionFilter, search, frontFilter, statusFilter],
   );
 
   const todoIndex = useMemo(() => buildTodoIndex(sections), [sections]);
@@ -204,8 +204,8 @@ export function TodoEditorPage() {
       <div className={styles.selects}>
         <select
           className={styles.select}
-          value={themeFilter}
-          onChange={(e) => setThemeFilter(e.target.value)}
+          value={frontFilter}
+          onChange={(e) => setFrontFilter(e.target.value)}
           aria-label="Filter by focus"
         >
           <option value="">Focus: any</option>

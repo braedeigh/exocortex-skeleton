@@ -16,7 +16,7 @@ import {
   isOverdue,
   isSnoozed,
   isWaiting,
-  withFocusTheme,
+  withFocusFront,
 } from './todoHelpers';
 import { frontLabel } from '../fronts/useFronts';
 import type { Front } from '../fronts/useFronts';
@@ -59,41 +59,40 @@ describe('isSnoozed', () => {
 });
 
 describe('focusMatch', () => {
-  it('matches everything when theme is empty', () => {
-    expect(focusMatch(item({ theme: 'job' }), '')).toBe(true);
+  it('matches everything when the filter is empty', () => {
+    expect(focusMatch(item({ fronts: ['job'] }), '')).toBe(true);
   });
-  it('__none__ matches only untagged items', () => {
-    expect(focusMatch(item({ theme: undefined }), '__none__')).toBe(true);
-    expect(focusMatch(item({ theme: 'job' }), '__none__')).toBe(false);
-  });
-  it('matches an exact theme', () => {
-    expect(focusMatch(item({ theme: 'job' }), 'job')).toBe(true);
-    expect(focusMatch(item({ theme: 'health' }), 'job')).toBe(false);
-  });
-  it('reads the fronts list (the live contract) too', () => {
-    expect(focusMatch(item({ fronts: ['job', 'health'] }), 'job')).toBe(true);
-    expect(focusMatch(item({ fronts: ['health'] }), 'job')).toBe(false);
+  it('__none__ matches only untagged items (absent or empty fronts)', () => {
+    expect(focusMatch(item({ fronts: undefined }), '__none__')).toBe(true);
     expect(focusMatch(item({ fronts: [] }), '__none__')).toBe(true);
     expect(focusMatch(item({ fronts: ['job'] }), '__none__')).toBe(false);
   });
+  it('matches list membership — a multi-front item matches each of its fronts', () => {
+    expect(focusMatch(item({ fronts: ['job'] }), 'job')).toBe(true);
+    expect(focusMatch(item({ fronts: ['health'] }), 'job')).toBe(false);
+    const multi = item({ fronts: ['connection', 'health'] });
+    expect(focusMatch(multi, 'connection')).toBe(true);
+    expect(focusMatch(multi, 'health')).toBe(true);
+    expect(focusMatch(multi, 'job')).toBe(false);
+  });
 });
 
-describe('withFocusTheme', () => {
-  it('stamps the active focus theme onto an add payload', () => {
-    expect(withFocusTheme({ item: 'call Yan', section: 'Now' }, 'job')).toEqual({
+describe('withFocusFront', () => {
+  it('stamps the active focus front onto an add payload as a one-item list', () => {
+    expect(withFocusFront({ item: 'call Yan', section: 'Now' }, 'job')).toEqual({
       item: 'call Yan',
       section: 'Now',
-      theme: 'job',
+      fronts: ['job'],
     });
   });
   it('stamps nothing on All or Other', () => {
     const payload = { item: 'call Yan', section: 'Now' };
-    expect(withFocusTheme(payload, '')).toBe(payload);
-    expect(withFocusTheme(payload, '__none__')).toBe(payload);
+    expect(withFocusFront(payload, '')).toBe(payload);
+    expect(withFocusFront(payload, '__none__')).toBe(payload);
   });
-  it('never overrides an explicit theme', () => {
-    const payload = { item: 'call Yan', section: 'Now', theme: 'health' };
-    expect(withFocusTheme(payload, 'job')).toBe(payload);
+  it('never overrides explicit fronts', () => {
+    const payload = { item: 'call Yan', section: 'Now', fronts: ['health'] };
+    expect(withFocusFront(payload, 'job')).toBe(payload);
   });
 });
 
@@ -160,29 +159,29 @@ describe('gateHides', () => {
   const EVENING = '19:00';
 
   it('no rules = nothing hidden', () => {
-    expect(gateHides(item({ theme: 'job' }), 'Later', undefined, EVENING, TODAY)).toBe(false);
-    expect(gateHides(item({ theme: 'job' }), 'Later', {}, EVENING, TODAY)).toBe(false);
+    expect(gateHides(item({ fronts: ['job'] }), 'Later', undefined, EVENING, TODAY)).toBe(false);
+    expect(gateHides(item({ fronts: ['job'] }), 'Later', {}, EVENING, TODAY)).toBe(false);
   });
   it('job hides in the evening, shows in the morning', () => {
-    expect(gateHides(item({ theme: 'job' }), 'Later', rules, EVENING, TODAY)).toBe(true);
-    expect(gateHides(item({ theme: 'job' }), 'Later', rules, MORNING, TODAY)).toBe(false);
+    expect(gateHides(item({ fronts: ['job'] }), 'Later', rules, EVENING, TODAY)).toBe(true);
+    expect(gateHides(item({ fronts: ['job'] }), 'Later', rules, MORNING, TODAY)).toBe(false);
   });
   it('life stuff (other fronts + untagged fall to *) hides in the morning, shows in the evening', () => {
-    expect(gateHides(item({ theme: 'health' }), 'Later', rules, MORNING, TODAY)).toBe(true);
+    expect(gateHides(item({ fronts: ['health'] }), 'Later', rules, MORNING, TODAY)).toBe(true);
     expect(gateHides(item({}), 'Later', rules, MORNING, TODAY)).toBe(true);
-    expect(gateHides(item({ theme: 'health' }), 'Later', rules, EVENING, TODAY)).toBe(false);
+    expect(gateHides(item({ fronts: ['health'] }), 'Later', rules, EVENING, TODAY)).toBe(false);
   });
   it('the Now section always punches through', () => {
-    expect(gateHides(item({ theme: 'job' }), 'Now', rules, EVENING, TODAY)).toBe(false);
+    expect(gateHides(item({ fronts: ['job'] }), 'Now', rules, EVENING, TODAY)).toBe(false);
   });
   it('overdue and due-today punch through; future due dates do not', () => {
-    expect(gateHides(item({ theme: 'job', due_by: '2026-07-01' }), 'Later', rules, EVENING, TODAY)).toBe(false);
-    expect(gateHides(item({ theme: 'job', due_by: TODAY }), 'Later', rules, EVENING, TODAY)).toBe(false);
-    expect(gateHides(item({ theme: 'job', due_by: '2026-08-01' }), 'Later', rules, EVENING, TODAY)).toBe(true);
+    expect(gateHides(item({ fronts: ['job'], due_by: '2026-07-01' }), 'Later', rules, EVENING, TODAY)).toBe(false);
+    expect(gateHides(item({ fronts: ['job'], due_by: TODAY }), 'Later', rules, EVENING, TODAY)).toBe(false);
+    expect(gateHides(item({ fronts: ['job'], due_by: '2026-08-01' }), 'Later', rules, EVENING, TODAY)).toBe(true);
   });
   it('a front with no window of its own and no * is never hidden', () => {
     const jobOnly = { windows: { job: { start: '06:00', end: '17:00' } } };
-    expect(gateHides(item({ theme: 'health' }), 'Later', jobOnly, MORNING, TODAY)).toBe(false);
+    expect(gateHides(item({ fronts: ['health'] }), 'Later', jobOnly, MORNING, TODAY)).toBe(false);
   });
   it('fronts list: any active window keeps the item visible', () => {
     // job window is active in the morning, so job+health shows even though
@@ -237,21 +236,37 @@ function section(name: string, items: TodoItem[], manual_order = false): TodoSec
 }
 
 describe('computeFocusCounts', () => {
-  it('counts live items by theme, excluding done, snoozed, and the Done section', () => {
+  it('counts live items by front, excluding done, snoozed, and the Done section', () => {
     const sections: TodoSection[] = [
       section('Now', [
-        item({ id: '1', theme: 'job' }),
-        item({ id: '2', theme: 'job', done: true }),
-        item({ id: '3', theme: 'health', snoozed_until: '2026-07-09' }),
+        item({ id: '1', fronts: ['job'] }),
+        item({ id: '2', fronts: ['job'], done: true }),
+        item({ id: '3', fronts: ['health'], snoozed_until: '2026-07-09' }),
         item({ id: '4' }),
       ]),
-      section('Done', [item({ id: '5', theme: 'job', done: true })]),
+      section('Done', [item({ id: '5', fronts: ['job'], done: true })]),
     ];
     const counts = computeFocusCounts(sections, TODAY);
     expect(counts.total).toBe(2);
-    expect(counts.byTheme.job).toBe(1);
+    expect(counts.byFront.job).toBe(1);
     expect(counts.none).toBe(1);
-    expect(counts.byTheme.health).toBeUndefined();
+    expect(counts.byFront.health).toBeUndefined();
+  });
+
+  it('a multi-front item counts once in total but in EVERY front it sits on', () => {
+    const sections: TodoSection[] = [
+      section('Now', [
+        item({ id: 'run-group', fronts: ['connection', 'health'] }),
+        item({ id: 'solo', fronts: ['health'] }),
+      ]),
+    ];
+    const counts = computeFocusCounts(sections, TODAY);
+    expect(counts.total).toBe(2);
+    expect(counts.byFront.connection).toBe(1);
+    expect(counts.byFront.health).toBe(2);
+    expect(counts.none).toBe(0);
+    // Chip counts summing past `total` is intended for multi-front items.
+    expect(counts.byFront.connection + counts.byFront.health).toBeGreaterThan(counts.total);
   });
 });
 

@@ -53,7 +53,7 @@ export interface AddTodoPayload {
   due_time?: string;
   place_id?: string;
   status?: string;
-  theme?: string;
+  fronts?: string[];
   duration_min?: number;
   after_date?: string;
   after_id?: string;
@@ -100,7 +100,7 @@ export type TodoDetailsPatch = Partial<
     | 'due_time'
     | 'place_id'
     | 'status'
-    | 'theme'
+    | 'fronts'
     | 'duration_min'
     | 'after_date'
     | 'after_id'

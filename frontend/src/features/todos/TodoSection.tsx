@@ -18,11 +18,11 @@ export interface TodoSectionProps {
   fronts: Front[];
   defaultOpen?: boolean;
   countMode?: 'remaining' | 'total';
-  /** Current focus-chip filter theme (see FocusChips) — a *change* here (not
+  /** Current focus-chip filter front (see FocusChips) — a *change* here (not
    * the value itself) auto-opens this section when it still has something
-   * in it, so filtering a category surfaces its cards instead of leaving
+   * in it, so filtering a front surfaces its cards instead of leaving
    * them collapsed (dev note 685eb5fa). */
-  focusTheme?: string;
+  focusFront?: string;
   onToggle: (id: string) => void;
   onOpenDetail: (item: TodoItem) => void;
   onSubtaskToggle: (parentId: string, subId: string) => void;
@@ -50,7 +50,7 @@ export function TodoSection({
   fronts,
   defaultOpen = false,
   countMode = 'remaining',
-  focusTheme,
+  focusFront,
   onToggle,
   onOpenDetail,
   onSubtaskToggle,
@@ -74,7 +74,7 @@ export function TodoSection({
   itemsRef.current = items;
   const cleanupRef = useRef<(() => void) | null>(null);
 
-  // Auto-open on a filter change (not on mount — the persisted focusTheme
+  // Auto-open on a filter change (not on mount — the persisted focusFront
   // shouldn't force every non-empty section open on first load, only an
   // actual tap on a focus chip should).
   const mountedRef = useRef(false);
@@ -83,9 +83,9 @@ export function TodoSection({
       mountedRef.current = true;
       return;
     }
-    if (focusTheme && itemsRef.current.length > 0) setOpen(true);
+    if (focusFront && itemsRef.current.length > 0) setOpen(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusTheme]);
+  }, [focusFront]);
 
   // Register once — the getters below always read the latest refs, so other
   // sections can query this one's rows/items mid-drag without re-registering

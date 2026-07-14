@@ -35,24 +35,27 @@ const TITLES: Record<BulkSheetMode, string> = {
 export function BulkSheet({ mode, count, fronts, onClose, onApply }: BulkSheetProps) {
   // Snooze mode's "do after" date.
   const [afterDate, setAfterDate] = useState('');
-  // Tag mode: null = untouched, '' = clear, else the key to set.
-  const [theme, setTheme] = useState<string | null>(UNTOUCHED);
+  // Tag mode: null = untouched, '' = clear, else the key to set. The front
+  // select stays deliberately single-choice in bulk: picking one REPLACES
+  // every selected item's fronts with just it (fronts: [front]), and
+  // "(clear)" sends fronts: []. Per-item multi-tagging lives in DetailSheet.
+  const [front, setFront] = useState<string | null>(UNTOUCHED);
   const [status, setStatus] = useState<string | null>(UNTOUCHED);
 
   // Fresh slate every time the sheet opens (or switches mode).
   useEffect(() => {
     setAfterDate('');
-    setTheme(UNTOUCHED);
+    setFront(UNTOUCHED);
     setStatus(UNTOUCHED);
   }, [mode]);
 
   if (!mode) return null;
 
-  const tagTouched = theme !== UNTOUCHED || status !== UNTOUCHED;
+  const tagTouched = front !== UNTOUCHED || status !== UNTOUCHED;
 
   function applyTag() {
     const patch: TodoDetailsPatch = {};
-    if (theme !== UNTOUCHED) patch.theme = theme;
+    if (front !== UNTOUCHED) patch.fronts = front === '' ? [] : [front];
     if (status !== UNTOUCHED) patch.status = status;
     onApply({ action: 'details', patch });
   }
@@ -128,8 +131,8 @@ export function BulkSheet({ mode, count, fronts, onClose, onApply }: BulkSheetPr
             <select
               id="bulk-focus"
               className={styles.select}
-              value={theme === UNTOUCHED ? '__untouched__' : theme}
-              onChange={(e) => setTheme(e.target.value === '__untouched__' ? UNTOUCHED : e.target.value)}
+              value={front === UNTOUCHED ? '__untouched__' : front}
+              onChange={(e) => setFront(e.target.value === '__untouched__' ? UNTOUCHED : e.target.value)}
             >
               <option value="__untouched__">Leave as is</option>
               <option value="">(clear)</option>

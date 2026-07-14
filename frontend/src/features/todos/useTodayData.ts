@@ -204,7 +204,7 @@ export function useTodoActions(onError: (message: string) => void) {
         notes: payload.notes || null,
         place_id: payload.place_id || null,
         status: payload.status || null,
-        theme: payload.theme || null,
+        fronts: payload.fronts || [],
         duration_min: payload.duration_min || null,
         after_date: payload.after_date || null,
         after_id: payload.after_id || null,
