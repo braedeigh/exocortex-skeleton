@@ -1,0 +1,178 @@
+/* ThreadsPage — the dedicated /threads view. Page chrome mirrors
+   PeoplePage.module.css; the fact-card styles inside a thread body mirror
+   ThreadPopover.module.css so a thread reads the same on the page as in
+   the journal popover. */
+
+.page {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--space-4);
+  padding-bottom: var(--space-8);
+}
+
+.title {
+  font-size: var(--font-size-2xl);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  margin: 0 0 var(--space-4);
+}
+
+.empty {
+  color: var(--text-muted);
+  font-size: var(--font-size-base);
+  padding: var(--space-4) 0;
+}
+
+/* One thread: a collapsible card, header always tappable. */
+.threadCard {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--space-3);
+  overflow: hidden;
+}
+
+.threadHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: var(--tap-target);
+  padding: var(--space-2) var(--space-3);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  box-sizing: border-box;
+}
+
+.threadName {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.chevron {
+  color: var(--text-muted);
+  font-size: var(--font-size-base);
+}
+
+.body {
+  padding: 0 var(--space-3) var(--space-3);
+}
+
+.bodyNote {
+  color: var(--text-muted);
+  font-size: var(--font-size-base);
+  padding: 0 var(--space-3) var(--space-3);
+}
+
+.status {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  margin-bottom: var(--space-3);
+}
+
+/* "## Heading" section label above its run of fact-cards. */
+.section {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin: var(--space-3) 0 var(--space-2);
+}
+
+.section:first-child {
+  margin-top: 0;
+}
+
+.factCard {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.factText {
+  font-size: var(--font-size-base);
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.sourceChip {
+  display: inline-flex;
+  align-items: center;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-1) var(--space-3);
+  min-height: var(--tap-target);
+  color: var(--accent);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  text-decoration: none;
+  box-sizing: border-box;
+}
+
+.sourceChip:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+/* Secondary (outline) action — same pair as ThreadPopover's buttons. */
+.talkBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: var(--tap-target);
+  margin-top: var(--space-3);
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-lg);
+  color: var(--accent);
+  font-size: var(--font-size-base);
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.talkBtn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+.talkBtn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.openFull {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: var(--tap-target);
+  margin-top: var(--space-2);
+  background: var(--accent);
+  border-radius: var(--radius-lg);
+  color: #fff;
+  font-size: var(--font-size-base);
+  font-weight: 700;
+  text-decoration: none;
+  box-sizing: border-box;
+}

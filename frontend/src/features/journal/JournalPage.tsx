@@ -280,7 +280,7 @@ export function JournalPage() {
         onOpenDevNotes={() => setDevNotesOpen(true)}
       />
 
-      <JournalRail onOpenPerson={setPopoverSlug} onOpenThread={setThreadPopoverId} onError={push} />
+      <JournalRail onOpenPerson={setPopoverSlug} onError={push} />
 
       <div
         className={`${styles.body} ${mode === 'cards' ? styles.bodyCards : ''}`}

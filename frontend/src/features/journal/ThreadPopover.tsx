@@ -1,14 +1,11 @@
 import { Fragment, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { Sheet } from '../../ui';
-import { api } from '../../api/client';
 import { DESKTOP_QUERY } from '../../shell/useMediaQuery';
+import { sendThreadToChat, talkLabel, type TalkState } from './threadTalk';
 import { useThread } from './useJournalData';
 import type { ThreadSource } from './types';
 import styles from './ThreadPopover.module.css';
-
-/** Where the "Talk about this" send lands — the Keeper's session. */
-const TALK_SESSION = 'chat';
 
 export interface ThreadPopoverProps {
   /** Thread id (slug) to show, or null when closed. */
@@ -29,7 +26,7 @@ export interface ThreadPopoverProps {
 export function ThreadPopover({ id, onClose, onNavigateDate }: ThreadPopoverProps) {
   const { data, isLoading, isError } = useThread(id);
   const navigate = useNavigate();
-  const [talkState, setTalkState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
+  const [talkState, setTalkState] = useState<TalkState>('idle');
 
   if (!id) return null;
 
@@ -41,24 +38,20 @@ export function ThreadPopover({ id, onClose, onNavigateDate }: ThreadPopoverProp
   }
 
   /**
-   * Type `/thread <id>` into the Keeper's tmux session — the vault-side
-   * slash command (claude-commands/thread.md) has the session read the
-   * thread file plus every source it links, then open a conversation.
-   * Slash commands are exempt from journal capture (routes/terminal.py),
-   * so this boilerplate is never minted as her words. On mobile, jump to
-   * the Chat tab; on desktop the terminal is already docked in the split
-   * pane (and /chat would bounce to '/'), so stay put and show "sent".
+   * Send `/thread <id>` to the Keeper's session (threadTalk.ts). On mobile,
+   * jump to the Chat tab; on desktop the terminal is already docked in the
+   * split pane (and /chat would bounce to '/'), so stay put and show "sent".
    */
   async function talkAboutThread() {
     if (talkState === 'sending') return;
     setTalkState('sending');
     try {
-      await api.post('/api/terminal/send', { text: `/thread ${id}`, enter: true, session: TALK_SESSION });
+      await sendThreadToChat(id!);
       if (window.matchMedia(DESKTOP_QUERY).matches) {
         setTalkState('sent');
       } else {
         onClose();
-        navigate({ to: '/chat' });
+        void navigate({ to: '/chat' });
       }
     } catch {
       setTalkState('error');
@@ -117,13 +110,7 @@ export function ThreadPopover({ id, onClose, onNavigateDate }: ThreadPopoverProp
               onClick={talkAboutThread}
               disabled={talkState === 'sending'}
             >
-              {talkState === 'sending'
-                ? 'Sending…'
-                : talkState === 'sent'
-                  ? 'Sent to chat ✓'
-                  : talkState === 'error'
-                    ? 'Couldn’t reach the terminal — tap to retry'
-                    : '💬 Talk about this thread'}
+              {talkLabel(talkState)}
             </button>
           ) : null}
 
