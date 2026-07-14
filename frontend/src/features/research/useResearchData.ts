@@ -20,12 +20,17 @@ import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tansta
 import * as apiR from './api';
 import { researchErrorMessage } from './api';
 import { anySessionInFlight } from './helpers';
+import { FRONTS_KEY, useFronts } from '../fronts/useFronts';
 import type { Annotation, AnnotationContent, Entry, ResearchBlob, ResearchState } from './types';
+
+// Re-exported for the research files that import the fronts query from here
+// (ThreadView.tsx, ThreadsDirectory.tsx) — the hook itself now lives in the
+// shared features/fronts module (see the header comment there).
+export { FRONTS_KEY, useFronts };
 
 export const RESEARCH_KEY = ['research'] as const;
 export const LIBRARY_KEY = ['research', 'library'] as const;
 export const TEXTS_KEY = ['research', 'texts'] as const;
-export const FRONTS_KEY = ['fronts'] as const;
 export const annotationsKey = (doc: string) => ['annotations', doc] as const;
 export const docTextKey = (doc: string) => ['annotations', 'doc-text', doc] as const;
 
@@ -71,14 +76,6 @@ export function useDocTexts() {
   return useQuery({
     queryKey: TEXTS_KEY,
     queryFn: async ({ signal }) => (await apiR.getDocTexts(signal)).docs ?? [],
-  });
-}
-
-/** The shared fronts vocabulary (routes/fronts.py) — rarely changes, no polling. */
-export function useFronts() {
-  return useQuery({
-    queryKey: FRONTS_KEY,
-    queryFn: async ({ signal }) => (await apiR.getFronts(signal)).fronts ?? [],
   });
 }
 

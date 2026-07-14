@@ -203,7 +203,6 @@ export function useTodoActions(onError: (message: string) => void) {
         due_time: payload.due_time || null,
         notes: payload.notes || null,
         place_id: payload.place_id || null,
-        category: payload.category || null,
         status: payload.status || null,
         theme: payload.theme || null,
         duration_min: payload.duration_min || null,

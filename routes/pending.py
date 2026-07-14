@@ -22,6 +22,11 @@ _EMPTY = {"pending": []}
 # The validated write tool. Lives in this same repo under tools/.
 ADD_TODO_BIN = Path(__file__).resolve().parent.parent / "tools" / "add-todo" / "target" / "release" / "add-todo"
 
+# Life-todo tags are front ids (fronts.json) since 2026-07-14. Staged payloads
+# may still carry the pre-fronts theme vocabulary — translate at the gate.
+# life/admin were junk-drawer tags: they map to untagged, not to a front.
+_LEGACY_FRONTS = {"life": None, "admin": None, "move": "living-space"}
+
 
 def _commit(change):
     """Apply an approved change to the real dashboard data. Raises on failure
@@ -37,11 +42,15 @@ def _commit(change):
         if payload.get("source"):
             cmd += ["--source", payload["source"]]
     elif kind == "life_todo":
+        front = (payload.get("category") or "").strip() or None
+        if front in _LEGACY_FRONTS:
+            front = _LEGACY_FRONTS[front]
         cmd = [str(ADD_TODO_BIN), "life",
                "--text", payload["text"],
                "--bucket", payload.get("bucket", "now"),
-               "--category", payload.get("category", "life"),
                "--data-dir", data_dir]
+        if front:
+            cmd += ["--category", front]
     elif kind == "life_remove":
         cmd = [str(ADD_TODO_BIN), "life", "--remove",
                "--id", payload["id"],

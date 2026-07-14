@@ -1,28 +1,29 @@
 import { useRef, useState } from 'react';
 import type { FocusEvent, FormEvent } from 'react';
 import { Button } from '../../ui';
-import { LADDER_LABELS, TODO_CATEGORIES, categoryLabel, themeLabel } from './todoHelpers';
+import { frontLabel } from '../fronts/useFronts';
+import type { Front } from '../fronts/useFronts';
+import { LADDER_LABELS } from './todoHelpers';
 import styles from './AddBar.module.css';
 
 export interface AddBarProps {
-  onAdd: (payload: { item: string; section: string; due_by?: string; category?: string }) => void;
+  onAdd: (payload: { item: string; section: string; due_by?: string }) => void;
   /** Active focus filter — the page stamps it onto the add, so show it. */
   focusTheme?: string;
+  fronts: Front[];
 }
 
 /**
  * Inline quick-add — the text field spans the full column width on its own
- * row; the section/category/due controls only appear below it once the
- * field is focused or has text in it, rather than sitting there permanently
- * (dev note 3621915a). Collapses back once it's blurred with nothing typed.
+ * row; the section/due controls only appear below it once the field is
+ * focused or has text in it, rather than sitting there permanently (dev note
+ * 3621915a). Collapses back once it's blurred with nothing typed.
  */
-export function AddBar({ onAdd, focusTheme }: AddBarProps) {
+export function AddBar({ onAdd, focusTheme, fronts }: AddBarProps) {
   const [text, setText] = useState('');
   const [section, setSection] = useState<string>('Now');
   const [showDue, setShowDue] = useState(false);
   const [dueBy, setDueBy] = useState('');
-  const [category, setCategory] = useState('');
-  const [showCategory, setShowCategory] = useState(false);
   const [focused, setFocused] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
 
@@ -36,20 +37,17 @@ export function AddBar({ onAdd, focusTheme }: AddBarProps) {
       item: trimmed,
       section,
       due_by: showDue && dueBy ? dueBy : undefined,
-      category: category || undefined,
     });
     setText('');
     setDueBy('');
     setShowDue(false);
-    setCategory('');
-    setShowCategory(false);
     setFocused(false);
   }
 
   function handleBlur(e: FocusEvent<HTMLFormElement>) {
     // Collapse only once focus has left the whole form (a tap on the select/
-    // date/category controls below blurs the input first, but the new
-    // target is still inside formRef) — and only if there's nothing typed.
+    // date controls below blurs the input first, but the new target is
+    // still inside formRef) — and only if there's nothing typed.
     if (!formRef.current?.contains(e.relatedTarget as Node | null)) {
       setFocused(false);
     }
@@ -60,14 +58,14 @@ export function AddBar({ onAdd, focusTheme }: AddBarProps) {
       {/* Single-line field — Enter already submits the form natively (no
           textarea/multiline mode here, so there's no Shift+Enter case to
           handle). Add sits on the same line as the field once it's active;
-          the section/category/due details stay on the row below. */}
+          the section/due details stay on the row below. */}
       <div className={styles.topRow}>
         <input
           className={styles.input}
           type="text"
           placeholder={
             focusTheme && focusTheme !== '__none__'
-              ? `Add a to-do… → ${themeLabel(focusTheme)}`
+              ? `Add a to-do… → ${frontLabel(fronts, focusTheme)}`
               : 'Add a to-do…'
           }
           value={text}
@@ -87,15 +85,6 @@ export function AddBar({ onAdd, focusTheme }: AddBarProps) {
           </select>
           <button
             type="button"
-            className={`${styles.iconToggle} ${category ? styles.active : ''}`}
-            onClick={() => setShowCategory((v) => !v)}
-            title="Category"
-            aria-label={category ? `Category: ${categoryLabel(category)}` : 'Set category'}
-          >
-            🏷️
-          </button>
-          <button
-            type="button"
             className={`${styles.iconToggle} ${showDue ? styles.active : ''}`}
             onClick={() => setShowDue((v) => !v)}
             title="Due date"
@@ -109,23 +98,6 @@ export function AddBar({ onAdd, focusTheme }: AddBarProps) {
               value={dueBy}
               onChange={(e) => setDueBy(e.target.value)}
             />
-          ) : null}
-          {showCategory ? (
-            <div className={styles.categoryRow}>
-              {TODO_CATEGORIES.map((c) => (
-                <button
-                  type="button"
-                  key={c.key}
-                  className={`${styles.categoryChip} ${category === c.key ? styles.active : ''}`}
-                  onClick={() => {
-                    setCategory((cur) => (cur === c.key ? '' : c.key));
-                    setShowCategory(false);
-                  }}
-                >
-                  {c.label}
-                </button>
-              ))}
-            </div>
           ) : null}
         </div>
       ) : null}

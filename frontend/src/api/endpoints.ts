@@ -52,7 +52,6 @@ export interface AddTodoPayload {
   notes?: string;
   due_time?: string;
   place_id?: string;
-  category?: string;
   status?: string;
   theme?: string;
   duration_min?: number;
@@ -100,7 +99,6 @@ export type TodoDetailsPatch = Partial<
     | 'due_by'
     | 'due_time'
     | 'place_id'
-    | 'category'
     | 'status'
     | 'theme'
     | 'duration_min'

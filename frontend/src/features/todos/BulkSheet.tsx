@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Button, Sheet } from '../../ui';
-import { LADDER_LABELS, TODO_CATEGORIES, TODO_STATUSES, TODO_THEMES } from './todoHelpers';
+import { FRONT_EMOJI } from '../fronts/useFronts';
+import type { Front } from '../fronts/useFronts';
+import { LADDER_LABELS, TODO_STATUSES } from './todoHelpers';
 import type { BulkTodoAction, TodoDetailsPatch } from '../../api/endpoints';
 import styles from './BulkSheet.module.css';
 
@@ -11,6 +13,7 @@ export interface BulkSheetProps {
   mode: BulkSheetMode | null;
   /** How many to-dos are selected (title only). */
   count: number;
+  fronts: Front[];
   onClose: () => void;
   onApply: (action: BulkTodoAction) => void;
 }
@@ -20,7 +23,7 @@ const SNOOZE_WEEKS = [1, 2, 3, 4];
 
 /** Sentinel for the tag selects/chips: "leave this field as it is" — only
  * touched fields make it into the patch (so bulk-tagging a focus doesn't
- * blank everyone's category/status). '' means "clear the field". */
+ * blank everyone's status). '' means "clear the field". */
 const UNTOUCHED = null;
 
 const TITLES: Record<BulkSheetMode, string> = {
@@ -29,30 +32,27 @@ const TITLES: Record<BulkSheetMode, string> = {
   move: 'Move',
 };
 
-export function BulkSheet({ mode, count, onClose, onApply }: BulkSheetProps) {
+export function BulkSheet({ mode, count, fronts, onClose, onApply }: BulkSheetProps) {
   // Snooze mode's "do after" date.
   const [afterDate, setAfterDate] = useState('');
   // Tag mode: null = untouched, '' = clear, else the key to set.
   const [theme, setTheme] = useState<string | null>(UNTOUCHED);
-  const [category, setCategory] = useState<string | null>(UNTOUCHED);
   const [status, setStatus] = useState<string | null>(UNTOUCHED);
 
   // Fresh slate every time the sheet opens (or switches mode).
   useEffect(() => {
     setAfterDate('');
     setTheme(UNTOUCHED);
-    setCategory(UNTOUCHED);
     setStatus(UNTOUCHED);
   }, [mode]);
 
   if (!mode) return null;
 
-  const tagTouched = theme !== UNTOUCHED || category !== UNTOUCHED || status !== UNTOUCHED;
+  const tagTouched = theme !== UNTOUCHED || status !== UNTOUCHED;
 
   function applyTag() {
     const patch: TodoDetailsPatch = {};
     if (theme !== UNTOUCHED) patch.theme = theme;
-    if (category !== UNTOUCHED) patch.category = category;
     if (status !== UNTOUCHED) patch.status = status;
     onApply({ action: 'details', patch });
   }
@@ -133,35 +133,12 @@ export function BulkSheet({ mode, count, onClose, onApply }: BulkSheetProps) {
             >
               <option value="__untouched__">Leave as is</option>
               <option value="">(clear)</option>
-              {TODO_THEMES.map((t) => (
-                <option key={t.key} value={t.key}>
-                  {t.emoji} {t.label}
+              {fronts.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {FRONT_EMOJI[f.id] || '🏷️'} {f.name}
                 </option>
               ))}
             </select>
-          </div>
-
-          <div className={styles.field}>
-            <span className={styles.label}>Category</span>
-            <div className={styles.chipRow}>
-              <button
-                type="button"
-                className={`${styles.chip} ${category === '' ? styles.active : ''}`}
-                onClick={() => setCategory((cur) => (cur === '' ? UNTOUCHED : ''))}
-              >
-                (clear)
-              </button>
-              {TODO_CATEGORIES.map((c) => (
-                <button
-                  type="button"
-                  key={c.key}
-                  className={`${styles.chip} ${category === c.key ? styles.active : ''}`}
-                  onClick={() => setCategory((cur) => (cur === c.key ? UNTOUCHED : c.key))}
-                >
-                  {c.label}
-                </button>
-              ))}
-            </div>
           </div>
 
           <div className={styles.field}>

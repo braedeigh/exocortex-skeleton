@@ -25,7 +25,6 @@ export interface TodoItem {
   due_time?: string | null;
   notes?: string | null;
   place_id?: string | null;
-  category?: string | null;
   status?: string | null;
   theme?: string | null;
   duration_min?: number | null;

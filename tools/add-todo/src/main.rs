@@ -2,7 +2,8 @@
 //!
 //! Two lists, two subcommands:
 //!   add-todo build --text "fix × buttons" --theme body     # dev build queue (build_todos.json)
-//!   add-todo life  --text "get a haircut" --bucket now      # life to-do list (todos.json — the Today tab)
+//!   add-todo life  --text "get a haircut" --bucket now --category appearance
+//!                                                            # life to-do list (todos.json — the Today tab)
 //!
 //! Add --stage to either to drop it into the approval queue (pending_changes.json)
 //! instead of committing — the dashboard modal then approves or denies it. The
@@ -60,9 +61,9 @@ struct LifeArgs {
     /// Which priority bucket on the ladder
     #[arg(long, value_enum, default_value = "now")]
     bucket: Bucket,
-    /// Category tag
-    #[arg(long, value_enum, default_value = "life")]
-    category: Category,
+    /// Front tag (life-domain, ids from fronts.json); omit to leave untagged
+    #[arg(long, value_enum)]
+    category: Option<Category>,
     /// Remove an existing item instead of adding one (needs --id)
     #[arg(long)]
     remove: bool,
@@ -105,12 +106,22 @@ impl Bucket {
     }
 }
 
+// The fronts vocabulary (fronts.json). CLI value == front id, so kebab-case
+// (living-space). Stored on the to-do as its `theme` field.
 #[derive(Clone, ValueEnum)]
-#[value(rename_all = "snake_case")]
-enum Category { Life, Job }
+#[value(rename_all = "kebab-case")]
+enum Category {
+    Health, Appearance, Finances, LivingSpace,
+    Job, Hobbies, Learning, Exocortex,
+}
 impl Category {
     fn as_key(&self) -> &'static str {
-        match self { Category::Life => "life", Category::Job => "job" }
+        match self {
+            Category::Health => "health", Category::Appearance => "appearance",
+            Category::Finances => "finances", Category::LivingSpace => "living-space",
+            Category::Job => "job", Category::Hobbies => "hobbies",
+            Category::Learning => "learning", Category::Exocortex => "exocortex",
+        }
     }
 }
 
@@ -244,7 +255,7 @@ fn run_life(args: LifeArgs) -> Result<(), Box<dyn Error>> {
     }
     let id = new_id();
     let bucket = args.bucket.as_key();
-    let category = args.category.as_key();
+    let category = args.category.as_ref().map(|c| c.as_key());
 
     if args.stage {
         let path = data_dir.join("pending_changes.json");
@@ -268,13 +279,15 @@ fn run_life(args: LifeArgs) -> Result<(), Box<dyn Error>> {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => serde_json::json!({}),
             Err(e) => return Err(e.into()),
         };
-        let entry = serde_json::json!({
+        let mut entry = serde_json::json!({
             "id": id,
             "text": text,
             "done": false,
             "created": stamp_day(),     // life todos use a date-only stamp, like the others
-            "theme": category,
         });
+        if let Some(front) = category {
+            entry["theme"] = serde_json::json!(front); // absent = untagged, like the app
+        }
         let obj = root.as_object_mut().ok_or("todos.json is not a JSON object")?;
         let bucket_val = obj
             .entry(bucket.to_string())

@@ -1,5 +1,7 @@
 import { Checkbox } from '../../ui';
-import { categoryLabel, fmtAddedDate, isOverdue, statusLabel, themeLabel } from './todoHelpers';
+import { frontLabel } from '../fronts/useFronts';
+import type { Front } from '../fronts/useFronts';
+import { fmtAddedDate, isOverdue, statusLabel } from './todoHelpers';
 import type { TodoItem } from './types';
 import styles from './EditorRow.module.css';
 
@@ -7,6 +9,7 @@ export interface EditorRowProps {
   item: TodoItem;
   section: string;
   serverDate: string;
+  fronts: Front[];
   snoozed: boolean;
   waiting: boolean;
   /** Select mode: the checkbox becomes the selection mark and the whole row
@@ -22,6 +25,7 @@ export function EditorRow({
   item,
   section,
   serverDate,
+  fronts,
   snoozed,
   waiting,
   selecting,
@@ -65,8 +69,7 @@ export function EditorRow({
               {fmtAddedDate(item.due_by)}
             </span>
           ) : null}
-          {item.theme ? <span className={styles.chip}>{themeLabel(item.theme)}</span> : null}
-          {item.category ? <span className={styles.chip}>{categoryLabel(item.category)}</span> : null}
+          {item.theme ? <span className={styles.chip}>{frontLabel(fronts, item.theme)}</span> : null}
           {item.status && !item.done ? <span className={styles.chip}>{statusLabel(item.status)}</span> : null}
           {snoozed ? (
             <span className={styles.chip}>&#128164; until {fmtAddedDate(item.snoozed_until)}</span>

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, Sheet } from '../../ui';
 import { BlockerPicker } from './BlockerPicker';
-import { LADDER_LABELS, TODO_CATEGORIES } from './todoHelpers';
+import { LADDER_LABELS } from './todoHelpers';
 import type { AddTodoPayload } from '../../api/endpoints';
 import type { TodoItem } from './types';
 import styles from './AddTodoSheet.module.css';
@@ -19,14 +19,13 @@ export interface AddTodoSheetProps {
  * Per-section "+ add" modal — port of openAddTodoModal (core.js): opens
  * preset to the bucket whose header button was tapped, with the section
  * still switchable in a picker. Trimmed to the fields the quick-add flow
- * actually used (text, description, due date, category); the full attribute
- * set stays one tap away in the DetailSheet after adding.
+ * actually used (text, description, due date); the full attribute set stays
+ * one tap away in the DetailSheet after adding.
  */
 export function AddTodoSheet({ section, candidates, onClose, onAdd }: AddTodoSheetProps) {
   const [text, setText] = useState('');
   const [notes, setNotes] = useState('');
   const [dueBy, setDueBy] = useState('');
-  const [category, setCategory] = useState('');
   const [afterDate, setAfterDate] = useState('');
   const [afterId, setAfterId] = useState('');
   const [target, setTarget] = useState<string>(LADDER_LABELS[0]);
@@ -40,7 +39,6 @@ export function AddTodoSheet({ section, candidates, onClose, onAdd }: AddTodoShe
     setText('');
     setNotes('');
     setDueBy('');
-    setCategory('');
     setAfterDate('');
     setAfterId('');
     setTarget(section);
@@ -60,7 +58,6 @@ export function AddTodoSheet({ section, candidates, onClose, onAdd }: AddTodoShe
       section: target,
       notes: notes.trim() || undefined,
       due_by: dueBy || undefined,
-      category: category || undefined,
       after_date: afterDate || undefined,
       after_id: afterId || undefined,
     });
@@ -131,22 +128,6 @@ export function AddTodoSheet({ section, candidates, onClose, onAdd }: AddTodoShe
             aria-label="Do after date"
           />
           <BlockerPicker candidates={candidates} value={afterId} onChange={setAfterId} />
-        </div>
-
-        <div className={styles.field}>
-          <span className={styles.label}>Category</span>
-          <div className={styles.chips}>
-            {TODO_CATEGORIES.map((c) => (
-              <button
-                type="button"
-                key={c.key}
-                className={`${styles.chip} ${category === c.key ? styles.active : ''}`}
-                onClick={() => setCategory((cur) => (cur === c.key ? '' : c.key))}
-              >
-                {c.label}
-              </button>
-            ))}
-          </div>
         </div>
 
         <div className={styles.field}>

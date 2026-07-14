@@ -1,38 +1,6 @@
 import type { AddTodoPayload } from '../../api/endpoints';
 import type { TodoItem, TodoSection } from './types';
 
-export interface TodoThemeDef {
-  key: string;
-  label: string;
-  emoji: string;
-}
-
-export const TODO_THEMES: TodoThemeDef[] = [
-  { key: 'move', label: 'Move', emoji: '🏠' },
-  { key: 'job', label: 'Job', emoji: '💼' },
-  { key: 'health', label: 'Health', emoji: '🩺' },
-  { key: 'admin', label: 'Admin', emoji: '📋' },
-  { key: 'life', label: 'Life', emoji: '🌱' },
-  { key: 'exocortex', label: 'Exocortex', emoji: '🧠' },
-];
-
-export interface TodoCategoryDef {
-  key: string;
-  label: string;
-}
-
-export const TODO_CATEGORIES: TodoCategoryDef[] = [
-  { key: 'body', label: 'Body' },
-  { key: 'kitchen', label: 'Kitchen' },
-  { key: 'money', label: 'Money' },
-  { key: 'car', label: 'Car' },
-  { key: 'inventory', label: 'Inventory' },
-  { key: 'meditation', label: 'Meditation' },
-  { key: 'media', label: 'Media' },
-  { key: 'movement', label: 'Movement' },
-  { key: 'map', label: 'Life Map' },
-];
-
 export interface TodoStatusDef {
   key: string;
   label: string;
@@ -46,17 +14,6 @@ export const TODO_STATUSES: TodoStatusDef[] = [
 
 export const LADDER_LABELS = ['Now', 'Up Next', 'Later', 'Someday'] as const;
 export const DONE_LABEL = 'Done';
-
-export function themeLabel(key: string | null | undefined): string {
-  if (key === '__none__') return '🏷️ Other';
-  const t = TODO_THEMES.find((x) => x.key === key);
-  return t ? `${t.emoji} ${t.label}` : key || '';
-}
-
-export function categoryLabel(key: string | null | undefined): string {
-  const c = TODO_CATEGORIES.find((x) => x.key === key);
-  return c ? c.label : key || '';
-}
 
 export function statusLabel(key: string | null | undefined): string {
   const s = TODO_STATUSES.find((x) => x.key === key);

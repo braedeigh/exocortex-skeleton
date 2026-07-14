@@ -7,7 +7,8 @@
  */
 import { useRef, useState } from 'react';
 import { Button } from '../../ui';
-import { LADDER_LABELS, TODO_CATEGORIES, TODO_STATUSES, TODO_THEMES } from '../todos/todoHelpers';
+import { FRONT_EMOJI, useFronts } from '../fronts/useFronts';
+import { LADDER_LABELS, TODO_STATUSES } from '../todos/todoHelpers';
 import { addTodo, removeTodo } from './api';
 import { payloadRecord } from './shared';
 import { buildTodoAdd, todoDraftFromPayload, todoFinalForLedger } from './todoApproval';
@@ -19,6 +20,8 @@ export function TodoApprovalEditor({ change, busy, onApprove, onDeny }: Approval
   const [draft, setDraft] = useState<TodoDraft>(() => todoDraftFromPayload(payloadRecord(change)));
   const [error, setError] = useState('');
   const textRef = useRef<HTMLTextAreaElement>(null);
+  const frontsQuery = useFronts();
+  const fronts = frontsQuery.data ?? [];
 
   function set<K extends keyof TodoDraft>(key: K, value: TodoDraft[K]) {
     setDraft((d) => ({ ...d, [key]: value }));
@@ -136,30 +139,14 @@ export function TodoApprovalEditor({ change, busy, onApprove, onDeny }: Approval
       <div className={styles.field}>
         <span className={styles.label}>Theme</span>
         <div className={styles.chips}>
-          {TODO_THEMES.map((t) => (
+          {fronts.map((f) => (
             <button
               type="button"
-              key={t.key}
-              className={`${styles.chip} ${draft.theme === t.key ? styles.active : ''}`}
-              onClick={() => set('theme', draft.theme === t.key ? '' : t.key)}
+              key={f.id}
+              className={`${styles.chip} ${draft.theme === f.id ? styles.active : ''}`}
+              onClick={() => set('theme', draft.theme === f.id ? '' : f.id)}
             >
-              {t.emoji} {t.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className={styles.field}>
-        <span className={styles.label}>Category</span>
-        <div className={styles.chips}>
-          {TODO_CATEGORIES.map((c) => (
-            <button
-              type="button"
-              key={c.key}
-              className={`${styles.chip} ${draft.category === c.key ? styles.active : ''}`}
-              onClick={() => set('category', draft.category === c.key ? '' : c.key)}
-            >
-              {c.label}
+              {FRONT_EMOJI[f.id] || '🏷️'} {f.name}
             </button>
           ))}
         </div>

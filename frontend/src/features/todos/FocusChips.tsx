@@ -1,14 +1,16 @@
-import { TODO_THEMES } from './todoHelpers';
+import { FRONT_EMOJI } from '../fronts/useFronts';
+import type { Front } from '../fronts/useFronts';
 import type { FocusCounts } from './todoHelpers';
 import styles from './FocusChips.module.css';
 
 export interface FocusChipsProps {
   counts: FocusCounts;
   active: string;
+  fronts: Front[];
   onChange: (theme: string) => void;
 }
 
-export function FocusChips({ counts, active, onChange }: FocusChipsProps) {
+export function FocusChips({ counts, active, fronts, onChange }: FocusChipsProps) {
   return (
     <div className={styles.bar}>
       <button
@@ -19,17 +21,17 @@ export function FocusChips({ counts, active, onChange }: FocusChipsProps) {
         All
         <span className={styles.count}>{counts.total}</span>
       </button>
-      {TODO_THEMES.map((t) => {
-        const c = counts.byTheme[t.key] || 0;
-        if (!c && t.key !== active) return null;
+      {fronts.map((f) => {
+        const c = counts.byTheme[f.id] || 0;
+        if (!c && f.id !== active) return null;
         return (
           <button
             type="button"
-            key={t.key}
-            className={`${styles.chip} ${t.key === active ? styles.active : ''}`}
-            onClick={() => onChange(t.key)}
+            key={f.id}
+            className={`${styles.chip} ${f.id === active ? styles.active : ''}`}
+            onClick={() => onChange(f.id)}
           >
-            {t.emoji} {t.label}
+            {FRONT_EMOJI[f.id] || '🏷️'} {f.name}
             <span className={styles.count}>{c}</span>
           </button>
         );

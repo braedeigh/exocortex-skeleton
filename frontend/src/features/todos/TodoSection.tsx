@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { TodoRow } from './TodoRow';
 import { beginDrag, endDrag, getSectionItemIds, registerSectionDrag, updateDrag } from './dragCoordinator';
+import type { Front } from '../fronts/useFronts';
 import type { TodoItem } from './types';
 import styles from './TodoSection.module.css';
 
@@ -14,6 +15,7 @@ export interface TodoSectionProps {
   items: TodoItem[];
   manualOrder: boolean;
   serverDate: string;
+  fronts: Front[];
   defaultOpen?: boolean;
   countMode?: 'remaining' | 'total';
   /** Current focus-chip filter theme (see FocusChips) — a *change* here (not
@@ -45,6 +47,7 @@ export function TodoSection({
   items,
   manualOrder,
   serverDate,
+  fronts,
   defaultOpen = false,
   countMode = 'remaining',
   focusTheme,
@@ -233,6 +236,7 @@ export function TodoSection({
               key={item.id}
               item={item}
               serverDate={serverDate}
+              fronts={fronts}
               dragOver={overId === item.id && dragId !== item.id}
               dragging={dragId === item.id}
               onToggle={onToggle}

@@ -50,7 +50,7 @@ def register(app):
                     new_item["notes"] = notes
                 # Optional attributes from the add modal's "More details" —
                 # same vocabulary the detail editor manages.
-                for f in ("due_time", "place_id", "category", "status", "theme", "after_date", "after_id"):
+                for f in ("due_time", "place_id", "status", "theme", "after_date", "after_id"):
                     val = (data.get(f) or "").strip()
                     if val:
                         new_item[f] = val
@@ -116,8 +116,11 @@ def register(app):
     # An empty value removes the key (we keep items lean — absent = unset).
     # after_date/after_id back the "do after" feature: a to-do stays hidden
     # (client-side, same model as snooze) until the date arrives or the
-    # referenced to-do is done/gone.
-    TODO_STR_FIELDS = ("notes", "due_by", "due_time", "place_id", "category", "status", "theme",
+    # referenced to-do is done/gone. `theme` values are front ids from
+    # fronts.json (routes/fronts.py) — the shared life-domain vocabulary.
+    # (The field keeps its legacy name until the add-todo binary is
+    # normalized; the old free-standing `category` tag was retired 2026-07-14.)
+    TODO_STR_FIELDS = ("notes", "due_by", "due_time", "place_id", "status", "theme",
                         "after_date", "after_id")
 
     @app.route("/api/todos/details", methods=["POST"])

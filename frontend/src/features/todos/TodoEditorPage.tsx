@@ -7,14 +7,8 @@ import type { BulkSheetMode } from './BulkSheet';
 import { DetailSheet } from './DetailSheet';
 import { EditorRow } from './EditorRow';
 import { filterEditorTodos, flattenAllTodos } from './editorHelpers';
-import {
-  DONE_LABEL,
-  LADDER_LABELS,
-  TODO_CATEGORIES,
-  TODO_STATUSES,
-  TODO_THEMES,
-  buildTodoIndex,
-} from './todoHelpers';
+import { FRONT_EMOJI, useFronts } from '../fronts/useFronts';
+import { DONE_LABEL, LADDER_LABELS, TODO_STATUSES, buildTodoIndex } from './todoHelpers';
 import { isFrosted } from './types';
 import type { TodoItem } from './types';
 import { useTodayData, useTodoActions, useToasts } from './useTodayData';
@@ -39,11 +33,12 @@ export function TodoEditorPage() {
   const { data, isLoading, isError, error } = useTodayData();
   const { toasts, push, dismiss } = useToasts();
   const todoActions = useTodoActions(push);
+  const frontsQuery = useFronts();
+  const fronts = frontsQuery.data ?? [];
 
   const [search, setSearch] = useState('');
   const [sectionFilter, setSectionFilter] = useState('');
   const [themeFilter, setThemeFilter] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [selecting, setSelecting] = useState(false);
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(() => new Set());
@@ -64,10 +59,9 @@ export function TodoEditorPage() {
         section: sectionFilter,
         search,
         theme: themeFilter,
-        category: categoryFilter,
         status: statusFilter,
       }),
-    [entries, sectionFilter, search, themeFilter, categoryFilter, statusFilter],
+    [entries, sectionFilter, search, themeFilter, statusFilter],
   );
 
   const todoIndex = useMemo(() => buildTodoIndex(sections), [sections]);
@@ -215,25 +209,12 @@ export function TodoEditorPage() {
           aria-label="Filter by focus"
         >
           <option value="">Focus: any</option>
-          {TODO_THEMES.map((t) => (
-            <option key={t.key} value={t.key}>
-              {t.emoji} {t.label}
+          {fronts.map((f) => (
+            <option key={f.id} value={f.id}>
+              {FRONT_EMOJI[f.id] || '🏷️'} {f.name}
             </option>
           ))}
           <option value="__none__">&#127991;&#65039; Other</option>
-        </select>
-        <select
-          className={styles.select}
-          value={categoryFilter}
-          onChange={(e) => setCategoryFilter(e.target.value)}
-          aria-label="Filter by category"
-        >
-          <option value="">Category: any</option>
-          {TODO_CATEGORIES.map((c) => (
-            <option key={c.key} value={c.key}>
-              {c.label}
-            </option>
-          ))}
         </select>
         <select
           className={styles.select}
@@ -260,6 +241,7 @@ export function TodoEditorPage() {
               item={e.item}
               section={e.section}
               serverDate={serverDate}
+              fronts={fronts}
               snoozed={e.snoozed}
               waiting={e.waiting}
               selecting={selecting}
@@ -286,6 +268,7 @@ export function TodoEditorPage() {
       <BulkSheet
         mode={sheetMode}
         count={selectedIds.size}
+        fronts={fronts}
         onClose={() => setSheetMode(null)}
         onApply={runBulk}
       />
@@ -297,6 +280,7 @@ export function TodoEditorPage() {
         serverDate={serverDate}
         todoIndex={todoIndex}
         candidates={blockerCandidates}
+        fronts={fronts}
         onClose={() => setSelected(null)}
         onSave={(id, patch, newText) => {
           if (selected && newText !== selected.text) todoActions.rename(id, newText);

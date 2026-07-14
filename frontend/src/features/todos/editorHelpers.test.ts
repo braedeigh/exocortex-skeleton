@@ -24,7 +24,7 @@ function sections(): TodoSection[] {
       manual_order: false,
       items: [item('c', { text: 'Waiting thing', after_date: '2026-07-20' })],
     },
-    { name: 'Later', manual_order: false, items: [item('d', { category: 'kitchen' })] },
+    { name: 'Later', manual_order: false, items: [item('d')] },
     { name: 'Someday', manual_order: false, items: [item('e', { status: 'waiting' })] },
     { name: 'Done', manual_order: false, items: [item('f', { done: true })] },
   ];
@@ -84,9 +84,8 @@ describe('filterEditorTodos', () => {
     const out = filterEditorTodos(flattenAllTodos(sections(), TODAY), filters({ theme: '__none__' }));
     expect(out.map((e) => e.item.id)).toEqual(['b', 'c', 'd', 'e']);
   });
-  it('filters by category and status', () => {
+  it('filters by status', () => {
     const flat = flattenAllTodos(sections(), TODAY);
-    expect(filterEditorTodos(flat, filters({ category: 'kitchen' })).map((e) => e.item.id)).toEqual(['d']);
     expect(filterEditorTodos(flat, filters({ status: 'waiting' })).map((e) => e.item.id)).toEqual(['e']);
   });
   it('combines section + search filters', () => {

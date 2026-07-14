@@ -1,14 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, Checkbox, IconButton, Sheet } from '../../ui';
 import { BlockerPicker } from './BlockerPicker';
-import {
-  LADDER_LABELS,
-  TODO_STATUSES,
-  TODO_THEMES,
-  fmtAddedDate,
-  isWaiting,
-  waitingReason,
-} from './todoHelpers';
+import { LADDER_LABELS, TODO_STATUSES, fmtAddedDate, isWaiting, waitingReason } from './todoHelpers';
+import { FRONT_EMOJI } from '../fronts/useFronts';
+import type { Front } from '../fronts/useFronts';
 import type { TodoDetailsPatch } from '../../api/endpoints';
 import type { TodoItem } from './types';
 import styles from './DetailSheet.module.css';
@@ -21,6 +16,7 @@ export interface DetailSheetProps {
   todoIndex: Map<string, TodoItem>;
   /** Not-done to-dos from the ladder sections, offered as "do after" blockers. */
   candidates: TodoItem[];
+  fronts: Front[];
   onClose: () => void;
   onSave: (id: string, patch: TodoDetailsPatch, newText: string) => void;
   onMove: (id: string, toLabel: string) => void;
@@ -41,6 +37,7 @@ export function DetailSheet({
   serverDate,
   todoIndex,
   candidates,
+  fronts,
   onClose,
   onSave,
   onMove,
@@ -122,8 +119,6 @@ export function DetailSheet({
     // Focus is a one-tap, immediately-committed change — it doesn't wait
     // for the Save button, and deliberately doesn't touch the title so an
     // in-progress (unsaved) title edit isn't force-committed as a side effect.
-    // (Same contract the category chips had before focus replaced them here;
-    // category stays in the data model, it's just not edited from this modal.)
     onSave(item.id, { theme: next }, item.text);
   }
 
@@ -179,14 +174,14 @@ export function DetailSheet({
       <div className={styles.field}>
         <span className={styles.label}>Focus</span>
         <div className={styles.chips}>
-          {TODO_THEMES.map((t) => (
+          {fronts.map((f) => (
             <button
               type="button"
-              key={t.key}
-              className={`${styles.chip} ${theme === t.key ? styles.active : ''}`}
-              onClick={() => pickTheme(t.key)}
+              key={f.id}
+              className={`${styles.chip} ${theme === f.id ? styles.active : ''}`}
+              onClick={() => pickTheme(f.id)}
             >
-              {t.emoji} {t.label}
+              {FRONT_EMOJI[f.id] || '🏷️'} {f.name}
             </button>
           ))}
         </div>

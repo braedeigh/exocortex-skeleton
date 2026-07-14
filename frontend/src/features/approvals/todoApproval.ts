@@ -40,7 +40,6 @@ export interface TodoDraft {
   dueTime: string;
   notes: string;
   theme: string;
-  category: string;
   status: string;
   placeId: string;
   durationMin: string;
@@ -55,7 +54,6 @@ export function todoDraftFromPayload(payload: Record<string, JsonValue>): TodoDr
     dueTime: asString(payload.due_time),
     notes: asString(payload.notes),
     theme: asString(payload.theme),
-    category: asString(payload.category),
     status: asString(payload.status),
     placeId: asString(payload.place_id),
     durationMin: asString(payload.duration_min),
@@ -79,7 +77,6 @@ export function buildTodoAdd(draft: TodoDraft): BuildResult<AddTodoPayload> {
     notes: draft.notes.trim(),
     due_time: draft.dueTime,
     place_id: normalizePlaceId(draft.placeId),
-    category: draft.category,
     theme: draft.theme,
     status: draft.status,
   };
@@ -95,7 +92,6 @@ export function todoFinalForLedger(draft: TodoDraft): Record<string, JsonValue> 
     text: draft.text.trim(),
     bucket: draft.sectionLabel,
     theme: draft.theme,
-    category: draft.category,
     due_by: draft.dueBy,
     notes: draft.notes.trim(),
     due_time: draft.dueTime,

@@ -11,7 +11,6 @@ import type {
   AnnotationContent,
   AnnotationsResponse,
   DocTextResponse,
-  Front,
   LibraryFileResponse,
   LibraryResponse,
   ResearchBlob,
@@ -40,12 +39,6 @@ export function editTopic(
 
 export function removeTopic(id: string): Promise<ResearchBlob> {
   return api.post('/api/research/topic/remove', { id });
-}
-
-// --- Fronts ---
-
-export function getFronts(signal?: AbortSignal): Promise<{ fronts: Front[] }> {
-  return api.get('/api/fronts', signal);
 }
 
 // --- Entries ---

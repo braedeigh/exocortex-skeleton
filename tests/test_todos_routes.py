@@ -200,7 +200,7 @@ def test_details_sets_phase1_attributes(client, seed):
     it = read_todos()["now"]["items"][0]
     assert it["due_time"] == "20:00"
     assert it["place_id"] == "p1"
-    assert it["category"] == "body"
+    assert "category" not in it   # retired 2026-07-14 (fronts vocabulary); silently ignored
     assert it["status"] == "check_first"
     assert it["duration_min"] == 15
 
@@ -222,11 +222,12 @@ def test_details_only_touches_present_fields(client, seed):
 
 
 def test_details_sets_then_clears_theme(client, seed):
-    """The Focus chip strip filters on `theme`; details sets it and an empty
-    value clears it (absent = no theme), same contract as the other attrs."""
+    """The Focus chip strip filters on `theme` (values are front ids from
+    fronts.json); details sets it and an empty value clears it (absent = no
+    front), same contract as the other attrs."""
     seed({"now": {"items": [{"id": "a", "text": "A", "done": False}]}})
-    _post(client, "/api/todos/details", {"id": "a", "theme": "move"})
-    assert read_todos()["now"]["items"][0]["theme"] == "move"
+    _post(client, "/api/todos/details", {"id": "a", "theme": "living-space"})
+    assert read_todos()["now"]["items"][0]["theme"] == "living-space"
     _post(client, "/api/todos/details", {"id": "a", "theme": ""})
     assert "theme" not in read_todos()["now"]["items"][0]
 
@@ -258,14 +259,14 @@ def test_add_with_more_details_persists_attributes(client):
         "item": "drop off package", "section": "Now",
         "due_by": "2026-06-13", "due_time": "14:30",
         "category": "car", "duration_min": "15", "status": "ready",
-        "theme": "admin", "notes": "the UPS one",
+        "theme": "finances", "notes": "the UPS one",
     })
     assert res.status_code == 200
     from tests.conftest import read_todos
     item = read_todos()["now"]["items"][0]
     assert item["due_time"] == "14:30"
-    assert item["category"] == "car"
-    assert item["theme"] == "admin"
+    assert "category" not in item   # retired 2026-07-14 (fronts vocabulary); silently ignored
+    assert item["theme"] == "finances"
     assert item["duration_min"] == 15
 
 

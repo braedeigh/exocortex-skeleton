@@ -1,12 +1,15 @@
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { Checkbox } from '../../ui';
-import { categoryLabel, fmtAddedDate, isOverdue, statusLabel, themeLabel } from './todoHelpers';
+import { frontLabel } from '../fronts/useFronts';
+import type { Front } from '../fronts/useFronts';
+import { fmtAddedDate, isOverdue, statusLabel } from './todoHelpers';
 import type { TodoItem } from './types';
 import styles from './TodoRow.module.css';
 
 export interface TodoRowProps {
   item: TodoItem;
   serverDate: string;
+  fronts: Front[];
   dragOver?: boolean;
   dragging?: boolean;
   onToggle: (id: string) => void;
@@ -19,6 +22,7 @@ export interface TodoRowProps {
 export function TodoRow({
   item,
   serverDate,
+  fronts,
   dragOver = false,
   dragging = false,
   onToggle,
@@ -64,9 +68,8 @@ export function TodoRow({
                 {fmtAddedDate(item.due_by)}
               </span>
             ) : null}
-            {item.theme ? <span className={styles.chip}>{themeLabel(item.theme)}</span> : null}
+            {item.theme ? <span className={styles.chip}>{frontLabel(fronts, item.theme)}</span> : null}
             {item.status && !item.done ? <span className={styles.chip}>{statusLabel(item.status)}</span> : null}
-            {item.category ? <span className={styles.chip}>{categoryLabel(item.category)}</span> : null}
           </span>
         ) : null}
       </button>

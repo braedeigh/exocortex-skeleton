@@ -38,8 +38,6 @@ export interface EditorFilters {
   search: string;
   /** Focus theme key; '' = any, '__none__' = untagged (same as focusMatch). */
   theme: string;
-  /** Category key; '' = any. */
-  category: string;
   /** Status key; '' = any. */
   status: string;
 }
@@ -48,7 +46,6 @@ export const EMPTY_EDITOR_FILTERS: EditorFilters = {
   section: '',
   search: '',
   theme: '',
-  category: '',
   status: '',
 };
 
@@ -63,7 +60,6 @@ export function filterEditorTodos(entries: EditorEntry[], filters: EditorFilters
   return entries.filter((e) => {
     if (!sectionMatch(e.section, filters.section)) return false;
     if (!focusMatch(e.item, filters.theme)) return false;
-    if (filters.category && e.item.category !== filters.category) return false;
     if (filters.status && e.item.status !== filters.status) return false;
     if (q) {
       const haystack = `${e.item.text}\n${e.item.notes || ''}`.toLowerCase();

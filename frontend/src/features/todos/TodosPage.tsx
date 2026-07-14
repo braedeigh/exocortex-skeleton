@@ -9,6 +9,7 @@ import { AddBar } from './AddBar';
 import { AddTodoSheet } from './AddTodoSheet';
 import { DetailSheet } from './DetailSheet';
 import { FocusChips } from './FocusChips';
+import { useFronts } from '../fronts/useFronts';
 import { NotesPill } from './NotesPill';
 import { ReminderCard } from './ReminderCard';
 import { SnoozedCard } from './SnoozedCard';
@@ -91,6 +92,8 @@ export function TodosPage() {
   const { data, isLoading, isError, error } = useTodayData();
   const { toasts, push, dismiss } = useToasts();
   const todoActions = useTodoActions(push);
+  const frontsQuery = useFronts();
+  const fronts = frontsQuery.data ?? [];
   const reminderActions = useReminderActions(push);
   const habitActions = useHabitActions(push);
   const growthActions = useGrowthActions(push);
@@ -306,8 +309,8 @@ export function TodosPage() {
             </>
           ) : (
             <>
-              <FocusChips counts={focusCounts} active={focusTheme} onChange={setFocusTheme} />
-              <AddBar onAdd={addTodo} focusTheme={focusTheme} />
+              <FocusChips counts={focusCounts} active={focusTheme} fronts={fronts} onChange={setFocusTheme} />
+              <AddBar onAdd={addTodo} focusTheme={focusTheme} fronts={fronts} />
 
               {focusTheme && focusCounts.total === 0 ? (
                 <div className={styles.emptyFocus}>Nothing here right now. 🎉</div>
@@ -320,6 +323,7 @@ export function TodosPage() {
                     items={visibleSectionItems(section, serverDate, focusTheme, todoIndex)}
                     manualOrder={section.manual_order}
                     serverDate={serverDate}
+                    fronts={fronts}
                     defaultOpen={section.name === 'Now'}
                     focusTheme={focusTheme}
                     onToggle={todoActions.toggle}
@@ -340,6 +344,7 @@ export function TodosPage() {
                   items={doneSection.items}
                   manualOrder={false}
                   serverDate={serverDate}
+                  fronts={fronts}
                   defaultOpen={false}
                   countMode="total"
                   onToggle={todoActions.toggle}
@@ -377,6 +382,7 @@ export function TodosPage() {
         serverDate={serverDate}
         todoIndex={todoIndex}
         candidates={blockerCandidates}
+        fronts={fronts}
         onClose={() => setSelected(null)}
         onSave={(id, patch, newText) => {
           if (selected && newText !== selected.text) todoActions.rename(id, newText);

@@ -5,6 +5,8 @@
  * entries simply lack them (see routes/research.py's module docstring).
  */
 
+export type { Front } from '../fronts/useFronts';
+
 export type EntryKind = 'note' | 'source' | 'claim' | 'question';
 
 export interface Topic {
@@ -15,13 +17,6 @@ export interface Topic {
   created?: string;
   /** front ids (see routes/fronts.py) tagging this topic to a life domain */
   fronts?: string[];
-}
-
-/** A shared life-domain vocabulary entry (routes/fronts.py, fronts.json). */
-export interface Front {
-  id: string;
-  name: string;
-  created?: string;
 }
 
 /** Crossref-derived source metadata (routes/research_sources.py annotate). */

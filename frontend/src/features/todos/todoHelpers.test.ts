@@ -13,10 +13,16 @@ import {
   isOverdue,
   isSnoozed,
   isWaiting,
-  themeLabel,
   withFocusTheme,
 } from './todoHelpers';
+import { frontLabel } from '../fronts/useFronts';
+import type { Front } from '../fronts/useFronts';
 import type { TodoItem, TodoSection } from './types';
+
+const FRONTS: Front[] = [
+  { id: 'job', name: 'Job' },
+  { id: 'health', name: 'Health' },
+];
 
 const TODAY = '2026-07-08';
 
@@ -111,15 +117,15 @@ describe('addDays', () => {
   });
 });
 
-describe('themeLabel', () => {
-  it('resolves a known theme to emoji + label', () => {
-    expect(themeLabel('job')).toBe('💼 Job');
+describe('frontLabel', () => {
+  it('resolves a known front id to emoji + name', () => {
+    expect(frontLabel(FRONTS, 'job')).toBe('💼 Job');
   });
   it('resolves __none__ to Other', () => {
-    expect(themeLabel('__none__')).toBe('🏷️ Other');
+    expect(frontLabel(FRONTS, '__none__')).toBe('🏷️ Other');
   });
-  it('falls back to the raw key for unknown themes', () => {
-    expect(themeLabel('mystery')).toBe('mystery');
+  it('falls back to the raw key for unknown fronts', () => {
+    expect(frontLabel(FRONTS, 'mystery')).toBe('mystery');
   });
 });
 
