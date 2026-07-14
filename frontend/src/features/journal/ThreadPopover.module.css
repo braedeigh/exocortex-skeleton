@@ -78,6 +78,36 @@
   background: color-mix(in srgb, var(--accent) 15%, transparent);
 }
 
+/* "Talk about this thread" — sends /thread <id> to the Keeper's session.
+ * Secondary (outline) variant of .openFull so the two stacked actions read
+ * as a pair without competing. */
+.talkBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: var(--tap-target);
+  margin-top: var(--space-3);
+  background: var(--card-bg);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-lg);
+  color: var(--accent);
+  font-size: var(--font-size-base);
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.talkBtn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+.talkBtn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 /* Same look as PersonPopover's "Open person page →". */
 .openFull {
   display: flex;
