@@ -71,6 +71,9 @@
   padding: var(--space-4) 0;
   line-height: 1.7;
   font-size: var(--font-size-base);
+  /* Long URLs/paths wrap instead of forcing the page wider than the phone
+     viewport (inherits into the rendered markdown children). */
+  overflow-wrap: anywhere;
 }
 
 .preview :global(h1) {
