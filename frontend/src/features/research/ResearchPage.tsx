@@ -4,7 +4,7 @@
  * notes; topics are threads over the pool, not boxes. Two views:
  *
  *   /research              — the main directory (composer, send-all strip,
- *                            search, open questions, thread directory,
+ *                            search, thread directory, open questions,
  *                            Unfiled backstop, Articles, Library, new-thread
  *                            row)
  *   /research?thread=<id>  — one thread's chat view (was '#thread/<id>')
@@ -393,8 +393,8 @@ export function ResearchPage() {
             <Composer />
             <SendStrip flagged={flaggedQueue(state.entries)} scope="all" />
             <SearchCard />
-            <QuestionsCard />
             <ThreadsDirectoryCard frontFilter={frontFilter} onFrontFilterChange={setFrontFilter} />
+            <QuestionsCard />
             <UnfiledCard />
             <ArticlesCard />
             <LibraryCard />

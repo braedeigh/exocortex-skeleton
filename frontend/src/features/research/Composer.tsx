@@ -1,19 +1,30 @@
 /**
- * Composer.tsx — the quick-capture composer (note/source/claim/question
- * kinds, topic chips, answering pill, "re:" quote pill, trimmable context
- * chain, and the "Research this" shortcut for quoted follow-up questions).
- * State lives on the page (one composer per view) so the annotator and the
- * open-questions card can aim it.
+ * Composer.tsx — the quick-capture composer. Capture text, then sort it into
+ * a FRONT: picking a front reveals that front's topics (file into one or
+ * several) plus an inline new-topic row that creates a topic pre-tagged with
+ * the front. "Uncategorized" is the catch-all — frontless topics live there,
+ * and adding with no topic at all lands the entry in the Unfiled backstop.
+ *
+ * The note/source/claim/question kind split is retired from the UI (entries
+ * default to 'note'); reply flows still set kind programmatically (answering
+ * pill, "re:" quote pill, trimmable context chain, "Research this" for quoted
+ * follow-up questions). State lives on the page (one composer per view) so
+ * the annotator and the open-questions card can aim it.
  */
 
-import { RSRCH_KINDS, truncate } from './helpers';
+import { useMemo, useState } from 'react';
+import { truncate } from './helpers';
 import { useResearchCtx } from './ResearchContext';
-import type { EntryKind } from './types';
+import { useFronts } from './useResearchData';
+import { FRONT_EMOJI } from '../fronts/useFronts';
 import styles from './ResearchPage.module.css';
 
 /** DOM id of the composer textarea — same as the legacy page's, so
  * "Answer…" / follow-up flows can scroll + focus it (one composer per view). */
 export const COMPOSER_TEXT_ID = 'rsrch-add-text';
+
+/** Pseudo-front for topics that carry no front tag (and topicless adds). */
+const UNCATEGORIZED = '__uncategorized__';
 
 export interface ComposerProps {
   presetTopic?: string;
@@ -27,13 +38,31 @@ export function Composer({
   presetTopic,
   hideTopics,
   addLabel = 'Add',
-  placeholder = 'Capture a note, source, claim, or question…',
+  placeholder = 'Capture something, then sort it into a front…',
   inThread,
 }: ComposerProps) {
-  const { composer: st, setComposer, state, actions } = useResearchCtx();
-  const topics = state.topics;
+  const { composer: st, setComposer, state, actions, mutations, push } = useResearchCtx();
+  const frontsQuery = useFronts();
+  const fronts = frontsQuery.data ?? [];
 
-  const setKind = (kind: EntryKind) => setComposer((c) => ({ ...c, kind }));
+  // Which front is open in the picker. Survives an add on purpose — filing
+  // several captures into the same front in a row shouldn't re-pick it.
+  const [front, setFront] = useState<string | null>(null);
+  const [newTopicName, setNewTopicName] = useState('');
+
+  const frontTopics = useMemo(() => {
+    if (!front) return [];
+    if (front === UNCATEGORIZED) return state.topics.filter((t) => !(t.fronts && t.fronts.length));
+    return state.topics.filter((t) => (t.fronts ?? []).includes(front));
+  }, [front, state.topics]);
+
+  // Selected topics that the open front doesn't show (reply-inherited, or
+  // picked under another front) — keep them visible so nothing files blind.
+  const hiddenSelected = useMemo(() => {
+    const visible = new Set(frontTopics.map((t) => t.id));
+    return state.topics.filter((t) => st.topics.has(t.id) && !visible.has(t.id));
+  }, [frontTopics, state.topics, st.topics]);
+
   const toggleTopic = (id: string) =>
     setComposer((c) => {
       const next = new Set(c.topics);
@@ -41,6 +70,26 @@ export function Composer({
       else next.add(id);
       return { ...c, topics: next };
     });
+
+  function createTopic() {
+    const name = newTopicName.trim();
+    if (!name) {
+      push('Name the topic first.');
+      return;
+    }
+    const before = new Set(state.topics.map((t) => t.id));
+    mutations.addTopic.mutate(
+      { name, fronts: front && front !== UNCATEGORIZED ? [front] : undefined },
+      {
+        onSuccess: (blob) => {
+          setNewTopicName('');
+          // The new topic is whichever id the returned blob has that we didn't.
+          const created = (blob.topics ?? []).find((t) => !before.has(t.id));
+          if (created) toggleTopic(created.id);
+        },
+      },
+    );
+  }
 
   return (
     <div className={`${styles.composer} ${inThread ? styles.composerInThread : ''}`}>
@@ -89,46 +138,86 @@ export function Composer({
         onChange={(e) => setComposer((c) => ({ ...c, text: e.target.value }))}
       />
 
-      {st.kind === 'source' ? (
-        <input
-          type="text"
-          className={styles.composerUrl}
-          placeholder="URL"
-          value={st.url}
-          onChange={(e) => setComposer((c) => ({ ...c, url: e.target.value }))}
-        />
-      ) : null}
-
-      <div className={styles.composerChips}>
-        {RSRCH_KINDS.map(([k, label]) => (
-          <button
-            type="button"
-            key={k}
-            className={`${styles.chip} ${st.kind === k ? styles.chipActive : ''}`}
-            onClick={() => setKind(k as EntryKind)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
       {!hideTopics ? (
-        <div className={styles.composerChips}>
-          {topics.length ? (
-            topics.map((t) => (
+        <>
+          <div className={styles.composerChips}>
+            {fronts.map((f) => (
               <button
                 type="button"
-                key={t.id}
-                className={`${styles.chip} ${st.topics.has(t.id) ? styles.chipActive : ''}`}
-                onClick={() => toggleTopic(t.id)}
+                key={f.id}
+                className={`${styles.chip} ${front === f.id ? styles.chipActive : ''}`}
+                onClick={() => setFront((cur) => (cur === f.id ? null : f.id))}
               >
-                {t.name}
+                {FRONT_EMOJI[f.id] ? `${FRONT_EMOJI[f.id]} ` : ''}
+                {f.name}
               </button>
-            ))
-          ) : (
-            <span className={styles.composerHint}>No topics yet &mdash; add one at the bottom of the page.</span>
-          )}
-        </div>
+            ))}
+            <button
+              type="button"
+              className={`${styles.chip} ${front === UNCATEGORIZED ? styles.chipActive : ''}`}
+              onClick={() => setFront((cur) => (cur === UNCATEGORIZED ? null : UNCATEGORIZED))}
+            >
+              &#127991;&#65039; Uncategorized
+            </button>
+          </div>
+
+          {front ? (
+            <>
+              <div className={styles.composerChips}>
+                {frontTopics.length ? (
+                  frontTopics.map((t) => (
+                    <button
+                      type="button"
+                      key={t.id}
+                      className={`${styles.chip} ${st.topics.has(t.id) ? styles.chipActive : ''}`}
+                      onClick={() => toggleTopic(t.id)}
+                    >
+                      {t.name}
+                    </button>
+                  ))
+                ) : (
+                  <span className={styles.composerHint}>
+                    {front === UNCATEGORIZED
+                      ? 'No frontless topics — add without one and it lands in Unfiled.'
+                      : 'No topics on this front yet — start one below.'}
+                  </span>
+                )}
+              </div>
+              <div className={styles.newTopicRow}>
+                <input
+                  type="text"
+                  className={styles.newTopicInput}
+                  placeholder="New topic in this front"
+                  value={newTopicName}
+                  onChange={(e) => setNewTopicName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') createTopic();
+                  }}
+                />
+                <button type="button" className={styles.primaryBtn} onClick={createTopic}>
+                  New topic
+                </button>
+              </div>
+            </>
+          ) : null}
+
+          {hiddenSelected.length ? (
+            <div className={styles.composerChips}>
+              <span className={styles.composerHint}>also filing to:</span>
+              {hiddenSelected.map((t) => (
+                <button
+                  type="button"
+                  key={t.id}
+                  className={`${styles.chip} ${styles.chipActive}`}
+                  title="Tap to remove"
+                  onClick={() => toggleTopic(t.id)}
+                >
+                  {t.name}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </>
       ) : null}
 
       {st.contextChain && st.contextChain.length ? (
