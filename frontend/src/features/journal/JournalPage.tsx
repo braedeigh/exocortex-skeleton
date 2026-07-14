@@ -68,13 +68,9 @@ export function JournalPage() {
 
   const [editingCardId, setEditingCardId] = useState<string | null>(null);
   const [blobFocused, setBlobFocused] = useState(false);
-  // "+ Add a note" composer open at the top of the stream — one editing
-  // surface at a time, same rule as editingCardId. (The bottom composer is
-  // always open, so it doesn't live in this state — see bottomComposerActive.)
-  const [composingPosition, setComposingPosition] = useState<'top' | null>(null);
   // Mirrors the bottom composer's focused-or-has-draft state (reported via
-  // CardStream's onBottomActiveChange), since it's always mounted and can't
-  // be tracked by composingPosition like the top slot.
+  // CardStream's onBottomActiveChange) — it's always mounted, so it can't be
+  // tracked with open/closed state like an editing card.
   const [bottomComposerActive, setBottomComposerActive] = useState(false);
   // Cards mid "removed · Undo" toast — hidden from the stream immediately but
   // not actually deleted server-side until the toast's timer fires (or the
@@ -83,7 +79,7 @@ export function JournalPage() {
   const [pendingDeleteIds, setPendingDeleteIds] = useState<Set<string>>(new Set());
   const deleteTimers = useRef<Record<string, { timer: ReturnType<typeof setTimeout>; wasLastCard: boolean }>>({});
   const cardStreamRef = useRef<CardStreamHandle>(null);
-  const pausePolling = editingCardId !== null || blobFocused || composingPosition !== null || bottomComposerActive;
+  const pausePolling = editingCardId !== null || blobFocused || bottomComposerActive;
 
   const dayQuery = useJournalDay(currentDate, pausePolling);
   const datesQuery = useJournalDates();
@@ -307,26 +303,16 @@ export function JournalPage() {
             editingCardId={editingCardId}
             savingCardId={savingCardId}
             matcher={matcher}
-            onEdit={(id) => {
-              setComposingPosition(null);
-              setEditingCardId(id);
-            }}
+            onEdit={setEditingCardId}
             onCancel={() => setEditingCardId(null)}
             onSave={(id, body) => updateCard.mutate({ id, body }, { onSuccess: () => setEditingCardId(null) })}
             onConfirmDelete={(id) => requestDeleteCard(id, visibleCards.length === 1)}
             onNavigateDate={goTo}
             onPersonClick={setPopoverSlug}
-            composingTop={composingPosition === 'top'}
             addSaving={addCard.isPending}
-            onComposeStart={() => {
-              setEditingCardId(null);
-              setComposingPosition('top');
-            }}
-            onComposeCancel={() => setComposingPosition(null)}
-            onComposeSave={async (position, body) => {
+            onComposeSave={async (body) => {
               try {
-                await addCard.mutateAsync({ position, body });
-                if (position === 'top') setComposingPosition(null);
+                await addCard.mutateAsync({ position: 'bottom', body });
                 return true;
               } catch {
                 return false;

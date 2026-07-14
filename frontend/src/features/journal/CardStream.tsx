@@ -6,11 +6,10 @@ import { RefCard } from './RefCard';
 import type { Card } from './types';
 import styles from './CardStream.module.css';
 
-export type AddPosition = 'top' | 'bottom';
-
 export interface CardStreamHandle {
   /** Scroll the always-open bottom composer into view and focus its textarea
-   * — used by the rail's floating "+ Add note" button. */
+   * — used by the rail's floating "+ Add note" button and the stream's own
+   * "+ Add a note" slot up top. */
   focusBottomComposer: () => void;
 }
 
@@ -27,117 +26,19 @@ export interface CardStreamProps {
   onNavigateDate: (date: string) => void;
   /** Passed through to "ref" cards' person chips. */
   onPersonClick: (slug: string) => void;
-  /** Whether the top "+ Add a note" slot's composer is open (the bottom
-   * composer is always open, so it has no "composing" state of its own). */
-  composingTop: boolean;
   addSaving: boolean;
-  onComposeStart: () => void;
-  onComposeCancel: () => void;
-  /** Resolves true on a successful save. Both slots clear their draft on
-   * success; the top slot's parent also closes its composer. */
-  onComposeSave: (position: AddPosition, body: string) => Promise<boolean>;
-  /** The bottom composer is always mounted, so polling can't key off
-   * `composingTop` for it — fires whenever its focused-or-has-draft state
+  /** Resolves true on a successful save; the composer clears its draft on
+   * success. New notes always append to the end of the day. */
+  onComposeSave: (body: string) => Promise<boolean>;
+  /** The bottom composer is always mounted, so polling can't key off a
+   * "composing" flag — fires whenever its focused-or-has-draft state
    * changes so the parent can fold it into the same pause condition. */
   onBottomActiveChange: (active: boolean) => void;
 }
 
-interface CardAddSlotProps {
-  composing: boolean;
-  saving: boolean;
-  onStart: () => void;
-  onCancel: () => void;
-  onSave: (position: AddPosition, body: string) => Promise<boolean>;
-}
-
-/**
- * Quiet "+ Add a note" prompt that swaps in place for a composer styled
- * like an editing entry card — lands right under the keeper's context
- * summary. Mirrors EntryCard's editing textarea/controls; port of legacy
- * buildCardAddEl()/enterCardAdd()/saveNewCard().
- */
-function CardAddSlot({ composing, saving, onStart, onCancel, onSave }: CardAddSlotProps) {
-  const [draft, setDraft] = useState('');
-  const taRef = useRef<HTMLTextAreaElement | null>(null);
-
-  // Fresh draft every time this slot opens (reopening after a prior compose
-  // session must not resurrect leftover text).
-  useEffect(() => {
-    if (composing) setDraft('');
-  }, [composing]);
-
-  useEffect(() => {
-    if (!composing || !taRef.current) return;
-    const ta = taRef.current;
-    ta.style.height = 'auto';
-    ta.style.height = `${Math.max(68, ta.scrollHeight + 2)}px`;
-  }, [composing, draft]);
-
-  async function handleSave() {
-    const ok = await onSave('top', draft);
-    if (ok) setDraft('');
-  }
-
-  if (!composing) {
-    return (
-      <div className={styles.addSlot}>
-        <button
-          type="button"
-          className={styles.addBtn}
-          onClick={(e) => {
-            e.stopPropagation();
-            onStart();
-          }}
-        >
-          + Add a note
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <div className={styles.addSlot}>
-      <div className={styles.composer}>
-        <textarea
-          ref={taRef}
-          className={styles.editArea}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder="Note for the top of the day…"
-          disabled={saving}
-          autoFocus
-        />
-        <div className={styles.controls}>
-          <span className={styles.controlsSpacer} />
-          <Button
-            variant="secondary"
-            onClick={(e) => {
-              e.stopPropagation();
-              onCancel();
-            }}
-            disabled={saving}
-          >
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            onClick={(e) => {
-              e.stopPropagation();
-              void handleSave();
-            }}
-            disabled={saving || !draft.trim()}
-          >
-            Save
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 interface BottomComposerProps {
   saving: boolean;
-  onSave: (position: AddPosition, body: string) => Promise<boolean>;
+  onSave: (body: string) => Promise<boolean>;
   onActiveChange: (active: boolean) => void;
 }
 
@@ -148,9 +49,9 @@ export interface BottomComposerHandle {
 /**
  * Always-open composer at the end of the stream — no dashed prompt to tap
  * through first, since a note at the end of the day is the common case.
- * Textarea + Save sit side by side (not stacked like the top slot's Cancel/
- * Save row) so the row stays compact; saving clears the draft but leaves
- * the composer mounted for the next note.
+ * Textarea + Save sit side by side; the textarea starts at the Save
+ * button's height and auto-grows with the draft. Saving clears the draft
+ * but leaves the composer mounted for the next note.
  */
 const BottomComposer = forwardRef<BottomComposerHandle, BottomComposerProps>(function BottomComposer(
   { saving, onSave, onActiveChange },
@@ -166,7 +67,9 @@ const BottomComposer = forwardRef<BottomComposerHandle, BottomComposerProps>(fun
     if (!taRef.current) return;
     const ta = taRef.current;
     ta.style.height = 'auto';
-    ta.style.height = `${Math.max(68, ta.scrollHeight + 2)}px`;
+    // Floor at the Save button's height (--tap-target, 44px) so the empty
+    // row reads as one compact line.
+    ta.style.height = `${Math.max(44, ta.scrollHeight + 2)}px`;
   }, [draft]);
 
   const active = focused || draft.trim().length > 0;
@@ -187,7 +90,7 @@ const BottomComposer = forwardRef<BottomComposerHandle, BottomComposerProps>(fun
   }));
 
   async function handleSave() {
-    const ok = await onSave('bottom', draft);
+    const ok = await onSave(draft);
     if (ok) setDraft('');
   }
 
@@ -222,8 +125,8 @@ const BottomComposer = forwardRef<BottomComposerHandle, BottomComposerProps>(fun
 });
 
 /** Context cards first (dashed/italic/muted), then the rest in their original ts/id order —
- * with a "+ Add a note" slot right after the context cards and an always-open
- * composer at the end. */
+ * with a "+ Add a note" shortcut right after the context cards that jumps to
+ * the always-open composer at the end. */
 export const CardStream = forwardRef<CardStreamHandle, CardStreamProps>(function CardStream(
   {
     cards,
@@ -236,10 +139,7 @@ export const CardStream = forwardRef<CardStreamHandle, CardStreamProps>(function
     onConfirmDelete,
     onNavigateDate,
     onPersonClick,
-    composingTop,
     addSaving,
-    onComposeStart,
-    onComposeCancel,
     onComposeSave,
     onBottomActiveChange,
   },
@@ -286,13 +186,18 @@ export const CardStream = forwardRef<CardStreamHandle, CardStreamProps>(function
   return (
     <div className={styles.stream}>
       {context.map(renderCard)}
-      <CardAddSlot
-        composing={composingTop}
-        saving={addSaving}
-        onStart={onComposeStart}
-        onCancel={onComposeCancel}
-        onSave={onComposeSave}
-      />
+      <div className={styles.addSlot}>
+        <button
+          type="button"
+          className={styles.addBtn}
+          onClick={(e) => {
+            e.stopPropagation();
+            bottomComposerRef.current?.focus();
+          }}
+        >
+          + Add a note
+        </button>
+      </div>
       {lines.map(renderCard)}
       <BottomComposer ref={bottomComposerRef} saving={addSaving} onSave={onComposeSave} onActiveChange={onBottomActiveChange} />
     </div>
