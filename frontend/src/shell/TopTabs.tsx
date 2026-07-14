@@ -466,7 +466,9 @@ export function TopTabs() {
               else void navigate({ to: '/chat' });
             }}
           >
-            <span className={styles.chatLabel}>{sessions.active || 'Chat'}</span>
+            <span className={styles.chatLabel}>
+              {sessions.titles[sessions.active] || sessions.active || 'Chat'}
+            </span>
           </button>
         ) : null}
         <button

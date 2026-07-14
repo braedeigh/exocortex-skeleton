@@ -101,13 +101,17 @@ export function getNeedsInput(signal?: AbortSignal): Promise<{ sessions: Record<
 // transcript ('assistant' = its last message, 'compact' = a compaction recap)
 // or the raw pane tail for plain shells ('pane'). `error` is set when the
 // transcript couldn't be parsed (Claude Code's internal format changed) —
-// the card shows it instead of a recap.
+// the card shows it instead of a recap. Live rw-* worker sessions are
+// included with worker: true.
 
 export interface SessionRecap {
   recap: string | null;
   source: 'assistant' | 'compact' | 'pane' | null;
   status: string | null; // claude process status ('busy', 'idle', …), 'not-running', or null for a plain shell
   error: string | null;
+  updatedAt: number | null; // transcript mtime, epoch seconds
+  needsInput: boolean;
+  worker: boolean;
 }
 
 export function getSessionRecaps(signal?: AbortSignal): Promise<{ sessions: Record<string, SessionRecap> }> {

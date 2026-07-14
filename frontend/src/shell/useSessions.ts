@@ -6,9 +6,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
  * add/removeSession, templates/split.html:623-837).
  *
  * Server contract (routes/terminal.py):
- *   GET    /api/sessions          -> { sessions: string[], defaults: string[] }
+ *   GET    /api/sessions          -> { sessions, defaults, workers, titles }
  *   POST   /api/sessions {name}   -> { sessions } | { error }
  *   DELETE /api/sessions {name}   -> { sessions } | { error }
+ *   POST   /api/sessions/title {name, title}  -> { titles } | { error }
  *   GET    /api/sessions/stream   -> SSE, each message the GET payload
  *   POST   /api/terminal/session {session}  -> records the active session
  *
@@ -18,15 +19,20 @@ import { useCallback, useEffect, useRef, useState } from 'react';
  */
 
 const ACTIVE_KEY = 'exo-desktop-session';
-const FALLBACK = { sessions: ['chat'], defaults: ['chat'] };
+const FALLBACK = { sessions: ['chat'], defaults: ['chat'], workers: [] as string[], titles: {} as Record<string, string> };
 
 export interface SessionState {
   sessions: string[];
   defaults: string[];
+  /** Live machine-managed rw-* worker sessions (dispatcher-owned, attach-only). */
+  workers: string[];
+  /** User-set display titles per session; fall back to the session name. */
+  titles: Record<string, string>;
   active: string;
   setActive: (name: string) => void;
   addSession: (name: string) => Promise<void>;
   removeSession: (name: string) => Promise<void>;
+  setTitle: (name: string, title: string) => Promise<void>;
   isCustom: (name: string) => boolean;
 }
 
@@ -41,26 +47,35 @@ function readActive(): string {
 export function useSessions(enabled: boolean): SessionState {
   const [sessions, setSessions] = useState<string[]>(FALLBACK.sessions);
   const [defaults, setDefaults] = useState<string[]>(FALLBACK.defaults);
+  const [workers, setWorkers] = useState<string[]>(FALLBACK.workers);
+  const [titles, setTitles] = useState<Record<string, string>>(FALLBACK.titles);
   const [active, setActiveState] = useState<string>(readActive);
   const activeRef = useRef(active);
   activeRef.current = active;
 
   // Keep `active` pointing at something real: if the stored/active session
-  // vanishes from the list (closed elsewhere), fall back to the first one.
-  const apply = useCallback((data: { sessions?: string[]; defaults?: string[] }) => {
-    const list = Array.isArray(data.sessions) && data.sessions.length ? data.sessions : FALLBACK.sessions;
-    setSessions(list);
-    setDefaults(Array.isArray(data.defaults) ? data.defaults : []);
-    if (!list.includes(activeRef.current)) {
-      const first = list[0] || 'chat';
-      setActiveState(first);
-      try {
-        localStorage.setItem(ACTIVE_KEY, first);
-      } catch {
-        // storage disabled — active still lives in React state
+  // vanishes from the list (closed elsewhere, or a worker that finished),
+  // fall back to the first one.
+  const apply = useCallback(
+    (data: { sessions?: string[]; defaults?: string[]; workers?: string[]; titles?: Record<string, string> }) => {
+      const list = Array.isArray(data.sessions) && data.sessions.length ? data.sessions : FALLBACK.sessions;
+      const live = Array.isArray(data.workers) ? data.workers : [];
+      setSessions(list);
+      setDefaults(Array.isArray(data.defaults) ? data.defaults : []);
+      setWorkers(live);
+      setTitles(data.titles && typeof data.titles === 'object' ? data.titles : {});
+      if (!list.includes(activeRef.current) && !live.includes(activeRef.current)) {
+        const first = list[0] || 'chat';
+        setActiveState(first);
+        try {
+          localStorage.setItem(ACTIVE_KEY, first);
+        } catch {
+          // storage disabled — active still lives in React state
+        }
       }
-    }
-  }, []);
+    },
+    [],
+  );
 
   const setActive = useCallback((name: string) => {
     setActiveState(name);
@@ -111,6 +126,17 @@ export function useSessions(enabled: boolean): SessionState {
     [setActive],
   );
 
+  const setTitle = useCallback(async (name: string, title: string) => {
+    const resp = await fetch('/api/sessions/title', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, title }),
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data.error || 'Could not save title');
+    if (data.titles && typeof data.titles === 'object') setTitles(data.titles);
+  }, []);
+
   const isCustom = useCallback((name: string) => !defaults.includes(name), [defaults]);
 
   // Initial load + live SSE stream (reconnecting), mirroring
@@ -150,5 +176,5 @@ export function useSessions(enabled: boolean): SessionState {
     };
   }, [enabled, apply]);
 
-  return { sessions, defaults, active, setActive, addSession, removeSession, isCustom };
+  return { sessions, defaults, workers, titles, active, setActive, addSession, removeSession, setTitle, isCustom };
 }

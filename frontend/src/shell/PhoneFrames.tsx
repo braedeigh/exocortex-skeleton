@@ -16,7 +16,7 @@ import { PhoneTerminal } from '../features/phone/PhoneTerminal';
  * panels) across session switches.
  */
 export function PhoneFrames({ sessions }: { sessions: SessionState }) {
-  const { active, sessions: list } = sessions;
+  const { active, sessions: list, workers } = sessions;
   const [visited, setVisited] = useState<string[]>(() => [active]);
   // See useSettledFrames — same first-mount blank-iframe workaround as
   // TerminalFrames' desktop counterpart (the ttyd iframe inside PhoneTerminal
@@ -28,13 +28,14 @@ export function PhoneFrames({ sessions }: { sessions: SessionState }) {
     setVisited((prev) => (prev.includes(active) ? prev : [...prev, active]));
   }, [active]);
 
-  // Unmount terminals for sessions that no longer exist (closed elsewhere).
+  // Unmount terminals for sessions that no longer exist (closed elsewhere,
+  // or an rw-* worker that finished and killed its own tmux session).
   useEffect(() => {
     setVisited((prev) => {
-      const next = prev.filter((s) => list.includes(s));
+      const next = prev.filter((s) => list.includes(s) || workers.includes(s));
       return next.length === prev.length ? prev : next;
     });
-  }, [list]);
+  }, [list, workers]);
 
   return (
     <>

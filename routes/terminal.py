@@ -147,11 +147,38 @@ def _clean_recap(text, source):
     return text
 
 
-def _session_recap(sess, live):
+# Parsed-recap cache, keyed by transcript path: only re-read + re-parse a
+# transcript whose (mtime, size) changed since last poll — the recaps
+# endpoint polls every few seconds and workers multiply the session count,
+# so unchanged transcripts must be free.
+_recap_cache = {}
+_RECAP_CACHE_MAX = 64
+
+
+def _transcript_recap(path):
+    """(text, source, mtime_epoch) for a transcript, via the cache above."""
+    st = path.stat()
+    key = (st.st_mtime_ns, st.st_size)
+    cached = _recap_cache.get(str(path))
+    if cached and cached[0] == key:
+        return cached[1], cached[2], int(st.st_mtime)
+    with open(path, "rb") as f:
+        f.seek(0, 2)
+        f.seek(max(0, f.tell() - _TRANSCRIPT_TAIL_BYTES))
+        tail_text = f.read().decode("utf-8", "replace")
+    text, source = _extract_recap(tail_text.splitlines())
+    if len(_recap_cache) >= _RECAP_CACHE_MAX:
+        _recap_cache.clear()   # dumb but bounded; refills on the next poll
+    _recap_cache[str(path)] = (key, text, source)
+    return text, source, int(st.st_mtime)
+
+
+def _session_recap(sess, live, worker=False):
     """Card entry for one tmux session. Never raises: anything unexpected
     lands in `error` so the card can say the recap degraded instead of
     silently showing nothing."""
-    entry = {"recap": None, "source": None, "status": None, "error": None}
+    entry = {"recap": None, "source": None, "status": None, "error": None,
+             "updatedAt": None, "needsInput": False, "worker": worker}
     try:
         panes = _tmux(f"list-panes -t {sess} -F '#{{pane_pid}}'").stdout.strip()
         if not panes:
@@ -161,6 +188,11 @@ def _session_recap(sess, live):
             return entry
         pane_pid = int(panes.splitlines()[0])
 
+        # Same waiting-on-you heuristic as /api/terminal/needs-input, folded
+        # in here so the /sessions page needs only this one poller.
+        pane_tail = _tmux(f"capture-pane -t {sess} -p -S -15").stdout
+        entry["needsInput"] = any(p.lower() in pane_tail.lower() for p in _PROMPT_PATTERNS)
+
         claude = None
         for info in live:
             if pane_pid in _proc_ancestors(info["pid"]):
@@ -168,8 +200,7 @@ def _session_recap(sess, live):
                     claude = info
         if claude is None:
             # Plain shell (no claude inside): last non-blank pane lines.
-            raw = _tmux(f"capture-pane -t {sess} -p -S -15").stdout
-            tail = [ln for ln in (_ANSI_RE.sub('', l).strip() for l in raw.splitlines()) if ln]
+            tail = [ln for ln in (_ANSI_RE.sub('', l).strip() for l in pane_tail.splitlines()) if ln]
             entry["recap"] = _clean_recap(" · ".join(tail[-3:]), "pane") if tail else None
             entry["source"] = "pane"
             return entry
@@ -179,20 +210,41 @@ def _session_recap(sess, live):
         if not path.exists():
             entry["error"] = _RECAP_FORMAT_ERROR
             return entry
-        with open(path, "rb") as f:
-            f.seek(0, 2)
-            f.seek(max(0, f.tell() - _TRANSCRIPT_TAIL_BYTES))
-            tail_text = f.read().decode("utf-8", "replace")
-        text, source = _extract_recap(tail_text.splitlines())
+        text, source, mtime = _transcript_recap(path)
         if not text:
             entry["error"] = _RECAP_FORMAT_ERROR
             return entry
         entry["recap"] = _clean_recap(text, source)
         entry["source"] = source
+        entry["updatedAt"] = mtime
         return entry
     except Exception as e:
         entry["error"] = f"Recap unavailable: {e}"
         return entry
+
+
+# Machine-managed worker sessions (rw-*): the dispatcher creates them running
+# claude and they self-destruct when done (see ttyd_connect.sh, which only
+# ever attaches to them). They're not in sessions.json — listed straight from
+# tmux, behind a tiny TTL cache because the SSE stream polls every second.
+_WORKERS_TTL_SEC = 2.0
+_workers_cache = {"at": 0.0, "names": []}
+
+
+def _live_workers():
+    now = time.monotonic()
+    if now - _workers_cache["at"] > _WORKERS_TTL_SEC:
+        out = _tmux("list-sessions -F '#{session_name}'").stdout
+        _workers_cache["names"] = sorted(n for n in out.split() if n.startswith("rw-"))
+        _workers_cache["at"] = now
+    return _workers_cache["names"]
+
+
+def _load_titles():
+    """User-set display titles per session (session_titles.json via store.py);
+    cards fall back to the capitalized session name when unset."""
+    titles = store.read("session_titles", {})
+    return titles if isinstance(titles, dict) else {}
 
 # Shared with terminal_send()'s "accept the confirmation prompt before typing"
 # logic below, and with /api/terminal/needs-input (which tints a background
@@ -593,9 +645,13 @@ def register(app):
     def terminal_session_get():
         return jsonify({"session": TMUX_SESSION})
 
+    def _sessions_payload():
+        return {"sessions": _load_sessions(), "defaults": DEFAULT_SESSIONS,
+                "workers": _live_workers(), "titles": _load_titles()}
+
     @app.route("/api/sessions")
     def sessions_list():
-        return jsonify({"sessions": _load_sessions(), "defaults": DEFAULT_SESSIONS})
+        return jsonify(_sessions_payload())
 
     @app.route("/api/sessions", methods=["POST"])
     def sessions_add():
@@ -603,6 +659,10 @@ def register(app):
         name = data.get("name", "").strip().lower()
         if not name or not _VALID_SESSION_RE.match(name):
             return jsonify({"error": "Invalid name. Use letters, numbers, hyphens, underscores (max 30 chars)."}), 400
+        if name.startswith("rw-"):
+            # Reserved for dispatcher workers — a user session squatting an
+            # rw-* name is exactly the failure ttyd_connect.sh guards against.
+            return jsonify({"error": "Names starting with rw- are reserved for workers."}), 400
         sessions = _load_sessions()
         if name in sessions:
             return jsonify({"error": "Session already exists."}), 409
@@ -621,23 +681,48 @@ def register(app):
             return jsonify({"error": "Session not found."}), 404
         sessions.remove(name)
         _save_sessions(sessions)
+        titles = _load_titles()
+        if name in titles:
+            del titles[name]
+            store.write("session_titles", titles)
         _tmux(f"kill-session -t {name}")
         return jsonify({"ok": True, "sessions": sessions})
+
+    @app.route("/api/sessions/title", methods=["POST"])
+    def sessions_set_title():
+        """Set (or clear, with an empty title) a session's display title —
+        shown on the /sessions cards and the mobile Chat tab instead of the
+        raw tmux name."""
+        data = request.json or {}
+        name = (data.get("name") or "").strip().lower()
+        title = (data.get("title") or "").strip()[:40]
+        if name not in _load_sessions() and name not in _live_workers():
+            return jsonify({"error": "Session not found."}), 404
+        titles = _load_titles()
+        if title:
+            titles[name] = title
+        else:
+            titles.pop(name, None)
+        store.write("session_titles", titles)
+        return jsonify({"ok": True, "titles": titles})
 
     @app.route("/api/sessions/stream")
     def sessions_stream():
         def generate():
-            last_mtime = 0
+            last_sig = None
             while True:
                 try:
                     mtime = SESSIONS_PATH.stat().st_mtime
                 except FileNotFoundError:
                     mtime = 0
-                if mtime != last_mtime:
-                    last_mtime = mtime
-                    sessions = _load_sessions()
-                    data = json.dumps({"sessions": sessions, "defaults": DEFAULT_SESSIONS})
-                    yield f"data: {data}\n\n"
+                payload = _sessions_payload()
+                # Re-emit on any change a client renders: the session list
+                # itself, a worker appearing/finishing, or a title edit.
+                sig = (mtime, tuple(payload["workers"]),
+                       tuple(sorted(payload["titles"].items())))
+                if sig != last_sig:
+                    last_sig = sig
+                    yield f"data: {json.dumps(payload)}\n\n"
                 time.sleep(1)
         return Response(generate(), mimetype='text/event-stream',
                         headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
@@ -661,10 +746,17 @@ def register(app):
     def terminal_recaps():
         """Per-session card data for the /sessions page: latest recap (from
         the pane's Claude Code transcript, or the pane itself for plain
-        shells), the claude process's busy/idle status, and an error string
-        when the transcript couldn't be parsed (see the recap helpers above)."""
+        shells), the claude process's busy/idle status, transcript freshness,
+        the needs-input flag, and an error string when the transcript
+        couldn't be parsed (see the recap helpers above). Live rw-* worker
+        sessions are included alongside the sessions.json ones, flagged
+        worker: true (read-only cards — attach-only, no × / no create)."""
         live = _live_claude_sessions()
-        return jsonify({"sessions": {s: _session_recap(s, live) for s in _load_sessions()}})
+        out = {s: _session_recap(s, live) for s in _load_sessions()}
+        for w in _live_workers():
+            if w not in out:
+                out[w] = _session_recap(w, live, worker=True)
+        return jsonify({"sessions": out})
 
     @app.route("/api/terminal/upload", methods=["POST"])
     def terminal_upload():
