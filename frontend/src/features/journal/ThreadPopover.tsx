@@ -1,8 +1,9 @@
 import { Fragment, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { Sheet } from '../../ui';
+import { useSessionsContext } from '../../shell/SessionsContext';
 import { DESKTOP_QUERY } from '../../shell/useMediaQuery';
-import { sendThreadToChat, talkLabel, type TalkState } from './threadTalk';
+import { startThreadTalk, talkLabel, type TalkState } from './threadTalk';
 import { useThread } from './useJournalData';
 import type { ThreadSource } from './types';
 import styles from './ThreadPopover.module.css';
@@ -26,6 +27,7 @@ export interface ThreadPopoverProps {
 export function ThreadPopover({ id, onClose, onNavigateDate }: ThreadPopoverProps) {
   const { data, isLoading, isError } = useThread(id);
   const navigate = useNavigate();
+  const { setActive } = useSessionsContext();
   const [talkState, setTalkState] = useState<TalkState>('idle');
 
   if (!id) return null;
@@ -38,18 +40,20 @@ export function ThreadPopover({ id, onClose, onNavigateDate }: ThreadPopoverProp
   }
 
   /**
-   * Send `/thread <id>` to the Keeper's session (threadTalk.ts). On mobile,
-   * jump to the Chat tab; on desktop the terminal is already docked in the
-   * split pane (and /chat would bounce to '/'), so stay put and show "sent".
+   * Spawn a fresh claude session on this thread (threadTalk.ts). On mobile,
+   * switch the Chat tab to the new session and jump there; on desktop the
+   * session appears in the terminal pane's sessions bar (/chat would bounce
+   * to '/'), so stay put and say so.
    */
   async function talkAboutThread() {
     if (talkState === 'sending') return;
     setTalkState('sending');
     try {
-      await sendThreadToChat(id!);
+      const res = await startThreadTalk(id!);
       if (window.matchMedia(DESKTOP_QUERY).matches) {
         setTalkState('sent');
       } else {
+        setActive(res.session);
         onClose();
         void navigate({ to: '/chat' });
       }

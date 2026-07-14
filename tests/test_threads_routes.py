@@ -88,3 +88,59 @@ def test_alias_resolves_to_the_thread(client):
 def test_unknown_thread_is_404(client):
     resp = client.get("/api/thread?name=nope")
     assert resp.status_code == 404
+
+
+class _FakeTmux:
+    """Stand-in for routes.terminal._tmux: records the command strings and
+    answers has-session with a canned liveness set."""
+
+    def __init__(self, alive=()):
+        self.alive = set(alive)
+        self.calls = []
+
+    def __call__(self, cmd):
+        self.calls.append(cmd)
+        ok = type("R", (), {"returncode": 0, "stderr": ""})()
+        if cmd.startswith("has-session"):
+            name = cmd.split("=", 1)[1]
+            ok.returncode = 0 if name in self.alive else 1
+        return ok
+
+
+@pytest.fixture
+def talk_env(monkeypatch, tmp_path):
+    """Stub the terminal module's tmux + sessions.json touchpoints so
+    /api/thread/talk is testable without a tmux server."""
+    from routes import terminal as term
+
+    fake = _FakeTmux()
+    saved = {"sessions": ["chat"]}
+    monkeypatch.setattr(term, "_tmux", fake)
+    monkeypatch.setattr(term, "_load_sessions", lambda: list(saved["sessions"]))
+    monkeypatch.setattr(term, "_save_sessions", lambda s: saved.update(sessions=s))
+    return fake, saved
+
+
+def test_talk_spawns_a_thread_session(client, talk_env):
+    fake, saved = talk_env
+    resp = client.post("/api/thread/talk", json={"name": "office-hours"})
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["session"] == "thread-office-hours"
+    # The spawned command runs claude with the /thread slash command.
+    spawn = [c for c in fake.calls if c.startswith("new-session")][0]
+    assert "-s thread-office-hours" in spawn and '"/thread office-hours"' in spawn
+    # And the session was registered so the UI lists it.
+    assert "thread-office-hours" in saved["sessions"]
+
+
+def test_talk_suffixes_when_session_alive(client, talk_env):
+    fake, _ = talk_env
+    fake.alive.add("thread-office-hours")
+    data = client.post("/api/thread/talk", json={"name": "office-hours"}).get_json()
+    assert data["session"] == "thread-office-hours-2"
+
+
+def test_talk_unknown_thread_is_404(client, talk_env):
+    resp = client.post("/api/thread/talk", json={"name": "nope"})
+    assert resp.status_code == 404

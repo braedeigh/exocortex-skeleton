@@ -1,8 +1,9 @@
 import { Fragment, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
+import { useSessionsContext } from '../../shell/SessionsContext';
 import { DESKTOP_QUERY } from '../../shell/useMediaQuery';
 import { useThread, useThreads } from '../journal/useJournalData';
-import { sendThreadToChat, talkLabel, type TalkState } from '../journal/threadTalk';
+import { startThreadTalk, talkLabel, type TalkState } from '../journal/threadTalk';
 import type { ThreadSource } from '../journal/types';
 import styles from './ThreadsPage.module.css';
 
@@ -64,16 +65,18 @@ export function ThreadsPage() {
 function ThreadBody({ id }: { id: string }) {
   const { data, isLoading, isError } = useThread(id);
   const navigate = useNavigate();
+  const { setActive } = useSessionsContext();
   const [talkState, setTalkState] = useState<TalkState>('idle');
 
   async function talk() {
     if (talkState === 'sending') return;
     setTalkState('sending');
     try {
-      await sendThreadToChat(id);
+      const res = await startThreadTalk(id);
       if (window.matchMedia(DESKTOP_QUERY).matches) {
         setTalkState('sent');
       } else {
+        setActive(res.session);
         void navigate({ to: '/chat' });
       }
     } catch {

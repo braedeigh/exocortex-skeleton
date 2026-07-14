@@ -39,6 +39,32 @@ from routes.entities import _parse_frontmatter
 
 THREADS_DIR = "Threads"
 
+# --- "Talk about this thread" session spawning -------------------------------
+# The talk button starts a FRESH claude session per thread (not the Keeper's
+# chat — her call, 2026-07-14: keep the Keeper conversation clean). The /thread
+# slash command is passed as claude's launch prompt, so there's no race against
+# claude booting that typing into the pane would have. The session runs from
+# the vault (where the Keeper's files live) and dies when she quits claude.
+CLAUDE_BIN = "/home/bradie/.local/bin/claude"
+VAULT_CWD = "/opt/exocortex/personal"
+_SESSION_SLUG = re.compile(r"^[a-z0-9-]{1,40}$")
+# sessions.json names are capped at 30 chars (routes/terminal.py); leave room
+# for a "-N" retry suffix when the base name's tmux session is still alive.
+_SESSION_NAME_MAX = 30
+
+
+def _talk_session_name(slug, tmux):
+    """First free tmux session name for a thread: thread-<slug>, then -2, -3…
+    ('=' forces exact match — tmux otherwise prefix-matches names)."""
+    base = f"thread-{slug}"[:_SESSION_NAME_MAX].rstrip("-")
+    name = base
+    for i in range(2, 10):
+        if tmux(f"has-session -t ={name}").returncode != 0:
+            return name
+        suffix = f"-{i}"
+        name = base[: _SESSION_NAME_MAX - len(suffix)] + suffix
+    return None
+
 _CARD_ID = re.compile(r"^\d{4}-\d{2}-\d{2}\.\w+$")
 _DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _TOKEN = re.compile(r"`([^`]+)`")          # backtick-wrapped source tokens
@@ -176,6 +202,49 @@ def register(app):
         out = [{"id": t["id"], "name": t["name"], "aliases": t.get("aliases", []), "file": t["file"]}
                for t in threads_index().values()]
         return jsonify({"threads": out})
+
+    @app.route("/api/thread/talk", methods=["POST"])
+    def thread_talk():
+        """Spawn a fresh terminal session running `claude "/thread <slug>"` —
+        the vault-side slash command reads the thread + its sources and opens
+        a conversation. Returns the tmux session name so the client can
+        switch the terminal there. Registered in sessions.json so the
+        /sessions page lists it and ttyd can attach (closable: not a
+        DEFAULT_SESSION)."""
+        # Imported here, not at module top: routes/terminal.py touches
+        # DATA_DIR/tmux paths at import time, which the threads tests (pure
+        # CONTENT_DIR parsing) shouldn't have to stub.
+        from routes import terminal as term
+
+        data = request.json or {}
+        q = (data.get("name") or "").strip()
+        if not q:
+            return jsonify({"error": "name required"}), 400
+        t = resolve_thread(q)
+        if not t:
+            return jsonify({"error": "not found", "name": q}), 404
+        slug = t["id"]
+        if not _SESSION_SLUG.match(slug):
+            # Thread ids are filename stems; anything outside [a-z0-9-] is not
+            # safe to interpolate into the tmux command line below.
+            return jsonify({"error": "thread id not sessionable", "id": slug}), 400
+
+        name = _talk_session_name(slug, term._tmux)
+        if not name:
+            return jsonify({"error": "too many sessions for this thread"}), 409
+
+        r = term._tmux(
+            f"new-session -d -s {name} -c {VAULT_CWD} "
+            f"'{CLAUDE_BIN} \"/thread {slug}\"'"
+        )
+        if r.returncode != 0:
+            return jsonify({"error": (r.stderr or "").strip() or "tmux failed"}), 500
+
+        sessions = term._load_sessions()
+        if name not in sessions:
+            sessions.append(name)
+            term._save_sessions(sessions)
+        return jsonify({"ok": True, "session": name, "thread": slug})
 
     @app.route("/api/thread")
     def thread_detail():
