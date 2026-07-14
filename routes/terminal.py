@@ -15,6 +15,7 @@ import subprocess
 import re
 import time
 import store
+import recap_summary
 
 TMUX_SESSION = "chat"
 # Protected sessions: no × button in the UI, DELETE refused. Only chat — it's
@@ -41,10 +42,14 @@ _VALID_SESSION_RE = re.compile(r'^[a-zA-Z0-9_-]{1,30}$')
 # --- Session recaps (/api/terminal/recaps) -----------------------------------
 # Card data for the /sessions full-page switcher: each tmux session's "latest
 # recap" is pulled from the Claude Code transcript of whatever claude process
-# is running inside that pane. Two Claude-owned files are involved, and BOTH
-# are undocumented internals that can change shape between Claude Code
-# releases — which is why every parse failure below degrades to an `error`
-# string the card displays, never a silent blank:
+# is running inside that pane. As of the recap_summary.py module, the card
+# prefers a real 1-2 sentence Haiku-generated summary (cached, refreshed in
+# the background as the transcript grows) and falls back to the raw
+# last-assistant-output recap below when no summary is available yet. Two
+# Claude-owned files are involved, and BOTH are undocumented internals that
+# can change shape between Claude Code releases — which is why every parse
+# failure below degrades to an `error` string the card displays, never a
+# silent blank:
 #   ~/.claude/sessions/<pid>.json   live-process registry (pid, sessionId,
 #                                   cwd, status) — maps a pane to a transcript
 #   ~/.claude/projects/<cwd-flattened>/<sessionId>.jsonl   the transcript
@@ -217,6 +222,13 @@ def _session_recap(sess, live, worker=False):
         entry["recap"] = _clean_recap(text, source)
         entry["source"] = source
         entry["updatedAt"] = mtime
+        # Prefer the Haiku-generated summary when one's cached; this also
+        # kicks off a background refresh if the transcript has grown. Falls
+        # back to the last-output recap above (updatedAt is set either way).
+        summary = recap_summary.get_summary(claude.get("sessionId"), path)
+        if summary:
+            entry["recap"] = summary
+            entry["source"] = "summary"
         return entry
     except Exception as e:
         entry["error"] = f"Recap unavailable: {e}"

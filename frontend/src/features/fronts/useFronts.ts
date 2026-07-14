@@ -43,7 +43,7 @@ export const FRONT_EMOJI: Record<string, string> = {
   exocortex: '🧠',
   practice: '🪷',
   connection: '🫂',
-  errands: '📦',
+  bureaucracy: '🏛️',
   'self-becoming': '🪞',
 };
 

@@ -93,4 +93,8 @@ def register(app):
                         item["fronts"] = [x for x in item["fronts"] if x != fid]
                         if not item["fronts"]:
                             item.pop("fronts")
+        with store.mutate("buy_list.json", {"items": []}) as bdata:
+            for item in bdata.get("items", []):
+                if fid in (item.get("fronts") or []):
+                    item["fronts"] = [x for x in item["fronts"] if x != fid]
         return _blob(data)

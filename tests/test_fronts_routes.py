@@ -165,3 +165,23 @@ def test_remove_strips_id_from_todo_fronts_lists(client):
     items = store.read("todos", {})["now"]["items"]
     assert items[0]["fronts"] == [f2]
     assert "fronts" not in items[1] and items[1]["text"] == "nap"
+
+
+def test_remove_strips_id_from_buy_list_fronts(client):
+    """Buy-list items carry `fronts` too (2026-07-14, routes/inventory.py);
+    deleting a front un-tags them — items survive, other fronts stay, an
+    emptied list stays as [] (the buy list renders [] as untagged)."""
+    import store
+    _post(client, "/api/fronts/add", {"name": "Health"})
+    _post(client, "/api/fronts/add", {"name": "Appearance"})
+    f1, f2 = [f["id"] for f in _read_fronts()["fronts"]]
+    store.write("buy_list.json", {"items": [
+        {"name": "Barefoot shoes", "fronts": [f1, f2]},
+        {"name": "MCT oil", "fronts": [f1]},
+    ]})
+
+    _post(client, "/api/fronts/remove", {"id": f1})
+
+    items = store.read("buy_list.json", {"items": []})["items"]
+    assert items[0]["fronts"] == [f2]
+    assert items[1]["fronts"] == [] and items[1]["name"] == "MCT oil"
