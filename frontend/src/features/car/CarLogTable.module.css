@@ -5,8 +5,9 @@
 }
 
 .wrap {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
   /* Old container was overflow:hidden; auto keeps the rounded corners but
      lets the table scroll sideways on narrow screens instead of crushing. */
   overflow-x: auto;
@@ -35,7 +36,7 @@
 
 .td {
   padding: var(--space-2);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-soft);
 }
 
 .dueOverdue {

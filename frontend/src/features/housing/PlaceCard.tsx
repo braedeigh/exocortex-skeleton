@@ -53,7 +53,7 @@ export function PlaceCard({ entry, onSetStatus, onSaveEdit, onDelete }: PlaceCar
 
   if (fields) {
     return (
-      <div className={styles.card} style={{ borderLeftColor: color }}>
+      <div className={styles.card}>
         <HousingFields value={fields} onChange={(patch) => setFields((f) => (f ? { ...f, ...patch } : f))} />
         <div className={styles.editActions}>
           <button type="button" className={styles.saveBtn} onClick={saveEdit}>
@@ -68,9 +68,12 @@ export function PlaceCard({ entry, onSetStatus, onSaveEdit, onDelete }: PlaceCar
   }
 
   return (
-    <div className={styles.card} style={{ borderLeftColor: color }}>
+    <div className={styles.card}>
       <div className={styles.nameRow}>
-        <div className={styles.name}>{entry.name}</div>
+        {/* Status color rides the name text (the old colored left border is gone). */}
+        <div className={styles.name} style={{ color }}>
+          {entry.name}
+        </div>
         {entry.link ? (
           <a
             className={styles.link}

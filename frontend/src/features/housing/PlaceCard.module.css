@@ -1,10 +1,11 @@
-/* Place card — old _housingCard() inline styles, status accent on the left
-   border (set inline per status), buttons grown to touch targets. */
+/* Place card — old _housingCard() inline styles, buttons grown to touch
+   targets. The status accent rides the name text (set inline per status —
+   the old colored left border is gone). */
 
 .card {
-  border: 1px solid var(--border);
-  border-left: 4px solid var(--text-muted); /* overridden inline per status */
-  border-radius: var(--radius-md);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
   padding: 14px;
   margin-bottom: var(--space-3);
 }

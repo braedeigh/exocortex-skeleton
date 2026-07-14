@@ -1,8 +1,9 @@
 /* Backlog entry card — old inline styles from _mediaRenderCard. */
 
 .card {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
   padding: var(--space-4);
   margin-bottom: var(--space-3);
   background: var(--card-bg);

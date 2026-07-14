@@ -1,11 +1,12 @@
 /* Port of details.map-section.kitchen-section (style.css) — soft pill card
-   with a chevron summary; left accent + tint only while open. */
+   with a chevron summary; tint only while open (open state also reads from
+   the accent-colored rotated arrow — the old colored left border is gone). */
 
 .card {
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--border);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xl);
   background: rgba(124, 92, 191, 0.025);
+  box-shadow: var(--shadow-card);
   margin-bottom: 10px;
   padding: 2px 14px;
   transition:
@@ -15,13 +16,7 @@
 }
 
 .card[open] {
-  border-left-color: var(--accent);
   background: rgba(124, 92, 191, 0.06);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
-}
-
-.card:not([open]):hover {
-  border-left-color: rgba(124, 92, 191, 0.45);
 }
 
 .summary {

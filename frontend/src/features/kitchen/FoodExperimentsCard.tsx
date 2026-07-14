@@ -97,7 +97,7 @@ export function FoodExperimentsCard({ tests, queue, onError, invalidate }: FoodE
       </div>
 
       {active ? (
-        <div style={{ border: '1px solid var(--accent)', borderLeft: '3px solid var(--accent)', background: 'rgba(124,92,191,0.06)', borderRadius: 8, padding: 14, marginBottom: 14 }}>
+        <div style={{ border: '1px solid color-mix(in srgb, var(--accent) 30%, transparent)', background: 'color-mix(in srgb, var(--accent) 6%, var(--card-bg))', borderRadius: 'var(--radius-xl)', padding: 14, marginBottom: 14 }}>
           <div className={styles.groupLabel} style={{ padding: 0, marginBottom: 4 }}>Testing</div>
           <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>{active.food}</div>
           <div className={styles.muted13} style={{ marginBottom: 10 }}>
@@ -154,7 +154,7 @@ export function FoodExperimentsCard({ tests, queue, onError, invalidate }: FoodE
       ) : null}
 
       {recovering ? (
-        <div style={{ border: '1px solid var(--orange)', borderLeft: '3px solid var(--orange)', background: 'rgba(212,140,68,0.06)', borderRadius: 8, padding: 14, marginBottom: 14 }}>
+        <div style={{ border: '1px solid color-mix(in srgb, var(--orange) 35%, transparent)', background: 'color-mix(in srgb, var(--orange) 6%, var(--card-bg))', borderRadius: 'var(--radius-xl)', padding: 14, marginBottom: 14 }}>
           <div className={styles.groupLabel} style={{ padding: 0, marginBottom: 4 }}>Recovering</div>
           <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Last flare: {recovering.food}</div>
           <div className={styles.muted13} style={{ marginBottom: 8 }}>
@@ -174,7 +174,7 @@ export function FoodExperimentsCard({ tests, queue, onError, invalidate }: FoodE
       ) : null}
 
       {state === 'clear' ? (
-        <div style={{ border: '1px solid var(--green)', borderLeft: '3px solid var(--green)', background: 'rgba(58,158,140,0.06)', borderRadius: 8, padding: 14, marginBottom: 14 }}>
+        <div style={{ border: '1px solid color-mix(in srgb, var(--green) 35%, transparent)', background: 'color-mix(in srgb, var(--green) 6%, var(--card-bg))', borderRadius: 'var(--radius-xl)', padding: 14, marginBottom: 14 }}>
           <div className={styles.groupLabel} style={{ padding: 0, marginBottom: 4 }}>Ready</div>
           <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Baseline clear — ready for next experiment.</div>
           {nextUp ? (

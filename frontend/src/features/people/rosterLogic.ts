@@ -171,3 +171,13 @@ export function writeStoredTags(tags: ReadonlySet<string>): void {
     // filters just won't persist across visits
   }
 }
+
+/** Roster previews render as plain text, but blurbs/notes are authored in
+ * markdown — strip inline syntax so one-liners don't show raw ** and [](). */
+export function stripInlineMd(s: string): string {
+  return s
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/(\*\*|__)(.+?)\1/g, '$2')
+    .replace(/([*_])([^*_]+)\1/g, '$2')
+    .replace(/`([^`]*)`/g, '$1');
+}

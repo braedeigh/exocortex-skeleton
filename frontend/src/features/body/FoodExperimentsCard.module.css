@@ -24,7 +24,6 @@
 
 .activeBlock {
   border: 1px solid var(--accent);
-  border-left: 3px solid var(--accent);
   background: rgba(124, 92, 191, 0.06);
   border-radius: var(--radius-md);
   padding: 14px;
@@ -128,7 +127,6 @@
 
 .recoveringBlock {
   border: 1px solid var(--orange);
-  border-left: 3px solid var(--orange);
   background: rgba(212, 140, 68, 0.06);
   border-radius: var(--radius-md);
   padding: 14px;
@@ -162,7 +160,6 @@
 
 .clearBlock {
   border: 1px solid var(--green);
-  border-left: 3px solid var(--green);
   background: rgba(58, 158, 140, 0.06);
   border-radius: var(--radius-md);
   padding: 14px;
@@ -226,7 +223,7 @@
   align-items: center;
   gap: 6px;
   padding: var(--space-1) var(--space-1);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-soft);
 }
 
 .queueNum {
@@ -313,7 +310,7 @@
 
 .pastRow {
   padding: var(--space-2) var(--space-1);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-soft);
   font-size: 13px;
   display: flex;
   gap: var(--space-2);

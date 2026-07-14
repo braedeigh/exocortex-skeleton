@@ -6,7 +6,7 @@
   align-items: center;
   min-height: var(--tap-target);
   padding: 6px 0;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-soft);
   gap: var(--space-3);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
@@ -100,7 +100,7 @@
   min-height: var(--tap-target);
   padding: 6px 0;
   gap: var(--space-2);
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-soft);
   margin-top: var(--space-1);
 }
 

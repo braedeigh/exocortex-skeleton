@@ -12,6 +12,7 @@ import {
   nextSort,
   relLabel,
   statsLine,
+  stripInlineMd,
 } from './rosterLogic';
 import type { RosterPerson } from './types';
 
@@ -176,5 +177,21 @@ describe('statsLine', () => {
     expect(statsLine(person({ dates: ['2026-02-10', '2026-03-01', '2026-07-04'] }))).toBe(
       '3 days · since Feb 2026',
     );
+  });
+});
+
+describe('stripInlineMd', () => {
+  it('strips bold/italic/code markers from previews', () => {
+    expect(stripInlineMd('**As of mid-July** he is the *closest* `friend`')).toBe(
+      'As of mid-July he is the closest friend',
+    );
+  });
+
+  it('keeps link text, drops the url', () => {
+    expect(stripInlineMd('see [her site](https://x.example) soon')).toBe('see her site soon');
+  });
+
+  it('leaves plain text alone', () => {
+    expect(stripInlineMd('no markdown here')).toBe('no markdown here');
   });
 });

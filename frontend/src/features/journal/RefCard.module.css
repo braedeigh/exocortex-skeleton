@@ -3,9 +3,9 @@
 
 .card {
   border-left: 3px solid var(--accent);
-  border-top: 1px solid var(--border);
-  border-right: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
+  border-top: 1px solid var(--border-soft);
+  border-right: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--border-soft);
   border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--accent) 3%, var(--card-bg));
   padding: var(--space-2) var(--space-3);

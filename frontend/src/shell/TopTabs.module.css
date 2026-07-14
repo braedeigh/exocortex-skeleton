@@ -68,18 +68,23 @@
   padding-top: env(safe-area-inset-top, 0px);
 }
 
+/* Uppercase stays (Bradie's call) — the fix for DASHBOARD visually fusing
+ * into RESEARCH at 390px is tighter type, not a case change: 12px + 0.5px
+ * tracking + a little horizontal padding leaves each flex:1 slot real gaps
+ * between labels. */
 .dashBtn {
   flex: 1;
+  min-width: 0;
   min-height: 44px;
-  padding: 11px 0;
+  padding: 11px 4px;
   border: none;
   background: var(--tab-bg);
   color: var(--dash-text-muted);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   text-transform: uppercase;
-  letter-spacing: 1px;
+  letter-spacing: 0.5px;
   transition: all 0.15s;
   border-bottom: 3px solid transparent;
   -webkit-tap-highlight-color: transparent;

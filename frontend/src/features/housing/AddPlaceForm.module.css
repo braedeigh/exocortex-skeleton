@@ -1,8 +1,9 @@
 /* Collapsed-until-tapped add form — old renderHousingAddForm() styles. */
 
 .details {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
   margin-bottom: 18px;
 }
 

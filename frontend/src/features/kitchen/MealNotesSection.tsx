@@ -46,14 +46,18 @@ export function MealNotesSection({ notes, invalidate, onError, onConfirmDelete, 
       key={`${note.date}-${index}`}
       style={{
         background: 'var(--card-bg)',
-        borderRadius: 8,
+        border: '1px solid var(--border-soft)',
+        borderRadius: 'var(--radius-xl)',
+        boxShadow: 'var(--shadow-card)',
         padding: '12px 16px',
         marginBottom: 8,
-        borderLeft: `3px solid ${older ? 'var(--border)' : 'var(--accent)'}`,
       }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-        <span className={styles.muted12}>{noteDateLabel(note.date)}</span>
+        {/* Recency identity rides the date label (was a colored left stripe). */}
+        <span className={styles.muted12} style={older ? undefined : { color: 'var(--accent)', fontWeight: 600 }}>
+          {noteDateLabel(note.date)}
+        </span>
         {!isPublic ? (
           <button
             type="button"

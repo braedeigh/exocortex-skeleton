@@ -20,14 +20,14 @@
   align-items: flex-end;
   justify-content: space-between;
   gap: var(--space-3);
-  border-bottom: 2px solid var(--border);
-  padding-bottom: var(--space-2);
   margin-bottom: var(--space-4);
 }
 
+/* Page title — the To Do greeting voice (2xl, tight tracking, no underline). */
 .pageTitle {
-  font-size: var(--font-size-xl);
+  font-size: var(--font-size-2xl);
   font-weight: 700;
+  letter-spacing: -0.02em;
   color: var(--text);
   margin: 0;
 }
@@ -54,18 +54,16 @@
 /* --- collapsible section (details.card-section port) --- */
 
 .section {
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--border);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xl);
   background: rgba(124, 92, 191, 0.025);
+  box-shadow: var(--shadow-card);
   margin-bottom: 10px;
   padding: 2px 14px 8px;
   transition: border-color 0.18s, background 0.18s, box-shadow 0.18s;
 }
 .section[open] {
-  border-left-color: var(--accent);
   background: rgba(124, 92, 191, 0.06);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 .summary {
   font-size: 16px;
@@ -110,13 +108,14 @@
 
 /* --- priority notes card --- */
 
+/* Priority identity rides the var(--morning) label color (the old 3px
+   colored left border is gone). */
 .priorityCard {
   background: linear-gradient(rgba(212, 136, 10, 0.07), rgba(212, 136, 10, 0.07)),
     var(--card-bg, #fffaf0);
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--morning);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
   margin-bottom: var(--space-4);
   padding: 14px 16px;
 }
@@ -420,7 +419,7 @@ tr:hover .deleteBtn {
 
 .addForm {
   margin-top: 10px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-soft);
   padding-top: 10px;
 }
 .formRow {
@@ -542,7 +541,7 @@ tr:hover .deleteBtn {
 }
 .table td {
   padding: 8px 10px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-soft);
   vertical-align: middle;
 }
 .tdNowrap {
@@ -656,9 +655,9 @@ tr:hover .deleteBtn {
 }
 .detailCard {
   background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
   padding: var(--space-5);
 }
 .notFound {
@@ -843,8 +842,9 @@ tr:hover .deleteBtn {
 .archCard {
   cursor: pointer;
   position: relative;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-soft);
   border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
   padding: 14px;
   background: var(--card-bg, var(--bg));
   text-align: left;
@@ -939,8 +939,9 @@ tr:hover .deleteBtn {
 }
 .cloudBox {
   position: absolute;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
   background: var(--card-bg, var(--bg));
 }
 .cloudBoxLabel {
@@ -1129,17 +1130,17 @@ tr:hover .deleteBtn {
   align-items: center;
   gap: var(--space-3);
 }
+/* Banner identity rides the text color (the old 4px colored left borders
+   are gone). */
 .bannerLoading {
   composes: banner;
   background: var(--card-bg);
   color: var(--text-muted);
-  border-left: 4px solid var(--text-muted);
 }
 .bannerError {
   composes: banner;
   background: rgba(212, 64, 53, 0.08);
   color: var(--red);
-  border-left: 4px solid var(--red);
 }
 .bannerError button {
   margin-left: auto;

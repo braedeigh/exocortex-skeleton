@@ -13,12 +13,11 @@
 
 /* Old .section-title (style.css) with the tab's margin-top:0 override. */
 .sectionTitle {
-  font-size: var(--font-size-xl);
+  font-size: var(--font-size-2xl);
   font-weight: 700;
+  letter-spacing: -0.02em;
   color: var(--text);
   margin: 0 0 var(--space-4);
-  padding-bottom: var(--space-2);
-  border-bottom: 2px solid var(--border);
 }
 
 .subtitle {
@@ -51,8 +50,9 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-soft);
   border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
   padding: 16px;
   margin-bottom: 12px;
   background: var(--bg);
@@ -112,8 +112,9 @@
 }
 
 .newForm {
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-soft);
   border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
   padding: 16px;
   background: var(--bg);
 }

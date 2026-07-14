@@ -54,7 +54,7 @@ export function ContactsManagePanel({
         {contacts.map((c) => {
           const { color, statusText } = contactStatus(c);
           return (
-            <div key={c.name} className={styles.card} style={{ borderLeftColor: color }}>
+            <div key={c.name} className={styles.card}>
               <button
                 type="button"
                 className={styles.remove}
@@ -76,7 +76,10 @@ export function ContactsManagePanel({
                   &#9660;
                 </button>
               </div>
-              <div className={styles.name}>{c.name}</div>
+              {/* Status color rides the name text (the old colored left border is gone). */}
+              <div className={styles.name} style={{ color }}>
+                {c.name}
+              </div>
               <div className={styles.status} style={{ color }}>
                 {statusText}
               </div>

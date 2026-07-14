@@ -62,8 +62,9 @@
   width: 100%;
   text-align: left;
   font-family: inherit;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
   padding: 14px var(--space-4);
   margin-bottom: 10px;
   cursor: pointer;

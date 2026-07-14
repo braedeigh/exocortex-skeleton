@@ -226,15 +226,15 @@ export function GroceryListCard({
                 }}
               />
             </label>
-            <button type="button" className={styles.smallBtn} onClick={onEditOrder}>
-              Edit order
-            </button>
           </>
         ) : null}
       </div>
 
       {!isPublic ? (
         <div className={styles.rowFlex} style={{ marginBottom: 8 }}>
+          <button type="button" className={styles.smallBtn} onClick={onEditOrder}>
+            Edit order
+          </button>
           {unchecked.length ? (
             <button type="button" className={styles.smallBtn} onClick={handleCheckAll}>
               Mark all purchased

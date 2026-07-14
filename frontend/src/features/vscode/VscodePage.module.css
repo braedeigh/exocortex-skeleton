@@ -19,8 +19,9 @@
   max-width: 380px;
   text-align: center;
   background: var(--card-bg);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-soft);
   border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
   padding: var(--space-8) var(--space-7);
 }
 

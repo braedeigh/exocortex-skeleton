@@ -44,8 +44,9 @@
   width: 100%;
   align-items: center;
   gap: 10px;
-  border: 1px solid var(--border);
-  border-radius: 9px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
   padding: 9px 11px;
   margin-bottom: 6px;
   background: var(--bg);

@@ -15,9 +15,12 @@ import styles from './MediaPage.module.css';
  * and tab switches within a page load; module scope is the SPA analogue —
  * survives route unmount/remount, resets on full reload. Deliberately not
  * localStorage: the old code never persisted them across reloads. */
-const session: { filter: MediaFilterState; composeType: string } = {
+const session: { filter: MediaFilterState; composeType: string; composing: boolean } = {
   filter: { type: 'all', sort: 'date', query: '' },
   composeType: 'book',
+  // Compose form hidden until asked for — the collection is the page's
+  // content; a permanently-open blank form pushed it below the fold.
+  composing: false,
 };
 
 function isPublicMode(): boolean {
@@ -41,10 +44,16 @@ export function MediaPage() {
   const [filter, setFilterState] = useState<MediaFilterState>(session.filter);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [pendingRemove, setPendingRemove] = useState<MediaItem | null>(null);
+  const [composing, setComposingState] = useState(session.composing);
 
   function setFilter(next: MediaFilterState) {
     session.filter = next;
     setFilterState(next);
+  }
+
+  function setComposing(next: boolean) {
+    session.composing = next;
+    setComposingState(next);
   }
 
   const items = useMemo(() => data?.media?.items || [], [data]);
@@ -95,26 +104,42 @@ export function MediaPage() {
 
   return (
     <div className={styles.page}>
-      <div className={styles.sectionTitle}>Media</div>
+      <div className={styles.titleRow}>
+        <div className={styles.sectionTitle}>Media</div>
+        {!isPublic ? (
+          <button
+            type="button"
+            className={`${styles.addBtn} ${composing ? styles.addBtnActive : ''}`}
+            onClick={() => setComposing(!composing)}
+          >
+            {composing ? 'Close' : '+ Add'}
+          </button>
+        ) : null}
+      </div>
       <div className={styles.subtitle}>
         Books, movies, shows recommended to you. Log it, jot why, check it off when you&rsquo;ve
         read or watched it.
       </div>
 
-      <MediaForm
-        variant="compose"
-        initialType={session.composeType}
-        onTypeChange={(t) => {
-          session.composeType = t;
-        }}
-        onSubmit={(fields) => actions.add(fields)}
-        onInvalid={onError}
-      />
+      {composing ? (
+        <MediaForm
+          variant="compose"
+          initialType={session.composeType}
+          onTypeChange={(t) => {
+            session.composeType = t;
+          }}
+          onSubmit={(fields) => {
+            actions.add(fields);
+            setComposing(false);
+          }}
+          onInvalid={onError}
+        />
+      ) : null}
 
       <MediaFilterBar items={items} filter={filter} onChange={setFilter} />
 
       {items.length === 0 ? (
-        <div className={styles.empty}>Nothing logged yet. Add the first recommendation above.</div>
+        <div className={styles.empty}>Nothing logged yet. Tap + Add to log the first recommendation.</div>
       ) : visible.length === 0 ? (
         <div className={styles.empty}>No matches for the current filter/search.</div>
       ) : (

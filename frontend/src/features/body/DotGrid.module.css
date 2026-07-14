@@ -128,7 +128,7 @@
 .keySpray {
   margin-top: 10px;
   padding-top: var(--space-2);
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-soft);
 }
 
 .keySprayTitle {

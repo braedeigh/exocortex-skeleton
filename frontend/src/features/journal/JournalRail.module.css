@@ -44,10 +44,17 @@
   border-radius: var(--radius-xl);
   overflow: hidden;
   box-shadow: 0 6px 22px rgba(0, 0, 0, 0.28);
-  /* Tab and pill each fade at rest and reveal independently — only the piece
-     under the pointer goes solid, and its border lights up with it. */
-  opacity: 0.45;
   transition: opacity 0.15s ease, border-color 0.15s ease;
+}
+
+/* Fade-at-rest is a hover-pointer design: on touch there's no hover to make
+   it solid again, so a 45%-opacity pill with journal text bleeding through
+   just reads as a rendering bug. Desktop pointers keep the fade; touch gets
+   a solid surface. */
+@media (hover: hover) {
+  .pill {
+    opacity: 0.45;
+  }
 }
 
 .pill:hover,
@@ -77,9 +84,15 @@
   line-height: 1;
   cursor: pointer;
   box-shadow: 0 6px 22px rgba(0, 0, 0, 0.28);
-  opacity: 0.45;
   transition: background 0.12s, color 0.12s, border-color 0.12s, opacity 0.15s ease;
   -webkit-tap-highlight-color: transparent;
+}
+
+/* Same hover-only fade as .pill above. */
+@media (hover: hover) {
+  .collapseTab {
+    opacity: 0.45;
+  }
 }
 
 .collapseTab:hover {

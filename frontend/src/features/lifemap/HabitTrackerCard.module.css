@@ -253,7 +253,7 @@
   gap: 8px;
   flex-wrap: wrap;
   padding: 6px 0;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-soft);
 }
 
 .cadName {

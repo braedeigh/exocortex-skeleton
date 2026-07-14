@@ -6,12 +6,16 @@
 }
 
 /* Composer dock: sticks to the scroller's bottom edge while she's reading
-   higher up in the day. No frame, no backing — just the input and Save
-   floating over the cards (both are opaque themselves). */
+   higher up in the day. Frosted backing so cards scroll *under* it — bare
+   input-over-cards left card text colliding with the composer's gaps
+   (dev note: "notes/save bar … directly overlapping" the last cell). */
 .dock {
   position: sticky;
   bottom: 0;
   padding: var(--space-2) 0;
+  background: color-mix(in srgb, var(--bg) 86%, transparent);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
 }
 
 .editArea {

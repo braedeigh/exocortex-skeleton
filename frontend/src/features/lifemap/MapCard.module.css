@@ -1,32 +1,25 @@
 /* Port of details.map-section.kitchen-section (style.css) — soft pill card
-   with a left accent, chevron summary, edit button on the title line. */
+   with a chevron summary, edit button on the title line. Card identity rides
+   the title's color (the old colored left border is gone). */
 
 .card {
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--border);
-  border-radius: 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xl);
   background: rgba(124, 92, 191, 0.025);
+  box-shadow: var(--shadow-card);
   margin-bottom: 10px;
   padding: 2px 14px;
   transition: border-color 0.18s, background 0.18s, box-shadow 0.18s;
 }
 
 .card[open] {
-  border-color: var(--border);
-  border-left-color: var(--accent);
   background: rgba(124, 92, 191, 0.06);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
-.card:not([open]):hover {
-  border-left-color: rgba(124, 92, 191, 0.45);
-}
-
-/* Habit Tracker card gets the evening-blue accent instead of purple. */
-.cardHabit,
-.cardHabit[open],
-.cardHabit:not([open]):hover {
-  border-left-color: var(--evening);
+/* Habit Tracker card gets the evening-blue accent instead of purple —
+   carried on the title text now. */
+.cardHabit > .summary {
+  color: var(--evening);
 }
 
 .summary {

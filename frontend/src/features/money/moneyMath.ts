@@ -130,10 +130,24 @@ export function renewalUrgency(days: number | null): RenewalUrgency {
 
 // --- Spending breakdown (per-month bars + income gauge) ---
 
+// Theme-owned hues (sky-theme.js re-skins them per phase) instead of the old
+// hardcoded flat-UI hexes, so the bars belong to the same palette as the rest
+// of the page in every sky phase. Mixes widen the family without new tokens.
 export const BREAKDOWN_PALETTE = [
-  '#1abc9c', '#3498db', '#9b59b6', '#e67e22', '#e74c3c',
-  '#f1c40f', '#2ecc71', '#34495e', '#16a085', '#d35400',
-  '#8e44ad', '#27ae60', '#c0392b', '#7f8c8d',
+  'var(--accent)',
+  'var(--green)',
+  'var(--morning)',
+  'var(--evening)',
+  'var(--orange)',
+  'var(--yellow)',
+  'color-mix(in srgb, var(--accent) 55%, var(--green))',
+  'var(--todo-3)',
+  'color-mix(in srgb, var(--evening) 55%, var(--accent))',
+  'color-mix(in srgb, var(--orange) 55%, var(--red))',
+  'color-mix(in srgb, var(--accent) 45%, var(--text))',
+  'color-mix(in srgb, var(--green) 55%, var(--evening))',
+  'color-mix(in srgb, var(--red) 70%, var(--text))',
+  'color-mix(in srgb, var(--text) 45%, var(--bg))',
 ];
 
 /** Stable category → palette color (money.js _breakdownColorFor). */

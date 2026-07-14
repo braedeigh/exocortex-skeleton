@@ -57,7 +57,7 @@ export function SetAsideSection({ expenses, taxSetaside, todayStr, onLogTax, onR
         <div className={`${styles.tile} ${styles.tileRed}`}>
           <div className={styles.tileLabel}>Tax obligation (25%)</div>
           <div className={`${styles.tileValue} ${owes ? styles.red : styles.green}`}>
-            {owes ? `OWE ${dollars(s.taxBalance)}` : `AHEAD ${dollars(Math.abs(s.taxBalance))}`}
+            {owes ? `Owe ${dollars(s.taxBalance)}` : `Ahead ${dollars(Math.abs(s.taxBalance))}`}
           </div>
           <div className={styles.tileSub}>
             {dollars(s.taxOwed)} owed &middot; {dollars(s.taxAside)} set aside

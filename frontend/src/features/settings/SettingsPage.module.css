@@ -128,8 +128,9 @@
   justify-content: space-between;
   gap: var(--space-3);
   padding: var(--space-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
   background: var(--card-bg);
   margin-bottom: var(--space-3);
   cursor: pointer;
@@ -163,8 +164,9 @@
 .rulesCard,
 .accentsCard {
   background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
   padding: var(--space-2) var(--space-3) var(--space-3);
 }
 
@@ -174,7 +176,7 @@
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-2) 0;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-soft);
   font-size: 13px;
 }
 

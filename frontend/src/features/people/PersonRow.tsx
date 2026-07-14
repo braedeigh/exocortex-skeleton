@@ -1,6 +1,6 @@
 import type { KeyboardEvent, MouseEvent } from 'react';
 import { Sparkline } from './Sparkline';
-import { daysSince, lastDateOf, monthDay, relLabel, statsLine } from './rosterLogic';
+import { daysSince, lastDateOf, monthDay, relLabel, statsLine, stripInlineMd } from './rosterLogic';
 import type { RosterPerson } from './types';
 import styles from './PersonRow.module.css';
 
@@ -36,7 +36,7 @@ export function PersonRow({ person, now, expanded, onToggle }: PersonRowProps) {
         <span className={styles.name}>{person.name}</span>
         <span className={styles.lastSeen}>{lastLabel}</span>
       </div>
-      <div className={styles.blurb}>{person.blurb || ''}</div>
+      <div className={styles.blurb}>{stripInlineMd(person.blurb || '')}</div>
       {expanded ? (
         <div className={styles.expanded}>
           {stats ? <div className={styles.stats}>{stats}</div> : null}
@@ -52,7 +52,7 @@ export function PersonRow({ person, now, expanded, onToggle }: PersonRowProps) {
           ) : null}
           {person.last_note ? (
             <div className={styles.note}>
-              {monthDay(person.last_note.date)} — {person.last_note.note}
+              {monthDay(person.last_note.date)} — {stripInlineMd(person.last_note.note)}
             </div>
           ) : null}
           {/* Plain <a>: the person page is still Flask-served (person.html) — full navigation, not a router link. */}

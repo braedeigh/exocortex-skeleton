@@ -114,8 +114,9 @@
   gap: 12px;
   padding: 11px 12px;
   margin-bottom: 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
   background: var(--bg);
   min-height: var(--tap-target);
   box-sizing: border-box;
@@ -143,8 +144,9 @@
   text-decoration: none;
   padding: 11px 12px;
   margin-bottom: 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
   background: var(--bg);
   min-height: var(--tap-target);
   box-sizing: border-box;
@@ -172,8 +174,9 @@
 /* --- Inline click-to-load YouTube player --- */
 
 .moveCard {
-  border: 1px solid var(--border);
-  border-radius: 11px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
   padding: 12px;
   margin-bottom: 10px;
   background: var(--bg);

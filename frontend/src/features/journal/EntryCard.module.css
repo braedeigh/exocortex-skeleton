@@ -1,7 +1,8 @@
 .card {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xl);
   background: color-mix(in srgb, var(--accent) 5%, var(--card-bg));
+  box-shadow: var(--shadow-card);
   padding: var(--space-3);
   margin-bottom: var(--space-3);
 }

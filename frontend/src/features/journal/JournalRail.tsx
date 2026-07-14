@@ -24,10 +24,15 @@ const RAIL_COLLAPSED_KEY = 'journalRailCollapsed';
 
 function readRailCollapsed(): boolean {
   try {
-    return localStorage.getItem(RAIL_COLLAPSED_KEY) === '1';
+    const stored = localStorage.getItem(RAIL_COLLAPSED_KEY);
+    if (stored !== null) return stored === '1';
   } catch {
     return false;
   }
+  // No stored preference: start collapsed on touch devices — the expanded
+  // pill floats over the first journal entry, which is a fine resting state
+  // behind a desktop hover-fade but pure obstruction on a phone.
+  return typeof window !== 'undefined' && window.matchMedia('(hover: none)').matches;
 }
 
 function writeRailCollapsed(collapsed: boolean): void {

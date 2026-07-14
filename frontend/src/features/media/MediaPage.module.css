@@ -10,19 +10,49 @@
   padding-bottom: calc(var(--space-8) + 64px);
 }
 
+.titleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-1);
+}
+
+/* Page title — the To Do greeting voice: big, no underline. */
 .sectionTitle {
-  font-size: var(--font-size-xl);
+  font-size: var(--font-size-2xl);
   font-weight: 700;
+  letter-spacing: -0.02em;
   color: var(--text);
-  margin: 0 0 var(--space-4);
-  padding-bottom: var(--space-2);
-  border-bottom: 2px solid var(--border);
+}
+
+/* "+ Add" — the page's one action, accent ghost pill (TodosPage .headerBtn
+   family). */
+.addBtn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 var(--space-4);
+  border: none;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.addBtnActive {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
 }
 
 .subtitle {
   font-size: var(--font-size-sm);
   color: var(--text-muted);
-  margin: -2px 0 var(--space-3);
+  margin: 0 0 var(--space-3);
 }
 
 .empty {

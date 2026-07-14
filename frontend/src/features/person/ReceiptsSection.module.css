@@ -18,8 +18,9 @@
   width: 100%;
   text-align: left;
   background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
   padding: 9px 11px;
   margin-bottom: 6px;
   color: var(--text);
@@ -54,14 +55,12 @@
 }
 
 .badge {
+  /* plain quiet count, not a pill (see todos' TodoSection .count) */
   float: right;
   font-size: var(--font-size-sm);
-  font-weight: 700;
+  font-weight: 600;
   color: var(--text-muted);
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  padding: 1px 8px;
+  font-variant-numeric: tabular-nums;
 }
 
 .rowCardView {

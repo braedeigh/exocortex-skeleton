@@ -1,12 +1,12 @@
 /* Port of the day editor (overview.js openDayEditor) — the .symptom-form
-   card with the teal "editing a logged day" left accent. */
+   card; the teal "editing a logged day" identity rides the heading's
+   var(--ongoing) color (the old colored left border is gone). */
 
 .editor {
   background: var(--card-bg);
-  border-radius: var(--radius-lg);
-  border-left: 4px solid var(--ongoing);
+  border-radius: var(--radius-xl);
   padding: var(--space-5);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  box-shadow: var(--shadow-card);
   margin-top: 14px;
 }
 

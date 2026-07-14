@@ -115,11 +115,22 @@
   border-color: var(--accent);
 }
 
+/* One horizontally-scrolling row (scrollbar hidden, same idiom as the public
+   tab strip) — wrapped, thirteen tab chips ate a third of the phone screen
+   before the first note appeared. */
 .chips {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
   gap: var(--space-2);
   margin-bottom: var(--space-4);
+  /* breathing room so chip edges aren't clipped by the scroll box */
+  padding: 2px;
+}
+
+.chips::-webkit-scrollbar {
+  display: none;
 }
 
 .chip {
@@ -160,9 +171,10 @@
 }
 
 .card {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xl);
   background: var(--card-bg);
+  box-shadow: var(--shadow-card);
   padding: var(--space-3);
 }
 

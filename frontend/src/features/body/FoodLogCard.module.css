@@ -26,9 +26,9 @@
 .pastCard,
 .todayCard {
   background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-left: 4px solid var(--ongoing);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
   margin-bottom: var(--space-2);
   padding: 6px var(--space-3);
 }
@@ -41,7 +41,7 @@
   display: flex;
   gap: 10px;
   padding: var(--space-1) 0;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-soft);
   font-size: 13px;
   line-height: 1.4;
   align-items: center;
@@ -54,7 +54,7 @@
 
 .pastEditing {
   padding: 6px 0;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-soft);
 }
 
 .pastEditHead {
@@ -64,8 +64,10 @@
   margin-bottom: 2px;
 }
 
+/* The food-log teal identity rides the day label now (the old 4px colored
+   left border on the cards is gone). */
 .pastLabel {
-  color: var(--text-secondary);
+  color: var(--ongoing);
   font-weight: 600;
   font-size: 13px;
   white-space: nowrap;

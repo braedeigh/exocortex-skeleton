@@ -1,10 +1,11 @@
 /* Compose / inline-edit form — old media.js compose card + _mediaRenderEditor. */
 
 .form {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
   padding: var(--space-4);
-  margin-bottom: 18px;
+  margin-bottom: var(--space-4);
   background: var(--card-bg);
 }
 
