@@ -12,6 +12,7 @@ export interface BuyFormState {
   order_url: string;
   priority: string;
   kind: string;
+  fronts: string[];
   notes: string;
 }
 
@@ -26,6 +27,7 @@ export function buyFormFromItem(item: BuyItem): BuyFormState {
     order_url: item.order_url || '',
     priority: item.priority || 'medium',
     kind: item.kind && ['consumable', 'durable', 'service'].includes(item.kind) ? item.kind : '',
+    fronts: item.fronts || [],
     notes: item.notes || '',
   };
 }
@@ -43,6 +45,7 @@ export function buyUpdatePayload(originalName: string, form: BuyFormState): Upda
     order_url: form.order_url.trim(),
     priority: form.priority,
     kind: form.kind,
+    fronts: form.fronts,
     notes: form.notes.trim(),
   };
 }

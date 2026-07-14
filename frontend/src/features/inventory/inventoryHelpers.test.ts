@@ -7,7 +7,9 @@ import {
   formatBuyDate,
   groupActiveByCategory,
   groupBuyByCategory,
+  groupBuyByFront,
   groupPastByCategory,
+  UNTAGGED_FRONT,
   isSortedKind,
   knownBuyCategories,
   knownCategories,
@@ -89,6 +91,59 @@ describe('groupBuyByCategory', () => {
       { name: 'b', priority: 'high' },
     ]);
     expect(groups[0].items.map((i) => i.name)).toEqual(['b', 'a']);
+  });
+});
+
+describe('groupBuyByFront', () => {
+  const FRONT_ORDER = ['health', 'appearance', 'living-space'];
+
+  it('orders groups by the fronts vocabulary, untagged last', () => {
+    const items: BuyItem[] = [
+      { name: 'A', fronts: ['living-space'] },
+      { name: 'B' },
+      { name: 'C', fronts: ['health'] },
+    ];
+    expect(groupBuyByFront(items, FRONT_ORDER).map((g) => g.front)).toEqual([
+      'health',
+      'living-space',
+      UNTAGGED_FRONT,
+    ]);
+  });
+
+  it('puts a multi-front item in every one of its groups', () => {
+    const items: BuyItem[] = [{ name: 'Barefoot shoes', fronts: ['health', 'appearance'] }];
+    const groups = groupBuyByFront(items, FRONT_ORDER);
+    expect(groups.map((g) => g.front)).toEqual(['health', 'appearance']);
+    expect(groups.every((g) => g.items[0].name === 'Barefoot shoes')).toBe(true);
+  });
+
+  it('treats an empty fronts list as untagged', () => {
+    const groups = groupBuyByFront([{ name: 'A', fronts: [] }], FRONT_ORDER);
+    expect(groups).toEqual([{ front: UNTAGGED_FRONT, items: [{ name: 'A', fronts: [] }] }]);
+  });
+
+  it('sinks unknown front ids below known ones, A-Z', () => {
+    const items: BuyItem[] = [
+      { name: 'A', fronts: ['zzz-old'] },
+      { name: 'B', fronts: ['aaa-old'] },
+      { name: 'C', fronts: ['living-space'] },
+    ];
+    expect(groupBuyByFront(items, FRONT_ORDER).map((g) => g.front)).toEqual([
+      'living-space',
+      'aaa-old',
+      'zzz-old',
+    ]);
+  });
+
+  it('priority-sorts within a group', () => {
+    const items: BuyItem[] = [
+      { name: 'low', priority: 'low', fronts: ['health'] },
+      { name: 'high', priority: 'high', fronts: ['health'] },
+    ];
+    expect(groupBuyByFront(items, FRONT_ORDER)[0].items.map((i) => i.name)).toEqual([
+      'high',
+      'low',
+    ]);
   });
 });
 

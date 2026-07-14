@@ -38,6 +38,7 @@ export function applyBuyUpdate(data: InventoryData, payload: UpdateBuyPayload): 
           if (payload[k] !== undefined) next[k] = payload[k];
         },
       );
+      if (payload.fronts !== undefined) next.fronts = payload.fronts;
       if (payload.new_name !== undefined) {
         const newName = payload.new_name.trim();
         const clash = items.some((x) => x !== i && x.name.toLowerCase() === newName.toLowerCase());

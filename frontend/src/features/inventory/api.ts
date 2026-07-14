@@ -29,6 +29,8 @@ export interface AddBuyPayload {
   where: string;
   category: string;
   notes: string;
+  /** Front ids (routes/fronts.py) — zero or more life-domain tags. */
+  fronts: string[];
 }
 
 export function addBuyItem(payload: AddBuyPayload): Promise<unknown> {

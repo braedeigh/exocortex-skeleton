@@ -5,6 +5,13 @@ from datetime import datetime
 import store
 
 
+def _fronts_list(v):
+    """Sanitize a fronts payload — list of non-empty front-id strings."""
+    if not isinstance(v, list):
+        return []
+    return [x.strip() for x in v if isinstance(x, str) and x.strip()]
+
+
 def register(app):
 
     # --- Priority Notes (freeform sticky-note for buy decisions) ---
@@ -32,6 +39,8 @@ def register(app):
         order_url = data.get("order_url", "").strip()
         # what sort of purchase: consumable | durable | service ('' = unsorted)
         kind = data.get("kind", "").strip()
+        # life-domain tags (routes/fronts.py ids), zero or more per item
+        fronts = _fronts_list(data.get("fronts"))
         bdata = store.read("buy_list.json", {"items": []})
         if any(i["name"].lower() == name.lower() for i in bdata["items"]):
             return jsonify({"error": "Already on the list"}), 400
@@ -39,7 +48,7 @@ def register(app):
             "name": name, "priority": priority, "where": where,
             "notes": notes, "category": category,
             "cost": cost, "why": why, "by": by,
-            "order_url": order_url, "kind": kind,
+            "order_url": order_url, "kind": kind, "fronts": fronts,
             "added": datetime.now().isoformat(timespec="seconds"),
         })
         store.write("buy_list.json", bdata)
@@ -90,6 +99,8 @@ def register(app):
                         i["order_url"] = data["order_url"]
                     if "kind" in data:
                         i["kind"] = data["kind"]
+                    if "fronts" in data:
+                        i["fronts"] = _fronts_list(data["fronts"])
                     if "new_name" in data:
                         new_name = data["new_name"].strip()
                         if new_name and new_name != name and not any(x["name"].lower() == new_name.lower() for x in bdata["items"] if x is not i):

@@ -31,15 +31,25 @@ interface ArchFormState {
   private: boolean;
 }
 
-function formFromItem(item: ArchivalItem | null): ArchFormState {
+/** Starter values for a new item — the bought-from-buy-list flow prefills
+ * the purchase record (date, cost, source, research notes) through this. */
+export interface ArchivalPrefill {
+  name?: string;
+  category?: string;
+  origin?: string;
+  description?: string;
+  secondhand?: string;
+}
+
+function formFromItem(item: ArchivalItem | null, prefill?: ArchivalPrefill): ArchFormState {
   return {
-    name: item?.name || '',
-    category: item?.category || '',
+    name: item?.name || prefill?.name || '',
+    category: item?.category || prefill?.category || '',
     subcategory: item?.subcategory || '',
-    origin: item?.origin || '',
+    origin: item?.origin || prefill?.origin || '',
     materials: item ? materialsText(item) : '',
-    description: item?.description || '',
-    secondhand: item?.secondhand || 'unknown',
+    description: item?.description || prefill?.description || '',
+    secondhand: item?.secondhand || prefill?.secondhand || 'unknown',
     gifted: item?.gifted === 'yes',
     private: item?.private === 'yes',
   };
@@ -62,6 +72,8 @@ function payloadFromForm(form: ArchFormState): ArchivalFieldsPayload {
 export interface ArchivalModalProps {
   /** null = add a new thing. Kept live from the polled list so photo edits repaint. */
   item: ArchivalItem | null;
+  /** New-item starter values (bought-from-buy-list flow). Ignored when editing. */
+  prefill?: ArchivalPrefill;
   allItems: ArchivalItem[];
   onClose: () => void;
   onError: (message: string) => void;
@@ -76,6 +88,7 @@ export interface ArchivalModalProps {
 
 export function ArchivalModal({
   item,
+  prefill,
   allItems,
   onClose,
   onError,
@@ -87,7 +100,7 @@ export function ArchivalModal({
   onSetMainPhoto,
 }: ArchivalModalProps) {
   const isNew = !item;
-  const [form, setForm] = useState<ArchFormState>(() => formFromItem(item));
+  const [form, setForm] = useState<ArchFormState>(() => formFromItem(item, prefill));
   const [saving, setSaving] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
@@ -144,6 +157,11 @@ export function ArchivalModal({
         </button>
       </div>
 
+      {isNew && prefill ? (
+        <div className={styles.prefillHint}>
+          📷 Attach your order screenshot below — and add a real photo when it arrives.
+        </div>
+      ) : null}
       <label className={styles.fieldLabel} style={{ display: 'block', marginBottom: 6 }}>
         {isNew ? 'Photos (up to 5)' : 'Photos'}
       </label>

@@ -26,6 +26,8 @@ export interface BuyItem {
   by?: string;
   order_url?: string;
   kind?: BuyKind | string;
+  /** Life-domain tags — front ids from routes/fronts.py, zero or more. */
+  fronts?: string[];
   /** ISO timestamp set server-side on add. */
   added?: string;
 }

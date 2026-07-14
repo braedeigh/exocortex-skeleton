@@ -93,6 +93,47 @@ export function groupBuyByCategory(items: BuyItem[]): CategoryGroup<BuyItem>[] {
   }));
 }
 
+/** Sentinel group for items with no front tags — frontLabel renders it. */
+export const UNTAGGED_FRONT = '__none__';
+
+export interface FrontGroup {
+  /** Front id, or UNTAGGED_FRONT for untagged items. */
+  front: string;
+  items: BuyItem[];
+}
+
+/** Buy items → per-front groups in fronts.json order (unknown front ids A-Z
+ * after, untagged last). An item tagged with two fronts appears under both;
+ * each group is priority-sorted high → medium → low. */
+export function groupBuyByFront(items: BuyItem[], frontOrder: string[]): FrontGroup[] {
+  const groups = new Map<string, BuyItem[]>();
+  items.forEach((item) => {
+    const tags = item.fronts && item.fronts.length ? item.fronts : [UNTAGGED_FRONT];
+    tags.forEach((f) => {
+      const list = groups.get(f) || [];
+      list.push(item);
+      groups.set(f, list);
+    });
+  });
+  const rank = new Map(frontOrder.map((f, i) => [f, i]));
+  const ordered = [...groups.keys()].sort((a, b) => {
+    if (a === UNTAGGED_FRONT) return 1;
+    if (b === UNTAGGED_FRONT) return -1;
+    const ra = rank.get(a);
+    const rb = rank.get(b);
+    if (ra !== undefined && rb !== undefined) return ra - rb;
+    if (ra !== undefined) return -1;
+    if (rb !== undefined) return 1;
+    return a.localeCompare(b);
+  });
+  return ordered.map((front) => ({
+    front,
+    items: [...(groups.get(front) || [])].sort(
+      (a, b) => (PRIORITY_ORDER[a.priority || ''] ?? 2) - (PRIORITY_ORDER[b.priority || ''] ?? 2),
+    ),
+  }));
+}
+
 export function buyItemsOfKind(items: BuyItem[], kind: string): BuyItem[] {
   return items.filter((i) => i.kind === kind);
 }

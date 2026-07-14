@@ -4,6 +4,7 @@
  * (inventory.js openBuyItemModal) and the deep-link detail page
  * (renderBuyItemDetail); only sizes/labels around it differ.
  */
+import { FrontChips, toggleFront } from './FrontChips';
 import type { BuyFormState } from './buyForm';
 import styles from './inventory.module.css';
 
@@ -101,6 +102,16 @@ export function BuyItemFields({ form, onChange, knownCategories, datalistId, det
           <option value="durable">Durable</option>
           <option value="service">Service</option>
         </select>
+      </div>
+
+      <div style={{ marginTop: detail ? 8 : 12 }}>
+        <label className={styles.fieldLabel} style={{ display: 'block', marginBottom: 6 }}>
+          Fronts
+        </label>
+        <FrontChips
+          selected={form.fronts}
+          onToggle={(f) => onChange({ fronts: toggleFront(form.fronts, f) })}
+        />
       </div>
 
       <div style={{ marginTop: detail ? 8 : 12 }}>

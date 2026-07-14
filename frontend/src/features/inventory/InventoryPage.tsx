@@ -13,7 +13,9 @@ import { ToastStack } from '../../ui';
 import { NotesPill } from '../todos/NotesPill';
 import { ActiveInventorySection } from './ActiveInventorySection';
 import { ArchivalModal } from './ArchivalModal';
+import type { ArchivalPrefill } from './ArchivalModal';
 import { ArchivalsSection } from './ArchivalsSection';
+import { BoughtDialog } from './BoughtDialog';
 import { BuyItemDetail } from './BuyItemDetail';
 import { BuyItemModal } from './BuyItemModal';
 import { BuyListSection } from './BuyListSection';
@@ -38,6 +40,22 @@ function isPublicMode(): boolean {
   return typeof window !== 'undefined' && window.VIEW_MODE === 'public';
 }
 
+/** Purchase record for the bought→durables-catalog flow: origin carries
+ * date/cost/source, description opens with the photo-on-arrival reminder
+ * followed by the buy item's why + research notes. */
+function archivalPrefillFromBuy(item: BuyItem): ArchivalPrefill {
+  const today = new Date().toISOString().slice(0, 10);
+  return {
+    name: item.name,
+    category: item.category || '',
+    origin: [`Bought ${today}`, item.cost, item.where, item.order_url].filter(Boolean).join(' · '),
+    description: ['📷 Take a photo of it when it arrives.', item.why, item.notes]
+      .filter(Boolean)
+      .join('\n\n'),
+    secondhand: 'new',
+  };
+}
+
 export interface InventoryPageProps {
   /** ?buy=<name> — opens the buy-item detail instead of the tab. */
   buyName?: string;
@@ -55,6 +73,10 @@ export function InventoryPage({ buyName }: InventoryPageProps) {
   const [buyModalName, setBuyModalName] = useState<string | null>(null);
   /** Archival modal: 'new' | item id | null. */
   const [archModal, setArchModal] = useState<string | null>(null);
+  /** Bought dialog (non-consumable rows): the item just marked bought. */
+  const [boughtItem, setBoughtItem] = useState<BuyItem | null>(null);
+  /** Bought → durables catalog: archival modal prefilled from this buy item. */
+  const [boughtToCatalog, setBoughtToCatalog] = useState<BuyItem | null>(null);
 
   // Show all / Collapse all — null means each section keeps its own default;
   // the handler flips the live <details> like the old toggleInventoryCollapse.
@@ -78,6 +100,12 @@ export function InventoryPage({ buyName }: InventoryPageProps) {
 
   function confirmDeleteBuy(name: string) {
     setConfirm({ label: name, onConfirm: () => actions.removeBuy(name) });
+  }
+  /** "bought" — consumables keep the straight-to-active-loop behavior;
+   * everything else picks a landing spot in the BoughtDialog. */
+  function markBought(item: BuyItem) {
+    if (item.kind === 'consumable') actions.markBought(item.name);
+    else setBoughtItem(item);
   }
   function confirmDeleteActive(name: string) {
     setConfirm({ label: name, onConfirm: () => actions.removeActive(name) });
@@ -169,7 +197,7 @@ export function InventoryPage({ buyName }: InventoryPageProps) {
               open={sectionOpen(true)}
               onOpenItem={setBuyModalName}
               onSetKind={actions.setBuyKind}
-              onMarkBought={actions.markBought}
+              onMarkBought={markBought}
               onDelete={confirmDeleteBuy}
               onAdd={actions.addBuy}
             />
@@ -229,6 +257,32 @@ export function InventoryPage({ buyName }: InventoryPageProps) {
         />
       ) : null}
 
+      <BoughtDialog
+        item={boughtItem}
+        onClose={() => setBoughtItem(null)}
+        onToCatalog={setBoughtToCatalog}
+        onToConsumables={(item) => actions.markBought(item.name)}
+        onJustRemove={(item) => actions.removeBuy(item.name)}
+      />
+
+      {boughtToCatalog ? (
+        <ArchivalModalHost
+          key={`bought:${boughtToCatalog.name}`}
+          item={null}
+          prefill={archivalPrefillFromBuy(boughtToCatalog)}
+          allItems={archivals}
+          onClose={() => setBoughtToCatalog(null)}
+          onError={push}
+          actions={actions}
+          // Saving the record is what takes it off the buy list — cancel keeps it.
+          onSaveAdd={async (fields, photos) => {
+            await actions.saveArchivalAdd(fields, photos);
+            actions.removeBuy(boughtToCatalog.name);
+          }}
+          onDelete={() => {}}
+        />
+      ) : null}
+
       {overlays}
     </div>
   );
@@ -238,26 +292,32 @@ export function InventoryPage({ buyName }: InventoryPageProps) {
 // owns the confirm dialog + action plumbing.
 function ArchivalModalHost({
   item,
+  prefill,
   allItems,
   onClose,
   onError,
   onDelete,
+  onSaveAdd,
   actions,
 }: {
   item: ArchivalItem | null;
+  prefill?: ArchivalPrefill;
   allItems: ArchivalItem[];
   onClose: () => void;
   onError: (message: string) => void;
   onDelete: (id: string, name: string) => void;
+  /** Override the plain add — the bought flow chains a buy-list removal on. */
+  onSaveAdd?: InventoryActions['saveArchivalAdd'];
   actions: InventoryActions;
 }) {
   return (
     <ArchivalModal
       item={item}
+      prefill={prefill}
       allItems={allItems}
       onClose={onClose}
       onError={onError}
-      onSaveAdd={actions.saveArchivalAdd}
+      onSaveAdd={onSaveAdd || actions.saveArchivalAdd}
       onSaveUpdate={actions.saveArchivalUpdate}
       onDelete={onDelete}
       onAddPhotos={actions.addPhotos}
