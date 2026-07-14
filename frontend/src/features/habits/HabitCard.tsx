@@ -31,7 +31,7 @@ export interface HabitCardProps {
  * HabitsColumn.tsx TODO). */
 export function HabitCard({ label, color, sectionName, items, todayISO, log, cadenceMap, metaMap, starts, onToggle, readOnly = false }: HabitCardProps) {
   return (
-    <div className={styles.card} style={{ borderLeftColor: color }}>
+    <div className={styles.card}>
       <div className={styles.title} style={{ color }}>
         {label}
       </div>

@@ -174,7 +174,6 @@ export function TodoSection({
     <div
       ref={containerRef}
       className={`${styles.card} ${hovered ? styles.dropTarget : ''}`}
-      style={{ borderLeftColor: color }}
     >
       <button type="button" className={styles.summary} onClick={() => setOpen((v) => !v)}>
         <span className={`${styles.arrow} ${open ? styles.open : ''}`} aria-hidden="true">

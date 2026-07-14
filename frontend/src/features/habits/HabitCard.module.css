@@ -1,17 +1,17 @@
 .card {
   background: var(--card-bg);
   padding: var(--space-4) var(--space-5);
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--border);
-  border-left-width: 4px;
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border-soft);
+  box-shadow: var(--shadow-card);
   margin-bottom: var(--space-3);
 }
 
 .title {
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-md);
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 1.2px;
+  letter-spacing: var(--tracking-label);
   margin-bottom: var(--space-3);
 }
 

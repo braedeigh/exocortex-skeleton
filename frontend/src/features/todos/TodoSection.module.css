@@ -15,10 +15,10 @@
      inset) made these cards narrower than the habit cards beside them, which
      have no horizontal margin of their own (dev note a6fe092c). */
   margin: var(--space-3) 0;
-  border: 1px solid var(--border);
-  border-left-width: 4px;
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xl);
   background: var(--card-bg);
+  box-shadow: var(--shadow-card);
   overflow: hidden;
   transition: box-shadow 0.1s ease;
 }
@@ -56,10 +56,13 @@
 
 .title {
   /* No longer flex:1 — the "+ add" button sits right after this now, and
-     .spacer (below) is what pushes count/autosort/edit to the far right. */
+     .spacer (below) is what pushes count/autosort/edit to the far right.
+     Section identity rides the title's inline color (the old 4px colored
+     left border is gone). */
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: var(--font-size-lg);
 }
 
 .spacer {
@@ -70,10 +73,8 @@
   font-size: var(--font-size-sm);
   font-weight: 600;
   color: var(--text-muted);
-  background: var(--bg);
-  border-radius: var(--radius-pill);
-  padding: 1px 8px;
   margin-left: var(--space-2);
+  font-variant-numeric: tabular-nums;
 }
 
 .autosort {
@@ -81,7 +82,7 @@
   font-size: var(--font-size-sm);
   color: var(--text-muted);
   background: none;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-soft);
   border-radius: var(--radius-pill);
   padding: 4px 10px;
   cursor: pointer;
@@ -104,7 +105,7 @@
   font-size: var(--font-size-sm);
   font-weight: 600;
   color: var(--text-muted);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-soft);
   border-radius: var(--radius-pill);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;

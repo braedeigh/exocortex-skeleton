@@ -8,7 +8,7 @@
   /* left inset matches the habit cards' --space-5 padding so the two
      columns' checkboxes/text line up */
   padding: var(--space-2) var(--space-3) var(--space-2) var(--space-5);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-soft);
   background: transparent;
 }
 
@@ -95,13 +95,14 @@
   font-size: var(--font-size-sm);
   color: var(--text-muted);
   background: var(--bg);
-  border-radius: var(--radius-sm);
-  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  padding: 2px 10px;
 }
 
 .chip.overdue {
-  color: #fff;
-  background: var(--red);
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 12%, transparent);
+  font-weight: 600;
 }
 
 .expand {

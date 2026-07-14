@@ -1,10 +1,10 @@
 .card {
   margin: var(--space-3) var(--space-4);
   padding: var(--space-5);
-  border: 1px solid var(--border);
-  border-left: 4px solid var(--orange);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xl);
   background: var(--card-bg);
+  box-shadow: var(--shadow-card);
 }
 
 .heading {

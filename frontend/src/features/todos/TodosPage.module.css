@@ -15,29 +15,30 @@
   container-name: todos-page;
 }
 
-/* Greeting + date share one baseline line ("Good afternoon · Thursday, July 9");
-   the date wraps underneath when the pane is too narrow for both. */
+/* Greeting is the page's one big thing — display serif, with the date as a
+   quiet line underneath. Everything below it steps down from here. */
 .greetingRow {
   display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  column-gap: var(--space-2);
-  margin: var(--space-3) var(--space-4) var(--space-2);
+  flex-direction: column;
+  gap: 2px;
+  margin: var(--space-5) var(--space-4) var(--space-4);
 }
 
 .greeting {
-  font-size: var(--font-size-xl);
+  font-size: var(--font-size-2xl);
   font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
   color: var(--text);
 }
 
 .greetingDot {
-  color: var(--text-muted);
+  display: none;
 }
 
 .dateLine {
-  font-size: var(--font-size-base);
-  color: var(--text-secondary);
+  font-size: var(--font-size-md);
+  color: var(--text-muted);
 }
 
 .colHeaderRow {
@@ -54,15 +55,17 @@
   color: var(--text);
 }
 
+/* Ghost buttons: the header row belongs to the serif header, so its controls
+   drop the box chrome and speak only when touched. Tap height stays 40px. */
 .editorLink {
   display: inline-flex;
   align-items: center;
   min-height: 40px;
   padding: 0 var(--space-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--card-bg);
-  color: var(--text-secondary);
+  border: none;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-muted);
   font-size: var(--font-size-sm);
   font-weight: 600;
   text-decoration: none;
@@ -70,8 +73,8 @@
 }
 
 .editorLink:hover {
-  border-color: var(--accent);
   color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
 .colHeaderActions {
@@ -90,8 +93,8 @@
 /* "Show all" while the gates are lifted — accent so the non-default view
    state is visible at a glance. */
 .headerBtnActive {
-  border-color: var(--accent);
   color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .twoCol {

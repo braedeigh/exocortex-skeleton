@@ -1,9 +1,9 @@
 .card {
   margin: var(--space-3) var(--space-4);
-  border: 1px solid var(--border);
-  border-left: 4px solid var(--text-muted);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xl);
   background: var(--card-bg);
+  box-shadow: var(--shadow-card);
   overflow: hidden;
 }
 
@@ -37,13 +37,12 @@
   flex: 1;
 }
 
+
 .count {
   font-size: var(--font-size-sm);
   font-weight: 600;
   color: var(--text-muted);
-  background: var(--bg);
-  border-radius: var(--radius-pill);
-  padding: 1px 8px;
+  font-variant-numeric: tabular-nums;
 }
 
 .row {
@@ -52,7 +51,7 @@
   gap: var(--space-3);
   min-height: var(--tap-target);
   padding: var(--space-2) var(--space-4);
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-soft);
 }
 
 .text {
