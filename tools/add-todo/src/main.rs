@@ -113,6 +113,7 @@ impl Bucket {
 enum Category {
     Health, Appearance, Finances, LivingSpace,
     Job, Hobbies, Learning, Exocortex,
+    Practice, Connection, Errands, SelfBecoming,
 }
 impl Category {
     fn as_key(&self) -> &'static str {
@@ -121,6 +122,8 @@ impl Category {
             Category::Finances => "finances", Category::LivingSpace => "living-space",
             Category::Job => "job", Category::Hobbies => "hobbies",
             Category::Learning => "learning", Category::Exocortex => "exocortex",
+            Category::Practice => "practice", Category::Connection => "connection",
+            Category::Errands => "errands", Category::SelfBecoming => "self-becoming",
         }
     }
 }

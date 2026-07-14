@@ -41,6 +41,10 @@ export const FRONT_EMOJI: Record<string, string> = {
   hobbies: '🎨',
   learning: '📚',
   exocortex: '🧠',
+  practice: '🪷',
+  connection: '🫂',
+  errands: '📦',
+  'self-becoming': '🪞',
 };
 
 const FALLBACK_EMOJI = '🏷️';
