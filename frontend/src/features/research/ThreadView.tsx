@@ -15,7 +15,6 @@ import {
   KIND_LABEL,
   NEXT_TOPIC_STATUS,
   edgeFor,
-  flaggedQueue,
   plural,
   reviewedSince,
   sessionsForTopic,
@@ -24,7 +23,6 @@ import {
 } from './helpers';
 import { DistillButton } from './Pills';
 import { useResearchCtx } from './ResearchContext';
-import { SendStrip } from './SendStrip';
 import { SessionsCard } from './SessionsCard';
 import { useFronts } from './useResearchData';
 import type { Entry, Topic } from './types';
@@ -172,7 +170,6 @@ export function ThreadView({ topic }: { topic: Topic }) {
   const [editing, setEditing] = useState(false);
 
   const { entries, topLevel, repliesOf } = threadStructure(state.entries, topic.id);
-  const flagged = flaggedQueue(entries);
   const sessions = sessionsForTopic(state.sessions, topic.id);
 
   return (
@@ -204,8 +201,6 @@ export function ThreadView({ topic }: { topic: Topic }) {
       <EdgeCard topic={topic} />
 
       <Composer presetTopic={topic.id} hideTopics addLabel="Add to thread" placeholder="Add to this thread…" inThread />
-
-      <SendStrip flagged={flagged} scope="thread" />
 
       <SessionsCard sessions={sessions} />
 

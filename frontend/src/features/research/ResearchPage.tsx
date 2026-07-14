@@ -24,13 +24,12 @@ import type { AddEntryBody } from './api';
 import { Annotator } from './Annotator';
 import { Composer, COMPOSER_TEXT_ID } from './Composer';
 import { ArticlesCard } from './ArticlesCard';
-import { contextChain, flaggedQueue, plural, topicsById } from './helpers';
+import { contextChain, plural, topicsById } from './helpers';
 import { LibraryCard } from './LibraryCard';
 import { QuestionsCard } from './QuestionsCard';
 import { Reader } from './Reader';
 import { ResearchProvider, type ResearchCtxValue } from './ResearchContext';
 import { SearchCard } from './SearchCard';
-import { SendStrip } from './SendStrip';
 import { ThreadsDirectoryCard, NewThreadRow } from './ThreadsDirectory';
 import { ThreadView } from './ThreadView';
 import { UnfiledCard } from './UnfiledCard';
@@ -391,7 +390,6 @@ export function ResearchPage() {
         ) : (
           <>
             <Composer />
-            <SendStrip flagged={flaggedQueue(state.entries)} scope="all" />
             <SearchCard />
             <ThreadsDirectoryCard frontFilter={frontFilter} onFrontFilterChange={setFrontFilter} />
             <QuestionsCard />

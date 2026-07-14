@@ -279,21 +279,9 @@ export function EntryRow({ entry: e, editing }: { entry: Entry; editing: boolean
               </button>
             </>
           ) : (
-            <>
-              <label className={`${styles.flagLabel} ${e.flagged ? styles.flagLabelOn : ''}`}>
-                <input
-                  type="checkbox"
-                  className={styles.flagCheckbox}
-                  checked={!!e.flagged}
-                  title="Queue for Claude"
-                  onChange={(ev) => mutations.flagEntry.mutate({ id: e.id, flagged: ev.target.checked })}
-                />
-                {e.flagged ? '⚑ queued for Claude' : 'queue for Claude'}
-              </label>
-              <button type="button" className={styles.chip} onClick={() => mutations.send.mutate([e.id])}>
-                &#10148; send now
-              </button>
-            </>
+            <button type="button" className={styles.chip} onClick={() => mutations.send.mutate([e.id])}>
+              &#10148; send to Claude
+            </button>
           )}
           <button type="button" className={styles.chip} onClick={startTextEdit}>
             &#9998; edit
