@@ -1,0 +1,148 @@
+/* /sessions — full-page terminal switcher. Unlike the old ChatSessionPicker
+ * row (pinned to the dash bar's fixed indigo), this is a normal page: it
+ * theme-swaps with the rest of the app. */
+.page {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: var(--space-3);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.title {
+  margin: 0;
+  font-size: 20px;
+  color: var(--text);
+}
+
+.newBtn {
+  min-height: var(--tap-target, 44px);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+  color: var(--accent);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.pageError {
+  margin-bottom: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid #d44035;
+  border-radius: var(--radius-lg);
+  color: #d44035;
+  font-size: var(--font-size-sm);
+}
+
+/* Top-to-bottom stack of session cards. */
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.card {
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.cardActive {
+  border-left-color: var(--accent);
+}
+
+.cardTop {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 28px;
+}
+
+.cardTitle {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.badge {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Same "waiting on input" orange as the session tabs, theme-swapped here. */
+.badgeWaiting {
+  border-color: #d4700a;
+  color: #d4700a;
+}
+
+.badgeBusy {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.cardRecap {
+  margin-top: var(--space-2);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Degraded recap (transcript format changed, etc.) — visible, not blank. */
+.cardError {
+  margin-top: var(--space-2);
+  color: #d44035;
+  font-size: var(--font-size-sm);
+  line-height: 1.4;
+}
+
+/* Close × for custom sessions — comfortable hit area, clearly visible. */
+.closeX {
+  flex: 0 0 auto;
+  min-width: var(--tap-target, 44px);
+  min-height: var(--tap-target, 44px);
+  margin: calc(-1 * var(--space-2)) calc(-1 * var(--space-2)) calc(-1 * var(--space-2)) 0;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Two-step close confirm ("tap × again") — no native confirm(). */
+.closeConfirm {
+  border-radius: var(--radius-sm);
+  background: #d44035;
+  color: #fff;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}

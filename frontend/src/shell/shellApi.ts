@@ -95,3 +95,21 @@ export function sendUploadRefToTerminal(path: string, session: string): Promise<
 export function getNeedsInput(signal?: AbortSignal): Promise<{ sessions: Record<string, boolean> }> {
   return api.get('/api/terminal/needs-input', signal);
 }
+
+// --- Session recaps (the /sessions full-page switcher) --------------------------
+// Backend: routes/terminal.py — recap comes from the pane's Claude Code
+// transcript ('assistant' = its last message, 'compact' = a compaction recap)
+// or the raw pane tail for plain shells ('pane'). `error` is set when the
+// transcript couldn't be parsed (Claude Code's internal format changed) —
+// the card shows it instead of a recap.
+
+export interface SessionRecap {
+  recap: string | null;
+  source: 'assistant' | 'compact' | 'pane' | null;
+  status: string | null; // claude process status ('busy', 'idle', …), 'not-running', or null for a plain shell
+  error: string | null;
+}
+
+export function getSessionRecaps(signal?: AbortSignal): Promise<{ sessions: Record<string, SessionRecap> }> {
+  return api.get('/api/terminal/recaps', signal);
+}

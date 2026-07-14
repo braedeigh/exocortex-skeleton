@@ -36,6 +36,162 @@ NOTES_PATH = DATA_DIR / "notes_dump.md"
 
 _VALID_SESSION_RE = re.compile(r'^[a-zA-Z0-9_-]{1,30}$')
 
+# --- Session recaps (/api/terminal/recaps) -----------------------------------
+# Card data for the /sessions full-page switcher: each tmux session's "latest
+# recap" is pulled from the Claude Code transcript of whatever claude process
+# is running inside that pane. Two Claude-owned files are involved, and BOTH
+# are undocumented internals that can change shape between Claude Code
+# releases — which is why every parse failure below degrades to an `error`
+# string the card displays, never a silent blank:
+#   ~/.claude/sessions/<pid>.json   live-process registry (pid, sessionId,
+#                                   cwd, status) — maps a pane to a transcript
+#   ~/.claude/projects/<cwd-flattened>/<sessionId>.jsonl   the transcript
+CLAUDE_HOME = Path.home() / ".claude"
+RECAP_MAX_CHARS = 280
+# Compaction recaps are huge; the tail window just has to be big enough that
+# the last assistant message or compact summary is inside it.
+_TRANSCRIPT_TAIL_BYTES = 512 * 1024
+_COMPACT_PREFIX = "This session is being continued from a previous conversation"
+_ANSI_RE = re.compile(r'\x1b\[[0-9;?]*[a-zA-Z]')
+_RECAP_FORMAT_ERROR = ("Claude is running but no recap could be read from its "
+                      "transcript — Claude Code's file format may have changed.")
+
+
+def _proc_ancestors(pid):
+    """pid plus all its ancestors, via /proc — used to answer 'is this claude
+    process running inside that tmux pane'."""
+    chain = []
+    while pid and pid > 1 and pid not in chain:
+        chain.append(pid)
+        try:
+            stat = Path(f"/proc/{pid}/stat").read_text()
+            # ppid is the 2nd field after the parenthesised comm (which can
+            # itself contain spaces/parens, hence rsplit on the last ')').
+            pid = int(stat.rsplit(')', 1)[1].split()[1])
+        except Exception:
+            break
+    return chain
+
+
+def _live_claude_sessions():
+    """Entries from Claude Code's live-process registry whose pid is still
+    alive. Unreadable/stale entries are skipped, but a missing or empty
+    registry dir is fine (no claude running anywhere)."""
+    out = []
+    for f in (CLAUDE_HOME / "sessions").glob("*.json"):
+        try:
+            info = json.loads(f.read_text())
+            pid = int(info["pid"])
+        except Exception:
+            continue
+        if Path(f"/proc/{pid}").exists():
+            info["pid"] = pid
+            out.append(info)
+    return out
+
+
+def _transcript_path(cwd, session_id):
+    flat = re.sub(r'[^A-Za-z0-9]', '-', cwd or '')
+    return CLAUDE_HOME / "projects" / flat / f"{session_id}.jsonl"
+
+
+def _extract_recap(lines):
+    """The freshest recap in a transcript tail: the LAST of either an
+    assistant text message or a compaction summary ("This session is being
+    continued…" user message) — whichever appears later in the file wins,
+    so a compact recap is only shown until the assistant next speaks.
+    Returns (text, source) with source 'assistant' | 'compact', or (None, None)."""
+    last_text, source = None, None
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(obj, dict) or obj.get("isSidechain"):
+            continue
+        msg = obj.get("message")
+        if not isinstance(msg, dict):
+            continue
+        content = msg.get("content")
+        if msg.get("role") == "assistant" and isinstance(content, list):
+            texts = [c.get("text", "") for c in content
+                     if isinstance(c, dict) and c.get("type") == "text"]
+            text = "\n".join(t for t in texts if t).strip()
+            if text:
+                last_text, source = text, "assistant"
+        elif msg.get("role") == "user":
+            text = content if isinstance(content, str) else next(
+                (c.get("text", "") for c in content
+                 if isinstance(c, dict) and c.get("type") == "text"),
+                "") if isinstance(content, list) else ""
+            if isinstance(text, str) and text.startswith(_COMPACT_PREFIX):
+                last_text, source = text, "compact"
+    return last_text, source
+
+
+def _clean_recap(text, source):
+    """One-line card description: drop the compact recap's boilerplate
+    preamble, collapse whitespace, truncate."""
+    if source == "compact":
+        idx = text.find("Summary:")
+        if idx != -1:
+            text = text[idx + len("Summary:"):]
+    text = re.sub(r'\s+', ' ', text).strip()
+    if len(text) > RECAP_MAX_CHARS:
+        text = text[:RECAP_MAX_CHARS - 1].rstrip() + "…"
+    return text
+
+
+def _session_recap(sess, live):
+    """Card entry for one tmux session. Never raises: anything unexpected
+    lands in `error` so the card can say the recap degraded instead of
+    silently showing nothing."""
+    entry = {"recap": None, "source": None, "status": None, "error": None}
+    try:
+        panes = _tmux(f"list-panes -t {sess} -F '#{{pane_pid}}'").stdout.strip()
+        if not panes:
+            # Listed in sessions.json but never attached — ttyd only creates
+            # the tmux session on first open. Not an error, just not started.
+            entry["status"] = "not-running"
+            return entry
+        pane_pid = int(panes.splitlines()[0])
+
+        claude = None
+        for info in live:
+            if pane_pid in _proc_ancestors(info["pid"]):
+                if claude is None or info.get("updatedAt", 0) > claude.get("updatedAt", 0):
+                    claude = info
+        if claude is None:
+            # Plain shell (no claude inside): last non-blank pane lines.
+            raw = _tmux(f"capture-pane -t {sess} -p -S -15").stdout
+            tail = [ln for ln in (_ANSI_RE.sub('', l).strip() for l in raw.splitlines()) if ln]
+            entry["recap"] = _clean_recap(" · ".join(tail[-3:]), "pane") if tail else None
+            entry["source"] = "pane"
+            return entry
+
+        entry["status"] = claude.get("status")
+        path = _transcript_path(claude.get("cwd"), claude.get("sessionId"))
+        if not path.exists():
+            entry["error"] = _RECAP_FORMAT_ERROR
+            return entry
+        with open(path, "rb") as f:
+            f.seek(0, 2)
+            f.seek(max(0, f.tell() - _TRANSCRIPT_TAIL_BYTES))
+            tail_text = f.read().decode("utf-8", "replace")
+        text, source = _extract_recap(tail_text.splitlines())
+        if not text:
+            entry["error"] = _RECAP_FORMAT_ERROR
+            return entry
+        entry["recap"] = _clean_recap(text, source)
+        entry["source"] = source
+        return entry
+    except Exception as e:
+        entry["error"] = f"Recap unavailable: {e}"
+        return entry
+
 # Shared with terminal_send()'s "accept the confirmation prompt before typing"
 # logic below, and with /api/terminal/needs-input (which tints a background
 # session's tab so it's not silently waiting forever off-screen).
@@ -498,6 +654,15 @@ def register(app):
             text = _tmux(f"capture-pane -t {s} -p -S -15").stdout.lower()
             result[s] = any(p.lower() in text for p in _PROMPT_PATTERNS)
         return jsonify({"sessions": result})
+
+    @app.route("/api/terminal/recaps")
+    def terminal_recaps():
+        """Per-session card data for the /sessions page: latest recap (from
+        the pane's Claude Code transcript, or the pane itself for plain
+        shells), the claude process's busy/idle status, and an error string
+        when the transcript couldn't be parsed (see the recap helpers above)."""
+        live = _live_claude_sessions()
+        return jsonify({"sessions": {s: _session_recap(s, live) for s in _load_sessions()}})
 
     @app.route("/api/terminal/upload", methods=["POST"])
     def terminal_upload():

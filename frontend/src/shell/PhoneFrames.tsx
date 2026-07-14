@@ -14,14 +14,8 @@ import { PhoneTerminal } from '../features/phone/PhoneTerminal';
  * for a beat, which reads as "I have to tap the tab twice." Keeping the
  * component mounted also preserves its chrome state (draft message, open
  * panels) across session switches.
- *
- * closePicker (present when ChatPage passes its SessionsUiState) is handed
- * down as PhoneTerminal's onInteract: tapping into the /phone iframe used to
- * blur the window, which ChatPage treated as "done picking — fold the picker
- * away"; a native tap doesn't blur anything, so the terminal reports the
- * interaction explicitly instead.
  */
-export function PhoneFrames({ sessions }: { sessions: SessionState & { closePicker?: () => void } }) {
+export function PhoneFrames({ sessions }: { sessions: SessionState }) {
   const { active, sessions: list } = sessions;
   const [visited, setVisited] = useState<string[]>(() => [active]);
   // See useSettledFrames — same first-mount blank-iframe workaround as
@@ -50,7 +44,6 @@ export function PhoneFrames({ sessions }: { sessions: SessionState & { closePick
           session={s}
           active={s === active}
           visible={s === active && settled.has(s)}
-          onInteract={sessions.closePicker}
         />
       ))}
     </>

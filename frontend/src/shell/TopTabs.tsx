@@ -418,10 +418,9 @@ export function TopTabs() {
   const location = useLocation();
   const navigate = useNavigate();
   const isDesktop = useMediaQuery(DESKTOP_QUERY);
-  // Mobile Chat tab's label (the active tmux session name) + the /chat
-  // session picker's toggle — shared with ChatPage via SessionsContext, so
-  // switching sessions there updates the label immediately, and tapping the
-  // Chat tab while on /chat opens/closes the picker ChatPage renders.
+  // Mobile Chat tab's label (the active tmux session name) — shared with
+  // /chat and /sessions via SessionsContext, so switching sessions on the
+  // session page updates the label immediately.
   const sessions = useSessionsContext();
   // Last dashboard route visited, so clicking Dashboard from Journal/Research
   // returns you where you left off instead of always resetting to /todos.
@@ -452,14 +451,18 @@ export function TopTabs() {
         {!isDesktop ? (
           // Mobile only — desktop already has the terminal permanently docked
           // in the left split pane (SplitLayout), no need for a tab to it.
-          // A second tap while already on /chat toggles the session picker
-          // row instead (rendered by ChatPage, shared via SessionsContext).
+          // A second tap while already on /chat opens the full-page session
+          // switcher (/sessions, SessionListPage); from there — or anywhere
+          // else — the tab goes (back) to the active terminal.
           <button
             type="button"
-            className={joinClass(styles.dashBtn, styles.chatBtn, location.pathname === '/chat' && styles.dashBtnActive)}
-            aria-expanded={location.pathname === '/chat' ? sessions.pickerOpen : undefined}
+            className={joinClass(
+              styles.dashBtn,
+              styles.chatBtn,
+              (location.pathname === '/chat' || location.pathname === '/sessions') && styles.dashBtnActive,
+            )}
             onClick={() => {
-              if (location.pathname === '/chat') sessions.togglePicker();
+              if (location.pathname === '/chat') void navigate({ to: '/sessions' });
               else void navigate({ to: '/chat' });
             }}
           >
