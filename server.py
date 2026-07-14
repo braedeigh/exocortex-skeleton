@@ -670,6 +670,10 @@ def get_data_today():
         "activity_log": _load_activity_log(),
         "reminders": _load_reminders(),
         "private_act_types": _private_act_types(),
+        # Context-gating rules for the To Do list (see todoHelpers.gateHides).
+        # Personal config, lives in the vault; absent file → no gating. Not in
+        # STREAMS, so the public filter drops it (it encodes her schedule).
+        "todo_view_rules": store.read("todo_view_rules.json", {}),
     })
     data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("today", [])
     data["idea_notes"] = _load_idea_notes().get("tabs", {}).get("today", [])
