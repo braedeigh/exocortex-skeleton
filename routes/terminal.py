@@ -17,7 +17,9 @@ import time
 import store
 
 TMUX_SESSION = "chat"
-DEFAULT_SESSIONS = ["chat", "dev", "other"]
+# Protected sessions: no × button in the UI, DELETE refused. Only chat — it's
+# where the Keeper lives. dev/other are ordinary closable sessions (2026-07-14).
+DEFAULT_SESSIONS = ["chat"]
 # Sessions where she's actually talking to the Keeper. A send into any other
 # tmux session (dev tooling, a scratch shell) is operator noise, not a diary
 # entry -- only these get server-side journal capture below.

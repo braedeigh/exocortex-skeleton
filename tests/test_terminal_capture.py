@@ -63,6 +63,12 @@ def term_client(data_dir, tmp_path, monkeypatch):
     stream = FakeStream()
     monkeypatch.setattr(terminal, "_run_stream", stream)
 
+    # `dev` is no longer a default session, so _get_session only accepts it
+    # with a sessions.json listing it.
+    sessions_path = tmp_path / "sessions.json"
+    sessions_path.write_text(json.dumps(["chat", "dev", "other"]))
+    monkeypatch.setattr(terminal, "SESSIONS_PATH", sessions_path)
+
     app = Flask(__name__)
     app.config.update(TESTING=True)
     terminal.register(app)

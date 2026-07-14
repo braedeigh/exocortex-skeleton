@@ -18,7 +18,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
  */
 
 const ACTIVE_KEY = 'exo-desktop-session';
-const FALLBACK = { sessions: ['chat', 'dev', 'other'], defaults: ['chat', 'dev', 'other'] };
+const FALLBACK = { sessions: ['chat'], defaults: ['chat'] };
 
 export interface SessionState {
   sessions: string[];

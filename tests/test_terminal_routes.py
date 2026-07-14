@@ -7,6 +7,7 @@ until the cursor hits the top row — which made touch-drag scroll (mode=lines)
 silently do nothing. These tests pin the `-X` form so that regression can't
 come back.
 """
+import json
 import re
 
 import pytest
@@ -167,9 +168,13 @@ def test_send_rejects_injection_in_key(term_client, payload):
 @pytest.fixture
 def needs_input_client(monkeypatch, tmp_path):
     """Like term_client, but capture-pane output is per-session and
-    configurable, since needs-input probes every default session."""
+    configurable, since needs-input probes every session in sessions.json
+    (seeded here explicitly — only `chat` is a protected default now)."""
     calls = []
     panes = {"chat": "", "dev": "", "other": ""}
+    sessions_path = tmp_path / "sessions.json"
+    sessions_path.write_text(json.dumps(list(panes)))
+    monkeypatch.setattr(terminal, "SESSIONS_PATH", sessions_path)
 
     def fake_tmux(cmd_str):
         calls.append(cmd_str)
