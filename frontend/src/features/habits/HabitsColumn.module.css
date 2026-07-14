@@ -13,6 +13,29 @@
   color: var(--text);
 }
 
+/* Collapse-the-column button — same quiet chip look as the To Do header's
+   "Edit all" link (TodosPage.module.css .editorLink). */
+.hideBtn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  font-family: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.hideBtn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .empty,
 .allDone {
   font-size: var(--font-size-sm);

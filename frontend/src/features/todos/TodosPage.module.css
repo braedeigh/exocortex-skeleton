@@ -73,6 +73,19 @@
   color: var(--accent);
 }
 
+.colHeaderActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* Same look as .editorLink, but a real <button> ("Show habits"). */
+.headerBtn {
+  composes: editorLink;
+  cursor: pointer;
+  font-family: inherit;
+}
+
 .twoCol {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -86,6 +99,11 @@
    inside a column can push it wider than the pane. */
 .twoCol > * {
   min-width: 0;
+}
+
+/* Habits column hidden — To Do takes the whole pane. */
+.oneCol {
+  grid-template-columns: 1fr;
 }
 
 /* Stacks to one column once the PANE (not the viewport) is narrow — mirrors

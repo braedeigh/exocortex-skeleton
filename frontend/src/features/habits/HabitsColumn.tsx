@@ -40,6 +40,9 @@ export interface HabitsColumnProps {
    * not a display one) doesn't render at all. The TimeSelector stays
    * interactive either way: it's pure local view state, not a write. */
   readOnly?: boolean;
+  /** When set, a "Hide" button renders in the header — collapses the column
+   * so To Do can span the whole pane (TodosPage owns the state). */
+  onHide?: () => void;
 }
 
 /** Left column of the To Do page's two-col grid — header + time selector +
@@ -64,6 +67,7 @@ export function HabitsColumn({
   onGrowthIncorporate,
   onGrowthReactivate,
   readOnly = false,
+  onHide,
 }: HabitsColumnProps) {
   const hidden = habitSettings?.hidden || [];
   const views = dailySectionViews(habits, segment, hidden, cadenceMap, metaMap, log, cadenceConfig, serverDate);
@@ -73,6 +77,11 @@ export function HabitsColumn({
       <div className={styles.head}>
         <div className={styles.header}>Habits</div>
         <TimeSelector value={segment} onChange={onSegmentChange} />
+        {onHide ? (
+          <button type="button" className={styles.hideBtn} onClick={onHide} title="Hide habits">
+            Hide &#9656;
+          </button>
+        ) : null}
       </div>
 
       {views.length === 0 ? (

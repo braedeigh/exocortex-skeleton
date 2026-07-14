@@ -44,6 +44,7 @@ import {
 import styles from './TodosPage.module.css';
 
 const FOCUS_STORAGE_KEY = 'todoFocusTheme';
+const HABITS_HIDDEN_KEY = 'todoHabitsHidden';
 const GREETINGS: Record<TimeSegment, string> = {
   morning: 'Good morning',
   afternoon: 'Good afternoon',
@@ -70,6 +71,22 @@ function writeStoredFocus(theme: string) {
   }
 }
 
+function readStoredHabitsHidden(): boolean {
+  try {
+    return localStorage.getItem(HABITS_HIDDEN_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function writeStoredHabitsHidden(hidden: boolean) {
+  try {
+    localStorage.setItem(HABITS_HIDDEN_KEY, hidden ? '1' : '');
+  } catch {
+    // localStorage unavailable — the choice just won't persist across visits
+  }
+}
+
 export function TodosPage() {
   const { data, isLoading, isError, error } = useTodayData();
   const { toasts, push, dismiss } = useToasts();
@@ -82,6 +99,9 @@ export function TodosPage() {
   const isPublic = isPublicMode();
 
   const [focusTheme, setFocusThemeState] = useState(readStoredFocus);
+  // Desktop breathing room: collapse the habits column so To Do spans the
+  // whole pane. Never offered to public visitors — habits are their view.
+  const [habitsHidden, setHabitsHiddenState] = useState(readStoredHabitsHidden);
   const [selected, setSelected] = useState<TodoItem | null>(null);
   // Streaks are keyed by label+since (no id) — the sheet re-derives its
   // streak from the polled data so "Day N" stays live while it's open.
@@ -95,6 +115,11 @@ export function TodosPage() {
   function setFocusTheme(theme: string) {
     setFocusThemeState(theme);
     writeStoredFocus(theme);
+  }
+
+  function setHabitsHidden(hidden: boolean) {
+    setHabitsHiddenState(hidden);
+    writeStoredHabitsHidden(hidden);
   }
 
   // Both add paths (quick-add bar, per-section "+ add" sheet) stamp the
@@ -221,7 +246,8 @@ export function TodosPage() {
           `readOnly` prop) while the To Do column stays frosted below. This
           replaces the old "frosted -> whole grid replaced by placeholder"
           branch, which hid the habits she wants public visitors to see. */}
-      <div className={styles.twoCol}>
+      <div className={`${styles.twoCol} ${habitsHidden && !isPublic ? styles.oneCol : ''}`}>
+        {habitsHidden && !isPublic ? null : (
         <HabitsColumn
           habits={habits}
           habitSettings={data.habit_settings}
@@ -244,15 +270,28 @@ export function TodosPage() {
           onGrowthIncorporate={growthActions.incorporate}
           onGrowthReactivate={growthActions.reactivate}
           readOnly={isPublic}
+          onHide={!isPublic ? () => setHabitsHidden(true) : undefined}
         />
+        )}
 
         <div>
           <div className={styles.colHeaderRow}>
             <div className={styles.colHeader}>To Do</div>
             {!isPublic ? (
-              <Link to="/todos/editor" className={styles.editorLink}>
-                &#9998; Edit all
-              </Link>
+              <div className={styles.colHeaderActions}>
+                {habitsHidden ? (
+                  <button
+                    type="button"
+                    className={styles.headerBtn}
+                    onClick={() => setHabitsHidden(false)}
+                  >
+                    &#9666; Show habits
+                  </button>
+                ) : null}
+                <Link to="/todos/editor" className={styles.editorLink}>
+                  &#9998; Edit all
+                </Link>
+              </div>
             ) : null}
           </div>
 
