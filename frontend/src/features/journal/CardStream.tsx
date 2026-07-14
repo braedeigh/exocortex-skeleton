@@ -46,6 +46,17 @@ export interface BottomComposerHandle {
   focus: () => void;
 }
 
+/** Nearest ancestor that actually scrolls — the journal scrolls inside the
+ * page div (overflow-y: auto), not the window, so scroll compensation has
+ * to target it directly. */
+function scrollParent(el: HTMLElement): HTMLElement | null {
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    const { overflowY } = getComputedStyle(p);
+    if (overflowY === 'auto' || overflowY === 'scroll') return p;
+  }
+  return null;
+}
+
 /**
  * Always-open composer at the end of the stream — no dashed prompt to tap
  * through first, since a note at the end of the day is the common case.
@@ -66,10 +77,17 @@ const BottomComposer = forwardRef<BottomComposerHandle, BottomComposerProps>(fun
   useEffect(() => {
     if (!taRef.current) return;
     const ta = taRef.current;
+    const prevBottom = ta.getBoundingClientRect().bottom;
     ta.style.height = 'auto';
     // Floor at the Save button's height (--tap-target, 44px) so the empty
-    // row reads as one compact line.
+    // row reads as one compact line; +2 covers the top/bottom borders that
+    // scrollHeight doesn't include.
     ta.style.height = `${Math.max(44, ta.scrollHeight + 2)}px`;
+    // Pin the composer's bottom edge where it was on screen, so the box
+    // grows upward (earlier cards slide up) instead of walking the Save
+    // row down past the fold.
+    const delta = ta.getBoundingClientRect().bottom - prevBottom;
+    if (delta !== 0) scrollParent(ta)?.scrollBy(0, delta);
   }, [draft]);
 
   const active = focused || draft.trim().length > 0;
@@ -101,6 +119,10 @@ const BottomComposer = forwardRef<BottomComposerHandle, BottomComposerProps>(fun
           <textarea
             ref={taRef}
             className={styles.editArea}
+            // Textareas default to rows=2, and scrollHeight can never
+            // measure smaller than that intrinsic height — without rows=1
+            // the auto-size floor silently becomes two lines (~68px).
+            rows={1}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onFocus={() => setFocused(true)}
