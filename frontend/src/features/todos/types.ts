@@ -27,6 +27,10 @@ export interface TodoItem {
   place_id?: string | null;
   status?: string | null;
   theme?: string | null;
+  /** Front ids (fronts.json) — the live tagging contract since 2026-07-14;
+   * `theme` (single string) is the legacy field still on older items. Read
+   * both via todoHelpers.itemFronts, never either field directly. */
+  fronts?: string[] | null;
   duration_min?: number | null;
   done_at?: string | null;
   snoozed_until?: string | null;

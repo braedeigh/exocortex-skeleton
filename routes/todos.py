@@ -20,6 +20,33 @@ def _match(item, ident):
     return item.get("id") == ident or item.get("text") == ident
 
 
+def _clean_fronts(val):
+    """Front ids (fronts.json) as a deduped list. Accepts a list, or a single
+    string for any legacy caller still sending the pre-list `theme` field;
+    None/empties -> []."""
+    if isinstance(val, str):
+        val = [val]
+    out = []
+    for v in val or []:
+        v = str(v).strip()
+        if v and v not in out:
+            out.append(v)
+    return out
+
+
+def _apply_fronts(item, data):
+    """Set/clear a to-do's `fronts` list from a payload. `fronts` (list) is
+    the real contract; `theme` (single string) is accepted as a legacy alias.
+    An empty value clears, same as the string attrs (absent = untagged)."""
+    if "fronts" not in data and "theme" not in data:
+        return
+    fronts = _clean_fronts(data["fronts"] if "fronts" in data else data.get("theme"))
+    if fronts:
+        item["fronts"] = fronts
+    else:
+        item.pop("fronts", None)
+
+
 def register(app):
 
     @app.route("/api/todos/add", methods=["POST"])
@@ -50,10 +77,11 @@ def register(app):
                     new_item["notes"] = notes
                 # Optional attributes from the add modal's "More details" —
                 # same vocabulary the detail editor manages.
-                for f in ("due_time", "place_id", "status", "theme", "after_date", "after_id"):
+                for f in ("due_time", "place_id", "status", "after_date", "after_id"):
                     val = (data.get(f) or "").strip()
                     if val:
                         new_item[f] = val
+                _apply_fronts(new_item, data)
                 try:
                     dm = int(data.get("duration_min") or 0)
                 except (TypeError, ValueError):
@@ -116,11 +144,11 @@ def register(app):
     # An empty value removes the key (we keep items lean — absent = unset).
     # after_date/after_id back the "do after" feature: a to-do stays hidden
     # (client-side, same model as snooze) until the date arrives or the
-    # referenced to-do is done/gone. `theme` values are front ids from
-    # fronts.json (routes/fronts.py) — the shared life-domain vocabulary.
-    # (The field keeps its legacy name until the add-todo binary is
-    # normalized; the old free-standing `category` tag was retired 2026-07-14.)
-    TODO_STR_FIELDS = ("notes", "due_by", "due_time", "place_id", "status", "theme",
+    # referenced to-do is done/gone. Life-domain tagging is the `fronts` LIST
+    # (ids from fronts.json, same shape as research topics — see
+    # _apply_fronts); the old single `theme` string and free-standing
+    # `category` tag were retired 2026-07-14.
+    TODO_STR_FIELDS = ("notes", "due_by", "due_time", "place_id", "status",
                         "after_date", "after_id")
 
     @app.route("/api/todos/details", methods=["POST"])
@@ -144,6 +172,7 @@ def register(app):
                                     item[f] = val
                                 else:
                                     item.pop(f, None)
+                        _apply_fronts(item, data)
                         if "duration_min" in data:
                             try:
                                 dm = int(data.get("duration_min") or 0)
@@ -241,6 +270,7 @@ def register(app):
                                         item[f] = val
                                     else:
                                         item.pop(f, None)
+                            _apply_fronts(item, patch)
                             if "duration_min" in patch:
                                 try:
                                     dm = int(patch.get("duration_min") or 0)

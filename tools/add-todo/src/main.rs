@@ -61,9 +61,10 @@ struct LifeArgs {
     /// Which priority bucket on the ladder
     #[arg(long, value_enum, default_value = "now")]
     bucket: Bucket,
-    /// Front tag (life-domain, ids from fronts.json); omit to leave untagged
-    #[arg(long, value_enum)]
-    category: Option<Category>,
+    /// Front tags (life-domain, ids from fronts.json), comma-separated for
+    /// more than one (e.g. --category connection,health); omit = untagged
+    #[arg(long, value_enum, value_delimiter = ',')]
+    category: Vec<Category>,
     /// Remove an existing item instead of adding one (needs --id)
     #[arg(long)]
     remove: bool,
@@ -258,7 +259,13 @@ fn run_life(args: LifeArgs) -> Result<(), Box<dyn Error>> {
     }
     let id = new_id();
     let bucket = args.bucket.as_key();
-    let category = args.category.as_ref().map(|c| c.as_key());
+    let mut fronts: Vec<&str> = Vec::new();
+    for c in &args.category {
+        let key = c.as_key();
+        if !fronts.contains(&key) {
+            fronts.push(key);
+        }
+    }
 
     if args.stage {
         let path = data_dir.join("pending_changes.json");
@@ -267,7 +274,7 @@ fn run_life(args: LifeArgs) -> Result<(), Box<dyn Error>> {
             id: id.clone(),
             kind: "life_todo".into(),
             summary: format!("Add to to-do list: \"{}\" → {}", text, bucket),
-            payload: serde_json::json!({ "text": text, "bucket": bucket, "category": category }),
+            payload: serde_json::json!({ "text": text, "bucket": bucket, "fronts": fronts }),
             created: stamp_minute(),
         });
         atomic_write(&path, &q)?;
@@ -288,8 +295,8 @@ fn run_life(args: LifeArgs) -> Result<(), Box<dyn Error>> {
             "done": false,
             "created": stamp_day(),     // life todos use a date-only stamp, like the others
         });
-        if let Some(front) = category {
-            entry["theme"] = serde_json::json!(front); // absent = untagged, like the app
+        if !fronts.is_empty() {
+            entry["fronts"] = serde_json::json!(fronts); // absent = untagged, like the app
         }
         let obj = root.as_object_mut().ok_or("todos.json is not a JSON object")?;
         let bucket_val = obj

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { frontLabel } from '../fronts/useFronts';
 import type { Front } from '../fronts/useFronts';
+import { itemFronts } from './todoHelpers';
 import type { TodoItem } from './types';
 import styles from './NotNowCard.module.css';
 
@@ -42,7 +43,7 @@ export function NotNowCard({ entries, fronts, onOpenDetail }: NotNowCardProps) {
                 {item.text}
               </button>
               <span className={styles.meta}>
-                {frontLabel(fronts, item.theme)} &middot; {section}
+                {frontLabel(fronts, itemFronts(item)[0])} &middot; {section}
               </span>
             </div>
           ))

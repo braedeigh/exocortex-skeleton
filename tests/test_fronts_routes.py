@@ -145,3 +145,23 @@ def test_remove_unknown_id_is_a_noop(client):
     r = _post(client, "/api/fronts/remove", {"id": "no-such-front"})
     assert r.status_code == 200
     assert len(r.get_json()["fronts"]) == 1
+
+
+def test_remove_strips_id_from_todo_fronts_lists(client):
+    """To-dos carry the same `fronts` list as research topics (2026-07-14);
+    deleting a front un-tags them too — items survive, an emptied list is
+    dropped entirely (absent = untagged), other fronts stay."""
+    import store
+    _post(client, "/api/fronts/add", {"name": "Health"})
+    _post(client, "/api/fronts/add", {"name": "Connection"})
+    f1, f2 = [f["id"] for f in _read_fronts()["fronts"]]
+    store.write("todos", {"now": {"items": [
+        {"id": "a", "text": "run group", "done": False, "fronts": [f1, f2]},
+        {"id": "b", "text": "nap", "done": False, "fronts": [f1]},
+    ]}})
+
+    _post(client, "/api/fronts/remove", {"id": f1})
+
+    items = store.read("todos", {})["now"]["items"]
+    assert items[0]["fronts"] == [f2]
+    assert "fronts" not in items[1] and items[1]["text"] == "nap"

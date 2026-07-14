@@ -221,15 +221,24 @@ def test_details_only_touches_present_fields(client, seed):
     assert it["notes"] == "new note"
 
 
-def test_details_sets_then_clears_theme(client, seed):
-    """The Focus chip strip filters on `theme` (values are front ids from
-    fronts.json); details sets it and an empty value clears it (absent = no
-    front), same contract as the other attrs."""
+def test_details_sets_then_clears_fronts(client, seed):
+    """Life-domain tagging is the `fronts` LIST (ids from fronts.json, so an
+    item can sit on several fronts at once); details sets it, dedupes it, and
+    an empty list clears it (absent = untagged), same contract as the attrs."""
     seed({"now": {"items": [{"id": "a", "text": "A", "done": False}]}})
-    _post(client, "/api/todos/details", {"id": "a", "theme": "living-space"})
-    assert read_todos()["now"]["items"][0]["theme"] == "living-space"
+    _post(client, "/api/todos/details", {"id": "a", "fronts": ["connection", "health", "connection"]})
+    assert read_todos()["now"]["items"][0]["fronts"] == ["connection", "health"]
+    _post(client, "/api/todos/details", {"id": "a", "fronts": []})
+    assert "fronts" not in read_todos()["now"]["items"][0]
+
+
+def test_details_accepts_legacy_theme_string_as_fronts_alias(client, seed):
+    seed({"now": {"items": [{"id": "a", "text": "A", "done": False}]}})
+    _post(client, "/api/todos/details", {"id": "a", "theme": "job"})
+    it = read_todos()["now"]["items"][0]
+    assert it["fronts"] == ["job"] and "theme" not in it
     _post(client, "/api/todos/details", {"id": "a", "theme": ""})
-    assert "theme" not in read_todos()["now"]["items"][0]
+    assert "fronts" not in read_todos()["now"]["items"][0]
 
 
 def test_details_sets_then_clears_after_fields(client, seed):
@@ -259,14 +268,14 @@ def test_add_with_more_details_persists_attributes(client):
         "item": "drop off package", "section": "Now",
         "due_by": "2026-06-13", "due_time": "14:30",
         "category": "car", "duration_min": "15", "status": "ready",
-        "theme": "finances", "notes": "the UPS one",
+        "fronts": ["finances", "errands"], "notes": "the UPS one",
     })
     assert res.status_code == 200
     from tests.conftest import read_todos
     item = read_todos()["now"]["items"][0]
     assert item["due_time"] == "14:30"
     assert "category" not in item   # retired 2026-07-14 (fronts vocabulary); silently ignored
-    assert item["theme"] == "finances"
+    assert item["fronts"] == ["finances", "errands"]
     assert item["duration_min"] == 15
 
 
@@ -288,15 +297,15 @@ def test_bulk_details_patches_all_matched_leaves_others(client, seed):
     seed({"now": {"items": [
         {"id": "a", "text": "A", "done": False},
         {"id": "b", "text": "B", "done": False},
-        {"id": "c", "text": "C", "done": False, "theme": "keep"},
+        {"id": "c", "text": "C", "done": False, "fronts": ["keep"]},
     ]}})
     r = _post(client, "/api/todos/bulk",
-              {"ids": ["a", "b"], "action": "details", "patch": {"theme": "job", "status": "ready"}})
+              {"ids": ["a", "b"], "action": "details", "patch": {"fronts": ["job"], "status": "ready"}})
     assert r.get_json() == {"ok": True, "updated": 2, "missing": []}
     by_id = {i["id"]: i for i in read_todos()["now"]["items"]}
-    assert by_id["a"]["theme"] == "job" and by_id["a"]["status"] == "ready"
-    assert by_id["b"]["theme"] == "job" and by_id["b"]["status"] == "ready"
-    assert by_id["c"]["theme"] == "keep" and "status" not in by_id["c"]
+    assert by_id["a"]["fronts"] == ["job"] and by_id["a"]["status"] == "ready"
+    assert by_id["b"]["fronts"] == ["job"] and by_id["b"]["status"] == "ready"
+    assert by_id["c"]["fronts"] == ["keep"] and "status" not in by_id["c"]
 
 
 def test_bulk_details_empty_value_clears_field(client, seed):

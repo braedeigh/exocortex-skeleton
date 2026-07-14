@@ -78,10 +78,19 @@ def register(app):
         fid = body.get("id")
         with store.mutate("fronts.json", {"fronts": []}) as data:
             data["fronts"] = [f for f in data.get("fronts", []) if f["id"] != fid]
-        # Cleanup lives in a separate mutate — fronts.json and research.json
-        # are different collections (research.json is SQL-backed).
+        # Cleanup lives in separate mutates — fronts.json, research.json and
+        # todos.json are different collections (research.json is SQL-backed).
         with store.mutate("research.json", {"topics": [], "entries": []}) as rdata:
             for t in rdata.get("topics", []):
                 if fid in (t.get("fronts") or []):
                     t["fronts"] = [x for x in t["fronts"] if x != fid]
+        with store.mutate("todos", {}) as tdata:
+            for sec in tdata.values():
+                if not isinstance(sec, dict):
+                    continue
+                for item in sec.get("items", []):
+                    if fid in (item.get("fronts") or []):
+                        item["fronts"] = [x for x in item["fronts"] if x != fid]
+                        if not item["fronts"]:
+                            item.pop("fronts")
         return _blob(data)

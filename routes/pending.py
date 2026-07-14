@@ -22,10 +22,26 @@ _EMPTY = {"pending": []}
 # The validated write tool. Lives in this same repo under tools/.
 ADD_TODO_BIN = Path(__file__).resolve().parent.parent / "tools" / "add-todo" / "target" / "release" / "add-todo"
 
-# Life-todo tags are front ids (fronts.json) since 2026-07-14. Staged payloads
-# may still carry the pre-fronts theme vocabulary — translate at the gate.
-# life/admin were junk-drawer tags: they map to untagged, not to a front.
+# Life-todo tags are front ids (fronts.json) since 2026-07-14, carried as a
+# `fronts` list (`category`, a single string, accepted as the legacy alias).
+# Staged payloads may still carry the pre-fronts theme vocabulary — translate
+# at the gate. life/admin were junk-drawer tags: they map to untagged.
 _LEGACY_FRONTS = {"life": None, "admin": None, "move": "living-space"}
+
+
+def _payload_fronts(payload):
+    """Front ids from a life_todo payload, legacy-translated and deduped."""
+    raw = payload.get("fronts")
+    if not isinstance(raw, list):
+        raw = [payload.get("category")]
+    out = []
+    for f in raw:
+        f = (str(f) if f is not None else "").strip() or None
+        if f in _LEGACY_FRONTS:
+            f = _LEGACY_FRONTS[f]
+        if f and f not in out:
+            out.append(f)
+    return out
 
 
 def _commit(change):
@@ -42,15 +58,13 @@ def _commit(change):
         if payload.get("source"):
             cmd += ["--source", payload["source"]]
     elif kind == "life_todo":
-        front = (payload.get("category") or "").strip() or None
-        if front in _LEGACY_FRONTS:
-            front = _LEGACY_FRONTS[front]
+        fronts = _payload_fronts(payload)
         cmd = [str(ADD_TODO_BIN), "life",
                "--text", payload["text"],
                "--bucket", payload.get("bucket", "now"),
                "--data-dir", data_dir]
-        if front:
-            cmd += ["--category", front]
+        if fronts:
+            cmd += ["--category", ",".join(fronts)]
     elif kind == "life_remove":
         cmd = [str(ADD_TODO_BIN), "life", "--remove",
                "--id", payload["id"],

@@ -52,6 +52,12 @@ def test_life_todo_passes_front_id_through(client, monkeypatch):
     assert cmd[cmd.index("--category") + 1] == "health"
 
 
+def test_life_todo_joins_multiple_fronts_comma_separated(client, monkeypatch):
+    cmd = _approve_life_todo(client, monkeypatch,
+                             {"text": "x", "fronts": ["connection", "health", "connection"]})
+    assert cmd[cmd.index("--category") + 1] == "connection,health"
+
+
 def test_life_todo_translates_legacy_move_to_living_space(client, monkeypatch):
     cmd = _approve_life_todo(client, monkeypatch,
                              {"text": "x", "category": "move"})

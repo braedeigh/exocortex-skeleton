@@ -70,6 +70,12 @@ describe('focusMatch', () => {
     expect(focusMatch(item({ theme: 'job' }), 'job')).toBe(true);
     expect(focusMatch(item({ theme: 'health' }), 'job')).toBe(false);
   });
+  it('reads the fronts list (the live contract) too', () => {
+    expect(focusMatch(item({ fronts: ['job', 'health'] }), 'job')).toBe(true);
+    expect(focusMatch(item({ fronts: ['health'] }), 'job')).toBe(false);
+    expect(focusMatch(item({ fronts: [] }), '__none__')).toBe(true);
+    expect(focusMatch(item({ fronts: ['job'] }), '__none__')).toBe(false);
+  });
 });
 
 describe('withFocusTheme', () => {
@@ -177,6 +183,13 @@ describe('gateHides', () => {
   it('a front with no window of its own and no * is never hidden', () => {
     const jobOnly = { windows: { job: { start: '06:00', end: '17:00' } } };
     expect(gateHides(item({ theme: 'health' }), 'Later', jobOnly, MORNING, TODAY)).toBe(false);
+  });
+  it('fronts list: any active window keeps the item visible', () => {
+    // job window is active in the morning, so job+health shows even though
+    // health (via *) is out of window.
+    expect(gateHides(item({ fronts: ['job', 'health'] }), 'Later', rules, MORNING, TODAY)).toBe(false);
+    expect(gateHides(item({ fronts: ['job', 'health'] }), 'Later', rules, EVENING, TODAY)).toBe(false);
+    expect(gateHides(item({ fronts: ['health'] }), 'Later', rules, MORNING, TODAY)).toBe(true);
   });
 });
 

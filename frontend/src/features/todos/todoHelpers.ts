@@ -79,10 +79,18 @@ export function waitingReason(item: TodoItem, index: Map<string, TodoItem>): str
   return '';
 }
 
+/** An item's front ids, whichever field it carries: the `fronts` list (the
+ * live contract) or the legacy single `theme` string. Empty = untagged. */
+export function itemFronts(item: TodoItem): string[] {
+  if (Array.isArray(item.fronts) && item.fronts.length) return item.fronts;
+  return item.theme ? [item.theme] : [];
+}
+
 export function focusMatch(item: TodoItem, theme: string): boolean {
   if (!theme) return true;
-  if (theme === '__none__') return !item.theme;
-  return item.theme === theme;
+  const fronts = itemFronts(item);
+  if (theme === '__none__') return fronts.length === 0;
+  return fronts.includes(theme);
 }
 
 /**
@@ -147,7 +155,8 @@ export function computeFocusCounts(sections: TodoSection[], serverDate: string):
       if (isSnoozed(item, serverDate)) continue;
       if (isWaiting(item, serverDate, index)) continue;
       total++;
-      if (item.theme) byTheme[item.theme] = (byTheme[item.theme] || 0) + 1;
+      const fronts = itemFronts(item);
+      if (fronts.length) for (const f of fronts) byTheme[f] = (byTheme[f] || 0) + 1;
       else none++;
     }
   }
@@ -221,9 +230,18 @@ export function gateHides(
   const windows = rules?.windows;
   if (!windows || item.done || sectionName === LADDER_LABELS[0]) return false;
   if (item.due_by && item.due_by <= serverDate) return false;
-  const win = windows[item.theme || ''] ?? windows['*'];
-  if (!win) return false;
-  return !inWindow(win, hhmm);
+  // Multi-front items show if ANY of their fronts' windows is active; a
+  // front with no window (and no "*") is ungated, so the item never hides.
+  const fronts = itemFronts(item);
+  const keys = fronts.length ? fronts : [''];
+  let sawWindow = false;
+  for (const key of keys) {
+    const win = windows[key] ?? windows['*'];
+    if (!win) return false;
+    sawWindow = true;
+    if (inWindow(win, hhmm)) return false;
+  }
+  return sawWindow;
 }
 
 /** The "Up now" strip: overdue + due-today items across the ladder (not
