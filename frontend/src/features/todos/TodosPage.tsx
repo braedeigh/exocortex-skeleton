@@ -26,7 +26,9 @@ import {
   computeFocusCounts,
   focusMatch,
   visibleSectionItems,
+  withFocusTheme,
 } from './todoHelpers';
+import type { AddTodoPayload } from '../../api/endpoints';
 import { isFrosted } from './types';
 import type { TodoItem } from './types';
 import {
@@ -93,6 +95,12 @@ export function TodosPage() {
   function setFocusTheme(theme: string) {
     setFocusThemeState(theme);
     writeStoredFocus(theme);
+  }
+
+  // Both add paths (quick-add bar, per-section "+ add" sheet) stamp the
+  // active focus theme so the new item stays visible under the filter.
+  function addTodo(payload: AddTodoPayload) {
+    todoActions.add(withFocusTheme(payload, focusTheme));
   }
 
   const frosted = data ? isFrosted(data.todos) : false;
@@ -260,7 +268,7 @@ export function TodosPage() {
           ) : (
             <>
               <FocusChips counts={focusCounts} active={focusTheme} onChange={setFocusTheme} />
-              <AddBar onAdd={todoActions.add} />
+              <AddBar onAdd={addTodo} focusTheme={focusTheme} />
 
               {focusTheme && focusCounts.total === 0 ? (
                 <div className={styles.emptyFocus}>Nothing here right now. 🎉</div>
@@ -312,7 +320,7 @@ export function TodosPage() {
         section={addSection}
         candidates={blockerCandidates}
         onClose={() => setAddSection(null)}
-        onAdd={todoActions.add}
+        onAdd={addTodo}
       />
 
       <StreakSheet

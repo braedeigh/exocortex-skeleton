@@ -14,6 +14,7 @@ import {
   isSnoozed,
   isWaiting,
   themeLabel,
+  withFocusTheme,
 } from './todoHelpers';
 import type { TodoItem, TodoSection } from './types';
 
@@ -59,6 +60,25 @@ describe('focusMatch', () => {
   it('matches an exact theme', () => {
     expect(focusMatch(item({ theme: 'job' }), 'job')).toBe(true);
     expect(focusMatch(item({ theme: 'health' }), 'job')).toBe(false);
+  });
+});
+
+describe('withFocusTheme', () => {
+  it('stamps the active focus theme onto an add payload', () => {
+    expect(withFocusTheme({ item: 'call Yan', section: 'Now' }, 'job')).toEqual({
+      item: 'call Yan',
+      section: 'Now',
+      theme: 'job',
+    });
+  });
+  it('stamps nothing on All or Other', () => {
+    const payload = { item: 'call Yan', section: 'Now' };
+    expect(withFocusTheme(payload, '')).toBe(payload);
+    expect(withFocusTheme(payload, '__none__')).toBe(payload);
+  });
+  it('never overrides an explicit theme', () => {
+    const payload = { item: 'call Yan', section: 'Now', theme: 'health' };
+    expect(withFocusTheme(payload, 'job')).toBe(payload);
   });
 });
 

@@ -1,3 +1,4 @@
+import type { AddTodoPayload } from '../../api/endpoints';
 import type { TodoItem, TodoSection } from './types';
 
 export interface TodoThemeDef {
@@ -125,6 +126,16 @@ export function focusMatch(item: TodoItem, theme: string): boolean {
   if (!theme) return true;
   if (theme === '__none__') return !item.theme;
   return item.theme === theme;
+}
+
+/**
+ * Quick-adds inherit the active focus filter, so a new item lands in the
+ * view being looked at instead of vanishing behind it. "All" ('') and
+ * "Other" ('__none__') stamp nothing, and an explicit theme wins.
+ */
+export function withFocusTheme(payload: AddTodoPayload, focusTheme: string): AddTodoPayload {
+  if (!focusTheme || focusTheme === '__none__' || payload.theme) return payload;
+  return { ...payload, theme: focusTheme };
 }
 
 export function fmtTime(hhmm: string | null | undefined): string {

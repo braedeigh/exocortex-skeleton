@@ -1,11 +1,13 @@
 import { useRef, useState } from 'react';
 import type { FocusEvent, FormEvent } from 'react';
 import { Button } from '../../ui';
-import { LADDER_LABELS, TODO_CATEGORIES, categoryLabel } from './todoHelpers';
+import { LADDER_LABELS, TODO_CATEGORIES, categoryLabel, themeLabel } from './todoHelpers';
 import styles from './AddBar.module.css';
 
 export interface AddBarProps {
   onAdd: (payload: { item: string; section: string; due_by?: string; category?: string }) => void;
+  /** Active focus filter — the page stamps it onto the add, so show it. */
+  focusTheme?: string;
 }
 
 /**
@@ -14,7 +16,7 @@ export interface AddBarProps {
  * field is focused or has text in it, rather than sitting there permanently
  * (dev note 3621915a). Collapses back once it's blurred with nothing typed.
  */
-export function AddBar({ onAdd }: AddBarProps) {
+export function AddBar({ onAdd, focusTheme }: AddBarProps) {
   const [text, setText] = useState('');
   const [section, setSection] = useState<string>('Now');
   const [showDue, setShowDue] = useState(false);
@@ -63,7 +65,11 @@ export function AddBar({ onAdd }: AddBarProps) {
         <input
           className={styles.input}
           type="text"
-          placeholder="Add a to-do…"
+          placeholder={
+            focusTheme && focusTheme !== '__none__'
+              ? `Add a to-do… → ${themeLabel(focusTheme)}`
+              : 'Add a to-do…'
+          }
           value={text}
           onChange={(e) => setText(e.target.value)}
           onFocus={() => setFocused(true)}
