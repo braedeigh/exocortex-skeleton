@@ -1,23 +1,17 @@
 .stream {
-  padding: var(--space-4) 0;
+  /* No bottom padding: the sticky dock is the true end of the scroller, so
+     its settled flow position is flush with the bottom edge — it never
+     lifts off the bottom as the last cards scroll into view. */
+  padding: var(--space-4) 0 0;
 }
 
 /* Composer dock: sticks to the scroller's bottom edge while she's reading
-   higher up in the day, then settles into normal flow at the true bottom.
-   Opaque background so cards sliding underneath don't peek through the
-   composer's rounded corners. */
+   higher up in the day. No frame, no backing — just the input and Save
+   floating over the cards (both are opaque themselves). */
 .dock {
   position: sticky;
   bottom: 0;
-  background: var(--bg);
   padding: var(--space-2) 0;
-}
-
-.composer {
-  border: 1px solid var(--accent);
-  border-radius: var(--radius-lg);
-  background: color-mix(in srgb, var(--accent) 5%, var(--card-bg));
-  padding: 10px 12px;
 }
 
 .editArea {

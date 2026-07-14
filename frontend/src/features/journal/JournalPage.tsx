@@ -282,7 +282,11 @@ export function JournalPage() {
 
       <JournalRail onOpenPerson={setPopoverSlug} onOpenThread={setThreadPopoverId} onError={push} />
 
-      <div className={styles.body} ref={bodyRef} onClick={onBodyClick}>
+      <div
+        className={`${styles.body} ${mode === 'cards' ? styles.bodyCards : ''}`}
+        ref={bodyRef}
+        onClick={onBodyClick}
+      >
         {dayQuery.isLoading ? (
           <div className={styles.loading}>Loading…</div>
         ) : !bundle ? (

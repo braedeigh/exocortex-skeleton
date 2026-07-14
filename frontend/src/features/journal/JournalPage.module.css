@@ -13,6 +13,13 @@
   padding: 0 var(--space-4) var(--space-8);
 }
 
+/* Cards mode: the sticky composer is the last thing in the scroller — any
+   padding below it would make it detach from the bottom edge as the day's
+   end scrolls into view, so there is none. */
+.bodyCards {
+  padding-bottom: 0;
+}
+
 .loading,
 .error {
   padding: var(--space-5) var(--space-4);

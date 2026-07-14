@@ -64,17 +64,17 @@ function BottomComposer({ saving, onSave, onActiveChange }: BottomComposerProps)
   useEffect(() => {
     if (!taRef.current) return;
     const ta = taRef.current;
-    const prevBottom = ta.getBoundingClientRect().bottom;
+    const sc = scrollParent(ta);
+    const wasAtBottom = sc ? sc.scrollHeight - sc.scrollTop - sc.clientHeight < 4 : false;
     ta.style.height = 'auto';
     // Floor at the Save button's height (--tap-target, 44px) so the empty
     // row reads as one compact line; +2 covers the top/bottom borders that
     // scrollHeight doesn't include.
     ta.style.height = `${Math.max(44, ta.scrollHeight + 2)}px`;
-    // Pin the composer's bottom edge where it was on screen, so the box
-    // grows upward (earlier cards slide up) instead of walking the Save
-    // row down past the fold.
-    const delta = ta.getBoundingClientRect().bottom - prevBottom;
-    if (delta !== 0) scrollParent(ta)?.scrollBy(0, delta);
+    // At the end of the day, growth pushes the cards up — stay glued to the
+    // bottom. Mid-page, the sticky dock is already pinned to the viewport's
+    // bottom edge, so no compensation is needed there.
+    if (wasAtBottom && sc) sc.scrollTop = sc.scrollHeight;
   }, [draft]);
 
   const active = focused || draft.trim().length > 0;
@@ -91,33 +91,31 @@ function BottomComposer({ saving, onSave, onActiveChange }: BottomComposerProps)
 
   return (
     <div className={styles.dock}>
-      <div className={styles.composer}>
-        <div className={styles.composerRow}>
-          <textarea
-            ref={taRef}
-            className={styles.editArea}
-            // Textareas default to rows=2, and scrollHeight can never
-            // measure smaller than that intrinsic height — without rows=1
-            // the auto-size floor silently becomes two lines (~68px).
-            rows={1}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
-            placeholder="Note for the end of the day…"
-            disabled={saving}
-          />
-          <Button
-            variant="primary"
-            onClick={(e) => {
-              e.stopPropagation();
-              void handleSave();
-            }}
-            disabled={saving || !draft.trim()}
-          >
-            Save
-          </Button>
-        </div>
+      <div className={styles.composerRow}>
+        <textarea
+          ref={taRef}
+          className={styles.editArea}
+          // Textareas default to rows=2, and scrollHeight can never
+          // measure smaller than that intrinsic height — without rows=1
+          // the auto-size floor silently becomes two lines (~68px).
+          rows={1}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          placeholder="Note for the end of the day…"
+          disabled={saving}
+        />
+        <Button
+          variant="primary"
+          onClick={(e) => {
+            e.stopPropagation();
+            void handleSave();
+          }}
+          disabled={saving || !draft.trim()}
+        >
+          Save
+        </Button>
       </div>
     </div>
   );
