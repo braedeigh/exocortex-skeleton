@@ -8,6 +8,8 @@ from flask import request, jsonify, Response
 from pathlib import Path
 from datetime import datetime
 from data_helpers import DATA_DIR, UPLOAD_DIR, sweep_uploads
+from routes.cards import _run_stream
+import hashlib
 import json
 import subprocess
 import re
@@ -16,6 +18,15 @@ import store
 
 TMUX_SESSION = "chat"
 DEFAULT_SESSIONS = ["chat", "dev", "other"]
+# Sessions where she's actually talking to the Keeper. A send into any other
+# tmux session (dev tooling, a scratch shell) is operator noise, not a diary
+# entry -- only these get server-side journal capture below.
+KEEPER_CAPTURE_SESSIONS = {"chat"}
+# How long a ui_captured.jsonl dedup entry stays worth checking against. The
+# vault hook only needs it long enough to cover the lag between a server-side
+# mint and the hook seeing the same prompt on a still-live tmux process; past
+# that it's just dead weight in the file.
+UI_CAPTURED_MAX_AGE_SEC = 3600
 # sessions.json and notes_dump.md are USER DATA — they must live in the data
 # layer (DATA_DIR), not next to the code (BUILD_DIR). Putting them in the code
 # dir means every code migration/redeploy orphans or deletes them.
@@ -133,6 +144,114 @@ def _scroll_copy_mode(sess, direction, mode, data):
         _tmux(f"send-keys -t {sess} -X {cmd}")
 
 
+def _keeper_state_dir():
+    # Resolve fresh each call so tests/env overrides of CONTENT_DIR are
+    # honored (same rationale as routes/cards.py's _content_dir()).
+    return store.CONTENT_DIR / ".keeper"
+
+
+def _note_ui_capture(typed):
+    """Leave a breadcrumb that the server already minted this exact prompt, so
+    the vault's UserPromptSubmit hook -- which may still fire on the same text
+    if its tmux process happens to be alive -- can dedup against it instead of
+    double-minting. Hashes the STRIPPED string because that's what the hook
+    receives (Claude Code strips the prompt before the hook ever sees it).
+
+    Best-effort only: this is an optimization, not the capture itself (that
+    already succeeded by the time this runs), so any OSError here is
+    swallowed rather than surfaced.
+    """
+    state_dir = _keeper_state_dir()
+    path = state_dir / "ui_captured.jsonl"
+    cutoff = time.time() - UI_CAPTURED_MAX_AGE_SEC
+    entry = {"ts": time.time(), "sha256": hashlib.sha256(typed.strip().encode()).hexdigest()}
+    try:
+        kept = []
+        if path.exists():
+            for line in path.read_text().splitlines():
+                try:
+                    rec = json.loads(line)
+                except Exception:
+                    continue  # unparseable line -- drop it rather than carry it forward
+                if rec.get("ts", 0) >= cutoff:
+                    kept.append(rec)
+        kept.append(entry)
+        state_dir.mkdir(parents=True, exist_ok=True)
+        path.write_text("".join(json.dumps(r) + "\n" for r in kept))
+    except OSError:
+        pass
+
+
+def _log_capture_failure(body, error):
+    """A capture failure must never vanish silently -- append to the same
+    durable sidecar the vault hook writes to (capture-failures.jsonl), so a
+    lost journal turn always leaves a trace even when nothing was watching.
+    Best-effort: logging the failure must never itself raise and take down
+    the request that's already failing to journal.
+    """
+    try:
+        state_dir = _keeper_state_dir()
+        state_dir.mkdir(parents=True, exist_ok=True)
+        entry = {
+            "ts": datetime.now().isoformat(timespec="seconds"),
+            "error": error,
+            "prompt": body,
+            "source": "terminal_send",
+        }
+        with (state_dir / "capture-failures.jsonl").open("a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
+def _capture_journal(body, typed):
+    """Mint a B card for one journal turn, at the server, before the text is
+    ever typed into tmux -- capture must not depend on a terminal process
+    staying alive to see it (the whole reason this exists: the hook's
+    process-launch snapshot goes stale and silently stops seeing prompts).
+
+    Only records the ui_captured dedup hash on SUCCESS. If the mint failed
+    here, a live hook minting the same text later is the fallback we want --
+    marking it "already captured" would make that fallback dedup itself away.
+    """
+    try:
+        result = _run_stream("record", "--who", "B", stdin=body)
+    except subprocess.TimeoutExpired as e:
+        _log_capture_failure(body, repr(e))
+        return False
+    except Exception as e:
+        _log_capture_failure(body, repr(e))
+        return False
+    if result.returncode != 0:
+        _log_capture_failure(body, (result.stderr or "").strip() or "stream.py record failed")
+        return False
+    _note_ui_capture(typed)
+    return True
+
+
+def _pending_accumulate(sess, typed_now, body_now):
+    """Stash text sent with enter:false onto a session's pending entry. The
+    Chat tab pre-types photo-path text this way before the caption send
+    submits the whole pane -- persisted through the atomic store layer
+    (not a module global) because gunicorn runs multiple workers, and
+    concatenated with no separator so it mirrors exactly what lands in the
+    pane."""
+    with store.mutate("terminal_pending.json", {}) as data:
+        entry = data.setdefault(sess, {"typed": "", "body": ""})
+        entry["typed"] += typed_now
+        entry["body"] += body_now
+
+
+def _pending_pop(sess):
+    """Pop and clear a session's accumulated pending text. Called the moment
+    the pane actually submits (an Enter, from either the text or key send
+    path) -- the pending entry is cleared either way, since the pane content
+    was submitted regardless of whether it ends up minted."""
+    with store.mutate("terminal_pending.json", {}) as data:
+        entry = data.pop(sess, None) or {"typed": "", "body": ""}
+    return entry.get("typed", ""), entry.get("body", "")
+
+
 def register(app):
     @app.route("/api/notes", methods=["GET"])
     def get_notes():
@@ -154,24 +273,52 @@ def register(app):
             _tmux(f"send-keys -t {sess} q")
         if "text" in data:
             text = data["text"]
-            last_lines = _tmux(f"capture-pane -t {sess} -p -S -15").stdout.strip()
-            if any(p.lower() in last_lines.lower() for p in _PROMPT_PATTERNS):
-                _tmux(f"send-keys -t {sess} Enter")
-                time.sleep(0.3)
+            enter = bool(data.get("enter"))
+
+            # Hoisted above any tmux call: doesn't depend on the pane, and the
+            # journal capture below needs typed_now/body_now either way.
+            saved_to = None
             if len(text) > 500:
                 ts = datetime.now().strftime("%Y%m%d_%H%M%S")
                 dest = UPLOAD_DIR / f"{ts}_paste.txt"
                 dest.write_text(text)
-                ref = f"[uploaded: {dest}]"
-                safe = ref.replace("'", "'\\''")
-                _tmux(f"send-keys -t {sess} -l '{safe}'")
-                if data.get("enter"):
-                    _tmux(f"send-keys -t {sess} Enter")
-                return jsonify({"ok": True, "saved_to": str(dest)})
-            text = text.replace("'", "'\\''")
-            _tmux(f"send-keys -t {sess} -l '{text}'")
-            if data.get("enter"):
+                saved_to = str(dest)
+                # What actually lands in the pane is just the ref, not the full
+                # paste -- but the journal card should carry her full text.
+                typed_now = f"[uploaded: {dest}]"
+                body_now = text
+            else:
+                typed_now = body_now = text
+
+            # Capture BEFORE anything is typed into tmux: the card is minted
+            # here, at the server, so the journal turn can never be lost to a
+            # dead/stale terminal process (see module docstring background).
+            journaled = False
+            if sess in KEEPER_CAPTURE_SESSIONS:
+                if not enter:
+                    # Pre-typed text (e.g. a photo-path ref) waiting on the
+                    # caption send that will actually submit the pane.
+                    _pending_accumulate(sess, typed_now, body_now)
+                else:
+                    pending_typed, pending_body = _pending_pop(sess)
+                    full_typed = pending_typed + typed_now
+                    full_body = pending_body + body_now
+                    # Slash commands are operator control, not journal content;
+                    # an empty body is nothing to mint.
+                    if full_body.strip() and not full_typed.lstrip().startswith("/"):
+                        journaled = _capture_journal(full_body, full_typed)
+
+            last_lines = _tmux(f"capture-pane -t {sess} -p -S -15").stdout.strip()
+            if any(p.lower() in last_lines.lower() for p in _PROMPT_PATTERNS):
                 _tmux(f"send-keys -t {sess} Enter")
+                time.sleep(0.3)
+            safe = typed_now.replace("'", "'\\''")
+            _tmux(f"send-keys -t {sess} -l '{safe}'")
+            if enter:
+                _tmux(f"send-keys -t {sess} Enter")
+            if saved_to is not None:
+                return jsonify({"ok": True, "saved_to": saved_to, "journaled": journaled})
+            return jsonify({"ok": True, "journaled": journaled})
         elif "key" in data:
             # Allowlist: tmux key names only (Enter, Escape, C-c, M-Up, F5, DC…).
             # This string is interpolated into a shell=True command — anything
@@ -179,7 +326,16 @@ def register(app):
             key = str(data["key"])
             if not re.fullmatch(r"[A-Za-z0-9_-]{1,20}", key):
                 return jsonify({"error": "invalid key"}), 400
+            journaled = False
+            if key == "Enter" and sess in KEEPER_CAPTURE_SESSIONS:
+                # A bare Enter key submits whatever was already pre-typed into
+                # the pane (e.g. via the photo-path enter:false send) -- mint
+                # it before the Enter reaches tmux, same rationale as above.
+                pending_typed, pending_body = _pending_pop(sess)
+                if pending_body.strip() and not pending_typed.lstrip().startswith("/"):
+                    journaled = _capture_journal(pending_body, pending_typed)
             _tmux(f"send-keys -t {sess} {key}")
+            return jsonify({"ok": True, "journaled": journaled})
         return jsonify({"ok": True})
 
     @app.route("/api/terminal/capture")

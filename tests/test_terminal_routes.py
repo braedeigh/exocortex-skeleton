@@ -11,12 +11,20 @@ import re
 
 import pytest
 from flask import Flask
+
+import store
 from routes import terminal
 
 
 @pytest.fixture
-def term_client(monkeypatch):
-    """Minimal app with terminal routes; tmux calls are captured, not run."""
+def term_client(data_dir, tmp_path, monkeypatch):
+    """Minimal app with terminal routes; tmux calls are captured, not run.
+
+    Depends on `data_dir` (and patches store.CONTENT_DIR too): the "Enter" key
+    send on the `chat` session now goes through terminal._pending_pop(), which
+    reads/writes terminal_pending.json via store.mutate() -- without this the
+    key-send tests below would hit the real on-disk store.
+    """
     calls = []
 
     # client._mouse toggles what the mouse_any_flag probe reports: "0" = plain
@@ -32,6 +40,7 @@ def term_client(monkeypatch):
         return _R()
 
     monkeypatch.setattr(terminal, "_tmux", fake_tmux)
+    monkeypatch.setattr(store, "CONTENT_DIR", tmp_path / "content")
     # `chat` is a default session, so _get_session accepts it without a file.
     app = Flask(__name__)
     app.config.update(TESTING=True)
