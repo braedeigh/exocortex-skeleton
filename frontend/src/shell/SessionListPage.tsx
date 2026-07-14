@@ -182,6 +182,7 @@ export function SessionListPage() {
 
   return (
     <div className={styles.page}>
+      <div className={styles.inner}>
       <div className={styles.header}>
         <h1 className={styles.title}>Terminals</h1>
         <button
@@ -223,6 +224,7 @@ export function SessionListPage() {
         onClose={() => setRenameTarget(null)}
         onSave={onRename}
       />
+      </div>
     </div>
   );
 }

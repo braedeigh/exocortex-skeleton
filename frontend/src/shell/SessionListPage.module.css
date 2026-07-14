@@ -1,10 +1,24 @@
 /* /sessions — full-page terminal switcher. Unlike the old ChatSessionPicker
  * row (pinned to the dash bar's fixed indigo), this is a normal page: it
- * theme-swaps with the rest of the app. */
+ * theme-swaps with the rest of the app.
+ *
+ * Same scroll contract as every native route (see __root.tsx: body is
+ * overflow:hidden, pages scroll inside themselves): the page root is the
+ * flex-fill scroll container, .inner just centers/caps the card column. */
 .page {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  padding: var(--space-3);
+  /* Room below the last card so it clears the bottom edge comfortably. */
+  padding-bottom: var(--space-8);
+}
+
+.inner {
   max-width: 640px;
   margin: 0 auto;
-  padding: var(--space-3);
 }
 
 .header {
