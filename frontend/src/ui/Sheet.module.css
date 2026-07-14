@@ -63,3 +63,36 @@
     transform: translateY(0);
   }
 }
+
+/* Desktop: a centered dialog, not a bottom sheet — pinned-to-bottom looks
+   dropped on a big screen. Same 700px line as TodosPage's column break.
+   (Viewport-keyed on purpose: it's about screen size/input style, not pane
+   width — a narrow split pane on a monitor still gets the centered look.) */
+@media (min-width: 700px) {
+  .backdrop {
+    align-items: center;
+    padding: var(--space-6);
+  }
+
+  .sheet {
+    border-radius: var(--radius-xl);
+    border-bottom: 1px solid var(--border);
+    padding-bottom: var(--space-6);
+    animation: popIn 0.15s ease;
+  }
+
+  .grabber {
+    display: none;
+  }
+}
+
+@keyframes popIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
