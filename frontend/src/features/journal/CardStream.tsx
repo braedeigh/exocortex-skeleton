@@ -1,17 +1,10 @@
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../../ui';
 import type { EntityMatcher } from './entityHighlight';
 import { EntryCard } from './EntryCard';
 import { RefCard } from './RefCard';
 import type { Card } from './types';
 import styles from './CardStream.module.css';
-
-export interface CardStreamHandle {
-  /** Scroll the always-open bottom composer into view and focus its textarea
-   * — used by the rail's floating "+ Add note" button and the stream's own
-   * "+ Add a note" slot up top. */
-  focusBottomComposer: () => void;
-}
 
 export interface CardStreamProps {
   cards: Card[];
@@ -42,10 +35,6 @@ interface BottomComposerProps {
   onActiveChange: (active: boolean) => void;
 }
 
-export interface BottomComposerHandle {
-  focus: () => void;
-}
-
 /** Nearest ancestor that actually scrolls — the journal scrolls inside the
  * page div (overflow-y: auto), not the window, so scroll compensation has
  * to target it directly. */
@@ -60,18 +49,16 @@ function scrollParent(el: HTMLElement): HTMLElement | null {
 /**
  * Always-open composer at the end of the stream — no dashed prompt to tap
  * through first, since a note at the end of the day is the common case.
- * Textarea + Save sit side by side; the textarea starts at the Save
- * button's height and auto-grows with the draft. Saving clears the draft
- * but leaves the composer mounted for the next note.
+ * The wrapper is position: sticky, so it rides the bottom edge of the
+ * scroller while she's reading higher up and settles into normal flow at
+ * the true bottom of the day. Textarea + Save sit side by side; the
+ * textarea starts at the Save button's height and auto-grows with the
+ * draft. Saving clears the draft but leaves the composer mounted.
  */
-const BottomComposer = forwardRef<BottomComposerHandle, BottomComposerProps>(function BottomComposer(
-  { saving, onSave, onActiveChange },
-  ref,
-) {
+function BottomComposer({ saving, onSave, onActiveChange }: BottomComposerProps) {
   const [draft, setDraft] = useState('');
   const [focused, setFocused] = useState(false);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
-  const containerRef = useRef<HTMLDivElement | null>(null);
   const wasActive = useRef(false);
 
   useEffect(() => {
@@ -97,23 +84,13 @@ const BottomComposer = forwardRef<BottomComposerHandle, BottomComposerProps>(fun
     onActiveChange(active);
   }, [active, onActiveChange]);
 
-  useImperativeHandle(ref, () => ({
-    focus: () => {
-      containerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      // Focusing immediately can cancel the smooth scroll (and pop the
-      // keyboard open at the wrong spot) — wait a frame so the scroll has
-      // started before the textarea grabs focus.
-      requestAnimationFrame(() => taRef.current?.focus());
-    },
-  }));
-
   async function handleSave() {
     const ok = await onSave(draft);
     if (ok) setDraft('');
   }
 
   return (
-    <div className={styles.addSlot} ref={containerRef}>
+    <div className={styles.dock}>
       <div className={styles.composer}>
         <div className={styles.composerRow}>
           <textarea
@@ -144,36 +121,27 @@ const BottomComposer = forwardRef<BottomComposerHandle, BottomComposerProps>(fun
       </div>
     </div>
   );
-});
+}
 
-/** Context cards first (dashed/italic/muted), then the rest in their original ts/id order —
- * with a "+ Add a note" shortcut right after the context cards that jumps to
- * the always-open composer at the end. */
-export const CardStream = forwardRef<CardStreamHandle, CardStreamProps>(function CardStream(
-  {
-    cards,
-    editingCardId,
-    savingCardId,
-    matcher,
-    onEdit,
-    onCancel,
-    onSave,
-    onConfirmDelete,
-    onNavigateDate,
-    onPersonClick,
-    addSaving,
-    onComposeSave,
-    onBottomActiveChange,
-  },
-  ref,
-) {
+/** Context cards first (dashed/italic/muted), then the rest in their original
+ * ts/id order, with the always-open sticky composer at the end. */
+export function CardStream({
+  cards,
+  editingCardId,
+  savingCardId,
+  matcher,
+  onEdit,
+  onCancel,
+  onSave,
+  onConfirmDelete,
+  onNavigateDate,
+  onPersonClick,
+  addSaving,
+  onComposeSave,
+  onBottomActiveChange,
+}: CardStreamProps) {
   const context = useMemo(() => cards.filter((c) => c.kind === 'context'), [cards]);
   const lines = useMemo(() => cards.filter((c) => c.kind !== 'context'), [cards]);
-  const bottomComposerRef = useRef<BottomComposerHandle>(null);
-
-  useImperativeHandle(ref, () => ({
-    focusBottomComposer: () => bottomComposerRef.current?.focus(),
-  }));
 
   function renderCard(card: Card) {
     return card.kind === 'ref' ? (
@@ -208,20 +176,8 @@ export const CardStream = forwardRef<CardStreamHandle, CardStreamProps>(function
   return (
     <div className={styles.stream}>
       {context.map(renderCard)}
-      <div className={styles.addSlot}>
-        <button
-          type="button"
-          className={styles.addBtn}
-          onClick={(e) => {
-            e.stopPropagation();
-            bottomComposerRef.current?.focus();
-          }}
-        >
-          + Add a note
-        </button>
-      </div>
       {lines.map(renderCard)}
-      <BottomComposer ref={bottomComposerRef} saving={addSaving} onSave={onComposeSave} onActiveChange={onBottomActiveChange} />
+      <BottomComposer saving={addSaving} onSave={onComposeSave} onActiveChange={onBottomActiveChange} />
     </div>
   );
-});
+}

@@ -13,10 +13,6 @@ export interface JournalRailProps {
   onOpenPerson: (slug: string) => void;
   /** Open the thread popover for an id — same handler the inline chip-click path uses. */
   onOpenThread: (id: string) => void;
-  /** Scroll the always-open bottom composer into view and focus it. Omitted
-   * (and the button hidden) on days that aren't in card mode, where there's
-   * no composer to jump to. */
-  onAddNote?: () => void;
   /** Surface a fetch/mutate failure from the Dev notes / Ideas panel — same
    * toast the rest of the journal page's mutations report through. */
   onError: (message: string) => void;
@@ -53,7 +49,7 @@ function writeRailCollapsed(collapsed: boolean): void {
  * translation DevNotesPanel got): a Sheet already handles backdrop,
  * Escape, and outside-tap dismissal, so useDismiss isn't needed.
  */
-export function JournalRail({ onOpenPerson, onOpenThread, onAddNote, onError }: JournalRailProps) {
+export function JournalRail({ onOpenPerson, onOpenThread, onError }: JournalRailProps) {
   const [openPanel, setOpenPanel] = useState<PanelKind | null>(null);
   const [openKind, setOpenKind] = useState<NotesPillKind | null>(null);
   const [sort, setSort] = useState<SortDir>(readStoredSort);
@@ -162,14 +158,6 @@ export function JournalRail({ onOpenPerson, onOpenThread, onAddNote, onError }: 
                 </span>
                 Threads
               </button>
-              {onAddNote ? (
-                <button type="button" className={styles.railBtn} onClick={onAddNote}>
-                  <span className={styles.railIcon} aria-hidden="true">
-                    &#43;
-                  </span>
-                  Add note
-                </button>
-              ) : null}
               <button type="button" className={styles.railBtn} onClick={() => openNotes('dev')}>
                 <span className={styles.railIcon} aria-hidden="true">
                   &#128221;

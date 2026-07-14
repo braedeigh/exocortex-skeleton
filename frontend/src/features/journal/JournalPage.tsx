@@ -6,7 +6,6 @@ import { BlobEditor } from './BlobEditor';
 import { CalendarOverlay } from './CalendarOverlay';
 import type { CalendarMonth } from './calendarMath';
 import { CardStream } from './CardStream';
-import type { CardStreamHandle } from './CardStream';
 import { DevNotesPanel } from './DevNotesPanel';
 import './entities.css';
 import { buildEntityMatcher } from './entityHighlight';
@@ -78,7 +77,6 @@ export function JournalPage() {
   // sent to the server.
   const [pendingDeleteIds, setPendingDeleteIds] = useState<Set<string>>(new Set());
   const deleteTimers = useRef<Record<string, { timer: ReturnType<typeof setTimeout>; wasLastCard: boolean }>>({});
-  const cardStreamRef = useRef<CardStreamHandle>(null);
   const pausePolling = editingCardId !== null || blobFocused || bottomComposerActive;
 
   const dayQuery = useJournalDay(currentDate, pausePolling);
@@ -282,12 +280,7 @@ export function JournalPage() {
         onOpenDevNotes={() => setDevNotesOpen(true)}
       />
 
-      <JournalRail
-        onOpenPerson={setPopoverSlug}
-        onOpenThread={setThreadPopoverId}
-        onAddNote={mode === 'cards' ? () => cardStreamRef.current?.focusBottomComposer() : undefined}
-        onError={push}
-      />
+      <JournalRail onOpenPerson={setPopoverSlug} onOpenThread={setThreadPopoverId} onError={push} />
 
       <div className={styles.body} ref={bodyRef} onClick={onBodyClick}>
         {dayQuery.isLoading ? (
@@ -298,7 +291,6 @@ export function JournalPage() {
           <div className={styles.error}>Couldn&apos;t load this day.</div>
         ) : mode === 'cards' ? (
           <CardStream
-            ref={cardStreamRef}
             cards={visibleCards}
             editingCardId={editingCardId}
             savingCardId={savingCardId}
