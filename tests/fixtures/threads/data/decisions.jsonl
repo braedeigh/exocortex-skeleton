@@ -1,0 +1,2 @@
+{"ts": "2026-07-10 09:00:00", "action": "deny", "kind": "thread_open", "proposed": {"slug": "smoking-cessation", "name": "Smoking Cessation", "fronts": ["health"]}, "final": null, "edited": false}
+{"ts": "2025-01-01 09:00:00", "action": "deny", "kind": "thread_open", "proposed": {"slug": "old-denied-thread", "name": "Old Denied Thread", "fronts": ["health"]}, "final": null, "edited": false}

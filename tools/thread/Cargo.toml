@@ -1,0 +1,25 @@
+[package]
+name = "thread"
+version = "0.1.0"
+edition = "2021"
+
+# The ONLY writer of tulku/Threads/*.md — twin of people/ and add-todo/, but for
+# the standing-topic vault threads-architecture.md describes. Crickets nominate
+# (thread propose), Bradie judges at the approval gate, and once approved this
+# binary is the one door that turns judgment into a file: it owns the file shape
+# end to end (frontmatter + fact-card body), so the format can never drift out
+# from under routes/threads.py's parser. Every write lands in the same
+# cricket_changelog.md the people tool writes, and `thread propose` takes a real
+# flock on pending_changes.json.lock — the same lock store.mutate() takes in
+# Flask — so Rust and Python can never interleave a read-modify-write.
+[dependencies]
+clap = { version = "4", features = ["derive"] }   # subcommands + typed args (schema layer #1)
+regex = "1"                                         # source-token / heading grammar, byte-for-byte with routes/threads.py
+serde = { version = "1", features = ["derive"] }  # pending-queue / decisions-log shapes
+serde_json = "1"                                    # payload JSON in/out
+chrono = "0.4"                                      # local timestamps + date math (dormancy, denial expiry)
+fs2 = "0.4"                                          # flock on pending_changes.json.lock
+rand = "0.8"                                         # 8-hex proposal ids, like add-todo's new_id()
+
+[dev-dependencies]
+tempfile = "3"                                       # tests/cli.rs copies fixtures into a scratch dir before writing
