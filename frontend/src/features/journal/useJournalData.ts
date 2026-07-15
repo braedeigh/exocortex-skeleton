@@ -18,7 +18,7 @@ import {
   addCard,
   deleteCard as deleteCardRequest,
 } from '../../api/endpoints';
-import type { JournalDayBundle, ThreadDetail, ThreadsResponse } from './types';
+import type { JournalDayBundle, ThreadDetail, ThreadsResponse, ThreadsTreeResponse } from './types';
 
 export const JOURNAL_DATES_KEY = ['journal', 'dates'] as const;
 export const JOURNAL_PEOPLE_KEY = ['journal', 'people'] as const;
@@ -29,9 +29,16 @@ export const JOURNAL_DEVNOTES_KEY = ['journal', 'devnotes'] as const;
 // feature consumes them today; hoist to endpoints.ts if another feature (e.g.
 // a future Threads page) needs them.
 
-/** GET /api/threads — roster for the highlighter + Threads launcher panel. */
-function getThreads(signal?: AbortSignal): Promise<ThreadsResponse> {
-  return api.get('/api/threads', signal);
+/** GET /api/threads — roster for the highlighter + Threads launcher panel.
+ * `?include=retired` also returns `status: retired` threads (routes/threads.py). */
+function getThreads(includeRetired: boolean, signal?: AbortSignal): Promise<ThreadsResponse> {
+  return api.get(includeRetired ? '/api/threads?include=retired' : '/api/threads', signal);
+}
+
+/** GET /api/threads/tree — the derived parent/child DAG (threads-architecture.md
+ * §7): `{roots, nodes}`, rebuilt fresh per request from `parents:` edges. */
+function getThreadsTree(includeRetired: boolean, signal?: AbortSignal): Promise<ThreadsTreeResponse> {
+  return api.get(includeRetired ? '/api/threads/tree?include=retired' : '/api/threads/tree', signal);
 }
 
 /** GET /api/thread?name=<slug|name|alias> — one thread's parsed fact-cards. */
@@ -85,10 +92,20 @@ export function usePeople() {
   });
 }
 
-export function useThreads() {
+export function useThreads(includeRetired = false) {
   return useQuery({
-    queryKey: JOURNAL_THREADS_KEY,
-    queryFn: ({ signal }) => getThreads(signal),
+    queryKey: includeRetired ? [...JOURNAL_THREADS_KEY, 'retired'] : JOURNAL_THREADS_KEY,
+    queryFn: ({ signal }) => getThreads(includeRetired, signal),
+    staleTime: 10 * 60_000,
+  });
+}
+
+/** The derived DAG (routes/threads.py threads_tree) — roots + a slug-keyed
+ * node map, `?include=retired` when the page's "Show retired" toggle is on. */
+export function useThreadsTree(includeRetired = false) {
+  return useQuery({
+    queryKey: includeRetired ? ['journal', 'threadsTree', 'retired'] : ['journal', 'threadsTree'],
+    queryFn: ({ signal }) => getThreadsTree(includeRetired, signal),
     staleTime: 10 * 60_000,
   });
 }

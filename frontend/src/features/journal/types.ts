@@ -92,16 +92,51 @@ export interface BacklinksResponse {
   stats: BacklinksStats | null;
 }
 
-/** GET /api/threads roster entry (routes/threads.py threads_list). */
+/**
+ * GET /api/threads roster entry (routes/threads.py threads_list).
+ * `fronts`/`parents`/`kind`/`status` are the threads-architecture.md §3 DAG
+ * fields — all optional/empty-array-safe because the live vault's threads
+ * predate the migration (§9) and carry none of them yet: every node is
+ * currently a parentless root with no fronts and no kind. First element of
+ * `fronts`/`parents` is primary (ownership / breadcrumb respectively).
+ */
 export interface Thread {
   id: string;
   name: string;
   file: string;
   aliases: string[];
+  /** Life-domain tags (front ids from data/fronts.json); missing/[] if untagged. */
+  fronts?: string[];
+  /** Parent thread slugs — 0+, DAG not tree; missing/[] means it's a root. */
+  parents?: string[];
+  /** "standing" | "arc" | null/undefined (unset on un-migrated threads). */
+  kind?: string | null;
+  /** "" | "seedling" | "active" | "dormant" | "retired" | undefined. */
+  status?: string;
 }
 
 export interface ThreadsResponse {
   threads: Thread[];
+}
+
+/** One node in GET /api/threads/tree's `nodes` map (routes/threads.py
+ * threads_tree) — same membership/lifecycle fields as `Thread` plus the
+ * derived `children` edge list; no `id`/`file`/`aliases` (keyed by slug in
+ * the parent map instead). */
+export interface ThreadTreeNode {
+  name: string;
+  fronts: string[];
+  parents: string[];
+  kind: string | null;
+  status: string;
+  children: string[];
+}
+
+/** GET /api/threads/tree — the derived parent/child DAG (threads-architecture.md
+ * §7), rebuilt fresh from `parents:` edges on every request, never stored. */
+export interface ThreadsTreeResponse {
+  roots: string[];
+  nodes: Record<string, ThreadTreeNode>;
 }
 
 /**
@@ -124,7 +159,9 @@ export interface ThreadFactCard {
   sources: ThreadSource[];
 }
 
-/** GET /api/thread?name=<slug|name|alias> (routes/threads.py thread_detail). */
+/** GET /api/thread?name=<slug|name|alias> (routes/threads.py thread_detail).
+ * `status` is always present here (parse_thread defaults it to "" — unlike
+ * the optional `Thread.status`, which some construction sites omit). */
 export interface ThreadDetail extends Thread {
   status: string;
   cards: ThreadFactCard[];
