@@ -19,8 +19,9 @@ import store
 PENDING_FILE = "pending_changes"  # -> data/pending_changes.json
 _EMPTY = {"pending": []}
 
-# The validated write tool. Lives in this same repo under tools/.
+# The validated write tools. Both live in this same repo under tools/.
 ADD_TODO_BIN = Path(__file__).resolve().parent.parent / "tools" / "add-todo" / "target" / "release" / "add-todo"
+THREAD_BIN = Path(__file__).resolve().parent.parent / "tools" / "thread" / "target" / "release" / "thread"
 
 # Life-todo tags are front ids (fronts.json) since 2026-07-14, carried as a
 # `fronts` list (`category`, a single string, accepted as the legacy alias).
@@ -44,13 +45,76 @@ def _payload_fronts(payload):
     return out
 
 
+def _run_thread(args):
+    """Shell to THREAD_BIN — the single writer of Threads/*.md
+    (threads-architecture.md §5/§8). Same fail-loud pattern as ADD_TODO_BIN
+    below: nonzero exit -> RuntimeError with stderr, so a caller mid-sequence
+    (thread_open's cards loop) stops immediately and the item stays queued."""
+    cmd = [str(THREAD_BIN), *args,
+           "--content-dir", str(store.CONTENT_DIR), "--data-dir", str(store.DATA_DIR)]
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "thread failed")
+
+
+def _card_sources(card):
+    """A card's `source` may be a single string or a list — always give back
+    a list, so the caller can pass one `--source` flag per entry."""
+    src = card.get("source")
+    if src is None:
+        return []
+    if isinstance(src, list):
+        return src
+    return [src]
+
+
 def _commit(change):
     """Apply an approved change to the real dashboard data. Raises on failure
     so the caller leaves the item in the queue (nothing is silently lost)."""
     kind = change.get("kind")
     payload = change.get("payload") or {}
     data_dir = str(store.DATA_DIR)
-    if kind == "todo":
+    if kind == "thread_open":
+        args = ["open", "--slug", payload["slug"], "--name", payload["name"],
+                "--fronts", ",".join(payload.get("fronts") or []),
+                "--kind", payload.get("kind", "")]
+        if payload.get("parents"):
+            args += ["--parents", ",".join(payload["parents"])]
+        if payload.get("aliases"):
+            args += ["--aliases", ",".join(payload["aliases"])]
+        _run_thread(args)
+        # Cards were already validated at propose time by the Rust binary, so
+        # this normally just lands them. Known edge: if a card's source was
+        # deleted between staging and approval, add-card fails here — the
+        # thread file already exists (from `open`, above) with whatever cards
+        # made it in before the failure, and we raise so this item stays
+        # queued. A re-approve will then fail on "exists" (open refuses to
+        # overwrite), so the right move at that point is deny — the owning
+        # cricket picks the missed material back up through the thread's
+        # inbox on its next pass, no data lost.
+        for card in payload.get("cards") or []:
+            card_args = ["add-card", "--slug", payload["slug"],
+                         "--section", card["section"], "--text", card["text"]]
+            for source in _card_sources(card):
+                card_args += ["--source", source]
+            _run_thread(card_args)
+        return
+    elif kind == "thread_link":
+        args = ["link", "--slug", payload["slug"]]
+        for f in payload.get("add_fronts") or []:
+            args += ["--add-front", f]
+        for f in payload.get("remove_fronts") or []:
+            args += ["--remove-front", f]
+        for p in payload.get("add_parents") or []:
+            args += ["--add-parent", p]
+        for p in payload.get("remove_parents") or []:
+            args += ["--remove-parent", p]
+        _run_thread(args)
+        return
+    elif kind == "thread_retire":
+        _run_thread(["set-status", payload["slug"], "retired"])
+        return
+    elif kind == "todo":
         cmd = [str(ADD_TODO_BIN), "build",
                "--text", payload["text"],
                "--theme", payload["theme"],

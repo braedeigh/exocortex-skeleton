@@ -70,6 +70,12 @@ _DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _TOKEN = re.compile(r"`([^`]+)`")          # backtick-wrapped source tokens
 _ARROW = re.compile(r"\s*[→·]\s*")          # the "→"/"·" source markers
 _BULLET = re.compile(r"^\s*[-*]\s+")
+_WIKILINK = re.compile(r"\[\[([^\]]+)\]\]")  # [[slug]] cross-thread links
+
+# threads-architecture.md §8 step 2: cards live under <content>/_system/data/cards,
+# one file per card, tagged with the thread slugs they belong to. The inbox
+# derives from these — never stored on the thread itself.
+CARDS_SUBDIR = ("_system", "data", "cards")
 
 
 def _vault():
@@ -79,6 +85,13 @@ def _vault():
 
 def _threads_dir():
     return _vault() / THREADS_DIR
+
+
+def _cards_dir():
+    d = _vault()
+    for part in CARDS_SUBDIR:
+        d = d / part
+    return d
 
 
 def _classify_source(tok):
@@ -119,6 +132,34 @@ def parse_thread(path):
     aliases = meta.get("aliases", [])
     if isinstance(aliases, str):
         aliases = [aliases]
+
+    def _list_field(key):
+        # threads-architecture.md §3: fronts/parents are flow-style `[a, b]`
+        # lists; _parse_frontmatter already turns those (and bare comma-lists)
+        # into Python lists. Tolerant reader: a stray bare scalar still becomes
+        # a one-item list instead of raising.
+        v = meta.get(key, [])
+        if isinstance(v, str):
+            v = [v] if v else []
+        return [x for x in v if x]
+
+    def _scalar_field(key):
+        # opened/retired/distilled/kind are single dates or words. A blank
+        # frontmatter value (`retired:` with nothing after it) parses to ""
+        # here — normalize that to None, the documented "unset" value.
+        v = meta.get(key)
+        if isinstance(v, list):
+            v = v[0] if v else None
+        if isinstance(v, str):
+            v = v.strip() or None
+        return v
+
+    fronts = _list_field("fronts")
+    parents = _list_field("parents")
+    kind = _scalar_field("kind")
+    opened = _scalar_field("opened")
+    retired = _scalar_field("retired")
+    distilled = _scalar_field("distilled")
 
     cards = []
     section = ""
@@ -165,6 +206,12 @@ def parse_thread(path):
         "file": path.relative_to(_vault()).as_posix(),
         "aliases": [a for a in aliases if a],
         "status": meta.get("status", ""),
+        "fronts": fronts,
+        "parents": parents,
+        "kind": kind,
+        "opened": opened,
+        "retired": retired,
+        "distilled": distilled,
         "cards": cards,
     }
 
@@ -195,13 +242,132 @@ def resolve_thread(query):
     return None
 
 
+def _all_threads(include_retired=False):
+    """threads_index(), optionally with `status: retired` filtered out —
+    the default everywhere per threads-architecture.md §3."""
+    idx = threads_index()
+    if include_retired:
+        return idx
+    return {slug: t for slug, t in idx.items() if t.get("status") != "retired"}
+
+
+def backlinks_for(slug):
+    """Threads whose body links to `slug` via a `[[slug]]` token. Derived per
+    request, scanning every thread file directly (not the parsed card text,
+    so a link outside any fact-card still counts) — never stored."""
+    slug = (slug or "").strip().lower()
+    out = []
+    d = _threads_dir()
+    if not d.exists() or not slug:
+        return out
+    for p in sorted(d.glob("*.md")):
+        if p.stem.lower() == slug:
+            continue
+        meta, body = _parse_frontmatter(p.read_text())
+        links = {m.group(1).strip().lower() for m in _WIKILINK.finditer(body)}
+        if slug in links:
+            out.append({"slug": p.stem.lower(), "name": meta.get("name") or p.stem})
+    return out
+
+
+def _iter_cards():
+    """Every card under _system/data/cards, parsed into a routable dict."""
+    d = _cards_dir()
+    if not d.exists():
+        return
+    for p in sorted(d.glob("*.md")):
+        meta, body = _parse_frontmatter(p.read_text())
+        tags = meta.get("tags", [])
+        if isinstance(tags, str):
+            tags = [tags] if tags else []
+        yield {
+            "id": meta.get("id") or p.stem,
+            "ts": meta.get("ts", ""),
+            "who": meta.get("who", ""),
+            "text": body.strip(),
+            "tags": [t.lower() for t in tags if t],
+        }
+
+
+def threads_tree(include_retired=False):
+    """The derived parent/child DAG (threads-architecture.md §7): built fresh
+    from `parents:` edges, never stored. A parent slug that doesn't resolve to
+    a (living) thread is dropped silently — the child just becomes a root."""
+    idx = _all_threads(include_retired)
+    nodes = {
+        slug: {
+            "name": t["name"],
+            "fronts": t.get("fronts", []),
+            "parents": t.get("parents", []),
+            "kind": t.get("kind"),
+            "status": t.get("status", ""),
+            "children": [],
+        }
+        for slug, t in idx.items()
+    }
+    roots = []
+    for slug, t in idx.items():
+        living_parents = [p for p in t.get("parents", []) if p in idx]
+        if living_parents:
+            for p in living_parents:
+                nodes[p]["children"].append(slug)
+        else:
+            roots.append(slug)
+    for node in nodes.values():
+        node["children"].sort(key=lambda s: nodes[s]["name"])
+    roots.sort(key=lambda s: nodes[s]["name"])
+    return {"roots": roots, "nodes": nodes}
+
+
 def register(app):
     @app.route("/api/threads")
     def threads_list():
-        """Roster for the journal highlighter: id, name, aliases, file."""
-        out = [{"id": t["id"], "name": t["name"], "aliases": t.get("aliases", []), "file": t["file"]}
-               for t in threads_index().values()]
+        """Roster for the journal highlighter and the threads tree's flat
+        list: id, name, aliases, file, plus fronts/parents/kind/status.
+        Excludes `status: retired` by default (?include=retired to see them);
+        ?front=<id> narrows to threads carrying that front."""
+        include_retired = request.args.get("include") == "retired"
+        front = (request.args.get("front") or "").strip()
+        idx = _all_threads(include_retired)
+        out = []
+        for t in idx.values():
+            if front and front not in t.get("fronts", []):
+                continue
+            out.append({
+                "id": t["id"], "name": t["name"], "aliases": t.get("aliases", []),
+                "file": t["file"], "fronts": t.get("fronts", []),
+                "parents": t.get("parents", []), "kind": t.get("kind"),
+                "status": t.get("status", ""),
+            })
         return jsonify({"threads": out})
+
+    @app.route("/api/threads/tree")
+    def threads_tree_route():
+        """The derived DAG — see threads_tree() above."""
+        include_retired = request.args.get("include") == "retired"
+        return jsonify(threads_tree(include_retired))
+
+    @app.route("/api/thread/<slug>/inbox")
+    def thread_inbox(slug):
+        """Cards tagged `<slug>` dated after the thread's `distilled:`
+        watermark (all tagged cards if it has none yet) — the thread's "not
+        yet absorbed" queue, computed per request, never stored."""
+        slug = (slug or "").strip().lower()
+        t = threads_index().get(slug)
+        if not t:
+            return jsonify({"error": "not found", "slug": slug}), 404
+        watermark = t.get("distilled")
+        cards = []
+        for c in _iter_cards():
+            if slug not in c["tags"]:
+                continue
+            card_date = c["id"].split(".")[0]
+            if watermark and not (card_date > watermark):
+                continue
+            cards.append({"id": c["id"], "ts": c["ts"], "who": c["who"],
+                           "text": c["text"], "tags": c["tags"]})
+        cards.sort(key=lambda c: c["id"])
+        return jsonify({"cards": cards, "distilled": watermark})
 
     @app.route("/api/thread/talk", methods=["POST"])
     def thread_talk():
@@ -248,11 +414,14 @@ def register(app):
 
     @app.route("/api/thread")
     def thread_detail():
-        """One thread's parsed fact-cards, for the popover / threads page."""
+        """One thread's parsed fact-cards, for the popover / threads page.
+        `backlinks` is derived per request (§7) — never stored."""
         q = (request.args.get("name") or "").strip()
         if not q:
             return jsonify({"error": "name required"}), 400
         t = resolve_thread(q)
         if not t:
             return jsonify({"error": "not found", "name": q}), 404
-        return jsonify(t)
+        payload = dict(t)
+        payload["backlinks"] = backlinks_for(t["id"])
+        return jsonify(payload)
