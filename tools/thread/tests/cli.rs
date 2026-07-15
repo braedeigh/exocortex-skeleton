@@ -278,8 +278,8 @@ fn propose_thread_open_appends_under_lock() {
         "proposer": "cricket-health",
         "rationale": "3 cards across 2 days.",
         "evidence": [
-            {"card": "2026-07-05.0900a", "date": "2026-07-05", "quote": "a"},
-            {"card": "2026-07-12.1200a", "date": "2026-07-12", "quote": "b"}
+            {"source": "2026-07-05.0900a", "date": "2026-07-05", "quote": "a"},
+            {"source": "2026-07-12.1200a", "date": "2026-07-12", "quote": "b"}
         ]
     });
     let o = run(&sb, &["propose", "thread_open", "--json", &payload.to_string()]);
@@ -306,8 +306,8 @@ fn propose_refuses_a_slug_that_already_exists() {
         "proposer": "cricket-health",
         "rationale": "x",
         "evidence": [
-            {"card": "2026-07-05.0900a", "date": "2026-07-05", "quote": "a"},
-            {"card": "2026-07-12.1200a", "date": "2026-07-12", "quote": "b"}
+            {"source": "2026-07-05.0900a", "date": "2026-07-05", "quote": "a"},
+            {"source": "2026-07-12.1200a", "date": "2026-07-12", "quote": "b"}
         ]
     });
     let o = run(&sb, &["propose", "thread_open", "--json", &payload.to_string()]);
@@ -327,8 +327,8 @@ fn propose_refuses_a_slug_that_is_already_pending() {
         "proposer": "cricket-health",
         "rationale": "x",
         "evidence": [
-            {"card": "2026-07-05.0900a", "date": "2026-07-05", "quote": "a"},
-            {"card": "2026-07-12.1200a", "date": "2026-07-12", "quote": "b"}
+            {"source": "2026-07-05.0900a", "date": "2026-07-05", "quote": "a"},
+            {"source": "2026-07-12.1200a", "date": "2026-07-12", "quote": "b"}
         ]
     });
     let o = run(&sb, &["propose", "thread_open", "--json", &payload.to_string()]);
@@ -348,13 +348,58 @@ fn propose_refuses_evidence_from_a_single_day() {
         "proposer": "cricket-health",
         "rationale": "x",
         "evidence": [
-            {"card": "2026-07-05.0900a", "date": "2026-07-05", "quote": "a"},
-            {"card": "2026-07-05.0900a", "date": "2026-07-05", "quote": "b"}
+            {"source": "2026-07-05.0900a", "date": "2026-07-05", "quote": "a"},
+            {"source": "2026-07-05.0900a", "date": "2026-07-05", "quote": "b"}
         ]
     });
     let o = run(&sb, &["propose", "thread_open", "--json", &payload.to_string()]);
     assert!(!o.status.success());
     assert!(stderr(&o).contains("distinct day"), "{}", stderr(&o));
+}
+
+#[test]
+fn propose_accepts_evidence_that_is_entirely_bare_days() {
+    // The regression that motivated card -> source + loosened validation: the
+    // card pool only starts partway through the journal, so evidence for a
+    // retrospective sweep has to be able to cite bare days that predate it
+    // (no card exists for them at all), not just card ids.
+    let sb = sandbox();
+    let payload = serde_json::json!({
+        "slug": "bare-day-thread",
+        "name": "Bare Day Thread",
+        "fronts": ["health"],
+        "parents": [],
+        "kind": "standing",
+        "proposer": "cricket-health",
+        "rationale": "predates the card pool",
+        "evidence": [
+            {"source": "2026-02-27", "date": "2026-02-27", "quote": "a"},
+            {"source": "2026-05-12", "date": "2026-05-12", "quote": "b"}
+        ]
+    });
+    let o = run(&sb, &["propose", "thread_open", "--json", &payload.to_string()]);
+    assert!(o.status.success(), "stdout: {}\nstderr: {}", stdout(&o), stderr(&o));
+}
+
+#[test]
+fn propose_refuses_evidence_citing_a_nonexistent_day() {
+    let sb = sandbox();
+    let payload = serde_json::json!({
+        "slug": "nonexistent-evidence-thread",
+        "name": "Nonexistent Evidence Thread",
+        "fronts": ["health"],
+        "parents": [],
+        "kind": "standing",
+        "proposer": "cricket-health",
+        "rationale": "x",
+        "evidence": [
+            {"source": "2026-07-05.0900a", "date": "2026-07-05", "quote": "a"},
+            {"source": "2099-01-01", "date": "2099-01-01", "quote": "b"}
+        ]
+    });
+    let o = run(&sb, &["propose", "thread_open", "--json", &payload.to_string()]);
+    assert!(!o.status.success());
+    assert!(stderr(&o).contains("evidence[1].source"), "{}", stderr(&o));
 }
 
 #[test]
@@ -369,8 +414,8 @@ fn propose_reads_json_from_stdin_with_dash() {
         "proposer": "cricket-health",
         "rationale": "x",
         "evidence": [
-            {"card": "2026-07-05.0900a", "date": "2026-07-05", "quote": "a"},
-            {"card": "2026-07-12.1200a", "date": "2026-07-12", "quote": "b"}
+            {"source": "2026-07-05.0900a", "date": "2026-07-05", "quote": "a"},
+            {"source": "2026-07-12.1200a", "date": "2026-07-12", "quote": "b"}
         ]
     });
     use std::io::Write;

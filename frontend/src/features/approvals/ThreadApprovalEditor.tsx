@@ -59,11 +59,11 @@ function EvidenceBlock({
       {evidence.length ? (
         <div className={styles.evidence}>
           {evidence.map((e, i) => (
-            <div key={`${e.card}-${i}`} className={styles.evidenceItem}>
+            <div key={`${e.source}-${i}`} className={styles.evidenceItem}>
               <p className={styles.evidenceQuote}>&ldquo;{e.quote}&rdquo;</p>
               <p className={styles.evidenceDate}>
                 {e.date}
-                {e.card ? ` · ${e.card}` : ''}
+                {e.source ? ` · ${e.source}` : ''}
               </p>
             </div>
           ))}

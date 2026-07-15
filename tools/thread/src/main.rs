@@ -326,15 +326,13 @@ fn validate_thread_open(
     }
     let mut distinct_days: HashSet<String> = HashSet::new();
     for (i, e) in evidence.iter().enumerate() {
-        let card = payload::get_str(e, "card").unwrap_or("");
+        let source = payload::get_str(e, "source").unwrap_or("");
         let date = payload::get_str(e, "date").unwrap_or("");
         let quote = payload::get_str(e, "quote").unwrap_or("");
-        if card.trim().is_empty() {
-            errs.push(format!("evidence[{}].card is required", i));
-        } else if let Err(msg) = sources::check_source(card, content) {
-            errs.push(format!("evidence[{}].card: {}", i, msg));
-        } else if !sources::card_id_re().is_match(card) {
-            errs.push(format!("evidence[{}].card `{}` is not a card id", i, card));
+        if source.trim().is_empty() {
+            errs.push(format!("evidence[{}].source is required", i));
+        } else if let Err(msg) = sources::check_source(source, content) {
+            errs.push(format!("evidence[{}].source: {}", i, msg));
         }
         if !util::is_real_date(date) {
             errs.push(format!("evidence[{}].date `{}` is not a real YYYY-MM-DD date", i, date));

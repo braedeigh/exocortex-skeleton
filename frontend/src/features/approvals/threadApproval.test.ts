@@ -35,8 +35,8 @@ const openPayload = {
   proposer: 'cricket-health',
   rationale: '9 cards across 3 weeks; 7 of 9 on workdays.',
   evidence: [
-    { card: '2026-07-08.1841b', date: '2026-07-08', quote: 'third one this week, always after the standup' },
-    { card: '2026-07-11.0912b', date: '2026-07-11', quote: 'aura started before I even opened the laptop' },
+    { source: '2026-07-08.1841b', date: '2026-07-08', quote: 'third one this week, always after the standup' },
+    { source: '2026-07-11.0912b', date: '2026-07-11', quote: 'aura started before I even opened the laptop' },
   ],
   cards: [
     { section: 'What it is', text: 'Recurring migraines with aura, clustering on workdays.', source: '2026-07-08.1841b' },
@@ -87,8 +87,8 @@ describe('toggleOrdered', () => {
 describe('evidenceFromPayload', () => {
   it('maps evidence entries in order', () => {
     expect(evidenceFromPayload(openPayload)).toEqual([
-      { card: '2026-07-08.1841b', date: '2026-07-08', quote: 'third one this week, always after the standup' },
-      { card: '2026-07-11.0912b', date: '2026-07-11', quote: 'aura started before I even opened the laptop' },
+      { source: '2026-07-08.1841b', date: '2026-07-08', quote: 'third one this week, always after the standup' },
+      { source: '2026-07-11.0912b', date: '2026-07-11', quote: 'aura started before I even opened the laptop' },
     ]);
   });
 

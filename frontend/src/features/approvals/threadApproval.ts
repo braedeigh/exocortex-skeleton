@@ -36,12 +36,12 @@ export function toggleOrdered(list: string[], item: string): string[] {
 }
 
 export interface ThreadEvidenceItem {
-  card: string;
+  source: string;
   date: string;
   quote: string;
 }
 
-/** `evidence[]` — same `{card, date, quote}` shape across all three kinds.
+/** `evidence[]` — same `{source, date, quote}` shape across all three kinds.
  * Rendered ABOVE the controls, always (threads-architecture.md §4: "she
  * rules on the material, not the cricket's opinion of the material"). */
 export function evidenceFromPayload(payload: Record<string, JsonValue>): ThreadEvidenceItem[] {
@@ -49,7 +49,7 @@ export function evidenceFromPayload(payload: Record<string, JsonValue>): ThreadE
   if (!Array.isArray(raw)) return [];
   return raw
     .filter((e): e is Record<string, JsonValue> => !!e && typeof e === 'object' && !Array.isArray(e))
-    .map((e) => ({ card: asString(e.card), date: asString(e.date), quote: asString(e.quote) }));
+    .map((e) => ({ source: asString(e.source), date: asString(e.date), quote: asString(e.quote) }));
 }
 
 export interface ThreadCardItem {
