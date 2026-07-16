@@ -743,6 +743,69 @@ fn set_status_retired_stamps_date_and_unretiring_clears_it() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+//  set-name
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn set_name_renames_in_place_leaving_body_and_other_frontmatter_untouched() {
+    let sb = sandbox();
+    let before = std::fs::read_to_string(sb.content.join("Threads/migraines.md")).unwrap();
+
+    let o = run(&sb, &["set-name", "--slug", "migraines", "--name", "Migraine Attacks"]);
+    assert!(o.status.success(), "stdout: {}\nstderr: {}", stdout(&o), stderr(&o));
+
+    let after = std::fs::read_to_string(sb.content.join("Threads/migraines.md")).unwrap();
+    assert!(after.contains("name: Migraine Attacks"), "{}", after);
+    assert!(!after.contains("name: Migraines\n"), "{}", after);
+
+    // Everything else — other frontmatter fields and the body — is untouched.
+    let before_sans_name: Vec<&str> = before.lines().filter(|l| !l.starts_with("name:")).collect();
+    let after_sans_name: Vec<&str> = after.lines().filter(|l| !l.starts_with("name:")).collect();
+    assert_eq!(before_sans_name, after_sans_name);
+
+    let changelog = std::fs::read_to_string(sb.content.join("_system/cricket_changelog.md")).unwrap();
+    assert!(changelog.contains("thread-rename"), "{}", changelog);
+    assert!(changelog.contains("**migraines**"), "{}", changelog);
+    assert!(changelog.contains("Migraines"), "{}", changelog);
+    assert!(changelog.contains("Migraine Attacks"), "{}", changelog);
+}
+
+#[test]
+fn set_name_on_a_nonexistent_slug_is_refused() {
+    let sb = sandbox();
+    let o = run(&sb, &["set-name", "--slug", "no-such-thread", "--name", "Anything"]);
+    assert!(!o.status.success());
+    assert!(stderr(&o).contains("unknown thread `no-such-thread`"), "{}", stderr(&o));
+    assert!(stderr(&o).contains("no Threads/no-such-thread.md"), "{}", stderr(&o));
+}
+
+#[test]
+fn set_name_round_trips_apostrophe_and_ampersand() {
+    let sb = sandbox();
+    let tricky_name = "Mom & the family's non-acceptance";
+    let o = run(&sb, &["set-name", "--slug", "migraines", "--name", tricky_name]);
+    assert!(o.status.success(), "stdout: {}\nstderr: {}", stdout(&o), stderr(&o));
+
+    let text = std::fs::read_to_string(sb.content.join("Threads/migraines.md")).unwrap();
+    assert!(text.contains(&format!("name: {}\n", tricky_name)), "{}", text);
+
+    // Re-parse through the same model the binary uses for every other
+    // command (lint reads it back through parse_thread_file) — the name
+    // must come back exactly, and the file must still lint clean.
+    std::fs::remove_file(sb.content.join("Threads/broken-thread.md")).unwrap();
+    let o = run(&sb, &["lint", "--quiet"]);
+    assert!(o.status.success(), "stdout: {}\nstderr: {}", stdout(&o), stderr(&o));
+
+    // distill re-renders the whole frontmatter from the parsed struct — if
+    // the apostrophe/ampersand had been mis-parsed or mis-escaped, this
+    // second round trip would show it.
+    let o = run(&sb, &["distill", "migraines"]);
+    assert!(o.status.success(), "{}", stderr(&o));
+    let text = std::fs::read_to_string(sb.content.join("Threads/migraines.md")).unwrap();
+    assert!(text.contains(&format!("name: {}\n", tricky_name)), "{}", text);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 //  add-card refusals
 // ═══════════════════════════════════════════════════════════════════════════
 

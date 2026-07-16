@@ -15,6 +15,7 @@
 //!   thread add-card --slug migraines --section "What it is" --text "..." --source 2026-07-08.1841b
 //!   thread link --slug migraines --add-parent long-covid
 //!   thread set-status migraines dormant
+//!   thread set-name --slug migraines --name Migraines
 //!   thread distill migraines
 //!   thread inbox migraines
 //!   thread lint --fix-dormancy
@@ -89,6 +90,8 @@ enum Command {
     },
     /// Set status (retiring stamps retired:, un-retiring clears it).
     SetStatus { slug: String, status: String },
+    /// Set name — the `name:` frontmatter field, in place.
+    SetName(SetNameArgs),
     /// Move the distilled: watermark to today.
     Distill { slug: String },
     /// List cards tagged <slug> dated after the distilled: watermark.
@@ -155,6 +158,14 @@ struct LinkArgs {
 }
 
 #[derive(Args)]
+struct SetNameArgs {
+    #[arg(long)]
+    slug: String,
+    #[arg(long)]
+    name: String,
+}
+
+#[derive(Args)]
 struct LintArgs {
     #[arg(long)]
     quiet: bool,
@@ -178,6 +189,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         Command::Link(a) => run_link(&cli, a),
         Command::Remove { slug, reason } => run_remove(&cli, slug, reason),
         Command::SetStatus { slug, status } => run_set_status(&cli, slug, status),
+        Command::SetName(a) => run_set_name(&cli, a),
         Command::Distill { slug } => run_distill(&cli, slug),
         Command::Inbox { slug } => run_inbox(&cli, slug),
         Command::Lint(a) => run_lint(&cli, a.quiet, a.fix_dormancy),
@@ -844,6 +856,40 @@ fn run_set_status(cli: &Cli, slug: &str, status: &str) -> Result<(), Box<dyn Err
         &format!("{} -> {}", old_status, status),
     )?;
     println!("Threads/{}.md: {} -> {}", slug, old_status, status);
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  set-name
+// ═══════════════════════════════════════════════════════════════════════════
+fn run_set_name(cli: &Cli, a: &SetNameArgs) -> Result<(), Box<dyn Error>> {
+    let (content, _data) = dirs(cli)?;
+    let threads_dir = util::threads_dir(&content);
+    let path = util::thread_path(&threads_dir, &a.slug);
+    if !path.exists() {
+        return Err(format!("unknown thread `{}` — no Threads/{}.md", a.slug, a.slug).into());
+    }
+    let new_name = a.name.trim();
+    if new_name.is_empty() {
+        return Err("name is required and must be non-empty".into());
+    }
+
+    let raw = fs::read_to_string(&path)?;
+    let tf = model::parse_thread_file(&raw);
+    let mut meta = tf.meta.clone();
+    let old_name = meta.name.clone();
+    meta.name = new_name.to_string();
+
+    let out = model::render_file(&meta, &tf.raw_body);
+    util::atomic_write(&path, &out)?;
+
+    changelog::log_change(
+        &content,
+        "thread-rename",
+        &a.slug,
+        &format!("\"{}\" -> \"{}\"", old_name, new_name),
+    )?;
+    println!("Threads/{}.md: \"{}\" -> \"{}\"", a.slug, old_name, new_name);
     Ok(())
 }
 
