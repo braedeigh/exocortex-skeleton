@@ -21,6 +21,7 @@ function openDraft(overrides: Partial<ThreadOpenDraft> = {}): ThreadOpenDraft {
     kind: 'standing',
     fronts: ['health', 'job'],
     parents: ['long-covid'],
+    people: ['michael'],
     ...overrides,
   };
 }
@@ -31,6 +32,7 @@ const openPayload = {
   aliases: ['migraine', 'aura'],
   fronts: ['health', 'job'],
   parents: ['long-covid'],
+  people: ['michael'],
   kind: 'standing',
   proposer: 'cricket-health',
   rationale: '9 cards across 3 weeks; 7 of 9 on workdays.',
@@ -126,6 +128,7 @@ describe('threadOpenDraftFromPayload', () => {
       kind: 'standing',
       fronts: ['health', 'job'],
       parents: ['long-covid'],
+      people: ['michael'],
     });
   });
 
@@ -135,11 +138,12 @@ describe('threadOpenDraftFromPayload', () => {
     expect(threadOpenDraftFromPayload({}).kind).toBe('standing');
   });
 
-  it('defaults parents/fronts/aliases to empty when absent', () => {
+  it('defaults parents/fronts/people/aliases to empty when absent', () => {
     const d = threadOpenDraftFromPayload({ name: 'x', slug: 'x' });
     expect(d.aliasesText).toBe('');
     expect(d.fronts).toEqual([]);
     expect(d.parents).toEqual([]);
+    expect(d.people).toEqual([]);
   });
 });
 
@@ -154,30 +158,42 @@ describe('threadOpenPayloadFromDraft', () => {
   });
 
   it('overwrites only the editable fields with the edited draft', () => {
-    const draft = openDraft({ name: '  New Name  ', aliasesText: 'x, y', kind: 'arc', fronts: ['job'], parents: [] });
+    const draft = openDraft({
+      name: '  New Name  ',
+      aliasesText: 'x, y',
+      kind: 'arc',
+      fronts: ['job'],
+      parents: [],
+      people: ['bryan'],
+    });
     const merged = threadOpenPayloadFromDraft(draft, openPayload);
     expect(merged.name).toBe('New Name');
     expect(merged.aliases).toEqual(['x', 'y']);
     expect(merged.kind).toBe('arc');
     expect(merged.fronts).toEqual(['job']);
     expect(merged.parents).toEqual([]);
+    expect(merged.people).toEqual(['bryan']);
     expect(merged.slug).toBe('migraines');
   });
 });
 
 describe('linkChangeRows', () => {
-  it('orders rows: add fronts, remove fronts, add parents, remove parents', () => {
+  it('orders rows: fronts, then parents, then people — adds before removes in each', () => {
     const rows = linkChangeRows({
       add_fronts: ['job'],
       remove_fronts: ['health'],
       add_parents: ['the-body'],
       remove_parents: ['long-covid'],
+      add_people: ['michael'],
+      remove_people: ['bryan'],
     });
     expect(rows).toEqual([
       { op: 'add', what: 'front', id: 'job' },
       { op: 'remove', what: 'front', id: 'health' },
       { op: 'add', what: 'parent', id: 'the-body' },
       { op: 'remove', what: 'parent', id: 'long-covid' },
+      { op: 'add', what: 'person', id: 'michael' },
+      { op: 'remove', what: 'person', id: 'bryan' },
     ]);
   });
 
@@ -193,9 +209,10 @@ describe('linkChangeRows', () => {
 });
 
 describe('linkRowLabel', () => {
-  it('formats add/remove rows for fronts and parents', () => {
+  it('formats add/remove rows for fronts, parents, and people', () => {
     expect(linkRowLabel({ op: 'add', what: 'front', id: 'job' })).toBe('+ front: job');
     expect(linkRowLabel({ op: 'remove', what: 'parent', id: 'x' })).toBe('− parent: x');
+    expect(linkRowLabel({ op: 'add', what: 'person', id: 'michael' })).toBe('+ person: michael');
   });
 });
 

@@ -15,7 +15,7 @@
 import { useState } from 'react';
 import { Button } from '../../ui';
 import { FRONT_EMOJI, useFronts } from '../fronts/useFronts';
-import { useThreads } from '../journal/useJournalData';
+import { usePeople, useThreads } from '../journal/useJournalData';
 import { approvePendingServerSide } from './api';
 import { asString, payloadRecord } from './shared';
 import {
@@ -97,6 +97,8 @@ function ThreadOpenEditor({ change, payload, busy, onApprove, onDeny }: KindEdit
   const fronts = frontsQuery.data ?? [];
   const threadsQuery = useThreads();
   const threads = threadsQuery.data?.threads ?? [];
+  const peopleQuery = usePeople();
+  const people = peopleQuery.data?.people ?? [];
 
   const evidence = evidenceFromPayload(payload);
   const cards = cardsFromPayload(payload);
@@ -214,6 +216,27 @@ function ThreadOpenEditor({ change, payload, busy, onApprove, onDeny }: KindEdit
               >
                 {t.name}
                 {idx === 0 ? ' · primary' : ''}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className={styles.field}>
+        <span className={styles.label}>
+          People <span className={styles.optional}>(who this thread is about, optional)</span>
+        </span>
+        <div className={styles.chips}>
+          {people.map((p) => {
+            const idx = draft.people.indexOf(p.id);
+            return (
+              <button
+                type="button"
+                key={p.id}
+                className={`${styles.chip} ${idx >= 0 ? styles.active : ''}`}
+                onClick={() => set('people', toggleOrdered(draft.people, p.id))}
+              >
+                {p.name}
               </button>
             );
           })}

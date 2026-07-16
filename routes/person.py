@@ -47,6 +47,26 @@ def register(app):
             "card_view": card_view,
         })
 
+    @app.route("/api/person/<slug>/threads")
+    def person_threads(slug):
+        """Threads whose `people:` cast lists this person — derived per
+        request from routes/threads.py's threads_for_person (never stored;
+        threads-architecture.md §7). Matched on the person's own filename
+        stem (people/<stem>.md), which is what a thread's `people:` slugs
+        name — not the roster's first-name index key, so an alias/first-name
+        query (e.g. "landlady") still resolves to the right cast slug."""
+        person = entities.resolve_person(slug)
+        if person is None:
+            return jsonify({"error": "not found"}), 404
+        # Imported here, not at module top: keeps person.py's import graph
+        # limited to entities.py except for this one derived cross-reference.
+        from routes import threads as threads_routes
+
+        stem = person["file"].rsplit("/", 1)[-1]
+        if stem.endswith(".md"):
+            stem = stem[:-3]
+        return jsonify({"threads": threads_routes.threads_for_person(stem)})
+
     @app.route("/api/person/<slug>/summarize", methods=["POST"])
     def person_summarize(slug):
         person = entities.resolve_person(slug)

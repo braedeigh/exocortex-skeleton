@@ -543,6 +543,17 @@ function ThreadBody({ id, fronts, frontsList, alsoUnderNames, grandchildren, onJ
       </div>
     ) : null;
 
+  const peopleChips: ReactNode =
+    data?.people && data.people.length > 0 ? (
+      <div className={styles.peopleChips}>
+        {data.people.map((p) => (
+          <span key={p.slug} className={styles.personChip}>
+            {p.name}
+          </span>
+        ))}
+      </div>
+    ) : null;
+
   const alsoUnderNote =
     alsoUnderNames && alsoUnderNames.length > 0 ? (
       <div className={styles.bodyAlsoUnder}>also under {alsoUnderNames.join(', ')}</div>
@@ -576,6 +587,7 @@ function ThreadBody({ id, fronts, frontsList, alsoUnderNames, grandchildren, onJ
   return (
     <div className={styles.body}>
       {frontChips}
+      {peopleChips}
       {alsoUnderNote}
       {data.status ? <div className={styles.status}>{data.status}</div> : null}
       {data.cards.length === 0 ? <div className={styles.bodyNote}>No facts recorded yet.</div> : null}

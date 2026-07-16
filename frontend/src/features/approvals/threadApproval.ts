@@ -88,6 +88,9 @@ export interface ThreadOpenDraft {
   fronts: string[];
   /** Ordered; first = primary (breadcrumb, §3). May be empty. */
   parents: string[];
+  /** The cast — person-file slugs (`people/<slug>.md`). No primary; order
+   * doesn't carry meaning the way it does for fronts/parents. May be empty. */
+  people: string[];
 }
 
 /** Staged payload -> initial form state. */
@@ -99,6 +102,7 @@ export function threadOpenDraftFromPayload(payload: Record<string, JsonValue>): 
     kind: asString(payload.kind) === 'arc' ? 'arc' : 'standing',
     fronts: arrayOfStrings(payload.fronts),
     parents: arrayOfStrings(payload.parents),
+    people: arrayOfStrings(payload.people),
   };
 }
 
@@ -120,6 +124,7 @@ export function threadOpenPayloadFromDraft(
     kind: draft.kind,
     fronts: draft.fronts,
     parents: draft.parents,
+    people: draft.people,
   };
 }
 
@@ -127,22 +132,26 @@ export function threadOpenPayloadFromDraft(
 
 export interface LinkChangeRow {
   op: 'add' | 'remove';
-  what: 'front' | 'parent';
+  what: 'front' | 'parent' | 'person';
   id: string;
 }
 
-/** Flattens the four add/remove arrays into display rows, stable order:
- * front changes before parent changes, adds before removes within each. */
+/** Flattens the six add/remove arrays into display rows, stable order:
+ * front changes, then parent changes, then person changes — adds before
+ * removes within each. */
 export function linkChangeRows(payload: Record<string, JsonValue>): LinkChangeRow[] {
   const rows: LinkChangeRow[] = [];
   for (const id of arrayOfStrings(payload.add_fronts)) rows.push({ op: 'add', what: 'front', id });
   for (const id of arrayOfStrings(payload.remove_fronts)) rows.push({ op: 'remove', what: 'front', id });
   for (const id of arrayOfStrings(payload.add_parents)) rows.push({ op: 'add', what: 'parent', id });
   for (const id of arrayOfStrings(payload.remove_parents)) rows.push({ op: 'remove', what: 'parent', id });
+  for (const id of arrayOfStrings(payload.add_people)) rows.push({ op: 'add', what: 'person', id });
+  for (const id of arrayOfStrings(payload.remove_people)) rows.push({ op: 'remove', what: 'person', id });
   return rows;
 }
 
-/** "+ front: job" / "− parent: x" — the chip label for one row. */
+/** "+ front: job" / "− parent: x" / "+ person: michael" — the chip label for
+ * one row. */
 export function linkRowLabel(row: LinkChangeRow): string {
   return `${row.op === 'add' ? '+' : '−'} ${row.what}: ${row.id}`;
 }

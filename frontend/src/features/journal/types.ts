@@ -113,6 +113,17 @@ export interface Thread {
   kind?: string | null;
   /** "" | "seedling" | "active" | "dormant" | "retired" | undefined. */
   status?: string;
+  /** The thread's cast — `people:` slugs resolved to display names
+   * (routes/threads.py `_resolve_cast`); missing/[] if it names no one. */
+  people?: ThreadCastMember[];
+}
+
+/** One cast member on a thread — `people:` slug resolved to a display name
+ * (routes/threads.py `_resolve_cast`): the person file's H1 if it resolves,
+ * else a title-cased fallback of the slug. */
+export interface ThreadCastMember {
+  slug: string;
+  name: string;
 }
 
 export interface ThreadsResponse {
@@ -122,11 +133,14 @@ export interface ThreadsResponse {
 /** One node in GET /api/threads/tree's `nodes` map (routes/threads.py
  * threads_tree) — same membership/lifecycle fields as `Thread` plus the
  * derived `children` edge list; no `id`/`file`/`aliases` (keyed by slug in
- * the parent map instead). */
+ * the parent map instead). `people` here is the raw cast slug list (cheap —
+ * the tree view is structural; name resolution happens on the roster/detail
+ * endpoints only). */
 export interface ThreadTreeNode {
   name: string;
   fronts: string[];
   parents: string[];
+  people: string[];
   kind: string | null;
   status: string;
   children: string[];

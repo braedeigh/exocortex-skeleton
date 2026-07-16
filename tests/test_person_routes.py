@@ -7,11 +7,16 @@ just orchestrates, so these tests are mostly about response shape + 404s and
 the summarize endpoint's session-spawning contract (mirroring test_triage, if
 present, for ensure_claude_session/send_prompt).
 """
+import shutil
+from pathlib import Path
+
 import pytest
 from flask import Flask
 
 import store
 from routes import entities, person
+
+THREADS_FIXTURES_ROOT = Path(__file__).parent / "fixtures" / "threads"
 
 SALLY = """---
 tags: [austin, housemate, landlord]
@@ -102,3 +107,35 @@ def test_summarize_spawns_session_and_sends_prompt(client, monkeypatch):
 
 def test_summarize_unknown_slug_404(client):
     assert client.post("/api/person/nobody/summarize").status_code == 404
+
+
+# --- /api/person/<slug>/threads — the people -> threads reverse index -------
+# Uses the shared tests/fixtures/threads vault (same one test_threads_routes.py
+# and the Rust `thread` binary's own tests read): migraines.md carries
+# `people: [michael]`.
+
+@pytest.fixture
+def threads_vault_client(tmp_path, monkeypatch):
+    content = tmp_path / "content"
+    shutil.copytree(THREADS_FIXTURES_ROOT / "content", content)
+    monkeypatch.setattr(store, "CONTENT_DIR", content)
+    app = Flask(__name__)
+    app.config.update(TESTING=True)
+    person.register(app)
+    return app.test_client()
+
+
+def test_person_threads_lists_cast_membership(threads_vault_client):
+    data = threads_vault_client.get("/api/person/michael/threads").get_json()
+    assert [t["slug"] for t in data["threads"]] == ["migraines"]
+    assert data["threads"][0]["name"] == "Migraines"
+
+
+def test_person_threads_empty_when_not_in_any_cast(threads_vault_client):
+    data = threads_vault_client.get("/api/person/bryan/threads").get_json()
+    assert data["threads"] == []
+
+
+def test_person_threads_unknown_slug_404(threads_vault_client):
+    resp = threads_vault_client.get("/api/person/nobody/threads")
+    assert resp.status_code == 404

@@ -35,6 +35,7 @@ import re
 from flask import request, jsonify
 
 import store
+from routes import entities
 from routes.entities import _parse_frontmatter
 
 THREADS_DIR = "Threads"
@@ -156,6 +157,7 @@ def parse_thread(path):
 
     fronts = _list_field("fronts")
     parents = _list_field("parents")
+    people = _list_field("people")
     kind = _scalar_field("kind")
     opened = _scalar_field("opened")
     retired = _scalar_field("retired")
@@ -208,6 +210,7 @@ def parse_thread(path):
         "status": meta.get("status", ""),
         "fronts": fronts,
         "parents": parents,
+        "people": people,
         "kind": kind,
         "opened": opened,
         "retired": retired,
@@ -249,6 +252,39 @@ def _all_threads(include_retired=False):
     if include_retired:
         return idx
     return {slug: t for slug, t in idx.items() if t.get("status") != "retired"}
+
+
+def _cast_name(slug):
+    """A people-file slug -> its display name: the H1 in people/<slug>.md if
+    the file resolves, else a title-cased fallback of the slug. Reuses
+    entities._parse_person (the tolerant people-file parser) rather than
+    hand-rolling a second one — see dev_todo.md's "one people parser" rule."""
+    path = _vault() / entities.PEOPLE_DIR / f"{slug}.md"
+    if path.exists():
+        try:
+            return entities._parse_person(path)["name"]
+        except OSError:
+            pass
+    return slug.replace("-", " ").replace("_", " ").title()
+
+
+def _resolve_cast(slugs):
+    """thread.people (slug strings) -> [{slug, name}] for API payloads."""
+    return [{"slug": s, "name": _cast_name(s)} for s in slugs if s]
+
+
+def threads_for_person(slug, include_retired=False):
+    """Threads whose `people:` cast lists `slug` — derived per request, same
+    shape/spirit as backlinks_for (threads-architecture.md §7: nothing about
+    who's in what thread is stored beyond the thread's own `people:` list)."""
+    slug = (slug or "").strip().lower()
+    out = []
+    if not slug:
+        return out
+    for t in _all_threads(include_retired).values():
+        if slug in [p.lower() for p in t.get("people", [])]:
+            out.append({"slug": t["id"], "name": t["name"], "status": t.get("status", "")})
+    return out
 
 
 def backlinks_for(slug):
@@ -299,6 +335,11 @@ def threads_tree(include_retired=False):
             "name": t["name"],
             "fronts": t.get("fronts", []),
             "parents": t.get("parents", []),
+            # Cheap here: raw cast slugs, not resolved to names — the tree
+            # view is a structural map, name resolution is the roster/detail
+            # endpoints' job (threads-architecture.md §1: derive, don't store,
+            # and don't pay for what a view doesn't need).
+            "people": t.get("people", []),
             "kind": t.get("kind"),
             "status": t.get("status", ""),
             "children": [],
@@ -338,6 +379,7 @@ def register(app):
                 "file": t["file"], "fronts": t.get("fronts", []),
                 "parents": t.get("parents", []), "kind": t.get("kind"),
                 "status": t.get("status", ""),
+                "people": _resolve_cast(t.get("people", [])),
             })
         return jsonify({"threads": out})
 
@@ -423,5 +465,6 @@ def register(app):
         if not t:
             return jsonify({"error": "not found", "name": q}), 404
         payload = dict(t)
+        payload["people"] = _resolve_cast(t.get("people", []))
         payload["backlinks"] = backlinks_for(t["id"])
         return jsonify(payload)

@@ -11,7 +11,7 @@ import {
 import type { Thread, ThreadsTreeResponse, ThreadTreeNode } from '../journal/types';
 
 function node(overrides: Partial<ThreadTreeNode> & { name: string }): ThreadTreeNode {
-  return { fronts: [], parents: [], kind: null, status: '', children: [], ...overrides };
+  return { fronts: [], parents: [], people: [], kind: null, status: '', children: [], ...overrides };
 }
 
 /** long-covid (root)

@@ -82,6 +82,8 @@ def _commit(change):
             args += ["--parents", ",".join(payload["parents"])]
         if payload.get("aliases"):
             args += ["--aliases", ",".join(payload["aliases"])]
+        if payload.get("people"):
+            args += ["--people", ",".join(payload["people"])]
         _run_thread(args)
         # Cards were already validated at propose time by the Rust binary, so
         # this normally just lands them. Known edge: if a card's source was
@@ -109,6 +111,10 @@ def _commit(change):
             args += ["--add-parent", p]
         for p in payload.get("remove_parents") or []:
             args += ["--remove-parent", p]
+        for p in payload.get("add_people") or []:
+            args += ["--add-person", p]
+        for p in payload.get("remove_people") or []:
+            args += ["--remove-person", p]
         _run_thread(args)
         return
     elif kind == "thread_retire":

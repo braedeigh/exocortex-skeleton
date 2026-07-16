@@ -241,6 +241,66 @@ def test_list_items_carry_fronts_parents_kind_status(vault_client):
     assert migraines["status"] == "active"
 
 
+def test_parse_thread_reads_people_cast(vault):
+    # migraines.md's fixture frontmatter carries `people: [michael]`.
+    t = threads.parse_thread(vault / "Threads" / "migraines.md")
+    assert t["people"] == ["michael"]
+
+
+def test_parse_thread_defaults_people_to_empty_list(vault):
+    # long-covid.md predates the people: migration — no key at all.
+    t = threads.parse_thread(vault / "Threads" / "long-covid.md")
+    assert t["people"] == []
+
+
+def test_roster_resolves_cast_to_slug_and_name(vault_client):
+    data = vault_client.get("/api/threads").get_json()
+    migraines = next(t for t in data["threads"] if t["id"] == "migraines")
+    assert migraines["people"] == [{"slug": "michael", "name": "Michael"}]
+
+
+def test_detail_resolves_cast_to_slug_and_name(vault_client):
+    t = vault_client.get("/api/thread?name=migraines").get_json()
+    assert t["people"] == [{"slug": "michael", "name": "Michael"}]
+
+
+def test_detail_cast_falls_back_to_titlecased_slug_when_no_people_file(vault, vault_client):
+    (vault / "Threads" / "no-file-cast.md").write_text(
+        "---\n"
+        "name: No File Cast\n"
+        "aliases: []\n"
+        "fronts: [health]\n"
+        "parents: []\n"
+        "people: [nobody-here]\n"
+        "kind: standing\n"
+        "status: active\n"
+        "opened: 2026-07-15\n"
+        "retired:\n"
+        "distilled:\n"
+        "---\n\n"
+        "## What it is\n"
+        "A thread naming a cast slug with no people file yet.\n"
+        "→ `2026-07-01.0800a`\n"
+    )
+    t = vault_client.get("/api/thread?name=no-file-cast").get_json()
+    assert t["people"] == [{"slug": "nobody-here", "name": "Nobody Here"}]
+
+
+def test_tree_nodes_carry_raw_people_slugs(vault_client):
+    tree = vault_client.get("/api/threads/tree").get_json()
+    assert tree["nodes"]["migraines"]["people"] == ["michael"]
+
+
+def test_threads_for_person_finds_cast_membership(vault):
+    out = threads.threads_for_person("michael")
+    assert [t["slug"] for t in out] == ["migraines"]
+    assert out[0]["name"] == "Migraines"
+
+
+def test_threads_for_person_empty_for_unlisted_person(vault):
+    assert threads.threads_for_person("bryan") == []
+
+
 def test_detail_includes_backlinks(vault_client):
     # migraines.md's body links [[long-covid]]; long-covid's backlinks
     # should therefore name migraines.

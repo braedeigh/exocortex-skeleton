@@ -296,6 +296,26 @@
   font-weight: 600;
 }
 
+/* Cast chips — same look as .frontChip(s), rendered right under them. */
+.peopleChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.personChip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
 .bodyAlsoUnder {
   color: var(--text-muted);
   font-size: var(--font-size-sm);
