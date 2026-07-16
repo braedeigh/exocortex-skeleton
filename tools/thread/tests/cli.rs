@@ -263,6 +263,141 @@ fn link_allows_a_non_cyclic_parent_add() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+//  people: cast membership — open --people, link --add-person/--remove-person
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn open_with_people_writes_canonical_frontmatter_and_reparses_the_same_list() {
+    let sb = sandbox();
+    let o = run(
+        &sb,
+        &[
+            "open",
+            "--slug",
+            "new-cast-thread",
+            "--name",
+            "New Cast Thread",
+            "--fronts",
+            "health",
+            "--kind",
+            "standing",
+            "--people",
+            "michael",
+            "--people",
+            "bryan",
+        ],
+    );
+    assert!(o.status.success(), "stdout: {}\nstderr: {}", stdout(&o), stderr(&o));
+
+    let text = std::fs::read_to_string(sb.content.join("Threads/new-cast-thread.md")).unwrap();
+    // Canonical position: immediately after parents:, before kind:, same
+    // inline-list style as parents.
+    let lines: Vec<&str> = text.lines().collect();
+    let parents_idx = lines.iter().position(|l| l.starts_with("parents:")).unwrap();
+    assert_eq!(lines[parents_idx + 1], "people: [michael, bryan]");
+    assert_eq!(lines[parents_idx + 2], "kind: standing");
+
+    // Re-parse (via lint, which reads the file back through the same parser)
+    // yields the same list — round-trip stability.
+    std::fs::remove_file(sb.content.join("Threads/broken-thread.md")).unwrap();
+    let o = run(&sb, &["lint", "--quiet"]);
+    assert!(o.status.success(), "stdout: {}\nstderr: {}", stdout(&o), stderr(&o));
+}
+
+#[test]
+fn open_with_nonexistent_person_is_refused() {
+    let sb = sandbox();
+    let o = run(
+        &sb,
+        &[
+            "open",
+            "--slug",
+            "bad-cast-thread",
+            "--name",
+            "Bad Cast Thread",
+            "--fronts",
+            "health",
+            "--kind",
+            "standing",
+            "--people",
+            "nobody",
+        ],
+    );
+    assert!(!o.status.success());
+    assert!(stderr(&o).contains("unknown person `nobody` — no people/nobody.md"), "{}", stderr(&o));
+    assert!(!sb.content.join("Threads/bad-cast-thread.md").exists());
+}
+
+#[test]
+fn link_add_and_remove_person_mutate_the_cast_in_place() {
+    let sb = sandbox();
+    // migraines.md starts with people: [michael] in the fixture.
+    let o = run(&sb, &["link", "--slug", "migraines", "--add-person", "bryan"]);
+    assert!(o.status.success(), "stdout: {}\nstderr: {}", stdout(&o), stderr(&o));
+    let text = std::fs::read_to_string(sb.content.join("Threads/migraines.md")).unwrap();
+    assert!(text.contains("people: [michael, bryan]"), "{}", text);
+
+    let o = run(&sb, &["link", "--slug", "migraines", "--remove-person", "michael"]);
+    assert!(o.status.success(), "stdout: {}\nstderr: {}", stdout(&o), stderr(&o));
+    let text = std::fs::read_to_string(sb.content.join("Threads/migraines.md")).unwrap();
+    assert!(text.contains("people: [bryan]"), "{}", text);
+}
+
+#[test]
+fn link_add_person_refuses_a_nonexistent_person() {
+    let sb = sandbox();
+    let o = run(&sb, &["link", "--slug", "migraines", "--add-person", "nobody"]);
+    assert!(!o.status.success());
+    assert!(stderr(&o).contains("unknown person `nobody` — no people/nobody.md"), "{}", stderr(&o));
+    let text = std::fs::read_to_string(sb.content.join("Threads/migraines.md")).unwrap();
+    assert!(text.contains("people: [michael]"), "file changed despite refusal: {}", text);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  round-trip stability: parse -> serialize -> parse is identity, with and
+//  without a people: cast.
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn round_trip_is_stable_with_people_present() {
+    let sb = sandbox();
+    let before = std::fs::read_to_string(sb.content.join("Threads/migraines.md")).unwrap();
+    assert!(before.contains("people: [michael]"));
+
+    // distill only touches the distilled: watermark, reserializing the rest
+    // of the frontmatter verbatim through parse -> render — a clean way to
+    // exercise the round trip without changing the cast itself.
+    let o = run(&sb, &["distill", "migraines"]);
+    assert!(o.status.success(), "{}", stderr(&o));
+    let after = std::fs::read_to_string(sb.content.join("Threads/migraines.md")).unwrap();
+    assert!(after.contains("people: [michael]"), "{}", after);
+
+    // Round again through set-status and back — people: must survive intact.
+    let o = run(&sb, &["set-status", "migraines", "dormant"]);
+    assert!(o.status.success(), "{}", stderr(&o));
+    let o = run(&sb, &["set-status", "migraines", "active"]);
+    assert!(o.status.success(), "{}", stderr(&o));
+    let final_text = std::fs::read_to_string(sb.content.join("Threads/migraines.md")).unwrap();
+    assert!(final_text.contains("people: [michael]"), "{}", final_text);
+}
+
+#[test]
+fn round_trip_is_stable_with_people_absent() {
+    let sb = sandbox();
+    // root-thread.md has no people: key in the fixture at all.
+    let before = std::fs::read_to_string(sb.content.join("Threads/root-thread.md")).unwrap();
+    assert!(!before.contains("people:"));
+
+    let o = run(&sb, &["distill", "root-thread"]);
+    assert!(o.status.success(), "{}", stderr(&o));
+    let after = std::fs::read_to_string(sb.content.join("Threads/root-thread.md")).unwrap();
+    // Once written by this binary, an absent cast serializes as people: []
+    // (same empty-handling as parents:).
+    assert!(after.contains("people: []"), "{}", after);
+    assert!(after.contains("parents: []"), "{}", after);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 //  propose
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -292,6 +427,49 @@ fn propose_thread_open_appends_under_lock() {
     let new_entry = arr.iter().find(|e| e["payload"]["slug"] == "new-topic").unwrap();
     assert_eq!(new_entry["kind"], "thread_open");
     assert!(new_entry["summary"].as_str().unwrap().contains("New Topic"));
+}
+
+#[test]
+fn propose_thread_open_with_people_validates() {
+    let sb = sandbox();
+    let payload = serde_json::json!({
+        "slug": "new-topic-with-cast",
+        "name": "New Topic With Cast",
+        "fronts": ["health"],
+        "parents": [],
+        "people": ["michael", "bryan"],
+        "kind": "standing",
+        "proposer": "cricket-health",
+        "rationale": "3 cards across 2 days.",
+        "evidence": [
+            {"source": "2026-07-05.0900a", "date": "2026-07-05", "quote": "a"},
+            {"source": "2026-07-12.1200a", "date": "2026-07-12", "quote": "b"}
+        ]
+    });
+    let o = run(&sb, &["propose", "thread_open", "--json", &payload.to_string()]);
+    assert!(o.status.success(), "stdout: {}\nstderr: {}", stdout(&o), stderr(&o));
+}
+
+#[test]
+fn propose_thread_open_with_a_bad_person_is_refused() {
+    let sb = sandbox();
+    let payload = serde_json::json!({
+        "slug": "new-topic-bad-cast",
+        "name": "New Topic Bad Cast",
+        "fronts": ["health"],
+        "parents": [],
+        "people": ["nobody"],
+        "kind": "standing",
+        "proposer": "cricket-health",
+        "rationale": "3 cards across 2 days.",
+        "evidence": [
+            {"source": "2026-07-05.0900a", "date": "2026-07-05", "quote": "a"},
+            {"source": "2026-07-12.1200a", "date": "2026-07-12", "quote": "b"}
+        ]
+    });
+    let o = run(&sb, &["propose", "thread_open", "--json", &payload.to_string()]);
+    assert!(!o.status.success());
+    assert!(stderr(&o).contains("unknown person `nobody`"), "{}", stderr(&o));
 }
 
 #[test]
@@ -679,6 +857,37 @@ fn inbox_exits_zero_when_empty() {
     let o = run(&sb, &["inbox", "long-covid"]);
     assert!(o.status.success(), "{}", stderr(&o));
     assert_eq!(stdout(&o).trim(), "");
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  remove
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn remove_deletes_the_file_and_writes_a_changelog_line() {
+    let sb = sandbox();
+    // leaf-thread has no children (nothing lists it as a parent) — safe to remove.
+    assert!(sb.content.join("Threads/leaf-thread.md").exists());
+    let o = run(&sb, &["remove", "leaf-thread", "--reason", "smoke test cleanup"]);
+    assert!(o.status.success(), "stdout: {}\nstderr: {}", stdout(&o), stderr(&o));
+    assert!(!sb.content.join("Threads/leaf-thread.md").exists());
+
+    let changelog = std::fs::read_to_string(sb.content.join("_system/cricket_changelog.md")).unwrap();
+    assert!(changelog.contains("thread-remove"), "{}", changelog);
+    assert!(changelog.contains("**leaf-thread**"), "{}", changelog);
+    assert!(changelog.contains("smoke test cleanup"), "{}", changelog);
+}
+
+#[test]
+fn remove_is_refused_when_another_thread_names_it_as_a_parent() {
+    let sb = sandbox();
+    // mid-thread is root-thread's child (mid-thread.md has parents: [root-thread]);
+    // leaf-thread is mid-thread's child. Removing root-thread must be refused
+    // and must name mid-thread as the offending child.
+    let o = run(&sb, &["remove", "root-thread", "--reason", "no longer needed"]);
+    assert!(!o.status.success());
+    assert!(stderr(&o).contains("mid-thread"), "{}", stderr(&o));
+    assert!(sb.content.join("Threads/root-thread.md").exists());
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

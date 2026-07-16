@@ -77,8 +77,16 @@ enum Command {
     Open(OpenArgs),
     /// Append a cited `## Heading` fact-card section to an existing thread.
     AddCard(AddCardArgs),
-    /// Edit fronts:/parents: membership in place.
+    /// Edit fronts:/parents:/people: membership in place.
     Link(LinkArgs),
+    /// Delete Threads/<slug>.md — refused if any other thread still lists it
+    /// as a parent (that would orphan a child).
+    Remove {
+        slug: String,
+        /// Why it's being removed — recorded in the changelog.
+        #[arg(long)]
+        reason: String,
+    },
     /// Set status (retiring stamps retired:, un-retiring clears it).
     SetStatus { slug: String, status: String },
     /// Move the distilled: watermark to today.
@@ -108,6 +116,11 @@ struct OpenArgs {
     parents: Option<String>,
     #[arg(long)]
     aliases: Option<String>,
+    /// The thread's cast — person-file slugs (`people/<slug>.md`). Repeatable
+    /// (--people a --people b) or comma-separated (--people a,b), same as
+    /// --add-parent/--parents.
+    #[arg(long)]
+    people: Vec<String>,
 }
 
 #[derive(Args)]
@@ -135,6 +148,10 @@ struct LinkArgs {
     remove_front: Vec<String>,
     #[arg(long = "remove-parent")]
     remove_parent: Vec<String>,
+    #[arg(long = "add-person")]
+    add_person: Vec<String>,
+    #[arg(long = "remove-person")]
+    remove_person: Vec<String>,
 }
 
 #[derive(Args)]
@@ -159,6 +176,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         Command::Open(a) => run_open(&cli, a),
         Command::AddCard(a) => run_add_card(&cli, a),
         Command::Link(a) => run_link(&cli, a),
+        Command::Remove { slug, reason } => run_remove(&cli, slug, reason),
         Command::SetStatus { slug, status } => run_set_status(&cli, slug, status),
         Command::Distill { slug } => run_distill(&cli, slug),
         Command::Inbox { slug } => run_inbox(&cli, slug),
@@ -181,6 +199,12 @@ fn known_fronts_set(data_dir: &std::path::Path) -> Result<HashSet<String>, Box<d
 
 fn known_slugs_set(threads_dir: &std::path::Path) -> HashSet<String> {
     util::list_thread_slugs(threads_dir).into_iter().collect()
+}
+
+/// Every `people/<slug>.md` on disk — the people tool's domain. A thread's
+/// `people:` cast can only name slugs that exist there.
+fn known_people_set(content_dir: &std::path::Path) -> HashSet<String> {
+    util::list_people_slugs(&util::people_dir(content_dir)).into_iter().collect()
 }
 
 /// slug -> parents, read fresh from every Threads/*.md on disk.
@@ -236,11 +260,16 @@ fn run_propose(cli: &Cli, kind: &str, json_arg: &str) -> Result<(), Box<dyn Erro
     let threads_dir = util::threads_dir(&content);
     let known_fronts = known_fronts_set(&data)?;
     let known_slugs = known_slugs_set(&threads_dir);
+    let known_people = known_people_set(&content);
     let graph = load_graph(&threads_dir)?;
 
     let summary = match kind {
-        "thread_open" => validate_thread_open(&value, &content, &data, &known_fronts, &known_slugs, &graph)?,
-        "thread_link" => validate_thread_link(&value, &content, &known_fronts, &known_slugs, &graph)?,
+        "thread_open" => {
+            validate_thread_open(&value, &content, &data, &known_fronts, &known_slugs, &known_people, &graph)?
+        }
+        "thread_link" => {
+            validate_thread_link(&value, &content, &known_fronts, &known_slugs, &known_people, &graph)?
+        }
         "thread_retire" => validate_thread_retire(&value)?,
         other => {
             return Err(format!(
@@ -269,6 +298,7 @@ fn validate_thread_open(
     data: &std::path::Path,
     known_fronts: &HashSet<String>,
     known_slugs: &HashSet<String>,
+    known_people: &HashSet<String>,
     graph: &Graph,
 ) -> Result<String, Box<dyn Error>> {
     let mut errs = Vec::new();
@@ -306,6 +336,17 @@ fn validate_thread_open(
     }
     if let Some(cyc) = graph::would_create_cycle(graph, slug, &parents) {
         errs.push(format!("parents introduce a cycle: {}", cyc.join(" -> ")));
+    }
+
+    let people = payload::get_str_list(v, "people");
+    let mut seen_people: HashSet<&String> = HashSet::new();
+    for p in &people {
+        if !known_people.contains(p) {
+            errs.push(format!("unknown person `{}` — no people/{}.md", p, p));
+        }
+        if !seen_people.insert(p) {
+            errs.push(format!("duplicate person `{}` in people", p));
+        }
     }
 
     let kind = payload::require_str(v, "kind").unwrap_or("");
@@ -386,6 +427,7 @@ fn validate_thread_link(
     content: &std::path::Path,
     known_fronts: &HashSet<String>,
     known_slugs: &HashSet<String>,
+    known_people: &HashSet<String>,
     graph: &Graph,
 ) -> Result<String, Box<dyn Error>> {
     let mut errs = Vec::new();
@@ -401,9 +443,20 @@ fn validate_thread_link(
     let remove_fronts = payload::get_str_list(v, "remove_fronts");
     let add_parents = payload::get_str_list(v, "add_parents");
     let remove_parents = payload::get_str_list(v, "remove_parents");
+    let add_people = payload::get_str_list(v, "add_people");
+    let remove_people = payload::get_str_list(v, "remove_people");
 
-    if add_fronts.is_empty() && remove_fronts.is_empty() && add_parents.is_empty() && remove_parents.is_empty() {
-        errs.push("at least one of add_fronts/remove_fronts/add_parents/remove_parents must be non-empty".to_string());
+    if add_fronts.is_empty()
+        && remove_fronts.is_empty()
+        && add_parents.is_empty()
+        && remove_parents.is_empty()
+        && add_people.is_empty()
+        && remove_people.is_empty()
+    {
+        errs.push(
+            "at least one of add_fronts/remove_fronts/add_parents/remove_parents/add_people/remove_people must be non-empty"
+                .to_string(),
+        );
     }
     if let Err(e) = payload::require_str(v, "rationale") {
         errs.push(e);
@@ -420,6 +473,11 @@ fn validate_thread_link(
         }
         if p == slug {
             errs.push(format!("thread `{}` can't be its own parent", slug));
+        }
+    }
+    for p in &add_people {
+        if !known_people.contains(p) {
+            errs.push(format!("unknown person `{}` — no people/{}.md", p, p));
         }
     }
 
@@ -449,6 +507,12 @@ fn validate_thread_link(
     }
     for p in &remove_parents {
         ops.push(format!("-parent:{}", p));
+    }
+    for p in &add_people {
+        ops.push(format!("+person:{}", p));
+    }
+    for p in &remove_people {
+        ops.push(format!("-person:{}", p));
     }
     Ok(format!("Edit thread? \"{}\" — {}", slug, ops.join(" ")))
 }
@@ -509,12 +573,16 @@ fn run_open(cli: &Cli, a: &OpenArgs) -> Result<(), Box<dyn Error>> {
     let fronts = split_csv(&a.fronts);
     let parents = a.parents.as_deref().map(split_csv).unwrap_or_default();
     let aliases = a.aliases.as_deref().map(split_csv).unwrap_or_default();
+    // --people accepts both repeated flags and comma lists, like --source and
+    // --parents respectively — flatten either shape into one list.
+    let people: Vec<String> = a.people.iter().flat_map(|s| split_csv(s)).collect();
 
     let fm = FrontMatter {
         name: a.name.trim().to_string(),
         aliases,
         fronts,
         parents,
+        people,
         kind: a.kind.trim().to_string(),
         status: "active".to_string(),
         opened: util::today_str(),
@@ -524,7 +592,8 @@ fn run_open(cli: &Cli, a: &OpenArgs) -> Result<(), Box<dyn Error>> {
 
     let known_fronts = known_fronts_set(&data)?;
     let known_slugs = known_slugs_set(&threads_dir);
-    let mut errs = lint::check_frontmatter(&a.slug, &fm, &known_fronts, &known_slugs);
+    let known_people = known_people_set(&content);
+    let mut errs = lint::check_frontmatter(&a.slug, &fm, &known_fronts, &known_slugs, &known_people);
     let graph = load_graph(&threads_dir)?;
     if let Some(cyc) = graph::would_create_cycle(&graph, &a.slug, &fm.parents) {
         errs.push(format!("parents introduce a cycle: {}", cyc.join(" -> ")));
@@ -629,9 +698,11 @@ fn run_link(cli: &Cli, a: &LinkArgs) -> Result<(), Box<dyn Error>> {
 
     let new_fronts = apply_membership(&meta.fronts, &a.add_front, &a.remove_front);
     let new_parents = apply_membership(&meta.parents, &a.add_parent, &a.remove_parent);
+    let new_people = apply_membership(&meta.people, &a.add_person, &a.remove_person);
 
     let known_fronts = known_fronts_set(&data)?;
     let known_slugs = known_slugs_set(&threads_dir);
+    let known_people = known_people_set(&content);
 
     let mut errs = Vec::new();
     if new_fronts.is_empty() {
@@ -649,6 +720,11 @@ fn run_link(cli: &Cli, a: &LinkArgs) -> Result<(), Box<dyn Error>> {
             errs.push(format!("unknown parent thread `{}` — no Threads/{}.md", p, p));
         }
     }
+    for p in &a.add_person {
+        if !known_people.contains(p) {
+            errs.push(format!("unknown person `{}` — no people/{}.md", p, p));
+        }
+    }
     let graph = load_graph(&threads_dir)?;
     if let Some(cyc) = graph::would_create_cycle(&graph, &a.slug, &new_parents) {
         errs.push(format!("parents introduce a cycle: {}", cyc.join(" -> ")));
@@ -659,6 +735,7 @@ fn run_link(cli: &Cli, a: &LinkArgs) -> Result<(), Box<dyn Error>> {
 
     meta.fronts = new_fronts;
     meta.parents = new_parents;
+    meta.people = new_people;
     let out = model::render_file(&meta, &tf.raw_body);
     util::atomic_write(&path, &out)?;
 
@@ -675,8 +752,57 @@ fn run_link(cli: &Cli, a: &LinkArgs) -> Result<(), Box<dyn Error>> {
     for p in &a.remove_parent {
         ops.push(format!("-parent:{}", p));
     }
+    for p in &a.add_person {
+        ops.push(format!("+person:{}", p));
+    }
+    for p in &a.remove_person {
+        ops.push(format!("-person:{}", p));
+    }
     changelog::log_change(&content, "thread-link", &a.slug, &ops.join(" "))?;
     println!("updated Threads/{}.md: {}", a.slug, ops.join(" "));
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  remove — direct human/CLI action only, never staged via propose.
+// ═══════════════════════════════════════════════════════════════════════════
+fn run_remove(cli: &Cli, slug: &str, reason: &str) -> Result<(), Box<dyn Error>> {
+    let (content, _data) = dirs(cli)?;
+    let threads_dir = util::threads_dir(&content);
+    let path = util::thread_path(&threads_dir, slug);
+    if !path.exists() {
+        return Err(format!("unknown thread `{}` — no Threads/{}.md", slug, slug).into());
+    }
+    if reason.trim().is_empty() {
+        return Err("--reason is empty".into());
+    }
+
+    // Refuse if any OTHER thread still lists this one as a parent — removing
+    // it would orphan a child.
+    let mut children = Vec::new();
+    for other in util::list_thread_slugs(&threads_dir) {
+        if other == slug {
+            continue;
+        }
+        let other_path = util::thread_path(&threads_dir, &other);
+        let text = fs::read_to_string(&other_path)?;
+        let tf = model::parse_thread_file(&text);
+        if tf.meta.parents.iter().any(|p| p == slug) {
+            children.push(other);
+        }
+    }
+    if !children.is_empty() {
+        return Err(errs_to_err(vec![format!(
+            "thread `{}` is still the parent of: {} — relink or remove those first",
+            slug,
+            children.join(", ")
+        )]));
+    }
+
+    fs::remove_file(&path)?;
+
+    changelog::log_change(&content, "thread-remove", slug, reason)?;
+    println!("removed Threads/{}.md", slug);
     Ok(())
 }
 

@@ -26,6 +26,13 @@ pub fn threads_dir(content: &Path) -> PathBuf {
     content.join("Threads")
 }
 
+/// `<content_dir>/people/` — the people tool's domain. `thread` never writes
+/// here; it only checks a slug's file exists before letting it into a
+/// thread's `people:` cast.
+pub fn people_dir(content: &Path) -> PathBuf {
+    content.join("people")
+}
+
 pub fn cards_dir(content: &Path) -> PathBuf {
     content.join("_system/data/cards")
 }
@@ -54,6 +61,21 @@ pub fn list_thread_slugs(threads_dir: &Path) -> Vec<String> {
 
 pub fn thread_path(threads_dir: &Path, slug: &str) -> PathBuf {
     threads_dir.join(format!("{}.md", slug))
+}
+
+/// Every `people/*.md` file's slug (filename stem), sorted. Same shape as
+/// `list_thread_slugs`, just pointed at the people tool's directory.
+pub fn list_people_slugs(people_dir: &Path) -> Vec<String> {
+    let mut out: Vec<String> = fs::read_dir(people_dir)
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.extension().map(|e| e == "md").unwrap_or(false))
+        .filter_map(|p| p.file_stem().and_then(|s| s.to_str()).map(|s| s.to_string()))
+        .collect();
+    out.sort();
+    out
 }
 
 pub fn today() -> NaiveDate {

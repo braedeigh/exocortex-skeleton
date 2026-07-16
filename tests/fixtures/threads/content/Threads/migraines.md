@@ -3,6 +3,7 @@ name: Migraines
 aliases: [migraine, aura]
 fronts: [health, job]
 parents: [long-covid]
+people: [michael]
 kind: standing
 status: active
 opened: 2026-07-08

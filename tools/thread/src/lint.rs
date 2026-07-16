@@ -30,6 +30,7 @@ pub fn check_frontmatter(
     m: &FrontMatter,
     known_fronts: &HashSet<String>,
     known_slugs: &HashSet<String>,
+    known_people: &HashSet<String>,
 ) -> Vec<String> {
     let mut errors = Vec::new();
 
@@ -68,6 +69,16 @@ pub fn check_frontmatter(
                 "unknown parent thread `{}` — no Threads/{}.md",
                 p, p
             ));
+        }
+    }
+
+    let mut seen_people: HashSet<&String> = HashSet::new();
+    for p in &m.people {
+        if !known_people.contains(p) {
+            errors.push(format!("unknown person `{}` — no people/{}.md", p, p));
+        }
+        if !seen_people.insert(p) {
+            errors.push(format!("duplicate person `{}` in people:", p));
         }
     }
 
@@ -160,9 +171,10 @@ pub fn lint_one(
     content_dir: &Path,
     known_fronts: &HashSet<String>,
     known_slugs: &HashSet<String>,
+    known_people: &HashSet<String>,
 ) -> (Vec<String>, Vec<String>) {
     let mut errors = tf.fm_errors.clone();
-    errors.extend(check_frontmatter(slug, &tf.meta, known_fronts, known_slugs));
+    errors.extend(check_frontmatter(slug, &tf.meta, known_fronts, known_slugs, known_people));
     let mut warnings = tf.fm_warnings.clone();
     let (body_errors, body_warnings) = check_body(tf, content_dir, known_slugs);
     errors.extend(body_errors);
@@ -188,6 +200,10 @@ pub fn lint_all(content_dir: &Path, data_dir: &Path) -> Result<Vec<FileReport>, 
     let slugs = list_thread_slugs(&tdir);
     let known_slugs: HashSet<String> = slugs.iter().cloned().collect();
     let known_fronts: HashSet<String> = load_fronts(data_dir)?.into_iter().collect();
+    let known_people: HashSet<String> =
+        crate::util::list_people_slugs(&crate::util::people_dir(content_dir))
+            .into_iter()
+            .collect();
 
     let mut parsed: HashMap<String, ThreadFile> = HashMap::new();
     let mut metas: HashMap<String, FrontMatter> = HashMap::new();
@@ -205,7 +221,8 @@ pub fn lint_all(content_dir: &Path, data_dir: &Path) -> Result<Vec<FileReport>, 
     let mut reports = Vec::new();
     for slug in &slugs {
         let tf = &parsed[slug];
-        let (mut errors, warnings) = lint_one(slug, tf, content_dir, &known_fronts, &known_slugs);
+        let (mut errors, warnings) =
+            lint_one(slug, tf, content_dir, &known_fronts, &known_slugs, &known_people);
         for cyc in &cycles {
             if cyc.first() == Some(slug) {
                 errors.push(format!("cycle in parent graph: {}", cyc.join(" -> ")));

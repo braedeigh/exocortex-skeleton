@@ -13,6 +13,10 @@ pub struct FrontMatter {
     pub aliases: Vec<String>,
     pub fronts: Vec<String>,
     pub parents: Vec<String>,
+    /// The thread's cast — person-file slugs (`people/<slug>.md`) this thread
+    /// is about. People are NOT threads; they're assigned into threads here.
+    /// Optional, may be empty.
+    pub people: Vec<String>,
     pub kind: String,
     pub status: String,
     pub opened: String,
@@ -136,8 +140,8 @@ pub fn parse_thread_file(text: &str) -> ThreadFile {
                 let kv = parse_kv_block(&block);
                 let mut m = FrontMatter::default();
                 let known_keys = [
-                    "name", "aliases", "fronts", "parents", "kind", "status", "opened",
-                    "retired", "distilled",
+                    "name", "aliases", "fronts", "parents", "people", "kind", "status",
+                    "opened", "retired", "distilled",
                 ];
                 for (k, v) in kv {
                     match k.as_str() {
@@ -145,6 +149,7 @@ pub fn parse_thread_file(text: &str) -> ThreadFile {
                         "aliases" => m.aliases = parse_list(&v),
                         "fronts" => m.fronts = parse_list(&v),
                         "parents" => m.parents = parse_list(&v),
+                        "people" => m.people = parse_list(&v),
                         "kind" => m.kind = v,
                         "status" => m.status = v,
                         "opened" => m.opened = v,
@@ -433,6 +438,7 @@ pub fn render_frontmatter(m: &FrontMatter) -> String {
     out.push_str(&format!("aliases: {}\n", format_list(&m.aliases)));
     out.push_str(&format!("fronts: {}\n", format_list(&m.fronts)));
     out.push_str(&format!("parents: {}\n", format_list(&m.parents)));
+    out.push_str(&format!("people: {}\n", format_list(&m.people)));
     out.push_str(&format!("kind: {}\n", m.kind));
     out.push_str(&format!("status: {}\n", m.status));
     out.push_str(&format!("opened: {}\n", m.opened));
