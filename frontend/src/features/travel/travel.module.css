@@ -1,0 +1,506 @@
+/* Travel tab — trips with packing lists. Follows the inventory tab's card
+ * idiom (details.section, chevron summary) on theme.css custom properties.
+ * Touch-first: this page gets used one-handed over an open suitcase, so
+ * interactive things are >=40px tall and the packed checkbox row is the
+ * biggest target on the page. */
+
+.page {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--space-4);
+  padding-bottom: calc(var(--space-8) + 64px);
+}
+
+.loading,
+.error {
+  padding: var(--space-6);
+  color: var(--text-muted);
+  font-size: 14px;
+}
+.error {
+  color: var(--red);
+}
+
+/* --- header row --- */
+
+.headerRow {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+.pageTitle {
+  font-size: var(--font-size-2xl);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  margin: 0;
+}
+.newTripBtn {
+  min-height: 40px;
+  padding: 6px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.newTripBtn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* --- collapsible section (inventory idiom) --- */
+
+.section {
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xl);
+  background: rgba(124, 92, 191, 0.025);
+  box-shadow: var(--shadow-card);
+  margin-bottom: 10px;
+  padding: 2px 14px 8px;
+  transition: border-color 0.18s, background 0.18s, box-shadow 0.18s;
+}
+.section[open] {
+  background: rgba(124, 92, 191, 0.06);
+}
+.summary {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  cursor: pointer;
+  padding: var(--space-2) 0;
+  min-height: 40px;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  border-radius: var(--radius-sm);
+  transition: background 0.15s;
+}
+.summary::-webkit-details-marker {
+  display: none;
+}
+.summary::before {
+  content: '\25B6';
+  font-size: 12px;
+  color: var(--text-muted);
+  transition: transform 0.15s, color 0.15s;
+  display: inline-block;
+  flex: 0 0 auto;
+}
+.section[open] > .summary::before {
+  transform: rotate(90deg);
+  color: var(--accent);
+}
+.summary:hover {
+  background: rgba(124, 92, 191, 0.05);
+}
+.section[open] > .summary {
+  border-bottom: 1px dashed rgba(124, 92, 191, 0.18);
+  margin-bottom: 4px;
+}
+.sectionBody {
+  padding-top: 4px;
+}
+
+/* --- trip summary line bits --- */
+
+.tripDates {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.statusChip {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 12px;
+  white-space: nowrap;
+  color: #fff;
+}
+.statusPlanning {
+  background: var(--text-muted);
+}
+.statusPacking {
+  background: var(--morning, #d4880a);
+}
+.statusAway {
+  background: var(--accent);
+}
+.statusHome {
+  background: var(--green, #27ae60);
+}
+.progressText {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+/* --- trip body --- */
+
+.tripMetaRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: 4px 0 8px;
+}
+.tripDestination {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-right: auto;
+}
+.tripNotes {
+  font-size: 13px;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  padding: 0 0 8px;
+}
+.advanceBtn {
+  min-height: 40px;
+  padding: 6px 16px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.advanceBtn:hover {
+  filter: brightness(1.08);
+}
+.ghostBtn {
+  min-height: 40px;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.ghostBtn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.dangerBtn {
+  composes: ghostBtn;
+}
+.dangerBtn:hover {
+  color: var(--red);
+  border-color: var(--red);
+}
+
+/* --- packing list --- */
+
+.reckonHint {
+  font-size: 13px;
+  color: var(--text-secondary);
+  padding: 2px 0 8px;
+}
+.itemList {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+}
+.itemRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 44px;
+  padding: 2px 0;
+  border-bottom: 1px dashed rgba(124, 92, 191, 0.12);
+}
+.itemRow:last-child {
+  border-bottom: none;
+}
+.itemCheck {
+  flex: 1;
+  min-width: 0;
+}
+.itemName {
+  font-size: 14px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.itemPacked .itemName {
+  color: var(--text-secondary);
+}
+.itemMeta {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-left: 6px;
+  white-space: nowrap;
+}
+.srcChip {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 10px;
+  margin-left: 6px;
+  vertical-align: 1px;
+  color: var(--accent);
+  background: rgba(124, 92, 191, 0.12);
+}
+.itemNotes {
+  font-size: 12px;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+.removeBtn {
+  flex: 0 0 auto;
+  min-width: 40px;
+  min-height: 40px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+.removeBtn:hover {
+  color: var(--red);
+  background: rgba(231, 76, 60, 0.08);
+}
+.removeConfirm {
+  color: var(--red);
+  font-size: 12px;
+}
+
+/* the reckoning: Home / Left / Lost segmented control */
+.reckonGroup {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+.reckonBtn {
+  min-height: 40px;
+  min-width: 52px;
+  padding: 4px 10px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.reckonBtn + .reckonBtn {
+  border-left: 1px solid var(--border-soft);
+}
+.reckonHome[aria-pressed='true'] {
+  background: rgba(39, 174, 96, 0.15);
+  color: var(--green, #27ae60);
+}
+.reckonLeft[aria-pressed='true'] {
+  background: rgba(212, 136, 10, 0.15);
+  color: var(--morning, #d4880a);
+}
+.reckonLost[aria-pressed='true'] {
+  background: rgba(231, 76, 60, 0.15);
+  color: var(--red);
+}
+.notPacked {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+  white-space: nowrap;
+}
+
+/* --- add-item bar --- */
+
+.addBar {
+  position: relative;
+  display: flex;
+  gap: var(--space-2);
+  padding: 4px 0 8px;
+}
+.addInput {
+  flex: 1;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+}
+.addInput:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.addBtn {
+  min-height: 44px;
+  padding: 6px 18px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--accent);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.addBtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.suggestions {
+  position: absolute;
+  top: calc(100% - 4px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  background: var(--card-bg, var(--bg));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+.suggestionRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 44px;
+  padding: 6px 12px;
+  border: none;
+  background: none;
+  color: var(--text);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+.suggestionRow:hover {
+  background: rgba(124, 92, 191, 0.08);
+}
+.suggestionThumb {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  background: rgba(124, 92, 191, 0.1);
+}
+.suggestionMeta {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* --- templates section --- */
+
+.templateRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 44px;
+  border-bottom: 1px dashed rgba(124, 92, 191, 0.12);
+}
+.templateRow:last-child {
+  border-bottom: none;
+}
+.templateName {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.templateCount {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.emptyText {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-style: italic;
+  padding: 6px 0 10px;
+}
+
+/* --- trip modal form --- */
+
+.formGrid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: var(--space-3) 0;
+}
+.formLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.formInput,
+.formTextarea {
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+}
+.formTextarea {
+  min-height: 70px;
+  resize: vertical;
+}
+.formInput:focus,
+.formTextarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.formDatesRow {
+  display: flex;
+  gap: var(--space-3);
+}
+.formDatesRow > * {
+  flex: 1;
+}
+.modalTitle {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0;
+}
+.modalButtons {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.templatePickLabel {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 2px;
+}

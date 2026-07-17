@@ -53,6 +53,7 @@ const PUBLIC_OPTIONAL_TABS: readonly LegacyTab[] = (['ecosystem'] as const).filt
 const ALWAYS_MORE_TABS: ReadonlyArray<{ tab: LegacyTab; label: string }> = [
   { tab: 'people', label: 'People' },
   { tab: 'inventory', label: 'Inventory' },
+  { tab: 'travel', label: 'Travel' },
   { tab: 'housing', label: 'Housing' },
   { tab: 'car', label: 'Car Maintenance' },
 ].filter((entry): entry is { tab: LegacyTab; label: string } => isValidTab(entry.tab));

@@ -1,5 +1,5 @@
 /**
- * The 14 dashboard tabs — all native SPA routes (see TAB_ROUTES). Order
+ * The 15 dashboard tabs — all native SPA routes (see TAB_ROUTES). Order
  * matches the old dashboard's tab order; "Legacy" in the type names is
  * historical (the Flask /tab/<name> pages are gone).
  */
@@ -18,6 +18,7 @@ export const VALID_TABS = [
   'ecosystem',
   'housing',
   'people',
+  'travel',
 ] as const;
 
 export type LegacyTab = (typeof VALID_TABS)[number];
@@ -47,6 +48,7 @@ export const TAB_META: Record<LegacyTab, TabMeta> = {
   ecosystem: { key: 'ecosystem', label: 'Ecosystem', icon: '🌱' },
   housing: { key: 'housing', label: 'Housing', icon: '🏠' },
   people: { key: 'people', label: 'People', icon: '👥' },
+  travel: { key: 'travel', label: 'Travel', icon: '🧳' },
 };
 
 /**
@@ -68,6 +70,7 @@ export const TAB_ROUTES: Record<LegacyTab, string> = {
   ecosystem: '/ecosystem',
   housing: '/housing',
   people: '/people',
+  travel: '/travel',
 };
 
 export function tabForPath(pathname: string): LegacyTab | null {

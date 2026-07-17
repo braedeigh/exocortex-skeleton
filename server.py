@@ -25,7 +25,7 @@ from routes import (
     devnotes, ideas, ecosystem, keeper, pending, housing, triage, decisions,
     entities, threads, person, shell, cards, archivals, research,
     research_search, research_sources, research_import, research_text,
-    annotations, spa, fronts, wiki,
+    annotations, spa, fronts, wiki, travel,
 )
 from routes.shell import VALID_TABS
 
@@ -1189,6 +1189,7 @@ threads.register(app)
 person.register(app)
 cards.register(app)
 wiki.register(app)
+travel.register(app)
 
 # --- Startup ---
 validate_on_startup(app)
