@@ -1,0 +1,198 @@
+/* WikiThread — the /wiki/<slug> per-thread article. Page chrome + infobox
+   mirror WikiHome.module.css; the cited-cards area reuses ThreadsPage's own
+   card styles via ThreadCards (that component imports ThreadsPage.module.css
+   directly), so this file only styles what's unique to the article shell:
+   the back-link, the infobox's plain (non-filter) chips, and Related. */
+
+.page {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  padding-bottom: var(--space-8);
+}
+
+.backLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-2);
+  width: fit-content;
+  color: var(--accent);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.backLink:hover {
+  text-decoration: underline;
+}
+
+.empty {
+  color: var(--text-muted);
+  font-size: var(--font-size-base);
+  padding: var(--space-4) 0;
+}
+
+.title {
+  font-size: var(--font-size-2xl);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  margin: 0;
+}
+
+/* --- Infobox: same weight as WikiHome's, but rows of plain fact chips
+   (fronts / cast / parents) rather than single label+value lines only. --- */
+.infobox {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.infoRow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-height: var(--tap-target);
+  justify-content: center;
+  padding: var(--space-1) 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.infoRow:last-child {
+  border-bottom: none;
+}
+
+.infoLabel {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.infoValue {
+  font-size: var(--font-size-base);
+  color: var(--text);
+}
+
+.chipRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.plainChip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--tap-target);
+  padding: var(--space-1) var(--space-3);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  text-decoration: none;
+  box-sizing: border-box;
+}
+
+a.plainChip {
+  color: var(--accent);
+}
+
+a.plainChip:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+/* Redlink: a person/thread page that doesn't exist (yet) — still a real
+   link (it could be written later), but visibly unlinked/muted so it
+   doesn't read as a live, working page. Same convention as WikiHome. */
+.redlink {
+  color: var(--text-muted);
+  border-style: dashed;
+  background: none;
+  font-weight: 400;
+  font-style: italic;
+}
+
+.redlink:hover {
+  border-color: var(--text-muted);
+  background: color-mix(in srgb, var(--text-muted) 10%, transparent);
+}
+
+/* --- Cited fact-cards: ThreadCards renders these; this wrapper just gives
+   the block the same horizontal rhythm as the rest of the article. --- */
+.cards {
+  display: flex;
+  flex-direction: column;
+}
+
+/* --- Related: parent/child thread links. --- */
+.sectionTitle {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin: 0 0 var(--space-2);
+}
+
+.related {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
+.relatedGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.relatedGroupLabel {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.relatedList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.relatedLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-target);
+  padding: var(--space-1) var(--space-3);
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--accent);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  text-decoration: none;
+  box-sizing: border-box;
+}
+
+.relatedLink:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+}

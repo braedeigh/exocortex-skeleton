@@ -1,0 +1,352 @@
+/* WikiHome — the /wiki front door. Page chrome mirrors ThreadsPage.module.css
+   (same tokens: --space-*, --font-size-*, --tap-target, --card-bg, --accent);
+   the infobox stacks under the lead on narrow screens (grid-template-areas
+   below) and sits to its right at the desktop breakpoint (769px, same as
+   shell/useMediaQuery's DESKTOP_QUERY). */
+
+.page {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-areas:
+    'title'
+    'lead'
+    'infobox'
+    'organized'
+    'fronts'
+    'threads'
+    'people'
+    'howto';
+  gap: var(--space-5);
+  align-items: start;
+  padding: var(--space-4);
+  padding-bottom: var(--space-8);
+}
+
+@media (min-width: 769px) {
+  .page {
+    grid-template-columns: 1fr 300px;
+    column-gap: var(--space-6, var(--space-5));
+    grid-template-areas:
+      'title     title'
+      'lead      infobox'
+      'organized infobox'
+      'fronts    fronts'
+      'threads   threads'
+      'people    people'
+      'howto     howto';
+  }
+}
+
+.empty {
+  color: var(--text-muted);
+  font-size: var(--font-size-base);
+  padding: var(--space-4) 0;
+}
+
+.emptyInline {
+  color: var(--text-muted);
+  font-size: var(--font-size-base);
+}
+
+.title {
+  grid-area: title;
+  font-size: var(--font-size-2xl);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  margin: 0;
+}
+
+.lead {
+  grid-area: lead;
+  font-size: var(--font-size-base);
+  line-height: 1.6;
+  color: var(--text);
+  margin: 0;
+}
+
+/* "How this is organized" — the fronts blurb, right after the lead. Normal
+   body text (not the quiet footer style "How to read this" uses below). */
+.organizedBlurb {
+  grid-area: organized;
+  font-size: var(--font-size-base);
+  line-height: 1.6;
+  color: var(--text);
+  margin: 0;
+}
+
+/* --- Infobox: small labeled facts panel, same visual weight as the thread
+   front/people chips (card background, bordered, comfortable padding). --- */
+.infobox {
+  grid-area: infobox;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-self: start;
+}
+
+.infoRow {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: var(--tap-target);
+  justify-content: center;
+  padding: var(--space-1) 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.infoRow:last-child {
+  border-bottom: none;
+}
+
+.infoLabel {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.infoValue {
+  font-size: var(--font-size-base);
+  color: var(--text);
+}
+
+/* --- Section titles shared by Right now / By front / People --- */
+.sectionTitle {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin: 0 0 var(--space-2);
+}
+
+.frontsRow,
+.threadsIndex,
+.people {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.frontsRow {
+  grid-area: fronts;
+}
+
+.threadsIndex {
+  grid-area: threads;
+}
+
+.people {
+  grid-area: people;
+}
+
+/* --- Chips: mirror ThreadsPage's frontChip/personChip weight, but as real
+   ~40px tap-target links. --- */
+.chipList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--tap-target);
+  padding: var(--space-1) var(--space-3);
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--accent);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  text-decoration: none;
+  box-sizing: border-box;
+}
+
+.chip:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+/* Front chips double as a FILTER control (like ThreadsPage's lens chips):
+   a <button>, not a link — clicking toggles the browse index below between
+   "grouped by every front" and "flat list of just this front". Same visual
+   weight as .chip, plus button resets and an active state. */
+.filterChip {
+  font-family: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.filterChipActive {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+
+/* Redlink: a person page that doesn't exist yet — still a real link (it
+   could be written later), but visibly unlinked/muted so it doesn't read
+   as a live, working page. */
+.redlink {
+  color: var(--text-muted);
+  border-style: dashed;
+  background: none;
+  font-weight: 400;
+  font-style: italic;
+}
+
+.redlink:hover {
+  border-color: var(--text-muted);
+  background: color-mix(in srgb, var(--text-muted) 10%, transparent);
+}
+
+/* --- Thread browse index: grouped-by-front (no filter) or a flat list
+   (a front selected) — see wikiThreadIndex.ts for the grouping/filter logic
+   itself. Each thread is a full-row link to /wiki/<slug>. --- */
+.threadGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.threadGroupTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--text-secondary);
+  margin: var(--space-2) 0 0;
+}
+
+.threadList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.threadRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: var(--tap-target);
+  padding: var(--space-2) var(--space-3);
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  color: var(--text);
+  text-decoration: none;
+  box-sizing: border-box;
+  flex-wrap: wrap;
+}
+
+.threadRow:hover {
+  border-color: var(--accent);
+}
+
+/* Dormant threads still browse normally, just visually quieted. */
+.threadRowDormant {
+  opacity: 0.65;
+}
+
+.threadRowMain {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.threadRowEmoji {
+  flex-shrink: 0;
+  font-size: var(--font-size-lg);
+}
+
+.threadRowText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.threadRowName {
+  font-size: var(--font-size-base);
+  font-weight: 700;
+  color: var(--accent);
+}
+
+/* Slot for a future per-thread generated one-line summary — rendered only
+   when `thread.summary` exists (see wikiThreadIndex.ts / useWikiHome.ts). */
+.threadRowSummary {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.threadRowFronts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.threadRowFrontChip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.threadRowBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--text-muted) 20%, transparent);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* --- How to read this: quiet, a note to the reader/LLM, not a wiki fact. -- */
+.howToRead {
+  grid-area: howto;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
+.sectionTitleQuiet {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-muted);
+  margin: 0 0 var(--space-2);
+}
+
+.howToReadText {
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+  color: var(--text-muted);
+  margin: 0;
+  font-style: italic;
+}
