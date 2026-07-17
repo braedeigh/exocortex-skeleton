@@ -59,6 +59,33 @@ export function orderedTopics(topics: Topic[], entries: Entry[]): Topic[] {
   });
 }
 
+export type ThreadSortMode = 'recent' | 'name' | 'attention';
+
+/** Threads directory sort — 'recent' is just orderedTopics (status rank then
+ * latest activity); 'name' is a plain A-Z; 'attention' surfaces threads that
+ * want her eyes first (unreviewed llm answers, then open questions), falling
+ * back to recent order for ties. */
+export function sortTopics(topics: Topic[], entries: Entry[], mode: ThreadSortMode): Topic[] {
+  if (mode === 'name') {
+    return topics.slice().sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+  }
+  if (mode === 'attention') {
+    const recent = orderedTopics(topics, entries);
+    const recentRank: Record<string, number> = {};
+    recent.forEach((t, i) => {
+      recentRank[t.id] = i;
+    });
+    return topics.slice().sort((a, b) => {
+      const sa = topicStats(a.id, entries);
+      const sb = topicStats(b.id, entries);
+      if (sa.unreviewed !== sb.unreviewed) return sb.unreviewed - sa.unreviewed;
+      if (sa.open !== sb.open) return sb.open - sa.open;
+      return recentRank[a.id] - recentRank[b.id];
+    });
+  }
+  return orderedTopics(topics, entries);
+}
+
 // --- Question lifecycle ---
 
 export type AnswerState = 'waiting' | 'fresh' | 'settled';

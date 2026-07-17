@@ -18,6 +18,7 @@ import {
   resolveDocOwner,
   reviewedSince,
   roundMagnitude,
+  sortTopics,
   threadStructure,
   topicStats,
   unfiledEntries,
@@ -58,6 +59,41 @@ describe('orderedTopics', () => {
     ];
     const before = topics.map((t) => t.id);
     expect(orderedTopics(topics, []).map((t) => t.id)).toEqual(['active', 'weird']);
+    expect(topics.map((t) => t.id)).toEqual(before);
+  });
+});
+
+describe('sortTopics', () => {
+  const topics: Topic[] = [
+    { id: 'zeta', name: 'Zeta thread', status: 'active' },
+    { id: 'alpha', name: 'alpha thread', status: 'active' },
+    { id: 'mid', name: 'Mid thread', status: 'active' },
+  ];
+  const entries: Entry[] = [
+    entry({ id: 'e-zeta', topics: ['zeta'], created: '2026-06-01 10:00' }),
+    entry({ id: 'e-alpha', topics: ['alpha'], created: '2026-01-01 10:00' }),
+    entry({ id: 'e-mid', topics: ['mid'], created: '2026-03-01 10:00' }),
+    entry({ id: 'e-mid-llm', topics: ['mid'], author: 'llm', reviewed: false, created: '2026-03-02 10:00' }),
+  ];
+
+  it("'recent' matches orderedTopics (latest activity first)", () => {
+    expect(sortTopics(topics, entries, 'recent').map((t) => t.id)).toEqual(
+      orderedTopics(topics, entries).map((t) => t.id),
+    );
+    expect(sortTopics(topics, entries, 'recent').map((t) => t.id)).toEqual(['zeta', 'mid', 'alpha']);
+  });
+
+  it("'name' sorts case-insensitively A-Z", () => {
+    expect(sortTopics(topics, entries, 'name').map((t) => t.id)).toEqual(['alpha', 'mid', 'zeta']);
+  });
+
+  it("'attention' surfaces unreviewed llm answers first, then falls back to recent order", () => {
+    expect(sortTopics(topics, entries, 'attention').map((t) => t.id)).toEqual(['mid', 'zeta', 'alpha']);
+  });
+
+  it('does not mutate the input topics array', () => {
+    const before = topics.map((t) => t.id);
+    sortTopics(topics, entries, 'name');
     expect(topics.map((t) => t.id)).toEqual(before);
   });
 });

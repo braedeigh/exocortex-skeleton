@@ -1,25 +1,52 @@
 /**
  * ThreadsDirectory.tsx — the Threads card plus the new-thread row at the
  * bottom of the main view. Front FILTER pills sit up top (kept as buttons —
- * her call); the threads themselves render as an iMessage-style stack of
- * lines copied from the /sessions terminal switcher (SessionListPage): name,
- * a badge/meta row, and the thread's latest entry as a line-clamped recap.
+ * her call); the threads themselves always render as a flat stack of
+ * iMessage-style lines copied from the /sessions terminal switcher
+ * (SessionListPage): name, a badge/meta row, and the thread's latest entry
+ * as a line-clamped recap. She'd rather see which front a thread is in via
+ * a small tap-to-filter chip on the row than have the list chopped into
+ * front sections, so there's no grouping here — just a sort control to
+ * browse the flat list a different way (recent / A-Z / attention).
  *
- * With "All" selected the stack groups under front section labels (a thread
- * carrying several fronts files under its first); a specific filter renders
- * flat. The selected filter is lifted to ResearchPage.tsx so NewThreadRow can
- * read it too (a new thread created while a specific front is selected
- * auto-tags with it).
+ * The selected front filter is lifted to ResearchPage.tsx so NewThreadRow
+ * can read it too (a new thread created while a specific front is selected
+ * auto-tags with it). The sort mode is local, persisted to localStorage.
  */
 
 import { useMemo, useState } from 'react';
 import { Card } from './Card';
-import { orderedTopics, plural, topicStats } from './helpers';
+import { orderedTopics, plural, sortTopics, topicStats, type ThreadSortMode } from './helpers';
 import { useResearchCtx } from './ResearchContext';
 import { useFronts } from './useResearchData';
 import { FRONT_EMOJI, type Front } from '../fronts/useFronts';
 import type { Entry, Topic } from './types';
 import styles from './ResearchPage.module.css';
+
+const SORT_KEY = 'rsrch-thread-sort';
+const SORT_MODES: { mode: ThreadSortMode; label: string }[] = [
+  { mode: 'recent', label: 'Recent' },
+  { mode: 'name', label: 'A–Z' },
+  { mode: 'attention', label: 'Attention' },
+];
+
+function readSortMode(): ThreadSortMode {
+  try {
+    const raw = localStorage.getItem(SORT_KEY);
+    if (raw === 'recent' || raw === 'name' || raw === 'attention') return raw;
+  } catch {
+    // storage blocked — fall through to the default
+  }
+  return 'recent';
+}
+
+function writeSortMode(mode: ThreadSortMode): void {
+  try {
+    localStorage.setItem(SORT_KEY, mode);
+  } catch {
+    // storage full/blocked — sort choice just won't persist
+  }
+}
 
 function topicFronts(t: Topic): string[] {
   return t.fronts ?? [];
@@ -48,17 +75,69 @@ function latestByTopic(entries: Entry[]): Record<string, Entry> {
   return latest;
 }
 
-function ThreadLine({ topic, latest }: { topic: Topic; latest: Entry | undefined }) {
+function ThreadLine({
+  topic,
+  latest,
+  fronts,
+  onFilterFront,
+}: {
+  topic: Topic;
+  latest: Entry | undefined;
+  fronts: Front[];
+  onFilterFront: (id: string) => void;
+}) {
   const { state, actions } = useResearchCtx();
   const stats = topicStats(topic.id, state.entries);
   const updated = ago(latest?.created);
+  const fronts_ = topicFronts(topic);
+  const openThread = () => actions.openThread(topic.id);
+
+  function filterFront(fid: string, e: React.MouseEvent) {
+    e.stopPropagation();
+    onFilterFront(fid);
+  }
+
   return (
-    <button type="button" className={styles.threadLine} onClick={() => actions.openThread(topic.id)}>
+    <div
+      className={styles.threadLine}
+      role="button"
+      tabIndex={0}
+      onClick={openThread}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          openThread();
+        }
+      }}
+    >
       <span className={styles.threadLineTop}>
         <span className={styles.threadLineName}>{topic.name}</span>
         <span className={styles.dirChevron}>&#8250;</span>
       </span>
       <span className={styles.threadLineMeta}>
+        {fronts_.length ? (
+          fronts_.map((fid) => {
+            const f = fronts.find((x) => x.id === fid);
+            return (
+              <button
+                type="button"
+                key={fid}
+                className={styles.threadFrontChip}
+                onClick={(e) => filterFront(fid, e)}
+              >
+                {FRONT_EMOJI[fid] ?? '🏷️'} {f ? f.name : fid}
+              </button>
+            );
+          })
+        ) : (
+          <button
+            type="button"
+            className={`${styles.threadFrontChip} ${styles.threadFrontChipMuted}`}
+            onClick={(e) => filterFront('unassigned', e)}
+          >
+            🏷️ Unassigned
+          </button>
+        )}
         <span className={styles.threadLineCount}>
           {stats.count} {plural(stats.count, 'entry', 'entries')}
         </span>
@@ -79,7 +158,7 @@ function ThreadLine({ topic, latest }: { topic: Topic; latest: Entry | undefined
       ) : (
         <span className={styles.threadLineRecap}>Nothing here yet.</span>
       )}
-    </button>
+    </div>
   );
 }
 
@@ -92,6 +171,12 @@ export function ThreadsDirectoryCard({ frontFilter, onFrontFilterChange }: Threa
   const { state } = useResearchCtx();
   const frontsQuery = useFronts();
   const fronts = frontsQuery.data ?? [];
+  const [sortMode, setSortMode] = useState<ThreadSortMode>(() => readSortMode());
+
+  function changeSort(mode: ThreadSortMode) {
+    setSortMode(mode);
+    writeSortMode(mode);
+  }
 
   const topics = orderedTopics(state.topics, state.entries);
   const latest = useMemo(() => latestByTopic(state.entries), [state.entries]);
@@ -109,25 +194,11 @@ export function ThreadsDirectoryCard({ frontFilter, onFrontFilterChange }: Threa
     if (frontFilter === 'unassigned') return topicFronts(t).length === 0;
     return topicFronts(t).includes(frontFilter);
   });
+  const sorted = sortTopics(filtered, state.entries, sortMode);
 
-  // "All" groups by each topic's first front, section order following
-  // fronts.json; frontless topics gather under Uncategorized at the end.
-  const sections = useMemo(() => {
-    if (frontFilter !== 'all') return null;
-    const byFront: Record<string, Topic[]> = {};
-    for (const t of filtered) {
-      const key = topicFronts(t)[0] ?? '__none__';
-      (byFront[key] = byFront[key] ?? []).push(t);
-    }
-    const out: { front: Front | null; topics: Topic[] }[] = [];
-    for (const f of fronts) {
-      if (byFront[f.id]) out.push({ front: f, topics: byFront[f.id] });
-    }
-    if (byFront.__none__) out.push({ front: null, topics: byFront.__none__ });
-    return out;
-  }, [frontFilter, filtered, fronts]);
-
-  const line = (t: Topic) => <ThreadLine key={t.id} topic={t} latest={latest[t.id]} />;
+  const line = (t: Topic) => (
+    <ThreadLine key={t.id} topic={t} latest={latest[t.id]} fronts={fronts} onFilterFront={onFrontFilterChange} />
+  );
 
   return (
     <Card cardId="research-threads" defaultOpen title="Threads" count={topics.length}>
@@ -162,19 +233,20 @@ export function ThreadsDirectoryCard({ frontFilter, onFrontFilterChange }: Threa
           ) : null}
         </div>
       ) : null}
+      <div className={styles.composerChips}>
+        {SORT_MODES.map(({ mode, label }) => (
+          <button
+            type="button"
+            key={mode}
+            className={`${styles.chip} ${sortMode === mode ? styles.chipActive : ''}`}
+            onClick={() => changeSort(mode)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
       {filtered.length ? (
-        sections ? (
-          sections.map(({ front, topics: ts }) => (
-            <div key={front?.id ?? '__none__'}>
-              <div className={styles.threadSection}>
-                {front ? `${FRONT_EMOJI[front.id] ? `${FRONT_EMOJI[front.id]} ` : ''}${front.name}` : '🏷️ Uncategorized'}
-              </div>
-              <div className={styles.threadStack}>{ts.map(line)}</div>
-            </div>
-          ))
-        ) : (
-          <div className={styles.threadStack}>{filtered.map(line)}</div>
-        )
+        <div className={styles.threadStack}>{sorted.map(line)}</div>
       ) : (
         <div className={styles.emptyNote}>
           {topics.length ? 'No threads match this front.' : 'No threads yet — add one below.'}

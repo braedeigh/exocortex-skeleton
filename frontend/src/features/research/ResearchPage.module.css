@@ -882,17 +882,9 @@
 /* --- Thread directory ------------------------------------------------------
  * iMessage-style thread lines, pattern copied from the /sessions terminal
  * switcher (shell/SessionListPage.module.css): name row, badge/meta row,
- * line-clamped recap of the latest entry, grouped under front section labels
- * while the "All" filter is selected. */
-
-.threadSection {
-  margin: var(--space-3) 0 var(--space-1);
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
+ * line-clamped recap of the latest entry. Always a flat stack — front is
+ * shown per-row as a tap-to-filter chip (.threadFrontChip below) rather than
+ * grouping the list into front sections. */
 
 .threadStack {
   display: flex;
@@ -984,6 +976,35 @@
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+/* Tap-to-filter front chip(s) inline in a thread line's meta row. Sized
+ * like the filter .chip above (36px, not the full 44px tap-target) — that's
+ * this file's own precedent for pill-style secondary controls, and a row of
+ * full-height chips stacked next to the count/badges would blow out row
+ * density. Still real buttons with generous horizontal padding, never below
+ * the 12px text floor. */
+.threadFrontChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 30px;
+  box-sizing: border-box;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+}
+
+.threadFrontChipMuted {
+  color: var(--text-muted);
+  border-style: dashed;
 }
 
 .dirChevron {
