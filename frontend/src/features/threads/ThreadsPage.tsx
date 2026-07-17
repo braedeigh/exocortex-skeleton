@@ -9,6 +9,7 @@ import type { Thread, ThreadSource } from '../journal/types';
 import { FRONT_EMOJI, useFronts } from '../fronts/useFronts';
 import type { Front } from '../fronts/useFronts';
 import { CollapsibleCard } from '../body/CollapsibleCard';
+import { ThreadCards } from './ThreadCards';
 import {
   alsoUnder,
   anyThreadHasFronts,
@@ -582,43 +583,14 @@ function ThreadBody({ id, fronts, frontsList, alsoUnderNames, grandchildren, onJ
   if (isLoading) return <div className={styles.bodyNote}>Loading…</div>;
   if (!data) return <div className={styles.bodyNote}>{isError ? 'Couldn’t load this thread.' : 'No thread found.'}</div>;
 
-  let lastHeading: string | null = null;
-
   return (
     <div className={styles.body}>
       {frontChips}
       {peopleChips}
       {alsoUnderNote}
       {data.status ? <div className={styles.status}>{data.status}</div> : null}
-      {data.cards.length === 0 ? <div className={styles.bodyNote}>No facts recorded yet.</div> : null}
 
-      {data.cards.map((c, i) => {
-        const showHeading = !!c.heading && c.heading !== lastHeading;
-        lastHeading = c.heading || lastHeading;
-        return (
-          <Fragment key={i}>
-            {showHeading ? <div className={styles.section}>{c.heading}</div> : null}
-            <div className={styles.factCard}>
-              {c.text ? <div className={styles.factText}>{c.text}</div> : null}
-              {c.sources.length > 0 ? (
-                <div className={styles.sources}>
-                  {c.sources.map((s, j) =>
-                    s.kind === 'keeper' ? (
-                      <a key={j} className={styles.sourceChip} href={`/files?path=${encodeURIComponent(s.val)}`}>
-                        {s.label} &rarr;
-                      </a>
-                    ) : (
-                      <button key={j} type="button" className={styles.sourceChip} onClick={() => sourceClick(s)}>
-                        {s.label} &rarr;
-                      </button>
-                    ),
-                  )}
-                </div>
-              ) : null}
-            </div>
-          </Fragment>
-        );
-      })}
+      <ThreadCards cards={data.cards} onSourceClick={sourceClick} />
 
       {grandchildNote}
 
