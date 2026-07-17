@@ -98,8 +98,13 @@ def send_prompt(session, text, delay=4.0, block=False):
     def _send():
         time.sleep(delay)
         safe = text.replace("'", "'\\''")
-        tmux(f"send-keys -t '={session}' -l '{safe}'")
-        tmux(f"send-keys -t '={session}' Enter")
+        # '={session}:' — the '=' keeps the exact-name match (so rw-...-1148
+        # doesn't prefix-collide with rw-...-1148-10), and the trailing ':'
+        # makes it a valid *pane* target. Bare '={session}' resolves for
+        # has-session but send-keys wants a pane and rejects it ("can't find
+        # pane"), so the prompt was silently never typed.
+        tmux(f"send-keys -t '={session}:' -l '{safe}'")
+        tmux(f"send-keys -t '={session}:' Enter")
     if block:
         _send()
     else:
