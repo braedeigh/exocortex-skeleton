@@ -55,6 +55,7 @@ import fcntl
 import os
 import re
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -67,6 +68,7 @@ if SKELETON not in sys.path:
 
 import store  # noqa: E402
 from routes.kitchen import shared  # noqa: E402
+from scripts import research_ctl  # noqa: E402
 
 LOCK_NAME = "research_dispatcher.lock"
 MAX_CONCURRENT = 3
@@ -227,6 +229,32 @@ def spawn_worker(session_id, mode, target_id):
     # block=True: this script exits right after run_once — the default
     # daemon-thread send would die with the process before ever typing.
     shared.send_prompt(tmux_name, prompt, block=True)
+
+    # Blocking sessionId-capture tail (dev_todo.md Step D2). This script
+    # exits right after spawning — unlike the route handlers in
+    # routes/research.py, which stay alive inside the long-lived gunicorn
+    # process and capture via a daemon thread instead
+    # (_capture_session_id_async) — so if this doesn't happen inline, before
+    # the process exits, it never happens at all.
+    #
+    # Chose this deterministic, code-enforced capture over the alternative
+    # the brief floated — having the WORKER record its own sessionId as part
+    # of its APPLY step. That would mean teaching a new step to the worker's
+    # CLAUDE.md skill, which is *prompt*-enforced: an LLM agent could simply
+    # forget it on a bad day. That's the exact failure mode research_ctl.py's
+    # own module docstring describes retiring (prompt-enforced contracts ->
+    # code-enforced verbs). One admission per dispatcher run already pays a
+    # "let memory settle" cost by design (see module docstring); an extra
+    # ~7s blocking tail here, once per admission (at most once per minute of
+    # cron cadence), is a small, deliberate addition to that same cost, not
+    # a new problem — and per the hard rule, any failure here (dead tmux
+    # session, a race, whatever) degrades silently to "unset" rather than
+    # ever retrying, blocking longer, or crashing the run.
+    try:
+        time.sleep(7)
+        research_ctl.capture_session_id(tmux_name, session_id)
+    except Exception:
+        pass
 
 
 # --- orchestration ------------------------------------------------------------

@@ -142,6 +142,8 @@ export interface PushOptions {
   onAction?: () => void;
   /** Auto-dismiss delay in ms (default 5000). */
   duration?: number;
+  /** Tapping the toast's message text does this — separate from the Undo action. */
+  onMessageTap?: () => void;
 }
 
 export function useToasts() {
@@ -152,7 +154,14 @@ export function useToasts() {
     const id = nextId.current++;
     setToasts((cur) => [
       ...cur,
-      { id, message, tone: opts?.tone ?? 'error', actionLabel: opts?.actionLabel, onAction: opts?.onAction },
+      {
+        id,
+        message,
+        tone: opts?.tone ?? 'error',
+        actionLabel: opts?.actionLabel,
+        onAction: opts?.onAction,
+        onMessageTap: opts?.onMessageTap,
+      },
     ]);
     setTimeout(() => setToasts((cur) => cur.filter((t) => t.id !== id)), opts?.duration ?? 5000);
     return id;

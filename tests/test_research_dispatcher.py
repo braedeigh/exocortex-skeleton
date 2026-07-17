@@ -241,9 +241,48 @@ def test_spawn_worker_sends_prompt_blocking(data_dir, monkeypatch):
     sends = []
     monkeypatch.setattr(dispatcher.shared, "send_prompt",
                         lambda session, text, **kw: sends.append((session, kw)))
+    monkeypatch.setattr(dispatcher.time, "sleep", lambda s: None)
+    monkeypatch.setattr(dispatcher.research_ctl, "capture_session_id", lambda *a, **k: False)
     dispatcher.spawn_worker("s1", "regular", "q1")
     assert len(sends) == 1
     assert sends[0][1].get("block") is True
+
+
+# --- sessionId capture tail (Step D2) -----------------------------------------
+
+def test_spawn_worker_captures_session_id_after_send(data_dir, monkeypatch):
+    """After the blocking send, spawn_worker resolves+stamps its own live
+    sessionId (research_ctl.capture_session_id) before this short-lived
+    process exits — its only chance, since there's no long-lived process to
+    hand a daemon thread off to (contrast routes/research.py's
+    _capture_session_id_async, used by the long-lived route handlers)."""
+    monkeypatch.setattr(dispatcher.shared, "ensure_claude_session", lambda *a, **k: True)
+    monkeypatch.setattr(dispatcher.shared, "send_prompt", lambda *a, **k: None)
+    monkeypatch.setattr(dispatcher.time, "sleep", lambda s: None)
+    captures = []
+    monkeypatch.setattr(
+        dispatcher.research_ctl, "capture_session_id",
+        lambda tmux_name, session_id: captures.append((tmux_name, session_id)),
+    )
+
+    dispatcher.spawn_worker("s1", "regular", "q1")
+
+    assert captures == [("rw-s1", "s1")]
+
+
+def test_spawn_worker_capture_failure_never_crashes(data_dir, monkeypatch):
+    """The hard rule: a capture blow-up must never crash (or, via a stuck
+    sleep, meaningfully delay beyond the deliberate ~7s) the spawn."""
+    monkeypatch.setattr(dispatcher.shared, "ensure_claude_session", lambda *a, **k: True)
+    monkeypatch.setattr(dispatcher.shared, "send_prompt", lambda *a, **k: None)
+    monkeypatch.setattr(dispatcher.time, "sleep", lambda s: None)
+
+    def _boom(*a, **k):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(dispatcher.research_ctl, "capture_session_id", _boom)
+
+    dispatcher.spawn_worker("s1", "regular", "q1")  # must not raise
 
 
 # --- mode switch: distill sessions target a topic, not a question ------------
@@ -283,6 +322,8 @@ def test_spawn_worker_uses_distiller_dir_and_topic_prompt_for_distill_mode(data_
     sends = []
     monkeypatch.setattr(dispatcher.shared, "send_prompt",
                         lambda session, text, **kw: sends.append((session, text, kw)))
+    monkeypatch.setattr(dispatcher.time, "sleep", lambda s: None)
+    monkeypatch.setattr(dispatcher.research_ctl, "capture_session_id", lambda *a, **k: False)
 
     dispatcher.spawn_worker("d1", "distill", "hair-care")
 
@@ -313,6 +354,8 @@ def test_spawn_worker_regular_mode_still_uses_worker_dir(data_dir, monkeypatch):
     sends = []
     monkeypatch.setattr(dispatcher.shared, "send_prompt",
                         lambda session, text, **kw: sends.append((session, text, kw)))
+    monkeypatch.setattr(dispatcher.time, "sleep", lambda s: None)
+    monkeypatch.setattr(dispatcher.research_ctl, "capture_session_id", lambda *a, **k: False)
 
     dispatcher.spawn_worker("s1", "regular", "q1")
 

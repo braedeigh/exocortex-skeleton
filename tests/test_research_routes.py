@@ -357,13 +357,21 @@ def test_blob_includes_sessions_key(client):
 
 @pytest.fixture
 def stub_runner(monkeypatch):
-    """Stub the tmux session spawn so tests never shell out; records prompts."""
-    calls = {"prompts": []}
+    """Stub the tmux session spawn so tests never shell out; records prompts.
+    Also stubs the sessionId-capture daemon-thread kickoff (Step D2) — left
+    unstubbed, it would spawn a real background thread that, ~7s later,
+    shells out to the box's real tmux socket outside the test's control."""
+    calls = {"prompts": [], "captures": []}
     from routes.kitchen import shared
+    from routes import research as research_mod
     monkeypatch.setattr(shared, "ensure_claude_session",
                         lambda *a, **k: calls.setdefault("spawned", True) or True)
     monkeypatch.setattr(shared, "send_prompt",
                         lambda session, text, *a, **k: calls["prompts"].append((session, text)))
+    monkeypatch.setattr(
+        research_mod, "_capture_session_id_async",
+        lambda tmux_name, session_id, *a, **k: calls["captures"].append((tmux_name, session_id)),
+    )
     return calls
 
 
@@ -397,6 +405,10 @@ def test_send_with_explicit_ids_flags_and_creates_running_session(client, stub_r
     session_name, prompt = stub_runner["prompts"][0]
     assert session_name == "research-runner"
     assert sid in prompt
+
+    # sessionId-capture kickoff (Step D2) fires once, for this session, after
+    # the prompt is sent.
+    assert stub_runner["captures"] == [("research-runner", sid)]
 
 
 def test_send_explicit_ids_missing_entry_404_no_mutation(client, stub_runner):
@@ -453,13 +465,19 @@ def test_send_with_nothing_flagged_sends_zero_and_no_session(client, stub_runner
 
 @pytest.fixture
 def stub_deep(monkeypatch):
-    """Stub the tmux session spawn so tests never shell out; records prompts."""
-    calls = {"prompts": []}
+    """Stub the tmux session spawn so tests never shell out; records prompts.
+    Also stubs the sessionId-capture daemon-thread kickoff — see stub_runner."""
+    calls = {"prompts": [], "captures": []}
     from routes.kitchen import shared
+    from routes import research as research_mod
     monkeypatch.setattr(shared, "ensure_claude_session",
                         lambda *a, **k: calls.setdefault("spawned", True) or True)
     monkeypatch.setattr(shared, "send_prompt",
                         lambda session, text, *a, **k: calls["prompts"].append((session, text)))
+    monkeypatch.setattr(
+        research_mod, "_capture_session_id_async",
+        lambda tmux_name, session_id, *a, **k: calls["captures"].append((tmux_name, session_id)),
+    )
     return calls
 
 
@@ -488,6 +506,8 @@ def test_deep_research_open_question_flags_and_creates_running_session(client, s
     assert stub_deep.get("spawned")
     session_name, prompt = stub_deep["prompts"][0]
     assert session_name == "research-deep"
+
+    assert stub_deep["captures"] == [("research-deep", sid)]
     assert sid in prompt
 
 
@@ -754,6 +774,64 @@ def test_entry_add_empty_context_ids_omits_key(client):
     data = _read()
     entry = next(e for e in data["entries"] if e["id"] == eid)
     assert "context_ids" not in entry
+
+
+# --- health (RAM/worker-slot snapshot for the heartbeat pill) ---------------
+
+@pytest.fixture
+def stub_health(monkeypatch):
+    """Monkeypatch the dispatcher's meminfo reader and terminal's live-worker
+    count so the endpoint is deterministic and never shells out to tmux or
+    reads the real /proc/meminfo."""
+    from scripts import research_dispatcher as dispatcher
+    from routes import terminal
+
+    state = {"avail_mb": 2000, "live": []}
+
+    def fake_meminfo():
+        if state["avail_mb"] is None:
+            raise RuntimeError("MemAvailable not found in /proc/meminfo")
+        return state["avail_mb"]
+
+    monkeypatch.setattr(dispatcher, "read_meminfo_mb", fake_meminfo)
+    monkeypatch.setattr(terminal, "_live_workers", lambda: state["live"])
+    return state
+
+
+def test_health_reports_free_slots(client, stub_health):
+    stub_health["avail_mb"] = 2000  # well above floor -> room for workers
+    stub_health["live"] = []
+    r = client.get("/api/research/health")
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["available_mb"] == 2000
+    assert body["live_workers"] == 0
+    assert body["max_concurrent"] == 3
+    assert body["floor_mb"] == 1024
+    assert body["per_worker_mb"] == 450
+    assert body["slots"] > 0
+
+
+def test_health_memory_starved_reports_zero_slots(client, stub_health):
+    # Barely above the floor -> no budget for even one worker.
+    stub_health["avail_mb"] = 1024 + 10
+    stub_health["live"] = []
+    r = client.get("/api/research/health")
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["slots"] == 0
+
+
+def test_health_null_meminfo_does_not_crash(client, stub_health):
+    stub_health["avail_mb"] = None
+    stub_health["live"] = ["rw-2026-07-16.1200"]
+    r = client.get("/api/research/health")
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["available_mb"] is None
+    assert body["live_workers"] == 1
+    # Room assumed to exist: MAX_CONCURRENT - live_count, floored at 0.
+    assert body["slots"] == 2
 
 
 # --- annotation-batch -------------------------------------------------------

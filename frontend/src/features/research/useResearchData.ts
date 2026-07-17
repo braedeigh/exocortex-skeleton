@@ -62,6 +62,18 @@ export function useResearch() {
   });
 }
 
+// Separate key from RESEARCH_KEY on purpose: this is a heartbeat, polled on
+// its own fixed cadence, not coupled to the 5s in-flight-session poll above.
+export const HEALTH_KEY = ['research-health'] as const;
+
+export function useHealth() {
+  return useQuery({
+    queryKey: HEALTH_KEY,
+    queryFn: ({ signal }) => apiR.getResearchHealth(signal),
+    refetchInterval: 15_000,
+  });
+}
+
 export function useLibrary() {
   return useQuery({
     queryKey: LIBRARY_KEY,

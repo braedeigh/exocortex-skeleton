@@ -215,6 +215,46 @@ def test_apply_result_distill_touches_no_question_entry(data_dir):
     assert "flagged" not in entries[0]
 
 
+def test_apply_result_computes_tokens_when_session_linked(data_dir, monkeypatch):
+    """A worker session that got its sessionId captured (claude_session +
+    claude_cwd set, mirroring what research_dispatcher.spawn_worker's
+    blocking capture stamps) gets a tokens/duration_sec receipt at close,
+    same as the named-runner close path in research_ctl.close()."""
+    import store
+    question_id, session_id = _seed()
+    with store.mutate("research.json", {"topics": [], "entries": [], "sessions": []}) as data:
+        s = next(s for s in data["sessions"] if s["id"] == session_id)
+        s["claude_session"] = "sess-xyz"
+        s["claude_cwd"] = "/proj"
+    monkeypatch.setattr(_mod, "_kick_dispatcher", lambda sid: None)
+    monkeypatch.setattr(
+        _mod.claude_transcripts, "sum_tokens",
+        lambda session_id, cwd, since=None, until=None: {
+            "input": 300, "cache_creation": 0, "cache_read": 0, "output": 21, "total": 321,
+        },
+    )
+
+    apply_result(session_id, "answer text")
+
+    session = _read()["sessions"][0]
+    assert session["tokens"] == 321
+    assert "duration_sec" in session
+
+
+def test_apply_result_without_session_link_sets_no_tokens(data_dir, monkeypatch):
+    """Degrade path: no claude_session/claude_cwd captured -> apply_result
+    still closes the session cleanly, just without a tokens field."""
+    question_id, session_id = _seed()
+    monkeypatch.setattr(_mod, "_kick_dispatcher", lambda sid: None)
+
+    apply_result(session_id, "answer text")
+
+    session = _read()["sessions"][0]
+    assert session["status"] == "done"
+    assert "tokens" not in session
+    assert "duration_sec" not in session
+
+
 def test_apply_result_deregisters_terminal_tab(data_dir, monkeypatch):
     """A finished worker's tmux name must leave sessions.json — a lingering
     tab invites a tap, and the terminal's attach path used to squat the name

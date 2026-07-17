@@ -24,7 +24,8 @@ import type { AddEntryBody } from './api';
 import { Annotator } from './Annotator';
 import { Composer, COMPOSER_TEXT_ID } from './Composer';
 import { ArticlesCard } from './ArticlesCard';
-import { contextChain, plural, topicsById } from './helpers';
+import { anySessionInFlight, contextChain, landingLabel, plural, topicsById } from './helpers';
+import { HealthPill } from './HealthPill';
 import { LibraryCard } from './LibraryCard';
 import { QuestionsCard } from './QuestionsCard';
 import { Reader } from './Reader';
@@ -34,7 +35,7 @@ import { ThreadsDirectoryCard, NewThreadRow } from './ThreadsDirectory';
 import { ThreadView } from './ThreadView';
 import { UnfiledCard } from './UnfiledCard';
 import { emptyComposer, type ComposerState, type Entry, type Topic } from './types';
-import { useDocTexts, useLibrary, useResearch, useResearchMutations } from './useResearchData';
+import { useDocTexts, useFronts, useLibrary, useResearch, useResearchMutations } from './useResearchData';
 import styles from './ResearchPage.module.css';
 
 function isPublicMode(): boolean {
@@ -52,10 +53,12 @@ export function ResearchPage() {
   const researchQuery = useResearch();
   const libraryQuery = useLibrary();
   const docTextsQuery = useDocTexts();
+  const frontsQuery = useFronts();
   const mutations = useResearchMutations(push);
 
   const state = researchQuery.data ?? { topics: [], entries: [], sessions: [] };
   const byId = useMemo(() => topicsById(state.topics), [state.topics]);
+  const fronts = frontsQuery.data ?? [];
   const docTexts = useMemo(() => new Set(docTextsQuery.data ?? []), [docTextsQuery.data]);
   const library = libraryQuery.data?.files ?? [];
   const edge = libraryQuery.data?.edge ?? [];
@@ -143,8 +146,9 @@ export function ResearchPage() {
     const st = composer;
     const payload = buildPayload(st, extraTopicId);
     if (!payload) return;
+    let blob;
     try {
-      await mutations.addEntry.mutateAsync(payload);
+      blob = await mutations.addEntry.mutateAsync(payload);
     } catch {
       return; // mutation onError already toasted
     }
@@ -160,6 +164,25 @@ export function ResearchPage() {
       }
     }
     setComposer(emptyComposer());
+    const newId = blob.id;
+    if (newId) {
+      push(`Caught — ${landingLabel(payload.topics ?? [], byId, fronts)}`, {
+        tone: 'info',
+        duration: 6000,
+        actionLabel: 'Undo',
+        onAction: () => mutations.removeEntry.mutate(newId),
+        onMessageTap: () => {
+          if (payload.topics && payload.topics.length) {
+            openThread(payload.topics[0]);
+          } else {
+            // TODO: soft-pulse Unfiled — scroll there for now (cheap via Card's data-card attr).
+            document
+              .querySelector('[data-card="research-unfiled"]')
+              ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        },
+      });
+    }
   }
 
   /** Add the follow-up question and immediately fire deep research on it. */
@@ -419,6 +442,7 @@ export function ResearchPage() {
       {/* Dev notes / ideas for the research page — same 'research' tab the
           old pinned panel wrote to. */}
       <NotesPill tab="research" onError={push} />
+      <HealthPill inFlight={anySessionInFlight(state.sessions)} />
 
       <ToastStack toasts={toasts} onDismiss={dismiss} />
     </ResearchProvider>

@@ -49,6 +49,7 @@ if SKELETON not in sys.path:
 
 import store  # noqa: E402
 from routes.research import _new_entry_id  # noqa: E402
+from scripts import claude_transcripts  # noqa: E402
 
 
 def _kick_dispatcher(session_id):
@@ -155,6 +156,16 @@ def apply_result(session_id, text, file=None):
             session["report"] = (
                 f"Distilled → research/{file}" if file else "Distilled."
             )
+        # Best-effort token/duration receipt, same swallow-all guard as
+        # research_ctl.close() — a worker is a clean 1:1 tmux/process, so if
+        # the dispatcher's spawn_worker managed to capture its sessionId,
+        # this is a whole-run (not time-sliced) sum.
+        try:
+            receipt = claude_transcripts.session_receipt(session)
+            if receipt:
+                session.update(receipt)
+        except Exception:
+            pass
 
     try:
         _deregister_terminal_tab(session_id)

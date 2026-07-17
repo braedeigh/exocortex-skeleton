@@ -10,17 +10,21 @@ import {
   edgeFor,
   entryTint,
   flaggedQueue,
+  fmtRunDuration,
+  landingLabel,
   openQuestions,
   orderedTopics,
   originFile,
   resolveDocOwner,
   reviewedSince,
+  roundMagnitude,
   threadStructure,
   topicStats,
   unfiledEntries,
   unreviewedCount,
 } from './helpers';
 import type { Entry, Session, Topic } from './types';
+import type { Front } from '../fronts/useFronts';
 
 function entry(partial: Partial<Entry> & { id: string }): Entry {
   return { kind: 'note', text: partial.id, ...partial };
@@ -274,5 +278,81 @@ describe('formatting', () => {
   it('originFile extracts the note: origin path', () => {
     expect(originFile(entry({ id: 'a', origin: 'note:papers/x.md' }))).toBe('papers/x.md');
     expect(originFile(entry({ id: 'b' }))).toBe('');
+  });
+});
+
+describe('landingLabel', () => {
+  const fronts: Front[] = [{ id: 'health', name: 'Health' }];
+  const byId: Record<string, Topic> = {
+    t1: { id: 't1', name: 'Long COVID', status: 'active', fronts: ['health'] },
+    t2: { id: 't2', name: 'Baby plan', status: 'active' },
+    t3: { id: 't3', name: 'Stale front', status: 'active', fronts: ['deleted-front'] },
+  };
+
+  it('one topic with a known front: emoji + name', () => {
+    expect(landingLabel(['t1'], byId, fronts)).toBe('🩺 Long COVID');
+  });
+
+  it('one topic with no front: name only', () => {
+    expect(landingLabel(['t2'], byId, fronts)).toBe('Baby plan');
+  });
+
+  it('one topic whose front id is not in the known fronts list: name only (missing emoji)', () => {
+    expect(landingLabel(['t3'], byId, fronts)).toBe('Stale front');
+  });
+
+  it('two or more topics: first name + N more', () => {
+    expect(landingLabel(['t1', 't2'], byId, fronts)).toBe('Long COVID + 1 more');
+    expect(landingLabel(['t1', 't2', 't3'], byId, fronts)).toBe('Long COVID + 2 more');
+  });
+
+  it('no topics: waiting in Unfiled', () => {
+    expect(landingLabel([], byId, fronts)).toBe('waiting in Unfiled');
+  });
+});
+
+describe('roundMagnitude', () => {
+  it('renders sub-1000 counts as-is', () => {
+    expect(roundMagnitude(0)).toBe('0');
+    expect(roundMagnitude(42)).toBe('42');
+    expect(roundMagnitude(999)).toBe('999');
+  });
+
+  it('rounds thousands to the nearest k, never a raw comma count', () => {
+    expect(roundMagnitude(1000)).toBe('1k');
+    expect(roundMagnitude(12431)).toBe('12k');
+    expect(roundMagnitude(12499)).toBe('12k');
+    expect(roundMagnitude(12500)).toBe('13k');
+  });
+
+  it('floors small-but-nonzero thousands at 1k, never 0k', () => {
+    expect(roundMagnitude(1010)).toBe('1k');
+  });
+
+  it('renders millions with one decimal', () => {
+    expect(roundMagnitude(2_400_000)).toBe('2.4M');
+    expect(roundMagnitude(3_000_000)).toBe('3M');
+  });
+});
+
+describe('fmtRunDuration', () => {
+  it('renders sub-minute runs as seconds', () => {
+    expect(fmtRunDuration(45)).toBe('45s');
+  });
+
+  it('renders minutes + seconds, zero-padded', () => {
+    expect(fmtRunDuration(160)).toBe('2m40s');
+    expect(fmtRunDuration(120)).toBe('2m00s');
+  });
+
+  it('renders hours + minutes, zero-padded, for long runs', () => {
+    expect(fmtRunDuration(3900)).toBe('1h05m');
+  });
+
+  it('renders empty for zero, negative, null, or undefined', () => {
+    expect(fmtRunDuration(0)).toBe('');
+    expect(fmtRunDuration(-5)).toBe('');
+    expect(fmtRunDuration(null)).toBe('');
+    expect(fmtRunDuration(undefined)).toBe('');
   });
 });

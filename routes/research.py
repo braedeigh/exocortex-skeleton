@@ -40,6 +40,8 @@ remove_front); removing a topic here has no effect on fronts.json.
 import os
 import re
 import subprocess
+import threading
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -112,6 +114,36 @@ def _blob(data, **extra):
 def _new_session_id(sessions):
     base = datetime.now().strftime("%Y-%m-%d.%H%M")
     return _unique_id(base, {s["id"] for s in sessions})
+
+
+def _capture_session_id_async(tmux_name, session_id, delay=7.0):
+    """Kick a daemon thread that gives Claude Code a moment to start inside
+    `tmux_name`, then resolves + stamps its live sessionId onto
+    `session_id`'s record (scripts.research_ctl.capture_session_id — a
+    swallow-all resolve+write already). This process (gunicorn) is
+    long-lived, unlike scripts/research_dispatcher.py's spawn_worker (a
+    short-lived script that has to capture inline, blocking, before it
+    exits — see that module for why), so a fire-and-forget daemon thread is
+    the natural fit here: `shared.send_prompt`'s default (non-blocking) mode
+    already uses exactly this pattern for the same reason.
+
+    Wrapped in its own try/except anyway, on top of capture_session_id's
+    internal one — this is a background thread in the request-serving
+    process, so nothing in here may ever crash or delay the request that
+    kicked it off (which has already returned by the time this thread even
+    wakes up), and nothing here may ever break an existing run if it fails.
+    research_ctl is imported lazily inside the thread body (not at module
+    top) since research_ctl imports this module at ITS top — deferring the
+    import past module-load time avoids a circular import.
+    """
+    def _run():
+        try:
+            time.sleep(delay)
+            from scripts import research_ctl
+            research_ctl.capture_session_id(tmux_name, session_id)
+        except Exception:
+            pass
+    threading.Thread(target=_run, daemon=True).start()
 
 
 def _kick_dispatcher():
@@ -354,6 +386,7 @@ def register(app):
             f"process them, and report in one line."
         )
         shared.send_prompt("research-runner", prompt)
+        _capture_session_id_async("research-runner", sid)
         return jsonify({"ok": True, "sent": n, "session": sid, "newly_spawned": newly})
 
     @app.route("/api/research/question/deep", methods=["POST"])
@@ -400,6 +433,7 @@ def register(app):
             f"report in one line."
         )
         shared.send_prompt("research-deep", prompt)
+        _capture_session_id_async("research-deep", sid)
         return jsonify({"ok": True, "session": sid, "newly_spawned": newly})
 
     # --- Distill: synthesize a topic's reviewed answers into an edge note ---
@@ -557,6 +591,39 @@ def register(app):
         shared.send_prompt("research", prompt)
         return jsonify({"ok": True, "unfiled": len(unfiled), "session": "research",
                         "newly_spawned": newly})
+
+    # --- Health: RAM/worker-slot snapshot for the teal heartbeat pill ---
+
+    @app.route("/api/research/health")
+    def research_health():
+        """How many worker slots are free right now — reuses the dispatcher's
+        own admission math (scripts/research_dispatcher.py's read_meminfo_mb
+        / compute_slots / constants) and terminal.py's live-worker count
+        (rw-* tmux sessions), never duplicating either. Off-Linux or an
+        unreadable /proc/meminfo degrades to `available_mb: null` with slots
+        computed as if room exists, rather than 500ing."""
+        from routes.terminal import _live_workers
+        from scripts import research_dispatcher as dispatcher
+
+        live_count = len(_live_workers())
+        try:
+            avail_mb = dispatcher.read_meminfo_mb()
+        except Exception:
+            avail_mb = None
+
+        if avail_mb is None:
+            slots = max(dispatcher.MAX_CONCURRENT - live_count, 0)
+        else:
+            slots = max(dispatcher.compute_slots(avail_mb, live_count), 0)
+
+        return jsonify({
+            "available_mb": avail_mb,
+            "floor_mb": dispatcher.FLOOR_MB,
+            "per_worker_mb": dispatcher.PER_WORKER_MB,
+            "max_concurrent": dispatcher.MAX_CONCURRENT,
+            "live_workers": live_count,
+            "slots": slots,
+        })
 
     # --- Library: read-only view of the research/*.md corpus ---
 

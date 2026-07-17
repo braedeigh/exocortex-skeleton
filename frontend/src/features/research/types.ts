@@ -77,6 +77,12 @@ export interface Session {
   /** undefined = regular runner; 'deep' | 'distill' | 'regular' */
   mode?: string;
   worker?: boolean;
+  /** total tokens for this run (input+cache_creation+cache_read+output),
+   * stamped at close if a claude_session was captured — see
+   * scripts/claude_transcripts.py's session_receipt */
+  tokens?: number;
+  /** wall-clock seconds from `created` to close */
+  duration_sec?: number;
 }
 
 export interface ResearchState {
@@ -91,6 +97,16 @@ export interface ResearchBlob extends ResearchState {
   /** entry/add also returns the new entry's id */
   id?: string;
   session?: Session;
+}
+
+/** GET /api/research/health — worker-slot snapshot for the heartbeat pill. */
+export interface ResearchHealth {
+  available_mb: number | null;
+  floor_mb: number;
+  per_worker_mb: number;
+  max_concurrent: number;
+  live_workers: number;
+  slots: number;
 }
 
 export interface LibraryFile {

@@ -25,6 +25,8 @@ apply = _mod.apply
 file_ = _mod.file
 create_topic = _mod.create_topic
 close = _mod.close
+set_session = _mod.set_session
+capture_session_id = _mod.capture_session_id
 TopicExists = _mod.TopicExists
 
 
@@ -287,3 +289,177 @@ def test_close_missing_session_raises(data_dir):
     _seed()
     with pytest.raises(ValueError, match="Session not found"):
         close("no-such-session", "done", "report")
+
+
+def test_close_computes_tokens_when_session_linked(data_dir, monkeypatch):
+    """When the record already carries a captured claude_session/claude_cwd
+    (set_session), close() stamps a tokens+duration_sec receipt too —
+    monkeypatching sum_tokens itself (not session_receipt) so the real
+    parsing/window-building code still runs against a fixed transcript sum."""
+    question_id, session_id = _seed()
+    set_session(session_id, "sess-xyz", claude_cwd="/proj")
+    monkeypatch.setattr(
+        _mod.claude_transcripts, "sum_tokens",
+        lambda session_id, cwd, since=None, until=None: {
+            "input": 100, "cache_creation": 0, "cache_read": 0, "output": 50, "total": 150,
+        },
+    )
+
+    session = close(session_id, "done", "answered")
+
+    assert session["tokens"] == 150
+    assert "duration_sec" in session
+    assert session["duration_sec"] >= 0
+    data = _read()
+    got = data["sessions"][0]
+    assert got["tokens"] == 150
+    assert "duration_sec" in got
+
+
+def test_close_without_session_link_sets_no_tokens(data_dir):
+    """The degrade path: a record with no claude_session/claude_cwd (capture
+    never landed, or this predates Step D2) still closes cleanly — just
+    without a tokens/duration_sec field."""
+    question_id, session_id = _seed()
+
+    session = close(session_id, "done", "answered")
+
+    assert "tokens" not in session
+    assert "duration_sec" not in session
+    data = _read()
+    assert "tokens" not in data["sessions"][0]
+
+
+def test_close_swallows_token_computation_failure(data_dir, monkeypatch):
+    """A sum_tokens blow-up must never stop the close itself from landing —
+    status/report still get set, just no tokens field."""
+    question_id, session_id = _seed()
+    set_session(session_id, "sess-xyz", claude_cwd="/proj")
+
+    def _boom(*a, **k):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(_mod.claude_transcripts, "sum_tokens", _boom)
+
+    session = close(session_id, "done", "answered")
+
+    assert session["status"] == "done"
+    assert session["report"] == "answered"
+    assert "tokens" not in session
+
+
+# ---------------------------------------------------------------------------
+# capture_session_id
+# ---------------------------------------------------------------------------
+
+def test_capture_session_id_writes_when_resolver_hits(data_dir, monkeypatch):
+    question_id, session_id = _seed()
+    monkeypatch.setattr(_mod.claude_transcripts, "sessionid_for_tmux", lambda name: ("sess-xyz", "/cwd"))
+
+    result = capture_session_id("some-tmux", session_id)
+
+    assert result is True
+    data = _read()
+    got = data["sessions"][0]
+    assert got["claude_session"] == "sess-xyz"
+    assert got["claude_cwd"] == "/cwd"
+
+
+def test_capture_session_id_no_op_when_resolver_returns_none(data_dir, monkeypatch):
+    """Swallow-all behavior: a resolver miss (dead tmux session, race,
+    unmatched registry entry) writes nothing and never raises."""
+    question_id, session_id = _seed()
+    monkeypatch.setattr(_mod.claude_transcripts, "sessionid_for_tmux", lambda name: None)
+
+    result = capture_session_id("some-tmux", session_id)
+
+    assert result is False
+    data = _read()
+    assert "claude_session" not in data["sessions"][0]
+
+
+def test_capture_session_id_swallows_missing_session(data_dir, monkeypatch):
+    """If the session record vanished (or never existed) before the
+    resolved sessionId could be written, capture_session_id degrades
+    silently rather than raising set_session's ValueError."""
+    _seed()
+    monkeypatch.setattr(_mod.claude_transcripts, "sessionid_for_tmux", lambda name: ("sess-xyz", "/cwd"))
+
+    result = capture_session_id("some-tmux", "no-such-session")
+
+    assert result is False
+
+
+def test_capture_session_id_swallows_resolver_exception(data_dir, monkeypatch):
+    question_id, session_id = _seed()
+
+    def _boom(name):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(_mod.claude_transcripts, "sessionid_for_tmux", _boom)
+
+    result = capture_session_id("some-tmux", session_id)
+
+    assert result is False
+
+
+# ---------------------------------------------------------------------------
+# set-session
+# ---------------------------------------------------------------------------
+
+def test_set_session_writes_claude_session_and_cwd(data_dir):
+    question_id, session_id = _seed()
+
+    session = set_session(session_id, "abc-123-sessionid", claude_cwd="/opt/exocortex/personal")
+
+    assert session["claude_session"] == "abc-123-sessionid"
+    assert session["claude_cwd"] == "/opt/exocortex/personal"
+    data = _read()
+    got = data["sessions"][0]
+    assert got["claude_session"] == "abc-123-sessionid"
+    assert got["claude_cwd"] == "/opt/exocortex/personal"
+    # Nothing else on the record was touched.
+    assert got["status"] == "running"
+    assert got["report"] == ""
+    assert got["entry_ids"] == [question_id]
+
+
+def test_set_session_without_cwd_leaves_cwd_unset(data_dir):
+    question_id, session_id = _seed()
+
+    session = set_session(session_id, "abc-123-sessionid")
+
+    assert session["claude_session"] == "abc-123-sessionid"
+    assert "claude_cwd" not in session
+
+
+def test_set_session_is_idempotent(data_dir):
+    question_id, session_id = _seed()
+
+    set_session(session_id, "first-sessionid", claude_cwd="/a")
+    session = set_session(session_id, "first-sessionid", claude_cwd="/a")
+
+    assert session["claude_session"] == "first-sessionid"
+    assert session["claude_cwd"] == "/a"
+    data = _read()
+    assert data["sessions"][0]["claude_session"] == "first-sessionid"
+
+
+def test_set_session_can_update_existing_link(data_dir):
+    question_id, session_id = _seed()
+
+    set_session(session_id, "old-sessionid", claude_cwd="/old")
+    session = set_session(session_id, "new-sessionid", claude_cwd="/new")
+
+    assert session["claude_session"] == "new-sessionid"
+    assert session["claude_cwd"] == "/new"
+
+
+def test_set_session_missing_session_raises(data_dir):
+    _seed()
+    with pytest.raises(ValueError, match="Session not found"):
+        set_session("no-such-session", "abc-123-sessionid")
+
+    # No stray session record was created.
+    data = _read()
+    assert len(data["sessions"]) == 1

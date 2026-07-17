@@ -4,6 +4,7 @@
  * structure, context chains, doc-id resolution). No I/O, no DOM.
  */
 
+import { FRONT_EMOJI, type Front } from '../fronts/useFronts';
 import type { ContextItem, EdgeFile, Entry, Session, Topic } from './types';
 
 export const RSRCH_KINDS: [string, string][] = [
@@ -285,6 +286,33 @@ export function truncate(s: string, n: number): string {
   return s.length > n ? `${s.slice(0, n)}…` : s;
 }
 
+/** Rounded order-of-magnitude token count for the session receipt — "~12k",
+ * never a raw comma-grouped number (SessionsCard prepends the "~"). Under
+ * 1000 renders as-is; under 1,000,000 rounds to the nearest k (floored at
+ * 1k so a small-but-nonzero count doesn't read as "~0k"); above that, one
+ * decimal of M. */
+export function roundMagnitude(n: number): string {
+  const abs = Math.abs(n);
+  if (abs < 1000) return `${Math.round(n)}`;
+  if (abs < 1_000_000) return `${Math.max(Math.round(n / 1000), 1)}k`;
+  return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+}
+
+/** Session-run duration from seconds -> "2m40s" / "1h05m" / "45s". Distinct
+ * from todoHelpers' fmtDuration (minutes in, no seconds, a different
+ * feature's unit) — a research run's receipt wants second-level
+ * granularity since most runs are well under an hour. */
+export function fmtRunDuration(sec: number | null | undefined): string {
+  const n = Math.round(Number(sec));
+  if (!Number.isFinite(n) || n <= 0) return '';
+  const h = Math.floor(n / 3600);
+  const m = Math.floor((n % 3600) / 60);
+  const s = n % 60;
+  if (h) return `${h}h${String(m).padStart(2, '0')}m`;
+  if (m) return `${m}m${String(s).padStart(2, '0')}s`;
+  return `${s}s`;
+}
+
 /** '1 entry' / '3 entries' pluralizer used all over the old page. */
 export function plural(n: number, one: string, many: string): string {
   return n === 1 ? one : many;
@@ -293,4 +321,19 @@ export function plural(n: number, one: string, many: string): string {
 /** 'note:<file>' origin -> the file path, else ''. */
 export function originFile(e: Entry): string {
   return (e.origin ?? '').startsWith('note:') ? (e.origin as string).slice(5) : '';
+}
+
+/** Where a freshly-added entry landed, for the "Caught — …" toast: one
+ * topic -> "{frontEmoji} {topicName}" (emoji omitted if the topic has no
+ * front, or that front isn't in the known list); 2+ topics -> "{first} + N
+ * more"; no topics -> "waiting in Unfiled". */
+export function landingLabel(topicIds: string[], byId: Record<string, Topic>, fronts?: Front[]): string {
+  if (!topicIds.length) return 'waiting in Unfiled';
+  const first = byId[topicIds[0]];
+  const name = first ? first.name : topicIds[0];
+  if (topicIds.length > 1) return `${name} + ${topicIds.length - 1} more`;
+  const frontId = first?.fronts?.[0];
+  const knownFront = !!frontId && (!fronts || fronts.some((f) => f.id === frontId));
+  const emoji = knownFront ? FRONT_EMOJI[frontId as string] : undefined;
+  return emoji ? `${emoji} ${name}` : name;
 }

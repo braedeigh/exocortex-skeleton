@@ -13,13 +13,15 @@ export interface CardProps {
   defaultOpen: boolean;
   title: ReactNode;
   count?: ReactNode;
+  /** muted single-line teaser under the title — visible even while collapsed */
+  teaser?: ReactNode;
   /** buttons on the summary line (they stopPropagation themselves) */
   extras?: ReactNode;
   className?: string;
   children: ReactNode;
 }
 
-export function Card({ cardId, defaultOpen, title, count, extras, className, children }: CardProps) {
+export function Card({ cardId, defaultOpen, title, count, teaser, extras, className, children }: CardProps) {
   // Toggled-this-visit wins; otherwise localStorage; otherwise the default.
   const [override, setOverride] = useState<boolean | null>(null);
   const open = override ?? readCardOpen(cardId, defaultOpen);
@@ -38,6 +40,7 @@ export function Card({ cardId, defaultOpen, title, count, extras, className, chi
         <span className={styles.summaryTitle}>
           {title}
           {count !== undefined ? <span className={styles.cardCount}>{count}</span> : null}
+          {teaser ? <span className={styles.cardTeaser}>{teaser}</span> : null}
         </span>
         {extras}
       </summary>

@@ -6,8 +6,9 @@
  * Claude's answer rows).
  */
 
+import type { ReactNode } from 'react';
 import { Card } from './Card';
-import { answerState, openQuestions, questionTint } from './helpers';
+import { answerState, openQuestions, questionTint, truncate } from './helpers';
 import { useResearchCtx } from './ResearchContext';
 import { DeepButton } from './Pills';
 import styles from './ResearchPage.module.css';
@@ -15,14 +16,31 @@ import styles from './ResearchPage.module.css';
 export function QuestionsCard() {
   const { state, byId, mutations, actions } = useResearchCtx();
   const qs = openQuestions(state.entries);
+  const openCount = qs.length;
+  // qs is newest-first, so the first fresh hit is the most recently answered.
+  const fresh = qs.filter((e) => answerState(e, state.entries) === 'fresh');
+  const freshCount = fresh.length;
+
+  let title: ReactNode;
+  let teaser: ReactNode;
+  if (freshCount > 0) {
+    title = (
+      <>
+        <span className={styles.dotOrange} />{' '}
+        {freshCount} new answer{freshCount === 1 ? '' : 's'} &middot; {openCount} open
+      </>
+    );
+    teaser = truncate(fresh[0].text, 90);
+  } else if (openCount > 0) {
+    title = `${openCount} open`;
+    teaser = truncate(qs[0].text, 90);
+  } else {
+    title = 'All caught up ✓';
+    teaser = undefined;
+  }
 
   return (
-    <Card
-      cardId="research-questions"
-      defaultOpen
-      title="Open questions"
-      count={<>{qs.length} &mdash; the edge of what&rsquo;s known</>}
-    >
+    <Card cardId="research-questions" defaultOpen={false} title={title} teaser={teaser}>
       {qs.length ? (
         qs.map((e) => (
           <div

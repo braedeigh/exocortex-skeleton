@@ -14,6 +14,7 @@ import type {
   LibraryFileResponse,
   LibraryResponse,
   ResearchBlob,
+  ResearchHealth,
   ResearchState,
   SearchHit,
 } from './types';
@@ -23,6 +24,11 @@ import type {
 /** GET /api/data/research -> {research: {topics, entries, sessions}, ...} */
 export function getResearch(signal?: AbortSignal): Promise<{ research?: Partial<ResearchState> }> {
   return api.get('/api/data/research', signal);
+}
+
+/** GET /api/research/health -> worker-slot snapshot for the heartbeat pill. */
+export function getResearchHealth(signal?: AbortSignal): Promise<ResearchHealth> {
+  return api.get('/api/research/health', signal);
 }
 
 // --- Topics ---

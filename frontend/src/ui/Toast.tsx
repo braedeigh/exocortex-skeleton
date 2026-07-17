@@ -9,6 +9,9 @@ export interface ToastItem {
   /** Paired action button (e.g. "Undo") — fires and dismisses the toast. */
   actionLabel?: string;
   onAction?: () => void;
+  /** When present, the message text itself becomes a tappable region (e.g.
+   * "jump to where this landed") — separate from the Undo action button. */
+  onMessageTap?: () => void;
 }
 
 export interface ToastStackProps {
@@ -23,7 +26,13 @@ export function ToastStack({ toasts, onDismiss }: ToastStackProps) {
     <div className={styles.stack} role="status" aria-live="polite">
       {toasts.map((t) => (
         <div className={`${styles.toast} ${t.tone === 'info' ? styles.info : ''}`} key={t.id}>
-          <span className={styles.message}>{t.message}</span>
+          {t.onMessageTap ? (
+            <button type="button" className={styles.messageBtn} onClick={() => t.onMessageTap?.()}>
+              {t.message}
+            </button>
+          ) : (
+            <span className={styles.message}>{t.message}</span>
+          )}
           {t.actionLabel && t.onAction ? (
             <button
               type="button"

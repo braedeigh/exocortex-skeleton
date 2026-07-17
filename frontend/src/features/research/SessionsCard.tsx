@@ -13,6 +13,7 @@
 
 import { useNavigate } from '@tanstack/react-router';
 import { Card } from './Card';
+import { roundMagnitude, fmtRunDuration } from './helpers';
 import { useSessionsContext } from '../../shell/SessionsContext';
 import { useMediaQuery, DESKTOP_QUERY } from '../../shell/useMediaQuery';
 import styles from './ResearchPage.module.css';
@@ -88,6 +89,12 @@ export function SessionsCard({ sessions }: { sessions: Session[] }) {
               ) : null}
             </div>
             {s.report ? <div className={styles.sessionReport}>{s.report}</div> : null}
+            {s.tokens != null ? (
+              <div className={styles.sessionReceipt}>
+                ~{roundMagnitude(s.tokens)} tokens
+                {s.duration_sec != null ? ` · ${fmtRunDuration(s.duration_sec)}` : ''}
+              </div>
+            ) : null}
           </div>
         );
       })}

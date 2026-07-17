@@ -41,8 +41,11 @@ Usage (each subcommand does ONE store.mutate and prints OK/ERROR):
     EXOCORTEX_DATA_DIR=/path/to/data python3 research_ctl.py close \\
         --session <id> --status done --report "..."
 
+    EXOCORTEX_DATA_DIR=/path/to/data python3 research_ctl.py set-session \\
+        --session <id> --claude-session <sessionId> [--claude-cwd <cwd>]
+
 Can also be imported and called directly:
-    from scripts.research_ctl import reply, apply, file, create_topic, close
+    from scripts.research_ctl import reply, apply, file, create_topic, close, set_session
 
 GUARDS (mirroring routes/research.py's author-boundary rules — entry/flag
 refuses to touch an "author": "llm" entry, entry/review refuses to touch
@@ -64,6 +67,7 @@ if SKELETON not in sys.path:
 
 import store  # noqa: E402
 from routes.research import _new_entry_id, _slugify, _unique_id  # noqa: E402
+from scripts import claude_transcripts  # noqa: E402
 from scripts.worker_apply_result import apply_result as _apply_result  # noqa: E402
 
 RESEARCH_DEFAULT = {"topics": [], "entries": [], "sessions": []}
@@ -198,7 +202,11 @@ def create_topic(name):
 
 
 def close(session_id, status, report):
-    """Set a session's status + report. No other field is touched.
+    """Set a session's status + report, and — best-effort — a token/duration
+    receipt (session_receipt) if the record carries a captured
+    claude_session/claude_cwd. The receipt computation is wrapped in its own
+    swallow-all guard: a token-summing hiccup (unreadable transcript, dead
+    session, whatever) must never stop the close itself from landing.
 
     Raises:
         ValueError: if the session is missing, or status isn't done/failed.
@@ -214,6 +222,65 @@ def close(session_id, status, report):
 
         session["status"] = status
         session["report"] = report
+        try:
+            receipt = claude_transcripts.session_receipt(session)
+            if receipt:
+                session.update(receipt)
+        except Exception:
+            pass
+
+    return session
+
+
+def capture_session_id(tmux_name, session_id):
+    """Resolve `tmux_name`'s live Claude Code sessionId (via
+    claude_transcripts.sessionid_for_tmux) and stamp it onto `session_id`'s
+    record (via set_session). The shared resolve+write step behind both
+    spawn paths' capture: routes/research.py's route handlers call it from a
+    daemon thread (they're long-lived, so they can afford to sleep first);
+    scripts/research_dispatcher.py's spawn_worker calls it inline after a
+    blocking sleep (it's a short-lived process that exits right after
+    spawning, so there's no thread to hand this off to).
+
+    Best-effort only, by design (see dev_todo.md's Step D2 notes: "a failure
+    to capture the sessionId ... must NEVER crash or delay a spawn, and must
+    NEVER break an existing run") — a miss (dead tmux session, a race, no
+    matching registry entry, the session record itself vanishing before this
+    runs) just leaves the fields unset. Never raises.
+
+    Returns True if it wrote something, False on any miss.
+    """
+    try:
+        resolved = claude_transcripts.sessionid_for_tmux(tmux_name)
+        if not resolved:
+            return False
+        claude_session, claude_cwd = resolved
+        set_session(session_id, claude_session, claude_cwd=claude_cwd)
+        return True
+    except Exception:
+        return False
+
+
+def set_session(session_id, claude_session, claude_cwd=None):
+    """Link a session record to the Claude Code transcript backing it —
+    sets `claude_session` (and, if given, `claude_cwd`) — so a later
+    token-usage receipt can find and time-slice the right JSONL (see
+    scripts/claude_transcripts.py). Idempotent: calling it again with the
+    same values is a no-op change-wise. Touches no other field.
+
+    Raises:
+        ValueError: if the session is not found — same convention as every
+        other verb here; main() turns that into an ERROR + nonzero exit.
+    """
+    with store.mutate("research.json", dict(RESEARCH_DEFAULT)) as data:
+        sessions = data.setdefault("sessions", [])
+        session = next((s for s in sessions if s["id"] == session_id), None)
+        if session is None:
+            raise ValueError(f"Session not found: {session_id!r}")
+
+        session["claude_session"] = claude_session
+        if claude_cwd is not None:
+            session["claude_cwd"] = claude_cwd
 
     return session
 
@@ -247,6 +314,11 @@ def _cmd_create_topic(args):
 def _cmd_close(args):
     session = close(args.session, args.status, args.report)
     print(f"OK: session {session['id']!r} closed as {session['status']!r}")
+
+
+def _cmd_set_session(args):
+    session = set_session(args.session, args.claude_session, claude_cwd=args.claude_cwd)
+    print(f"OK: session {session['id']!r} linked to claude session {session['claude_session']!r}")
 
 
 def main():
@@ -285,6 +357,14 @@ def main():
     p_close.add_argument("--status", required=True, choices=("done", "failed"))
     p_close.add_argument("--report", required=True)
     p_close.set_defaults(func=_cmd_close)
+
+    p_set_session = sub.add_parser(
+        "set-session", help="Link a session record to its Claude Code transcript."
+    )
+    p_set_session.add_argument("--session", required=True)
+    p_set_session.add_argument("--claude-session", required=True, dest="claude_session")
+    p_set_session.add_argument("--claude-cwd", default=None, dest="claude_cwd")
+    p_set_session.set_defaults(func=_cmd_set_session)
 
     args = parser.parse_args()
 
