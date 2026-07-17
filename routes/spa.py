@@ -88,6 +88,8 @@ def register(app):
     @app.route("/todos/editor")
     @app.route("/journal")
     @app.route("/research")
+    @app.route("/wiki")
+    @app.route("/wiki/<slug>")
     @app.route("/settings")
     @app.route("/files")
     @app.route("/chat")

@@ -456,8 +456,17 @@ def register(app):
 
     @app.route("/api/thread")
     def thread_detail():
-        """One thread's parsed fact-cards, for the popover / threads page.
-        `backlinks` is derived per request (§7) — never stored."""
+        """One thread's parsed fact-cards, for the popover / threads page /
+        the wiki's per-thread article (routes/wiki.py doesn't duplicate this
+        endpoint — the wiki page hits the same GET /api/thread the threads
+        feature already calls). `backlinks` is derived per request (§7) —
+        never stored. `peopleResolved` is a sibling {slug: bool} map (added
+        alongside `people`, not folded into each cast entry, so it can't
+        disturb the exact `{slug, name}` shape existing callers assert on) —
+        whether /person/<slug> would actually resolve (entities.resolve_person,
+        the same lookup routes/wiki.py's redlink flag uses), so a consumer
+        can render an unresolved cast member as a muted redlink instead of a
+        dead link that looks live."""
         q = (request.args.get("name") or "").strip()
         if not q:
             return jsonify({"error": "name required"}), 400
@@ -466,5 +475,8 @@ def register(app):
             return jsonify({"error": "not found", "name": q}), 404
         payload = dict(t)
         payload["people"] = _resolve_cast(t.get("people", []))
+        payload["peopleResolved"] = {
+            p["slug"]: entities.resolve_person(p["slug"]) is not None for p in payload["people"]
+        }
         payload["backlinks"] = backlinks_for(t["id"])
         return jsonify(payload)

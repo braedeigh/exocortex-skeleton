@@ -179,6 +179,13 @@ export interface ThreadFactCard {
 export interface ThreadDetail extends Thread {
   status: string;
   cards: ThreadFactCard[];
+  /** {slug: resolved} for each entry in `people` — whether /person/<slug>
+   * would actually resolve (entities.resolve_person), a sibling map rather
+   * than a field folded into each cast entry so it can't disturb the
+   * `{slug, name}` shape other callers of `people` already assert on. Used
+   * by the wiki's per-thread page to render an unresolved cast member as a
+   * muted redlink (WikiHome's same redlink convention for people). */
+  peopleResolved?: Record<string, boolean>;
 }
 
 export interface DevNote {
