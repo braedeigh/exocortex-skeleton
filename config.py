@@ -20,9 +20,12 @@ OWNER_NAME = os.environ.get("EXOCORTEX_OWNER_NAME", "")
 # (dashboard footer, public header, fake-terminal banner). Bump here only.
 APP_VERSION = "0.6"
 
-# First-run admin password — only used to SEED auth.json on first boot.
-# Change it in Settings after logging in; this value is ignored afterward.
-DEFAULT_PASSWORD = os.environ.get("EXOCORTEX_DEFAULT_PASSWORD", "exocortex")
+# First-run admin password — only used to SEED auth.json on first boot, and
+# ignored afterward (change it in Settings after logging in). No baked-in
+# fallback: when this env var is unset, server.py generates a random one-time
+# password and prints it to the log on first boot — a fixed default shared by
+# every install is guessable by anyone who has read the source.
+DEFAULT_PASSWORD = os.environ.get("EXOCORTEX_DEFAULT_PASSWORD", "")
 
 
 def get_profile():
