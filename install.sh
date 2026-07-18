@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Local install: sets up the Python env and builds the frontend, in place.
+# Run from anywhere; it works on the repo it lives in. Safe to re-run.
+set -euo pipefail
+cd "$(dirname "$0")"
+
+fail() { echo "✗ $1" >&2; exit 1; }
+
+command -v python3 >/dev/null || fail "python3 not found — install Python 3.11+ (mac: brew install python)"
+command -v npm >/dev/null || fail "npm not found — install Node 20+ (mac: brew install node)"
+
+python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' \
+  || fail "Python 3.11+ required (found $(python3 --version))"
+node -e 'process.exit(parseInt(process.versions.node) >= 20 ? 0 : 1)' \
+  || fail "Node 20+ required (found $(node --version))"
+
+echo "→ Python env"
+[ -d venv ] || python3 -m venv venv
+./venv/bin/pip install -q -r requirements.txt
+
+echo "→ Frontend build (first run downloads packages — a few minutes)"
+(cd frontend && npm install --no-audit --no-fund && npm run build)
+
+echo
+echo "✓ Installed. Start it with:"
+echo "    ./venv/bin/python3 server.py"
+echo "  then open http://localhost:5000 — password: exocortex (change it in Settings)."
+echo "  Your data lives in ./data/ — that folder is the thing to back up."

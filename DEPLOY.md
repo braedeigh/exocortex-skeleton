@@ -4,6 +4,11 @@ A personal life/health dashboard you talk to and shape. This guide is written so
 AI agent (Claude Code) can stand up an instance on a fresh VPS with minimal input from
 you — you mostly provide a domain name and change one password.
 
+> **Just want it on your own computer?** Use [INSTALL.md](INSTALL.md) instead — this
+> page is for public servers. Note the quick-start below predates the React frontend:
+> wherever you land, the frontend needs Node 20+ and `cd frontend && npm install &&
+> npm run build` before first run (`install.sh` does all of it).
+
 > ⚠️ Read `SHARE_TODO.md` first. This repo still contains some of the original author's
 > personal assumptions (milestone dates, a hardcoded domain, a dependency on a personal
 > "tulku" journal dir). Until those are cleaned up, treat this as a starting template,
