@@ -1,5 +1,8 @@
 import { useState } from 'react';
 import { Link } from '@tanstack/react-router';
+import { ToastStack } from '../../ui';
+import { NotesPill } from '../todos/NotesPill';
+import { useToasts } from '../journal/useJournalData';
 import { FRONT_EMOJI } from '../fronts/useFronts';
 import { useWikiHome } from './useWikiHome';
 import type { WikiFront, WikiPerson, WikiThreadSummary } from './useWikiHome';
@@ -20,9 +23,15 @@ import styles from './WikiHome.module.css';
  * below is the single primary thread UI on this page (folding what used to
  * be two redundant thread lists into one, per the front-filter design).
  */
+function isPublicMode(): boolean {
+  return typeof window !== 'undefined' && window.VIEW_MODE === 'public';
+}
+
 export function WikiHome() {
   const { data, isLoading, isError } = useWikiHome();
+  const { toasts, push, dismiss } = useToasts();
   const [filter, setFilter] = useState<string | null>(null);
+  const isPublic = isPublicMode();
 
   if (isLoading) return <div className={styles.page}><div className={styles.empty}>Loading…</div></div>;
   if (isError || !data) {
@@ -110,6 +119,9 @@ export function WikiHome() {
         <h2 id="wiki-how-to-read" className={styles.sectionTitleQuiet}>How to read this</h2>
         <p className={styles.howToReadText}>{data.howToRead}</p>
       </section>
+
+      {!isPublic ? <NotesPill tab="wiki" onError={push} /> : null}
+      <ToastStack toasts={toasts} onDismiss={dismiss} />
     </div>
   );
 }

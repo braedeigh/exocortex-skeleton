@@ -90,6 +90,59 @@
   margin-top: 0;
 }
 
+/* Collapsible dated section (wiki thread page): the "## Heading" becomes a
+   tappable <summary>, collapsed on load, revealing its fact-card(s) on click. */
+.sectionDetails {
+  border-bottom: 1px solid var(--border);
+}
+
+.sectionDetails:first-child {
+  border-top: 1px solid var(--border);
+}
+
+.sectionSummary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--tap-target);
+  padding: var(--space-2) var(--space-1);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+/* Hide the native disclosure marker; draw our own chevron so it's legible and
+   consistent light/dark (matches the house CollapsibleCard chevron idiom). */
+.sectionSummary::-webkit-details-marker {
+  display: none;
+}
+
+.sectionSummary::before {
+  content: '';
+  flex: 0 0 auto;
+  width: 0.5em;
+  height: 0.5em;
+  border-right: 2px solid var(--text-muted);
+  border-bottom: 2px solid var(--text-muted);
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+}
+
+.sectionDetails[open] > .sectionSummary::before {
+  transform: rotate(45deg);
+}
+
+.sectionSummary:hover {
+  color: var(--accent);
+}
+
+.sectionBody {
+  padding: 0 0 var(--space-2) calc(0.5em + var(--space-2));
+}
+
 .factCard {
   background: var(--bg);
   border: 1px solid var(--border);

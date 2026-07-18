@@ -125,7 +125,7 @@ export function WikiThread({ slug }: { slug: string }) {
           </aside>
 
           <div className={styles.cards}>
-            <ThreadCards cards={data.cards} onSourceClick={sourceClick} />
+            <ThreadCards cards={data.cards} onSourceClick={sourceClick} collapsible order="desc" />
           </div>
 
           <RelatedSection slug={slug} parents={data.parents ?? []} tree={tree} />

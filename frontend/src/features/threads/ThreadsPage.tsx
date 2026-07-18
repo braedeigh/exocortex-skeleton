@@ -41,9 +41,8 @@ function isPublicMode(): boolean {
 export function ThreadsPage() {
   const [lens, setLens] = useState<string | null>(null);
   const [showRetired, setShowRetired] = useState(false);
+  // Everything starts collapsed; a thread opens only when she taps it.
   const [expanded, setExpanded] = useState<string | null>(null);
-  // Until she taps, the first thread starts open; after a tap her choice wins.
-  const [touched, setTouched] = useState(false);
 
   const { data: frontsData } = useFronts();
   const fronts = frontsData ?? [];
@@ -60,18 +59,15 @@ export function ThreadsPage() {
     };
   }
 
-  const firstRootId = tree?.roots[0] ?? null;
-  const openId = touched ? expanded : (expanded ?? firstRootId);
+  const openId = expanded;
 
   function toggle(id: string) {
-    setTouched(true);
     setExpanded((cur) => (cur === id ? null : id));
   }
 
   /** Grandchild links jump to (and expand) a thread rendered elsewhere on
    * the page — scroll-to per §3 ("deeper reached by clicking through"). */
   function jumpTo(id: string) {
-    setTouched(true);
     setExpanded(id);
     requestAnimationFrame(() => {
       cardRefs.current[id]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -590,7 +586,7 @@ function ThreadBody({ id, fronts, frontsList, alsoUnderNames, grandchildren, onJ
       {alsoUnderNote}
       {data.status ? <div className={styles.status}>{data.status}</div> : null}
 
-      <ThreadCards cards={data.cards} onSourceClick={sourceClick} />
+      <ThreadCards cards={data.cards} onSourceClick={sourceClick} order="desc" />
 
       {grandchildNote}
 

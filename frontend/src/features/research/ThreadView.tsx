@@ -4,7 +4,8 @@
  * parent stay chronological so a chain reads top-to-bottom. The composer
  * sits above the rows, preset to this thread. Each top-level block collapses
  * independently (same localStorage open-memory as the top cards, keyed per
- * entry id), open by default.
+ * entry id), collapsed by default — landing on a thread shouldn't auto-open
+ * whatever entry happens to sit at the top; she taps to read.
  */
 
 import { useState, type SyntheticEvent } from 'react';
@@ -40,7 +41,7 @@ function ThreadBlock({
   const kids = repliesOf[entry.id] ?? [];
   const cardId = `research-block-${entry.id}`;
   const [override, setOverride] = useState<boolean | null>(null);
-  const open = override ?? readCardOpen(cardId, true);
+  const open = override ?? readCardOpen(cardId, false);
 
   function onToggle(e: SyntheticEvent<HTMLDetailsElement>) {
     const next = e.currentTarget.open;
