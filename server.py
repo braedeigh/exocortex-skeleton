@@ -1195,4 +1195,5 @@ travel.register(app)
 validate_on_startup(app)
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    # PORT override matters on Macs, where AirPlay Receiver squats on 5000.
+    app.run(debug=True, port=int(os.environ.get("PORT", "5000")))

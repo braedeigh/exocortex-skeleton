@@ -19,6 +19,10 @@ friend's. (For a public server with a domain and HTTPS, see [DEPLOY.md](DEPLOY.m
 Open http://localhost:5000, log in with the password **`exocortex`**, and
 **change it in Settings right away**.
 
+> **Mac note:** if it says *Address already in use*, that's AirPlay Receiver
+> squatting on port 5000. Start on another port instead:
+> `PORT=5050 ./venv/bin/python3 server.py` → http://localhost:5050.
+
 That's the whole thing. Re-running `install.sh` is always safe.
 
 ## Where your data lives
