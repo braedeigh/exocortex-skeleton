@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "dev_notes",
+  "type": "object",
+  "$defs": {
+    "note": {
+      "type": "object",
+      "required": ["id", "text"],
+      "properties": {
+        "id": { "type": "string" },
+        "text": { "type": "string" },
+        "created": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "properties": {
+    "tabs": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": { "$ref": "#/$defs/note" }
+      }
+    }
+  },
+  "additionalProperties": true
+}

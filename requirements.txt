@@ -5,3 +5,4 @@ gunicorn==26.0.0
 gevent==26.5.0
 pandas==3.0.3
 bcrypt==5.0.0
+jsonschema==4.26.0

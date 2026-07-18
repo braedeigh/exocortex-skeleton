@@ -1193,6 +1193,8 @@ travel.register(app)
 
 # --- Startup ---
 validate_on_startup(app)
+import schemas
+schemas.install_error_handler(app)
 
 if __name__ == "__main__":
     # PORT override matters on Macs, where AirPlay Receiver squats on 5000.

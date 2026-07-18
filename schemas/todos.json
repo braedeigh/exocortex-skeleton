@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "todos",
+  "type": "object",
+  "$defs": {
+    "item": {
+      "type": "object",
+      "required": ["text"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "text": { "type": "string", "minLength": 1 },
+        "done": { "type": "boolean" },
+        "created": { "type": "string" },
+        "notes": { "type": "string" },
+        "snoozed_until": { "type": "string" },
+        "done_at": { "type": "string" },
+        "fronts": { "type": "array", "items": { "type": "string" } },
+        "completed": true
+      },
+      "additionalProperties": true
+    },
+    "section": {
+      "type": "object",
+      "properties": {
+        "items": { "type": "array", "items": { "$ref": "#/$defs/item" } },
+        "label": { "type": "string" },
+        "date": { "type": "string" },
+        "manual_order": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "properties": {
+    "now": { "$ref": "#/$defs/section" },
+    "up_next": { "$ref": "#/$defs/section" },
+    "later": { "$ref": "#/$defs/section" },
+    "someday": { "$ref": "#/$defs/section" },
+    "done": { "$ref": "#/$defs/section" },
+    "today": { "$ref": "#/$defs/section" },
+    "tomorrow": { "$ref": "#/$defs/section" }
+  },
+  "additionalProperties": true
+}

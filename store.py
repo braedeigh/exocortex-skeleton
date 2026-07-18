@@ -217,6 +217,8 @@ def write_file(name, data):
 def write(name, data):
     """Write a collection. SQL-backed collections commit to SQLite first, then
     export the JSON mirror; everything else writes its JSON file atomically."""
+    import schemas
+    schemas.validate(_key(name), data)
     if _sql_backed(name):
         import sqlstore
         sqlstore.put(_key(name), data)
@@ -239,8 +241,10 @@ def mutate(name, default=None):
     """
     if _sql_backed(name):
         import sqlstore
+        import schemas
         with sqlstore.mutate(_key(name), default) as data:
             yield data
+            schemas.validate(_key(name), data)
         return
     path = _path(name)
     lock_path = path.with_suffix(path.suffix + ".lock")

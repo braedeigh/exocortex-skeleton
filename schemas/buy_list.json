@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "buy_list",
+  "type": "object",
+  "$defs": {
+    "item": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "priority": { "type": "string" },
+        "where": { "type": "string" },
+        "notes": { "type": "string" },
+        "category": { "type": "string" },
+        "cost": { "type": "string" },
+        "why": { "type": "string" },
+        "by": { "type": "string" },
+        "order_url": { "type": "string" },
+        "kind": { "type": "string" },
+        "fronts": { "type": "array", "items": { "type": "string" } },
+        "added": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "properties": {
+    "items": { "type": "array", "items": { "$ref": "#/$defs/item" } }
+  },
+  "additionalProperties": true
+}

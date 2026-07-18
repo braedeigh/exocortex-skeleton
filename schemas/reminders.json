@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "reminders",
+  "type": "object",
+  "$defs": {
+    "reminder": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "emoji": { "type": "string" },
+        "label": { "type": "string" },
+        "type": { "type": "string" },
+        "color": { "type": "string" },
+        "shape": { "enum": ["circle", "square", "diamond", "triangle", "ring"] },
+        "schedule": { "enum": ["interval", "weekly"] },
+        "every_days": { "type": "integer" },
+        "overdue_days": { "type": "integer" },
+        "weekdays": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 0, "maximum": 6 }
+        },
+        "mode": { "enum": ["log", "countdown", "track"] },
+        "companion": { "type": "string" },
+        "times": {
+          "type": "array",
+          "items": { "enum": ["morning", "afternoon", "evening"] }
+        },
+        "private": { "type": "boolean" },
+        "due_text": { "type": "string" },
+        "snoozed_until": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "properties": {
+    "reminders": { "type": "array", "items": { "$ref": "#/$defs/reminder" } }
+  },
+  "additionalProperties": true
+}
