@@ -58,14 +58,16 @@ of your own, seeding is skipped entirely — it never touches a directory that
 already has a `_system/stream.py`.)
 
 **Talking to it through Claude Code** (optional, but where the journal earns its
-keep): `install.sh` symlinks `claude-commands/journalstart.md` and
-`claude-commands/endsession.md` into `~/.claude/commands/` (skipping, with a
-printed note, any command name you already have — it never overwrites your own)
-and writes `.claude/settings.json` in this repo (only if that file doesn't
-already exist) wiring the capture hook, `data/_system/keeper_capture.py`. Open
-Claude Code at this repo's root and run `/journalstart` to wake the keeper;
-`/endsession` closes the day out. `.claude/` is gitignored — that wiring is
-local to your machine, never committed.
+keep): `/journalstart` and `/endsession` ship as project-level commands
+(`.claude/commands/`, committed), so they're available as soon as you open
+Claude Code at this repo's root — run `/journalstart` to wake the keeper,
+`/endsession` to close the day out. (Restart Claude Code after pulling so it
+re-reads the command list.) `install.sh` additionally symlinks them into
+`~/.claude/commands/` so they work from any directory (skipping, with a printed
+note, any command name you already have — it never overwrites your own), and
+writes `.claude/settings.json` in this repo (only if that file doesn't already
+exist) wiring the capture hook, `data/_system/keeper_capture.py`. The
+`settings.json` wiring is gitignored — local to your machine, never committed.
 
 **Optional: the reconciler cron.** The hook captures everything typed directly
 into an armed terminal session the instant it's sent; a per-minute cron job is
