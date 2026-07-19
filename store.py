@@ -14,6 +14,7 @@ from pathlib import Path
 from contextlib import contextmanager
 import json
 import os
+import shutil
 import tempfile
 import fcntl
 
@@ -30,6 +31,10 @@ UPLOAD_DIR = DATA_DIR / "uploads"  # personal uploads live in the data layer, no
 # user is self-contained; override with EXOCORTEX_CONTENT_DIR to point at an existing
 # content store (e.g. a separate journaling system that also reads/writes these files).
 CONTENT_DIR = Path(os.environ.get("EXOCORTEX_CONTENT_DIR", DATA_DIR))
+# The journaling seed tree (engine code under _system/, a seed keeper CLAUDE.md, and
+# empty Journal/keeper-diary dirs — see seed_content_scaffold() below) ships as code,
+# next to this file, not as data.
+CONTENT_SCAFFOLD_DIR = BUILD_DIR / "content-scaffold"
 # Receipt images and the recipe pipeline are bulkier, feature-specific stores. They
 # default INSIDE the data layer so a fresh install is self-contained, but can be
 # relocated to a sibling dir or a separate disk via env — same idea as DATA_DIR /
@@ -77,6 +82,35 @@ RESEARCH_DISTILLER_DIR = Path(os.environ.get("EXOCORTEX_RESEARCH_DISTILLER_DIR",
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def seed_content_scaffold():
+    """Populate a fresh CONTENT_DIR with the whole journaling seed tree — the engine
+    (stream.py + keeper_capture.py + reconcile_transcripts.py under `_system/`), a
+    generic seed keeper `CLAUDE.md`, and empty `Journal/Daily/`, `Journal/Weekly/`,
+    `keeper-diary/`, and `_system/data/cards/` dirs — see content-scaffold/ next to
+    this file. Without this, a fresh install's journal (routes/cards.py, which shells
+    out to CONTENT_DIR/_system/stream.py) has nothing to talk to and 404s.
+
+    Gated on CONTENT_DIR/_system/stream.py already existing: an install whose
+    CONTENT_DIR points at a pre-existing engine (e.g. the author's own vault, wired in
+    via EXOCORTEX_CONTENT_DIR) is left completely untouched. Copies file by file and
+    skips anything already present, so it's idempotent and safe to call on every boot —
+    it can only ever ADD the scaffold's files, never overwrite one.
+    """
+    if (CONTENT_DIR / "_system" / "stream.py").exists():
+        return
+    if not CONTENT_SCAFFOLD_DIR.exists():
+        return  # scaffold missing (e.g. a stripped-down deploy) — nothing to seed
+    for src in sorted(CONTENT_SCAFFOLD_DIR.rglob("*")):
+        if src.is_dir():
+            continue
+        dst = CONTENT_DIR / src.relative_to(CONTENT_SCAFFOLD_DIR)
+        if dst.exists():
+            continue
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst)
+    (CONTENT_DIR / "_system" / "data" / "cards").mkdir(parents=True, exist_ok=True)
 
 
 def _path(name: str) -> Path:

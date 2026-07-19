@@ -1192,6 +1192,10 @@ wiki.register(app)
 travel.register(app)
 
 # --- Startup ---
+# Seed the journaling engine (stream.py + friends) into a fresh CONTENT_DIR — see
+# store.seed_content_scaffold's docstring. No-op (and untouched) once _system/stream.py
+# already exists, so an install pointed at an existing vault/engine is never touched.
+store.seed_content_scaffold()
 validate_on_startup(app)
 import schemas
 schemas.install_error_handler(app)

@@ -1,35 +1,39 @@
 /**
- * ThreadView.tsx — one thread as a chat: her entries + nested llm replies.
- * Top-level entries newest-first (posting lands at the top); replies under a
- * parent stay chronological so a chain reads top-to-bottom. The composer
- * sits above the rows, preset to this thread. Each top-level block collapses
- * independently (same localStorage open-memory as the top cards, keyed per
- * entry id), collapsed by default — landing on a thread shouldn't auto-open
- * whatever entry happens to sit at the top; she taps to read.
+ * ThreadView.tsx — one thread as a reading room: an open chronological flow
+ * read top-to-bottom, not a stack of collapsed cards. Top-level entries
+ * render oldest-first (threadStructure hands back newest-first for the
+ * directory's recap line, so this view reverses a copy); replies under a
+ * parent stay chronological underneath, nested recursively — the whole
+ * thread reads like a chat log. Nothing collapses and nothing persists
+ * open/closed state; opening a thread scrolls straight to the newest entry
+ * at the bottom, where the thread-scoped composer lives so replying is a
+ * straight shot from what you just read.
  */
 
-import { useState, type SyntheticEvent } from 'react';
-import { readCardOpen, writeCardOpen } from './cardState';
+import { useEffect, useRef, useState } from 'react';
 import { Composer } from './Composer';
 import { EntryRow } from './EntryRow';
 import {
-  KIND_LABEL,
   NEXT_TOPIC_STATUS,
   edgeFor,
   plural,
   reviewedSince,
   sessionsForTopic,
   threadStructure,
-  truncate,
+  unfiledStructure,
 } from './helpers';
 import { DistillButton } from './Pills';
 import { useResearchCtx } from './ResearchContext';
 import { SessionsCard } from './SessionsCard';
 import { useFronts } from './useResearchData';
-import type { Entry, Topic } from './types';
+import { FRONT_EMOJI } from '../fronts/useFronts';
+import { UNFILED_ID, type Entry, type Topic } from './types';
 import styles from './ResearchPage.module.css';
 
-function ThreadBlock({
+/** One entry, always open, with its replies nested underneath (recursively,
+ * reply-of-reply). No collapse, no open-state persistence — the reading-room
+ * flow shows everything. */
+function ThreadEntryBlock({
   entry,
   repliesOf,
   editing,
@@ -39,41 +43,17 @@ function ThreadBlock({
   editing: boolean;
 }) {
   const kids = repliesOf[entry.id] ?? [];
-  const cardId = `research-block-${entry.id}`;
-  const [override, setOverride] = useState<boolean | null>(null);
-  const open = override ?? readCardOpen(cardId, false);
-
-  function onToggle(e: SyntheticEvent<HTMLDetailsElement>) {
-    const next = e.currentTarget.open;
-    if (next === open) return;
-    setOverride(next);
-    writeCardOpen(cardId, next);
-  }
-
-  const badgeLabel = entry.author === 'llm' ? '✨ claude' : (KIND_LABEL[entry.kind] ?? entry.kind);
-  const snippet = truncate((entry.text ?? '').replace(/\s+/g, ' '), 90);
-
   return (
-    <details className={styles.block} open={open} onToggle={onToggle} data-card={cardId}>
-      <summary className={styles.blockSummary}>
-        <span className={styles.arrow}>&#9654;</span>
-        <b className={styles.blockBadge}>{badgeLabel}</b>
-        <span className={styles.blockSnippet}>{snippet}</span>
-        {kids.length ? (
-          <span className={styles.cardCount}>
-            {kids.length} {plural(kids.length, 'reply', 'replies')}
-          </span>
-        ) : null}
-      </summary>
+    <div className={styles.block}>
       <EntryRow entry={entry} editing={editing} />
       {kids.length ? (
         <div className={styles.blockKids}>
           {kids.map((k) => (
-            <ThreadBlock key={k.id} entry={k} repliesOf={repliesOf} editing={editing} />
+            <ThreadEntryBlock key={k.id} entry={k} repliesOf={repliesOf} editing={editing} />
           ))}
         </div>
       ) : null}
-    </details>
+    </div>
   );
 }
 
@@ -169,9 +149,52 @@ function EdgeCard({ topic }: { topic: Topic }) {
 export function ThreadView({ topic }: { topic: Topic }) {
   const { state, actions } = useResearchCtx();
   const [editing, setEditing] = useState(false);
+  const isUnfiled = topic.id === UNFILED_ID;
+  const frontsQuery = useFronts();
+  const fronts = frontsQuery.data ?? [];
+  const topicFronts = topic.fronts ?? [];
 
-  const { entries, topLevel, repliesOf } = threadStructure(state.entries, topic.id);
+  const { entries, topLevel, repliesOf } = isUnfiled
+    ? unfiledStructure(state.entries)
+    : threadStructure(state.entries, topic.id);
   const sessions = sessionsForTopic(state.sessions, topic.id);
+
+  // threadStructure/unfiledStructure hand back topLevel newest-first (that
+  // ordering suits the directory's recap line); the reading room reads
+  // oldest-to-newest top-to-bottom, so reverse a copy here rather than touch
+  // the shared helper (its own tests pin the newest-first contract).
+  const topLevelOldestFirst = [...topLevel].reverse();
+  const lastTopLevelId = topLevelOldestFirst.length
+    ? topLevelOldestFirst[topLevelOldestFirst.length - 1].id
+    : null;
+
+  // Auto-scroll to the newest (bottom) entry once per thread visit — not on
+  // every 5s poll re-render while a session is running, hence the ref flag
+  // rather than relying on effect deps alone.
+  const bodyEndRef = useRef<HTMLDivElement | null>(null);
+  const scrolledTopicRef = useRef<string | null>(null);
+  const hasEntries = entries.length > 0;
+
+  useEffect(() => {
+    if (!hasEntries) return;
+    if (scrolledTopicRef.current === topic.id) return;
+    scrolledTopicRef.current = topic.id;
+    bodyEndRef.current?.scrollIntoView({ block: 'end' });
+  }, [topic.id, hasEntries]);
+
+  const body = (
+    <div className={styles.threadBody}>
+      {topLevelOldestFirst.length ? (
+        topLevelOldestFirst.map((e) => (
+          <div key={e.id} ref={e.id === lastTopLevelId ? bodyEndRef : undefined}>
+            <ThreadEntryBlock entry={e} repliesOf={repliesOf} editing={editing} />
+          </div>
+        ))
+      ) : (
+        <div className={styles.emptyNote}>No entries yet &mdash; start below.</div>
+      )}
+    </div>
+  );
 
   return (
     <>
@@ -190,28 +213,46 @@ export function ThreadView({ topic }: { topic: Topic }) {
           <div className={styles.threadSub}>
             {entries.length} {plural(entries.length, 'entry', 'entries')}
           </div>
+          {!isUnfiled && topicFronts.length ? (
+            <div className={styles.chipRow}>
+              {topicFronts.map((fid) => {
+                const f = fronts.find((x) => x.id === fid);
+                return (
+                  <span key={fid} className={styles.threadFrontChip}>
+                    {FRONT_EMOJI[fid] ?? '🏷️'} {f ? f.name : fid}
+                  </span>
+                );
+              })}
+            </div>
+          ) : null}
         </div>
-        <DistillButton topic={topic} />
-        <button type="button" className={styles.cardEditBtn} onClick={() => setEditing((v) => !v)}>
-          {editing ? 'Done' : 'Edit'}
+        {!isUnfiled ? <DistillButton topic={topic} /> : null}
+        {!isUnfiled ? (
+          <button type="button" className={styles.cardEditBtn} onClick={() => setEditing((v) => !v)}>
+            {editing ? 'Done' : 'Edit'}
+          </button>
+        ) : null}
+      </div>
+
+      {!isUnfiled && editing ? <TopicEditor topic={topic} /> : null}
+
+      {!isUnfiled ? <EdgeCard topic={topic} /> : null}
+
+      {isUnfiled && entries.length ? (
+        <button type="button" className={styles.cardEditBtn} onClick={() => actions.fileUnfiled()}>
+          &#10024; File these
         </button>
-      </div>
+      ) : null}
 
-      {editing ? <TopicEditor topic={topic} /> : null}
+      {body}
 
-      <EdgeCard topic={topic} />
+      {!isUnfiled ? <SessionsCard sessions={sessions} /> : null}
 
-      <Composer presetTopic={topic.id} hideTopics addLabel="Add to thread" placeholder="Add to this thread…" inThread />
-
-      <SessionsCard sessions={sessions} />
-
-      <div className={styles.threadBody}>
-        {topLevel.length ? (
-          topLevel.map((e) => <ThreadBlock key={e.id} entry={e} repliesOf={repliesOf} editing={editing} />)
-        ) : (
-          <div className={styles.emptyNote}>No entries yet &mdash; start above.</div>
-        )}
-      </div>
+      {isUnfiled ? (
+        <Composer />
+      ) : (
+        <Composer presetTopic={topic.id} hideTopics addLabel="Add to thread" placeholder="Add to this thread…" inThread />
+      )}
     </>
   );
 }

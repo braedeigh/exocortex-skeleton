@@ -9,6 +9,10 @@ export type { Front } from '../fronts/useFronts';
 
 export type EntryKind = 'note' | 'source' | 'claim' | 'question';
 
+/** Synthetic thread id for the Uncategorized pseudo-thread — entries with no
+ * topics, surfaced as a thread-shaped view instead of a separate card. */
+export const UNFILED_ID = '__unfiled__';
+
 export interface Topic {
   id: string;
   name: string;

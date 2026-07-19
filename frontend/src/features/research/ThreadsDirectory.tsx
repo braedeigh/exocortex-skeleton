@@ -1,26 +1,31 @@
 /**
- * ThreadsDirectory.tsx — the Threads card plus the new-thread row at the
- * bottom of the main view. Front FILTER pills sit up top (kept as buttons —
- * her call); the threads themselves always render as a flat stack of
- * iMessage-style lines copied from the /sessions terminal switcher
- * (SessionListPage): name, a badge/meta row, and the thread's latest entry
- * as a line-clamped recap. She'd rather see which front a thread is in via
- * a small tap-to-filter chip on the row than have the list chopped into
- * front sections, so there's no grouping here — just a sort control to
- * browse the flat list a different way (recent / A-Z / attention).
+ * ThreadsDirectory.tsx — the Threads card, the whole directory view now that
+ * search/questions/unfiled/articles/library are gone (phase ① of the
+ * redesign). Front FILTER pills sit up top (kept as buttons — her call),
+ * with a plain text filter above them; the threads themselves always render
+ * as a flat stack of iMessage-style lines copied from the /sessions terminal
+ * switcher (SessionListPage): name, a badge/meta row, and the thread's
+ * latest entry as a line-clamped recap. She'd rather see which front a
+ * thread is in via a small tap-to-filter chip on the row than have the list
+ * chopped into front sections, so there's no grouping here — just a sort
+ * control to browse the flat list a different way (recent / A-Z /
+ * attention). Topic creation now happens inside the Composer's front picker.
  *
- * The selected front filter is lifted to ResearchPage.tsx so NewThreadRow
- * can read it too (a new thread created while a specific front is selected
- * auto-tags with it). The sort mode is local, persisted to localStorage.
+ * The topicless pool surfaces here too, as an always-shown Uncategorized row
+ * pinned at the bottom (exempt from both filters) that opens the synthetic
+ * UNFILED_ID pseudo-thread — the old Unfiled card's replacement.
+ *
+ * The selected front filter is lifted to ResearchPage.tsx. The sort mode is
+ * local, persisted to localStorage.
  */
 
 import { useMemo, useState } from 'react';
 import { Card } from './Card';
-import { orderedTopics, plural, sortTopics, topicStats, type ThreadSortMode } from './helpers';
+import { orderedTopics, plural, sortTopics, topicStats, unfiledEntries, type ThreadSortMode } from './helpers';
 import { useResearchCtx } from './ResearchContext';
 import { useFronts } from './useResearchData';
 import { FRONT_EMOJI, type Front } from '../fronts/useFronts';
-import type { Entry, Topic } from './types';
+import { UNFILED_ID, type Entry, type Topic } from './types';
 import styles from './ResearchPage.module.css';
 
 const SORT_KEY = 'rsrch-thread-sort';
@@ -162,6 +167,47 @@ function ThreadLine({
   );
 }
 
+/** Pinned bottom row for topicless entries — same threadLine shape as a real
+ * thread, opening the synthetic Uncategorized pseudo-thread. Always shown
+ * while unfiled entries exist, ignoring both the name and front filters. */
+function UnfiledRow({ entries }: { entries: Entry[] }) {
+  const { actions } = useResearchCtx();
+  const latest = entries[0];
+  const openUnfiled = () => actions.openThread(UNFILED_ID);
+
+  return (
+    <div
+      className={`${styles.threadLine} ${styles.threadLineMuted}`}
+      role="button"
+      tabIndex={0}
+      onClick={openUnfiled}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          openUnfiled();
+        }
+      }}
+    >
+      <span className={styles.threadLineTop}>
+        <span className={styles.threadLineName}>Uncategorized</span>
+        <span className={styles.dirChevron}>&#8250;</span>
+      </span>
+      <span className={styles.threadLineMeta}>
+        <span className={`${styles.threadFrontChip} ${styles.threadFrontChipMuted}`}>🏷️ Unfiled</span>
+        <span className={styles.threadLineCount}>
+          {entries.length} {plural(entries.length, 'entry', 'entries')}
+        </span>
+      </span>
+      {latest ? (
+        <span className={styles.threadLineRecap}>
+          {latest.author === 'llm' ? 'Claude: ' : ''}
+          {latest.text}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 export interface ThreadsDirectoryCardProps {
   frontFilter: string;
   onFrontFilterChange: (id: string) => void;
@@ -172,6 +218,7 @@ export function ThreadsDirectoryCard({ frontFilter, onFrontFilterChange }: Threa
   const frontsQuery = useFronts();
   const fronts = frontsQuery.data ?? [];
   const [sortMode, setSortMode] = useState<ThreadSortMode>(() => readSortMode());
+  const [nameFilter, setNameFilter] = useState('');
 
   function changeSort(mode: ThreadSortMode) {
     setSortMode(mode);
@@ -180,6 +227,7 @@ export function ThreadsDirectoryCard({ frontFilter, onFrontFilterChange }: Threa
 
   const topics = orderedTopics(state.topics, state.entries);
   const latest = useMemo(() => latestByTopic(state.entries), [state.entries]);
+  const unfiled = useMemo(() => unfiledEntries(state.entries), [state.entries]);
 
   const usedFrontIds = useMemo(() => {
     const ids = new Set<string>();
@@ -189,10 +237,13 @@ export function ThreadsDirectoryCard({ frontFilter, onFrontFilterChange }: Threa
   const hasUnassigned = useMemo(() => topics.some((t) => topicFronts(t).length === 0), [topics]);
   const filterPills = fronts.filter((f) => usedFrontIds.has(f.id));
 
+  const needle = nameFilter.trim().toLowerCase();
   const filtered = topics.filter((t) => {
-    if (frontFilter === 'all') return true;
-    if (frontFilter === 'unassigned') return topicFronts(t).length === 0;
-    return topicFronts(t).includes(frontFilter);
+    const passesFront =
+      frontFilter === 'all' ||
+      (frontFilter === 'unassigned' ? topicFronts(t).length === 0 : topicFronts(t).includes(frontFilter));
+    if (!passesFront) return false;
+    return !needle || t.name.toLowerCase().includes(needle);
   });
   const sorted = sortTopics(filtered, state.entries, sortMode);
 
@@ -202,6 +253,13 @@ export function ThreadsDirectoryCard({ frontFilter, onFrontFilterChange }: Threa
 
   return (
     <Card cardId="research-threads" defaultOpen title="Threads" count={topics.length}>
+      <input
+        type="text"
+        className={styles.threadFilterInput}
+        placeholder="filter threads…"
+        value={nameFilter}
+        onChange={(e) => setNameFilter(e.target.value)}
+      />
       {filterPills.length || hasUnassigned ? (
         <div className={styles.composerChips}>
           <button
@@ -245,50 +303,16 @@ export function ThreadsDirectoryCard({ frontFilter, onFrontFilterChange }: Threa
           </button>
         ))}
       </div>
-      {filtered.length ? (
-        <div className={styles.threadStack}>{sorted.map(line)}</div>
+      {filtered.length || unfiled.length ? (
+        <div className={styles.threadStack}>
+          {sorted.map(line)}
+          {unfiled.length ? <UnfiledRow entries={unfiled} /> : null}
+        </div>
       ) : (
         <div className={styles.emptyNote}>
-          {topics.length ? 'No threads match this front.' : 'No threads yet — add one below.'}
+          {topics.length ? 'No threads match this filter.' : 'No threads yet.'}
         </div>
       )}
     </Card>
-  );
-}
-
-export interface NewThreadRowProps {
-  frontFilter: string;
-}
-
-export function NewThreadRow({ frontFilter }: NewThreadRowProps) {
-  const { mutations, push } = useResearchCtx();
-  const [name, setName] = useState('');
-
-  function create() {
-    const trimmed = name.trim();
-    if (!trimmed) {
-      push('Name the thread first.');
-      return;
-    }
-    const fronts = frontFilter !== 'all' && frontFilter !== 'unassigned' ? [frontFilter] : undefined;
-    mutations.addTopic.mutate({ name: trimmed, fronts }, { onSuccess: () => setName('') });
-  }
-
-  return (
-    <div className={styles.newTopicRow}>
-      <input
-        type="text"
-        className={styles.newTopicInput}
-        placeholder="New thread name"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') create();
-        }}
-      />
-      <button type="button" className={styles.primaryBtn} onClick={create}>
-        New thread
-      </button>
-    </div>
   );
 }

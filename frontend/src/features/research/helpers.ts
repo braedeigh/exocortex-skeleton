@@ -208,14 +208,10 @@ export interface ThreadStructure {
   repliesOf: Record<string, Entry[]>;
 }
 
-/** Top-level entries sort newest-first (posting lands at the top); replies
- * under a given parent stay chronological. A reply whose parent is outside
- * the thread renders as top-level. */
-export function threadStructure(entries: Entry[], topicId: string): ThreadStructure {
-  const own = entries
-    .filter((e) => (e.topics ?? []).includes(topicId))
-    .slice()
-    .sort((a, b) => (b.created ?? '').localeCompare(a.created ?? ''));
+/** Shared body: given an already-filtered, newest-first-sorted set of a
+ * thread's own entries, nest replies under their in-thread parent. A reply
+ * whose parent is outside the thread renders as top-level. */
+function structureFromOwn(own: Entry[]): ThreadStructure {
   const idsInThread = new Set(own.map((e) => e.id));
   const repliesOf: Record<string, Entry[]> = {};
   for (const e of own) {
@@ -228,6 +224,23 @@ export function threadStructure(entries: Entry[], topicId: string): ThreadStruct
   }
   const topLevel = own.filter((e) => !e.reply_to || !idsInThread.has(e.reply_to));
   return { entries: own, topLevel, repliesOf };
+}
+
+/** Top-level entries sort newest-first (posting lands at the top); replies
+ * under a given parent stay chronological. A reply whose parent is outside
+ * the thread renders as top-level. */
+export function threadStructure(entries: Entry[], topicId: string): ThreadStructure {
+  const own = entries
+    .filter((e) => (e.topics ?? []).includes(topicId))
+    .slice()
+    .sort((a, b) => (b.created ?? '').localeCompare(a.created ?? ''));
+  return structureFromOwn(own);
+}
+
+/** Same nesting logic as threadStructure, over the topicless pool instead of
+ * one topic's entries — backs the Uncategorized pseudo-thread. */
+export function unfiledStructure(entries: Entry[]): ThreadStructure {
+  return structureFromOwn(unfiledEntries(entries));
 }
 
 // --- Context chain (composer follow-ups + annotation research) ---
@@ -353,9 +366,9 @@ export function originFile(e: Entry): string {
 /** Where a freshly-added entry landed, for the "Caught — …" toast: one
  * topic -> "{frontEmoji} {topicName}" (emoji omitted if the topic has no
  * front, or that front isn't in the known list); 2+ topics -> "{first} + N
- * more"; no topics -> "waiting in Unfiled". */
+ * more"; no topics -> "waiting in Uncategorized". */
 export function landingLabel(topicIds: string[], byId: Record<string, Topic>, fronts?: Front[]): string {
-  if (!topicIds.length) return 'waiting in Unfiled';
+  if (!topicIds.length) return 'waiting in Uncategorized';
   const first = byId[topicIds[0]];
   const name = first ? first.name : topicIds[0];
   if (topicIds.length > 1) return `${name} + ${topicIds.length - 1} more`;

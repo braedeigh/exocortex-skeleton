@@ -1,14 +1,18 @@
 /**
- * EntryRow.tsx — the shared entry row (thread blocks, Unfiled, questions all
- * render entries through here), ported from research.js _rsrchEntryRow +
- * _rsrchMetaHtml. Kind badge, per-kind extras (source link/verdict/metadata/
- * full-text buttons, claim verdict cycle, question status + deep research),
- * queue-for-Claude checkbox or reviewed/reply chips, inline text editing
- * (replacing the old prompt()), topic chips (taps re-file in edit mode), and
- * an always-available two-step delete.
+ * EntryRow.tsx — the shared entry row, now rendered only from ThreadView's
+ * reading-room flow (thread blocks + the Uncategorized pseudo-thread). Kind
+ * badge (skipped for 'note', the overwhelming majority — pure noise in an
+ * open flow), per-kind extras (source link/verdict/metadata/full-text
+ * buttons, claim verdict cycle, question status + deep research), long text
+ * clamps to ~10 lines with a "more"/"less" toggle (measured against the
+ * rendered height, both for her plain text and Claude's markdown). "Small
+ * until edit": the ✎ edit / ✎ highlight / ✎ highlight report utility chips
+ * only render when the thread-level `editing` prop is on; reading actions
+ * (reviewed/reply, send to Claude, read report, source chips, reply-line,
+ * topic chips) and the two-step delete stay visible always.
  */
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { mdToHtml } from '../journal/markdown';
 import { CLAIM_CYCLE, KIND_LABEL, authorsShort, entryTint, originFile, truncate } from './helpers';
 import { useResearchCtx } from './ResearchContext';
@@ -77,6 +81,27 @@ export function EntryRow({ entry: e, editing }: { entry: Entry; editing: boolean
 
   const [editingText, setEditingText] = useState(false);
   const [draft, setDraft] = useState('');
+
+  // Long-text clamp: the clamp class applies whenever the entry isn't
+  // expanded (overflow can only be MEASURED while the element is clamped —
+  // an unclamped element never overflows, so gating the class on the
+  // measurement would deadlock at "never clamped"). Short text under the
+  // clamp height is unaffected by the class; the "more" toggle only shows
+  // when the clamped element actually overflows. Re-measure whenever the
+  // text changes (an edit can push it over, or under, the threshold).
+  const textRef = useRef<HTMLSpanElement | null>(null);
+  const [textExpanded, setTextExpanded] = useState(false);
+  const [textOverflowing, setTextOverflowing] = useState(false);
+
+  useEffect(() => {
+    setTextExpanded(false);
+  }, [e.text]);
+
+  useEffect(() => {
+    if (textExpanded) return;
+    const el = textRef.current;
+    setTextOverflowing(!!el && el.scrollHeight - el.clientHeight > 1);
+  }, [e.text, textExpanded]);
 
   function startTextEdit() {
     setDraft(e.text);
@@ -221,28 +246,37 @@ export function EntryRow({ entry: e, editing }: { entry: Entry; editing: boolean
         <div className={styles.entryHead}>
           {isLlm ? (
             <span className={`${styles.kind} ${styles.kindLlm}`}>&#10024; claude</span>
-          ) : (
+          ) : e.kind !== 'note' ? (
             <span
               className={`${styles.kind} ${
-                e.kind === 'source'
-                  ? styles.kindSource
-                  : e.kind === 'claim'
-                    ? styles.kindClaim
-                    : e.kind === 'question'
-                      ? styles.kindQuestion
-                      : styles.kindNote
+                e.kind === 'source' ? styles.kindSource : e.kind === 'claim' ? styles.kindClaim : styles.kindQuestion
               }`}
             >
               {KIND_LABEL[e.kind] ?? e.kind}
             </span>
-          )}
+          ) : null}
           {/* Claude's replies may use markdown; her own text stays plain. */}
           {isLlm ? (
-            <span className={styles.entryText} dangerouslySetInnerHTML={{ __html: mdToHtml(e.text) }} />
+            <span
+              ref={textRef}
+              className={`${styles.entryText} ${!textExpanded ? styles.entryTextClamped : ''}`}
+              dangerouslySetInnerHTML={{ __html: mdToHtml(e.text) }}
+            />
           ) : (
-            <span className={styles.entryText}>{e.text}</span>
+            <span
+              ref={textRef}
+              className={`${styles.entryText} ${!textExpanded ? styles.entryTextClamped : ''}`}
+            >
+              {e.text}
+            </span>
           )}
         </div>
+
+        {textOverflowing ? (
+          <button type="button" className={styles.moreBtn} onClick={() => setTextExpanded((v) => !v)}>
+            {textExpanded ? '↑ less' : '↓ more'}
+          </button>
+        ) : null}
 
         {extra}
 
@@ -283,20 +317,28 @@ export function EntryRow({ entry: e, editing }: { entry: Entry; editing: boolean
               &#10148; send to Claude
             </button>
           )}
-          <button type="button" className={styles.chip} onClick={startTextEdit}>
-            &#9998; edit
-          </button>
+          {editing ? (
+            <button type="button" className={styles.chip} onClick={startTextEdit}>
+              &#9998; edit
+            </button>
+          ) : null}
           {e.file ? (
             <>
               {/* Deep-research replies point at the write-up they came from. */}
               <button type="button" className={styles.chip} onClick={() => actions.openLibraryFile(e.file!)}>
                 &#128214; Read report
               </button>
-              <button type="button" className={styles.chip} onClick={() => actions.openAnnotator(`note:${e.file}`, 'report')}>
-                &#9998; highlight report
-              </button>
+              {editing ? (
+                <button
+                  type="button"
+                  className={styles.chip}
+                  onClick={() => actions.openAnnotator(`note:${e.file}`, 'report')}
+                >
+                  &#9998; highlight report
+                </button>
+              ) : null}
             </>
-          ) : e.kind !== 'source' && (e.text ?? '').length > 40 ? (
+          ) : editing && e.kind !== 'source' && (e.text ?? '').length > 40 ? (
             <button
               type="button"
               className={styles.chip}
