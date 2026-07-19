@@ -19,6 +19,16 @@ hardcoded in the app code.
 - **First-run password** → `config.DEFAULT_PASSWORD` (env `EXOCORTEX_DEFAULT_PASSWORD`),
   documented to change on first login.
 - **Data location** → already env-driven (`EXOCORTEX_DATA_DIR`) via `store.py`.
+- **Journal card engine decoupled from the author's private vault** → the journal-day
+  UI (`routes/cards.py`) shelled out to a `stream.py` that only ever existed in the
+  author's personal vault, so a fresh install had no cards and no way to add one.
+  Added `content-scaffold/` (the engine, a generic seed keeper `CLAUDE.md`, and empty
+  `Journal/`/`keeper-diary/` dirs) plus `store.seed_content_scaffold()`, called on
+  server boot, which copies it into a fresh `CONTENT_DIR` the first time
+  (idempotent, never overwrites, and a no-op once a real `_system/stream.py`
+  exists — so the author's own live vault is untouched). Generic `/journalstart` +
+  `/endsession` slash commands and the capture-hook wiring ship in
+  `claude-commands/` and `install.sh`.
 
 Verified: boots on an empty data dir, all dashboard endpoints return 200, `APP_NAME`
 flows into the UI.

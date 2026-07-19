@@ -8,6 +8,10 @@ auth.json
 sessions.json
 .env
 
+# Local Claude Code config (hook wiring written by install.sh) — machine-local,
+# never shared or committed.
+.claude/
+
 # Python
 __pycache__/
 *.pyc

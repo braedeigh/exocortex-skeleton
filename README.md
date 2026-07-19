@@ -28,3 +28,9 @@ later). Routes are split per feature in the `routes/` package, each module expos
 Installable as a PWA — `static/manifest.json` + a network-first service worker
 (`static/sw.js`, online-fresh with offline fallback) + app icons, so it adds to your
 phone's home screen and runs full-screen.
+
+## Journaling
+The day-view journal (cards) works right out of the box — a fresh install seeds
+itself a small deterministic card engine and a generic keeper persona on first boot.
+See [INSTALL.md](INSTALL.md#journaling) for the details, including optional
+Claude Code integration.
