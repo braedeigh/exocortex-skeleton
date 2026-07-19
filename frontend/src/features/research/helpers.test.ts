@@ -342,8 +342,8 @@ describe('landingLabel', () => {
     expect(landingLabel(['t1', 't2', 't3'], byId, fronts)).toBe('Long COVID + 2 more');
   });
 
-  it('no topics: waiting in Unfiled', () => {
-    expect(landingLabel([], byId, fronts)).toBe('waiting in Unfiled');
+  it('no topics: waiting in Uncategorized', () => {
+    expect(landingLabel([], byId, fronts)).toBe('waiting in Uncategorized');
   });
 });
 

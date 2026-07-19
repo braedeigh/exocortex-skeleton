@@ -366,9 +366,9 @@ export function originFile(e: Entry): string {
 /** Where a freshly-added entry landed, for the "Caught — …" toast: one
  * topic -> "{frontEmoji} {topicName}" (emoji omitted if the topic has no
  * front, or that front isn't in the known list); 2+ topics -> "{first} + N
- * more"; no topics -> "waiting in Unfiled". */
+ * more"; no topics -> "waiting in Uncategorized". */
 export function landingLabel(topicIds: string[], byId: Record<string, Topic>, fronts?: Front[]): string {
-  if (!topicIds.length) return 'waiting in Unfiled';
+  if (!topicIds.length) return 'waiting in Uncategorized';
   const first = byId[topicIds[0]];
   const name = first ? first.name : topicIds[0];
   if (topicIds.length > 1) return `${name} + ${topicIds.length - 1} more`;
