@@ -8,7 +8,7 @@ import {
   monthKey,
   monthKeyLabel,
   roundedTopBarPath,
-} from './sparkline';
+} from './sparklineMath';
 
 const NOW = new Date('2026-07-09T12:00:00');
 

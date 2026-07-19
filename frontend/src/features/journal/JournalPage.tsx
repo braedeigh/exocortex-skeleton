@@ -239,7 +239,7 @@ export function JournalPage() {
    * flips the day into blob mode, where `seededDate` mounts it in edit mode. */
   function startToday() {
     if (!currentDate) return;
-    const seed = `# ${currentDate}\n\n\`B = Bradie | K = Keeper\`\n\n---\n\n`;
+    const seed = `# ${currentDate}\n\n\`S = Sarah | K = Keeper\`\n\n---\n\n`;
     saveBlobMutation.mutate(seed, { onSuccess: () => setSeededDate(currentDate) });
   }
 
