@@ -85,8 +85,7 @@
   color: var(--text-muted);
 }
 
-.card[open] > .cardSummary .arrow,
-.block[open] > .blockSummary .arrow {
+.card[open] > .cardSummary .arrow {
   transform: rotate(90deg);
 }
 
@@ -387,6 +386,37 @@
   padding-left: 12px;
   color: var(--text-muted);
   margin: 6px 0;
+}
+
+/* Reading-room long-text clamp — caps a note/reply at ~10 lines so one huge
+   entry doesn't dominate the flow; the .moreBtn toggle below only renders
+   when the text actually overflows this. */
+.entryTextClamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 10;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.moreBtn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  box-sizing: border-box;
+  padding: 4px 12px;
+  margin-top: 2px;
+  border: none;
+  background: none;
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.moreBtn:hover {
+  text-decoration: underline;
 }
 
 .chipRow {
@@ -1112,47 +1142,13 @@
   min-width: 140px;
 }
 
-/* nested per-entry fold in a thread */
+/* one entry's wrapper in the reading-room flow — always open, no fold */
 .block {
   border: none;
   border-radius: 0;
   padding: 0;
   margin-bottom: 0;
   background: none;
-}
-
-.blockSummary {
-  font-size: 13px;
-  font-weight: 400;
-  color: var(--text-muted);
-  padding: 8px 0;
-  min-height: var(--tap-target);
-  cursor: pointer;
-  list-style: none;
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.blockSummary::-webkit-details-marker {
-  display: none;
-}
-
-.blockSummary .arrow {
-  font-size: 11px;
-}
-
-.blockBadge {
-  color: var(--text);
-  font-weight: 700;
-}
-
-.blockSnippet {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .blockKids {
