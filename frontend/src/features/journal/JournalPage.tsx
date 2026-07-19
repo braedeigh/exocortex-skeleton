@@ -239,7 +239,8 @@ export function JournalPage() {
    * flips the day into blob mode, where `seededDate` mounts it in edit mode. */
   function startToday() {
     if (!currentDate) return;
-    const seed = `# ${currentDate}\n\n\`B = Bradie | K = Keeper\`\n\n---\n\n`;
+    // Matches the engine's default day legend (STREAM_DAY_LEGEND in _system/stream.py).
+    const seed = `# ${currentDate}\n\n\`B = you | K = keeper\`\n\n---\n\n`;
     saveBlobMutation.mutate(seed, { onSuccess: () => setSeededDate(currentDate) });
   }
 

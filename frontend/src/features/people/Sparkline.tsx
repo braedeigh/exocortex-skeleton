@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { buildSparkline } from './sparkline';
+import { buildSparkline } from './sparklineMath';
 
 export interface SparklineProps {
   dates: readonly string[];

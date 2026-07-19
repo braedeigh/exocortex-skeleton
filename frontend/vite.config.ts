@@ -21,7 +21,7 @@ export default defineConfig({
       manifest: {
         name: 'Exocortex',
         short_name: 'Exocortex',
-        description: "Bradie's exocortex",
+        description: 'A personal exocortex',
         start_url: '/',
         display: 'standalone',
         background_color: '#aba3b2',
