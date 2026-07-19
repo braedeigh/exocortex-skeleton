@@ -3,11 +3,15 @@
  * (templates/research.html + static/js/research.js). A flat pool of learning
  * notes; topics are threads over the pool, not boxes. Two views:
  *
- *   /research              — the main directory (composer, send-all strip,
- *                            search, thread directory, open questions,
- *                            Unfiled backstop, Articles, Library, new-thread
- *                            row)
- *   /research?thread=<id>  — one thread's chat view (was '#thread/<id>')
+ *   /research              — the main directory: capture composer + the
+ *                            threads list only (phase ① of a redesign —
+ *                            search/questions/unfiled/articles/library cards
+ *                            are gone; topic creation lives in the composer's
+ *                            front picker, and unfiled entries surface as the
+ *                            Uncategorized pseudo-thread, UNFILED_ID)
+ *   /research?thread=<id>  — one thread's chat view (was '#thread/<id>');
+ *                            thread=UNFILED_ID is the synthetic Uncategorized
+ *                            thread over topicless entries
  *
  * She flags entries to queue them for Claude; a send fires a research-runner
  * session that writes reply entries back into the thread, and the research
@@ -23,18 +27,13 @@ import { useToasts } from '../journal/useJournalData';
 import type { AddEntryBody } from './api';
 import { Annotator } from './Annotator';
 import { Composer, COMPOSER_TEXT_ID } from './Composer';
-import { ArticlesCard } from './ArticlesCard';
 import { anySessionInFlight, contextChain, landingLabel, plural, topicsById } from './helpers';
 import { HealthPill } from './HealthPill';
-import { LibraryCard } from './LibraryCard';
-import { QuestionsCard } from './QuestionsCard';
 import { Reader } from './Reader';
 import { ResearchProvider, type ResearchCtxValue } from './ResearchContext';
-import { SearchCard } from './SearchCard';
-import { ThreadsDirectoryCard, NewThreadRow } from './ThreadsDirectory';
+import { ThreadsDirectoryCard } from './ThreadsDirectory';
 import { ThreadView } from './ThreadView';
-import { UnfiledCard } from './UnfiledCard';
-import { emptyComposer, type ComposerState, type Entry, type Topic } from './types';
+import { emptyComposer, UNFILED_ID, type ComposerState, type Entry, type Topic } from './types';
 import { useDocTexts, useFronts, useLibrary, useResearch, useResearchMutations } from './useResearchData';
 import styles from './ResearchPage.module.css';
 
@@ -63,11 +62,10 @@ export function ResearchPage() {
   const library = libraryQuery.data?.files ?? [];
   const edge = libraryQuery.data?.edge ?? [];
 
-  // --- composer (one per view; the annotator + questions card can aim it) ---
+  // --- composer (one per view; the annotator can aim it) ---
   const [composer, setComposer] = useState<ComposerState>(emptyComposer);
 
-  // --- fronts filter (Threads card pills; lifted so NewThreadRow can
-  // auto-tag a new thread with whichever front is selected) ---
+  // --- fronts filter (Threads card pills) ---
   const [frontFilter, setFrontFilter] = useState('all');
 
   // --- busy sets for per-entry fetches (the old _rsrchAnnotating/_rsrchFetchingText) ---
@@ -98,11 +96,17 @@ export function ResearchPage() {
 
   // --- routing: ?thread=<id> (was location.hash '#thread/<id>') ---
   const threadId = search.thread ?? null;
-  const topic: Topic | null = threadId ? (byId[threadId] ?? null) : null;
+  const topic: Topic | null =
+    threadId === UNFILED_ID
+      ? { id: UNFILED_ID, name: 'Uncategorized', status: 'active' }
+      : threadId
+        ? (byId[threadId] ?? null)
+        : null;
 
-  // Unknown thread id — bounce home once the data is in (old: location.hash = '').
+  // Unknown thread id — bounce home once the data is in (old: location.hash
+  // = ''). The Uncategorized pseudo-thread is exempt: it's never in byId.
   useEffect(() => {
-    if (threadId && researchQuery.data && !byId[threadId]) {
+    if (threadId && threadId !== UNFILED_ID && researchQuery.data && !byId[threadId]) {
       void navigate({ search: {}, replace: true });
     }
   }, [threadId, researchQuery.data, byId, navigate]);
@@ -175,10 +179,7 @@ export function ResearchPage() {
           if (payload.topics && payload.topics.length) {
             openThread(payload.topics[0]);
           } else {
-            // TODO: soft-pulse Unfiled — scroll there for now (cheap via Card's data-card attr).
-            document
-              .querySelector('[data-card="research-unfiled"]')
-              ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            openThread(UNFILED_ID);
           }
         },
       });
@@ -413,13 +414,7 @@ export function ResearchPage() {
         ) : (
           <>
             <Composer />
-            <SearchCard />
             <ThreadsDirectoryCard frontFilter={frontFilter} onFrontFilterChange={setFrontFilter} />
-            <QuestionsCard />
-            <UnfiledCard />
-            <ArticlesCard />
-            <LibraryCard />
-            <NewThreadRow frontFilter={frontFilter} />
           </>
         )}
       </div>

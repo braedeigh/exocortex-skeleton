@@ -21,12 +21,13 @@ import {
   sessionsForTopic,
   threadStructure,
   truncate,
+  unfiledStructure,
 } from './helpers';
 import { DistillButton } from './Pills';
 import { useResearchCtx } from './ResearchContext';
 import { SessionsCard } from './SessionsCard';
 import { useFronts } from './useResearchData';
-import type { Entry, Topic } from './types';
+import { UNFILED_ID, type Entry, type Topic } from './types';
 import styles from './ResearchPage.module.css';
 
 function ThreadBlock({
@@ -169,8 +170,11 @@ function EdgeCard({ topic }: { topic: Topic }) {
 export function ThreadView({ topic }: { topic: Topic }) {
   const { state, actions } = useResearchCtx();
   const [editing, setEditing] = useState(false);
+  const isUnfiled = topic.id === UNFILED_ID;
 
-  const { entries, topLevel, repliesOf } = threadStructure(state.entries, topic.id);
+  const { entries, topLevel, repliesOf } = isUnfiled
+    ? unfiledStructure(state.entries)
+    : threadStructure(state.entries, topic.id);
   const sessions = sessionsForTopic(state.sessions, topic.id);
 
   return (
@@ -191,19 +195,31 @@ export function ThreadView({ topic }: { topic: Topic }) {
             {entries.length} {plural(entries.length, 'entry', 'entries')}
           </div>
         </div>
-        <DistillButton topic={topic} />
-        <button type="button" className={styles.cardEditBtn} onClick={() => setEditing((v) => !v)}>
-          {editing ? 'Done' : 'Edit'}
-        </button>
+        {!isUnfiled ? <DistillButton topic={topic} /> : null}
+        {!isUnfiled ? (
+          <button type="button" className={styles.cardEditBtn} onClick={() => setEditing((v) => !v)}>
+            {editing ? 'Done' : 'Edit'}
+          </button>
+        ) : null}
       </div>
 
-      {editing ? <TopicEditor topic={topic} /> : null}
+      {!isUnfiled && editing ? <TopicEditor topic={topic} /> : null}
 
-      <EdgeCard topic={topic} />
+      {!isUnfiled ? <EdgeCard topic={topic} /> : null}
 
-      <Composer presetTopic={topic.id} hideTopics addLabel="Add to thread" placeholder="Add to this thread…" inThread />
+      {isUnfiled ? (
+        <Composer />
+      ) : (
+        <Composer presetTopic={topic.id} hideTopics addLabel="Add to thread" placeholder="Add to this thread…" inThread />
+      )}
 
-      <SessionsCard sessions={sessions} />
+      {!isUnfiled ? <SessionsCard sessions={sessions} /> : null}
+
+      {isUnfiled && entries.length ? (
+        <button type="button" className={styles.cardEditBtn} onClick={() => actions.fileUnfiled()}>
+          &#10024; File these
+        </button>
+      ) : null}
 
       <div className={styles.threadBody}>
         {topLevel.length ? (
