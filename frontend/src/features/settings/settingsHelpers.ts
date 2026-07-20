@@ -124,3 +124,24 @@ export function normalizeHexForPicker(value: string): string {
   if (value.startsWith('rgba')) return rgbaToHex(value);
   return '#000000';
 }
+
+/**
+ * Profile section — which fields to PUT /api/profile. Inputs hold the raw
+ * text (empty means "inherit/clear"); `stored` is the server's explicitly-set
+ * subset. Only keys whose input value actually differs from what's stored go
+ * in the diff (an untouched, already-inherited field stays untouched rather
+ * than sending a redundant "" clear), keeping the request minimal and the
+ * clear-vs-leave-alone distinction correct.
+ */
+export function profileChangedFields<K extends string>(
+  inputs: Record<K, string>,
+  stored: Partial<Record<K, string>>,
+): Partial<Record<K, string>> {
+  const out: Partial<Record<K, string>> = {};
+  for (const key of Object.keys(inputs) as K[]) {
+    const value = inputs[key];
+    const storedValue = stored[key] ?? '';
+    if (value !== storedValue) out[key] = value;
+  }
+  return out;
+}

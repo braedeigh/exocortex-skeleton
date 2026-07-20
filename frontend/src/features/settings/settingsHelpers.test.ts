@@ -8,6 +8,7 @@ import {
   effectiveOffset,
   hexWithAlphaFrom,
   normalizeHexForPicker,
+  profileChangedFields,
   rgbaToHex,
   trimEmpty,
 } from './settingsHelpers';
@@ -114,5 +115,31 @@ describe('normalizeHexForPicker', () => {
     expect(normalizeHexForPicker('#fff')).toBe('#ffffff');
     expect(normalizeHexForPicker('rgba(255,0,0,0.5)')).toBe('#ff0000');
     expect(normalizeHexForPicker('salmon')).toBe('#000000');
+  });
+});
+
+describe('profileChangedFields', () => {
+  it('omits fields whose input matches the stored value', () => {
+    const inputs = { owner_name: 'Bradie', owner_email: '', app_name: 'Exocortex' };
+    const stored = { owner_name: 'Bradie', app_name: 'Exocortex' };
+    expect(profileChangedFields(inputs, stored)).toEqual({});
+  });
+
+  it('includes an edited field', () => {
+    const inputs = { owner_name: 'Bradie Lee', owner_email: '', app_name: 'Exocortex' };
+    const stored = { owner_name: 'Bradie', app_name: 'Exocortex' };
+    expect(profileChangedFields(inputs, stored)).toEqual({ owner_name: 'Bradie Lee' });
+  });
+
+  it('includes an explicit clear of a previously-stored field', () => {
+    const inputs = { owner_name: '', owner_email: '', app_name: 'Exocortex' };
+    const stored = { owner_name: 'Bradie', app_name: 'Exocortex' };
+    expect(profileChangedFields(inputs, stored)).toEqual({ owner_name: '' });
+  });
+
+  it('treats an absent stored key the same as stored ""', () => {
+    const inputs = { owner_name: '', owner_email: '', app_name: '' };
+    const stored = {};
+    expect(profileChangedFields(inputs, stored)).toEqual({});
   });
 });

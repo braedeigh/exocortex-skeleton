@@ -17,8 +17,11 @@ The repo is written to guide you (and your AI) through its own setup:
    **[docs/SETUP-MACOS.md](docs/SETUP-MACOS.md)**. **On a public server** (domain +
    HTTPS): **[DEPLOY.md](DEPLOY.md)**; the full always-on machine build (systemd,
    nginx, cron, agents) is **[docs/SETUP-FULL.md](docs/SETUP-FULL.md)**.
-2. **Have Claude do it with you:** open Claude Code at this repo's root and say
-   "set this up for me." The docs above are written for an AI agent to execute —
+2. **Have Claude do it with you:** open Claude Code at this repo's root and run
+   **`/onboard`** — a first-session guide that installs if needed, interviews you,
+   and stages your profile through the approval queue (or just say "set this up
+   for me"). Afterward, **`/help`** answers "what does this page do / where does
+   this live" any time. The docs above are written for an AI agent to execute —
    they, plus [docs/PERSONALIZE.md](docs/PERSONALIZE.md) and
    [docs/SCRUB-LOG.md](docs/SCRUB-LOG.md), tell it everything it needs to know.
 3. **Make it yours:** every personal value is a marked placeholder —

@@ -17,6 +17,7 @@ import { AccountSection } from './AccountSection';
 import { ColorField } from './ColorField';
 import { DevNotesSection } from './DevNotesSection';
 import { PhaseCard } from './PhaseCard';
+import { ProfileSection } from './ProfileSection';
 import { saveTheme } from './settingsApi';
 import {
   buildSavePayload,
@@ -56,7 +57,8 @@ type SaveStatus = '' | 'unsaved' | 'saving…' | 'saved' | 'save failed';
 /**
  * /settings — native port of templates/settings.html + static/js/settings.js:
  * theme mode, sky-theme master toggle, per-phase colors with live preview,
- * phase timing offsets, accent colors, cross-tab dev notes, and account.
+ * phase timing offsets, accent colors, cross-tab dev notes, profile
+ * (owner name/email/app name), and account.
  * Edits accumulate in a local draft; Save persists via POST /api/theme/save
  * then commits through the theme engine (re-skins this document and
  * broadcasts 'theme-changed' to every mounted legacy iframe).
@@ -319,6 +321,15 @@ export function SettingsPage() {
           <h2 className={styles.heading}>Cross-tab dev notes</h2>
           <div className={styles.sub}>Ideas that don&rsquo;t fit any one page.</div>
           <DevNotesSection onError={push} />
+        </section>
+
+        <section className={styles.section}>
+          <h2 className={styles.heading}>Profile</h2>
+          <div className={styles.sub}>
+            How your exocortex addresses you and titles itself. Leave a field empty to use the
+            default.
+          </div>
+          <ProfileSection />
         </section>
 
         <section className={styles.section}>

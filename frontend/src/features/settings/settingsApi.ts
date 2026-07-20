@@ -18,3 +18,31 @@ export function saveTheme(payload: ThemeOverrides): Promise<OkResponse> {
 export function changePassword(current: string, next: string): Promise<OkResponse> {
   return api.post('/api/auth/change-password', { current, new: next });
 }
+
+/** The owner-profile fields (routes/profile.py) — owner_name/owner_email/
+ * app_name, each independently settable/clearable. */
+export interface ProfileFields {
+  owner_name: string;
+  owner_email: string;
+  app_name: string;
+}
+
+/** GET /api/profile response — `profile` is the resolved value (stored ->
+ * env -> default precedence), `stored` is only what's explicitly set (an
+ * absent/empty key there means the field is currently inherited). */
+export interface ProfileResponse {
+  profile: ProfileFields;
+  stored: Partial<ProfileFields>;
+}
+
+/** GET /api/profile (routes/profile.py). */
+export function fetchProfile(): Promise<ProfileResponse> {
+  return api.get('/api/profile');
+}
+
+/** PUT /api/profile (routes/profile.py) — partial object merges; a key set
+ * to "" clears it back to inherited (env/default). 400 {"error"} on invalid
+ * values (e.g. malformed email), surfaced via ApiError.message. */
+export function saveProfile(updates: Partial<ProfileFields>): Promise<ProfileResponse> {
+  return api.put('/api/profile', updates);
+}
