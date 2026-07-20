@@ -6,6 +6,7 @@ import { BlobEditor } from './BlobEditor';
 import { CalendarOverlay } from './CalendarOverlay';
 import type { CalendarMonth } from './calendarMath';
 import { CardStream } from './CardStream';
+import { ClearedTodosCard } from './ClearedTodosCard';
 import { DevNotesPanel } from './DevNotesPanel';
 import './entities.css';
 import { buildEntityMatcher } from './entityHighlight';
@@ -294,52 +295,60 @@ export function JournalPage() {
           // Error only when there's nothing to show — a failed background poll
           // (dayQuery.isError with data still cached) must not blank a working day.
           <div className={styles.error}>Couldn&apos;t load this day.</div>
-        ) : mode === 'cards' ? (
-          <CardStream
-            cards={visibleCards}
-            editingCardId={editingCardId}
-            savingCardId={savingCardId}
-            matcher={matcher}
-            onEdit={setEditingCardId}
-            onCancel={() => setEditingCardId(null)}
-            onSave={(id, body) => updateCard.mutate({ id, body }, { onSuccess: () => setEditingCardId(null) })}
-            onConfirmDelete={(id) => requestDeleteCard(id, visibleCards.length === 1)}
-            onNavigateDate={goTo}
-            onPersonClick={setPopoverSlug}
-            addSaving={addCard.isPending}
-            onComposeSave={async (body) => {
-              try {
-                await addCard.mutateAsync({ position: 'bottom', body });
-                return true;
-              } catch {
-                return false;
-              }
-            }}
-            onBottomActiveChange={setBottomComposerActive}
-          />
-        ) : mode === 'empty' ? (
-          <div className={styles.empty}>
-            No entries yet.
-            {serverDate && currentDate === serverDate ? (
-              <button
-                type="button"
-                className={styles.startDay}
-                onClick={startToday}
-                disabled={saveBlobMutation.isPending}
-              >
-                &#9999;&#65039; Start today&apos;s page
-              </button>
-            ) : null}
-          </div>
         ) : (
-          <BlobEditor
-            key={currentDate}
-            initialContent={bundle.journal.content}
-            matcher={matcher}
-            save={(content) => saveBlobMutation.mutateAsync(content)}
-            onFocusChange={setBlobFocused}
-            initialMode={seededDate === currentDate ? 'edit' : 'read'}
-          />
+          <>
+            {mode === 'empty' ? (
+              <div className={styles.empty}>
+                No entries yet.
+                {serverDate && currentDate === serverDate ? (
+                  <button
+                    type="button"
+                    className={styles.startDay}
+                    onClick={startToday}
+                    disabled={saveBlobMutation.isPending}
+                  >
+                    &#9999;&#65039; Start today&apos;s page
+                  </button>
+                ) : null}
+              </div>
+            ) : mode === 'blob' ? (
+              <BlobEditor
+                key={currentDate}
+                initialContent={bundle.journal.content}
+                matcher={matcher}
+                save={(content) => saveBlobMutation.mutateAsync(content)}
+                onFocusChange={setBlobFocused}
+                initialMode={seededDate === currentDate ? 'edit' : 'read'}
+              />
+            ) : null}
+
+            <ClearedTodosCard date={currentDate} />
+
+            {mode === 'cards' ? (
+              <CardStream
+                cards={visibleCards}
+                editingCardId={editingCardId}
+                savingCardId={savingCardId}
+                matcher={matcher}
+                onEdit={setEditingCardId}
+                onCancel={() => setEditingCardId(null)}
+                onSave={(id, body) => updateCard.mutate({ id, body }, { onSuccess: () => setEditingCardId(null) })}
+                onConfirmDelete={(id) => requestDeleteCard(id, visibleCards.length === 1)}
+                onNavigateDate={goTo}
+                onPersonClick={setPopoverSlug}
+                addSaving={addCard.isPending}
+                onComposeSave={async (body) => {
+                  try {
+                    await addCard.mutateAsync({ position: 'bottom', body });
+                    return true;
+                  } catch {
+                    return false;
+                  }
+                }}
+                onBottomActiveChange={setBottomComposerActive}
+              />
+            ) : null}
+          </>
         )}
       </div>
 

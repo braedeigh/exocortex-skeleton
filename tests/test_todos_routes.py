@@ -252,6 +252,66 @@ def test_details_sets_then_clears_after_fields(client, seed):
     assert "after_date" not in it and "after_id" not in it
 
 
+# --- cleared / finished --------------------------------------------------------
+
+def test_details_sets_then_clears_finished_fields(client, seed):
+    """finished_on/finished_time follow the same set/clear contract as the
+    other detail attrs (empty string clears; distinct from done_at)."""
+    seed({"now": {"items": [{"id": "a", "text": "A", "done": False}]}})
+    _post(client, "/api/todos/details", {"id": "a", "finished_on": "2026-07-19", "finished_time": "09:15"})
+    it = read_todos()["now"]["items"][0]
+    assert it["finished_on"] == "2026-07-19" and it["finished_time"] == "09:15"
+    _post(client, "/api/todos/details", {"id": "a", "finished_on": "", "finished_time": ""})
+    it = read_todos()["now"]["items"][0]
+    assert "finished_on" not in it and "finished_time" not in it
+
+
+def test_cleared_matches_done_at_across_buckets(client, seed):
+    seed({
+        "now": {"items": [
+            {"id": "a", "text": "Ladder done", "done": True, "done_at": "2026-07-19"},
+            {"id": "b", "text": "Not done", "done": False},
+            {"id": "c", "text": "Other day", "done": True, "done_at": "2026-07-18"},
+        ]},
+        "done": {"items": [
+            {"id": "d", "text": "Archived done", "done": True, "done_at": "2026-07-19"},
+        ]},
+    })
+    r = client.get("/api/todos/cleared?date=2026-07-19")
+    body = r.get_json()
+    got = {(i["id"], i["text"]) for i in body["items"]}
+    assert got == {("a", "Ladder done"), ("d", "Archived done")}
+    assert all("time" not in i for i in body["items"])
+
+
+def test_cleared_finished_on_overrides_done_at(client, seed):
+    seed({"now": {"items": [
+        {"id": "a", "text": "A", "done": True, "done_at": "2026-07-19", "finished_on": "2026-07-20"},
+        {"id": "b", "text": "B", "done": True, "done_at": "2026-07-20", "finished_on": "2026-07-19"},
+    ]}})
+    today = {i["id"] for i in client.get("/api/todos/cleared?date=2026-07-20").get_json()["items"]}
+    yesterday = {i["id"] for i in client.get("/api/todos/cleared?date=2026-07-19").get_json()["items"]}
+    assert today == {"a"}
+    assert yesterday == {"b"}
+
+
+def test_cleared_time_passthrough_requires_finished_on(client, seed):
+    seed({"now": {"items": [
+        {"id": "a", "text": "A", "done": True, "finished_on": "2026-07-19", "finished_time": "14:30"},
+        {"id": "b", "text": "B", "done": True, "done_at": "2026-07-19", "finished_time": "08:00"},
+    ]}})
+    items = client.get("/api/todos/cleared?date=2026-07-19").get_json()["items"]
+    by_id = {i["id"]: i for i in items}
+    assert by_id["a"]["time"] == "14:30"
+    assert "time" not in by_id["b"]
+
+
+def test_cleared_missing_date_returns_empty(client, seed):
+    seed({"now": {"items": [{"id": "a", "text": "A", "done": True, "done_at": "2026-07-19"}]}})
+    r = client.get("/api/todos/cleared")
+    assert r.get_json() == {"items": []}
+
+
 # --- snooze ------------------------------------------------------------------
 
 def test_snooze_sets_and_clears(client, seed):

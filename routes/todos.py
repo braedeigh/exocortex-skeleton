@@ -147,9 +147,12 @@ def register(app):
     # referenced to-do is done/gone. Life-domain tagging is the `fronts` LIST
     # (ids from fronts.json, same shape as research topics — see
     # _apply_fronts); the old single `theme` string and free-standing
-    # `category` tag were retired 2026-07-14.
+    # `category` tag were retired 2026-07-14. finished_on ('YYYY-MM-DD') +
+    # finished_time ('HH:MM') record when a to-do was ACTUALLY done,
+    # assignable by hand from the edit form — distinct from `done_at`, which
+    # is auto-stamped by the toggle handler for when she MARKED it done.
     TODO_STR_FIELDS = ("notes", "due_by", "due_time", "place_id",
-                        "after_date", "after_id")
+                        "after_date", "after_id", "finished_on", "finished_time")
 
     @app.route("/api/todos/details", methods=["POST"])
     def todo_details():
@@ -312,6 +315,36 @@ def register(app):
                             items.insert(0, item)
                         return jsonify({"ok": True})
         return jsonify({"ok": True})
+
+    @app.route("/api/todos/cleared", methods=["GET"])
+    def cleared_todos():
+        """Done to-dos whose EFFECTIVE completion day == ?date (finished_on
+        if set, else done_at). Scans every bucket: items finished today are
+        still in their ladder bucket until tomorrow's sweep
+        (_sweep_done_todos only archives done_at < today). Reads the store
+        raw on purpose — load_todos() would trigger the sweep's write, and
+        a GET must not mutate data."""
+        date = (request.args.get("date") or "").strip()
+        if not date:
+            return jsonify({"items": []})
+        todos = store.read("todos", {})
+        items = []
+        for sec in todos.values():
+            if not isinstance(sec, dict):
+                continue
+            for item in sec.get("items", []):
+                if not (isinstance(item, dict) and item.get("done")):
+                    continue
+                if (item.get("finished_on") or item.get("done_at")) != date:
+                    continue
+                row = {"id": item.get("id"), "text": item.get("text", "")}
+                if item.get("finished_on") and item.get("finished_time"):
+                    row["time"] = item["finished_time"]
+                if item.get("fronts"):
+                    row["fronts"] = item["fronts"]
+                items.append(row)
+        items.sort(key=lambda r: ("time" not in r, r.get("time", "")))
+        return jsonify({"items": items})
 
     @app.route("/api/todos/subtask/add", methods=["POST"])
     def add_subtask():

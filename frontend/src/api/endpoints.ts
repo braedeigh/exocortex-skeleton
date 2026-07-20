@@ -45,6 +45,23 @@ export function getTodayData(signal?: AbortSignal): Promise<TodayData> {
   return api.get('/api/data/today', signal);
 }
 
+export interface ClearedTodo {
+  id: string;
+  text: string;
+  time?: string;
+  fronts?: string[];
+}
+
+export interface ClearedTodosResponse {
+  items: ClearedTodo[];
+}
+
+/** GET /api/todos/cleared?date= — done items whose effective completion day
+ * (finished_on ?? done_at) is `date`; the journal day page's Cleared card. */
+export function getClearedTodos(date: string, signal?: AbortSignal): Promise<ClearedTodosResponse> {
+  return api.get(`/api/todos/cleared?date=${encodeURIComponent(date)}`, signal);
+}
+
 export interface AddTodoPayload {
   item: string;
   section: string;
@@ -102,6 +119,8 @@ export type TodoDetailsPatch = Partial<
     | 'duration_min'
     | 'after_date'
     | 'after_id'
+    | 'finished_on'
+    | 'finished_time'
   >
 >;
 

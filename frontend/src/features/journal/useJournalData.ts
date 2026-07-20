@@ -8,6 +8,7 @@ import {
   getAppData,
   getBacklinks,
   getCards,
+  getClearedTodos,
   getJournalDates,
   getJournalDay,
   getJournalDevNotes,
@@ -93,6 +94,17 @@ export function useJournalDay(date: string | null, pausePolling: boolean) {
     },
     enabled: !!date,
     refetchInterval: pausePolling ? false : 3000,
+  });
+}
+
+/** Done to-dos whose effective completion day is `date` — the journal day
+ * page's "Cleared to-dos" card. */
+export function useClearedTodos(date: string | null) {
+  return useQuery({
+    queryKey: ['journal', 'cleared', date ?? ''],
+    queryFn: ({ signal }) => getClearedTodos(date as string, signal),
+    enabled: !!date,
+    staleTime: 60_000,
   });
 }
 

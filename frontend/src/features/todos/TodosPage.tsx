@@ -21,7 +21,6 @@ import { TodoSection } from './TodoSection';
 import { TomorrowCard } from './TomorrowCard';
 import { WaitingCard } from './WaitingCard';
 import {
-  DONE_LABEL,
   LADDER_LABELS,
   buildTodoIndex,
   collectSnoozed,
@@ -152,7 +151,6 @@ export function TodosPage() {
   );
 
   const ladderSections = useMemo(() => sections.filter((s) => LADDER_LABELS.includes(s.name as (typeof LADDER_LABELS)[number])), [sections]);
-  const doneSection = useMemo(() => sections.find((s) => s.name === DONE_LABEL), [sections]);
   const todoIndex = useMemo(() => buildTodoIndex(sections), [sections]);
   // "Do after" blocker candidates: not-done ladder items, offered in the
   // detail/add sheets' blocker picker.
@@ -421,25 +419,6 @@ export function TodosPage() {
               )}
 
               <NotNowCard entries={gatedBySection.notNow} fronts={fronts} onOpenDetail={setSelected} />
-
-              {doneSection ? (
-                <TodoSection
-                  label={DONE_LABEL}
-                  colorIndex={3}
-                  items={doneSection.items}
-                  manualOrder={false}
-                  serverDate={serverDate}
-                  fronts={fronts}
-                  defaultOpen={false}
-                  countMode="total"
-                  onToggle={todoActions.toggle}
-                  onOpenDetail={setSelected}
-                  onSubtaskToggle={todoActions.subtaskToggle}
-                  onReorder={todoActions.reorder}
-                  onAutosort={todoActions.autosort}
-                  onMove={todoActions.move}
-                />
-              ) : null}
 
               {/* Waiting lives at the very bottom, below Done — it's the
                   "not actionable yet" tail of the column, not a headline
