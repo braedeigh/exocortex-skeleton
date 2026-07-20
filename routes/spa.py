@@ -64,8 +64,9 @@ def _spa_response():
         if view_mode == "public"
         else "null"
     )
+    profile = config.get_profile()
     meta_json = json.dumps(
-        {"name": config.APP_NAME, "owner": config.OWNER_NAME, "version": config.APP_VERSION}
+        {"name": profile["app_name"], "owner": profile["owner_name"], "version": config.APP_VERSION}
     ).replace("</", "<\\/")
     injected = (
         "<script>"

@@ -76,3 +76,26 @@ def test_life_todo_junk_drawer_and_missing_tags_go_untagged(client, monkeypatch,
 def test_approved_item_leaves_the_queue(client, monkeypatch):
     _approve_life_todo(client, monkeypatch, {"text": "x", "category": "job"})
     assert store.read("pending_changes", {"pending": []})["pending"] == []
+
+
+# --- "profile" kind: the conversational door for the owner profile ---------
+# (routes/profile.py's apply_profile_update — same merge logic PUT /api/profile
+# uses; no subprocess involved, unlike the add-todo/thread kinds above.)
+
+def test_profile_kind_merges_payload_into_profile_json(client):
+    store.write("pending_changes", {"pending": [
+        {"id": "p1", "kind": "profile", "payload": {"owner_name": "X"},
+         "summary": "", "created": ""},
+    ]})
+    res = client.post("/api/pending/approve", json={"id": "p1"})
+    assert res.status_code == 200
+    assert store.read("profile", {}) == {"owner_name": "X"}
+
+
+def test_profile_kind_leaves_the_queue_on_approval(client):
+    store.write("pending_changes", {"pending": [
+        {"id": "p1", "kind": "profile", "payload": {"owner_name": "X"},
+         "summary": "", "created": ""},
+    ]})
+    client.post("/api/pending/approve", json={"id": "p1"})
+    assert store.read("pending_changes", {"pending": []})["pending"] == []

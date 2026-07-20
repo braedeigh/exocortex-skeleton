@@ -23,3 +23,36 @@ APP_VERSION = "0.6"
 # First-run admin password — only used to SEED auth.json on first boot.
 # Change it in Settings after logging in; this value is ignored afterward.
 DEFAULT_PASSWORD = os.environ.get("EXOCORTEX_DEFAULT_PASSWORD", "exocortex")
+
+
+def get_profile():
+    """The owner profile, precedence stored value (non-empty) -> env var -> default.
+
+    Backs /api/profile (routes/profile.py) and the two identity outflows
+    (server.py's context processor, routes/spa.py's APP_META) — this is now
+    the single place that resolves "what name/email/app-name do we show".
+
+    Reads env vars at CALL time (not import time), same reasoning as
+    schemas.validate()'s kill switch: lets tests monkeypatch env without a
+    reimport, and lets an ops env change take effect without a restart-free
+    reload. Imports store lazily to avoid a cycle (store doesn't import this
+    module, but plenty of modules import both).
+
+    An empty stored value is treated as "unset" so an explicit clear (PUT
+    {"owner_name": ""}) falls back to the env var / default rather than
+    pinning an empty string.
+    """
+    import store
+    stored = store.read("profile", {})
+
+    def _resolve(key, env_var, default):
+        value = stored.get(key)
+        if isinstance(value, str) and value:
+            return value
+        return os.environ.get(env_var, default)
+
+    return {
+        "owner_name": _resolve("owner_name", "EXOCORTEX_OWNER_NAME", ""),
+        "owner_email": _resolve("owner_email", "EXOCORTEX_OWNER_EMAIL", ""),
+        "app_name": _resolve("app_name", "EXOCORTEX_APP_NAME", "Exocortex"),
+    }

@@ -23,6 +23,7 @@ VALID = {
                                   "mode": "log", "schedule": "interval"}]},
     "dev_notes": {"tabs": {"today": [{"id": "1", "text": "fix the thing"}]}},
     "buy_list": {"items": [{"name": "Shikibuton"}]},
+    "profile": {"owner_name": "Bradie", "owner_email": "bradie@example.com", "app_name": "Exocortex"},
 }
 
 INVALID = {
@@ -32,6 +33,7 @@ INVALID = {
     "reminders": {"reminders": [{"label": "Sheets", "shape": "hexagon"}]},  # bad enum
     "dev_notes": {"tabs": {"today": [{"id": "1"}]}},  # missing required "text"
     "buy_list": {"items": [{"priority": "high"}]},  # missing required "name"
+    "profile": {"owner_email": "not-an-email"},  # fails the "^$|^[^@\\s]+@[^@\\s]+$" pattern
 }
 
 

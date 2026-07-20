@@ -25,7 +25,7 @@ from routes import (
     devnotes, ideas, ecosystem, keeper, pending, housing, triage, decisions,
     entities, threads, person, shell, cards, archivals, research,
     research_search, research_sources, research_import, research_text,
-    annotations, spa, fronts, wiki, travel,
+    annotations, spa, fronts, wiki, travel, profile,
 )
 from routes.shell import VALID_TABS
 
@@ -213,7 +213,8 @@ APP_VERSION = config.APP_VERSION  # re-export; canonical value lives in config.p
 
 @app.context_processor
 def inject_app_version():
-    return {"app_version": APP_VERSION, "app_name": config.APP_NAME, "owner_name": config.OWNER_NAME}
+    profile = config.get_profile()
+    return {"app_version": APP_VERSION, "app_name": profile["app_name"], "owner_name": profile["owner_name"]}
 
 
 @app.context_processor
@@ -1182,6 +1183,7 @@ ideas.register(app)
 ecosystem.register(app)
 keeper.register(app)
 pending.register(app)
+profile.register(app)
 triage.register(app)
 decisions.register(app)
 entities.register(app)

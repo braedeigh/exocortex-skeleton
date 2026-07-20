@@ -15,6 +15,7 @@ import subprocess
 from flask import request, jsonify
 
 import store
+from routes.profile import apply_profile_update
 
 PENDING_FILE = "pending_changes"  # -> data/pending_changes.json
 _EMPTY = {"pending": []}
@@ -139,6 +140,11 @@ def _commit(change):
         cmd = [str(ADD_TODO_BIN), "life", "--remove",
                "--id", payload["id"],
                "--data-dir", data_dir]
+    elif kind == "profile":
+        # Conversational door for the owner profile (docs/PERSONALIZE.md) —
+        # same partial-dict shape and merge logic as PUT /api/profile.
+        apply_profile_update(payload)
+        return
     else:
         raise ValueError(f"unknown change kind: {kind!r}")
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)

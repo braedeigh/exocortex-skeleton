@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "profile",
+  "type": "object",
+  "properties": {
+    "owner_name": { "type": "string", "maxLength": 80 },
+    "owner_email": { "type": "string", "pattern": "^$|^[^@\\s]+@[^@\\s]+$" },
+    "app_name": { "type": "string", "maxLength": 80 }
+  },
+  "additionalProperties": true
+}

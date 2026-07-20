@@ -16,14 +16,24 @@ exists, personalization is: search for the placeholder, plug in your value.
 
 | Key | Meaning | Where it's used | How to set it |
 |---|---|---|---|
-| `<OWNER_NAME>` | Your display name | app header/title, agent prompts, systemd env | env `EXOCORTEX_OWNER_NAME` (config.py); literal in templates |
-| `<OWNER_EMAIL>` | Your email | certbot expiry notices, git backup identity, mailclaude | env `EXOCORTEX_GIT_EMAIL` / edit templates |
+| `<OWNER_NAME>` | Your display name | app header/title, agent prompts, systemd env | profile store (`data/profile.json`, `PUT /api/profile`), falls back to env `EXOCORTEX_OWNER_NAME` (config.py); literal in templates |
+| `<OWNER_EMAIL>` | Your email | certbot expiry notices, git backup identity, mailclaude | profile store (`data/profile.json`, `PUT /api/profile`), falls back to env `EXOCORTEX_OWNER_EMAIL`; also env `EXOCORTEX_GIT_EMAIL` / edit templates for the ops-side uses (certbot, git backup) |
+| `<APP_NAME>` | The app's display name | app header/title, agent prompts | profile store (`data/profile.json`, `PUT /api/profile`), falls back to env `EXOCORTEX_APP_NAME` (config.py), default `"Exocortex"` |
 | `<APP_DOMAIN>` | Your public domain | nginx templates, exo.toml `public_origin`, ssl scripts | edit `deploy/*.template`; env `EXOCORTEX_APP_DOMAIN` in scripts |
 | `<APP_USER>` | Linux account running it all | systemd units, hardening script, mailclaude install | edit templates; env `EXOCORTEX_APP_USER` in scripts |
 | `<SKELETON_DIR>` | Where this repo is cloned | cron template, agent prompts, runner scripts | env `EXOCORTEX_SKELETON_DIR` (scripts default `/opt/exocortex/skeleton`) |
 | `<VAULT_DIR>` | Your private data/content repo | agent prompts, workspace sandboxes, cron, backup | env `EXOCORTEX_VAULT_DIR`; also `EXOCORTEX_DATA_DIR`/`EXOCORTEX_CONTENT_DIR` for the app itself |
 | `<SRV_DIR>` | Service state root (`/srv/...`) | mailclaude, rust-door deploy, proxy secret | env `MAILCLAUDE_BASE`; edit templates |
 | `<TMUX_SOCKET>` | Shared tmux socket path | terminal integration, keeper rollover, ttyd | env `EXOCORTEX_TMUX_SOCKET`; edit `exocortex-tmux.service.template` |
+
+**The profile store.** `owner_name`, `owner_email`, and `app_name` are the first entry
+point of the planned setup flow that's already live: `GET`/`PUT /api/profile` reads and
+writes `data/profile.json` (validated against `schemas/profile.json`), falling back to
+the env vars above when a field is unset. A `PUT` with a key set to `""` clears it back
+to that fallback. The conversational door goes through the same merge logic via the
+pending-changes queue's `"profile"` kind (`routes/pending.py`) — a setup agent can stage
+`{"kind": "profile", "payload": {...}}` for you to approve, same as any other proposed
+change.
 
 Convention: **shell scripts** read env vars with sane defaults, so they run unedited
 once the env is set (the systemd/cron templates set it). **Templates and prompts**
