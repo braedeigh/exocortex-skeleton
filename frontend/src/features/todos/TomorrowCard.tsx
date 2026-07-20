@@ -1,3 +1,4 @@
+import { Checkbox } from '../../ui';
 import { fmtTime } from './todoHelpers';
 import type { TodoItem } from './types';
 import styles from './UpNowCard.module.css';
@@ -21,8 +22,7 @@ export function TomorrowCard({ items, onToggle, onOpenDetail }: TomorrowCardProp
       <div className={styles.title}>&#127749; Tomorrow</div>
       {items.map((it) => (
         <div className={styles.row} key={it.id}>
-          <input
-            type="checkbox"
+          <Checkbox
             className={styles.check}
             checked={it.done}
             onChange={() => onToggle(it.id)}

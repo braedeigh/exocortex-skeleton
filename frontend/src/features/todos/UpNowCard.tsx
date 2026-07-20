@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Button, Sheet, TapRow } from '../../ui';
+import { Button, Checkbox, Sheet, TapRow } from '../../ui';
 import { companionToPrompt, visibleReminders } from './reminderMath';
 import type { ReminderState } from './reminderMath';
 import { fmtAddedDate, isOverdue } from './todoHelpers';
@@ -118,8 +118,7 @@ export function UpNowCard({
       {reminderRows.map((row) =>
         row.kind === 'recent' ? (
           <div className={styles.row} key={row.reminder.id}>
-            <input
-              type="checkbox"
+            <Checkbox
               className={styles.check}
               checked
               onChange={() => undo(row.reminder)}
@@ -132,8 +131,7 @@ export function UpNowCard({
           </div>
         ) : (
           <div className={styles.row} key={row.reminder.id}>
-            <input
-              type="checkbox"
+            <Checkbox
               className={styles.check}
               checked={false}
               onChange={() => logDone(row.reminder, serverDate)}
@@ -153,8 +151,7 @@ export function UpNowCard({
         const overdue = isOverdue(it.due_by, serverDate);
         return (
           <div className={styles.row} key={it.id}>
-            <input
-              type="checkbox"
+            <Checkbox
               className={styles.check}
               checked={it.done}
               onChange={() => onToggle(it.id)}
