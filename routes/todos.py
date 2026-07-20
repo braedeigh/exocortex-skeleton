@@ -1,8 +1,11 @@
 """Todos and applications routes."""
 from flask import request, jsonify
 from datetime import datetime
+from pathlib import Path
 from data_helpers import find_section_key
 import store
+import subprocess
+import sys
 import uuid
 
 
@@ -45,6 +48,35 @@ def _apply_fronts(item, data):
         item["fronts"] = fronts
     else:
         item.pop("fronts", None)
+
+
+# The journal engine (tools/stream/stream.py) weaves "marked to-do complete"
+# lines into Journal/Daily/<day>.md, computed live from todos.json — see its
+# render_day_text / todo_completion_markers. That weave is only as fresh as
+# the last render, and markdowns otherwise only re-render when a card lands,
+# so any write here that changes a completion fact (done/undone, or the
+# finished_* fields) fires a fire-and-forget re-render of the affected day(s).
+_STREAM_SCRIPT = Path(__file__).resolve().parent.parent / "tools" / "stream" / "stream.py"
+
+
+def _rerender_days(*days):
+    """Best-effort `stream.py render --day <day>` for each distinct, truthy day
+    in `days`. Must never raise and never affect the caller's response — the
+    journal engine can be entirely unavailable (no TULKU_STREAM_ROOT /
+    EXOCORTEX_CONTENT_DIR configured, as in the route test env) and this is
+    just a silent no-op in that case."""
+    seen = set()
+    for day in days:
+        if not day or day in seen:
+            continue
+        seen.add(day)
+        try:
+            subprocess.run(
+                [sys.executable, str(_STREAM_SCRIPT), "render", "--day", day],
+                capture_output=True, text=True, timeout=10,
+            )
+        except Exception:
+            pass
 
 
 def register(app):
@@ -166,12 +198,21 @@ def register(app):
         plus the scheduling/place/category/duration/after attributes."""
         data = request.json or {}
         ident = data.get("id") or data.get("item", "")
+        # finished_on/finished_time/finished_note all feed the journal weave's
+        # marker rule — re-render if the patch touches any of them (old +
+        # new finished_on day, plus done_at's day, cover every day the marker
+        # could have moved from/to).
+        touches_finish = any(f in data for f in ("finished_on", "finished_time", "finished_note"))
+        rerender_days = []
+        matched = False
         with store.mutate("todos", {}) as todos:
             for key in todos:
                 if not isinstance(todos[key], dict):
                     continue
                 for item in todos[key].get("items", []):
                     if _match(item, ident):
+                        matched = True
+                        old_finished_on = item.get("finished_on")
                         for f in TODO_STR_FIELDS:
                             if f in data:
                                 val = (data.get(f) or "").strip()
@@ -189,7 +230,16 @@ def register(app):
                                 item["duration_min"] = dm
                             else:
                                 item.pop("duration_min", None)
-                        return jsonify({"ok": True})
+                        if touches_finish:
+                            rerender_days.append(old_finished_on)
+                            rerender_days.append(item.get("finished_on"))
+                            done_at = item.get("done_at") or ""
+                            if done_at:
+                                rerender_days.append(done_at[:10])
+                        break
+                if matched:
+                    break
+        _rerender_days(*rerender_days)
         return jsonify({"ok": True})
 
     @app.route("/api/todos/remove", methods=["POST"])
@@ -296,6 +346,11 @@ def register(app):
     def toggle_todo():
         data = request.json
         ident = data.get("id") or data.get("item", "")
+        # Days whose journal weave needs a re-render — collected while the store
+        # is still open, fired only after `with` exits (so the subprocess reads
+        # the write we just made, not a stale todos.json).
+        rerender_days = []
+        matched = False
         with store.mutate("todos", {}) as todos:
             for key in todos:
                 if not isinstance(todos[key], dict):
@@ -303,6 +358,7 @@ def register(app):
                 items = todos[key].get("items", [])
                 for item in items:
                     if _match(item, ident):
+                        matched = True
                         item["done"] = not item["done"]
                         items.remove(item)
                         if item["done"]:
@@ -319,10 +375,18 @@ def register(app):
                             for sub in item.get("subtasks", []):
                                 sub["done"] = True
                             items.append(item)
+                            rerender_days.append(item["done_at"][:10])
                         else:
-                            item.pop("done_at", None)
+                            old_done_at = item.pop("done_at", None)
                             items.insert(0, item)
-                        return jsonify({"ok": True})
+                            if old_done_at:
+                                rerender_days.append(old_done_at[:10])
+                        if item.get("finished_on"):
+                            rerender_days.append(item["finished_on"])
+                        break
+                if matched:
+                    break
+        _rerender_days(*rerender_days)
         return jsonify({"ok": True})
 
     @app.route("/api/todos/cleared", methods=["GET"])

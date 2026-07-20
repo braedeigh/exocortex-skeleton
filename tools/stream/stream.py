@@ -64,6 +64,7 @@ checks on the whole pool + a drift check against every derived file).
 Stdlib only. No network. No randomness. Same pool in, same bytes out, always.
 """
 import argparse
+import json
 import os
 import sys
 from dataclasses import dataclass, field
@@ -503,12 +504,153 @@ def _render_ref_block(card: Card) -> str:
 
 
 # --------------------------------------------------------------------------------
+# To-do completion markers. Day views weave in "marked to-do complete" lines
+# computed live from the to-dos data, so the Keeper (which only reads rendered
+# markdown) can see cleared to-dos without a card ever being minted for them.
+# The marker rule below mirrors routes/todos.py's `cleared_todos` (the web view's
+# equivalent) exactly — do not improvise it independently of that route.
+# --------------------------------------------------------------------------------
+
+@dataclass
+class TodoMarker:
+    text: str
+    day: str                       # 'YYYY-MM-DD' the marker belongs to
+    time: Optional[str] = None     # 'HH:MM', or None for an untimed (tail) marker
+    note: Optional[str] = None     # finished_note, if any
+
+
+def _load_todos_data() -> dict:
+    """Read the to-dos collection: `EXOCORTEX_DATA_DIR/todos.json`, falling back to
+    `stream_root().parent / "data" / "todos.json"` (stream_root() is the tulku
+    content dir inside the vault; `data/` is its sibling — same layout store.py
+    resolves DATA_DIR/CONTENT_DIR from).
+
+    MUST NEVER RAISE. A missing file, unreadable/corrupt JSON, or a top-level
+    shape that isn't an object all just mean "no completions to weave" — return
+    {} rather than propagate. render_day_text's determinism (same pool in, same
+    bytes out) is for the CARD pool; todos.json is read live and is explicitly
+    allowed to be absent (a stripped skeleton checkout, a test env with no data
+    dir configured, or the vault simply predating this feature)."""
+    env = os.environ.get("EXOCORTEX_DATA_DIR")
+    if env:
+        path = Path(env) / "todos.json"
+    else:
+        try:
+            path = stream_root().parent / "data" / "todos.json"
+        except StreamError:
+            return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _marker_for_item(item: dict) -> Optional[TodoMarker]:
+    """The completion marker for one done to-do item, or None if it doesn't carry
+    enough to place one. Identical precedence to the web view's marker rule:
+
+        finished_on + finished_time  -> that day, that time (an edited claim)
+        finished_on alone            -> that day, no time (claim overrides the tap)
+        done_at, minute-precision    -> done_at's day + time
+        done_at, date-only (legacy)  -> that day, no time
+        none of the above            -> no marker
+    """
+    text = item.get("text")
+    if not isinstance(text, str) or not text:
+        return None
+    note = item.get("finished_note")
+    note = note if isinstance(note, str) and note else None
+
+    finished_on = item.get("finished_on")
+    if isinstance(finished_on, str) and finished_on:
+        finished_time = item.get("finished_time")
+        time = finished_time if isinstance(finished_time, str) and finished_time else None
+        return TodoMarker(text=text, day=finished_on, time=time, note=note)
+
+    done_at = item.get("done_at")
+    if isinstance(done_at, str) and done_at:
+        if len(done_at) > 10:
+            return TodoMarker(text=text, day=done_at[:10], time=done_at[11:16], note=note)
+        return TodoMarker(text=text, day=done_at[:10], time=None, note=note)
+
+    return None
+
+
+def todo_completion_markers(day: str) -> List[TodoMarker]:
+    """Every marker (timed or untimed) landing on `day`, in the to-dos file's own
+    bucket/item order — deterministic given the current todos.json, never raises
+    (see `_load_todos_data`). Because this is computed live rather than sourced
+    from the card pool, a day already rendered can drift from a to-do completed
+    (or re-dated) afterward; `validate`'s drift check will flag it until the next
+    render — accepted, same as any derived view, and routes/todos.py fires a
+    re-render on every write that changes completion facts, which heals it."""
+    markers: List[TodoMarker] = []
+    data = _load_todos_data()
+    for bucket in data.values():
+        if not isinstance(bucket, dict):
+            continue
+        items = bucket.get("items")
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            if not isinstance(item, dict) or not item.get("done"):
+                continue
+            marker = _marker_for_item(item)
+            if marker is not None and marker.day == day:
+                markers.append(marker)
+    return markers
+
+
+def _marker_datetime(marker: TodoMarker) -> Optional[datetime]:
+    """`marker`'s moment as a timeline timestamp (seconds forced to :00), or None
+    if `time` is malformed — never raises, just drops the marker from the weave."""
+    if not marker.time:
+        return None
+    try:
+        return datetime.strptime(f"{marker.day} {marker.time}", "%Y-%m-%d %H:%M")
+    except ValueError:
+        return None
+
+
+def _marker_line(marker: TodoMarker, clock: Optional[str]) -> str:
+    """`✓ marked to-do complete: <text>[ — <clock>][ — "<note>"]` — clock is
+    included for a timed (weaved) marker, omitted for an untimed tail line."""
+    line = f"✓ marked to-do complete: {marker.text}"
+    if clock:
+        line += f" — {clock}"
+    if marker.note:
+        line += f" — “{marker.note}”"
+    return line
+
+
+def _render_marker_block(marker: TodoMarker, ts_dt: datetime) -> str:
+    """`\\n✓ marked to-do complete: ...\\n` — same outer-blank-line shape as
+    `_render_card_block`/`_render_ref_block` so it weaves into the timeline
+    without disturbing the gap-header spacing."""
+    return "\n" + _marker_line(marker, _clock(ts_dt)) + "\n"
+
+
+# --------------------------------------------------------------------------------
 # Day view
 # --------------------------------------------------------------------------------
 
 def render_day_text(day: str, cards: Optional[List[Card]] = None) -> Optional[str]:
-    """The rendered `Journal/Daily/<day>.md` body, or None if no card exists for that
-    day (a day with zero cards is never touched — see `render_day`)."""
+    """The rendered `Journal/Daily/<day>.md` body, or None if no card exists for
+    that day (a day with zero cards is never touched — see `render_day`). This
+    holds even when to-do completion markers land on that day: markers alone
+    never create a day file, they only ever weave into a day a card already
+    lives on.
+
+    To-do completion markers (see `todo_completion_markers`) are merged in
+    two ways: a TIMED marker (finished_on+finished_time, or a minute-precision
+    done_at) becomes another event in the chronological walk alongside the
+    cards, sharing the same gap-header logic — on a tie (marker and card at
+    the exact same minute) the marker renders first. An UNTIMED marker (a
+    day-only finished_on claim, or a legacy date-only done_at) can't be placed
+    on the timeline at all, so it renders in a tail block after the timeline,
+    one line per marker, under a single blank line.
+    """
     all_cards = load_all_cards() if cards is None else cards
     day_cards = [c for c in all_cards if c.ts.startswith(day)]
     if not day_cards:
@@ -521,18 +663,43 @@ def render_day_text(day: str, cards: Optional[List[Card]] = None) -> Optional[st
         (c for c in day_cards if c.kind in ("line", "ref")), key=lambda c: (c.ts, c.id)
     )
 
+    markers = todo_completion_markers(day)
+    timed_markers = [m for m in markers if m.time]
+    untimed_markers = [m for m in markers if not m.time]
+
     text = f"# {day}\n\n`B = Bradie | K = Keeper`\n\n"
     if context_cards:
         text += context_cards[0].body + "\n\n"
     text += "---\n"
 
-    prev_ts: Optional[datetime] = None
+    # One chronological walk over cards + timed markers. rank 0 (marker) sorts
+    # before rank 1 (card) on a tie so a marker at the same minute as a card
+    # renders first, matching the web weave; a per-kind secondary key
+    # (card id / marker index) keeps the ordering deterministic beyond that.
+    events: List[Tuple[datetime, int, str, object]] = []
     for c in timeline_cards:
-        ts_dt = _parse_ts(c.ts)
+        events.append((_parse_ts(c.ts), 1, c.id, c))
+    for i, m in enumerate(timed_markers):
+        ts_dt = _marker_datetime(m)
+        if ts_dt is not None:
+            events.append((ts_dt, 0, f"{i:04d}", m))
+    events.sort(key=lambda e: (e[0], e[1], e[2]))
+
+    prev_ts: Optional[datetime] = None
+    for ts_dt, _rank, _key, payload in events:
         if prev_ts is None or (ts_dt - prev_ts).total_seconds() > GAP_SECONDS:
             text += f"\n*[{_clock(ts_dt)}]*\n"
-        text += _render_ref_block(c) if c.kind == "ref" else _render_card_block(c)
+        if isinstance(payload, Card):
+            text += _render_ref_block(payload) if payload.kind == "ref" else _render_card_block(payload)
+        else:
+            text += _render_marker_block(payload, ts_dt)
         prev_ts = ts_dt
+
+    if untimed_markers:
+        text += "\n"
+        for m in untimed_markers:
+            text += _marker_line(m, clock=None) + "\n"
+
     return text
 
 

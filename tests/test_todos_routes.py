@@ -8,6 +8,7 @@ legacy text fallback so older clients keep working.
 import json
 
 from conftest import read_todos
+from routes import todos as todos_module
 
 
 def _post(client, path, payload):
@@ -123,6 +124,85 @@ def test_toggle_text_fallback_still_works(client, seed):
     seed({"now": {"items": [{"id": "a", "text": "Water plants", "done": False}]}})
     _post(client, "/api/todos/toggle", {"item": "Water plants"})
     assert read_todos()["now"]["items"][0]["done"] is True
+
+
+# --- journal weave re-render triggers -----------------------------------------
+# toggle_todo / todo_details fire a fire-and-forget `stream.py render --day`
+# (routes/todos.py's _rerender_days) whenever a completion fact changes, so the
+# Journal/Daily markdown the Keeper reads picks up the new/removed "marked to-do
+# complete" line. These route tests run with neither TULKU_STREAM_ROOT nor
+# EXOCORTEX_CONTENT_DIR set (see tests/conftest.py), so the journal engine is
+# genuinely unavailable here — that must never surface as a route failure.
+
+def test_toggle_succeeds_when_stream_engine_unavailable(client, seed, monkeypatch):
+    monkeypatch.delenv("TULKU_STREAM_ROOT", raising=False)
+    monkeypatch.delenv("EXOCORTEX_CONTENT_DIR", raising=False)
+    seed({"now": {"items": [{"id": "a", "text": "task", "done": False}]}})
+    r = _post(client, "/api/todos/toggle", {"id": "a"})
+    assert r.status_code == 200
+    assert r.get_json() == {"ok": True}
+    assert read_todos()["now"]["items"][0]["done"] is True
+
+
+def test_toggle_check_asks_to_rerender_the_done_at_day(client, seed, monkeypatch):
+    from datetime import datetime
+    calls = []
+    monkeypatch.setattr(todos_module, "_rerender_days", lambda *days: calls.append(days))
+    seed({"now": {"items": [{"id": "a", "text": "task", "done": False}]}})
+    _post(client, "/api/todos/toggle", {"id": "a"})
+    today = datetime.now().strftime("%Y-%m-%d")
+    assert calls == [(today,)]
+
+
+def test_toggle_uncheck_asks_to_rerender_the_old_done_at_day(client, seed, monkeypatch):
+    calls = []
+    monkeypatch.setattr(todos_module, "_rerender_days", lambda *days: calls.append(days))
+    seed({"now": {"items": [
+        {"id": "a", "text": "task", "done": True, "done_at": "2026-07-18T09:00"},
+    ]}})
+    _post(client, "/api/todos/toggle", {"id": "a"})
+    assert calls == [("2026-07-18",)]
+
+
+def test_toggle_also_rerenders_finished_on_day_when_set(client, seed, monkeypatch):
+    calls = []
+    monkeypatch.setattr(todos_module, "_rerender_days", lambda *days: calls.append(days))
+    seed({"now": {"items": [
+        {"id": "a", "text": "task", "done": False, "finished_on": "2026-07-10"},
+    ]}})
+    _post(client, "/api/todos/toggle", {"id": "a"})
+    from datetime import datetime
+    today = datetime.now().strftime("%Y-%m-%d")
+    assert set(calls[0]) == {today, "2026-07-10"}
+
+
+def test_details_succeeds_when_stream_engine_unavailable(client, seed, monkeypatch):
+    monkeypatch.delenv("TULKU_STREAM_ROOT", raising=False)
+    monkeypatch.delenv("EXOCORTEX_CONTENT_DIR", raising=False)
+    seed({"now": {"items": [{"id": "a", "text": "A", "done": False}]}})
+    r = _post(client, "/api/todos/details", {"id": "a", "finished_on": "2026-07-19"})
+    assert r.status_code == 200
+    assert r.get_json() == {"ok": True}
+    assert read_todos()["now"]["items"][0]["finished_on"] == "2026-07-19"
+
+
+def test_details_finished_field_change_rerenders_old_new_and_done_at_days(client, seed, monkeypatch):
+    calls = []
+    monkeypatch.setattr(todos_module, "_rerender_days", lambda *days: calls.append(days))
+    seed({"now": {"items": [
+        {"id": "a", "text": "A", "done": True, "done_at": "2026-07-20T09:00",
+         "finished_on": "2026-07-18"},
+    ]}})
+    _post(client, "/api/todos/details", {"id": "a", "finished_on": "2026-07-19"})
+    assert calls == [("2026-07-18", "2026-07-19", "2026-07-20")]
+
+
+def test_details_unrelated_patch_does_not_trigger_a_rerender(client, seed, monkeypatch):
+    calls = []
+    monkeypatch.setattr(todos_module, "_rerender_days", lambda *days: calls.append(days))
+    seed({"now": {"items": [{"id": "a", "text": "A", "done": False}]}})
+    _post(client, "/api/todos/details", {"id": "a", "notes": "just a note"})
+    assert calls == [()]
 
 
 # --- rename ------------------------------------------------------------------

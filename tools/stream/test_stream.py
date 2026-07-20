@@ -7,6 +7,7 @@ pool/manifest/index/view machinery can be exercised freely and thrown away. stre
 resolves its root lazily (`stream_root()` reads the env var on every call), so setting
 the env var in setUp is enough — no reload needed.
 """
+import json
 import os
 import subprocess
 import sys
@@ -382,6 +383,166 @@ class ValidateDriftTests(StreamTestCase):
 
         ok2, messages2 = stream.validate()
         self.assertFalse(ok2)
+        self.assertTrue(any(m.startswith(f"DRIFT {day_path}") for m in messages2), messages2)
+
+        stream.render_day(day)
+        ok3, messages3 = stream.validate()
+        self.assertTrue(ok3, messages3)
+
+
+class TodoMarkerWeaveTests(StreamTestCase):
+    """render_day_text weaves 'marked to-do complete' lines in from todos.json —
+    see stream.todo_completion_markers / stream._marker_for_item. Every test here
+    points EXOCORTEX_DATA_DIR at its own tempdir so todos.json is fully isolated
+    from the card pool tempdir StreamTestCase already sets up."""
+
+    def setUp(self):
+        super().setUp()
+        self._data_tmp = tempfile.TemporaryDirectory()
+        self._prev_data_dir = os.environ.get("EXOCORTEX_DATA_DIR")
+        os.environ["EXOCORTEX_DATA_DIR"] = self._data_tmp.name
+
+    def tearDown(self):
+        if self._prev_data_dir is None:
+            os.environ.pop("EXOCORTEX_DATA_DIR", None)
+        else:
+            os.environ["EXOCORTEX_DATA_DIR"] = self._prev_data_dir
+        self._data_tmp.cleanup()
+        super().tearDown()
+
+    def _write_todos(self, raw: str) -> None:
+        (Path(self._data_tmp.name) / "todos.json").write_text(raw, encoding="utf-8")
+
+    def _seed_todos(self, items) -> None:
+        self._write_todos(json.dumps({"now": {"items": items}}))
+
+    def test_timed_marker_weaves_between_the_right_cards(self):
+        day = "2026-07-20"
+        stream.record(who="B", body="card A", ts=datetime(2026, 7, 20, 8, 0, 0))
+        stream.record(who="B", body="card B", ts=datetime(2026, 7, 20, 8, 10, 0))
+        self._seed_todos([
+            {"id": "a", "text": "water the plants", "done": True,
+             "done_at": "2026-07-20T08:05"},
+        ])
+        text = stream.render_day_text(day)
+        self.assertIn("✓ marked to-do complete: water the plants — 8:05 AM", text)
+        # ordering: card A, then the marker, then card B
+        pos_a = text.index("card A")
+        pos_marker = text.index("marked to-do complete")
+        pos_b = text.index("card B")
+        self.assertTrue(pos_a < pos_marker < pos_b, text)
+        # only one gap header: all three events are within GAP_SECONDS of
+        # each other, so *[...]* should appear exactly once.
+        self.assertEqual(text.count("*["), 1)
+
+    def test_tie_at_the_same_minute_renders_marker_before_the_card(self):
+        day = "2026-07-20"
+        stream.record(who="B", body="same minute card", ts=datetime(2026, 7, 20, 8, 5, 0))
+        self._seed_todos([
+            {"id": "a", "text": "tied task", "done": True,
+             "done_at": "2026-07-20T08:05"},
+        ])
+        text = stream.render_day_text(day)
+        pos_marker = text.index("marked to-do complete")
+        pos_card = text.index("same minute card")
+        self.assertTrue(pos_marker < pos_card, text)
+        self.assertEqual(text.count("*["), 1)   # one header shared by the tied pair
+
+    def test_finished_note_renders_as_curly_quoted_suffix(self):
+        day = "2026-07-20"
+        stream.record(who="B", body="anchor card", ts=datetime(2026, 7, 20, 8, 0, 0))
+        self._seed_todos([
+            {"id": "a", "text": "call the vet", "done": True,
+             "done_at": "2026-07-20T08:02", "finished_note": "went great"},
+        ])
+        text = stream.render_day_text(day)
+        self.assertIn(
+            "✓ marked to-do complete: call the vet — 8:02 AM — “went great”",
+            text,
+        )
+
+    def test_day_only_claim_renders_untimed_in_the_tail(self):
+        day = "2026-07-20"
+        stream.record(who="B", body="only card", ts=datetime(2026, 7, 20, 8, 0, 0))
+        self._seed_todos([
+            {"id": "a", "text": "file taxes", "done": True,
+             "done_at": "2026-07-19T23:00",              # tap landed on a different day
+             "finished_on": "2026-07-20"},                # day-only claim overrides it
+        ])
+        text = stream.render_day_text(day)
+        # not woven into the timeline (no time attached to it)
+        self.assertNotIn("marked to-do complete: file taxes —", text)
+        # tail block: a blank line, then the untimed line, at the very end
+        self.assertTrue(text.endswith("\n✓ marked to-do complete: file taxes\n"), text)
+        card_pos = text.index("only card")
+        tail_pos = text.index("marked to-do complete: file taxes")
+        self.assertTrue(card_pos < tail_pos, text)
+
+    def test_legacy_date_only_done_at_also_lands_untimed_in_the_tail(self):
+        day = "2026-07-20"
+        stream.record(who="B", body="only card", ts=datetime(2026, 7, 20, 8, 0, 0))
+        self._seed_todos([
+            {"id": "a", "text": "renew passport", "done": True, "done_at": "2026-07-20"},
+        ])
+        text = stream.render_day_text(day)
+        self.assertIn("\n✓ marked to-do complete: renew passport\n", text)
+        self.assertNotIn("renew passport —", text)
+
+    def test_missing_todos_json_renders_exactly_as_without_the_feature(self):
+        day = "2026-07-20"
+        stream.record(who="B", body="solo card", ts=datetime(2026, 7, 20, 8, 0, 0))
+        # no todos.json written at all in self._data_tmp
+        text = stream.render_day_text(day)
+        self.assertNotIn("marked to-do complete", text)
+        self.assertEqual(
+            text,
+            "# 2026-07-20\n\n`B = Bradie | K = Keeper`\n\n---\n\n*[8:00 AM]*\n\nB: solo card\n",
+        )
+
+    def test_corrupt_todos_json_renders_exactly_as_without_the_feature(self):
+        day = "2026-07-20"
+        stream.record(who="B", body="solo card", ts=datetime(2026, 7, 20, 8, 0, 0))
+        baseline = stream.render_day_text(day)
+        self._write_todos("{ not valid json ][")
+        text = stream.render_day_text(day)
+        self.assertNotIn("marked to-do complete", text)
+        self.assertEqual(text, baseline)
+
+    def test_unexpected_top_level_shape_yields_no_markers(self):
+        day = "2026-07-20"
+        stream.record(who="B", body="solo card", ts=datetime(2026, 7, 20, 8, 0, 0))
+        baseline = stream.render_day_text(day)
+        self._write_todos(json.dumps(["not", "a", "dict"]))
+        text = stream.render_day_text(day)
+        self.assertEqual(text, baseline)
+
+    def test_zero_card_day_stays_none_even_with_a_matching_marker(self):
+        day = "2026-01-01"
+        self._seed_todos([
+            {"id": "a", "text": "no cards this day", "done": True,
+             "done_at": "2026-01-01T09:00"},
+        ])
+        self.assertIsNone(stream.render_day_text(day))
+        self.assertIsNone(stream.render_day(day))
+        self.assertFalse((stream.daily_dir() / f"{day}.md").exists())
+
+    def test_marker_change_after_render_causes_drift_until_rerendered(self):
+        """Documents the accepted edge from render_day_text's docstring: the weave
+        is computed live from todos.json, so a completion recorded after the last
+        render leaves the on-disk view stale until the next render — `validate`'s
+        drift check catches it, and re-rendering heals it."""
+        day = "2026-07-20"
+        stream.record(who="B", body="anchor card", ts=datetime(2026, 7, 20, 8, 0, 0))
+        ok, messages = stream.validate()
+        self.assertTrue(ok, messages)
+
+        self._seed_todos([
+            {"id": "a", "text": "newly completed", "done": True,
+             "done_at": "2026-07-20T08:05"},
+        ])
+        ok2, messages2 = stream.validate()
+        self.assertFalse(ok2)
+        day_path = stream.daily_dir() / f"{day}.md"
         self.assertTrue(any(m.startswith(f"DRIFT {day_path}") for m in messages2), messages2)
 
         stream.render_day(day)
