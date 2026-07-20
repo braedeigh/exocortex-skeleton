@@ -76,23 +76,31 @@ All app data is JSON files under `EXOCORTEX_DATA_DIR`, written atomically throug
 so the app runs on an empty data dir. Back up that directory (git, rsync, anything).
 
 ## Optional extras
-- `deploy/setup_codeserver.sh` — browser VS Code
-- `deploy/fix_ttyd.sh`, `deploy/ttyd_connect.sh` — embedded web terminal
-- `deploy/setup_filebrowser.sh` — file browser
+- `scripts/setup-mac-server.sh` — turn a Mac into an always-on, lid-closed server
+- `scripts/fix_ttyd.sh`, `scripts/ttyd_connect.sh` — embedded web terminal
+- `scripts/setup_ssl.sh` — Let's Encrypt cert via certbot
+- `deploy/exocortex-rs.service.template`, `deploy/exo.toml.template`, `deploy/phase1-cutover.md` — optional Rust strangler front server + real multi-user auth
 
-> ⚠️ **These `deploy/*.sh` paths don't exist in this repo.** The actual scripts they
-> refer to live in the **personal** vault repo at `personal/scripts/` (e.g.
-> `setup_codeserver.sh`, `setup_filebrowser.sh`, `fix_ttyd.sh`, `ttyd_connect.sh`), not
-> here in skeleton. For the live, verified machine state (nginx vhost, systemd units,
-> crontab), see `personal/deploy/` and `personal/RESTORE.md` instead — those are
-> snapshots of what's actually running as of 2026-07-06, captured because this repo's
-> `deploy/` pointer never existed.
+> **`deploy/` and `scripts/` now exist in this repo** — full systemd unit
+> templates, the nginx vhost template, and a crontab template live in
+> `deploy/` (placeholdered — `<APP_DOMAIN>`, `<APP_USER>`, etc., see
+> `deploy/README.md`); the matching shell scripts (backup, ttyd, SSL, VPS
+> hardening, Keeper rollover) live in `scripts/` (env-var-overridable, see
+> each script's header comment). For the full narrative runbook — the
+> two-repo split, env-var wiring, systemd/nginx/DNS ordering, cron, and the
+> Claude Code slash-command + journal-capture-hook setup — see
+> `docs/SETUP-FULL.md`.
 >
-> **Do not re-run `personal/scripts/setup_nginx.sh`, `setup_codeserver.sh`, or
-> `setup_filebrowser.sh` as nginx generators.** They generate `/files/` and `/terminal/`
-> blocks protected by `auth_basic` (or, in `setup_nginx.sh`'s case, no auth at all on
-> `/terminal/`). The live nginx config was hand-edited to use `auth_request
-> /api/auth-check` instead (a proper session-based gate, not a separate htpasswd) —
-> re-running any of those scripts will **regress** that fix and can reopen `/terminal/`
-> as an unauthenticated web shell. Use `personal/deploy/nginx-exocortex.conf` as the
-> source of truth for nginx instead.
+> **Do not use `auth_basic`/htpasswd on `/files/` or `/terminal/`, and do not
+> deploy either location without `auth_request /api/auth-check;`.** That
+> directive — present throughout `deploy/nginx-exocortex.conf.template` — is
+> a proper session-based gate: nginx subrequests to the app's own
+> `/api/auth-check` route, so only a real logged-in app session reaches
+> either location. Swapping it for `auth_basic`, or omitting it, reopens the
+> web terminal as an effectively unauthenticated shell. (This is also why
+> `setup_nginx.sh`, `setup_codeserver.sh`, and `setup_filebrowser.sh` from
+> the vault were deliberately **not** migrated into this repo's `scripts/` —
+> they generate exactly that regression; see
+> `docs/scrub-log/A-deploy-ops.md`.) Use
+> `deploy/nginx-exocortex.conf.template` as the source of truth for nginx
+> instead.

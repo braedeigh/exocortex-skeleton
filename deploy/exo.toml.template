@@ -1,0 +1,20 @@
+# Origin: personal vault deploy/exo.toml. Scrubbed modular copy — plug-in points marked PLUG-IN(...)
+# Config for the optional Rust strangler front server (exocortex-rs). Copy to
+# that repo's own exo.toml and fill in the placeholders — skip this file
+# entirely if you're running Flask alone.
+[server]
+mode = "hosted"
+bind = "127.0.0.1:8100"
+# PLUG-IN(SRV_DIR): where exocortex-rs keeps its own SQLite dbs + per-user data.
+data_root = "<SRV_DIR>"
+flask_upstream = "http://127.0.0.1:5000"
+
+[features]
+terminal = false
+
+[auth]
+public_origin = "https://<APP_DOMAIN>"
+
+# [auth.google]
+# client_id = "PASTE.apps.googleusercontent.com"
+# client_secret = "PASTE"

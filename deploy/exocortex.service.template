@@ -1,0 +1,23 @@
+# Origin: personal vault deploy/exocortex.service. Scrubbed modular copy — plug-in points marked PLUG-IN(...)
+[Unit]
+Description=Exocortex Dashboard
+After=network.target
+
+[Service]
+User=<APP_USER>
+Group=<APP_USER>
+WorkingDirectory=<SKELETON_DIR>
+ExecStart=<SKELETON_DIR>/venv/bin/gunicorn -k gevent -w 2 --worker-connections 1000 --timeout 120 --max-requests 1000 --max-requests-jitter 200 -b 127.0.0.1:5000 server:app
+Environment=TEMPLATES_AUTO_RELOAD=1
+Environment=EXOCORTEX_DATA_DIR=<VAULT_DIR>/data
+Environment=EXOCORTEX_CONTENT_DIR=<VAULT_DIR>/tulku
+Environment=EXOCORTEX_RECEIPTS_DIR=<VAULT_DIR>/receipts
+Environment=EXOCORTEX_RECIPES_DIR=<VAULT_DIR>/recipes
+Environment=EXOCORTEX_IDEAS_FILE=<VAULT_DIR>/docs/IDEAS.md
+# PLUG-IN(OWNER_NAME): display name shown in the app header/footer.
+Environment="EXOCORTEX_OWNER_NAME=<OWNER_NAME>"
+Environment=EXOCORTEX_APP_NAME=Exocortex
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

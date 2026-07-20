@@ -1,0 +1,17 @@
+# Origin: personal vault deploy/ttyd.service. Scrubbed modular copy — plug-in points marked PLUG-IN(...)
+[Unit]
+Description=ttyd - Web Terminal
+After=network.target
+
+[Service]
+KillMode=process
+Type=simple
+User=<APP_USER>
+ExecStart=/usr/local/bin/ttyd --port 7681 -i lo --writable -a -t fontSize=14 -t reconnect=1 -t scrollback=0 <SKELETON_DIR>/scripts/ttyd_connect.sh
+Restart=always
+RestartSec=3
+WorkingDirectory=<SKELETON_DIR>
+Environment=CLAUDE_SKIP_PERMISSIONS_ALLOWLIST_CHECK=1
+
+[Install]
+WantedBy=multi-user.target

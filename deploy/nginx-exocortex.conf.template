@@ -1,0 +1,89 @@
+# Origin: personal vault deploy/nginx-exocortex.conf. Scrubbed modular copy — plug-in points marked PLUG-IN(...)
+#
+# PLUG-IN(APP_DOMAIN): replace every <APP_DOMAIN> below with your real domain.
+#
+# IMPORTANT — do not replace `auth_request /api/auth-check;` with
+# `auth_basic`/htpasswd. auth_request is the actual security fix here: it
+# gates /files/ and /terminal/ on a real logged-in app session (via an nginx
+# subrequest to the Flask app's own auth check), not a separate static
+# password file. Swapping it for auth_basic (or removing it) reopens the web
+# terminal as an effectively unauthenticated shell — see
+# docs/scrub-log/A-deploy-ops.md and the deprecated setup_nginx.sh /
+# setup_codeserver.sh / setup_filebrowser.sh scripts, which were left behind
+# in the vault (not migrated) for exactly this reason.
+
+server {
+    server_name <APP_DOMAIN>;
+
+    client_max_body_size 50m;
+
+    location / {
+        # exo-server (optional Rust strangler proxy) — forwards unported routes to Flask :5000.
+        # If you don't run exocortex-rs, point this proxy_pass at 127.0.0.1:5000 instead.
+        proxy_pass http://127.0.0.1:8100;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Expired/missing session on an auth_request-protected location lands here.
+    location @login_redirect {
+        return 302 /login;
+    }
+
+    location = /files/logout {
+        return 401 'Logged out. <a href="/files/">Log back in</a>';
+        add_header Content-Type text/html;
+    }
+
+    location /files/ {
+        auth_request /api/auth-check;
+        error_page 401 = @login_redirect;
+        proxy_pass http://127.0.0.1:8080/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Accept-Encoding gzip;
+        # When code-server is off, send the user to the launcher instead of 502.
+        proxy_intercept_errors on;
+        error_page 502 504 = /vscode;
+    }
+
+    location /terminal/ {
+        auth_request /api/auth-check;
+        error_page 401 = @login_redirect;
+        proxy_set_header Accept-Encoding "";
+        sub_filter_once on;
+        sub_filter '</head>' '<style>html,body{margin:0;height:100%;background:#2b2b2b}.xterm-viewport{scrollbar-width:none!important}.xterm-viewport::-webkit-scrollbar{display:none!important}</style><script>addEventListener("load",()=>{let n=0,iv=setInterval(()=>{const t=window.term;if(t){t.options.scrollback=0;t.fit()}if(++n>=10)clearInterval(iv)},400)})</script></head>';
+        proxy_pass http://127.0.0.1:7681/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+
+    listen 443 ssl; # managed by Certbot
+    ssl_certificate /etc/letsencrypt/live/<APP_DOMAIN>/fullchain.pem; # managed by Certbot
+    ssl_certificate_key /etc/letsencrypt/live/<APP_DOMAIN>/privkey.pem; # managed by Certbot
+    include /etc/letsencrypt/options-ssl-nginx.conf; # managed by Certbot
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem; # managed by Certbot
+
+}
+server {
+    if ($host = <APP_DOMAIN>) {
+        return 301 https://$host$request_uri;
+    } # managed by Certbot
+
+
+    listen 80;
+    server_name <APP_DOMAIN>;
+    return 404; # managed by Certbot
+
+
+}

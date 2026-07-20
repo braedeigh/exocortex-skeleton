@@ -1,0 +1,12 @@
+# Origin: personal vault deploy/exocortex-healthcheck.service. Scrubbed modular copy — plug-in points marked PLUG-IN(...)
+[Unit]
+Description=Exocortex healthcheck — restart if unresponsive
+After=exocortex.service exocortex-rs.service
+
+[Service]
+Type=oneshot
+# PLUG-IN(RS_DOOR): the exocortex-rs probe/restart half of this one-liner is
+# only meaningful if you run the optional Rust front server
+# (exocortex-rs.service.template). Drop that half if you're Flask-only —
+# leave just the second curl+restart clause.
+ExecStart=/bin/bash -c 'curl -sSf -o /dev/null --max-time 8 http://127.0.0.1:8100/_exo/healthz || systemctl restart exocortex-rs; curl -sS -o /dev/null --max-time 8 http://127.0.0.1:5000/ || systemctl restart exocortex'

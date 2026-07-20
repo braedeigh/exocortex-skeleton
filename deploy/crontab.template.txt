@@ -1,0 +1,31 @@
+# Origin: personal vault deploy/crontab.txt. Scrubbed modular copy — plug-in points marked PLUG-IN(...)
+#
+# Template crontab. Fill in every <PLACEHOLDER> below (see deploy/README.md),
+# then install with: crontab crontab.txt   — run as <APP_USER>, NOT root.
+# Every job here assumes <SKELETON_DIR> / <VAULT_DIR> paths and <APP_USER>'s
+# Claude Code binary at <CLAUDE_BIN> (only the vault-side cricket jobs need
+# the Claude binary; they aren't migrated in this batch — see the scrub log).
+#
+# PLUG-IN(APP_DOMAIN/APP_USER/SKELETON_DIR/VAULT_DIR/CLAUDE_BIN): replace
+# every placeholder token before installing.
+
+0 * * * * <SKELETON_DIR>/scripts/git_backup.sh >> <VAULT_DIR>/scripts/backup.log 2>&1
+# Keeper nightly rollover: close the day at 3:00, wake a fresh keeper at 3:10
+0 3 * * * <SKELETON_DIR>/scripts/keeper_rollover.sh close >> <VAULT_DIR>/scripts/keeper_rollover.log 2>&1
+10 3 * * * <SKELETON_DIR>/scripts/keeper_rollover.sh open >> <VAULT_DIR>/scripts/keeper_rollover.log 2>&1
+# Cricket swarm: nightly data crickets stage the day that just ended (2 AM = after midnight, target = yesterday).
+# PLUG-IN(CRICKET_SCRIPTS): cricket_swarm.sh / cricket_housekeep.sh are vault-side automation, not part of this migration batch — write your own or adapt the ones in your vault.
+0 2 * * * <VAULT_DIR>/scripts/cricket_swarm.sh >> <VAULT_DIR>/scripts/cricket_swarm.log 2>&1
+# Cricket housekeeper: weekly close on Monday 4 AM (target = the Sunday that just ended)
+0 4 * * 1 <VAULT_DIR>/scripts/cricket_housekeep.sh >> <VAULT_DIR>/scripts/cricket_housekeep.log 2>&1
+# Scheduled terminal prompts: fire due jobs from scheduled_prompts.json into tmux sessions
+* * * * * EXOCORTEX_DATA_DIR=<VAULT_DIR>/data /usr/bin/python3 <SKELETON_DIR>/scripts/prompt_dispatcher.py >> <VAULT_DIR>/scripts/prompt_dispatcher.log 2>&1
+# Research worker dispatcher: admit queued annotation-batch workers as memory allows (also kicked event-driven on batch + worker-finish)
+*/2 * * * * EXOCORTEX_DATA_DIR=<VAULT_DIR>/data <SKELETON_DIR>/venv/bin/python3 <SKELETON_DIR>/scripts/research_dispatcher.py >> <VAULT_DIR>/scripts/research_dispatcher.log 2>&1
+# Research doctor: weekly integrity check; findings surface as a [doctor] dev note on the research tab
+0 4 * * 0 EXOCORTEX_DATA_DIR=<VAULT_DIR>/data <SKELETON_DIR>/venv/bin/python3 <SKELETON_DIR>/scripts/research_doctor.py --devnote >> <VAULT_DIR>/scripts/research_doctor.log 2>&1
+# Journal capture safety net: mint any keeper-session prompts the hook/server missed, from the Claude transcripts.
+# PLUG-IN(RECONCILE_SCRIPT): reconcile_transcripts.py is vault-side content tooling, not part of this migration batch. See docs/SETUP-FULL.md for the project-level reconciler cron pattern used by this repo's own INSTALL.md.
+* * * * * /usr/bin/python3 <VAULT_DIR>/tulku/_system/reconcile_transcripts.py >> <VAULT_DIR>/scripts/reconciler.log 2>&1
+# Thread scout: Sunday wide-angle cricket — reads the past 7 days + 4 weeklies, stages thread nominations to the approval queue (target = the Saturday that just sealed)
+0 5 * * 0 <VAULT_DIR>/scripts/cricket_swarm.sh "$(date -d yesterday +\%Y-\%m-\%d)" thread-scout >> <VAULT_DIR>/scripts/cricket_swarm.log 2>&1

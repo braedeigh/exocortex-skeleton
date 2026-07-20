@@ -1,0 +1,19 @@
+# Origin: personal vault deploy/exocortex-rs.service. Scrubbed modular copy — plug-in points marked PLUG-IN(...)
+[Unit]
+Description=Exocortex v2 (optional Rust strangler front server: Axum + reverse proxy to Flask)
+After=network-online.target exocortex.service
+Wants=network-online.target
+
+[Service]
+User=<APP_USER>
+# PLUG-IN(RS_DIR): this optional component lives in its own sibling repo
+# checkout, not under <SKELETON_DIR>. Adjust the path below to wherever you
+# clone it, or drop this whole unit if you don't run it — Flask alone is a
+# complete app without exocortex-rs.
+WorkingDirectory=/opt/exocortex/exocortex-rs
+ExecStart=/opt/exocortex/exocortex-rs/target/release/exo serve --config /opt/exocortex/exocortex-rs/exo.toml
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

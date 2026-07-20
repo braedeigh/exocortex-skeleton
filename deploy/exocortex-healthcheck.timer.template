@@ -1,0 +1,11 @@
+# Origin: personal vault deploy/exocortex-healthcheck.timer. Scrubbed modular copy — plug-in points marked PLUG-IN(...)
+[Unit]
+Description=Run exocortex healthcheck every minute
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target
