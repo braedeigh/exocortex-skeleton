@@ -186,9 +186,14 @@ export function visibleSectionItems(
   serverDate: string,
   front: string,
   index: Map<string, TodoItem>,
+  includeHidden = false,
 ): TodoItem[] {
+  // includeHidden = the "Show all" view: snoozed/waiting items come back
+  // inline (their pull-out cards hide) so every section shows its full count.
   return section.items.filter(
-    (item) => focusMatch(item, front) && !isSnoozed(item, serverDate) && !isWaiting(item, serverDate, index),
+    (item) =>
+      focusMatch(item, front) &&
+      (includeHidden || (!isSnoozed(item, serverDate) && !isWaiting(item, serverDate, index))),
   );
 }
 

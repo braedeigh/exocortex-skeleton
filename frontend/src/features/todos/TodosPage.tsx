@@ -30,8 +30,6 @@ import {
   computeFocusCounts,
   focusMatch,
   gateHides,
-  isSnoozed,
-  isWaiting,
   visibleSectionItems,
   withFocusFront,
 } from './todoHelpers';
@@ -183,7 +181,7 @@ export function TodosPage() {
     const shown = new Map<string, TodoItem[]>();
     const notNow: NotNowEntry[] = [];
     for (const s of ladderSections) {
-      const base = visibleSectionItems(s, serverDate, focusFront, todoIndex);
+      const base = visibleSectionItems(s, serverDate, focusFront, todoIndex, showAll);
       if (!gateRules) {
         shown.set(s.name, base);
         continue;
@@ -196,7 +194,7 @@ export function TodosPage() {
       shown.set(s.name, keep);
     }
     return { shown, notNow };
-  }, [ladderSections, serverDate, focusFront, todoIndex, gateRules, hhmm]);
+  }, [ladderSections, serverDate, focusFront, todoIndex, gateRules, hhmm, showAll]);
 
   const upNow = useMemo(
     () => collectUpNow(sections, serverDate).filter((it) => focusMatch(it, focusFront)),
@@ -266,7 +264,10 @@ export function TodosPage() {
 
   return (
     <div className={styles.page}>
-      <SnoozedCard items={snoozed} totalCount={snoozedAll.length} onUnsnooze={(id) => todoActions.snooze(id, 0)} />
+      {/* Hidden while "Show all" is on — its items are inline in the ladder. */}
+      {!showAll ? (
+        <SnoozedCard items={snoozed} totalCount={snoozedAll.length} onUnsnooze={(id) => todoActions.snooze(id, 0)} />
+      ) : null}
 
       {!isPublic ? (
         <>
@@ -408,15 +409,10 @@ export function TodosPage() {
                     colorIndex={i}
                     items={gatedBySection.shown.get(section.name) || []}
                     totalCount={
-                      // Only items that COULD show here: snoozed/waiting live
-                      // in their own cards, so they don't belong in this
-                      // denominator — else the fraction can never resolve.
-                      section.items.filter(
-                        (it) =>
-                          !it.done &&
-                          !isSnoozed(it, serverDate) &&
-                          !isWaiting(it, serverDate, todoIndex),
-                      ).length
+                      // Everything alive in the bucket — waiting/snoozed
+                      // included, so "5/7" says two exist elsewhere. Under
+                      // "Show all" they return inline and the numbers meet.
+                      section.items.filter((it) => !it.done).length
                     }
                     manualOrder={section.manual_order}
                     serverDate={serverDate}
@@ -439,11 +435,14 @@ export function TodosPage() {
               {/* Waiting lives at the very bottom, below Done — it's the
                   "not actionable yet" tail of the column, not a headline
                   (used to render at the very top of the page). */}
-              <WaitingCard
-                entries={waiting}
-                totalCount={waitingAll.length}
-                onClear={(id) => todoActions.details(id, { after_date: '', after_id: '' })}
-              />
+              {/* Hidden while "Show all" is on — its items are inline above. */}
+              {!showAll ? (
+                <WaitingCard
+                  entries={waiting}
+                  totalCount={waitingAll.length}
+                  onClear={(id) => todoActions.details(id, { after_date: '', after_id: '' })}
+                />
+              ) : null}
             </>
           )}
         </div>
