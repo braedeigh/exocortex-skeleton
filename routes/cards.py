@@ -182,6 +182,7 @@ def register(app):
         position = data.get("position")
         body = data.get("body")
         tags = data.get("tags") or []
+        reply_to = (data.get("reply_to") or "").strip()
         if not DATE_RE.match(date):
             return jsonify({"error": "invalid date"}), 400
         if date < CARDS_CUTOVER:
@@ -192,10 +193,14 @@ def register(app):
             return jsonify({"error": "position must be 'top' or 'bottom'"}), 400
         if not isinstance(tags, list) or not all(isinstance(t, str) and TAG_RE.match(t) for t in tags):
             return jsonify({"error": "invalid tag"}), 400
+        if reply_to and not CARD_ID_RE.match(reply_to):
+            return jsonify({"error": "invalid reply_to"}), 400
         ts = _insert_ts(date, position, _day_cards(date))
         args = ["record", "--who", "B", "--ts", ts]
         if tags:
             args += ["--tags", ",".join(tags)]
+        if reply_to:
+            args += ["--reply-to", reply_to]
         try:
             result = _run_stream(*args, stdin=body)
         except subprocess.TimeoutExpired:

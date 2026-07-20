@@ -13,6 +13,7 @@ fields (fronts/parents/kind/status/distilled), retired filtering, the derived
 tree, backlinks, and the per-thread card inbox.
 """
 import shutil
+from datetime import datetime as _RealDatetime
 from pathlib import Path
 
 import pytest
@@ -772,3 +773,96 @@ def test_journal_day_excerpt_short_blob_has_no_ellipses(vault, vault_client):
     excerpt = day["excerpts"][0]
     assert not excerpt.startswith("…") and not excerpt.endswith("…")
     assert "Petrichor" in excerpt
+
+
+# --- card entries carry `reply_to` and rolling-24h `editable` ---------------
+# The thread page lets her edit/delete a card minted in the last 24 hours in
+# place, and append a reply note to an older one instead — both server-
+# computed (never trust the client's Date), so these pin the cutoff math
+# down against a frozen clock.
+
+class _FrozenDatetime(_RealDatetime):
+    """A datetime subclass whose .now() is pinned — patched onto
+    routes.threads.datetime itself so strptime etc. still behave normally,
+    only "now" is fixed for a deterministic 24h-window test."""
+
+    _frozen = _RealDatetime(2026, 7, 20, 12, 0, 0)
+
+    @classmethod
+    def now(cls, tz=None):
+        return cls._frozen
+
+
+def test_journal_card_within_rolling_24h_is_editable(vault, vault_client, monkeypatch):
+    monkeypatch.setattr(threads, "datetime", _FrozenDatetime)
+    cards_dir = vault / "_system" / "data" / "cards"
+    (cards_dir / "2026-07-20.1100b.md").write_text(
+        "---\n"
+        "id: 2026-07-20.1100b\n"
+        "who: B\n"
+        "ts: 2026-07-20 12:00:00\n"
+        "tags: [migraines]\n"
+        "kind: line\n"
+        "---\n"
+        "Fresh note, minted right now.\n"
+    )
+    data = vault_client.get("/api/thread/migraines/journal").get_json()
+    card = next(e for e in data["entries"] if e.get("id") == "2026-07-20.1100b")
+    assert card["editable"] is True
+
+
+def test_journal_card_25h_old_is_not_editable(vault, vault_client, monkeypatch):
+    monkeypatch.setattr(threads, "datetime", _FrozenDatetime)
+    cards_dir = vault / "_system" / "data" / "cards"
+    (cards_dir / "2026-07-19.1100b.md").write_text(
+        "---\n"
+        "id: 2026-07-19.1100b\n"
+        "who: B\n"
+        "ts: 2026-07-19 11:00:00\n"
+        "tags: [migraines]\n"
+        "kind: line\n"
+        "---\n"
+        "A day-old note, just past the rolling 24h window.\n"
+    )
+    data = vault_client.get("/api/thread/migraines/journal").get_json()
+    card = next(e for e in data["entries"] if e.get("id") == "2026-07-19.1100b")
+    assert card["editable"] is False
+
+
+def test_journal_card_with_unparseable_ts_is_not_editable(vault, vault_client, monkeypatch):
+    monkeypatch.setattr(threads, "datetime", _FrozenDatetime)
+    cards_dir = vault / "_system" / "data" / "cards"
+    (cards_dir / "2026-07-20.1200c.md").write_text(
+        "---\n"
+        "id: 2026-07-20.1200c\n"
+        "who: B\n"
+        "ts: \n"
+        "tags: [migraines]\n"
+        "kind: line\n"
+        "---\n"
+        "A card with no usable timestamp.\n"
+    )
+    data = vault_client.get("/api/thread/migraines/journal").get_json()
+    card = next(e for e in data["entries"] if e.get("id") == "2026-07-20.1200c")
+    assert card["editable"] is False
+
+
+def test_journal_card_reply_to_round_trips(vault, vault_client):
+    cards_dir = vault / "_system" / "data" / "cards"
+    (cards_dir / "2026-07-20.0900b.md").write_text(
+        "---\n"
+        "id: 2026-07-20.0900b\n"
+        "who: B\n"
+        "ts: 2026-07-20 09:00:00\n"
+        "reply_to: 2026-07-14.1655c\n"
+        "tags: [migraines]\n"
+        "kind: line\n"
+        "---\n"
+        "Following up on the fluorescent light thing.\n"
+    )
+    data = vault_client.get("/api/thread/migraines/journal").get_json()
+    reply = next(e for e in data["entries"] if e.get("id") == "2026-07-20.0900b")
+    assert reply["reply_to"] == "2026-07-14.1655c"
+    # A card without reply_to frontmatter at all still round-trips to null.
+    parent = next(e for e in data["entries"] if e.get("id") == "2026-07-14.1655c")
+    assert parent["reply_to"] is None

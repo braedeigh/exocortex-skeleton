@@ -247,18 +247,55 @@ export function useAddCard(date: string, onError: (message: string) => void) {
 
 /**
  * Adds a card tagged with `slug` so it appears in that thread's journal
- * stream — the composer on /threads/$slug. Always appends `--position
- * bottom`. Invalidates both the thread journal (so the new entry shows up
- * here) and the day's journal bundle (the card also lives on `today`'s page).
+ * stream — the composer on /threads/$slug, and the per-card "+ note" mini-
+ * composer (which passes `replyTo` so the new card mints as a reply to an
+ * older, non-editable card instead of a bare top-level entry). Always
+ * appends `--position bottom`. Invalidates both the thread journal (so the
+ * new entry shows up here) and the day's journal bundle (the card also
+ * lives on `today`'s page).
  */
 export function useAddThreadEntry(slug: string, today: string | null, onError: (message: string) => void) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (body: string) => addCard(today as string, 'bottom', body, [slug]),
+    mutationFn: (vars: { body: string; replyTo?: string }) =>
+      addCard(today as string, 'bottom', vars.body, [slug], vars.replyTo),
     onError: (err) => onError(errorMessage(err, 'Add failed')),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['journal', 'threadJournal', slug] });
       if (today) void queryClient.invalidateQueries({ queryKey: journalDayKey(today) });
+    },
+  });
+}
+
+/**
+ * Edits a card in place from /threads/$slug — only offered on cards the
+ * route marked `editable` (routes/threads.py's rolling 24h window). Beyond
+ * the thread journal itself, also invalidates the card's own day bundle
+ * (`date` comes along on the mutate variables) since the same card lives on
+ * the day-editor page too.
+ */
+export function useUpdateThreadEntry(slug: string, onError: (message: string) => void) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { id: string; body: string; date: string }) => updateCard(vars.id, vars.body),
+    onError: (err) => onError(errorMessage(err, 'Save failed')),
+    onSuccess: (_data, vars) => {
+      void queryClient.invalidateQueries({ queryKey: ['journal', 'threadJournal', slug] });
+      void queryClient.invalidateQueries({ queryKey: journalDayKey(vars.date) });
+    },
+  });
+}
+
+/** Deletes a card from /threads/$slug — same editable-only gate and
+ * invalidation shape as useUpdateThreadEntry. */
+export function useDeleteThreadEntry(slug: string, onError: (message: string) => void) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { id: string; date: string }) => deleteCardRequest(vars.id),
+    onError: (err) => onError(errorMessage(err, 'Delete failed')),
+    onSuccess: (_data, vars) => {
+      void queryClient.invalidateQueries({ queryKey: ['journal', 'threadJournal', slug] });
+      void queryClient.invalidateQueries({ queryKey: journalDayKey(vars.date) });
     },
   });
 }

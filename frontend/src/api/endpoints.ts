@@ -188,6 +188,10 @@ export function snoozeReminder(id: string, days: number): Promise<OkResponse> {
   return api.post('/api/reminders/snooze', { id, days });
 }
 
+export function saveReminders(reminders: unknown[]): Promise<OkResponse> {
+  return api.post('/api/reminders/save', { reminders });
+}
+
 // --- Symptoms (routes/health.py) ---
 
 /** column -> 0..3 (nose_spray is 0/1). */
@@ -278,8 +282,12 @@ export function addCard(
   position: 'top' | 'bottom',
   body: string,
   tags?: string[],
+  replyTo?: string,
 ): Promise<Card> {
-  return api.post('/api/cards/add', tags && tags.length > 0 ? { date, position, body, tags } : { date, position, body });
+  const payload: Record<string, unknown> = { date, position, body };
+  if (tags && tags.length > 0) payload.tags = tags;
+  if (replyTo) payload.reply_to = replyTo;
+  return api.post('/api/cards/add', payload);
 }
 
 export function deleteCard(id: string): Promise<OkResponse> {

@@ -200,6 +200,14 @@ export interface ThreadJournalCardEntry {
   ts: string;
   who: CardWho;
   text: string;
+  /** The parent card's id, or null — a card whose reply_to matches another
+   * CARD entry's id in this same journal stream renders as that entry's
+   * margin note (routes/threads.py thread_journal / ThreadJournalPage). */
+  reply_to: string | null;
+  /** True iff this card's ts is within the rolling last 24 hours (server-
+   * computed, routes/threads.py `_card_editable` — never the client's Date).
+   * Editable cards get in-place edit/delete; older ones only get "+ note". */
+  editable: boolean;
 }
 
 /** A bare-day citation (predates the card pool, or a `` `YYYY-MM-DD` `` source

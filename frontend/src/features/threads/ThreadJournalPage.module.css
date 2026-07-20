@@ -271,6 +271,191 @@
   color: var(--accent);
 }
 
+.metaSpacer {
+  flex: 1;
+}
+
+/* --- Editable cards (within the rolling 24h window): pencil + in-place
+   edit mode — mirrors EntryCard.module.css's .editing/.editArea/.controls
+   so a thread card edits the same way the day-editor's cards do. --- */
+
+.cardEditing {
+  border-color: var(--accent);
+}
+
+.editArea {
+  width: 100%;
+  min-height: 68px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: var(--font-size-base);
+  line-height: 1.6;
+  padding: var(--space-2) var(--space-3);
+  resize: vertical;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.controlsSpacer {
+  flex: 1;
+  min-width: var(--space-2);
+}
+
+.confirmPreview {
+  font-size: var(--font-size-base);
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 0 0 var(--space-4);
+  overflow-wrap: anywhere;
+}
+
+.confirmActions {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.confirmActions > * {
+  flex: 1;
+}
+
+/* --- Non-editable cards (past the 24h window): a quiet "+ note" button
+   that unfolds a mini reply-composer — "small until edit" per house rule,
+   the button itself stays a plain muted text row until tapped. --- */
+
+.noteBtn {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  width: 100%;
+  min-height: var(--tap-target);
+  margin-top: var(--space-1);
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.noteBtn:hover {
+  color: var(--accent);
+}
+
+.noteComposer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-soft);
+}
+
+.noteComposerArea {
+  width: 100%;
+  min-height: var(--tap-target);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: var(--font-size-base);
+  line-height: 1.6;
+  padding: var(--space-2) var(--space-3);
+  resize: none;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.noteComposerActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+/* --- Child notes: a margin-note cell riding under its parent card, in the
+   same visual dialect as RefCard.module.css (accent left border, no
+   who-badge, a small "↳ note" label) rather than a full card frame. --- */
+
+.noteCard {
+  border-left: 3px solid var(--accent);
+  border-top: 1px solid var(--border-soft);
+  border-right: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent) 3%, var(--card-bg));
+  padding: var(--space-2) var(--space-3);
+  /* Pulled up against its parent card (which already carries its own
+     margin-bottom: var(--space-3)) so a note visually rides right under
+     the card it replies to, same spirit as RefCard.module.css's cell. */
+  margin: calc(-1 * var(--space-2)) 0 var(--space-3) var(--space-4);
+}
+
+.noteCardEditing {
+  border-left-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, var(--card-bg));
+}
+
+.noteMeta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1);
+  min-height: 28px;
+}
+
+.noteLabel {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  font-style: italic;
+  letter-spacing: 0.02em;
+}
+
+.noteMetaTime {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 var(--space-1);
+  margin: 0 calc(-1 * var(--space-1));
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.noteMetaTime:hover {
+  color: var(--accent);
+}
+
+.noteBody {
+  font-size: var(--font-size-sm);
+  line-height: 1.55;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.noteBody :global(p):last-child,
+.noteBody :global(h1):last-child,
+.noteBody :global(h2):last-child,
+.noteBody :global(h3):last-child {
+  margin-bottom: 0;
+}
+
 /* --- Day-excerpt card: a day row whose bare-day citation carries mention
    excerpts (routes/threads.py thread_journal). Same .card/.body look as a
    real journal card, but the meta row's date is a plain span (the card

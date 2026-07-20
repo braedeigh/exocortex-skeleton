@@ -31,6 +31,7 @@ When this ever needs queries it can't do per-request, swap the parse for SQLite
 behind these same functions and nothing above the API changes. Until then, YAGNI.
 """
 import re
+from datetime import datetime, timedelta
 
 from flask import request, jsonify
 
@@ -437,13 +438,35 @@ def _iter_cards():
         tags = meta.get("tags", [])
         if isinstance(tags, str):
             tags = [tags] if tags else []
+        # Same normalization as routes/cards.py's _card_dict: a missing/blank/
+        # literal-"null" frontmatter value all mean "no parent" -> None.
+        reply_to = meta.get("reply_to")
+        if reply_to in (None, "null", ""):
+            reply_to = None
         yield {
             "id": meta.get("id") or p.stem,
             "ts": meta.get("ts", ""),
             "who": meta.get("who", ""),
             "text": body.strip(),
             "tags": [t.lower() for t in tags if t],
+            "reply_to": reply_to,
         }
+
+
+def _card_editable(ts):
+    """True iff `ts` ("%Y-%m-%d %H:%M:%S") is well-formed and within the
+    rolling last 24 hours of the SERVER clock — never the client's Date,
+    per house convention. Empty/unparseable ts (or anything older than the
+    cutoff) is not editable. Plain string comparison is safe once both sides
+    share that exact zero-padded shape."""
+    if not ts:
+        return False
+    try:
+        datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return False
+    cutoff = (datetime.now() - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
+    return ts >= cutoff
 
 
 def threads_tree(include_retired=False):
@@ -542,7 +565,11 @@ def register(app):
         (word-boundary, case-insensitive — same spirit as entityHighlight.ts's
         matcher on the client), plus a day row for every bare-day citation.
         Keeper-authored cards (`who: K`) are excluded — her call, 2026-07-20:
-        a thread's journal is her record, not the keeper's commentary.
+        a thread's journal is her record, not the keeper's commentary. Each
+        card entry also carries `reply_to` (the parent card id or null) and
+        `editable` (true iff its ts is within the rolling last 24 hours —
+        see _card_editable), so the client can offer in-place edit/delete on
+        recent cards and a reply-note affordance on older ones.
         Ascending, day rows sorting before that day's cards. A day row for a
         date with no pool card at all also carries `excerpts`: bounded
         mention-windowed snippets pulled from that day's pre-card-pool blob
@@ -599,6 +626,7 @@ def register(app):
             entries.append({
                 "kind": "card", "id": cid, "date": cid.split(".")[0],
                 "ts": c["ts"], "who": c["who"], "text": c["text"],
+                "reply_to": c["reply_to"], "editable": _card_editable(c["ts"]),
             })
         # A day row's excerpts only make sense when the pool has NO card at
         # all for that date (tagged or not) — a date WITH pool cards is

@@ -73,6 +73,7 @@ def do_record(argv):
     who = opts["who"]
     ts = opts["ts"]
     tags = [t.strip() for t in opts.get("tags", "").split(",") if t.strip()]
+    reply_to = opts.get("reply-to") or "null"
     ts_dt = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
     base = ts_dt.strftime("%Y-%m-%d.%H%M") + who.lower()
     cid = base
@@ -87,7 +88,7 @@ def do_record(argv):
         f"id: {cid}\\n"
         f"who: {who}\\n"
         f"ts: {ts}\\n"
-        "reply_to: null\\n"
+        f"reply_to: {reply_to}\\n"
         f"tags: {tags_yaml}\\n"
         "kind: line\\n"
     )
@@ -279,3 +280,41 @@ def test_add_card_absent_tags_behaves_exactly_as_before(client, vault, monkeypat
     assert resp.status_code == 200
     card = resp.get_json()
     assert card["tags"] == []
+
+
+# --- POST /api/cards/add — optional `reply_to` ------------------------------
+
+def test_add_card_with_reply_to_passes_through_to_the_minted_card(client, vault, monkeypatch):
+    monkeypatch.setattr(cards, "_stream_py", lambda: vault / "_system" / "stream.py")
+    resp = client.post("/api/cards/add", json={
+        "date": "2026-07-08",
+        "position": "bottom",
+        "body": "Following up on that morning feeling.",
+        "reply_to": "2026-07-08.0734b",
+    })
+    assert resp.status_code == 200
+    card = resp.get_json()
+    assert card["reply_to"] == "2026-07-08.0734b"
+
+
+def test_add_card_rejects_malformed_reply_to(client):
+    resp = client.post("/api/cards/add", json={
+        "date": "2026-07-08",
+        "position": "bottom",
+        "body": "Some note.",
+        "reply_to": "not-a-card-id",
+    })
+    assert resp.status_code == 400
+    assert resp.get_json()["error"] == "invalid reply_to"
+
+
+def test_add_card_absent_reply_to_behaves_exactly_as_before(client, vault, monkeypatch):
+    monkeypatch.setattr(cards, "_stream_py", lambda: vault / "_system" / "stream.py")
+    resp = client.post("/api/cards/add", json={
+        "date": "2026-07-08",
+        "position": "bottom",
+        "body": "One more thought before bed.",
+    })
+    assert resp.status_code == 200
+    card = resp.get_json()
+    assert card["reply_to"] is None

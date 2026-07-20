@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useSessionsContext } from '../../shell/SessionsContext';
 import { DESKTOP_QUERY } from '../../shell/useMediaQuery';
-import { Button, ToastStack } from '../../ui';
+import { Button, IconButton, Sheet, ToastStack } from '../../ui';
 import type { EntityMatcher } from '../journal/entityHighlight';
 import { buildEntityMatcher, highlightEntities } from '../journal/entityHighlight';
 import { mdToHtml } from '../journal/markdown';
@@ -10,11 +10,13 @@ import { startThreadTalk, talkLabel, type TalkState } from '../journal/threadTal
 import type { ThreadJournalCardEntry, ThreadJournalDayEntry, ThreadJournalEntry } from '../journal/types';
 import {
   useAddThreadEntry,
+  useDeleteThreadEntry,
   usePeople,
   useServerDate,
   useThreadJournal,
   useThreads,
   useToasts,
+  useUpdateThreadEntry,
 } from '../journal/useJournalData';
 import { FRONT_EMOJI, useFronts } from '../fronts/useFronts';
 import styles from './ThreadJournalPage.module.css';
@@ -174,6 +176,64 @@ function markSelfMentions(html: string, slug: string): string {
   return html.split(needle).join(replacement);
 }
 
+interface EntryPartition {
+  /** ids of card entries that render as a margin note under some other card,
+   * rather than as their own top-level entry in the sorted stream. */
+  childIds: Set<string>;
+  /** top-level card id -> its child notes, ascending by ts. */
+  childrenByParent: Map<string, ThreadJournalCardEntry[]>;
+  /** every card entry, by id — used to look up a card's `date` for the
+   * update/delete mutations without a second pass over `entries`. */
+  cardsById: Map<string, ThreadJournalCardEntry>;
+}
+
+/**
+ * Nests card entries under the card their `reply_to` points at: "any card
+ * whose reply_to matches another CARD entry's id in the list becomes a
+ * child of that parent; everything else (including reply_to pointing
+ * outside the list) stays top-level." The "+ note" affordance only ever
+ * targets a top-level card (child notes can't themselves be replied to —
+ * no note-on-note chains), so in practice a reply chain is exactly one
+ * level deep. If hand-edited data ever produces a deeper chain anyway, this
+ * walks the reply_to links to their ultimate in-list ancestor (cycle-
+ * guarded) and flattens the whole chain to one level under it, rather than
+ * silently dropping the deeper notes.
+ */
+function partitionCardEntries(entries: ThreadJournalEntry[]): EntryPartition {
+  const cardsById = new Map<string, ThreadJournalCardEntry>();
+  for (const e of entries) {
+    if (e.kind === 'card') cardsById.set(e.id, e);
+  }
+
+  function topAncestorOf(id: string): string {
+    const seen = new Set<string>();
+    let cur = id;
+    while (!seen.has(cur)) {
+      seen.add(cur);
+      const parent = cardsById.get(cur)?.reply_to;
+      if (!parent || parent === cur || !cardsById.has(parent)) return cur;
+      cur = parent;
+    }
+    return cur;
+  }
+
+  const childIds = new Set<string>();
+  const childrenByParent = new Map<string, ThreadJournalCardEntry[]>();
+  for (const c of cardsById.values()) {
+    const top = topAncestorOf(c.id);
+    if (top === c.id) continue;
+    childIds.add(c.id);
+    const list = childrenByParent.get(top) ?? [];
+    list.push(c);
+    childrenByParent.set(top, list);
+  }
+  for (const list of childrenByParent.values()) {
+    list.sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
+  }
+
+  return { childIds, childrenByParent, cardsById };
+}
+
 export interface ThreadJournalPageProps {
   slug: string;
 }
@@ -199,10 +259,17 @@ export function ThreadJournalPage({ slug }: ThreadJournalPageProps) {
   const [talkState, setTalkState] = useState<TalkState>('idle');
   const [sortOrder, setSortOrder] = useState<SortOrder>(readSortOrder);
   const { toasts, push, dismiss } = useToasts();
+  // The one card/note currently open for interaction — either its edit mode
+  // (an editable card/note) or its "+ note" mini-composer (a non-editable
+  // top-level card). Shared so opening one closes any other, mirroring the
+  // day-editor's single editingCardId (JournalPage.tsx).
+  const [activeEntryId, setActiveEntryId] = useState<string | null>(null);
 
   const today = serverDateData?.server_date ?? null;
   const serverYear = today ? today.slice(0, 4) : null;
   const addEntry = useAddThreadEntry(slug, today, push);
+  const updateEntry = useUpdateThreadEntry(slug, push);
+  const deleteEntry = useDeleteThreadEntry(slug, push);
 
   const matcher = useMemo(
     () => buildEntityMatcher(peopleData?.people ?? [], threadsData?.threads ?? []),
@@ -256,9 +323,42 @@ export function ThreadJournalPage({ slug }: ThreadJournalPageProps) {
     [entries, sortOrder],
   );
 
+  const { childIds, childrenByParent, cardsById } = useMemo(() => partitionCardEntries(entries), [entries]);
+
+  const savingEntryId = updateEntry.isPending
+    ? (updateEntry.variables?.id ?? null)
+    : deleteEntry.isPending
+      ? (deleteEntry.variables?.id ?? null)
+      : null;
+  const addingNoteForId = addEntry.isPending ? (addEntry.variables?.replyTo ?? null) : null;
+
+  function closeActive(id: string) {
+    setActiveEntryId((cur) => (cur === id ? null : cur));
+  }
+
+  function handleSaveEdit(id: string, body: string) {
+    const date = cardsById.get(id)?.date ?? '';
+    updateEntry.mutate({ id, body, date }, { onSuccess: () => closeActive(id) });
+  }
+
+  function handleConfirmDelete(id: string) {
+    const date = cardsById.get(id)?.date ?? '';
+    deleteEntry.mutate({ id, date }, { onSuccess: () => closeActive(id) });
+  }
+
+  async function handleSaveNote(parentId: string, body: string): Promise<boolean> {
+    try {
+      await addEntry.mutateAsync({ body, replyTo: parentId });
+      closeActive(parentId);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async function handleComposerSave(body: string): Promise<boolean> {
     try {
-      await addEntry.mutateAsync(body);
+      await addEntry.mutateAsync({ body });
       return true;
     } catch {
       return false;
@@ -328,30 +428,69 @@ export function ThreadJournalPage({ slug }: ThreadJournalPageProps) {
             {entries.length === 0 ? (
               <div className={styles.empty}>No journal entries linked yet.</div>
             ) : (
-              displayedEntries.map((e) =>
-                e.kind === 'card' ? (
-                  <JournalCardEntry
-                    key={`card-${e.id}`}
-                    entry={e}
-                    serverYear={serverYear}
-                    matcher={matcher}
-                    mentionRegex={mentionRegex}
-                    threadSlug={slug}
-                    onOpenDay={goToDay}
-                  />
-                ) : e.excerpts.length > 0 ? (
-                  <DayExcerptEntry
-                    key={`day-${e.date}`}
-                    entry={e}
-                    serverYear={serverYear}
-                    matcher={matcher}
-                    threadSlug={slug}
-                    onOpenDay={goToDay}
-                  />
-                ) : (
-                  <DayRow key={`day-${e.date}`} entry={e} serverYear={serverYear} onOpenDay={goToDay} />
-                ),
-              )
+              displayedEntries
+                .filter((e) => !(e.kind === 'card' && childIds.has(e.id)))
+                .flatMap((e) => {
+                  if (e.kind === 'card') {
+                    const canEdit = e.editable && e.who === 'B';
+                    const nodes = [
+                      <JournalCardEntry
+                        key={`card-${e.id}`}
+                        entry={e}
+                        serverYear={serverYear}
+                        matcher={matcher}
+                        mentionRegex={mentionRegex}
+                        threadSlug={slug}
+                        onOpenDay={goToDay}
+                        editing={activeEntryId === e.id && canEdit}
+                        composingNote={activeEntryId === e.id && !canEdit}
+                        saving={savingEntryId === e.id}
+                        addingNote={addingNoteForId === e.id}
+                        onEdit={() => setActiveEntryId(e.id)}
+                        onCancelEdit={() => closeActive(e.id)}
+                        onSaveEdit={(body) => handleSaveEdit(e.id, body)}
+                        onConfirmDelete={() => handleConfirmDelete(e.id)}
+                        onOpenNote={() => setActiveEntryId(e.id)}
+                        onCancelNote={() => closeActive(e.id)}
+                        onSaveNote={(body) => handleSaveNote(e.id, body)}
+                      />,
+                    ];
+                    for (const child of childrenByParent.get(e.id) ?? []) {
+                      const childCanEdit = child.editable && child.who === 'B';
+                      nodes.push(
+                        <ChildNoteEntry
+                          key={`note-${child.id}`}
+                          entry={child}
+                          serverYear={serverYear}
+                          matcher={matcher}
+                          threadSlug={slug}
+                          onOpenDay={goToDay}
+                          editing={activeEntryId === child.id && childCanEdit}
+                          saving={savingEntryId === child.id}
+                          onEdit={() => setActiveEntryId(child.id)}
+                          onCancelEdit={() => closeActive(child.id)}
+                          onSaveEdit={(body) => handleSaveEdit(child.id, body)}
+                          onConfirmDelete={() => handleConfirmDelete(child.id)}
+                        />,
+                      );
+                    }
+                    return nodes;
+                  }
+                  return [
+                    e.excerpts.length > 0 ? (
+                      <DayExcerptEntry
+                        key={`day-${e.date}`}
+                        entry={e}
+                        serverYear={serverYear}
+                        matcher={matcher}
+                        threadSlug={slug}
+                        onOpenDay={goToDay}
+                      />
+                    ) : (
+                      <DayRow key={`day-${e.date}`} entry={e} serverYear={serverYear} onOpenDay={goToDay} />
+                    ),
+                  ];
+                })
             )}
           </div>
 
@@ -462,6 +601,30 @@ function ThreadComposer({ disabled, saving, talkState, onSave, onTalk }: ThreadC
   );
 }
 
+interface JournalCardEntryProps {
+  entry: ThreadJournalCardEntry;
+  serverYear: string | null;
+  matcher: EntityMatcher;
+  mentionRegex: RegExp | null;
+  threadSlug: string;
+  onOpenDay: (date: string) => void;
+  /** True when this card is open in edit mode (editable && who === 'B'). */
+  editing: boolean;
+  /** True when this card's "+ note" mini-composer is open. */
+  composingNote: boolean;
+  /** Pending state for THIS card's own update/delete mutation. */
+  saving: boolean;
+  /** Pending state for a note being added as a reply to THIS card. */
+  addingNote: boolean;
+  onEdit: () => void;
+  onCancelEdit: () => void;
+  onSaveEdit: (body: string) => void;
+  onConfirmDelete: () => void;
+  onOpenNote: () => void;
+  onCancelNote: () => void;
+  onSaveNote: (body: string) => Promise<boolean>;
+}
+
 function JournalCardEntry({
   entry,
   serverYear,
@@ -469,16 +632,21 @@ function JournalCardEntry({
   mentionRegex,
   threadSlug,
   onOpenDay,
-}: {
-  entry: ThreadJournalCardEntry;
-  serverYear: string | null;
-  matcher: EntityMatcher;
-  mentionRegex: RegExp | null;
-  threadSlug: string;
-  onOpenDay: (date: string) => void;
-}) {
+  editing,
+  composingNote,
+  saving,
+  addingNote,
+  onEdit,
+  onCancelEdit,
+  onSaveEdit,
+  onConfirmDelete,
+  onOpenNote,
+  onCancelNote,
+  onSaveNote,
+}: JournalCardEntryProps) {
   const [expanded, setExpanded] = useState(false);
   const isK = entry.who === 'K';
+  const canEdit = entry.editable && entry.who === 'B';
 
   const { text: snippetText, clipped } = useMemo(
     () => clipToContextWindow(entry.text, mentionRegex),
@@ -492,22 +660,251 @@ function JournalCardEntry({
   );
 
   return (
-    <div className={styles.card}>
+    <div className={`${styles.card} ${editing ? styles.cardEditing : ''}`}>
       <div className={styles.meta}>
         <span className={`${styles.who} ${isK ? styles.who_K : styles.who_B}`}>{entry.who}</span>
         <button type="button" className={styles.metaTime} onClick={() => onOpenDay(entry.date)}>
           {formatDate(entry.date, serverYear)} &middot; {formatTime(entry.ts)}
         </button>
+        <span className={styles.metaSpacer} />
+        {canEdit && !editing ? (
+          <IconButton aria-label="Edit entry" onClick={onEdit}>
+            &#9998;
+          </IconButton>
+        ) : null}
       </div>
-      <div
-        className={`${styles.body} ${isK ? styles.body_K : ''}`}
-        dangerouslySetInnerHTML={{ __html: bodyHtml }}
+
+      {editing ? (
+        <EditBlock
+          body={entry.text}
+          saving={saving}
+          onCancel={onCancelEdit}
+          onSave={onSaveEdit}
+          onConfirmDelete={onConfirmDelete}
+        />
+      ) : (
+        <>
+          <div
+            className={`${styles.body} ${isK ? styles.body_K : ''}`}
+            dangerouslySetInnerHTML={{ __html: bodyHtml }}
+          />
+          {clipped ? (
+            <button type="button" className={styles.expandBtn} onClick={() => setExpanded((v) => !v)}>
+              {expanded ? 'Show less ▴' : 'Show full entry ▾'}
+            </button>
+          ) : null}
+          {/* Read-only (past the rolling 24h window) cards can't be edited in
+              place, but can still gather a note — a fresh reply card minted
+              today rather than a mutation of the old one. */}
+          {!canEdit ? (
+            composingNote ? (
+              <NoteComposer saving={addingNote} onCancel={onCancelNote} onSave={onSaveNote} />
+            ) : (
+              <button type="button" className={styles.noteBtn} onClick={onOpenNote}>
+                + note
+              </button>
+            )
+          ) : null}
+        </>
+      )}
+    </div>
+  );
+}
+
+interface EditBlockProps {
+  /** The card's persisted body — seeds the draft and backs the delete
+   * confirm preview (never the in-progress draft, same as EntryCard). */
+  body: string;
+  saving: boolean;
+  onCancel: () => void;
+  onSave: (body: string) => void;
+  onConfirmDelete: () => void;
+}
+
+/** The in-place edit UI shared by top-level cards and child notes alike — a
+ * grown textarea seeded with the raw text, Delete/spacer/Cancel/Save, and a
+ * Sheet-confirmed delete with an 80-char preview. Mirrors EntryCard.tsx's
+ * edit mode (the day-editor's reference) rather than reinventing one. The
+ * card/note id itself isn't needed here — callers already curry it into
+ * their onSave/onConfirmDelete closures. */
+function EditBlock({ body, saving, onCancel, onSave, onConfirmDelete }: EditBlockProps) {
+  const [draft, setDraft] = useState(body);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const taRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    setDraft(body);
+  }, [body]);
+
+  useEffect(() => {
+    if (!taRef.current) return;
+    const ta = taRef.current;
+    ta.style.height = 'auto';
+    ta.style.height = `${Math.max(68, ta.scrollHeight + 2)}px`;
+    ta.focus();
+  }, [draft]);
+
+  return (
+    <>
+      <textarea
+        ref={taRef}
+        className={styles.editArea}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        disabled={saving}
       />
-      {clipped ? (
-        <button type="button" className={styles.expandBtn} onClick={() => setExpanded((v) => !v)}>
-          {expanded ? 'Show less ▴' : 'Show full entry ▾'}
+      <div className={styles.controls}>
+        <Button variant="danger" onClick={() => setConfirmOpen(true)} disabled={saving}>
+          Delete
+        </Button>
+        <span className={styles.controlsSpacer} />
+        <Button variant="secondary" onClick={onCancel} disabled={saving}>
+          Cancel
+        </Button>
+        <Button variant="primary" onClick={() => onSave(draft)} disabled={saving || !draft.trim()}>
+          Save
+        </Button>
+      </div>
+
+      <Sheet open={confirmOpen} onClose={() => setConfirmOpen(false)} title="Delete this entry?">
+        <p className={styles.confirmPreview}>
+          {body.slice(0, 80)}
+          {body.length > 80 ? '…' : ''}
+        </p>
+        <div className={styles.confirmActions}>
+          <Button variant="secondary" onClick={() => setConfirmOpen(false)}>
+            Cancel
+          </Button>
+          <Button
+            variant="danger"
+            onClick={() => {
+              setConfirmOpen(false);
+              onConfirmDelete();
+            }}
+          >
+            Delete
+          </Button>
+        </div>
+      </Sheet>
+    </>
+  );
+}
+
+interface NoteComposerProps {
+  saving: boolean;
+  onCancel: () => void;
+  onSave: (body: string) => Promise<boolean>;
+}
+
+/** Inline mini-composer that unfolds under a non-editable card's "+ note"
+ * button — an auto-grow textarea plus Cancel / Save note. Saving mints a
+ * fresh reply card (kept editable for its own next-24h window) rather than
+ * touching the old one. */
+function NoteComposer({ saving, onCancel, onSave }: NoteComposerProps) {
+  const [draft, setDraft] = useState('');
+  const taRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    if (!taRef.current) return;
+    const ta = taRef.current;
+    ta.style.height = 'auto';
+    ta.style.height = `${Math.max(44, ta.scrollHeight + 2)}px`;
+    ta.focus();
+  }, [draft]);
+
+  async function handleSave() {
+    const ok = await onSave(draft);
+    if (ok) setDraft('');
+  }
+
+  return (
+    <div className={styles.noteComposer}>
+      <textarea
+        ref={taRef}
+        className={styles.noteComposerArea}
+        rows={1}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        placeholder="Add a note…"
+        disabled={saving}
+      />
+      <div className={styles.noteComposerActions}>
+        <Button variant="secondary" onClick={onCancel} disabled={saving}>
+          Cancel
+        </Button>
+        <Button variant="primary" onClick={() => void handleSave()} disabled={saving || !draft.trim()}>
+          Save note
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+interface ChildNoteEntryProps {
+  entry: ThreadJournalCardEntry;
+  serverYear: string | null;
+  matcher: EntityMatcher;
+  threadSlug: string;
+  onOpenDay: (date: string) => void;
+  editing: boolean;
+  saving: boolean;
+  onEdit: () => void;
+  onCancelEdit: () => void;
+  onSaveEdit: (body: string) => void;
+  onConfirmDelete: () => void;
+}
+
+/**
+ * A reply card riding as a margin note under its parent — RefCard's visual
+ * dialect (accent left border, no who-badge, a "↳ note" label) rather than
+ * a full card frame. No long-entry clipping (notes are short by nature) and
+ * no "+ note" of its own even when stale — replies don't chain.
+ */
+function ChildNoteEntry({
+  entry,
+  serverYear,
+  matcher,
+  threadSlug,
+  onOpenDay,
+  editing,
+  saving,
+  onEdit,
+  onCancelEdit,
+  onSaveEdit,
+  onConfirmDelete,
+}: ChildNoteEntryProps) {
+  const canEdit = entry.editable && entry.who === 'B';
+  const bodyHtml = useMemo(
+    () => markSelfMentions(highlightEntities(mdToHtml(entry.text), matcher), threadSlug),
+    [entry.text, matcher, threadSlug],
+  );
+
+  return (
+    <div className={`${styles.noteCard} ${editing ? styles.noteCardEditing : ''}`}>
+      <div className={styles.noteMeta}>
+        <span className={styles.noteLabel}>&#8627; note</span>
+        <button type="button" className={styles.noteMetaTime} onClick={() => onOpenDay(entry.date)}>
+          {formatDate(entry.date, serverYear)} &middot; {formatTime(entry.ts)}
         </button>
-      ) : null}
+        <span className={styles.metaSpacer} />
+        {canEdit && !editing ? (
+          <IconButton aria-label="Edit note" onClick={onEdit}>
+            &#9998;
+          </IconButton>
+        ) : null}
+      </div>
+
+      {editing ? (
+        <EditBlock
+          body={entry.text}
+          saving={saving}
+          onCancel={onCancelEdit}
+          onSave={onSaveEdit}
+          onConfirmDelete={onConfirmDelete}
+        />
+      ) : (
+        <div className={styles.noteBody} dangerouslySetInnerHTML={{ __html: bodyHtml }} />
+      )}
     </div>
   );
 }
