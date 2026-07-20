@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "defaultMode": "default",
+    "deny": [
+      "Bash",
+      "WebFetch",
+      "WebSearch",
+      "Edit(//srv/mailclaude/data/inbox/**)",
+      "Edit(//srv/mailclaude/data/sent/**)",
+      "Edit(//srv/mailclaude/data/failed/**)",
+      "Edit(//srv/mailclaude/clerk/**)",
+      "Edit(//srv/mailclaude/corpus/**)",
+      "Edit(//home/**)",
+      "Edit(//tmp/**)",
+      "Edit(//var/tmp/**)",
+      "Edit(//dev/shm/**)"
+    ],
+    "allow": [
+      "Read(//srv/mailclaude/corpus/**)",
+      "Read(//srv/mailclaude/data/**)",
+      "Grep",
+      "Glob",
+      "Edit(//srv/mailclaude/data/drafts/**)"
+    ]
+  }
+}

@@ -1,0 +1,15 @@
+# Origin: personal vault mailclaude/systemd/mail-draft.path. Scrubbed
+# modular copy — plug-in points marked PLUG-IN(...)
+#
+# PLUG-IN(SRV_DIR): path below assumes the default install dir /srv/mailclaude.
+# If you relocated the tree via MAILCLAUDE_BASE, update DirectoryNotEmpty= to
+# match (systemd unit files can't read shell env vars set elsewhere, so this
+# must be edited by hand).
+[Unit]
+Description=mail-claude: watch data/inbox/ for new messages
+
+[Path]
+DirectoryNotEmpty=/srv/mailclaude/data/inbox
+
+[Install]
+WantedBy=paths.target

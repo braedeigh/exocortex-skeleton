@@ -1,0 +1,11 @@
+# Origin: personal vault mailclaude/systemd/mail-poll.timer. Scrubbed
+# modular copy — plug-in points marked PLUG-IN(...)
+[Unit]
+Description=mail-claude: poll mailbox every 2 minutes
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=2min
+
+[Install]
+WantedBy=timers.target

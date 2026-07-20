@@ -1,0 +1,13 @@
+# Origin: personal vault mailclaude/systemd/mail-send.service. Scrubbed
+# modular copy — plug-in points marked PLUG-IN(...)
+#
+# PLUG-IN(SRV_DIR): ExecStart below assumes the default install dir
+# /srv/mailclaude. If you relocated the tree, update the path to match.
+[Unit]
+Description=mail-claude: email drafts to the owner, move to data/sent/
+
+[Service]
+Type=oneshot
+User=mailer
+Group=mailroom
+ExecStart=/srv/mailclaude/bin/send-to-owner.py

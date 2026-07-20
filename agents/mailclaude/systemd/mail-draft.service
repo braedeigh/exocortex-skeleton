@@ -1,0 +1,13 @@
+# Origin: personal vault mailclaude/systemd/mail-draft.service. Scrubbed
+# modular copy — plug-in points marked PLUG-IN(...)
+#
+# PLUG-IN(SRV_DIR): ExecStart below assumes the default install dir
+# /srv/mailclaude. If you relocated the tree, update the path to match.
+[Unit]
+Description=mail-claude: draft replies for pending inbox records
+
+[Service]
+Type=oneshot
+User=mail
+Group=mailroom
+ExecStart=/srv/mailclaude/bin/draft-runner.sh
