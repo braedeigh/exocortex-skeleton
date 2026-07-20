@@ -9,10 +9,32 @@ interface builds out from a small set of reusable pieces (logged events, lists,
 recurring reminders, calendars, counters). Self-hosted, single-user, your data in
 plain JSON files you own.
 
-## Run your own
-On your own computer: **[INSTALL.md](INSTALL.md)** — `./install.sh` and you're running.
-On a public server (domain + HTTPS): **[DEPLOY.md](DEPLOY.md)** — written so an AI
-agent (Claude Code) can provision a VPS for you with minimal input.
+## Just downloaded this?
+The repo is written to guide you (and your AI) through its own setup:
+
+1. **On your own computer:** **[INSTALL.md](INSTALL.md)** — `./install.sh` and you're
+   running. **On a public server** (domain + HTTPS): **[DEPLOY.md](DEPLOY.md)**; the
+   full always-on machine build (systemd, nginx, cron, agents) is
+   **[docs/SETUP-FULL.md](docs/SETUP-FULL.md)**.
+2. **Have Claude do it with you:** open Claude Code at this repo's root and say
+   "set this up for me." The docs above are written for an AI agent to execute —
+   they, plus [docs/PERSONALIZE.md](docs/PERSONALIZE.md) and
+   [docs/SCRUB-LOG.md](docs/SCRUB-LOG.md), tell it everything it needs to know.
+3. **Make it yours:** every personal value is a marked placeholder —
+   [docs/PERSONALIZE.md](docs/PERSONALIZE.md) is the contract (name, domain, paths,
+   plug-in schemas). A first-run Setup page + conversational setup agent that fill
+   these in for you are planned; today it's find-the-placeholder.
+
+## What's in the box (beyond the app)
+- `deploy/` — systemd/nginx/cron templates for an always-on server
+- `scripts/` — ops + automation (backup, keeper rollover, cricket runners, research dispatch)
+- `agents/` — the agent layer: nightly **crickets**, the **research pipeline** roles,
+  app-embedded workspaces (person-summary, triage, receipts, recipes), and
+  **mailclaude** (a privilege-separated email-answering bot)
+- `claude-commands/` — `/journalstart`, `/endsession`, `/thread`, `/spark`, `/thistle`
+  (+ example personas), auto-linked as project commands
+- `content-scaffold/` — the journaling engine + seed keeper persona, self-seeded into
+  your data dir on first boot
 
 ## Status
 This is an early scaffold extracted from the author's personal instance. Before it's a

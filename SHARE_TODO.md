@@ -30,8 +30,27 @@ hardcoded in the app code.
   `/endsession` slash commands and the capture-hook wiring ship in
   `claude-commands/` and `install.sh`.
 
+- **Vault architecture migrated wholesale (2026-07-19, batches A–F)** → deploy/ops
+  templates, cricket swarm, research-pipeline prompts, app agent workspaces,
+  mailclaude, and the persona commands all copied from the private vault, scrubbed to
+  the placeholder contract in `docs/PERSONALIZE.md`, every seam marked `PLUG-IN(...)`
+  and recorded in `docs/SCRUB-LOG.md`.
+
 Verified: boots on an empty data dir, all dashboard endpoints return 200, `APP_NAME`
 flows into the UI.
+
+## ⏳ Next (from the migration)
+- **Setup UI + conversational setup agent** — first-run flow that fills the
+  `docs/PERSONALIZE.md` entry points: a Setup page (plain form) and a conversational
+  path that suggests values, staged through the pending-changes approval queue
+  (`routes/pending.py`) so the AI never writes the profile directly. Both write one
+  profile; templates render from it.
+- **Generic `CLAUDE.md` split** — this repo's own `CLAUDE.md` is still written for the
+  author's instance (her name, vault paths). For "download and Claude knows what to
+  do," it needs an instance-agnostic core with the personal layer moved to the vault.
+- **`docs/threads-architecture.md`** — the crickets (front-health, thread-scout,
+  housekeep) cite it as design-of-record; it was never written. Extract from the
+  vault's thread tooling docs.
 
 ## ⏳ Next candidates to move into `config.py` (still hardcoded, lower priority)
 - **HRT/injection tracker** hardcodes the medication `estradiol` as an activity-type key
