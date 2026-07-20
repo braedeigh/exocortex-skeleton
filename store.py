@@ -153,6 +153,7 @@ SQL_COLLECTIONS = frozenset((
     "ecosystem_config",
     "expense_receipts",
     "expenses",
+    "feature_usage",
     "food_tests",
     "grocery_item_rules",
     "grocery_trips",

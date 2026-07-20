@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createRouter, RouterProvider } from '@tanstack/react-router';
 import './index.css';
 import { routeTree } from './routeTree.gen';
+import { installUsageBeacon } from './api/usageBeacon';
 import { initTheme } from './theme';
 
 // Boot the theming engine (src/theme — the port of static/js/sky-theme.js)
@@ -37,6 +38,9 @@ const queryClient = new QueryClient({
 });
 
 const router = createRouter({ routeTree });
+
+// Count tab visits (fire-and-forget POST /api/usage/tab on each navigation).
+installUsageBeacon(router);
 
 declare module '@tanstack/react-router' {
   interface Register {

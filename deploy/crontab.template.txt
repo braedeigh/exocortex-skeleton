@@ -29,3 +29,5 @@
 * * * * * /usr/bin/python3 <VAULT_DIR>/tulku/_system/reconcile_transcripts.py >> <VAULT_DIR>/scripts/reconciler.log 2>&1
 # Thread scout: Sunday wide-angle cricket — reads the past 7 days + 4 weeklies, stages thread nominations to the approval queue (target = the Saturday that just sealed)
 0 5 * * 0 <VAULT_DIR>/scripts/cricket_swarm.sh "$(date -d yesterday +\%Y-\%m-\%d)" thread-scout >> <VAULT_DIR>/scripts/cricket_swarm.log 2>&1
+# Feature-usage rollup: fold yesterday's access-log lines into per-feature read/write counts (feature_usage collection)
+30 2 * * * EXOCORTEX_DATA_DIR=<VAULT_DIR>/data <SKELETON_DIR>/venv/bin/python3 <SKELETON_DIR>/scripts/usage_rollup.py >> <VAULT_DIR>/scripts/usage_rollup.log 2>&1

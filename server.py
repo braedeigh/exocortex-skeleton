@@ -25,7 +25,7 @@ from routes import (
     devnotes, ideas, ecosystem, keeper, pending, housing, triage, decisions,
     entities, threads, person, shell, cards, archivals, research,
     research_search, research_sources, research_import, research_text,
-    annotations, spa, fronts, wiki, travel, profile,
+    annotations, spa, fronts, wiki, travel, profile, usage,
 )
 from routes.shell import VALID_TABS
 
@@ -69,7 +69,7 @@ app.logger.setLevel(logging.INFO)
 ACCESS_LOG = Path(__file__).parent / "access.log"
 access_handler = _make_file_handler(
     ACCESS_LOG, 500_000,
-    ("%(asctime)s %(message)s", "%H:%M:%S"),
+    ("%(asctime)s %(message)s", "%Y-%m-%d %H:%M:%S"),
     logging.INFO,
 )
 access_logger = logging.getLogger('access')
@@ -1192,6 +1192,7 @@ person.register(app)
 cards.register(app)
 wiki.register(app)
 travel.register(app)
+usage.register(app)
 
 # --- Startup ---
 # Seed the journaling engine (stream.py + friends) into a fresh CONTENT_DIR — see
