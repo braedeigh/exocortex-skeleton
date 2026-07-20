@@ -118,7 +118,13 @@ export function UpNowCard({
       {reminderRows.map((row) =>
         row.kind === 'recent' ? (
           <div className={styles.row} key={row.reminder.id}>
-            <span className={styles.loggedMark} aria-hidden="true">&#10003;</span>
+            <input
+              type="checkbox"
+              className={styles.check}
+              checked
+              onChange={() => undo(row.reminder)}
+              aria-label={`Undo: ${row.reminder.label}`}
+            />
             <span className={styles.loggedText}>{reminderName(row.reminder)} logged</span>
             <button type="button" className={styles.undoBtn} onClick={() => undo(row.reminder)}>
               Undo
@@ -126,14 +132,13 @@ export function UpNowCard({
           </div>
         ) : (
           <div className={styles.row} key={row.reminder.id}>
-            <button
-              type="button"
-              className={styles.logBtn}
+            <input
+              type="checkbox"
+              className={styles.check}
+              checked={false}
+              onChange={() => logDone(row.reminder, serverDate)}
               aria-label={`Log ${row.reminder.label} done today`}
-              onClick={() => logDone(row.reminder, serverDate)}
-            >
-              &#10003;
-            </button>
+            />
             <button type="button" className={styles.text} onClick={() => setActionTarget(row)}>
               {reminderName(row.reminder)}
             </button>

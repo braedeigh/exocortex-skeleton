@@ -53,22 +53,9 @@
   color: var(--red);
 }
 
-/* Reminder rows — same anatomy as to-do rows; urgency speaks through the
-   chip color (red/orange/ongoing), never a shouting tone-bar. */
-.logBtn {
-  flex: 0 0 auto;
-  width: 40px;
-  height: 40px;
-  border-radius: var(--radius-md);
-  border: 1.5px solid color-mix(in srgb, var(--accent) 45%, transparent);
-  background: none;
-  color: var(--accent);
-  font-size: var(--font-size-base);
-  font-weight: 700;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-
+/* Reminder rows — same anatomy as to-do rows, same regular checkbox;
+   urgency speaks through the chip color (red/orange/ongoing), never a
+   shouting tone-bar. */
 .toneRed {
   color: var(--red);
 }
@@ -81,15 +68,7 @@
   color: var(--ongoing);
 }
 
-/* Just-logged state: quiet confirmation, visible undo, gone in 6s. */
-.loggedMark {
-  flex: 0 0 auto;
-  width: 40px;
-  text-align: center;
-  color: var(--green);
-  font-weight: 700;
-}
-
+/* Just-logged state: checked box, quiet confirmation, visible undo, gone in 6s. */
 .loggedText {
   flex: 1;
   min-width: 0;
