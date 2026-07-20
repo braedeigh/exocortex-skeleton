@@ -13,9 +13,10 @@ plain JSON files you own.
 The repo is written to guide you (and your AI) through its own setup:
 
 1. **On your own computer:** **[INSTALL.md](INSTALL.md)** — `./install.sh` and you're
-   running. **On a public server** (domain + HTTPS): **[DEPLOY.md](DEPLOY.md)**; the
-   full always-on machine build (systemd, nginx, cron, agents) is
-   **[docs/SETUP-FULL.md](docs/SETUP-FULL.md)**.
+   running. **On a Mac** (Apple Silicon, incl. always-on via launchd + Tailscale):
+   **[docs/SETUP-MACOS.md](docs/SETUP-MACOS.md)**. **On a public server** (domain +
+   HTTPS): **[DEPLOY.md](DEPLOY.md)**; the full always-on machine build (systemd,
+   nginx, cron, agents) is **[docs/SETUP-FULL.md](docs/SETUP-FULL.md)**.
 2. **Have Claude do it with you:** open Claude Code at this repo's root and say
    "set this up for me." The docs above are written for an AI agent to execute —
    they, plus [docs/PERSONALIZE.md](docs/PERSONALIZE.md) and

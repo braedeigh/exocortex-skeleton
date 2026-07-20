@@ -1,7 +1,9 @@
 # Installing on your own computer
 
 The five-minute local setup — for trying the exocortex on a laptop, yours or a
-friend's. (For a public server with a domain and HTTPS, see [DEPLOY.md](DEPLOY.md).)
+friend's. (For a public server with a domain and HTTPS, see [DEPLOY.md](DEPLOY.md).
+For a Mac — Apple Silicon quirks, plus the optional always-on launchd + Tailscale
+build — see [docs/SETUP-MACOS.md](docs/SETUP-MACOS.md).)
 
 ## You need
 - **Python 3.11+** and **Node 20+** (mac: `brew install python node`)

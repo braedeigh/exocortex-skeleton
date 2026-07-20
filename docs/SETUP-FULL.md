@@ -8,6 +8,7 @@ systemd/nginx/cron infrastructure, and the Claude Code wiring (slash commands,
 the journal capture hook) all in one place. For the shorter paths, prefer:
 
 - **Local/laptop, no domain, no systemd** → [INSTALL.md](../INSTALL.md).
+- **A Mac (Apple Silicon), incl. always-on via launchd + Tailscale** → [SETUP-MACOS.md](SETUP-MACOS.md).
 - **Public server with a domain, agent-driven quick start** → [DEPLOY.md](../DEPLOY.md).
 
 This document is for when you want the *complete* picture — a VPS or a
