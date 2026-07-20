@@ -107,29 +107,10 @@ def _stream_error_response(result, fallback):
     return jsonify({"error": err}), status
 
 
-def _reply_thread(card):
-    """First of `card`'s own tags that names a live thread slug, else None.
-    `routes.threads` is imported lazily (like routes/threads.py does with
-    routes/terminal.py) so importing cards.py never pays for parsing the
-    Threads/ dir, and the threads_index() call itself is wrapped so a
-    content-dir-less test of some unrelated route can't crash just because
-    cards.py went looking for thread files that aren't there."""
-    from routes import threads
-    try:
-        idx = threads.threads_index()
-    except Exception:
-        return None
-    for tag in card.get("tags", []):
-        if tag in idx:
-            return tag
-    return None
-
-
 def _reply_context(card):
     """A reply card's context sidecar for the day view: the parent card's
-    date + a truncated (first ~12 words) snippet of its body, plus the
-    thread slug this NOTE's own tags resolve to (if any). None if the parent
-    card no longer exists on disk."""
+    date + a truncated (first ~12 words) snippet of its body. None if the
+    parent card no longer exists on disk."""
     reply_to = card.get("reply_to")
     if not reply_to:
         return None
@@ -144,7 +125,6 @@ def _reply_context(card):
         "id": reply_to,
         "date": reply_to.split(".")[0],
         "snippet": snippet,
-        "thread": _reply_thread(card),
     }
 
 

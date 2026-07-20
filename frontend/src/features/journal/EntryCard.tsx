@@ -16,13 +16,14 @@ export interface EntryCardProps {
   onCancel: () => void;
   onSave: (id: string, body: string) => void;
   onConfirmDelete: (id: string) => void;
-  /** Tapped on the reply-context chip's date segment (read mode only) —
-   * jumps to the parent's journal day and scrolls/flashes the parent entry. */
-  onReplyContextDate?: (ctx: NonNullable<Card['reply_context']>) => void;
-  /** Tapped on the reply-context chip's snippet segment (read mode only) —
-   * navigates to the note's thread page when one resolves, else the same
-   * day-jump as onReplyContextDate (JournalPage decides which). */
-  onReplyContextThread?: (ctx: NonNullable<Card['reply_context']>) => void;
+  /** Tapped on the reply-context chip (read mode only) — jumps to the
+   * parent's journal day and scrolls/flashes the parent entry. */
+  onReplyContext?: (ctx: NonNullable<Card['reply_context']>) => void;
+  /** Live-thread display names keyed by slug — resolves which of this card's
+   * tags get a thread chip in the meta row. */
+  threadNames?: ReadonlyMap<string, string>;
+  /** Tapped on a meta-row thread chip — opens that thread's page. */
+  onOpenThread?: (slug: string) => void;
 }
 
 /** "8:46 AM" from "YYYY-MM-DD HH:MM:SS" — string ops only, no Date/timezone games. */
@@ -59,8 +60,9 @@ export function EntryCard({
   onCancel,
   onSave,
   onConfirmDelete,
-  onReplyContextDate,
-  onReplyContextThread,
+  onReplyContext,
+  threadNames,
+  onOpenThread,
 }: EntryCardProps) {
   const [draft, setDraft] = useState(card.body);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -95,6 +97,18 @@ export function EntryCard({
       <div className={styles.meta}>
         <span className={`${styles.who} ${isK ? styles.who_K : styles.who_B}`}>{card.who}</span>
         <span className={styles.time}>{cardClock(card.ts)}</span>
+        {card.tags
+          .filter((t) => threadNames?.has(t))
+          .map((t) => (
+            <button
+              key={t}
+              type="button"
+              className={styles.threadChip}
+              onClick={() => onOpenThread?.(t)}
+            >
+              &#x29C9; {threadNames!.get(t)}
+            </button>
+          ))}
         <span className={styles.spacer} />
         {!editing ? (
           <IconButton aria-label="Edit entry" onClick={() => onEdit(card.id)}>
@@ -131,22 +145,14 @@ export function EntryCard({
       ) : (
         <>
           {card.reply_context ? (
-            <div className={styles.replyContext}>
-              <button
-                type="button"
-                className={styles.replyContextDate}
-                onClick={() => onReplyContextDate?.(card.reply_context!)}
-              >
-                &#8627; {formatReplyDate(card.reply_context.date)}
-              </button>
-              <button
-                type="button"
-                className={styles.replyContextSnippet}
-                onClick={() => onReplyContextThread?.(card.reply_context!)}
-              >
-                &#8220;{card.reply_context.snippet}&#8221;
-              </button>
-            </div>
+            <button
+              type="button"
+              className={styles.replyContext}
+              onClick={() => onReplyContext?.(card.reply_context!)}
+            >
+              <span className={styles.replyContextDate}>&#8627; {formatReplyDate(card.reply_context.date)}</span>
+              <span className={styles.replyContextSnippet}>&#8220;{card.reply_context.snippet}&#8221;</span>
+            </button>
           ) : null}
           <div
             className={`${styles.body} ${isK ? styles.body_K : ''} ${isContext ? styles.body_context : ''}`}

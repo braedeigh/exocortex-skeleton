@@ -59,7 +59,7 @@ export function JournalPage() {
   const navigate = useNavigate({ from: '/journal' });
 
   // Unscoped, alongside the /journal-scoped `navigate` above — used only for
-  // the reply-context chip's cross-feature jump to a thread page (same
+  // the meta-row thread chips' cross-feature jump to a thread page (same
   // pattern as ThreadPopover/ThreadsPage's plain useNavigate()).
   const navigateTo = useNavigate();
 
@@ -79,29 +79,13 @@ export function JournalPage() {
     void navigate({ search: { date } });
   }
 
-  /** Shared by both reply-context segments' day-jump path: queue the parent
-   * card to be scrolled/flashed once its day is on screen, and navigate
-   * there unless we're already on that date (still scrolls in that case —
-   * the effect below fires on pendingScrollCard changing either way). */
+  /** The reply-context chip's single tap target: queue the parent card to be
+   * scrolled/flashed once its day is on screen, and navigate there unless
+   * we're already on that date (still scrolls in that case — the effect
+   * below fires on pendingScrollCard changing either way). */
   function jumpToReplySource(ctx: NonNullable<Card['reply_context']>) {
     setPendingScrollCard({ date: ctx.date, cardId: ctx.id });
     if (currentDate !== ctx.date) goTo(ctx.date);
-  }
-
-  /** The reply-context chip's date segment: always jumps to the parent entry
-   * in place. */
-  function onReplyContextDate(ctx: NonNullable<Card['reply_context']>) {
-    jumpToReplySource(ctx);
-  }
-
-  /** The reply-context chip's snippet segment: land on the note's thread page
-   * when its tags resolved one, else the same day-jump as the date segment. */
-  function onReplyContextThread(ctx: NonNullable<Card['reply_context']>) {
-    if (ctx.thread) {
-      void navigateTo({ to: '/threads/$slug', params: { slug: ctx.thread } });
-    } else {
-      jumpToReplySource(ctx);
-    }
   }
 
   const { toasts, push, dismiss } = useToasts();
@@ -131,6 +115,12 @@ export function JournalPage() {
   const matcher = useMemo(
     () => buildEntityMatcher(peopleQuery.data?.people ?? [], threadsQuery.data?.threads ?? []),
     [peopleQuery.data, threadsQuery.data],
+  );
+  // Live-thread display names by slug — which journal-card tags earn a
+  // meta-row thread chip, and what the chip says.
+  const threadNames = useMemo(
+    () => new Map((threadsQuery.data?.threads ?? []).map((t) => [t.id, t.name])),
+    [threadsQuery.data],
   );
   const journalDates = useMemo(() => new Set(datesQuery.data?.dates ?? []), [datesQuery.data]);
 
@@ -270,7 +260,7 @@ export function JournalPage() {
       if (!el) return; // parent card deleted since — nothing to land on
       el.scrollIntoView({ behavior: 'smooth', block: 'center' });
       el.classList.add('card-flash');
-      setTimeout(() => el.classList.remove('card-flash'), 1500);
+      setTimeout(() => el.classList.remove('card-flash'), 3000);
     });
   }, [pendingScrollCard, bundle, currentDate, dayQuery.isFetching]);
 
@@ -397,8 +387,9 @@ export function JournalPage() {
                 onConfirmDelete={(id) => requestDeleteCard(id, visibleCards.length === 1)}
                 onNavigateDate={goTo}
                 onPersonClick={setPopoverSlug}
-                onReplyContextDate={onReplyContextDate}
-                onReplyContextThread={onReplyContextThread}
+                onReplyContext={jumpToReplySource}
+                threadNames={threadNames}
+                onOpenThread={(slug) => void navigateTo({ to: '/threads/$slug', params: { slug } })}
                 addSaving={addCard.isPending}
                 onComposeSave={async (body) => {
                   try {

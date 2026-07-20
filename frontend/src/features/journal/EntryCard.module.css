@@ -53,40 +53,63 @@
   flex: 1;
 }
 
-/* Margin-note chip — a single-line row split into two tap targets: the date
-   segment (jumps to the parent entry in place) and the snippet segment
-   (jumps to the note's thread page, or the same day-jump when it has none).
-   The container keeps the look (accent left border, muted, single line);
-   the segments stretch to fill its height so both stay comfortably
-   tappable side by side. */
+/* Meta-row marker for a card born tagged into a thread — quiet accent pill,
+   tap opens the thread page. Small by meta-row necessity (the ~40px rule
+   yields to the row height here, like the who badge). */
+.threadChip {
+  border: none;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  line-height: 1;
+  padding: var(--space-1) var(--space-2);
+  min-height: 28px;
+  border-radius: 999px;
+  cursor: pointer;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+}
+
+.threadChip:hover {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+/* Margin-note chip — one button spanning the whole row that jumps to the
+   parent entry in place. Keeps the old look (accent left border, muted,
+   single line); the date/snippet spans inside just lay out the two bits of
+   text, no longer separate tap targets. */
 .replyContext {
   display: flex;
-  align-items: stretch;
+  align-items: center;
   width: 100%;
   min-height: var(--tap-target);
   margin: 0 0 var(--space-2);
+  border: none;
   border-left: 3px solid var(--accent);
   border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--accent) 5%, transparent);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
   overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.replyContext:hover .replyContextDate,
+.replyContext:hover .replyContextSnippet {
+  color: var(--accent);
 }
 
 .replyContextDate,
 .replyContextSnippet {
-  border: none;
-  background: transparent;
   color: var(--text-muted);
-  font-family: inherit;
   font-size: var(--font-size-sm);
   font-style: italic;
-  text-align: left;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.replyContextDate:hover,
-.replyContextSnippet:hover {
-  color: var(--accent);
 }
 
 .replyContextDate {
@@ -114,7 +137,7 @@
    so the flash doesn't fight the card's own color-mix background or need to
    know which theme/variant it's ending back at. */
 :global(.card-flash) {
-  animation: card-flash-pulse 1.5s ease-out;
+  animation: card-flash-pulse 3s ease-out;
 }
 
 @keyframes card-flash-pulse {

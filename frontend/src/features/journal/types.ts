@@ -35,12 +35,11 @@ export interface Card {
   /**
    * Day-view-only enrichment (routes/cards.py get_cards) for a card that
    * carries a `reply_to`: the parent card's date + a truncated (~12-word)
-   * snippet of its body, and the thread slug this card's own tags resolve
-   * to (if any). Absent when the card has no reply_to; null when the
+   * snippet of its body. Absent when the card has no reply_to; null when the
    * parent card no longer exists on disk. Not present on add/update
    * responses — only the day GET enriches.
    */
-  reply_context?: { id: string; date: string; snippet: string; thread: string | null } | null;
+  reply_context?: { id: string; date: string; snippet: string } | null;
 }
 
 export interface CardsResponse {

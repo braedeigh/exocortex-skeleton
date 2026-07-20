@@ -324,9 +324,8 @@ def test_add_card_absent_reply_to_behaves_exactly_as_before(client, vault, monke
 #
 # A card minted as a thread margin-note carries `reply_to` (the parent card
 # id) and `tags: [<thread-slug>, ...]`. The day view (only) enriches such a
-# card with a `reply_context` sidecar: the parent's date, a truncated first-
-# ~12-word snippet of its body, and the thread slug (from the NOTE's own
-# tags) when one resolves against Threads/*.md.
+# card with a `reply_context` sidecar: the parent's date and a truncated
+# first-~12-word snippet of its body.
 
 LONG_PARENT_CARD = """---
 id: 2026-07-08.0600b
@@ -350,7 +349,7 @@ Placeholder thread body.
 """
 
 
-def test_get_cards_reply_context_has_truncated_snippet_and_resolved_thread(client, vault):
+def test_get_cards_reply_context_has_truncated_snippet(client, vault):
     (vault / "Threads").mkdir()
     (vault / "Threads" / "khalil.md").write_text(THREAD_MD)
     pool = vault / "_system" / "data" / "cards"
@@ -373,7 +372,6 @@ def test_get_cards_reply_context_has_truncated_snippet_and_resolved_thread(clien
         "id": "2026-07-08.0600b",
         "date": "2026-07-08",
         "snippet": "This is a long morning note with more than twelve words in…",
-        "thread": "khalil",
     }
 
 
@@ -404,22 +402,3 @@ def test_get_cards_reply_context_absent_key_when_no_reply_to(client):
     card = _by_id(resp.get_json(), "2026-07-08.0734b")
     assert card["reply_to"] is None
     assert "reply_context" not in card
-
-
-def test_get_cards_reply_context_thread_none_for_non_thread_tag(client, vault):
-    pool = vault / "_system" / "data" / "cards"
-    (pool / "2026-07-08.0910b.md").write_text(
-        "---\n"
-        "id: 2026-07-08.0910b\n"
-        "who: B\n"
-        "ts: 2026-07-08 09:10:00\n"
-        "reply_to: 2026-07-08.0734b\n"
-        "tags: [not-a-thread]\n"
-        "kind: line\n"
-        "---\n"
-        "Another reply, tagged with something that isn't a thread.\n"
-    )
-    resp = client.get("/api/cards/2026-07-08")
-    assert resp.status_code == 200
-    card = _by_id(resp.get_json(), "2026-07-08.0910b")
-    assert card["reply_context"]["thread"] is None
