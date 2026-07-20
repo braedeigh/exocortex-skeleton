@@ -31,7 +31,7 @@ import styles from './TerminalFrames.module.css';
  * unrelated navigation that happens to do the same thing.
  */
 export function TerminalFrames({ sessions }: { sessions: SessionState }) {
-  const { active, sessions: list } = sessions;
+  const { active, sessions: list, workers } = sessions;
   const [visited, setVisited] = useState<string[]>(() => [active]);
   const settled = useSettledFrames(visited);
 
@@ -41,12 +41,20 @@ export function TerminalFrames({ sessions }: { sessions: SessionState }) {
   }, [active]);
 
   // Unmount iframes for sessions that no longer exist (closed elsewhere).
+  // Never prune `active`: on a fresh page load `list` is still useSessions'
+  // FALLBACK placeholder (['chat']) until /api/sessions answers, and judging
+  // the localStorage-remembered active session against that unmounted its
+  // iframe with nothing to ever re-add it (the add effect only fires when
+  // `active` *changes*) — refresh on any non-chat session showed a blank
+  // pane until a tab switch. Workers (rw-*) count as existing too; they
+  // live in their own list. If the active session truly dies, useSessions
+  // moves `active` off it and the next pass prunes it normally.
   useEffect(() => {
     setVisited((prev) => {
-      const next = prev.filter((s) => list.includes(s));
+      const next = prev.filter((s) => s === active || list.includes(s) || workers.includes(s));
       return next.length === prev.length ? prev : next;
     });
-  }, [list]);
+  }, [list, workers, active]);
 
   return (
     <>
