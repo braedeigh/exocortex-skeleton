@@ -5,7 +5,7 @@ import { SplitLayout } from '../shell/SplitLayout';
 import { SessionsProvider } from '../shell/SessionsContext';
 import { ScrollTopStrip } from '../shell/ScrollTopStrip';
 import { useFrameBridge } from '../shell/frameBridge';
-import { useKeyboardScrollReset } from '../shell/useKeyboardScrollReset';
+import { useDocScrollLock } from '../shell/useDocScrollLock';
 import { useMediaQuery, DESKTOP_QUERY } from '../shell/useMediaQuery';
 
 export const Route = createRootRoute({
@@ -35,9 +35,9 @@ export const Route = createRootRoute({
  */
 function RootLayout() {
   useFrameBridge();
-  // iOS leaves the document scrolled after keyboard dismiss even with
-  // body{overflow:hidden} — snap it back (see useKeyboardScrollReset).
-  useKeyboardScrollReset();
+  // The document must never stay scrolled (body{overflow:hidden}, panes
+  // scroll internally) — enforce it (see useDocScrollLock).
+  useDocScrollLock();
   const isDesktop = useMediaQuery(DESKTOP_QUERY);
   const isPublic = typeof window !== 'undefined' && window.VIEW_MODE === 'public';
 
