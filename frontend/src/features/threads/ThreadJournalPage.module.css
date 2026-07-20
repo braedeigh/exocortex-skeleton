@@ -194,6 +194,32 @@
   color: var(--accent);
 }
 
+/* --- Day-excerpt card: a day row whose bare-day citation carries mention
+   excerpts (routes/threads.py thread_journal). Same .card/.body look as a
+   real journal card, but the meta row's date is a plain span (the card
+   itself isn't clickable — only the footer button opens the day) and an
+   optional muted label names the citing fact-card heading. --- */
+
+.metaDate {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-target);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.metaLabel {
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.excerptDivider {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-soft);
+}
+
 .body {
   font-size: var(--font-size-base);
   line-height: 1.65;

@@ -266,6 +266,15 @@ export function ThreadJournalPage({ slug }: ThreadJournalPageProps) {
                     threadSlug={slug}
                     onOpenDay={goToDay}
                   />
+                ) : e.excerpts.length > 0 ? (
+                  <DayExcerptEntry
+                    key={`day-${e.date}`}
+                    entry={e}
+                    serverYear={serverYear}
+                    matcher={matcher}
+                    threadSlug={slug}
+                    onOpenDay={goToDay}
+                  />
                 ) : (
                   <DayRow key={`day-${e.date}`} entry={e} serverYear={serverYear} onOpenDay={goToDay} />
                 ),
@@ -341,5 +350,45 @@ function DayRow({
     <button type="button" className={styles.dayRow} onClick={() => onOpenDay(entry.date)}>
       📅 {formatDate(entry.date, serverYear)}{entry.label ? ` — ${entry.label}` : ''} &rarr;
     </button>
+  );
+}
+
+/** A day row that HAS excerpts (routes/threads.py's day-blob mention pass):
+ * renders like a JournalCardEntry card instead of the dashed placeholder —
+ * a meta row (date, non-button here; the citing heading if present), each
+ * excerpt as its own highlighted body paragraph, then a full-width footer
+ * button to open the whole day. */
+function DayExcerptEntry({
+  entry,
+  serverYear,
+  matcher,
+  threadSlug,
+  onOpenDay,
+}: {
+  entry: ThreadJournalDayEntry;
+  serverYear: string | null;
+  matcher: EntityMatcher;
+  threadSlug: string;
+  onOpenDay: (date: string) => void;
+}) {
+  return (
+    <div className={styles.card}>
+      <div className={styles.meta}>
+        <span className={styles.metaDate}>📅 {formatDate(entry.date, serverYear)}</span>
+        {entry.label ? <span className={styles.metaLabel}>{entry.label}</span> : null}
+      </div>
+      {entry.excerpts.map((excerpt, i) => (
+        <div
+          key={i}
+          className={`${styles.body} ${i > 0 ? styles.excerptDivider : ''}`}
+          dangerouslySetInnerHTML={{
+            __html: markSelfMentions(highlightEntities(mdToHtml(excerpt), matcher), threadSlug),
+          }}
+        />
+      ))}
+      <button type="button" className={styles.expandBtn} onClick={() => onOpenDay(entry.date)}>
+        Open this day &rarr;
+      </button>
+    </div>
   );
 }

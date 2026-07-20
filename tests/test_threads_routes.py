@@ -432,7 +432,7 @@ def test_journal_unions_tagged_and_cited_cards_deduped(vault_client):
 def test_journal_bare_day_citation_becomes_day_row_with_heading_label(vault_client):
     data = vault_client.get("/api/thread/migraines/journal").get_json()
     day = next(e for e in data["entries"] if e["kind"] == "day")
-    assert day == {"kind": "day", "date": "2026-07-13", "label": "Trigger map — heat"}
+    assert day == {"kind": "day", "date": "2026-07-13", "label": "Trigger map — heat", "excerpts": []}
 
 
 def test_journal_sorts_ascending_day_row_interleaved_by_date(vault_client):
@@ -481,7 +481,7 @@ def test_journal_cited_id_missing_from_pool_falls_back_to_day_row(vault):
     threads.register(app)
     data = app.test_client().get("/api/thread/old-thread/journal").get_json()
     assert data["entries"] == [
-        {"kind": "day", "date": "2025-01-01", "label": "Predates the card pool"},
+        {"kind": "day", "date": "2025-01-01", "label": "Predates the card pool", "excerpts": []},
     ]
 
 
@@ -657,3 +657,118 @@ def test_journal_cited_keeper_card_yields_no_entry_and_no_day_row(vault):
     threads.register(app)
     data = app.test_client().get("/api/thread/k-cited/journal").get_json()
     assert data["entries"] == []
+
+
+# --- day-row excerpts: pre-card-pool blob days, mention-windowed ------------
+# A day row for a date with NO pool card at all gets `excerpts` pulled from
+# that day's markdown blob (Journal/Daily/<date>.md) around every mention of
+# the thread — bounded to ~40 words each side (EXCERPT_WINDOW_WORDS), merging
+# overlapping windows, capped at MAX_EXCERPTS_PER_DAY. Each fixture file below
+# uses the real blob shape: `# <date>` title, `` `B = you | K = keeper` ``
+# legend, then `---`, mirroring what _strip_day_blob_header expects to strip.
+
+def _thread_with_bare_day(name, date):
+    slug = name.lower()
+    return (
+        "---\n"
+        f"name: {name}\n"
+        "aliases: []\n"
+        "fronts: [health]\n"
+        "parents: []\n"
+        "kind: standing\n"
+        "status: active\n"
+        "opened: 2026-08-01\n"
+        "retired:\n"
+        "distilled:\n"
+        "---\n\n"
+        "## Bare day\n"
+        "Referenced without a specific card.\n"
+        f"→ `{date}`\n"
+    ), slug
+
+
+def _day_blob(date, body):
+    return f"# {date}\n\n`B = you | K = keeper`\n\n---\n\n{body}\n"
+
+
+def test_journal_day_excerpt_single_mention_gets_bounded_window(vault, vault_client):
+    thread_md, slug = _thread_with_bare_day("Zendoria", "2026-08-01")
+    (vault / "Threads" / f"{slug}.md").write_text(thread_md)
+    before = " ".join(f"pre{i}" for i in range(60))
+    after = " ".join(f"post{i}" for i in range(60))
+    (vault / "Journal" / "Daily" / "2026-08-01.md").write_text(
+        _day_blob("2026-08-01", f"{before} Zendoria {after}")
+    )
+    data = vault_client.get(f"/api/thread/{slug}/journal").get_json()
+    day = next(e for e in data["entries"] if e["kind"] == "day")
+    assert len(day["excerpts"]) == 1
+    excerpt = day["excerpts"][0]
+    assert excerpt.startswith("…") and excerpt.endswith("…")
+    assert "Zendoria" in excerpt
+    # window is 40 words each side of the match: pre20..pre59 kept, pre0..19 clipped.
+    assert "pre59" in excerpt and "pre0" not in excerpt
+    assert "post39" in excerpt and "post40" not in excerpt
+
+
+def test_journal_day_excerpt_merges_overlapping_windows(vault, vault_client):
+    thread_md, slug = _thread_with_bare_day("Windmere", "2026-08-02")
+    (vault / "Threads" / f"{slug}.md").write_text(thread_md)
+    before = " ".join(f"pre{i}" for i in range(60))
+    mid = " ".join(f"mid{i}" for i in range(20))
+    after = " ".join(f"post{i}" for i in range(60))
+    (vault / "Journal" / "Daily" / "2026-08-02.md").write_text(
+        _day_blob("2026-08-02", f"{before} Windmere {mid} Windmere {after}")
+    )
+    data = vault_client.get(f"/api/thread/{slug}/journal").get_json()
+    day = next(e for e in data["entries"] if e["kind"] == "day")
+    # The two mentions are only ~21 words apart — well inside 2*40 — so their
+    # windows overlap and merge into a single excerpt carrying both.
+    assert len(day["excerpts"]) == 1
+    assert day["excerpts"][0].count("Windmere") == 2
+
+
+def test_journal_day_excerpt_empty_when_day_has_pool_cards(vault, vault_client):
+    thread_md, slug = _thread_with_bare_day("Halcyon", "2026-08-03")
+    (vault / "Threads" / f"{slug}.md").write_text(thread_md)
+    (vault / "Journal" / "Daily" / "2026-08-03.md").write_text(
+        _day_blob("2026-08-03", "Halcyon showed up today, more Halcyon talk than usual.")
+    )
+    # An unrelated (untagged, unmentioning) pool card dated the same day is
+    # enough to disqualify the day from excerpting — "regardless of tags".
+    cards_dir = vault / "_system" / "data" / "cards"
+    (cards_dir / "2026-08-03.0900a.md").write_text(
+        "---\n"
+        "id: 2026-08-03.0900a\n"
+        "who: B\n"
+        "ts: 2026-08-03 09:00:00\n"
+        "tags: []\n"
+        "kind: line\n"
+        "---\n"
+        "Something entirely unrelated.\n"
+    )
+    data = vault_client.get(f"/api/thread/{slug}/journal").get_json()
+    day = next(e for e in data["entries"] if e["kind"] == "day" and e["date"] == "2026-08-03")
+    assert day["excerpts"] == []
+
+
+def test_journal_day_excerpt_empty_when_blob_file_missing(vault, vault_client):
+    thread_md, slug = _thread_with_bare_day("Cinderfield", "2026-08-04")
+    (vault / "Threads" / f"{slug}.md").write_text(thread_md)
+    # No Journal/Daily/2026-08-04.md written at all.
+    data = vault_client.get(f"/api/thread/{slug}/journal").get_json()
+    day = next(e for e in data["entries"] if e["kind"] == "day")
+    assert day["excerpts"] == []
+
+
+def test_journal_day_excerpt_short_blob_has_no_ellipses(vault, vault_client):
+    thread_md, slug = _thread_with_bare_day("Petrichor", "2026-08-05")
+    (vault / "Threads" / f"{slug}.md").write_text(thread_md)
+    (vault / "Journal" / "Daily" / "2026-08-05.md").write_text(
+        _day_blob("2026-08-05", "Petrichor after the storm, a good smell.")
+    )
+    data = vault_client.get(f"/api/thread/{slug}/journal").get_json()
+    day = next(e for e in data["entries"] if e["kind"] == "day")
+    assert len(day["excerpts"]) == 1
+    excerpt = day["excerpts"][0]
+    assert not excerpt.startswith("…") and not excerpt.endswith("…")
+    assert "Petrichor" in excerpt

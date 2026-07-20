@@ -209,6 +209,15 @@ export interface ThreadJournalDayEntry {
   date: string;
   /** The citing fact-card's heading; "" if it had none. */
   label: string;
+  /**
+   * Bounded mention-windowed excerpts pulled from that day's pre-card-pool
+   * markdown blob (routes/threads.py thread_journal / _mention_excerpts) —
+   * only populated when the date has no pool card at all; [] when it has
+   * pool cards, the blob file is missing/empty, or it doesn't mention the
+   * thread. Each string already carries its own leading/trailing "…" where
+   * it was clipped.
+   */
+  excerpts: string[];
 }
 
 export type ThreadJournalEntry = ThreadJournalCardEntry | ThreadJournalDayEntry;

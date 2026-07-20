@@ -78,6 +78,127 @@ _WIKILINK = re.compile(r"\[\[([^\]]+)\]\]")  # [[slug]] cross-thread links
 # derives from these — never stored on the thread itself.
 CARDS_SUBDIR = ("_system", "data", "cards")
 
+# --- Day-row excerpts: pre-card-pool journal blobs, mention-windowed --------
+# A bare-day row whose date predates the card pool has no card text to show —
+# but the old markdown "blob" day file (server.py's GET /api/journal/<date>
+# convention: CONTENT_DIR/Journal/Daily/<date>.md) often does. When that date
+# carries no pool card at all, pull a bounded excerpt around each mention of
+# the thread instead of just a bare link.
+JOURNAL_DAILY_SUBDIR = ("Journal", "Daily")
+EXCERPT_WINDOW_WORDS = 40      # words kept before/after a mention, mirrors the
+                               # client's CONTEXT_WINDOW_WORDS (clipToContextWindow)
+MAX_EXCERPTS_PER_DAY = 6       # bounds payload size; silently capped past this
+
+_WORD_TOKEN = re.compile(r"\S+")
+_DAY_TITLE_LINE = re.compile(r"^#\s+\S")   # "# 2026-07-13" / "# February 27, 2026 (Friday)"
+_DAY_HR_LINE = re.compile(r"^-{3,}\s*$")
+
+
+def _is_day_legend_line(line):
+    """The `B = you | K = keeper` legend line under a blob day's title —
+    matched structurally (B=, a "|", K=) so it survives whatever names the
+    legend actually carries (e.g. `` `B = Bradie | K = Cinder (灰)` ``)."""
+    s = line.strip()
+    return bool(
+        re.match(r"^\W*B\s*=", s, re.IGNORECASE)
+        and "|" in s
+        and re.search(r"K\s*=", s, re.IGNORECASE)
+    )
+
+
+def _strip_day_blob_header(body):
+    """Frontmatter is already gone (caller runs _parse_frontmatter first) —
+    this strips the blob's own header furniture: the `# <date>` title line,
+    the who-legend line, and leading `---` separators, leaving the body
+    prose a mention search can run over."""
+    lines = body.splitlines()
+    i = 0
+
+    def skip_blank():
+        nonlocal i
+        while i < len(lines) and not lines[i].strip():
+            i += 1
+
+    skip_blank()
+    if i < len(lines) and _DAY_TITLE_LINE.match(lines[i].strip()):
+        i += 1
+        skip_blank()
+    if i < len(lines) and _is_day_legend_line(lines[i]):
+        i += 1
+        skip_blank()
+    while i < len(lines) and _DAY_HR_LINE.match(lines[i].strip()):
+        i += 1
+        skip_blank()
+    return "\n".join(lines[i:])
+
+
+def _load_day_body(date):
+    """A journal day's blob prose, with header furniture stripped — same
+    CONTENT_DIR/Journal/Daily/<date>.md path + read-if-exists convention as
+    server.py's GET /api/journal/<date>, not a second loader."""
+    path = _vault()
+    for part in JOURNAL_DAILY_SUBDIR:
+        path = path / part
+    path = path / f"{date}.md"
+    if not path.exists():
+        return ""
+    raw = path.read_text()
+    if not raw.strip():
+        return ""
+    _, body = _parse_frontmatter(raw)
+    return _strip_day_blob_header(body).strip()
+
+
+def _tokenize_words(text):
+    """Whitespace-delimited words with character offsets — mirrors the
+    client's tokenizeWords (ThreadJournalPage.tsx) so both sides window the
+    same way."""
+    return [(m.group(0), m.start(), m.end()) for m in _WORD_TOKEN.finditer(text)]
+
+
+def _mention_excerpts(text, mention_re):
+    """Every mention_re match in `text` -> a merged list of bounded excerpts:
+    ~EXCERPT_WINDOW_WORDS words before/after each match (mirrors the client's
+    clipToContextWindow), overlapping/adjacent windows merged into one, each
+    excerpt getting a leading/trailing "…" where it was actually clipped.
+    Capped at MAX_EXCERPTS_PER_DAY. Empty when there's no mention_re/text/match."""
+    if not mention_re or not text:
+        return []
+    tokens = _tokenize_words(text)
+    if not tokens:
+        return []
+
+    windows = []
+    for m in mention_re.finditer(text):
+        match_start, match_end = m.start(), m.end()
+        start_tok = next((i for i, tok in enumerate(tokens) if tok[2] > match_start), len(tokens) - 1)
+        end_tok = start_tok
+        while end_tok + 1 < len(tokens) and tokens[end_tok + 1][1] < match_end:
+            end_tok += 1
+        w_start = max(0, start_tok - EXCERPT_WINDOW_WORDS)
+        w_end = min(len(tokens) - 1, end_tok + EXCERPT_WINDOW_WORDS)
+        windows.append([w_start, w_end])
+    if not windows:
+        return []
+
+    windows.sort()
+    merged = [windows[0]]
+    for w_start, w_end in windows[1:]:
+        if w_start <= merged[-1][1] + 1:
+            merged[-1][1] = max(merged[-1][1], w_end)
+        else:
+            merged.append([w_start, w_end])
+
+    excerpts = []
+    for w_start, w_end in merged[:MAX_EXCERPTS_PER_DAY]:
+        snippet = " ".join(tok[0] for tok in tokens[w_start:w_end + 1])
+        if w_start > 0:
+            snippet = f"… {snippet}"
+        if w_end < len(tokens) - 1:
+            snippet = f"{snippet} …"
+        excerpts.append(snippet)
+    return excerpts
+
 
 def _vault():
     # Resolve fresh each call so tests/env overrides of CONTENT_DIR are honored.
@@ -422,7 +543,11 @@ def register(app):
         matcher on the client), plus a day row for every bare-day citation.
         Keeper-authored cards (`who: K`) are excluded — her call, 2026-07-20:
         a thread's journal is her record, not the keeper's commentary.
-        Ascending, day rows sorting before that day's cards."""
+        Ascending, day rows sorting before that day's cards. A day row for a
+        date with no pool card at all also carries `excerpts`: bounded
+        mention-windowed snippets pulled from that day's pre-card-pool blob
+        file (see _mention_excerpts) — [] when the day has pool cards, no
+        blob file, or no mention of the thread in it."""
         slug = (slug or "").strip().lower()
         t = threads_index().get(slug)
         if not t:
@@ -437,7 +562,10 @@ def register(app):
             if slug in c["tags"]:
                 cards.setdefault(c["id"], c)
 
+        # Hoisted so the day-row excerpt pass below reuses the exact same
+        # matcher the card-mention union just used — one thread, one pattern.
         terms = [term for term in [t["name"]] + t.get("aliases", []) if term]
+        mention_re = None
         if terms:
             mention_re = re.compile(
                 r"\b(?:" + "|".join(re.escape(term) for term in terms) + r")\b",
@@ -472,8 +600,18 @@ def register(app):
                 "kind": "card", "id": cid, "date": cid.split(".")[0],
                 "ts": c["ts"], "who": c["who"], "text": c["text"],
             })
+        # A day row's excerpts only make sense when the pool has NO card at
+        # all for that date (tagged or not) — a date WITH pool cards is
+        # covered by its own card entries above, so the day row there is a
+        # pure bare-day citation with nothing further to excerpt.
+        pool_dates = {cid.split(".")[0] for cid in pool}
         for date, label in days.items():
-            entries.append({"kind": "day", "date": date, "label": label or ""})
+            excerpts = []
+            if mention_re and date not in pool_dates:
+                body = _load_day_body(date)
+                if body:
+                    excerpts = _mention_excerpts(body, mention_re)
+            entries.append({"kind": "day", "date": date, "label": label or "", "excerpts": excerpts})
 
         def sort_key(e):
             # Same "YYYY-MM-DD HH:MM:SS" shape for both, so plain string
