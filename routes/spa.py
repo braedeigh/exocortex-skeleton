@@ -91,6 +91,8 @@ def register(app):
     @app.route("/research")
     @app.route("/wiki")
     @app.route("/wiki/<slug>")
+    @app.route("/threads")
+    @app.route("/threads/<slug>")
     @app.route("/settings")
     @app.route("/files")
     @app.route("/chat")

@@ -102,6 +102,7 @@ def test_root_injects_app_meta():
 
 @pytest.mark.parametrize("path", [
     "/todos", "/todos/editor", "/journal", "/research", "/settings", "/files",
+    "/threads", "/threads/some-slug",
     # native dashboard tabs (ported from /tab/<name>)
     "/map", "/kitchen", "/inventory", "/money", "/car", "/meditation", "/media",
     "/movement", "/body", "/ideas", "/ecosystem", "/housing", "/people",
