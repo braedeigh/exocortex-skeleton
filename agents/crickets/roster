@@ -1,0 +1,28 @@
+# Origin: personal vault prompts/crickets/roster. Scrubbed modular copy — plug-in points marked PLUG-IN(...)
+#
+# Cricket swarm roster.  Columns:  id  model  on|off   # summary
+# The orchestrator (scripts/cricket_swarm.sh) runs every cricket marked `on`.
+# `off` rows are the roadmap — declared, not yet built. To add one: write
+# agents/crickets/<id>.md (copy _template.md), then flip its row to `on`.
+#
+# id          model    state   # what it files
+todos         sonnet   on      # to-dos named in the journal -> life list (staged life_todo proposal)
+long-covid    sonnet   off     # PLUG-IN(SYMPTOMS): example only — see examples/long-covid.md for the
+                                # health-tracking pattern; it ships with the original author's symptom
+                                # schema as a worked example. Copy it into agents/crickets/, swap the
+                                # schema for your own fields, then flip on.
+food          sonnet   on      # food eaten -> /api/food/set
+sleep         sonnet   off     # sleep time / quality -> (endpoint TBD)
+contacts      sonnet   on      # people seen/talked to -> /api/contacts/log
+people        sonnet   off     # example only — see examples/people.md for the people-file pattern
+                                # (validated `people` CLI tool); ships with fake example names. Copy
+                                # into agents/crickets/, adapt, then flip on.
+spend         sonnet   off     # money spent -> /api/expense/add
+cards         sonnet   on      # tag audit + view-drift repair on the stream-cards pool
+front-health  sonnet   off     # PLUG-IN(FRONT): tends one life-front's threads; ships off — this copy
+                                # assumes a "health" front thread as its worked example. Rename/adapt
+                                # the front id for your own vault (see the PLUG-IN notes in the file),
+                                # then flip on.
+# Weekly crickets (state `off` = not run by the nightly swarm; each has its own cron
+# line that invokes cricket_swarm.sh in single-cricket mode, which ignores on/off):
+thread-scout  opus     off     # Sunday wide-angle: 7 days + 4 weeklies -> thread_open/thread_link nominations
