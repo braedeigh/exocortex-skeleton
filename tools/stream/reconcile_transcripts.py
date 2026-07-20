@@ -26,12 +26,17 @@ stays the instant path; this is the guarantee underneath it, not a replacement f
 
 ARMING. A transcript must not be journaled just because it lives at the keeper root —
 dev sessions open there too. So this module re-derives the same one-way latch
-keeper_capture.py uses: a session arms the moment the `/journalstart` expansion's
-`<!-- KEEPER_SESSION_ACTIVE` sentinel shows up as a real operator turn (`user`-type,
-plain text block, non-synthetic — never a tool_result echoing a file that merely
-*mentions* the token, never a task-notification quoting it back). Unarmed transcripts
-are read but never minted from. keeper_capture.SENTINEL and SYNTHETIC_PREFIXES are
-imported rather than redefined — one fence, not two that can drift apart.
+keeper_capture.py uses, in one of two modes: a session arms KEEPER the moment the
+`/journalstart` expansion's `<!-- KEEPER_SESSION_ACTIVE` sentinel shows up as a real
+operator turn (`user`-type, plain text block, non-synthetic — never a tool_result
+echoing a file that merely *mentions* the token, never a task-notification quoting it
+back), or arms THREAD the moment a `/thread <slug>` expansion's
+`<!-- THREAD_SESSION_ACTIVE: <slug>` sentinel does, minting B cards tagged with that
+slug instead of untagged. A thread-armed session upgrades to keeper if a keeper
+sentinel later appears in the same transcript (she ran /journalstart inside it);
+keeper is terminal. Unarmed transcripts are read but never minted from.
+keeper_capture's `_entry_mode` / `_scan_transcript_mode` (the fence + sentinel-parsing
+logic) are imported rather than redefined — one fence, not two that can drift apart.
 
 BOOTSTRAP. The pool's history predates this reconciler, and keepers hand-minted B
 cards through every outage that preceded it. On its very first run — detected by the
@@ -65,8 +70,9 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import keeper_capture  # noqa: E402 — reuse SENTINEL, SYNTHETIC_PREFIXES, and the
-import stream          # noqa: E402   whole-file sentinel scan for bootstrap.
+import keeper_capture  # noqa: E402 — reuse SYNTHETIC_PREFIXES, the per-entry mode
+import stream          # noqa: E402   fence (_entry_mode), and the whole-file scan
+                        #              (_scan_transcript_mode) for bootstrap.
 
 # Root resolution is lazy (via stream.stream_root(), never cached at import), same
 # reason as keeper_capture.py — works whether exec'd from the vault shim
@@ -174,12 +180,37 @@ def _run() -> None:
 def _bootstrap() -> None:
     """First-ever run: arm every transcript currently on disk as if we'd been
     watching all along, and mint nothing. See the module docstring's BOOTSTRAP
-    section for why — the pool's own history already covers this ground."""
+    section for why — the pool's own history already covers this ground.
+    Detects mode the same way a live run would (keeper_capture._scan_transcript_mode),
+    so a fresh install seeing existing thread transcripts arms them correctly too."""
     state: Dict[str, dict] = {}
     for path in _list_transcripts():
-        armed = keeper_capture._transcript_has_sentinel(str(path))
-        state[str(path)] = {"offset": path.stat().st_size, "armed": armed}
+        mode = keeper_capture._scan_transcript_mode(str(path))
+        state[str(path)] = {"offset": path.stat().st_size, **_mode_to_fields(mode)}
     _save_state(state)
+
+
+# --------------------------------------------------------------------------------
+# mode <-> state-entry-field conversion. State on disk stays the flat shape the
+# spec pins ({"offset", "armed", "thread"?}) for backward compat with every
+# existing entry ({"armed": true} with no "thread" key = keeper); the internal
+# mode tuple (None | ("keeper", None) | ("thread", slug)) is what the shared
+# keeper_capture fence logic speaks, so these two functions are the only place
+# that translates between the two shapes.
+# --------------------------------------------------------------------------------
+
+def _mode_from_fields(entry: dict):
+    if not entry.get("armed"):
+        return None
+    slug = entry.get("thread")
+    return ("thread", slug) if slug else ("keeper", None)
+
+
+def _mode_to_fields(mode) -> dict:
+    if mode is None:
+        return {"armed": False}
+    kind, slug = mode
+    return {"armed": True, "thread": slug} if kind == "thread" else {"armed": True}
 
 
 # --------------------------------------------------------------------------------
@@ -207,15 +238,15 @@ def _save_state(state: Dict[str, dict]) -> None:
 
 def _process_file(path: Path, entry: dict) -> dict:
     offset = entry.get("offset", 0)
-    armed = entry.get("armed", False)
+    mode = _mode_from_fields(entry)
     try:
         with path.open("rb") as f:
             f.seek(offset)
             data = f.read()
     except OSError:
-        return {"offset": offset, "armed": armed}   # try again next run
+        return {"offset": offset, **_mode_to_fields(mode)}   # try again next run
     if not data:
-        return {"offset": offset, "armed": armed}
+        return {"offset": offset, **_mode_to_fields(mode)}
 
     # Only complete lines: a writer mid-append can leave a trailing partial line —
     # leave it at the front of next run's read rather than parsing a truncated JSON
@@ -226,7 +257,7 @@ def _process_file(path: Path, entry: dict) -> dict:
     else:
         last_nl = data.rfind(b"\n")
         if last_nl == -1:
-            return {"offset": offset, "armed": armed}   # no complete line yet
+            return {"offset": offset, **_mode_to_fields(mode)}   # no complete line yet
         consumed = last_nl + 1
     chunk = data[:consumed]
 
@@ -237,34 +268,23 @@ def _process_file(path: Path, entry: dict) -> dict:
             obj = json.loads(raw_line.decode("utf-8"))
         except Exception:
             continue   # unparseable line — skip it, offset still advances past it
-        if not armed and _entry_arms_session(obj):
-            armed = True
-        if armed:
-            _maybe_mint(obj, path)
+        # Keeper is terminal — once armed keeper, no line can change the mode, so
+        # skip the (pointless) re-scan. Unarmed or thread-armed still needs checking
+        # every line: unarmed can arm either way, and thread can still upgrade to
+        # keeper if she runs /journalstart later in the same session.
+        if mode is None or mode[0] == "thread":
+            line_mode = keeper_capture._entry_mode(obj)
+            if line_mode is not None:
+                if line_mode[0] == "keeper":
+                    mode = line_mode                   # thread/unarmed -> keeper, terminal
+                elif mode is None:
+                    mode = line_mode                   # unarmed -> thread
+                # already thread-armed + another thread sentinel: mode unchanged —
+                # the FIRST valid thread slug for this session sticks.
+        if mode is not None:
+            _maybe_mint(obj, path, mode)
 
-    return {"offset": offset + consumed, "armed": armed}
-
-
-def _entry_arms_session(entry: dict) -> bool:
-    """Per-entry version of keeper_capture._transcript_has_sentinel's three fences,
-    for a line the tail loop has already parsed: `user`-type, sentinel in a plain
-    text block (never a tool_result — file contents flow through those), and that
-    block isn't harness-synthetic. Same rules, same source of truth for the token."""
-    if entry.get("type") != "user":
-        return False
-    content = (entry.get("message") or {}).get("content")
-    blocks = ([{"type": "text", "text": content}] if isinstance(content, str)
-              else (content or []))
-    needle = "<!-- " + keeper_capture.SENTINEL
-    for b in blocks:
-        if not isinstance(b, dict) or b.get("type") != "text":
-            continue
-        text = b.get("text") or ""
-        if text.lstrip().startswith(keeper_capture.SYNTHETIC_PREFIXES):
-            continue
-        if needle in text:
-            return True
-    return False
+    return {"offset": offset + consumed, **_mode_to_fields(mode)}
 
 
 # --------------------------------------------------------------------------------
@@ -292,7 +312,7 @@ def _prompt_text(entry: dict) -> Optional[str]:
     return ""
 
 
-def _maybe_mint(entry: dict, path: Path) -> None:
+def _maybe_mint(entry: dict, path: Path, mode) -> None:
     text = _prompt_text(entry)
     if text is None:
         return
@@ -315,8 +335,15 @@ def _maybe_mint(entry: dict, path: Path) -> None:
     if _already_captured(prompt, ts_local):
         return
 
+    # Thread mode only tags if Threads/<slug>.md still resolves — checked lazily,
+    # per mint, not once at arm time: the thread file may appear after the session
+    # started. An alias typed by hand or a truncated name mints untagged, never lost.
+    tags = None
+    if mode[0] == "thread" and keeper_capture._thread_file_exists(mode[1]):
+        tags = [mode[1]]
+
     try:
-        cid = stream.record(who="B", body=prompt, ts=ts_local)
+        cid = stream.record(who="B", body=prompt, ts=ts_local, tags=tags)
     except Exception as e:
         _log_failure(prompt, repr(e))   # never abort the file over one bad line
         return

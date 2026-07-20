@@ -44,10 +44,18 @@ Three things differ from fish:
 
 Synthetic messages the harness injects through the same channel (task-notifications,
 system reminders, slash-command echoes) are NOT the operator talking, so they're skipped.
+
+Second arming mode, added 2026-07-20: a thread terminal (spawned by the Talk button,
+running `claude "/thread <slug>"`) plants `THREAD_SESSION_ACTIVE: <slug>` instead of
+the keeper sentinel — see thread.md. A session armed this way mints `B` cards born
+tagged with that slug, so her turns show up in both the daily journal and the
+thread's own inbox. If a session somehow sees both sentinels (e.g. she runs
+`/journalstart` inside a thread terminal), keeper wins — see `_entry_mode`.
 """
 import hashlib
 import json
 import pathlib
+import re
 import sys
 import time
 from datetime import datetime
@@ -87,12 +95,23 @@ UI_CAPTURE_WINDOW_SEC = 15 * 60
 # arms capture for a session — see journalstart.md.
 SENTINEL = "KEEPER_SESSION_ACTIVE"
 
+# The sentinel /thread <slug> plants instead — see thread.md. Carries the slug after
+# the colon: `<!-- THREAD_SESSION_ACTIVE: <slug> ...`.
+THREAD_SENTINEL = "THREAD_SESSION_ACTIVE"
+
 # Harness-injected, non-operator text that arrives on the prompt channel. Not a human
 # turn -> never journaled. (Matched at the very start of the prompt.)
 SYNTHETIC_PREFIXES = (
     "<task-notification>", "<system-reminder>", "<local-command-stdout>",
     "<command-message>", "<command-name>", "<command-args>",
 )
+
+# Full comment-form needles — only the slash-command expansions carry these, so a
+# backticked mention in prose (or this file's own source, or STREAM.md) can't arm a
+# session that merely read it.
+_KEEPER_NEEDLE = "<!-- " + SENTINEL
+_THREAD_NEEDLE = "<!-- " + THREAD_SENTINEL + ":"
+_THREAD_SLUG_RE = re.compile(r"^[a-z0-9-]{1,40}$")
 
 
 def main() -> int:
@@ -108,95 +127,173 @@ def main() -> int:
 
     sid = (data.get("session_id") or "").strip()
     transcript_path = (data.get("transcript_path") or "").strip()
-    if not _keeper_mode(sid, transcript_path):  # a dev session at the same root -> stay out
+    mode = _session_mode(sid, transcript_path)   # a dev session at the same root -> stay out
+    if mode is None:
         return 0
     if _ui_already_captured(prompt):            # the web app minted this send at the server
         return 0
 
+    kind, slug = mode
+    # Thread mode only tags if the thread file still resolves at mint time — an alias
+    # she typed by hand or a truncated tmux session name must never cost the capture
+    # itself, just the tag.
+    tags = [slug] if (kind == "thread" and _thread_file_exists(slug)) else None
+
     try:
-        stream.record(who="B", body=prompt)      # mints the card, re-renders day + month index
+        stream.record(who="B", body=prompt, tags=tags)  # mints, re-renders day + month index
     except Exception as e:                       # never BLOCK prompt submission, but never
         _log_failure(prompt, repr(e))            # silently drop it either — leave a durable trace
     return 0            # silent: no stdout -> no context injection
 
 
-def _keeper_mode(sid: str, transcript_path: str) -> bool:
-    """True iff this session is an armed Keeper session.
+def _thread_file_exists(slug: str) -> bool:
+    """True iff Threads/<slug>.md exists in the vault right now. Checked at mint
+    time (not arm time) — the thread file can appear after the session started."""
+    try:
+        return (stream.stream_root() / "Threads" / f"{slug}.md").exists()
+    except Exception:
+        return False
 
-    The armed state is a one-way latch: once the KEEPER_SESSION_ACTIVE sentinel shows
-    up in the transcript we cache an `.on` marker and trust it forever. But an *un*-armed
-    session is deliberately NOT cached — we re-scan the transcript on every prompt until
-    the sentinel appears.
 
-    This defeats the /journalstart race: the sentinel is planted by the slash-command
-    expansion, which may not have flushed to the transcript file yet when the FIRST
-    prompt's hook fires. A one-shot scan can miss it and (the old bug) latch the session
-    `.off` permanently, silently dropping the whole session. Re-scanning until armed costs
-    one transcript read per prompt on a not-yet-armed or dev session (cheap, local) and
-    can never lose a keeper turn. Stale `.off` markers from older sessions are now inert."""
+def _session_mode(sid: str, transcript_path: str):
+    """This session's arming mode: None (unarmed) | ("keeper", None) |
+    ("thread", "<slug>").
+
+    The armed state is a one-way latch: once a sentinel shows up in the transcript we
+    cache an `.on` marker (its contents record which mode) and trust it forever. But an
+    *un*-armed session is deliberately NOT cached — we re-scan the transcript on every
+    prompt until a sentinel appears.
+
+    This defeats the /journalstart (or /thread) race: the sentinel is planted by the
+    slash-command expansion, which may not have flushed to the transcript file yet when
+    the FIRST prompt's hook fires. A one-shot scan can miss it and (the old bug) latch
+    the session `.off` permanently, silently dropping the whole session. Re-scanning
+    until armed costs one transcript read per prompt on a not-yet-armed or dev session
+    (cheap, local) and can never lose a turn. Stale `.off` markers from older sessions
+    are now inert.
+
+    Marker file contents: empty or `keeper` = keeper mode (backward compatible with
+    every marker written before thread mode existed); `thread:<slug>` = thread mode."""
     if not sid:
         # No session id to cache against — fall back to a live transcript scan so we
-        # neither lose a keeper turn nor capture a dev one.
-        return _transcript_has_sentinel(transcript_path)
+        # neither lose a turn nor capture a dev one.
+        return _scan_transcript_mode(transcript_path)
     on = _sessions_dir() / f"{sid}.on"
     if on.exists():
-        return True
-    if not _transcript_has_sentinel(transcript_path):
-        return False            # not armed yet (or a dev session) — try again next prompt
+        return _mode_from_marker(_read_marker(on))
+    mode = _scan_transcript_mode(transcript_path)
+    if mode is None:
+        return None            # not armed yet (or a dev session) — try again next prompt
     try:
         _sessions_dir().mkdir(parents=True, exist_ok=True)
-        on.write_text("", encoding="utf-8")
+        on.write_text(_marker_text(mode), encoding="utf-8")
     except Exception:
         pass            # caching is best-effort; correctness doesn't depend on it
-    return True
+    return mode
 
 
-def _transcript_has_sentinel(transcript_path: str) -> bool:
-    """True iff the /journalstart expansion is present as a real operator prompt in
-    this session's transcript.
+def _marker_text(mode) -> str:
+    kind, slug = mode
+    return "keeper" if kind == "keeper" else f"thread:{slug}"
 
-    The old check was a raw substring scan of the whole transcript file — and the
-    transcript embeds tool results, so a DEV session that merely *read* a file
-    containing the sentinel token (this hook's own source, journalstart.md, STREAM.md)
-    armed itself and journaled dev chatter (caught 2026-07-06). Three fences now, all
-    required before a line arms the session:
+
+def _mode_from_marker(text: str):
+    text = (text or "").strip()
+    if text in ("", "keeper"):
+        return ("keeper", None)
+    if text.startswith("thread:"):
+        slug = text[len("thread:"):].strip()
+        if slug:
+            return ("thread", slug)
+    return None            # malformed marker — shouldn't happen; fail closed, not captured
+
+
+def _read_marker(path: pathlib.Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except Exception:
+        return ""
+
+
+def _parse_thread_slug(text: str, needle_idx: int):
+    """The slug after a `<!-- THREAD_SESSION_ACTIVE:` needle found at `needle_idx` in
+    `text` — the next whitespace-delimited token, lowercased/stripped, validated
+    against `^[a-z0-9-]{1,40}$`. Returns None if there's no token or it doesn't
+    validate (an invalid slug never arms thread mode from that line)."""
+    after = text[needle_idx + len(_THREAD_NEEDLE):]
+    m = re.match(r"\s*(\S+)", after)
+    if not m:
+        return None
+    raw = m.group(1)
+    if raw.endswith("-->"):
+        raw = raw[:-3]
+    raw = raw.strip().lower()
+    return raw if _THREAD_SLUG_RE.match(raw) else None
+
+
+def _entry_mode(entry: dict):
+    """One transcript entry (already JSON-parsed) -> arming mode: None |
+    ("keeper", None) | ("thread", slug). The three fences, applied per-entry so
+    reconcile_transcripts.py can share this exact logic while tailing line by line:
 
       - the entry is `user`-type (assistant text / tool_use never arm), and
-      - the sentinel sits in a plain text block, never a tool_result (file contents
+      - a sentinel sits in a plain text block, never a tool_result (file contents
         flow through those), and the block isn't harness-synthetic (task-notifications
-        can quote the token back), and
-      - it appears in its full comment form ("<!-- KEEPER_SESSION_ACTIVE"), which only
-        the /journalstart expansion carries — a backticked mention in prose doesn't
-        count.
-    """
+        can quote a token back), and
+      - it appears in its full comment form — a backticked mention in prose (or this
+        file's own source, journalstart.md, thread.md, STREAM.md) doesn't count.
+
+    If both sentinels appear in the same entry, keeper wins (checked first)."""
+    if entry.get("type") != "user":
+        return None
+    content = (entry.get("message") or {}).get("content")
+    blocks = ([{"type": "text", "text": content}] if isinstance(content, str)
+              else (content or []))
+    thread_slug = None
+    for b in blocks:
+        if not isinstance(b, dict) or b.get("type") != "text":
+            continue
+        text = b.get("text") or ""
+        if text.lstrip().startswith(SYNTHETIC_PREFIXES):
+            continue
+        if _KEEPER_NEEDLE in text:
+            return ("keeper", None)
+        if thread_slug is None and _THREAD_NEEDLE in text:
+            slug = _parse_thread_slug(text, text.index(_THREAD_NEEDLE))
+            if slug:
+                thread_slug = slug
+    return ("thread", thread_slug) if thread_slug else None
+
+
+def _scan_transcript_mode(transcript_path: str):
+    """One pass over a whole transcript file -> arming mode: None |
+    ("keeper", None) | ("thread", slug). Keeper wins if both sentinels appear
+    anywhere in the file (checked across the whole scan, not just one entry) — e.g.
+    she runs /journalstart inside a session that already armed as a thread. Delegates
+    the per-entry fences to `_entry_mode`; reconcile_transcripts.py imports both
+    functions rather than redefining the fence — one scan, not two that can drift."""
     if not transcript_path:
-        return False
-    needle = "<!-- " + SENTINEL
+        return None
+    thread_slug = None
     try:
         with open(transcript_path, "r", encoding="utf-8", errors="ignore") as f:
             for line in f:
-                if needle not in line:      # cheap pre-filter before JSON parse
-                    continue
+                if _KEEPER_NEEDLE not in line and _THREAD_NEEDLE not in line:
+                    continue            # cheap pre-filter before JSON parse
                 try:
                     entry = json.loads(line)
                 except Exception:
                     continue
-                if entry.get("type") != "user":
+                mode = _entry_mode(entry)
+                if mode is None:
                     continue
-                content = (entry.get("message") or {}).get("content")
-                blocks = ([{"type": "text", "text": content}] if isinstance(content, str)
-                          else (content or []))
-                for b in blocks:
-                    if not isinstance(b, dict) or b.get("type") != "text":
-                        continue
-                    text = b.get("text") or ""
-                    if text.lstrip().startswith(SYNTHETIC_PREFIXES):
-                        continue
-                    if needle in text:
-                        return True
+                if mode[0] == "keeper":
+                    return mode
+                if thread_slug is None:
+                    thread_slug = mode[1]
     except Exception:
-        return False
-    return False
+        return None
+    return ("thread", thread_slug) if thread_slug else None
 
 
 def _ui_already_captured(prompt: str) -> bool:

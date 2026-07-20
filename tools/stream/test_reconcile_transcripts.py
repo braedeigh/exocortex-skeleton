@@ -26,6 +26,11 @@ SENTINEL_LINE = ("<!-- KEEPER_SESSION_ACTIVE — sentinel for the capture hook. 
                   "Do not remove. -->")
 
 
+def _thread_sentinel_line(slug):
+    return (f"<!-- THREAD_SESSION_ACTIVE: {slug} — sentinel for the capture hook. "
+            "Do not remove. -->")
+
+
 def _user(text, ts, session="s1", extra=None):
     entry = {
         "type": "user",
@@ -45,6 +50,16 @@ def _sentinel_entry(ts, session="s1"):
     # her, so it must arm the session without itself being a candidate prompt.
     return _user(
         "You are now the Keeper.\n\n" + SENTINEL_LINE + "\n\nRun the sequence.",
+        ts, session, extra={"isMeta": True},
+    )
+
+
+def _thread_sentinel_entry(slug, ts, session="s1"):
+    # Mirrors _sentinel_entry's isMeta shape — the /thread expansion is
+    # harness-injected the same way /journalstart's is.
+    return _user(
+        "Bradie tapped Talk about this thread.\n\n" + _thread_sentinel_line(slug)
+        + "\n\nDo this now.",
         ts, session, extra={"isMeta": True},
     )
 
@@ -113,6 +128,11 @@ class ReconcilerTestCase(unittest.TestCase):
 
     def _state(self):
         return json.loads(self._state_path_val.read_text(encoding="utf-8"))
+
+    def _make_thread_file(self, slug):
+        d = self.vault / "Threads"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / f"{slug}.md").write_text("stub", encoding="utf-8")
 
 
 class BootstrapTests(ReconcilerTestCase):
@@ -254,6 +274,155 @@ class PartialLineTests(ReconcilerTestCase):
         cards = stream.load_all_cards()
         self.assertEqual(len(cards), 1)
         self.assertEqual(cards[0].body, "this will be split")
+
+
+class ThreadArmingTests(ReconcilerTestCase):
+    def test_thread_sentinel_arms_and_mints_tagged_card(self):
+        self._make_thread_file("long-covid")
+        path = self._write_transcript("t1.jsonl", [
+            _thread_sentinel_entry("long-covid", "2026-07-14T12:00:00.000Z"),
+        ])
+        reconcile_transcripts.main()   # bootstrap: arms, mints nothing
+        self.assertEqual(stream.load_all_cards(), [])
+        self.assertEqual(self._state()[str(path)].get("thread"), "long-covid")
+
+        self._append(path, _user("how's my chest today", "2026-07-14T12:05:00.000Z"))
+        reconcile_transcripts.main()
+
+        cards = stream.load_all_cards()
+        self.assertEqual(len(cards), 1)
+        self.assertEqual(cards[0].body, "how's my chest today")
+        self.assertEqual(cards[0].who, "B")
+        self.assertEqual(cards[0].tags, ["long-covid"])
+
+    def test_invalid_slug_never_arms_thread_mode(self):
+        path = self._write_transcript("t2.jsonl", [
+            _thread_sentinel_entry("not_valid!", "2026-07-14T11:00:00.000Z"),
+        ])
+        reconcile_transcripts.main()   # bootstrap
+        self._append(path, _user("should not mint", "2026-07-14T11:05:00.000Z"))
+        reconcile_transcripts.main()
+        self.assertEqual(stream.load_all_cards(), [])
+        self.assertFalse(self._state()[str(path)]["armed"])
+
+    def test_keeper_wins_when_both_sentinels_present(self):
+        path = self._write_transcript("t3.jsonl", [
+            _thread_sentinel_entry("long-covid", "2026-07-14T10:00:00.000Z"),
+            _sentinel_entry("2026-07-14T10:01:00.000Z"),
+        ])
+        reconcile_transcripts.main()   # bootstrap scans the whole file at once
+        state_entry = self._state()[str(path)]
+        self.assertTrue(state_entry["armed"])
+        self.assertNotIn("thread", state_entry)   # keeper, not thread
+
+        self._append(path, _user("hey keeper", "2026-07-14T10:05:00.000Z"))
+        reconcile_transcripts.main()
+        cards = stream.load_all_cards()
+        self.assertEqual(len(cards), 1)
+        self.assertEqual(cards[0].tags, [])   # keeper mode never tags
+
+
+class ThreadMintingTests(ReconcilerTestCase):
+    def test_thread_mints_untagged_when_threads_file_missing(self):
+        # No Threads/no-such-thread.md created — capture must never be lost to
+        # an alias that doesn't resolve.
+        path = self._write_transcript("t4.jsonl", [
+            _thread_sentinel_entry("no-such-thread", "2026-07-14T09:00:00.000Z"),
+        ])
+        reconcile_transcripts.main()   # bootstrap
+        self._append(path, _user("typed anyway", "2026-07-14T09:05:00.000Z"))
+        reconcile_transcripts.main()
+
+        cards = stream.load_all_cards()
+        self.assertEqual(len(cards), 1)
+        self.assertEqual(cards[0].tags, [])
+
+    def test_thread_file_appearing_after_arming_still_tags_lazily(self):
+        # The Threads/ file doesn't exist yet when the session arms — the check
+        # happens per mint, not once at arm time.
+        path = self._write_transcript("t5.jsonl", [
+            _thread_sentinel_entry("late-arriving", "2026-07-14T08:00:00.000Z"),
+        ])
+        reconcile_transcripts.main()   # bootstrap: arms thread mode
+        self._make_thread_file("late-arriving")   # now it exists
+        self._append(path, _user("mint me tagged", "2026-07-14T08:05:00.000Z"))
+        reconcile_transcripts.main()
+
+        cards = stream.load_all_cards()
+        self.assertEqual(len(cards), 1)
+        self.assertEqual(cards[0].tags, ["late-arriving"])
+
+
+class ThreadToKeeperUpgradeTests(ReconcilerTestCase):
+    def test_thread_upgrades_to_keeper_across_separate_runs(self):
+        self._make_thread_file("long-covid")
+        path = self._write_transcript("t6.jsonl", [
+            _thread_sentinel_entry("long-covid", "2026-07-14T07:00:00.000Z"),
+        ])
+        reconcile_transcripts.main()   # bootstrap: arms thread mode
+        self.assertEqual(self._state()[str(path)].get("thread"), "long-covid")
+
+        self._append(path, _user("first thread turn", "2026-07-14T07:05:00.000Z"))
+        reconcile_transcripts.main()
+        cards = stream.load_all_cards()
+        self.assertEqual(len(cards), 1)
+        self.assertEqual(cards[0].tags, ["long-covid"])
+
+        # She runs /journalstart inside the same session later on — keeper wins
+        # and the state upgrades, in a THIRD, later run of the reconciler.
+        self._append(path, _sentinel_entry("2026-07-14T07:10:00.000Z"))
+        self._append(path, _user("now talking to the keeper", "2026-07-14T07:15:00.000Z"))
+        reconcile_transcripts.main()
+
+        state_entry = self._state()[str(path)]
+        self.assertTrue(state_entry["armed"])
+        self.assertNotIn("thread", state_entry)   # upgraded, terminal
+
+        cards = stream.load_all_cards()
+        self.assertEqual(len(cards), 2)
+        upgraded = next(c for c in cards if c.body == "now talking to the keeper")
+        self.assertEqual(upgraded.tags, [])   # keeper mode, never tagged
+
+
+class LegacyStateCompatTests(ReconcilerTestCase):
+    def test_pre_thread_state_entry_behaves_as_keeper(self):
+        path = self._write_transcript("t7.jsonl", [
+            _user("keeper turn under legacy state", "2026-07-14T06:05:00.000Z"),
+        ])
+        # Simulate a state file written before thread mode existed: {"armed": true},
+        # no "thread" key at all.
+        self._save_legacy_state({str(path): {"offset": 0, "armed": True}})
+
+        reconcile_transcripts.main()
+        cards = stream.load_all_cards()
+        self.assertEqual(len(cards), 1)
+        self.assertEqual(cards[0].tags, [])
+
+    def _save_legacy_state(self, state):
+        self._state_path_val.parent.mkdir(parents=True, exist_ok=True)
+        self._state_path_val.write_text(json.dumps(state), encoding="utf-8")
+
+
+class BootstrapThreadTests(ReconcilerTestCase):
+    def test_bootstrap_detects_thread_mode_for_existing_transcript(self):
+        self._make_thread_file("dating-and-romance")
+        path = self._write_transcript("t8.jsonl", [
+            _thread_sentinel_entry("dating-and-romance", "2026-07-14T05:00:00.000Z"),
+            _user("predates the reconciler", "2026-07-14T05:05:00.000Z"),
+        ])
+        reconcile_transcripts.main()   # first-ever run: bootstrap, mints nothing
+
+        self.assertEqual(stream.load_all_cards(), [])
+        state_entry = self._state()[str(path)]
+        self.assertTrue(state_entry["armed"])
+        self.assertEqual(state_entry["thread"], "dating-and-romance")
+        self.assertEqual(state_entry["offset"], path.stat().st_size)
+
+        self._append(path, _user("after bootstrap", "2026-07-14T05:10:00.000Z"))
+        reconcile_transcripts.main()
+        cards = stream.load_all_cards()
+        self.assertEqual(len(cards), 1)
+        self.assertEqual(cards[0].tags, ["dating-and-romance"])
 
 
 if __name__ == "__main__":

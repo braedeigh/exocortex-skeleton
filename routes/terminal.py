@@ -25,6 +25,17 @@ DEFAULT_SESSIONS = ["chat"]
 # tmux session (dev tooling, a scratch shell) is operator noise, not a diary
 # entry -- only these get server-side journal capture below.
 KEEPER_CAPTURE_SESSIONS = {"chat"}
+# Second capture door, added 2026-07-20: a thread terminal (spawned by
+# /api/thread/talk in routes/threads.py, tmux session named `thread-<slug>`,
+# possibly with a `-2`/`-3` retry suffix) is also a real journal conversation --
+# her turns there get minted as B cards born tagged with the thread's slug, so
+# they land in both the daily journal and that thread's own inbox. Membership
+# here is name-shaped, not a fixed set like KEEPER_CAPTURE_SESSIONS, since new
+# thread sessions spawn dynamically -- see _is_thread_session/_thread_tag_for_session.
+_THREAD_SESSION_RE = re.compile(r'^thread-(.+)$')
+# _talk_session_name (routes/threads.py) appends -2/-3/... when the base
+# `thread-<slug>` tmux name is already taken -- strip it off to recover the slug.
+_THREAD_RETRY_SUFFIX_RE = re.compile(r'-\d+$')
 # How long a ui_captured.jsonl dedup entry stays worth checking against. The
 # vault hook only needs it long enough to cover the lag between a server-side
 # mint and the hook seeing the same prompt on a still-live tmux process; past
@@ -426,18 +437,56 @@ def _log_capture_failure(body, error):
         pass
 
 
-def _capture_journal(body, typed):
+def _is_thread_session(sess):
+    return bool(_THREAD_SESSION_RE.match(sess))
+
+
+def _thread_file_exists(slug):
+    return (store.CONTENT_DIR / "Threads" / f"{slug}.md").exists()
+
+
+def _thread_tag_for_session(sess):
+    """The tag to mint a thread session's B cards with, or None if it can't be
+    resolved -- capture never depends on this resolving; the caller mints
+    untagged rather than losing the turn (capture-first).
+
+    Try the tmux name's remainder (after `thread-`) as the slug first -- the
+    common case, no retry suffix. If Threads/<remainder>.md doesn't exist,
+    strip a trailing `-<digit>` retry suffix (_talk_session_name appends one
+    when the base name's tmux session was already taken) and try again. A hand-
+    typed alias or a truncated name that resolves neither way mints untagged."""
+    m = _THREAD_SESSION_RE.match(sess)
+    if not m:
+        return None
+    remainder = m.group(1)
+    if _thread_file_exists(remainder):
+        return remainder
+    stripped = _THREAD_RETRY_SUFFIX_RE.sub('', remainder)
+    if stripped != remainder and _thread_file_exists(stripped):
+        return stripped
+    return None
+
+
+def _capture_journal(body, typed, tags=None):
     """Mint a B card for one journal turn, at the server, before the text is
     ever typed into tmux -- capture must not depend on a terminal process
     staying alive to see it (the whole reason this exists: the hook's
     process-launch snapshot goes stale and silently stops seeing prompts).
 
+    `tags`, when given, is a single thread slug (from _thread_tag_for_session)
+    passed through as `--tags <slug>` so the card is born tagged -- mirroring
+    keeper_capture.py/reconcile_transcripts.py's thread-mode minting, at the
+    server door instead of the hook/reconciler ones.
+
     Only records the ui_captured dedup hash on SUCCESS. If the mint failed
     here, a live hook minting the same text later is the fallback we want --
     marking it "already captured" would make that fallback dedup itself away.
     """
+    args = ["record", "--who", "B"]
+    if tags:
+        args += ["--tags", tags]
     try:
-        result = _run_stream("record", "--who", "B", stdin=body)
+        result = _run_stream(*args, stdin=body)
     except subprocess.TimeoutExpired as e:
         _log_capture_failure(body, repr(e))
         return False
@@ -516,7 +565,8 @@ def register(app):
             # here, at the server, so the journal turn can never be lost to a
             # dead/stale terminal process (see module docstring background).
             journaled = False
-            if sess in KEEPER_CAPTURE_SESSIONS:
+            is_thread = _is_thread_session(sess)
+            if sess in KEEPER_CAPTURE_SESSIONS or is_thread:
                 if not enter:
                     # Pre-typed text (e.g. a photo-path ref) waiting on the
                     # caption send that will actually submit the pane.
@@ -528,7 +578,8 @@ def register(app):
                     # Slash commands are operator control, not journal content;
                     # an empty body is nothing to mint.
                     if full_body.strip() and not full_typed.lstrip().startswith("/"):
-                        journaled = _capture_journal(full_body, full_typed)
+                        tag = _thread_tag_for_session(sess) if is_thread else None
+                        journaled = _capture_journal(full_body, full_typed, tags=tag)
 
             last_lines = _tmux(f"capture-pane -t {sess} -p -S -15").stdout.strip()
             if any(p.lower() in last_lines.lower() for p in _PROMPT_PATTERNS):
@@ -549,13 +600,15 @@ def register(app):
             if not re.fullmatch(r"[A-Za-z0-9_-]{1,20}", key):
                 return jsonify({"error": "invalid key"}), 400
             journaled = False
-            if key == "Enter" and sess in KEEPER_CAPTURE_SESSIONS:
+            is_thread = _is_thread_session(sess)
+            if key == "Enter" and (sess in KEEPER_CAPTURE_SESSIONS or is_thread):
                 # A bare Enter key submits whatever was already pre-typed into
                 # the pane (e.g. via the photo-path enter:false send) -- mint
                 # it before the Enter reaches tmux, same rationale as above.
                 pending_typed, pending_body = _pending_pop(sess)
                 if pending_body.strip() and not pending_typed.lstrip().startswith("/"):
-                    journaled = _capture_journal(pending_body, pending_typed)
+                    tag = _thread_tag_for_session(sess) if is_thread else None
+                    journaled = _capture_journal(pending_body, pending_typed, tags=tag)
             _tmux(f"send-keys -t {sess} {key}")
             return jsonify({"ok": True, "journaled": journaled})
         return jsonify({"ok": True})
