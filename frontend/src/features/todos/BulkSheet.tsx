@@ -38,7 +38,7 @@ export function BulkSheet({ mode, count, fronts, onClose, onApply }: BulkSheetPr
   // Tag mode: null = untouched, '' = clear, else the key to set. The front
   // select stays deliberately single-choice in bulk: picking one REPLACES
   // every selected item's fronts with just it (fronts: [front]), and
-  // "(clear)" sends fronts: []. Per-item multi-tagging lives in DetailSheet.
+  // "(clear)" sends fronts: []. Per-item multi-tagging lives in TodoFormSheet.
   const [front, setFront] = useState<string | null>(UNTOUCHED);
   const [status, setStatus] = useState<string | null>(UNTOUCHED);
 

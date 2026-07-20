@@ -1,9 +1,9 @@
 /**
  * TodoApprovalEditor — approval editor for kinds "todo"/"life_todo", the
  * reference per-kind editor (port of openTodoApproval in pending.js). Mirrors
- * the native add-to-do form: same field vocabulary (todoHelpers) as
- * AddTodoSheet/DetailSheet, commits through the native POST /api/todos/add,
- * undo removes the created item by id.
+ * the native add-to-do form: same field vocabulary (todoHelpers) as the
+ * to-do feature's TodoFormSheet, commits through the native POST
+ * /api/todos/add, undo removes the created item by id.
  */
 import { useRef, useState } from 'react';
 import { Button } from '../../ui';
@@ -140,7 +140,7 @@ export function TodoApprovalEditor({ change, busy, onApprove, onDeny }: Approval
         <span className={styles.label}>Fronts</span>
         <div className={styles.chips}>
           {/* Multi-select: tapping toggles membership — a to-do can sit on
-              several fronts at once (same semantics as DetailSheet). */}
+              several fronts at once (same semantics as TodoFormSheet). */}
           {fronts.map((f) => (
             <button
               type="button"

@@ -32,7 +32,7 @@ import {
   getTodayData,
   updateStreakNotes,
 } from '../../api/endpoints';
-import type { AddTodoPayload, BulkTodoAction, SymptomLevels, TodoDetailsPatch } from '../../api/endpoints';
+import type { AddTodoPayload, AddTodoResponse, BulkTodoAction, SymptomLevels, TodoDetailsPatch } from '../../api/endpoints';
 import {
   applyActivityLog,
   applyActivityRemove,
@@ -89,11 +89,11 @@ export function useToasts() {
   return { toasts, push, dismiss };
 }
 
-function useOptimisticMutation<TVars>(
-  mutationFn: (vars: TVars) => Promise<unknown>,
+function useOptimisticMutation<TVars, TData = unknown>(
+  mutationFn: (vars: TVars) => Promise<TData>,
   updater: (data: TodayData, vars: TVars) => TodayData,
   onError: (message: string) => void,
-): UseMutationResult<unknown, unknown, TVars, { previous?: TodayData }> {
+): UseMutationResult<TData, unknown, TVars, { previous?: TodayData }> {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn,
@@ -117,6 +117,25 @@ function useOptimisticMutation<TVars>(
 
 function tempId(): string {
   return `tmp-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/** The optimistic stand-in for a freshly-added to-do, shown in place until
+ * the server's response (and the next poll) replace it with the real item. */
+function buildTempAddItem(payload: AddTodoPayload): TodoItem {
+  return {
+    id: tempId(),
+    text: payload.item,
+    done: false,
+    due_by: payload.due_by || null,
+    due_time: payload.due_time || null,
+    notes: payload.notes || null,
+    place_id: payload.place_id || null,
+    status: payload.status || null,
+    fronts: payload.fronts || [],
+    duration_min: payload.duration_min || null,
+    after_date: payload.after_date || null,
+    after_id: payload.after_id || null,
+  };
 }
 
 export function useTodoActions(onError: (message: string) => void) {
@@ -152,8 +171,8 @@ export function useTodoActions(onError: (message: string) => void) {
     (data, section) => applyAutosort(data, section),
     onError,
   );
-  const add = useOptimisticMutation(
-    (vars: AddTodoPayload & { tempItem: TodoItem }) => addTodo(vars),
+  const add = useOptimisticMutation<AddTodoPayload & { tempItem: TodoItem }, AddTodoResponse>(
+    (vars) => addTodo(vars),
     (data, vars) => applyAdd(data, vars.tempItem, vars.section),
     onError,
   );
@@ -195,22 +214,13 @@ export function useTodoActions(onError: (message: string) => void) {
     subtaskToggle: (id: string, subId: string) => subtaskToggle.mutate({ id, subId }),
     subtaskRemove: (id: string, subId: string) => subtaskRemove.mutate({ id, subId }),
     add: (payload: AddTodoPayload) => {
-      const item: TodoItem = {
-        id: tempId(),
-        text: payload.item,
-        done: false,
-        due_by: payload.due_by || null,
-        due_time: payload.due_time || null,
-        notes: payload.notes || null,
-        place_id: payload.place_id || null,
-        status: payload.status || null,
-        fronts: payload.fronts || [],
-        duration_min: payload.duration_min || null,
-        after_date: payload.after_date || null,
-        after_id: payload.after_id || null,
-      };
-      add.mutate({ ...payload, tempItem: item });
+      add.mutate({ ...payload, tempItem: buildTempAddItem(payload) });
     },
+    /** Same mutation as `add`, but awaitable and resolving to the server's
+     * {ok, id} — for flows (the upcoming unified add/edit modal) that need
+     * to chain a follow-up call (e.g. a snooze) onto the freshly-created id. */
+    addAsync: (payload: AddTodoPayload): Promise<AddTodoResponse> =>
+      add.mutateAsync({ ...payload, tempItem: buildTempAddItem(payload) }),
   };
 }
 

@@ -8,10 +8,16 @@ export interface SheetProps {
   title?: string;
   onClose: () => void;
   children: ReactNode;
+  /**
+   * When set, the sheet becomes a column — pinned header, scrollable body,
+   * non-scrolling footer pinned at the bottom (used by the to-do form's
+   * Save/Delete bar).
+   */
+  footer?: ReactNode;
 }
 
 /**
- * Touch-first bottom sheet — full-bleed on mobile, close button 44x44px.
+ * Centered floating modal, close button 44x44px.
  *
  * Rendered via a portal straight onto `document.body` rather than in place.
  * Reason: the desktop terminal pane (SplitLayout's `.left`) sets
@@ -26,7 +32,7 @@ export interface SheetProps {
  * z-index at the document root — this fixed "new session modal renders
  * behind the habits/to-do lists" (NewSessionDialog, which uses this Sheet).
  */
-export function Sheet({ open, title, onClose, children }: SheetProps) {
+export function Sheet({ open, title, onClose, children, footer }: SheetProps) {
   useEffect(() => {
     if (!open) return;
     function onKeyDown(e: KeyboardEvent) {
@@ -45,13 +51,12 @@ export function Sheet({ open, title, onClose, children }: SheetProps) {
       role="presentation"
     >
       <div
-        className={styles.sheet}
+        className={footer ? `${styles.sheet} ${styles.hasFooter}` : styles.sheet}
         role="dialog"
         aria-modal="true"
         aria-label={title}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className={styles.grabber} aria-hidden="true" />
         {title ? (
           <div className={styles.header}>
             <h2 className={styles.title}>{title}</h2>
@@ -60,7 +65,14 @@ export function Sheet({ open, title, onClose, children }: SheetProps) {
             </IconButton>
           </div>
         ) : null}
-        {children}
+        {footer ? (
+          <>
+            <div className={styles.body}>{children}</div>
+            <div className={styles.footer}>{footer}</div>
+          </>
+        ) : (
+          children
+        )}
       </div>
     </div>,
     document.body,

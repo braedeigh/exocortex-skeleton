@@ -8,6 +8,9 @@ import styles from './AddBar.module.css';
 
 export interface AddBarProps {
   onAdd: (payload: { item: string; section: string; due_by?: string }) => void;
+  /** Opens the full TodoFormSheet (add mode), preset with whatever's
+   * currently typed/picked here — the "⤢" expand button next to Add. */
+  onExpand: (prefill: { text: string; section: string; due_by?: string }) => void;
   /** Active focus filter — the page stamps it onto the add, so show it. */
   focusFront?: string;
   fronts: Front[];
@@ -19,7 +22,7 @@ export interface AddBarProps {
  * focused or has text in it, rather than sitting there permanently (dev note
  * 3621915a). Collapses back once it's blurred with nothing typed.
  */
-export function AddBar({ onAdd, focusFront, fronts }: AddBarProps) {
+export function AddBar({ onAdd, onExpand, focusFront, fronts }: AddBarProps) {
   const [text, setText] = useState('');
   const [section, setSection] = useState<string>('Now');
   const [showDue, setShowDue] = useState(false);
@@ -28,6 +31,13 @@ export function AddBar({ onAdd, focusFront, fronts }: AddBarProps) {
   const formRef = useRef<HTMLFormElement>(null);
 
   const expanded = focused || text.trim().length > 0;
+
+  function reset() {
+    setText('');
+    setDueBy('');
+    setShowDue(false);
+    setFocused(false);
+  }
 
   function submit(e: FormEvent) {
     e.preventDefault();
@@ -38,10 +48,19 @@ export function AddBar({ onAdd, focusFront, fronts }: AddBarProps) {
       section,
       due_by: showDue && dueBy ? dueBy : undefined,
     });
-    setText('');
-    setDueBy('');
-    setShowDue(false);
-    setFocused(false);
+    reset();
+  }
+
+  // Hands off whatever's typed/picked so far to the full editor — works even
+  // with an empty text field (opens a blank full editor), then resets this
+  // bar exactly like a normal submit would.
+  function expand() {
+    onExpand({
+      text: text.trim(),
+      section,
+      due_by: showDue && dueBy ? dueBy : undefined,
+    });
+    reset();
   }
 
   function handleBlur(e: FocusEvent<HTMLFormElement>) {
@@ -72,6 +91,17 @@ export function AddBar({ onAdd, focusFront, fronts }: AddBarProps) {
           onChange={(e) => setText(e.target.value)}
           onFocus={() => setFocused(true)}
         />
+        {expanded ? (
+          <button
+            type="button"
+            className={styles.iconToggle}
+            onClick={expand}
+            aria-label="Open full editor"
+            title="Open full editor"
+          >
+            ⤢
+          </button>
+        ) : null}
         {expanded ? <Button type="submit">Add</Button> : null}
       </div>
       {expanded ? (

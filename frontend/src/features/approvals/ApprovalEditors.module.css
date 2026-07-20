@@ -1,7 +1,7 @@
 /* Shared styles for every per-kind approval editor — same field vocabulary
-   as AddTodoSheet.module.css / DetailSheet.module.css so an approval sheet
-   reads exactly like the native editor it mirrors. Touch-first: 44px inputs
-   and buttons, nothing under 12px. */
+   as TodoFormSheet.module.css so an approval sheet reads exactly like the
+   native editor it mirrors. Touch-first: 44px inputs and buttons, nothing
+   under 12px. */
 
 .summary {
   margin: 0 0 var(--space-4);

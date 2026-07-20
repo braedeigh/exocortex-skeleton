@@ -1,3 +1,9 @@
+/* Field vocabulary carried over from the old per-item editor sheet's CSS
+   module — the unified form reuses the same input/chip language, minus the
+   tap-to-edit display states (.titleDisplay/.notesDisplay/.placeholder) and
+   the "more options" toggle (.moreToggle/.moreArrow) that a flat,
+   always-visible form no longer needs. */
+
 .field {
   display: flex;
   flex-direction: column;
@@ -14,8 +20,7 @@
 }
 
 .input,
-.textarea,
-.select {
+.textarea {
   min-height: var(--tap-target);
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-md);
@@ -31,6 +36,11 @@
 .textarea {
   min-height: 72px;
   resize: vertical;
+}
+
+.titleInput {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
 }
 
 .row2 {
@@ -79,106 +89,9 @@
   margin-bottom: 0;
 }
 
-/* "small until edit": title/notes read as plain text until tapped, then
-   grow into full inputs (.titleInput / .textarea) sized to the tap-target. */
-.titleDisplay {
-  display: block;
-  width: 100%;
-  text-align: left;
-  background: none;
-  border: none;
-  padding: var(--space-2) 0;
-  min-height: var(--tap-target);
-  font-size: var(--font-size-lg);
-  font-weight: 700;
-  color: var(--text);
-  cursor: pointer;
-}
-
-.notesDisplay {
-  display: block;
-  width: 100%;
-  text-align: left;
-  background: none;
-  border: none;
-  padding: var(--space-2) 0;
-  min-height: var(--tap-target);
-  font-size: var(--font-size-base);
-  color: var(--text-secondary);
-  white-space: pre-wrap;
-  word-break: break-word;
-  cursor: pointer;
-}
-
-.placeholder {
-  color: var(--text-muted);
-}
-
-.titleInput {
-  font-size: var(--font-size-lg);
-  font-weight: 700;
-}
-
-.moreToggle {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-height: var(--tap-target);
-  padding: 0;
-  margin-bottom: var(--space-2);
-  background: none;
-  border: none;
-  color: var(--text-secondary);
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.moreArrow {
-  font-size: 11px;
-  color: var(--text-muted);
-  transition: transform 0.15s ease;
-  display: inline-block;
-}
-
-.moreArrowOpen {
-  transform: rotate(90deg);
-}
-
-.actions {
-  display: flex;
-  gap: var(--space-3);
-  margin-top: var(--space-5);
-}
-
-.actions > * {
-  flex: 1;
-}
-
-.dangerZone {
-  margin-top: var(--space-6);
-  padding-top: var(--space-4);
-  border-top: 1px solid var(--border);
-}
-
-.confirmRow {
-  display: flex;
-  gap: var(--space-3);
-  align-items: center;
-}
-
-.confirmText {
-  flex: 1;
-  color: var(--red);
-  font-size: var(--font-size-base);
-  font-weight: 600;
-}
-
 .meta {
   font-size: var(--font-size-sm);
   color: var(--text-muted);
-  margin-bottom: var(--space-4);
 }
 
 .subtaskList {
@@ -219,4 +132,24 @@
 
 .subtaskAddRow .input {
   flex: 1;
+}
+
+/* Footer row — rendered inside Sheet's pinned `.footer` slot. Delete sits
+   left-aligned via the spacer; Cancel/Save (or the confirm text + Keep/
+   Delete pair) sit right-aligned, each button a real ~40px tap target. */
+.footerRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.footerSpacer {
+  flex: 1;
+}
+
+.confirmText {
+  flex: 1;
+  color: var(--red);
+  font-size: var(--font-size-base);
+  font-weight: 600;
 }

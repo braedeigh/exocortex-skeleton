@@ -3,33 +3,24 @@
   inset: 0;
   background: rgba(0, 0, 0, 0.4);
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: center;
   z-index: 100;
   animation: fadeIn 0.15s ease;
+  padding: var(--space-4);
 }
 
 .sheet {
   width: 100%;
   max-width: 560px;
-  max-height: 85vh;
+  max-height: min(85vh, calc(100dvh - 2 * var(--space-4)));
   overflow-y: auto;
   overflow-x: hidden;
   background: var(--card-bg);
-  border-top-left-radius: var(--radius-xl);
-  border-top-right-radius: var(--radius-xl);
+  border-radius: var(--radius-xl);
   border: 1px solid var(--border);
-  border-bottom: none;
   padding: var(--space-3) var(--space-5) calc(var(--space-6) + env(safe-area-inset-bottom));
-  animation: slideUp 0.2s ease;
-}
-
-.grabber {
-  width: 40px;
-  height: 4px;
-  border-radius: var(--radius-pill);
-  background: var(--border);
-  margin: 0 auto var(--space-4);
+  animation: popIn 0.15s ease;
 }
 
 .header {
@@ -56,34 +47,18 @@
   }
 }
 
-@keyframes slideUp {
-  from {
-    transform: translateY(100%);
-  }
-  to {
-    transform: translateY(0);
-  }
-}
-
-/* Desktop: a centered dialog, not a bottom sheet — pinned-to-bottom looks
-   dropped on a big screen. Same 700px line as TodosPage's column break.
+/* Centered everywhere, even on mobile — this is a floating modal, not a
+   bottom sheet. Same 700px line as TodosPage's column break. Desktop just
+   gets a bit more breathing room around the backdrop and under the sheet.
    (Viewport-keyed on purpose: it's about screen size/input style, not pane
-   width — a narrow split pane on a monitor still gets the centered look.) */
+   width — a narrow split pane on a monitor still gets the same margins.) */
 @media (min-width: 700px) {
   .backdrop {
-    align-items: center;
     padding: var(--space-6);
   }
 
-  .sheet {
-    border-radius: var(--radius-xl);
-    border-bottom: 1px solid var(--border);
+  .sheet:not(.hasFooter) {
     padding-bottom: var(--space-6);
-    animation: popIn 0.15s ease;
-  }
-
-  .grabber {
-    display: none;
   }
 }
 
@@ -96,4 +71,34 @@
     opacity: 1;
     transform: none;
   }
+}
+
+/* Footer variant: the sheet becomes a column — pinned header, scrolling
+   body, pinned footer — instead of scrolling as one block. */
+.hasFooter {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow-y: hidden;
+}
+
+.hasFooter .header {
+  padding: var(--space-3) var(--space-5) 0;
+  margin-bottom: var(--space-2);
+  flex-shrink: 0;
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0 var(--space-5) var(--space-4);
+}
+
+.footer {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+  background: var(--card-bg);
+  padding: var(--space-3) var(--space-5) calc(var(--space-3) + env(safe-area-inset-bottom));
 }

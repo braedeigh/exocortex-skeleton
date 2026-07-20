@@ -4,11 +4,11 @@ import { ToastStack } from '../../ui';
 import { BulkActionBar } from './BulkActionBar';
 import { BulkSheet } from './BulkSheet';
 import type { BulkSheetMode } from './BulkSheet';
-import { DetailSheet } from './DetailSheet';
 import { EditorRow } from './EditorRow';
 import { filterEditorTodos, flattenAllTodos } from './editorHelpers';
 import { FRONT_EMOJI, useFronts } from '../fronts/useFronts';
 import { DONE_LABEL, LADDER_LABELS, TODO_STATUSES, buildTodoIndex } from './todoHelpers';
+import { TodoFormSheet } from './TodoFormSheet';
 import { isFrosted } from './types';
 import type { TodoItem } from './types';
 import { useTodayData, useTodoActions, useToasts } from './useTodayData';
@@ -23,8 +23,9 @@ function isPublicMode(): boolean {
  * /todos/editor — the full-page to-do manager: every to-do across every
  * section (snoozed/waiting included, badged instead of hidden) in one
  * searchable, filterable list, with a select mode for bulk snooze / tag /
- * move / delete. Per-item editing reuses DetailSheet unchanged; the list
- * shares TODAY_QUERY_KEY with /todos so edits show instantly back there.
+ * move / delete. Per-item editing reuses TodoFormSheet (edit mode) unchanged;
+ * the list shares TODAY_QUERY_KEY with /todos so edits show instantly back
+ * there.
  */
 export function TodoEditorPage() {
   const isPublic = isPublicMode();
@@ -82,7 +83,7 @@ export function TodoEditorPage() {
     return null;
   }, [selected, sections]);
 
-  // Same re-derive-from-poll effect as TodosPage: keep the open DetailSheet's
+  // Same re-derive-from-poll effect as TodosPage: keep the open TodoFormSheet's
   // item fresh as the 5s poll lands, and close it if the item vanished.
   useEffect(() => {
     if (!selected) return;
@@ -273,25 +274,17 @@ export function TodoEditorPage() {
         onApply={runBulk}
       />
 
-      <DetailSheet
-        item={selected}
+      <TodoFormSheet
+        mode="edit"
         open={!!selected}
+        item={selected}
         currentSection={currentSection}
         serverDate={serverDate}
         todoIndex={todoIndex}
         candidates={blockerCandidates}
         fronts={fronts}
+        actions={todoActions}
         onClose={() => setSelected(null)}
-        onSave={(id, patch, newText) => {
-          if (selected && newText !== selected.text) todoActions.rename(id, newText);
-          todoActions.details(id, patch);
-        }}
-        onMove={(id, toLabel) => todoActions.move(id, toLabel)}
-        onSnooze={(id, days) => todoActions.snooze(id, days)}
-        onRemove={(id) => todoActions.remove(id)}
-        onSubtaskAdd={(id, text) => todoActions.subtaskAdd(id, text)}
-        onSubtaskToggle={(id, subId) => todoActions.subtaskToggle(id, subId)}
-        onSubtaskRemove={(id, subId) => todoActions.subtaskRemove(id, subId)}
       />
 
       <ToastStack toasts={toasts} onDismiss={dismiss} />

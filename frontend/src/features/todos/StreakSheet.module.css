@@ -1,5 +1,5 @@
-/* Mirrors DetailSheet.module.css's field/notes/danger patterns — the streak
-   sheet is the to-do detail sheet's little sibling. */
+/* Mirrors TodoFormSheet.module.css's field/notes/danger patterns — the streak
+   sheet is the to-do form sheet's little sibling. */
 
 .meta {
   font-size: var(--font-size-sm);

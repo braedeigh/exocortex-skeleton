@@ -6,8 +6,6 @@ import { HabitsColumn } from '../habits/HabitsColumn';
 import { pickTimeSegment } from '../habits/habitMath';
 import type { TimeSegment } from '../habits/habitMath';
 import { AddBar } from './AddBar';
-import { AddTodoSheet } from './AddTodoSheet';
-import { DetailSheet } from './DetailSheet';
 import { FocusChips } from './FocusChips';
 import { useFronts } from '../fronts/useFronts';
 import { NotNowCard } from './NotNowCard';
@@ -19,6 +17,7 @@ import { SnoozedCard } from './SnoozedCard';
 import { StreakSheet } from './StreakSheet';
 import { StreaksRow } from './StreaksRow';
 import { SymptomCard } from './SymptomCard';
+import { TodoFormSheet } from './TodoFormSheet';
 import { TodoSection } from './TodoSection';
 import { WaitingCard } from './WaitingCard';
 import {
@@ -119,8 +118,11 @@ export function TodosPage() {
   // Streaks are keyed by label+since (no id) — the sheet re-derives its
   // streak from the polled data so "Day N" stays live while it's open.
   const [streakKey, setStreakKey] = useState<{ label: string; since: string } | null>(null);
-  // Which section's "+ add" opened the add sheet; null = closed.
-  const [addSection, setAddSection] = useState<string | null>(null);
+  // Staged prefill for the "+ add" flow — set by a section header's "+ add"
+  // button or AddBar's expand-to-full-editor icon; null = the add form is
+  // closed. `text`/`due_by` mirror whatever the launch point already had
+  // typed/picked so it isn't lost when the form takes over.
+  const [addDraft, setAddDraft] = useState<{ section: string; text?: string; due_by?: string } | null>(null);
   // Controls both the greeting text and which habit cards show — mirrors the
   // old page's single `selectedTime` global (core.js getTime()).
   const [manualSegment, setManualSegment] = useState<TimeSegment | null>(null);
@@ -217,6 +219,19 @@ export function TodosPage() {
     }
     setSelected(null);
   }, [sections, selected]);
+
+  // TodoFormSheet's `currentSection`/`prefill` for whichever flow is active
+  // (edit wins when both happen to be set, matching `mode` below). The
+  // active focus front rides along as a prefilled (deselectable) chip, the
+  // same set withFocusFront would stamp onto the AddBar's own quick path.
+  const formCurrentSection = currentSection ?? addDraft?.section ?? null;
+  const formPrefill = addDraft
+    ? {
+        text: addDraft.text,
+        dueBy: addDraft.due_by,
+        fronts: focusFront && focusFront !== '__none__' ? [focusFront] : undefined,
+      }
+    : undefined;
 
   if (isLoading) {
     return <div className={styles.page}><div className={styles.loading}>Loading&hellip;</div></div>;
@@ -361,7 +376,12 @@ export function TodosPage() {
           ) : (
             <>
               <FocusChips counts={focusCounts} active={focusFront} fronts={fronts} onChange={setFocusFront} />
-              <AddBar onAdd={addTodo} focusFront={focusFront} fronts={fronts} />
+              <AddBar
+                onAdd={addTodo}
+                onExpand={(pre) => setAddDraft(pre)}
+                focusFront={focusFront}
+                fronts={fronts}
+              />
               <UpNowCard
                 items={upNow}
                 serverDate={serverDate}
@@ -389,7 +409,7 @@ export function TodosPage() {
                     onReorder={todoActions.reorder}
                     onAutosort={todoActions.autosort}
                     onMove={todoActions.move}
-                    onAddClick={setAddSection}
+                    onAddClick={(label) => setAddDraft({ section: label })}
                   />
                 ))
               )}
@@ -419,13 +439,6 @@ export function TodosPage() {
         </div>
       </div>
 
-      <AddTodoSheet
-        section={addSection}
-        candidates={blockerCandidates}
-        onClose={() => setAddSection(null)}
-        onAdd={addTodo}
-      />
-
       <StreakSheet
         streak={openStreak}
         open={!!openStreak}
@@ -434,25 +447,21 @@ export function TodosPage() {
         onRemove={streakActions.remove}
       />
 
-      <DetailSheet
+      <TodoFormSheet
+        mode={selected ? 'edit' : 'add'}
+        open={!!selected || !!addDraft}
         item={selected}
-        open={!!selected}
-        currentSection={currentSection}
+        currentSection={formCurrentSection}
+        prefill={formPrefill}
         serverDate={serverDate}
         todoIndex={todoIndex}
         candidates={blockerCandidates}
         fronts={fronts}
-        onClose={() => setSelected(null)}
-        onSave={(id, patch, newText) => {
-          if (selected && newText !== selected.text) todoActions.rename(id, newText);
-          todoActions.details(id, patch);
+        actions={todoActions}
+        onClose={() => {
+          setSelected(null);
+          setAddDraft(null);
         }}
-        onMove={(id, toLabel) => todoActions.move(id, toLabel)}
-        onSnooze={(id, days) => todoActions.snooze(id, days)}
-        onRemove={(id) => todoActions.remove(id)}
-        onSubtaskAdd={(id, text) => todoActions.subtaskAdd(id, text)}
-        onSubtaskToggle={(id, subId) => todoActions.subtaskToggle(id, subId)}
-        onSubtaskRemove={(id, subId) => todoActions.subtaskRemove(id, subId)}
       />
 
       <ToastStack toasts={toasts} onDismiss={dismiss} />
