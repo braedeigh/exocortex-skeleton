@@ -6,12 +6,19 @@ import styles from './SnoozedCard.module.css';
 
 export interface SnoozedCardProps {
   items: TodoItem[];
+  /** Unfiltered snoozed count — header reads "shown/total" when a focus
+   * filter is hiding some. */
+  totalCount?: number;
   onUnsnooze: (id: string) => void;
 }
 
-export function SnoozedCard({ items, onUnsnooze }: SnoozedCardProps) {
+export function SnoozedCard({ items, totalCount, onUnsnooze }: SnoozedCardProps) {
   const [open, setOpen] = useState(false);
   if (!items.length) return null;
+  const countText =
+    totalCount != null && totalCount !== items.length
+      ? `${items.length}/${totalCount}`
+      : `${items.length}`;
 
   return (
     <div className={styles.card}>
@@ -20,7 +27,7 @@ export function SnoozedCard({ items, onUnsnooze }: SnoozedCardProps) {
           &#9654;
         </span>
         <span className={styles.title}>Snoozed</span>
-        <span className={styles.count}>{items.length}</span>
+        <span className={styles.count}>{countText}</span>
       </button>
       {open
         ? items.map((it) => (

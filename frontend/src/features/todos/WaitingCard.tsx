@@ -5,15 +5,22 @@ import styles from './WaitingCard.module.css';
 
 export interface WaitingCardProps {
   entries: WaitingEntry[];
+  /** Unfiltered waiting count — header reads "shown/total" when a focus
+   * filter is hiding some. */
+  totalCount?: number;
   onClear: (id: string) => void;
 }
 
 /** "Do after" twin of SnoozedCard — a collapsible list of to-dos hidden
  * until a date arrives or a blocker to-do finishes, each with its reason
  * and a clearly visible unblock button. */
-export function WaitingCard({ entries, onClear }: WaitingCardProps) {
+export function WaitingCard({ entries, totalCount, onClear }: WaitingCardProps) {
   const [open, setOpen] = useState(false);
   if (!entries.length) return null;
+  const countText =
+    totalCount != null && totalCount !== entries.length
+      ? `${entries.length}/${totalCount}`
+      : `${entries.length}`;
 
   return (
     <div className={styles.card}>
@@ -22,7 +29,7 @@ export function WaitingCard({ entries, onClear }: WaitingCardProps) {
           &#9654;
         </span>
         <span className={styles.title}>Waiting</span>
-        <span className={styles.count}>{entries.length}</span>
+        <span className={styles.count}>{countText}</span>
       </button>
       {open
         ? entries.map(({ item, reason }) => (

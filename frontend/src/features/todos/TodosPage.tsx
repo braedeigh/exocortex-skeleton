@@ -158,13 +158,15 @@ export function TodosPage() {
     () => ladderSections.flatMap((s) => s.items).filter((it) => !it.done),
     [ladderSections],
   );
+  const snoozedAll = useMemo(() => collectSnoozed(sections, serverDate), [sections, serverDate]);
   const snoozed = useMemo(
-    () => collectSnoozed(sections, serverDate).filter((it) => focusMatch(it, focusFront)),
-    [sections, serverDate, focusFront],
+    () => snoozedAll.filter((it) => focusMatch(it, focusFront)),
+    [snoozedAll, focusFront],
   );
+  const waitingAll = useMemo(() => collectWaiting(sections, serverDate), [sections, serverDate]);
   const waiting = useMemo(
-    () => collectWaiting(sections, serverDate).filter((w) => focusMatch(w.item, focusFront)),
-    [sections, serverDate, focusFront],
+    () => waitingAll.filter((w) => focusMatch(w.item, focusFront)),
+    [waitingAll, focusFront],
   );
   const focusCounts = useMemo(() => computeFocusCounts(sections, serverDate), [sections, serverDate]);
 
@@ -262,7 +264,7 @@ export function TodosPage() {
 
   return (
     <div className={styles.page}>
-      <SnoozedCard items={snoozed} onUnsnooze={(id) => todoActions.snooze(id, 0)} />
+      <SnoozedCard items={snoozed} totalCount={snoozedAll.length} onUnsnooze={(id) => todoActions.snooze(id, 0)} />
 
       {!isPublic ? (
         <>
@@ -403,6 +405,7 @@ export function TodosPage() {
                     label={section.name}
                     colorIndex={i}
                     items={gatedBySection.shown.get(section.name) || []}
+                    totalCount={section.items.filter((it) => !it.done).length}
                     manualOrder={section.manual_order}
                     serverDate={serverDate}
                     fronts={fronts}
@@ -426,6 +429,7 @@ export function TodosPage() {
                   (used to render at the very top of the page). */}
               <WaitingCard
                 entries={waiting}
+                totalCount={waitingAll.length}
                 onClear={(id) => todoActions.details(id, { after_date: '', after_id: '' })}
               />
             </>

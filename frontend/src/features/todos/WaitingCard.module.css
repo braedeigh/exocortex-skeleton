@@ -2,7 +2,10 @@
    orange accent so Waiting reads distinct from the muted Snoozed card. */
 
 .card {
-  margin: var(--space-3) var(--space-4);
+  /* Vertical only — the todo column already insets horizontally; extra side
+     margin here made this card narrower than the ladder sections above it
+     (same fix as TodoSection's card, dev note a6fe092c). */
+  margin: var(--space-3) 0;
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-xl);
   background: var(--card-bg);

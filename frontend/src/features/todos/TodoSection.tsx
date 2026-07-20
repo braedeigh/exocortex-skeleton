@@ -18,6 +18,11 @@ export interface TodoSectionProps {
   fronts: Front[];
   defaultOpen?: boolean;
   countMode?: 'remaining' | 'total';
+  /** Unfiltered not-done count for this bucket. When it differs from what's
+   * actually displayed (focus filter, context gates, snoozed/waiting pulled
+   * out), the header count reads "shown/total" so hidden items are never
+   * silently uncounted. */
+  totalCount?: number;
   /** Current focus-chip filter front (see FocusChips) — a *change* here (not
    * the value itself) auto-opens this section when it still has something
    * in it, so filtering a front surfaces its cards instead of leaving
@@ -50,6 +55,7 @@ export function TodoSection({
   fronts,
   defaultOpen = false,
   countMode = 'remaining',
+  totalCount,
   focusFront,
   onToggle,
   onOpenDetail,
@@ -105,6 +111,8 @@ export function TodoSection({
   useEffect(() => () => cleanupRef.current?.(), []);
 
   const remaining = countMode === 'total' ? items.length : items.filter((it) => !it.done).length;
+  const countText =
+    totalCount != null && totalCount !== remaining ? `${remaining}/${totalCount}` : `${remaining}`;
   const color = COLORS[Math.min(colorIndex, 2)];
 
   function finishDrag(commit: boolean) {
@@ -199,7 +207,7 @@ export function TodoSection({
           </span>
         ) : null}
         <span className={styles.spacer} aria-hidden="true" />
-        <span className={styles.count}>{remaining}</span>
+        <span className={styles.count}>{countText}</span>
         {manualOrder ? (
           <span
             className={styles.autosort}
