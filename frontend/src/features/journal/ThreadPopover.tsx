@@ -1,5 +1,5 @@
 import { Fragment, useState } from 'react';
-import { useNavigate } from '@tanstack/react-router';
+import { Link, useNavigate } from '@tanstack/react-router';
 import { Sheet } from '../../ui';
 import { useSessionsContext } from '../../shell/SessionsContext';
 import { DESKTOP_QUERY } from '../../shell/useMediaQuery';
@@ -42,8 +42,8 @@ export function ThreadPopover({ id, onClose, onNavigateDate }: ThreadPopoverProp
   /**
    * Spawn a fresh claude session on this thread (threadTalk.ts). On mobile,
    * switch the Chat tab to the new session and jump there; on desktop the
-   * session appears in the terminal pane's sessions bar (/chat would bounce
-   * to '/'), so stay put and say so.
+   * docked terminal switches itself (the exo:set-session event, handled by
+   * SplitLayout) and we land on the thread's own page instead.
    */
   async function talkAboutThread() {
     if (talkState === 'sending') return;
@@ -51,7 +51,10 @@ export function ThreadPopover({ id, onClose, onNavigateDate }: ThreadPopoverProp
     try {
       const res = await startThreadTalk(id!);
       if (window.matchMedia(DESKTOP_QUERY).matches) {
+        window.dispatchEvent(new CustomEvent('exo:set-session', { detail: res.session }));
         setTalkState('sent');
+        onClose();
+        void navigate({ to: '/threads/$slug', params: { slug: id! } });
       } else {
         setActive(res.session);
         onClose();
@@ -118,11 +121,14 @@ export function ThreadPopover({ id, onClose, onNavigateDate }: ThreadPopoverProp
             </button>
           ) : null}
 
-          {data.file ? (
-            <a className={styles.openFull} href={`/files?path=${encodeURIComponent(data.file)}`}>
-              Open full thread &rarr;
-            </a>
-          ) : null}
+          <Link
+            className={styles.openFull}
+            to="/threads/$slug"
+            params={{ slug: id! }}
+            onClick={onClose}
+          >
+            Open full thread &rarr;
+          </Link>
         </>
       )}
     </Sheet>

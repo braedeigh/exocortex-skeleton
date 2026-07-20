@@ -404,3 +404,126 @@ def test_inbox_no_watermark_includes_all_tagged_cards(vault, vault_client):
 def test_inbox_unknown_slug_is_404(vault_client):
     resp = vault_client.get("/api/thread/nope-at-all/inbox")
     assert resp.status_code == 404
+
+
+# --- GET /api/thread/<slug>/journal ------------------------------------------
+# migraines.md (see fixture above) exercises tagged/cited union + dedupe +
+# bare-day in one shot:
+#   - tagged pool cards: 2026-07-05.0900a, 2026-07-12.1200a, 2026-07-14.1655c
+#   - cited by id, found in pool, NOT tagged migraines: 2026-07-08.1841b
+#     (cited twice — under "What it is" and again under the "Trigger map —
+#     heat" bullet — so this also proves the dedupe)
+#   - bare-day `2026-07-13` cited under "Trigger map — heat" -> a day row
+#     with that heading as its label
+
+def test_journal_unions_tagged_and_cited_cards_deduped(vault_client):
+    data = vault_client.get("/api/thread/migraines/journal").get_json()
+    card_ids = [e["id"] for e in data["entries"] if e["kind"] == "card"]
+    assert card_ids == [
+        "2026-07-05.0900a", "2026-07-08.1841b", "2026-07-12.1200a", "2026-07-14.1655c",
+    ]
+    # cited-by-id card not tagged migraines still carries its pool body/who/ts.
+    cited = next(e for e in data["entries"] if e.get("id") == "2026-07-08.1841b")
+    assert cited["who"] == "B"
+    assert cited["ts"] == "2026-07-08 18:41:00"
+    assert "standup" in cited["text"].lower()
+
+
+def test_journal_bare_day_citation_becomes_day_row_with_heading_label(vault_client):
+    data = vault_client.get("/api/thread/migraines/journal").get_json()
+    day = next(e for e in data["entries"] if e["kind"] == "day")
+    assert day == {"kind": "day", "date": "2026-07-13", "label": "Trigger map — heat"}
+
+
+def test_journal_sorts_ascending_day_row_interleaved_by_date(vault_client):
+    data = vault_client.get("/api/thread/migraines/journal").get_json()
+    ordering = [(e["kind"], e.get("id") or e["date"]) for e in data["entries"]]
+    assert ordering == [
+        ("card", "2026-07-05.0900a"),
+        ("card", "2026-07-08.1841b"),
+        ("card", "2026-07-12.1200a"),
+        ("day", "2026-07-13"),
+        ("card", "2026-07-14.1655c"),
+    ]
+
+
+def test_journal_includes_thread_summary_with_resolved_cast(vault_client):
+    data = vault_client.get("/api/thread/migraines/journal").get_json()
+    assert data["thread"]["id"] == "migraines"
+    assert data["thread"]["name"] == "Migraines"
+    assert data["thread"]["status"] == "active"
+    assert data["thread"]["kind"] == "standing"
+    assert data["thread"]["fronts"] == ["health", "job"]
+    assert data["thread"]["people"] == [{"slug": "michael", "name": "Michael"}]
+
+
+def test_journal_cited_id_missing_from_pool_falls_back_to_day_row(vault):
+    # A thread whose only source is a card id that predates the pool.
+    (vault / "Threads" / "old-thread.md").write_text(
+        "---\n"
+        "name: Old Thread\n"
+        "aliases: []\n"
+        "fronts: [health]\n"
+        "parents: []\n"
+        "kind: standing\n"
+        "status: active\n"
+        "opened: 2025-01-01\n"
+        "retired:\n"
+        "distilled:\n"
+        "---\n\n"
+        "## Predates the card pool\n"
+        "A statement from before cards were tracked.\n"
+        "→ `2025-01-01.0000a`\n"
+    )
+    from flask import Flask
+    app = Flask(__name__)
+    app.config.update(TESTING=True)
+    threads.register(app)
+    data = app.test_client().get("/api/thread/old-thread/journal").get_json()
+    assert data["entries"] == [
+        {"kind": "day", "date": "2025-01-01", "label": "Predates the card pool"},
+    ]
+
+
+def test_journal_day_row_sorts_before_same_day_card(vault):
+    # Same as above, but this time a real pool card also lands on 2025-01-01,
+    # tagged old-thread — the day row (missing-id fallback) must sort first.
+    (vault / "Threads" / "old-thread.md").write_text(
+        "---\n"
+        "name: Old Thread\n"
+        "aliases: []\n"
+        "fronts: [health]\n"
+        "parents: []\n"
+        "kind: standing\n"
+        "status: active\n"
+        "opened: 2025-01-01\n"
+        "retired:\n"
+        "distilled:\n"
+        "---\n\n"
+        "## Predates the card pool\n"
+        "A statement from before cards were tracked.\n"
+        "→ `2025-01-01.0000a`\n"
+    )
+    cards_dir = vault / "_system" / "data" / "cards"
+    (cards_dir / "2025-01-01.0900a.md").write_text(
+        "---\n"
+        "id: 2025-01-01.0900a\n"
+        "who: B\n"
+        "ts: 2025-01-01 09:00:00\n"
+        "tags: [old-thread]\n"
+        "kind: line\n"
+        "---\n"
+        "A same-day card, tagged directly.\n"
+    )
+    from flask import Flask
+    app = Flask(__name__)
+    app.config.update(TESTING=True)
+    threads.register(app)
+    data = app.test_client().get("/api/thread/old-thread/journal").get_json()
+    ordering = [(e["kind"], e.get("id") or e["date"]) for e in data["entries"]]
+    assert ordering == [("day", "2025-01-01"), ("card", "2025-01-01.0900a")]
+
+
+def test_journal_unknown_slug_is_404(vault_client):
+    resp = vault_client.get("/api/thread/nope-at-all/journal")
+    assert resp.status_code == 404

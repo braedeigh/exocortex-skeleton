@@ -1,6 +1,6 @@
 import { Fragment, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { useNavigate } from '@tanstack/react-router';
+import { Link, useNavigate } from '@tanstack/react-router';
 import { useSessionsContext } from '../../shell/SessionsContext';
 import { DESKTOP_QUERY } from '../../shell/useMediaQuery';
 import { useThread, useThreads, useThreadsTree } from '../journal/useJournalData';
@@ -510,7 +510,9 @@ function ThreadBody({ id, fronts, frontsList, alsoUnderNames, grandchildren, onJ
     try {
       const res = await startThreadTalk(id);
       if (window.matchMedia(DESKTOP_QUERY).matches) {
+        window.dispatchEvent(new CustomEvent('exo:set-session', { detail: res.session }));
         setTalkState('sent');
+        void navigate({ to: '/threads/$slug', params: { slug: id } });
       } else {
         setActive(res.session);
         void navigate({ to: '/chat' });
@@ -596,11 +598,9 @@ function ThreadBody({ id, fronts, frontsList, alsoUnderNames, grandchildren, onJ
         </button>
       ) : null}
 
-      {data.file ? (
-        <a className={styles.openFull} href={`/files?path=${encodeURIComponent(data.file)}`}>
-          Open full thread &rarr;
-        </a>
-      ) : null}
+      <Link className={styles.openFull} to="/threads/$slug" params={{ slug: id }}>
+        Open full thread &rarr;
+      </Link>
     </div>
   );
 }

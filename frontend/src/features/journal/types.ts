@@ -188,6 +188,45 @@ export interface ThreadDetail extends Thread {
   peopleResolved?: Record<string, boolean>;
 }
 
+/** One journal-pool card in a thread's journal stream (routes/threads.py
+ * thread_journal). Distinct from `Card` (the day-editor's shape) — this is
+ * read-only, id-scoped, and always carries its own date/who/text. */
+export interface ThreadJournalCardEntry {
+  kind: 'card';
+  id: string;
+  /** "YYYY-MM-DD" — the id's date prefix. */
+  date: string;
+  /** "YYYY-MM-DD HH:MM:SS" — sliced as a string, never Date-parsed. */
+  ts: string;
+  who: CardWho;
+  text: string;
+}
+
+/** A bare-day citation (predates the card pool, or a `` `YYYY-MM-DD` `` source
+ * with no specific card) — a placeholder row pointing at that whole day. */
+export interface ThreadJournalDayEntry {
+  kind: 'day';
+  date: string;
+  /** The citing fact-card's heading; "" if it had none. */
+  label: string;
+}
+
+export type ThreadJournalEntry = ThreadJournalCardEntry | ThreadJournalDayEntry;
+
+/** GET /api/thread/<slug>/journal (routes/threads.py thread_journal) — the
+ * thread's whole journal stream (tagged ∪ cited, deduped, ascending). */
+export interface ThreadJournalResponse {
+  thread: {
+    id: string;
+    name: string;
+    status: string;
+    kind: string | null;
+    fronts: string[];
+    people: ThreadCastMember[];
+  };
+  entries: ThreadJournalEntry[];
+}
+
 export interface DevNote {
   id: string;
   text: string;

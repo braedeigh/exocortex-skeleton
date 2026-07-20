@@ -1,0 +1,239 @@
+/* ThreadJournalPage — the /threads/$slug view. Page chrome mirrors
+   WikiThread.module.css; the per-entry card mirrors EntryCard.module.css's
+   read (non-editing) mode so a thread's journal reads the same as the day
+   view; badges/chips mirror ThreadsPage.module.css so a thread reads the
+   same wherever it's shown. */
+
+.page {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  padding-bottom: var(--space-8);
+}
+
+.backLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-2);
+  width: fit-content;
+  color: var(--accent);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.backLink:hover {
+  text-decoration: underline;
+}
+
+.empty {
+  color: var(--text-muted);
+  font-size: var(--font-size-base);
+  padding: var(--space-4) 0;
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  font-size: var(--font-size-2xl);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  margin: 0;
+}
+
+.titleMain {
+  color: var(--text);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--text-muted) 20%, transparent);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.badgeOutline {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.chipRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.frontChip,
+.personChip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+/* Secondary (outline) action — same look as ThreadsPage/ThreadPopover's talk button. */
+.talkBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: var(--tap-target);
+  margin-top: var(--space-1);
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-lg);
+  color: var(--accent);
+  font-size: var(--font-size-base);
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.talkBtn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+.talkBtn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.entries {
+  display: flex;
+  flex-direction: column;
+}
+
+/* --- Journal card entry: read-mode twin of EntryCard.module.css --- */
+
+.card {
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xl);
+  background: color-mix(in srgb, var(--accent) 5%, var(--card-bg));
+  box-shadow: var(--shadow-card);
+  padding: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+  min-height: var(--tap-target);
+}
+
+.who {
+  font-weight: 700;
+  font-size: var(--font-size-sm);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  letter-spacing: 0.02em;
+}
+
+.who_B {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+.who_K {
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--text-muted) 12%, transparent);
+  font-style: italic;
+}
+
+.metaTime {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-2);
+  margin: 0 calc(-1 * var(--space-2));
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.metaTime:hover {
+  color: var(--accent);
+}
+
+.body {
+  font-size: var(--font-size-base);
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+.body :global(p):last-child,
+.body :global(h1):last-child,
+.body :global(h2):last-child,
+.body :global(h3):last-child {
+  margin-bottom: 0;
+}
+
+.body_K {
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+/* --- Day row: a bare-day citation placeholder --- */
+
+.dayRow {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: var(--tap-target);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
+  background: var(--card-bg);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-lg);
+  color: var(--text-secondary);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.dayRow:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}

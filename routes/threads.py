@@ -411,6 +411,68 @@ def register(app):
         cards.sort(key=lambda c: c["id"])
         return jsonify({"cards": cards, "distilled": watermark})
 
+    @app.route("/api/thread/<slug>/journal")
+    def thread_journal(slug):
+        """The thread's whole journal stream, for the thread's own page (not
+        just the not-yet-absorbed inbox): every pool card tagged `<slug>`,
+        union'd with every journal source the thread's fact-cards cite by id
+        (falling back to a day row if that id predates the card pool), plus
+        a day row for every bare-day citation. Ascending, day rows sorting
+        before that day's cards."""
+        slug = (slug or "").strip().lower()
+        t = threads_index().get(slug)
+        if not t:
+            return jsonify({"error": "not found", "slug": slug}), 404
+
+        pool = {c["id"]: c for c in _iter_cards()}
+
+        cards = {}   # id -> pool card dict, insertion order = first-seen
+        days = {}    # date -> label, first citing heading wins
+
+        for c in pool.values():
+            if slug in c["tags"]:
+                cards.setdefault(c["id"], c)
+
+        for fc in t.get("cards", []):
+            heading = fc.get("heading", "")
+            for src in fc.get("sources", []):
+                if src.get("kind") != "journal":
+                    continue
+                ref = src["ref"]
+                if _CARD_ID.match(ref):
+                    if ref in pool:
+                        cards.setdefault(ref, pool[ref])
+                    else:
+                        days.setdefault(ref.split(".")[0], heading)
+                elif _DAY.match(ref):
+                    days.setdefault(ref, heading)
+
+        entries = []
+        for cid, c in cards.items():
+            entries.append({
+                "kind": "card", "id": cid, "date": cid.split(".")[0],
+                "ts": c["ts"], "who": c["who"], "text": c["text"],
+            })
+        for date, label in days.items():
+            entries.append({"kind": "day", "date": date, "label": label or ""})
+
+        def sort_key(e):
+            # Same "YYYY-MM-DD HH:MM:SS" shape for both, so plain string
+            # comparison sorts correctly across dates too — no datetime
+            # parsing needed. Day rows get "00:00:00" so they land first.
+            return e["ts"] if e["kind"] == "card" else e["date"] + " 00:00:00"
+
+        entries.sort(key=sort_key)
+
+        return jsonify({
+            "thread": {
+                "id": t["id"], "name": t["name"], "status": t.get("status", ""),
+                "kind": t.get("kind"), "fronts": t.get("fronts", []),
+                "people": _resolve_cast(t.get("people", [])),
+            },
+            "entries": entries,
+        })
+
     @app.route("/api/thread/talk", methods=["POST"])
     def thread_talk():
         """Spawn a fresh terminal session running `claude "/thread <slug>"` —

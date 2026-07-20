@@ -18,7 +18,13 @@ import {
   addCard,
   deleteCard as deleteCardRequest,
 } from '../../api/endpoints';
-import type { JournalDayBundle, ThreadDetail, ThreadsResponse, ThreadsTreeResponse } from './types';
+import type {
+  JournalDayBundle,
+  ThreadDetail,
+  ThreadJournalResponse,
+  ThreadsResponse,
+  ThreadsTreeResponse,
+} from './types';
 
 export const JOURNAL_DATES_KEY = ['journal', 'dates'] as const;
 export const JOURNAL_PEOPLE_KEY = ['journal', 'people'] as const;
@@ -44,6 +50,12 @@ function getThreadsTree(includeRetired: boolean, signal?: AbortSignal): Promise<
 /** GET /api/thread?name=<slug|name|alias> — one thread's parsed fact-cards. */
 function getThread(name: string, signal?: AbortSignal): Promise<ThreadDetail> {
   return api.get(`/api/thread?name=${encodeURIComponent(name)}`, signal);
+}
+
+/** GET /api/thread/<slug>/journal — the thread's whole journal stream
+ * (tagged pool cards ∪ cited sources), for the thread's own page. */
+function getThreadJournal(id: string, signal?: AbortSignal): Promise<ThreadJournalResponse> {
+  return api.get(`/api/thread/${encodeURIComponent(id)}/journal`, signal);
 }
 
 export function journalDayKey(date: string) {
@@ -114,6 +126,15 @@ export function useThread(id: string | null) {
   return useQuery({
     queryKey: ['journal', 'thread', id ?? ''],
     queryFn: ({ signal }) => getThread(id as string, signal),
+    enabled: !!id,
+  });
+}
+
+/** The full read-only journal stream for one thread — /threads/$slug's page. */
+export function useThreadJournal(id: string | null) {
+  return useQuery({
+    queryKey: ['journal', 'threadJournal', id ?? ''],
+    queryFn: ({ signal }) => getThreadJournal(id as string, signal),
     enabled: !!id,
   });
 }

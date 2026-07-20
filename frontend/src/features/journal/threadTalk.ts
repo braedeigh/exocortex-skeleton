@@ -30,7 +30,7 @@ export function talkLabel(state: TalkState): string {
     case 'sending':
       return 'Starting…';
     case 'sent':
-      return 'Session started ✓ — it’s in your sessions bar';
+      return 'Session started ✓ — talking in the terminal';
     case 'error':
       return 'Couldn’t start the session — tap to retry';
     default:
