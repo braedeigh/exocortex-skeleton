@@ -332,11 +332,12 @@ def register(app):
         carry minute precision while finished_on and ?date are date-only).
         Each row is enriched with `marked` (raw done_at, when present — the
         frontend formats it) and `note` (finished_note, when present).
-        Also returns `marked_items`: done to-dos TAPPED on ?date with a
-        minute on their stamp — the journal stream interleaves these
-        between entries by time. A day-only legacy stamp has no position
-        to stand on, so it stays out of marked_items (the summary card
-        still shows it). Scans every bucket: items finished today are
+        Also returns `marked_items`: the journal stream weaves these
+        between entries by time. A marker sits at the most precise
+        moment she's claimed — finished_on + finished_time when she set
+        them, else the tap stamp's minute. A claim or stamp with no
+        minute has no position to stand on, so it stays out of
+        marked_items (the summary card still shows it). Scans every bucket: items finished today are
         still in their ladder bucket until tomorrow's sweep
         (_sweep_done_todos only archives done_at < today). Reads the
         store raw on purpose — load_todos() would trigger the sweep's
@@ -354,11 +355,22 @@ def register(app):
                 if not (isinstance(item, dict) and item.get("done")):
                     continue
                 done_at = item.get("done_at") or ""
-                if done_at[:10] == date and len(done_at) > 10:
+                # The marker's moment: her edited claim when it carries a
+                # time, else the tap stamp when it carries a minute. A
+                # day-only claim deliberately yields NO marker — the claim
+                # overrides the tap, and it has no minute to stand on.
+                if item.get("finished_on"):
+                    marker_day = item["finished_on"] if item.get("finished_time") else None
+                    marker_time = item.get("finished_time")
+                elif len(done_at) > 10:
+                    marker_day, marker_time = done_at[:10], done_at[11:16]
+                else:
+                    marker_day = None
+                if marker_day == date:
                     marked_items.append({
                         "id": item.get("id"),
                         "text": item.get("text", ""),
-                        "time": done_at[11:16],
+                        "time": marker_time,
                     })
                 # done_at may carry minute precision ('YYYY-MM-DDTHH:MM');
                 # finished_on is always date-only. Compare day parts only.

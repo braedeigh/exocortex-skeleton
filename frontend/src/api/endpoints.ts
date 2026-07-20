@@ -56,13 +56,15 @@ export interface ClearedTodo {
   note?: string;
 }
 
-/** A done to-do TAPPED on the queried day, with a minute on its stamp —
- * the journal stream interleaves these between entries by time. Legacy
- * day-only stamps have no position to stand on and never appear here. */
+/** A done to-do whose completion moment lands on the queried day — the
+ * journal stream interleaves these between entries by time. The moment is
+ * the most precise thing she's claimed: finished_on + finished_time when
+ * set, else the tap stamp's minute. Day-only values (legacy stamps, or a
+ * claimed day without a time) have no position and never appear here. */
 export interface MarkedTodo {
   id: string;
   text: string;
-  /** 'HH:MM' from the done_at stamp. */
+  /** 'HH:MM'. */
   time: string;
 }
 
@@ -197,10 +199,6 @@ export function removeActivity(date: string, type: string): Promise<OkResponse> 
 
 export function snoozeReminder(id: string, days: number): Promise<OkResponse> {
   return api.post('/api/reminders/snooze', { id, days });
-}
-
-export function saveReminders(reminders: unknown[]): Promise<OkResponse> {
-  return api.post('/api/reminders/save', { reminders });
 }
 
 export function saveReminders(reminders: unknown[]): Promise<OkResponse> {

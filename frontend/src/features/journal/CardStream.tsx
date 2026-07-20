@@ -10,9 +10,10 @@ import styles from './CardStream.module.css';
 
 export interface CardStreamProps {
   cards: Card[];
-  /** Minute-stamped to-do taps for this day — woven between entries by
-   * time-of-day. Computed overlay, not cards: nothing is minted, an
-   * un-check makes the footprint vanish. */
+  /** This day's to-do completion moments — woven between entries by
+   * time-of-day. Each sits at the most precise moment she's claimed
+   * (edited finished time, else the tap minute). Computed overlay, not
+   * cards: nothing is minted, an un-check makes the footprint vanish. */
   markers?: MarkedTodo[];
   editingCardId: string | null;
   savingCardId: string | null;

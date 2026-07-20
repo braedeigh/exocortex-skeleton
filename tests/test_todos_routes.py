@@ -361,25 +361,27 @@ def test_cleared_missing_date_returns_empty(client, seed):
     assert r.get_json() == {"items": [], "marked_items": []}
 
 
-def test_cleared_marked_items_need_a_minute_and_follow_the_tap_day(client, seed):
+def test_cleared_marker_moment_prefers_the_edited_claim(client, seed):
     seed({"now": {"items": [
-        # Tapped on D with a minute — interleavable.
+        # Untouched timed tap — marker at the tap minute.
         {"id": "a", "text": "Timed tap", "done": True, "done_at": "2026-07-19T09:15"},
-        # Legacy day-only stamp — cleared that day, but no position to stand on.
+        # Legacy day-only stamp — no minute, no marker (summary card only).
         {"id": "b", "text": "Legacy tap", "done": True, "done_at": "2026-07-19"},
-        # Tapped on D but completed another day — marker on D, summary card elsewhere.
-        {"id": "c", "text": "Corrected", "done": True,
-         "done_at": "2026-07-19T10:00", "finished_on": "2026-07-18"},
-        # Tapped another day — no marker on D.
-        {"id": "d", "text": "Other day", "done": True, "done_at": "2026-07-18T08:00"},
+        # Claimed a full moment — marker moves to the claim, off the tap day.
+        {"id": "c", "text": "Claimed moment", "done": True,
+         "done_at": "2026-07-19T10:00", "finished_on": "2026-07-18", "finished_time": "08:00"},
+        # Claimed a day without a time — claim overrides the tap, no minute,
+        # so no marker anywhere.
+        {"id": "d", "text": "Day-only claim", "done": True,
+         "done_at": "2026-07-19T11:00", "finished_on": "2026-07-18"},
     ]}})
-    body = client.get("/api/todos/cleared?date=2026-07-19").get_json()
-    assert body["marked_items"] == [
-        {"id": "a", "text": "Timed tap", "time": "09:15"},
-        {"id": "c", "text": "Corrected", "time": "10:00"},
-    ]
-    # The summary list still files by EFFECTIVE day: a and b (c moved to the 18th).
-    assert {i["id"] for i in body["items"]} == {"a", "b"}
+    day19 = client.get("/api/todos/cleared?date=2026-07-19").get_json()
+    assert day19["marked_items"] == [{"id": "a", "text": "Timed tap", "time": "09:15"}]
+    # Summary still files by EFFECTIVE day: a and b here, c and d on the 18th.
+    assert {i["id"] for i in day19["items"]} == {"a", "b"}
+    day18 = client.get("/api/todos/cleared?date=2026-07-18").get_json()
+    assert day18["marked_items"] == [{"id": "c", "text": "Claimed moment", "time": "08:00"}]
+    assert {i["id"] for i in day18["items"]} == {"c", "d"}
 
 
 # --- snooze ------------------------------------------------------------------
