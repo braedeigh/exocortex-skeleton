@@ -420,6 +420,8 @@ def register(app):
         with every pool card whose TEXT mentions the thread by name/alias
         (word-boundary, case-insensitive — same spirit as entityHighlight.ts's
         matcher on the client), plus a day row for every bare-day citation.
+        Keeper-authored cards (`who: K`) are excluded — her call, 2026-07-20:
+        a thread's journal is her record, not the keeper's commentary.
         Ascending, day rows sorting before that day's cards."""
         slug = (slug or "").strip().lower()
         t = threads_index().get(slug)
@@ -461,6 +463,11 @@ def register(app):
 
         entries = []
         for cid, c in cards.items():
+            # One choke point for the keeper filter: a K card cited by id still
+            # counts as "in pool" above (no bogus day-row fallback), it just
+            # never becomes an entry.
+            if c["who"] == "K":
+                continue
             entries.append({
                 "kind": "card", "id": cid, "date": cid.split(".")[0],
                 "ts": c["ts"], "who": c["who"], "text": c["text"],

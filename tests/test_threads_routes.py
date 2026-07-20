@@ -582,3 +582,78 @@ def test_journal_excludes_alias_matching_only_as_a_substring(vault):
 def test_journal_thread_payload_echoes_aliases(vault_client):
     data = vault_client.get("/api/thread/long-covid/journal").get_json()
     assert data["thread"]["aliases"] == ["long covid", "LC"]
+
+
+# --- keeper-authored cards are excluded --------------------------------------
+
+def test_journal_excludes_keeper_authored_cards(vault):
+    # Her call (2026-07-20): a thread's journal is her record — a `who: K`
+    # card never appears, whether it arrived tagged, by mention, or cited.
+    cards_dir = vault / "_system" / "data" / "cards"
+    (cards_dir / "2026-07-20.0900k.md").write_text(
+        "---\n"
+        "id: 2026-07-20.0900k\n"
+        "who: K\n"
+        "ts: 2026-07-20 09:00:00\n"
+        "tags: [long-covid]\n"
+        "kind: line\n"
+        "---\n"
+        "Keeper commentary about her LC day.\n"
+    )
+    (cards_dir / "2026-07-20.0905b.md").write_text(
+        "---\n"
+        "id: 2026-07-20.0905b\n"
+        "who: B\n"
+        "ts: 2026-07-20 09:05:00\n"
+        "tags: [long-covid]\n"
+        "kind: line\n"
+        "---\n"
+        "My own words about the LC day.\n"
+    )
+    from flask import Flask
+    app = Flask(__name__)
+    app.config.update(TESTING=True)
+    threads.register(app)
+    data = app.test_client().get("/api/thread/long-covid/journal").get_json()
+    card_ids = [e["id"] for e in data["entries"] if e["kind"] == "card"]
+    assert "2026-07-20.0905b" in card_ids
+    assert "2026-07-20.0900k" not in card_ids
+
+
+def test_journal_cited_keeper_card_yields_no_entry_and_no_day_row(vault):
+    # A fact-card citing a K card by id: the card exists in the pool, so it
+    # must not masquerade as a pre-pool id (no day-row fallback) — it simply
+    # produces nothing.
+    (vault / "Threads" / "k-cited.md").write_text(
+        "---\n"
+        "name: K Cited\n"
+        "aliases: []\n"
+        "fronts: [health]\n"
+        "parents: []\n"
+        "kind: standing\n"
+        "status: active\n"
+        "opened: 2026-07-20\n"
+        "retired:\n"
+        "distilled:\n"
+        "---\n\n"
+        "## Something the keeper noted\n"
+        "A cited keeper observation.\n"
+        "→ `2026-07-19.2100k`\n"
+    )
+    cards_dir = vault / "_system" / "data" / "cards"
+    (cards_dir / "2026-07-19.2100k.md").write_text(
+        "---\n"
+        "id: 2026-07-19.2100k\n"
+        "who: K\n"
+        "ts: 2026-07-19 21:00:00\n"
+        "tags: []\n"
+        "kind: line\n"
+        "---\n"
+        "A keeper note that got cited.\n"
+    )
+    from flask import Flask
+    app = Flask(__name__)
+    app.config.update(TESTING=True)
+    threads.register(app)
+    data = app.test_client().get("/api/thread/k-cited/journal").get_json()
+    assert data["entries"] == []
