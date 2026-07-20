@@ -259,7 +259,6 @@ export function TodosPage() {
   return (
     <div className={styles.page}>
       <SnoozedCard items={snoozed} onUnsnooze={(id) => todoActions.snooze(id, 0)} />
-      <WaitingCard entries={waiting} onClear={(id) => todoActions.details(id, { after_date: '', after_id: '' })} />
 
       {!isPublic ? (
         <>
@@ -434,6 +433,14 @@ export function TodosPage() {
                   onMove={todoActions.move}
                 />
               ) : null}
+
+              {/* Waiting lives at the very bottom, below Done — it's the
+                  "not actionable yet" tail of the column, not a headline
+                  (used to render at the very top of the page). */}
+              <WaitingCard
+                entries={waiting}
+                onClear={(id) => todoActions.details(id, { after_date: '', after_id: '' })}
+              />
             </>
           )}
         </div>
