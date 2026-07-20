@@ -21,6 +21,8 @@ describe('emptyDraft', () => {
       dueBy: '',
       fronts: [],
       durationMin: '',
+      finishedOn: '',
+      finishedTime: '',
     });
   });
   it('applies prefill text/dueBy/fronts', () => {
@@ -44,6 +46,8 @@ describe('draftFromItem', () => {
       afterId: '',
       fronts: [],
       durationMin: '',
+      finishedOn: '',
+      finishedTime: '',
     });
   });
   it('carries over populated fields, stringifying duration', () => {
@@ -55,6 +59,8 @@ describe('draftFromItem', () => {
       duration_min: 30,
       after_date: '2026-08-05',
       after_id: 'blocker-1',
+      finished_on: '2026-08-03',
+      finished_time: '14:30',
     });
     const d = draftFromItem(item, 'Up Next');
     expect(d).toMatchObject({
@@ -65,6 +71,8 @@ describe('draftFromItem', () => {
       durationMin: '30',
       afterDate: '2026-08-05',
       afterId: 'blocker-1',
+      finishedOn: '2026-08-03',
+      finishedTime: '14:30',
     });
   });
 });
@@ -159,6 +167,34 @@ describe('diffDraftForSave — duration', () => {
   });
 });
 
+describe('diffDraftForSave — finished', () => {
+  it('setting finishedOn/finishedTime from empty produces a patch with the new values', () => {
+    const item = baseItem({ done: true, done_at: '2026-08-01' });
+    const d = draftFromItem(item, 'Now');
+    d.finishedOn = '2026-08-01';
+    d.finishedTime = '09:15';
+    const diff = diffDraftForSave(d, item, 'Now');
+    expect(diff.patch.finished_on).toBe('2026-08-01');
+    expect(diff.patch.finished_time).toBe('09:15');
+  });
+  it('clearing finishedOn/finishedTime maps to ""', () => {
+    const item = baseItem({ done: true, finished_on: '2026-08-01', finished_time: '09:15' });
+    const d = draftFromItem(item, 'Now');
+    d.finishedOn = '';
+    d.finishedTime = '';
+    const diff = diffDraftForSave(d, item, 'Now');
+    expect(diff.patch.finished_on).toBe('');
+    expect(diff.patch.finished_time).toBe('');
+  });
+  it('unchanged finished fields keep the patch keys absent', () => {
+    const item = baseItem({ done: true, finished_on: '2026-08-01', finished_time: '09:15' });
+    const d = draftFromItem(item, 'Now');
+    const diff = diffDraftForSave(d, item, 'Now');
+    expect(diff.patch).not.toHaveProperty('finished_on');
+    expect(diff.patch).not.toHaveProperty('finished_time');
+  });
+});
+
 describe('draftToAddPayload', () => {
   it('maps text to item and omits empty optional keys', () => {
     const d = draft({ text: '  Buy milk  ' });
@@ -190,6 +226,12 @@ describe('draftToAddPayload', () => {
   it('a non-positive duration is treated as unset', () => {
     const d = draft({ durationMin: '0' });
     expect(draftToAddPayload(d)).not.toHaveProperty('duration_min');
+  });
+  it('excludes finishedOn/finishedTime even when set on the draft', () => {
+    const d = draft({ finishedOn: '2026-08-01', finishedTime: '09:15' });
+    const payload = draftToAddPayload(d);
+    expect(payload).not.toHaveProperty('finished_on');
+    expect(payload).not.toHaveProperty('finished_time');
   });
 });
 

@@ -30,6 +30,11 @@ export interface TodoItem {
   fronts?: string[] | null;
   duration_min?: number | null;
   done_at?: string | null;
+  /** Assignable "actually done" moment (edit form's Done block) — distinct
+   * from `done_at`, which is the auto date-only stamp of when she marked it
+   * done. */
+  finished_on?: string | null;
+  finished_time?: string | null;
   snoozed_until?: string | null;
   /** "Do after" — hidden until this date arrives (see isWaiting in todoHelpers). */
   after_date?: string | null;

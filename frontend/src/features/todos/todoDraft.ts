@@ -22,6 +22,9 @@ export interface TodoDraft {
   afterId: string;
   fronts: string[];
   durationMin: string; // input-friendly string, '' = none
+  // Edit-only — the assignable "actually done" moment (see TodoItem.finished_on).
+  finishedOn: string;
+  finishedTime: string;
 }
 
 /** A fresh draft for the "+ add" flow, opened preset to `section`. `prefill`
@@ -41,6 +44,8 @@ export function emptyDraft(
     afterId: '',
     fronts: prefill?.fronts ?? [],
     durationMin: '',
+    finishedOn: '',
+    finishedTime: '',
   };
 }
 
@@ -57,6 +62,8 @@ export function draftFromItem(item: TodoItem, section: string): TodoDraft {
     afterId: item.after_id || '',
     fronts: itemFronts(item),
     durationMin: item.duration_min ? String(item.duration_min) : '',
+    finishedOn: item.finished_on || '',
+    finishedTime: item.finished_time || '',
   };
 }
 
@@ -100,6 +107,8 @@ export function draftToAddPayload(draft: TodoDraft): AddTodoPayload {
   if (draft.fronts.length > 0) payload.fronts = draft.fronts;
   const duration = parseDurationInput(draft.durationMin);
   if (duration !== null) payload.duration_min = duration;
+  // finishedOn/finishedTime are deliberately excluded here — "actually done"
+  // only makes sense for an edit on an already-done item, never at add time.
   return payload;
 }
 
@@ -153,6 +162,12 @@ export function diffDraftForSave(draft: TodoDraft, base: TodoItem, baseSection: 
   const baseDuration = base.duration_min && base.duration_min > 0 ? base.duration_min : null;
   const draftDuration = parseDurationInput(draft.durationMin);
   if (draftDuration !== baseDuration) patch.duration_min = draftDuration ?? 0;
+
+  const baseFinishedOn = base.finished_on ?? '';
+  if (draft.finishedOn !== baseFinishedOn) patch.finished_on = draft.finishedOn;
+
+  const baseFinishedTime = base.finished_time ?? '';
+  if (draft.finishedTime !== baseFinishedTime) patch.finished_time = draft.finishedTime;
 
   const moveTo = draft.section !== baseSection ? draft.section : undefined;
 

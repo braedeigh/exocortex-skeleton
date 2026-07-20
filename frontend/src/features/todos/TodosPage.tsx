@@ -12,7 +12,6 @@ import { NotNowCard } from './NotNowCard';
 import type { NotNowEntry } from './NotNowCard';
 import { NotesPill } from './NotesPill';
 import { UpNowCard } from './UpNowCard';
-import { ReminderCard } from './ReminderCard';
 import { SnoozedCard } from './SnoozedCard';
 import { StreakSheet } from './StreakSheet';
 import { StreaksRow } from './StreaksRow';
@@ -277,20 +276,27 @@ export function TodosPage() {
           {/* TODO(habits phase 2): "Show hidden prompts" expand-all toggle
               lived here (old #expand-btn next to date-text). */}
           <StreaksRow streaks={streaks} onOpen={(s) => setStreakKey({ label: s.label, since: s.since })} />
-          {/* Push notifications (sheets, estradiol, etc.) — moved down here
-              with the day trackers, below the greeting (dev note 3c3a4dd3;
-              used to render above the greeting at the very top of the page). */}
-          {data.reminders ? (
-            <ReminderCard
-              reminders={data.reminders}
-              activityLog={data.activity_log}
-              serverDate={data.server_date}
-              timeOfDay={data.time_of_day}
-              onLog={reminderActions.log}
-              onUndo={reminderActions.undo}
-              onSnooze={reminderActions.snooze}
-            />
-          ) : null}
+          {/* The one attention surface: due reminders (formerly the push-
+              notification banners — merged 2026-07-20, replacing ReminderCard)
+              + overdue/due-today to-dos, with the Tomorrow look-ahead under
+              it. Kept below the greeting per dev note 3c3a4dd3. */}
+          <UpNowCard
+            items={upNow}
+            reminders={data.reminders || []}
+            activityLog={data.activity_log || []}
+            serverDate={serverDate}
+            timeOfDay={data.time_of_day}
+            onToggle={todoActions.toggle}
+            onOpenDetail={setSelected}
+            onLog={reminderActions.log}
+            onUndo={reminderActions.undo}
+            onSnooze={reminderActions.snooze}
+          />
+          <TomorrowCard
+            items={tomorrowItems}
+            onToggle={todoActions.toggle}
+            onOpenDetail={setSelected}
+          />
           <GraduationPrompts
             habits={habits}
             hidden={data.habit_settings?.hidden || []}
@@ -387,17 +393,6 @@ export function TodosPage() {
                 onExpand={(pre) => setAddDraft(pre)}
                 focusFront={focusFront}
                 fronts={fronts}
-              />
-              <UpNowCard
-                items={upNow}
-                serverDate={serverDate}
-                onToggle={todoActions.toggle}
-                onOpenDetail={setSelected}
-              />
-              <TomorrowCard
-                items={tomorrowItems}
-                onToggle={todoActions.toggle}
-                onOpenDetail={setSelected}
               />
 
               {focusFront && focusCounts.total === 0 ? (

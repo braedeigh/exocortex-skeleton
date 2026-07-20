@@ -44,8 +44,8 @@ export interface TodoFormSheetProps {
  * The unified full-fat to-do form — one modal for both "+ add" and "edit
  * to-do". Every option the form supports is visible flat (no "more options"
  * progressive disclosure): title, section, notes, sub-tasks (edit only),
- * focus fronts, due, do-after, duration, and an "Added" meta line (edit
- * only).
+ * focus fronts, due, do-after, duration, a Done block (edit only, when the
+ * item is already done), and an "Added" meta line (edit only).
  *
  * Nothing commits until Save/Add — the whole form stages into a single
  * `TodoDraft`, and `diffDraftForSave` (edit) / `draftToAddPayload` (add) turn
@@ -383,7 +383,46 @@ export function TodoFormSheet({
         </div>
       </div>
 
-      {/* 9. Added meta (edit only) */}
+      {/* 9. Done — edit only, and only once the item is actually done. Lets
+          her assign the "actually done" moment (finished_on/finished_time),
+          distinct from done_at (the auto date-only stamp of when she marked
+          it done). A time without a date is legal in the draft — the
+          Cleared view ignores finished_time unless finished_on is set. */}
+      {mode === 'edit' && item?.done ? (
+        <div className={styles.field}>
+          <span className={styles.label}>Done</span>
+          {item.done_at ? (
+            <span className={styles.meta}>Marked done {fmtAddedDate(item.done_at)}</span>
+          ) : null}
+          <div className={styles.row2}>
+            <input
+              className={styles.input}
+              type="date"
+              value={draft.finishedOn}
+              onChange={(e) => patch((d) => ({ ...d, finishedOn: e.target.value }))}
+              aria-label="Actually done date"
+            />
+            <input
+              className={styles.input}
+              type="time"
+              value={draft.finishedTime}
+              onChange={(e) => patch((d) => ({ ...d, finishedTime: e.target.value }))}
+              aria-label="Actually done time"
+            />
+          </div>
+          {draft.finishedOn ? (
+            <button
+              type="button"
+              className={styles.chip}
+              onClick={() => patch((d) => ({ ...d, finishedOn: '', finishedTime: '' }))}
+            >
+              &#8617; Remove date
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* 10. Added meta (edit only) */}
       {mode === 'edit' && item?.created ? (
         <div className={styles.meta}>Added {fmtAddedDate(item.created)}</div>
       ) : null}
