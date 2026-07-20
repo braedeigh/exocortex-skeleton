@@ -53,6 +53,34 @@
   flex: 1;
 }
 
+.replyContext {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: var(--tap-target);
+  margin: 0 0 var(--space-2);
+  padding: 0 var(--space-3);
+  border: none;
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  font-style: italic;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  /* Single line — a long snippet clips with an ellipsis rather than growing
+     the card. */
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.replyContext:hover {
+  color: var(--accent);
+}
+
 .body {
   font-size: var(--font-size-base);
   line-height: 1.65;

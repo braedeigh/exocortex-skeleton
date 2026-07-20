@@ -107,6 +107,47 @@ def _stream_error_response(result, fallback):
     return jsonify({"error": err}), status
 
 
+def _reply_thread(card):
+    """First of `card`'s own tags that names a live thread slug, else None.
+    `routes.threads` is imported lazily (like routes/threads.py does with
+    routes/terminal.py) so importing cards.py never pays for parsing the
+    Threads/ dir, and the threads_index() call itself is wrapped so a
+    content-dir-less test of some unrelated route can't crash just because
+    cards.py went looking for thread files that aren't there."""
+    from routes import threads
+    try:
+        idx = threads.threads_index()
+    except Exception:
+        return None
+    for tag in card.get("tags", []):
+        if tag in idx:
+            return tag
+    return None
+
+
+def _reply_context(card):
+    """A reply card's context sidecar for the day view: the parent card's
+    date + a truncated (first ~12 words) snippet of its body, plus the
+    thread slug this NOTE's own tags resolve to (if any). None if the parent
+    card no longer exists on disk."""
+    reply_to = card.get("reply_to")
+    if not reply_to:
+        return None
+    parent = _read_card(reply_to)
+    if parent is None:
+        return None
+    words = parent["body"].split()
+    snippet = " ".join(words[:12])
+    if len(words) > 12:
+        snippet += "…"
+    return {
+        "id": reply_to,
+        "date": reply_to.split(".")[0],
+        "snippet": snippet,
+        "thread": _reply_thread(card),
+    }
+
+
 def _day_cards(date):
     """Every card for one day, parsed straight off the pool. Shared by
     GET /api/cards/<date> and the add handler, which needs the day's existing
@@ -169,10 +210,18 @@ def register(app):
     def get_cards(date):
         if not DATE_RE.match(date):
             return jsonify({"error": "invalid date"}), 400
+        day_cards = _day_cards(date)
+        # Reply context is a day-view-only enrichment (the journal margin-note
+        # chip) — add/update/delete responses return the bare card so a save
+        # round-trip isn't burdened with a parent lookup + thread scan it
+        # doesn't need.
+        for c in day_cards:
+            if c.get("reply_to"):
+                c["reply_context"] = _reply_context(c)
         return jsonify({
             "date": date,
             "editable": date >= CARDS_CUTOVER,
-            "cards": _day_cards(date),
+            "cards": day_cards,
         })
 
     @app.route("/api/cards/add", methods=["POST"])

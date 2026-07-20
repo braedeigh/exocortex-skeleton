@@ -318,3 +318,108 @@ def test_add_card_absent_reply_to_behaves_exactly_as_before(client, vault, monke
     assert resp.status_code == 200
     card = resp.get_json()
     assert card["reply_to"] is None
+
+
+# --- GET /api/cards/<date> — reply_context enrichment -----------------------
+#
+# A card minted as a thread margin-note carries `reply_to` (the parent card
+# id) and `tags: [<thread-slug>, ...]`. The day view (only) enriches such a
+# card with a `reply_context` sidecar: the parent's date, a truncated first-
+# ~12-word snippet of its body, and the thread slug (from the NOTE's own
+# tags) when one resolves against Threads/*.md.
+
+LONG_PARENT_CARD = """---
+id: 2026-07-08.0600b
+who: B
+ts: 2026-07-08 06:00:00
+reply_to: null
+tags: []
+kind: line
+---
+This is a long morning note with more than twelve words in its body to test truncation behavior.
+"""
+
+THREAD_MD = """---
+name: Khalil
+aliases: []
+status: active
+---
+
+## Notes
+Placeholder thread body.
+"""
+
+
+def test_get_cards_reply_context_has_truncated_snippet_and_resolved_thread(client, vault):
+    (vault / "Threads").mkdir()
+    (vault / "Threads" / "khalil.md").write_text(THREAD_MD)
+    pool = vault / "_system" / "data" / "cards"
+    (pool / "2026-07-08.0600b.md").write_text(LONG_PARENT_CARD)
+    (pool / "2026-07-08.0900b.md").write_text(
+        "---\n"
+        "id: 2026-07-08.0900b\n"
+        "who: B\n"
+        "ts: 2026-07-08 09:00:00\n"
+        "reply_to: 2026-07-08.0600b\n"
+        "tags: [khalil]\n"
+        "kind: line\n"
+        "---\n"
+        "Following up on that morning note.\n"
+    )
+    resp = client.get("/api/cards/2026-07-08")
+    assert resp.status_code == 200
+    card = _by_id(resp.get_json(), "2026-07-08.0900b")
+    assert card["reply_context"] == {
+        "id": "2026-07-08.0600b",
+        "date": "2026-07-08",
+        "snippet": "This is a long morning note with more than twelve words in…",
+        "thread": "khalil",
+    }
+
+
+def test_get_cards_reply_context_none_when_parent_missing(client, vault):
+    pool = vault / "_system" / "data" / "cards"
+    (pool / "2026-07-08.0905b.md").write_text(
+        "---\n"
+        "id: 2026-07-08.0905b\n"
+        "who: B\n"
+        "ts: 2026-07-08 09:05:00\n"
+        "reply_to: 2026-07-08.9999b\n"
+        "tags: []\n"
+        "kind: line\n"
+        "---\n"
+        "Reply to a parent that no longer exists.\n"
+    )
+    resp = client.get("/api/cards/2026-07-08")
+    assert resp.status_code == 200
+    card = _by_id(resp.get_json(), "2026-07-08.0905b")
+    # reply_to itself still comes through even though the parent is gone.
+    assert card["reply_to"] == "2026-07-08.9999b"
+    assert card["reply_context"] is None
+
+
+def test_get_cards_reply_context_absent_key_when_no_reply_to(client):
+    resp = client.get("/api/cards/2026-07-08")
+    assert resp.status_code == 200
+    card = _by_id(resp.get_json(), "2026-07-08.0734b")
+    assert card["reply_to"] is None
+    assert "reply_context" not in card
+
+
+def test_get_cards_reply_context_thread_none_for_non_thread_tag(client, vault):
+    pool = vault / "_system" / "data" / "cards"
+    (pool / "2026-07-08.0910b.md").write_text(
+        "---\n"
+        "id: 2026-07-08.0910b\n"
+        "who: B\n"
+        "ts: 2026-07-08 09:10:00\n"
+        "reply_to: 2026-07-08.0734b\n"
+        "tags: [not-a-thread]\n"
+        "kind: line\n"
+        "---\n"
+        "Another reply, tagged with something that isn't a thread.\n"
+    )
+    resp = client.get("/api/cards/2026-07-08")
+    assert resp.status_code == 200
+    card = _by_id(resp.get_json(), "2026-07-08.0910b")
+    assert card["reply_context"]["thread"] is None

@@ -16,6 +16,9 @@ export interface EntryCardProps {
   onCancel: () => void;
   onSave: (id: string, body: string) => void;
   onConfirmDelete: (id: string) => void;
+  /** Tapped on the reply-context chip (read mode only) — navigates to the
+   * note's thread page when one resolves, else the parent's journal day. */
+  onReplyContextClick?: (ctx: NonNullable<Card['reply_context']>) => void;
 }
 
 /** "8:46 AM" from "YYYY-MM-DD HH:MM:SS" — string ops only, no Date/timezone games. */
@@ -27,7 +30,33 @@ function cardClock(ts: string): string {
   return `${h12}:${m} ${h >= 12 ? 'PM' : 'AM'}`;
 }
 
-export function EntryCard({ card, editing, saving, matcher, onEdit, onCancel, onSave, onConfirmDelete }: EntryCardProps) {
+const MONTH_ABBR = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+];
+
+/** "2026-02-27" -> "Feb 27" — string ops on the date parts only, no
+ * Date()/timezone games (house convention; mirrors ThreadJournalPage's
+ * formatDate, minus the year suffix — a reply chip never needs it). */
+function formatReplyDate(date: string): string {
+  const monthIdx = parseInt(date.slice(5, 7), 10) - 1;
+  const day = parseInt(date.slice(8, 10), 10);
+  const name = MONTH_ABBR[monthIdx];
+  if (!name || Number.isNaN(day)) return date;
+  return `${name} ${day}`;
+}
+
+export function EntryCard({
+  card,
+  editing,
+  saving,
+  matcher,
+  onEdit,
+  onCancel,
+  onSave,
+  onConfirmDelete,
+  onReplyContextClick,
+}: EntryCardProps) {
   const [draft, setDraft] = useState(card.body);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
@@ -95,10 +124,21 @@ export function EntryCard({ card, editing, saving, matcher, onEdit, onCancel, on
           </div>
         </>
       ) : (
-        <div
-          className={`${styles.body} ${isK ? styles.body_K : ''} ${isContext ? styles.body_context : ''}`}
-          dangerouslySetInnerHTML={{ __html: bodyHtml }}
-        />
+        <>
+          {card.reply_context ? (
+            <button
+              type="button"
+              className={styles.replyContext}
+              onClick={() => onReplyContextClick?.(card.reply_context!)}
+            >
+              &#8627; note on {formatReplyDate(card.reply_context.date)} — &#8220;{card.reply_context.snippet}&#8221;
+            </button>
+          ) : null}
+          <div
+            className={`${styles.body} ${isK ? styles.body_K : ''} ${isContext ? styles.body_context : ''}`}
+            dangerouslySetInnerHTML={{ __html: bodyHtml }}
+          />
+        </>
       )}
 
       <Sheet open={confirmOpen} onClose={() => setConfirmOpen(false)} title="Delete this entry?">

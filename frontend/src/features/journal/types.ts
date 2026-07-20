@@ -20,7 +20,7 @@ export interface Card {
   who: CardWho;
   /** "YYYY-MM-DD HH:MM:SS" — always sliced as a string, never Date-parsed. */
   ts: string;
-  reply_to: string | null;
+  reply_to?: string | null;
   tags: string[];
   /** "line" | "context" | "ref" | "" */
   kind: string;
@@ -32,6 +32,15 @@ export interface Card {
    * meaningful when kind === "ref". See refTargets.ts for classification.
    */
   refs: string[];
+  /**
+   * Day-view-only enrichment (routes/cards.py get_cards) for a card that
+   * carries a `reply_to`: the parent card's date + a truncated (~12-word)
+   * snippet of its body, and the thread slug this card's own tags resolve
+   * to (if any). Absent when the card has no reply_to; null when the
+   * parent card no longer exists on disk. Not present on add/update
+   * responses — only the day GET enriches.
+   */
+  reply_context?: { id: string; date: string; snippet: string; thread: string | null } | null;
 }
 
 export interface CardsResponse {

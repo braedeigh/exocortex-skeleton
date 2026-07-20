@@ -15,6 +15,7 @@ import { JournalHeader } from './JournalHeader';
 import { JournalRail } from './JournalRail';
 import { PersonPopover } from './PersonPopover';
 import { ThreadPopover } from './ThreadPopover';
+import type { Card } from './types';
 import { resolveDayMode } from './types';
 import {
   useAddCard,
@@ -49,6 +50,11 @@ export function JournalPage() {
   const search = useSearch({ from: '/journal' });
   const navigate = useNavigate({ from: '/journal' });
 
+  // Unscoped, alongside the /journal-scoped `navigate` above — used only for
+  // the reply-context chip's cross-feature jump to a thread page (same
+  // pattern as ThreadPopover/ThreadsPage's plain useNavigate()).
+  const navigateTo = useNavigate();
+
   const serverDateQuery = useServerDate();
   const serverDate = serverDateQuery.data?.server_date ?? null;
 
@@ -63,6 +69,16 @@ export function JournalPage() {
 
   function goTo(date: string) {
     void navigate({ search: { date } });
+  }
+
+  /** The reply-context chip on a margin-note card: land on the note's thread
+   * page when its tags resolved one, else fall back to the parent's day. */
+  function onReplyContextClick(ctx: NonNullable<Card['reply_context']>) {
+    if (ctx.thread) {
+      void navigateTo({ to: '/threads/$slug', params: { slug: ctx.thread } });
+    } else {
+      goTo(ctx.date);
+    }
   }
 
   const { toasts, push, dismiss } = useToasts();
@@ -341,6 +357,7 @@ export function JournalPage() {
                 onConfirmDelete={(id) => requestDeleteCard(id, visibleCards.length === 1)}
                 onNavigateDate={goTo}
                 onPersonClick={setPopoverSlug}
+                onReplyContextClick={onReplyContextClick}
                 addSaving={addCard.isPending}
                 onComposeSave={async (body) => {
                   try {
