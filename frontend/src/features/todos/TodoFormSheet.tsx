@@ -1,14 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, Checkbox, IconButton, Sheet } from '../../ui';
 import { BlockerPicker } from './BlockerPicker';
-import {
-  LADDER_LABELS,
-  TODO_STATUSES,
-  addDays,
-  fmtAddedDate,
-  isWaiting,
-  waitingReason,
-} from './todoHelpers';
+import { LADDER_LABELS, addDays, fmtAddedDate, isWaiting, waitingReason } from './todoHelpers';
 import { emptyDraft, draftFromItem, draftToAddPayload, diffDraftForSave } from './todoDraft';
 import type { TodoDraft } from './todoDraft';
 import { FRONT_EMOJI } from '../fronts/useFronts';
@@ -53,9 +46,9 @@ const SNOOZE_WEEKS = [1, 2, 3, 4];
 /**
  * The unified full-fat to-do form — one modal for both "+ add" and "edit
  * to-do". Every option the form supports is visible flat (no "more options"
- * progressive disclosure): title, section, notes, due, do-after, status,
- * focus fronts, duration, snooze, and (edit only) sub-tasks + an "Added"
- * meta line.
+ * progressive disclosure): title, section, notes, sub-tasks (edit only),
+ * focus fronts, due, do-after, duration, snooze, and an "Added" meta line
+ * (edit only).
  *
  * Nothing commits until Save/Add — the whole form stages into a single
  * `TodoDraft`, and `diffDraftForSave` (edit) / `draftToAddPayload` (add) turn
@@ -232,7 +225,83 @@ export function TodoFormSheet({
         />
       </div>
 
-      {/* 4. Due */}
+      {/* 4. Sub-tasks (edit only — they commit instantly against the item's
+          id, so an unsaved add has nothing to attach them to) — always reads
+          the live item prop, never the draft. */}
+      {mode === 'edit' && item ? (
+        <div className={styles.field}>
+          <span className={styles.label}>Sub-tasks</span>
+          {item.subtasks?.length ? (
+            <div className={styles.subtaskList}>
+              {item.subtasks.map((sub) => (
+                <div key={sub.id} className={styles.subtaskRow}>
+                  <Checkbox
+                    checked={sub.done}
+                    onChange={() => actions.subtaskToggle(item.id, sub.id)}
+                    aria-label={sub.done ? `Mark ${sub.text} not done` : `Mark ${sub.text} done`}
+                  />
+                  <span className={`${styles.subtaskText} ${sub.done ? styles.subtaskDone : ''}`}>
+                    {sub.text}
+                  </span>
+                  <IconButton
+                    danger
+                    aria-label={`Remove sub-task ${sub.text}`}
+                    onClick={() => actions.subtaskRemove(item.id, sub.id)}
+                  >
+                    &times;
+                  </IconButton>
+                </div>
+              ))}
+            </div>
+          ) : null}
+          <form
+            className={styles.subtaskAddRow}
+            onSubmit={(e) => {
+              e.preventDefault();
+              const trimmed = newSubtask.trim();
+              if (!trimmed) return;
+              actions.subtaskAdd(item.id, trimmed);
+              setNewSubtask('');
+            }}
+          >
+            <input
+              className={styles.input}
+              type="text"
+              value={newSubtask}
+              onChange={(e) => setNewSubtask(e.target.value)}
+              placeholder="Add a sub-task…"
+              aria-label="New sub-task"
+            />
+            <Button type="submit" variant="secondary">
+              Add
+            </Button>
+          </form>
+        </div>
+      ) : null}
+
+      {/* 5. Focus — staged multi-select, unlike the old per-item editor's instant commit. */}
+      <div className={styles.field}>
+        <span className={styles.label}>Focus</span>
+        <div className={styles.chips}>
+          {fronts.map((f) => (
+            <button
+              type="button"
+              key={f.id}
+              className={`${styles.chip} ${draft.fronts.includes(f.id) ? styles.active : ''}`}
+              onClick={() =>
+                patch((d) => ({
+                  ...d,
+                  fronts: d.fronts.includes(f.id) ? d.fronts.filter((x) => x !== f.id) : [...d.fronts, f.id],
+                }))
+              }
+            >
+              {FRONT_EMOJI[f.id] || '🏷️'} {f.name}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* 6. Due */}
       <div className={styles.field}>
         <span className={styles.label}>Due</span>
         <div className={styles.row2}>
@@ -262,7 +331,7 @@ export function TodoFormSheet({
         ) : null}
       </div>
 
-      {/* 5. Do after */}
+      {/* 7. Do after */}
       <div className={styles.field}>
         <span className={styles.label}>Do after</span>
         <input
@@ -290,45 +359,6 @@ export function TodoFormSheet({
         {item && isWaiting(item, serverDate, todoIndex) ? (
           <span className={styles.meta}>Waiting {waitingReason(item, todoIndex)}</span>
         ) : null}
-      </div>
-
-      {/* 6. Status */}
-      <div className={styles.field}>
-        <span className={styles.label}>Status</span>
-        <div className={styles.chips}>
-          {TODO_STATUSES.map((s) => (
-            <button
-              type="button"
-              key={s.key}
-              className={`${styles.chip} ${draft.status === s.key ? styles.active : ''}`}
-              onClick={() => patch((d) => ({ ...d, status: d.status === s.key ? '' : s.key }))}
-            >
-              {s.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* 7. Focus — staged multi-select, unlike the old per-item editor's instant commit. */}
-      <div className={styles.field}>
-        <span className={styles.label}>Focus</span>
-        <div className={styles.chips}>
-          {fronts.map((f) => (
-            <button
-              type="button"
-              key={f.id}
-              className={`${styles.chip} ${draft.fronts.includes(f.id) ? styles.active : ''}`}
-              onClick={() =>
-                patch((d) => ({
-                  ...d,
-                  fronts: d.fronts.includes(f.id) ? d.fronts.filter((x) => x !== f.id) : [...d.fronts, f.id],
-                }))
-              }
-            >
-              {FRONT_EMOJI[f.id] || '🏷️'} {f.name}
-            </button>
-          ))}
-        </div>
       </div>
 
       {/* 8. Duration */}
@@ -408,61 +438,9 @@ export function TodoFormSheet({
         ) : null}
       </div>
 
-      {mode === 'edit' && item ? (
-        <>
-          {/* 10. Sub-tasks — instant, always reads the live item prop. */}
-          <div className={styles.field}>
-            <span className={styles.label}>Sub-tasks</span>
-            {item.subtasks?.length ? (
-              <div className={styles.subtaskList}>
-                {item.subtasks.map((sub) => (
-                  <div key={sub.id} className={styles.subtaskRow}>
-                    <Checkbox
-                      checked={sub.done}
-                      onChange={() => actions.subtaskToggle(item.id, sub.id)}
-                      aria-label={sub.done ? `Mark ${sub.text} not done` : `Mark ${sub.text} done`}
-                    />
-                    <span className={`${styles.subtaskText} ${sub.done ? styles.subtaskDone : ''}`}>
-                      {sub.text}
-                    </span>
-                    <IconButton
-                      danger
-                      aria-label={`Remove sub-task ${sub.text}`}
-                      onClick={() => actions.subtaskRemove(item.id, sub.id)}
-                    >
-                      &times;
-                    </IconButton>
-                  </div>
-                ))}
-              </div>
-            ) : null}
-            <form
-              className={styles.subtaskAddRow}
-              onSubmit={(e) => {
-                e.preventDefault();
-                const trimmed = newSubtask.trim();
-                if (!trimmed) return;
-                actions.subtaskAdd(item.id, trimmed);
-                setNewSubtask('');
-              }}
-            >
-              <input
-                className={styles.input}
-                type="text"
-                value={newSubtask}
-                onChange={(e) => setNewSubtask(e.target.value)}
-                placeholder="Add a sub-task…"
-                aria-label="New sub-task"
-              />
-              <Button type="submit" variant="secondary">
-                Add
-              </Button>
-            </form>
-          </div>
-
-          {/* 11. Added meta */}
-          {item.created ? <div className={styles.meta}>Added {fmtAddedDate(item.created)}</div> : null}
-        </>
+      {/* 10. Added meta (edit only) */}
+      {mode === 'edit' && item?.created ? (
+        <div className={styles.meta}>Added {fmtAddedDate(item.created)}</div>
       ) : null}
     </Sheet>
   );

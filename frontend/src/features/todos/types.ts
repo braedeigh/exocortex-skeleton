@@ -25,7 +25,6 @@ export interface TodoItem {
   due_time?: string | null;
   notes?: string | null;
   place_id?: string | null;
-  status?: string | null;
   /** Front ids (fronts.json) — a to-do can sit on several life fronts at
    * once. Absent or empty = untagged. Read via todoHelpers.itemFronts. */
   fronts?: string[] | null;

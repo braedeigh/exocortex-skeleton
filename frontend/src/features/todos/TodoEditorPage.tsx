@@ -7,7 +7,7 @@ import type { BulkSheetMode } from './BulkSheet';
 import { EditorRow } from './EditorRow';
 import { filterEditorTodos, flattenAllTodos } from './editorHelpers';
 import { FRONT_EMOJI, useFronts } from '../fronts/useFronts';
-import { DONE_LABEL, LADDER_LABELS, TODO_STATUSES, buildTodoIndex } from './todoHelpers';
+import { DONE_LABEL, LADDER_LABELS, buildTodoIndex } from './todoHelpers';
 import { TodoFormSheet } from './TodoFormSheet';
 import { isFrosted } from './types';
 import type { TodoItem } from './types';
@@ -40,7 +40,6 @@ export function TodoEditorPage() {
   const [search, setSearch] = useState('');
   const [sectionFilter, setSectionFilter] = useState('');
   const [frontFilter, setFrontFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
   const [selecting, setSelecting] = useState(false);
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(() => new Set());
   const [sheetMode, setSheetMode] = useState<BulkSheetMode | null>(null);
@@ -60,9 +59,8 @@ export function TodoEditorPage() {
         section: sectionFilter,
         search,
         front: frontFilter,
-        status: statusFilter,
       }),
-    [entries, sectionFilter, search, frontFilter, statusFilter],
+    [entries, sectionFilter, search, frontFilter],
   );
 
   const todoIndex = useMemo(() => buildTodoIndex(sections), [sections]);
@@ -216,19 +214,6 @@ export function TodoEditorPage() {
             </option>
           ))}
           <option value="__none__">&#127991;&#65039; Other</option>
-        </select>
-        <select
-          className={styles.select}
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          aria-label="Filter by status"
-        >
-          <option value="">Status: any</option>
-          {TODO_STATUSES.map((s) => (
-            <option key={s.key} value={s.key}>
-              {s.label}
-            </option>
-          ))}
         </select>
       </div>
 

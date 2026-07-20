@@ -25,7 +25,7 @@ function sections(): TodoSection[] {
       items: [item('c', { text: 'Waiting thing', after_date: '2026-07-20' })],
     },
     { name: 'Later', manual_order: false, items: [item('d')] },
-    { name: 'Someday', manual_order: false, items: [item('e', { status: 'waiting' })] },
+    { name: 'Someday', manual_order: false, items: [item('e')] },
     { name: 'Done', manual_order: false, items: [item('f', { done: true })] },
   ];
 }
@@ -85,10 +85,6 @@ describe('filterEditorTodos', () => {
   it('__none__ front matches only untagged items', () => {
     const out = filterEditorTodos(flattenAllTodos(sections(), TODAY), filters({ front: '__none__' }));
     expect(out.map((e) => e.item.id)).toEqual(['b', 'c', 'd', 'e']);
-  });
-  it('filters by status', () => {
-    const flat = flattenAllTodos(sections(), TODAY);
-    expect(filterEditorTodos(flat, filters({ status: 'waiting' })).map((e) => e.item.id)).toEqual(['e']);
   });
   it('combines section + search filters', () => {
     const out = filterEditorTodos(

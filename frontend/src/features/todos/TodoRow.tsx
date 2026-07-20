@@ -2,7 +2,7 @@ import type { PointerEvent as ReactPointerEvent } from 'react';
 import { Checkbox } from '../../ui';
 import { frontLabel } from '../fronts/useFronts';
 import type { Front } from '../fronts/useFronts';
-import { fmtAddedDate, isOverdue, itemFronts, statusLabel } from './todoHelpers';
+import { fmtAddedDate, isOverdue, itemFronts } from './todoHelpers';
 import type { TodoItem } from './types';
 import styles from './TodoRow.module.css';
 
@@ -60,7 +60,7 @@ export function TodoRow({
         {item.notes ? (
           <span className={styles.notesPreview}>{item.notes.split('\n')[0].trim()}</span>
         ) : null}
-        {item.due_by || itemFronts(item).length || (item.status && !item.done) ? (
+        {item.due_by || itemFronts(item).length ? (
           <span className={styles.chips}>
             {item.due_by ? (
               <span className={`${styles.chip} ${overdue ? styles.overdue : ''}`}>
@@ -80,7 +80,6 @@ export function TodoRow({
             {itemFronts(item).length > 2 ? (
               <span className={styles.chip}>+{itemFronts(item).length - 2}</span>
             ) : null}
-            {item.status && !item.done ? <span className={styles.chip}>{statusLabel(item.status)}</span> : null}
           </span>
         ) : null}
       </button>

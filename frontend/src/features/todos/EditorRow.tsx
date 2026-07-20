@@ -1,7 +1,7 @@
 import { Checkbox } from '../../ui';
 import { frontLabel } from '../fronts/useFronts';
 import type { Front } from '../fronts/useFronts';
-import { fmtAddedDate, isOverdue, itemFronts, statusLabel } from './todoHelpers';
+import { fmtAddedDate, isOverdue, itemFronts } from './todoHelpers';
 import type { TodoItem } from './types';
 import styles from './EditorRow.module.css';
 
@@ -81,7 +81,6 @@ export function EditorRow({
           {itemFronts(item).length > 2 ? (
             <span className={styles.chip}>+{itemFronts(item).length - 2}</span>
           ) : null}
-          {item.status && !item.done ? <span className={styles.chip}>{statusLabel(item.status)}</span> : null}
           {snoozed ? (
             <span className={styles.chip}>&#128164; until {fmtAddedDate(item.snoozed_until)}</span>
           ) : null}

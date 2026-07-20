@@ -41,7 +41,6 @@ export interface TodoDraft {
   dueTime: string;
   notes: string;
   fronts: string[];
-  status: string;
   placeId: string;
   durationMin: string;
 }
@@ -66,7 +65,6 @@ export function todoDraftFromPayload(payload: Record<string, JsonValue>): TodoDr
     dueTime: asString(payload.due_time),
     notes: asString(payload.notes),
     fronts: frontsFromPayload(payload),
-    status: asString(payload.status),
     placeId: asString(payload.place_id),
     durationMin: asString(payload.duration_min),
   };
@@ -90,7 +88,6 @@ export function buildTodoAdd(draft: TodoDraft): BuildResult<AddTodoPayload> {
     due_time: draft.dueTime,
     place_id: normalizePlaceId(draft.placeId),
     fronts: draft.fronts,
-    status: draft.status,
   };
   const duration = draft.durationMin.trim();
   if (duration !== '') body.duration_min = Number(duration);
@@ -109,6 +106,5 @@ export function todoFinalForLedger(draft: TodoDraft): Record<string, JsonValue> 
     due_time: draft.dueTime,
     place_id: normalizePlaceId(draft.placeId),
     duration_min: draft.durationMin,
-    status: draft.status,
   };
 }

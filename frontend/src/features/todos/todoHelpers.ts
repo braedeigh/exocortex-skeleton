@@ -1,24 +1,8 @@
 import type { AddTodoPayload } from '../../api/endpoints';
 import type { GateWindow, TodoItem, TodoSection, TodoViewRules } from './types';
 
-export interface TodoStatusDef {
-  key: string;
-  label: string;
-}
-
-export const TODO_STATUSES: TodoStatusDef[] = [
-  { key: 'ready', label: 'Ready' },
-  { key: 'check_first', label: 'Check first' },
-  { key: 'waiting', label: 'Waiting' },
-];
-
 export const LADDER_LABELS = ['Now', 'Up Next', 'Later', 'Someday'] as const;
 export const DONE_LABEL = 'Done';
-
-export function statusLabel(key: string | null | undefined): string {
-  const s = TODO_STATUSES.find((x) => x.key === key);
-  return s ? s.label : key || '';
-}
 
 export function isDoneSection(name: string): boolean {
   return name

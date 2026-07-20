@@ -40,15 +40,12 @@ export interface EditorFilters {
    * LIST membership — a multi-front item matches each of its fronts'
    * filters (same as focusMatch). */
   front: string;
-  /** Status key; '' = any. */
-  status: string;
 }
 
 export const EMPTY_EDITOR_FILTERS: EditorFilters = {
   section: '',
   search: '',
   front: '',
-  status: '',
 };
 
 function sectionMatch(entrySection: string, filter: string): boolean {
@@ -62,7 +59,6 @@ export function filterEditorTodos(entries: EditorEntry[], filters: EditorFilters
   return entries.filter((e) => {
     if (!sectionMatch(e.section, filters.section)) return false;
     if (!focusMatch(e.item, filters.front)) return false;
-    if (filters.status && e.item.status !== filters.status) return false;
     if (q) {
       const haystack = `${e.item.text}\n${e.item.notes || ''}`.toLowerCase();
       if (!haystack.includes(q)) return false;

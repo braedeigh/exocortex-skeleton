@@ -51,10 +51,10 @@ describe('applyBulkDetails', () => {
   });
   it('an empty-string value pops the key (details-route semantics)', () => {
     const data = baseData({
-      todos: [{ name: 'Now', manual_order: false, items: [todo('a', { status: 'waiting' })] }],
+      todos: [{ name: 'Now', manual_order: false, items: [todo('a', { place_id: 'p1' })] }],
     });
-    const next = applyBulkDetails(data, ['a'], { status: '' });
-    expect('status' in sectionItems(next, 'Now')[0]).toBe(false);
+    const next = applyBulkDetails(data, ['a'], { place_id: '' });
+    expect('place_id' in sectionItems(next, 'Now')[0]).toBe(false);
   });
   it('an empty fronts list clears the key ("clear all fronts")', () => {
     const next = applyBulkDetails(bulkData(), ['b'], { fronts: [] });

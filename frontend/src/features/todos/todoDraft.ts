@@ -20,7 +20,6 @@ export interface TodoDraft {
   dueTime: string; // 'HH:MM' or ''
   afterDate: string;
   afterId: string;
-  status: string; // '' = none
   fronts: string[];
   durationMin: string; // input-friendly string, '' = none
   snoozeDays: number | null; // null = untouched, 0 = clear snooze, N = snooze N days
@@ -41,7 +40,6 @@ export function emptyDraft(
     dueTime: '',
     afterDate: '',
     afterId: '',
-    status: '',
     fronts: prefill?.fronts ?? [],
     durationMin: '',
     snoozeDays: null,
@@ -61,7 +59,6 @@ export function draftFromItem(item: TodoItem, section: string): TodoDraft {
     dueTime: item.due_time || '',
     afterDate: item.after_date || '',
     afterId: item.after_id || '',
-    status: item.status || '',
     fronts: itemFronts(item),
     durationMin: item.duration_min ? String(item.duration_min) : '',
     snoozeDays: null,
@@ -101,8 +98,6 @@ export function draftToAddPayload(draft: TodoDraft): AddTodoPayload {
   if (dueTime) payload.due_time = dueTime;
   const notes = draft.notes.trim();
   if (notes) payload.notes = notes;
-  const status = draft.status.trim();
-  if (status) payload.status = status;
   const afterDate = draft.afterDate.trim();
   if (afterDate) payload.after_date = afterDate;
   const afterId = draft.afterId.trim();
@@ -152,9 +147,6 @@ export function diffDraftForSave(draft: TodoDraft, base: TodoItem, baseSection: 
 
   const baseDueTime = base.due_time ?? '';
   if (draft.dueTime !== baseDueTime) patch.due_time = draft.dueTime;
-
-  const baseStatus = base.status ?? '';
-  if (draft.status !== baseStatus) patch.status = draft.status;
 
   const baseAfterDate = base.after_date ?? '';
   if (draft.afterDate !== baseAfterDate) patch.after_date = draft.afterDate;

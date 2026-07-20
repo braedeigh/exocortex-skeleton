@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Button, Sheet } from '../../ui';
 import { FRONT_EMOJI } from '../fronts/useFronts';
 import type { Front } from '../fronts/useFronts';
-import { LADDER_LABELS, TODO_STATUSES } from './todoHelpers';
+import { LADDER_LABELS } from './todoHelpers';
 import type { BulkTodoAction, TodoDetailsPatch } from '../../api/endpoints';
 import styles from './BulkSheet.module.css';
 
@@ -21,9 +21,9 @@ export interface BulkSheetProps {
 const SNOOZE_DAYS = [1, 2, 3, 4, 5, 6];
 const SNOOZE_WEEKS = [1, 2, 3, 4];
 
-/** Sentinel for the tag selects/chips: "leave this field as it is" — only
- * touched fields make it into the patch (so bulk-tagging a focus doesn't
- * blank everyone's status). '' means "clear the field". */
+/** Sentinel for the tag select: "leave this field as it is" — only touched
+ * fields make it into the patch (so bulk-tagging doesn't blank everyone's
+ * other fields). '' means "clear the field". */
 const UNTOUCHED = null;
 
 const TITLES: Record<BulkSheetMode, string> = {
@@ -40,23 +40,20 @@ export function BulkSheet({ mode, count, fronts, onClose, onApply }: BulkSheetPr
   // every selected item's fronts with just it (fronts: [front]), and
   // "(clear)" sends fronts: []. Per-item multi-tagging lives in TodoFormSheet.
   const [front, setFront] = useState<string | null>(UNTOUCHED);
-  const [status, setStatus] = useState<string | null>(UNTOUCHED);
 
   // Fresh slate every time the sheet opens (or switches mode).
   useEffect(() => {
     setAfterDate('');
     setFront(UNTOUCHED);
-    setStatus(UNTOUCHED);
   }, [mode]);
 
   if (!mode) return null;
 
-  const tagTouched = front !== UNTOUCHED || status !== UNTOUCHED;
+  const tagTouched = front !== UNTOUCHED;
 
   function applyTag() {
     const patch: TodoDetailsPatch = {};
     if (front !== UNTOUCHED) patch.fronts = front === '' ? [] : [front];
-    if (status !== UNTOUCHED) patch.status = status;
     onApply({ action: 'details', patch });
   }
 
@@ -142,29 +139,6 @@ export function BulkSheet({ mode, count, fronts, onClose, onApply }: BulkSheetPr
                 </option>
               ))}
             </select>
-          </div>
-
-          <div className={styles.field}>
-            <span className={styles.label}>Status</span>
-            <div className={styles.chipRow}>
-              <button
-                type="button"
-                className={`${styles.chip} ${status === '' ? styles.active : ''}`}
-                onClick={() => setStatus((cur) => (cur === '' ? UNTOUCHED : ''))}
-              >
-                (clear)
-              </button>
-              {TODO_STATUSES.map((s) => (
-                <button
-                  type="button"
-                  key={s.key}
-                  className={`${styles.chip} ${status === s.key ? styles.active : ''}`}
-                  onClick={() => setStatus((cur) => (cur === s.key ? UNTOUCHED : s.key))}
-                >
-                  {s.label}
-                </button>
-              ))}
-            </div>
           </div>
 
           <div className={styles.actions}>

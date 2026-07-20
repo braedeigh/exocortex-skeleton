@@ -195,22 +195,21 @@ def test_details_sets_phase1_attributes(client, seed):
     seed({"now": {"items": [{"id": "a", "text": "Pick up meds", "done": False}]}})
     _post(client, "/api/todos/details", {
         "id": "a", "due_time": "20:00", "place_id": "p1",
-        "category": "body", "status": "check_first", "duration_min": 15,
+        "category": "body", "duration_min": 15,
     })
     it = read_todos()["now"]["items"][0]
     assert it["due_time"] == "20:00"
     assert it["place_id"] == "p1"
     assert "category" not in it   # retired 2026-07-14 (fronts vocabulary); silently ignored
-    assert it["status"] == "check_first"
     assert it["duration_min"] == 15
 
 
 def test_details_clears_attributes_and_duration(client, seed):
     seed({"now": {"items": [{"id": "a", "text": "A", "done": False,
-                             "place_id": "p1", "duration_min": 30, "status": "ready"}]}})
-    _post(client, "/api/todos/details", {"id": "a", "place_id": "", "duration_min": 0, "status": ""})
+                             "place_id": "p1", "duration_min": 30}]}})
+    _post(client, "/api/todos/details", {"id": "a", "place_id": "", "duration_min": 0})
     it = read_todos()["now"]["items"][0]
-    assert "place_id" not in it and "duration_min" not in it and "status" not in it
+    assert "place_id" not in it and "duration_min" not in it
 
 
 def test_details_only_touches_present_fields(client, seed):
@@ -267,7 +266,7 @@ def test_add_with_more_details_persists_attributes(client):
     res = client.post("/api/todos/add", json={
         "item": "drop off package", "section": "Now",
         "due_by": "2026-06-13", "due_time": "14:30",
-        "category": "car", "duration_min": "15", "status": "ready",
+        "category": "car", "duration_min": "15",
         "fronts": ["finances", "errands"], "notes": "the UPS one",
     })
     assert res.status_code == 200
@@ -300,23 +299,23 @@ def test_bulk_details_patches_all_matched_leaves_others(client, seed):
         {"id": "c", "text": "C", "done": False, "fronts": ["keep"]},
     ]}})
     r = _post(client, "/api/todos/bulk",
-              {"ids": ["a", "b"], "action": "details", "patch": {"fronts": ["job"], "status": "ready"}})
+              {"ids": ["a", "b"], "action": "details", "patch": {"fronts": ["job"]}})
     assert r.get_json() == {"ok": True, "updated": 2, "missing": []}
     by_id = {i["id"]: i for i in read_todos()["now"]["items"]}
-    assert by_id["a"]["fronts"] == ["job"] and by_id["a"]["status"] == "ready"
-    assert by_id["b"]["fronts"] == ["job"] and by_id["b"]["status"] == "ready"
-    assert by_id["c"]["fronts"] == ["keep"] and "status" not in by_id["c"]
+    assert by_id["a"]["fronts"] == ["job"]
+    assert by_id["b"]["fronts"] == ["job"]
+    assert by_id["c"]["fronts"] == ["keep"]
 
 
 def test_bulk_details_empty_value_clears_field(client, seed):
     seed({"now": {"items": [
-        {"id": "a", "text": "A", "done": False, "status": "waiting", "duration_min": 30},
-        {"id": "b", "text": "B", "done": False, "status": "waiting"},
+        {"id": "a", "text": "A", "done": False, "duration_min": 30},
+        {"id": "b", "text": "B", "done": False, "place_id": "p1"},
     ]}})
     _post(client, "/api/todos/bulk",
-          {"ids": ["a", "b"], "action": "details", "patch": {"status": "", "duration_min": 0}})
+          {"ids": ["a", "b"], "action": "details", "patch": {"place_id": "", "duration_min": 0}})
     for it in read_todos()["now"]["items"]:
-        assert "status" not in it and "duration_min" not in it
+        assert "place_id" not in it and "duration_min" not in it
 
 
 def test_bulk_snooze_sets_until_and_zero_clears(client, seed):
@@ -481,9 +480,9 @@ def test_toggle_parent_back_to_not_done_leaves_subtasks_done(client, seed):
 def test_add_skips_empty_and_bad_attributes(client):
     client.post("/api/todos/add", json={
         "item": "plain one", "section": "Now",
-        "due_time": "", "category": "", "duration_min": "nope", "status": "",
+        "due_time": "", "category": "", "duration_min": "nope",
     })
     from tests.conftest import read_todos
     item = read_todos()["now"]["items"][0]
-    for f in ("due_time", "category", "duration_min", "status"):
+    for f in ("due_time", "category", "duration_min"):
         assert f not in item

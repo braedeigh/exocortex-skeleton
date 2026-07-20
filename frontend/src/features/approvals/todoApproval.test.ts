@@ -16,7 +16,6 @@ function draft(overrides: Partial<TodoDraft> = {}): TodoDraft {
     dueTime: '',
     notes: '',
     fronts: [],
-    status: '',
     placeId: '',
     durationMin: '',
     ...overrides,
@@ -45,7 +44,6 @@ describe('todoDraftFromPayload', () => {
       due_time: '09:30',
       notes: 'pharmacy on 5th',
       fronts: ['health', 'connection'],
-      status: 'ready',
       place_id: 'p1',
       duration_min: 30,
     });
@@ -56,7 +54,6 @@ describe('todoDraftFromPayload', () => {
       dueTime: '09:30',
       notes: 'pharmacy on 5th',
       fronts: ['health', 'connection'],
-      status: 'ready',
       placeId: 'p1',
       durationMin: '30',
     });
@@ -90,7 +87,6 @@ describe('buildTodoAdd', () => {
         dueTime: '09:30',
         notes: ' bring records ',
         fronts: ['health', 'errands'],
-        status: 'waiting',
         placeId: 'p1',
         durationMin: '45',
       }),
@@ -105,7 +101,6 @@ describe('buildTodoAdd', () => {
         due_time: '09:30',
         place_id: 'p1',
         fronts: ['health', 'errands'],
-        status: 'waiting',
         duration_min: 45,
       },
     });
@@ -141,7 +136,6 @@ describe('todoFinalForLedger', () => {
       'fronts',
       'notes',
       'place_id',
-      'status',
       'text',
     ]);
   });

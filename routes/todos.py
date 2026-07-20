@@ -77,7 +77,7 @@ def register(app):
                     new_item["notes"] = notes
                 # Optional attributes from the add modal's "More details" —
                 # same vocabulary the detail editor manages.
-                for f in ("due_time", "place_id", "status", "after_date", "after_id"):
+                for f in ("due_time", "place_id", "after_date", "after_id"):
                     val = (data.get(f) or "").strip()
                     if val:
                         new_item[f] = val
@@ -148,7 +148,7 @@ def register(app):
     # (ids from fronts.json, same shape as research topics — see
     # _apply_fronts); the old single `theme` string and free-standing
     # `category` tag were retired 2026-07-14.
-    TODO_STR_FIELDS = ("notes", "due_by", "due_time", "place_id", "status",
+    TODO_STR_FIELDS = ("notes", "due_by", "due_time", "place_id",
                         "after_date", "after_id")
 
     @app.route("/api/todos/details", methods=["POST"])
@@ -156,7 +156,7 @@ def register(app):
         """Set optional attributes on a to-do (empty clears). Only the fields
         present in the payload are touched, so the inline notes editor and the
         detail modal can each send just what they manage. Handles notes/due_by
-        plus the scheduling/place/category/duration/status/after attributes."""
+        plus the scheduling/place/category/duration/after attributes."""
         data = request.json or {}
         ident = data.get("id") or data.get("item", "")
         with store.mutate("todos", {}) as todos:

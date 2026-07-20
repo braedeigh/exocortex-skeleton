@@ -130,7 +130,6 @@ function buildTempAddItem(payload: AddTodoPayload): TodoItem {
     due_time: payload.due_time || null,
     notes: payload.notes || null,
     place_id: payload.place_id || null,
-    status: payload.status || null,
     fronts: payload.fronts || [],
     duration_min: payload.duration_min || null,
     after_date: payload.after_date || null,

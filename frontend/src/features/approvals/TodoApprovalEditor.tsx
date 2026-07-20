@@ -8,7 +8,7 @@
 import { useRef, useState } from 'react';
 import { Button } from '../../ui';
 import { FRONT_EMOJI, useFronts } from '../fronts/useFronts';
-import { LADDER_LABELS, TODO_STATUSES } from '../todos/todoHelpers';
+import { LADDER_LABELS } from '../todos/todoHelpers';
 import { addTodo, removeTodo } from './api';
 import { payloadRecord } from './shared';
 import { buildTodoAdd, todoDraftFromPayload, todoFinalForLedger } from './todoApproval';
@@ -161,36 +161,19 @@ export function TodoApprovalEditor({ change, busy, onApprove, onDeny }: Approval
         </div>
       </div>
 
-      <div className={styles.row}>
-        <div className={styles.field}>
-          <span className={styles.label}>Status</span>
-          <div className={styles.chips}>
-            {TODO_STATUSES.map((s) => (
-              <button
-                type="button"
-                key={s.key}
-                className={`${styles.chip} ${draft.status === s.key ? styles.active : ''}`}
-                onClick={() => set('status', draft.status === s.key ? '' : s.key)}
-              >
-                {s.label}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className={styles.field}>
-          <label className={styles.label} htmlFor="ap-todo-duration">
-            Duration <span className={styles.optional}>(min)</span>
-          </label>
-          <input
-            id="ap-todo-duration"
-            className={styles.input}
-            type="number"
-            min={0}
-            inputMode="numeric"
-            value={draft.durationMin}
-            onChange={(e) => set('durationMin', e.target.value)}
-          />
-        </div>
+      <div className={styles.field}>
+        <label className={styles.label} htmlFor="ap-todo-duration">
+          Duration <span className={styles.optional}>(min)</span>
+        </label>
+        <input
+          id="ap-todo-duration"
+          className={styles.input}
+          type="number"
+          min={0}
+          inputMode="numeric"
+          value={draft.durationMin}
+          onChange={(e) => set('durationMin', e.target.value)}
+        />
       </div>
 
       {error ? <p className={styles.error}>{error}</p> : null}
