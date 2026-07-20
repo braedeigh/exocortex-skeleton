@@ -527,3 +527,58 @@ def test_journal_day_row_sorts_before_same_day_card(vault):
 def test_journal_unknown_slug_is_404(vault_client):
     resp = vault_client.get("/api/thread/nope-at-all/journal")
     assert resp.status_code == 404
+
+
+# --- mention matches join the union -----------------------------------------
+# long-covid.md's aliases: [long covid, LC] (see fixture above) make it a good
+# subject for the substring-vs-word-boundary distinction.
+
+def test_journal_includes_card_that_only_mentions_an_alias(vault):
+    # Neither tagged `long-covid` nor cited by any fact-card — found purely
+    # because its text mentions the "LC" alias as a standalone word.
+    cards_dir = vault / "_system" / "data" / "cards"
+    (cards_dir / "2026-07-20.0900a.md").write_text(
+        "---\n"
+        "id: 2026-07-20.0900a\n"
+        "who: B\n"
+        "ts: 2026-07-20 09:00:00\n"
+        "tags: []\n"
+        "kind: line\n"
+        "---\n"
+        "Feeling wrecked again, definitely LC flaring up today.\n"
+    )
+    from flask import Flask
+    app = Flask(__name__)
+    app.config.update(TESTING=True)
+    threads.register(app)
+    data = app.test_client().get("/api/thread/long-covid/journal").get_json()
+    card_ids = [e["id"] for e in data["entries"] if e["kind"] == "card"]
+    assert "2026-07-20.0900a" in card_ids
+
+
+def test_journal_excludes_alias_matching_only_as_a_substring(vault):
+    # "LC" appears inside "TLC" — not a word-boundary match, so this card
+    # must NOT join long-covid's journal.
+    cards_dir = vault / "_system" / "data" / "cards"
+    (cards_dir / "2026-07-20.0900a.md").write_text(
+        "---\n"
+        "id: 2026-07-20.0900a\n"
+        "who: B\n"
+        "ts: 2026-07-20 09:00:00\n"
+        "tags: []\n"
+        "kind: line\n"
+        "---\n"
+        "Gave the dog some TLC after the vet visit.\n"
+    )
+    from flask import Flask
+    app = Flask(__name__)
+    app.config.update(TESTING=True)
+    threads.register(app)
+    data = app.test_client().get("/api/thread/long-covid/journal").get_json()
+    card_ids = [e["id"] for e in data["entries"] if e["kind"] == "card"]
+    assert "2026-07-20.0900a" not in card_ids
+
+
+def test_journal_thread_payload_echoes_aliases(vault_client):
+    data = vault_client.get("/api/thread/long-covid/journal").get_json()
+    assert data["thread"]["aliases"] == ["long covid", "LC"]

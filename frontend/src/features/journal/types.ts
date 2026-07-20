@@ -222,6 +222,10 @@ export interface ThreadJournalResponse {
     status: string;
     kind: string | null;
     fronts: string[];
+    /** Name/alias terms this thread's own mentions are found by — both the
+     * server's mention-matching (routes/threads.py thread_journal) and the
+     * client's self-mention highlighting (ThreadJournalPage). */
+    aliases: string[];
     people: ThreadCastMember[];
   };
   entries: ThreadJournalEntry[];

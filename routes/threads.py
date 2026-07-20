@@ -416,9 +416,11 @@ def register(app):
         """The thread's whole journal stream, for the thread's own page (not
         just the not-yet-absorbed inbox): every pool card tagged `<slug>`,
         union'd with every journal source the thread's fact-cards cite by id
-        (falling back to a day row if that id predates the card pool), plus
-        a day row for every bare-day citation. Ascending, day rows sorting
-        before that day's cards."""
+        (falling back to a day row if that id predates the card pool), union'd
+        with every pool card whose TEXT mentions the thread by name/alias
+        (word-boundary, case-insensitive — same spirit as entityHighlight.ts's
+        matcher on the client), plus a day row for every bare-day citation.
+        Ascending, day rows sorting before that day's cards."""
         slug = (slug or "").strip().lower()
         t = threads_index().get(slug)
         if not t:
@@ -432,6 +434,16 @@ def register(app):
         for c in pool.values():
             if slug in c["tags"]:
                 cards.setdefault(c["id"], c)
+
+        terms = [term for term in [t["name"]] + t.get("aliases", []) if term]
+        if terms:
+            mention_re = re.compile(
+                r"\b(?:" + "|".join(re.escape(term) for term in terms) + r")\b",
+                re.IGNORECASE,
+            )
+            for c in pool.values():
+                if mention_re.search(c["text"]):
+                    cards.setdefault(c["id"], c)
 
         for fc in t.get("cards", []):
             heading = fc.get("heading", "")
@@ -468,6 +480,7 @@ def register(app):
             "thread": {
                 "id": t["id"], "name": t["name"], "status": t.get("status", ""),
                 "kind": t.get("kind"), "fronts": t.get("fronts", []),
+                "aliases": t.get("aliases", []),
                 "people": _resolve_cast(t.get("people", [])),
             },
             "entries": entries,
