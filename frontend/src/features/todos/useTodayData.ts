@@ -23,6 +23,7 @@ import {
   renameTodo,
   reorderTodos,
   restoreHabitCadence,
+  saveReminders,
   snoozeReminder,
   snoozeTodo,
   todoDetails,
@@ -44,6 +45,7 @@ import {
   applyMove,
   applyRemove,
   applyRename,
+  applyReminderPatch,
   applyReminderSnooze,
   applyReorder,
   applySnooze,
@@ -55,7 +57,7 @@ import {
   applySymptomLog,
   applyToggle,
 } from './optimistic';
-import type { SubTask, TodayData, TodoItem } from './types';
+import type { ReminderDef, SubTask, TodayData, TodoItem } from './types';
 
 export const TODAY_QUERY_KEY = ['data', 'today'] as const;
 
@@ -239,11 +241,21 @@ export function useReminderActions(onError: (message: string) => void) {
     (data, vars) => applyReminderSnooze(data, vars.id, vars.days),
     onError,
   );
+  // Edits one reminder's definition (e.g. every_days) in place: POSTs the
+  // full list (the save endpoint replaces wholesale) with the patch applied.
+  const update = useOptimisticMutation(
+    (vars: { id: string; patch: Partial<ReminderDef>; all: ReminderDef[] }) =>
+      saveReminders(vars.all.map((r) => (r.id === vars.id ? { ...r, ...vars.patch } : r))),
+    (data, vars) => applyReminderPatch(data, vars.id, vars.patch),
+    onError,
+  );
 
   return {
     log: (date: string, type: string) => log.mutate({ date, type }),
     undo: (date: string, type: string) => undo.mutate({ date, type }),
     snooze: (id: string, days: number) => snooze.mutate({ id, days }),
+    update: (id: string, patch: Partial<ReminderDef>, all: ReminderDef[]) =>
+      update.mutate({ id, patch, all }),
   };
 }
 

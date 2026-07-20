@@ -3,6 +3,7 @@ import {
   addDays,
   buildTodoIndex,
   collectSnoozed,
+  collectTomorrow,
   collectWaiting,
   collectUpNow,
   computeFocusCounts,
@@ -193,7 +194,7 @@ describe('gateHides', () => {
 });
 
 describe('collectUpNow', () => {
-  it('gathers overdue + due-today, skips done/snoozed/waiting/future, soonest first', () => {
+  it('gathers overdue + due-today, skips snoozed/waiting/future, sinks done to the bottom', () => {
     const sections: TodoSection[] = [
       section('Now', [
         item({ id: 'today', due_by: TODAY }),
@@ -207,7 +208,24 @@ describe('collectUpNow', () => {
       ]),
       section('Done', [item({ id: 'in-done', due_by: '2026-07-01' })]),
     ];
-    expect(collectUpNow(sections, TODAY).map((i) => i.id)).toEqual(['overdue', 'today']);
+    expect(collectUpNow(sections, TODAY).map((i) => i.id)).toEqual(['overdue', 'today', 'done']);
+  });
+});
+
+describe('collectTomorrow', () => {
+  it('gathers only items due exactly tomorrow, skipping done/snoozed/waiting', () => {
+    const tomorrow = '2026-07-09';
+    const sections: TodoSection[] = [
+      section('Now', [
+        item({ id: 'tmrw', due_by: tomorrow }),
+        item({ id: 'today', due_by: TODAY }),
+        item({ id: 'later', due_by: '2026-08-01' }),
+        item({ id: 'done-tmrw', due_by: tomorrow, done: true }),
+        item({ id: 'snoozed-tmrw', due_by: tomorrow, snoozed_until: '2026-07-20' }),
+      ]),
+      section('Done', [item({ id: 'in-done', due_by: tomorrow })]),
+    ];
+    expect(collectTomorrow(sections, TODAY).map((i) => i.id)).toEqual(['tmrw']);
   });
 });
 

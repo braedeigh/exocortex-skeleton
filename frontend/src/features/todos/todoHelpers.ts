@@ -232,26 +232,23 @@ export function gateHides(
 }
 
 /** The "Up now" strip: overdue + due-today items across the ladder (not
- * done/snoozed/waiting), soonest due date first. */
+ * snoozed/waiting), soonest due date first. Done items are KEPT and sink to
+ * the bottom — checked off, they linger struck-through until the backend's
+ * morning sweep archives them (same "it persisted" feel as the ladder). */
 export function collectUpNow(sections: TodoSection[], serverDate: string): TodoItem[] {
   const index = buildTodoIndex(sections);
   const out: TodoItem[] = [];
   for (const section of sections) {
     if (isDoneSection(section.name)) continue;
     for (const item of section.items) {
-      if (item.done || isSnoozed(item, serverDate) || isWaiting(item, serverDate, index)) continue;
+      if (isSnoozed(item, serverDate) || isWaiting(item, serverDate, index)) continue;
       if (item.due_by && item.due_by <= serverDate) out.push(item);
     }
   }
-  return out.sort((a, b) => (a.due_by || '').localeCompare(b.due_by || ''));
-}
-
-/** Shift an ISO date by n days, parsing at local midnight so DST/UTC can't
- * skew the calendar day. */
-export function addDaysISO(iso: string, n: number): string {
-  const d = new Date(`${iso}T00:00:00`);
-  d.setDate(d.getDate() + n);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return out.sort(
+    (a, b) =>
+      Number(!!a.done) - Number(!!b.done) || (a.due_by || '').localeCompare(b.due_by || ''),
+  );
 }
 
 /** The "Tomorrow" strip: items due tomorrow across the ladder (not
@@ -259,7 +256,7 @@ export function addDaysISO(iso: string, n: number): string {
  * Items stay in their ladder sections; this is a view, not a move. */
 export function collectTomorrow(sections: TodoSection[], serverDate: string): TodoItem[] {
   const index = buildTodoIndex(sections);
-  const tomorrow = addDaysISO(serverDate, 1);
+  const tomorrow = addDays(serverDate, 1);
   const out: TodoItem[] = [];
   for (const section of sections) {
     if (isDoneSection(section.name)) continue;

@@ -289,6 +289,7 @@ export function TodosPage() {
             onLog={reminderActions.log}
             onUndo={reminderActions.undo}
             onSnooze={reminderActions.snooze}
+            onUpdateReminder={(id, patch) => reminderActions.update(id, patch, data.reminders || [])}
           />
           <TomorrowCard
             items={tomorrowItems}

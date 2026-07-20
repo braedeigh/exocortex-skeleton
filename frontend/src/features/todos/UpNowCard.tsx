@@ -1,7 +1,6 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { Button, Checkbox, Sheet, TapRow } from '../../ui';
 import { companionToPrompt, visibleReminders } from './reminderMath';
-import type { ReminderState } from './reminderMath';
 import { fmtAddedDate, isOverdue } from './todoHelpers';
 import type { ActivityEntry, ReminderDef, TimeOfDay, TodoItem } from './types';
 import styles from './UpNowCard.module.css';
@@ -17,17 +16,7 @@ export interface UpNowCardProps {
   onLog: (date: string, type: string) => void;
   onUndo: (date: string, type: string) => void;
   onSnooze: (id: string, days: number) => void;
-}
-
-interface RecentRow {
-  kind: 'recent';
-  reminder: ReminderDef;
-}
-
-interface DueRow {
-  kind: 'due';
-  reminder: ReminderDef;
-  state: ReminderState;
+  onUpdateReminder: (id: string, patch: Partial<ReminderDef>) => void;
 }
 
 const TONE_CLASS: Record<string, string> = {
@@ -38,12 +27,15 @@ const TONE_CLASS: Record<string, string> = {
 
 /**
  * The one attention surface at the top of the page: everything that needs
- * her today, whatever its species — due/overdue recurring reminders (sheets,
- * estradiol…) as loggable rows, then overdue + due-today to-dos. To-do items
- * also stay in their ladder sections below; this is a digest, not a move.
- * Reminder rows keep the full reminder machinery — ✓ logs today (with the
- * 6s undo window and companion prompt), tapping the label opens a sheet
- * with Yesterday / snooze. Renders nothing when nothing needs attention.
+ * her today — due/overdue recurring reminders (marked 🔁) and overdue +
+ * due-today to-dos. Checked things don't vanish: they sink to the bottom,
+ * struck through, until the day rolls over (to-dos via the backend's
+ * morning sweep; logged reminders shown while their log entry is today's,
+ * where unchecking IS the undo). Tapping a reminder's label opens its
+ * control-room sheet: did-it-yesterday, snooze stepper, and the repeat
+ * cadence stepper (saved to the reminder definition). To-do items also stay
+ * in their ladder sections below; this is a digest, not a move. Renders
+ * nothing when nothing needs attention.
  */
 export function UpNowCard({
   items,
@@ -56,41 +48,33 @@ export function UpNowCard({
   onLog,
   onUndo,
   onSnooze,
+  onUpdateReminder,
 }: UpNowCardProps) {
-  const [recent, setRecent] = useState<Record<string, string>>({});
-  const [actionTarget, setActionTarget] = useState<DueRow | null>(null);
+  const [actionId, setActionId] = useState<string | null>(null);
+  const [snoozeDays, setSnoozeDays] = useState(3);
   const [companion, setCompanion] = useState<{ reminder: ReminderDef; date: string } | null>(null);
-  const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
-  const visibleMap = new Map(
-    visibleReminders(reminders, activityLog, serverDate, timeOfDay).map((v) => [v.reminder.type, v.state]),
+  const loggedToday = new Set(
+    activityLog.filter((e) => e.date === serverDate).map((e) => e.type),
   );
 
-  const reminderRows = reminders
-    .map((r): RecentRow | DueRow | null => {
-      if (recent[r.type]) return { kind: 'recent', reminder: r };
-      const state = visibleMap.get(r.type);
-      if (!state) return null;
-      return { kind: 'due', reminder: r, state };
-    })
-    .filter((r): r is RecentRow | DueRow => r !== null);
+  const dueRows = visibleReminders(reminders, activityLog, serverDate, timeOfDay).filter(
+    (v) => !loggedToday.has(v.reminder.type),
+  );
+  const loggedRows = reminders.filter(
+    (r) => (r.mode || 'log') !== 'track' && loggedToday.has(r.type),
+  );
 
-  if (!reminderRows.length && !items.length) return null;
+  // Live lookup so the sheet's steppers show the post-edit value, not the
+  // stale copy captured when the sheet was opened.
+  const target = actionId ? reminders.find((r) => r.id === actionId) || null : null;
+  const targetState = actionId ? dueRows.find((v) => v.reminder.id === actionId)?.state : undefined;
 
-  function clearRecent(type: string) {
-    setRecent((cur) => {
-      const next = { ...cur };
-      delete next[type];
-      return next;
-    });
-  }
+  if (!dueRows.length && !loggedRows.length && !items.length) return null;
 
   function logDone(r: ReminderDef, date: string) {
     const comp = companionToPrompt(reminders, activityLog, r.type, date);
     onLog(date, r.type);
-    setRecent((cur) => ({ ...cur, [r.type]: date }));
-    if (timers.current[r.type]) clearTimeout(timers.current[r.type]);
-    timers.current[r.type] = setTimeout(() => clearRecent(r.type), 6000);
     if (comp) setCompanion({ reminder: comp, date });
   }
 
@@ -101,59 +85,45 @@ export function UpNowCard({
     logDone(r, date);
   }
 
-  function undo(r: ReminderDef) {
-    const date = recent[r.type];
-    clearRecent(r.type);
-    if (date) onUndo(date, r.type);
+  function openSheet(id: string) {
+    setSnoozeDays(3);
+    setActionId(id);
   }
 
   function reminderName(r: ReminderDef) {
     return `${r.emoji ? `${r.emoji} ` : ''}${r.label}`;
   }
 
+  const everyDays = target?.every_days ?? 3;
+
   return (
     <div className={styles.card}>
       <div className={styles.title}>&#9889; Up now</div>
 
-      {reminderRows.map((row) =>
-        row.kind === 'recent' ? (
-          <div className={styles.row} key={row.reminder.id}>
-            <Checkbox
-              className={styles.check}
-              checked
-              onChange={() => undo(row.reminder)}
-              aria-label={`Undo: ${row.reminder.label}`}
-            />
-            <span className={styles.loggedText}>{reminderName(row.reminder)} logged</span>
-            <button type="button" className={styles.undoBtn} onClick={() => undo(row.reminder)}>
-              Undo
-            </button>
-          </div>
-        ) : (
-          <div className={styles.row} key={row.reminder.id}>
-            <Checkbox
-              className={styles.check}
-              checked={false}
-              onChange={() => logDone(row.reminder, serverDate)}
-              aria-label={`Log ${row.reminder.label} done today`}
-            />
-            <button type="button" className={styles.text} onClick={() => setActionTarget(row)}>
-              {reminderName(row.reminder)}
-            </button>
-            <span className={`${styles.due} ${TONE_CLASS[row.state.tone || ''] || ''}`}>
-              {row.state.daysText}
-            </span>
-          </div>
-        ),
-      )}
+      {dueRows.map(({ reminder: r, state }) => (
+        <div className={styles.row} key={r.id}>
+          <Checkbox
+            className={styles.check}
+            checked={false}
+            onChange={() => logDone(r, serverDate)}
+            aria-label={`Log ${r.label} done today`}
+          />
+          <button type="button" className={styles.text} onClick={() => openSheet(r.id)}>
+            {reminderName(r)}
+          </button>
+          <span className={`${styles.due} ${TONE_CLASS[state.tone || ''] || ''}`}>
+            &#128257; {state.daysText}
+          </span>
+        </div>
+      ))}
 
-      {items.map((it) => {
+      {items.filter((it) => !it.done).map((it) => {
         const overdue = isOverdue(it.due_by, serverDate);
         return (
           <div className={styles.row} key={it.id}>
             <Checkbox
               className={styles.check}
-              checked={it.done}
+              checked={false}
               onChange={() => onToggle(it.id)}
               aria-label={`Done: ${it.text}`}
             />
@@ -167,34 +137,119 @@ export function UpNowCard({
         );
       })}
 
-      <Sheet
-        open={!!actionTarget}
-        title={actionTarget ? `${reminderName(actionTarget.reminder)} — ${actionTarget.state.sub || actionTarget.state.daysText || ''}` : ''}
-        onClose={() => setActionTarget(null)}
-      >
-        <TapRow
-          onClick={() => {
-            if (actionTarget) logYesterday(actionTarget.reminder);
-            setActionTarget(null);
-          }}
-        >
-          &#10003; Did it yesterday
-        </TapRow>
-        {[
-          [3, 'Remind me in 3 days'],
-          [7, 'Remind me in 1 week'],
-          [14, 'Remind me in 2 weeks'],
-        ].map(([days, label]) => (
-          <TapRow
-            key={label}
-            onClick={() => {
-              if (actionTarget) onSnooze(actionTarget.reminder.id, days as number);
-              setActionTarget(null);
-            }}
+      {items.filter((it) => it.done).map((it) => (
+        <div className={styles.row} key={it.id}>
+          <Checkbox
+            className={styles.check}
+            checked
+            onChange={() => onToggle(it.id)}
+            aria-label={`Mark ${it.text} not done`}
+          />
+          <button type="button" className={`${styles.text} ${styles.doneText}`} onClick={() => onOpenDetail(it)}>
+            {it.text}
+          </button>
+          <span className={`${styles.due} ${styles.doneChip}`}>done</span>
+        </div>
+      ))}
+
+      {loggedRows.map((r) => (
+        <div className={styles.row} key={r.id}>
+          <Checkbox
+            className={styles.check}
+            checked
+            onChange={() => onUndo(serverDate, r.type)}
+            aria-label={`Undo today's ${r.label} log`}
+          />
+          <button
+            type="button"
+            className={`${styles.text} ${styles.doneText}`}
+            onClick={() => openSheet(r.id)}
           >
-            &#128164; {label}
-          </TapRow>
-        ))}
+            {reminderName(r)}
+          </button>
+          <span className={`${styles.due} ${styles.doneChip}`}>&#128257; logged</span>
+        </div>
+      ))}
+
+      <Sheet
+        open={!!target}
+        title={target ? `${reminderName(target)}${targetState?.sub ? ` — ${targetState.sub}` : ''}` : ''}
+        onClose={() => setActionId(null)}
+      >
+        {target ? (
+          <>
+            <TapRow
+              onClick={() => {
+                logYesterday(target);
+                setActionId(null);
+              }}
+            >
+              &#10003; Did it yesterday
+            </TapRow>
+
+            <div className={styles.stepperBlock}>
+              <div className={styles.stepperLabel}>&#128164; Remind me later</div>
+              <div className={styles.stepperControls}>
+                <button
+                  type="button"
+                  className={styles.stepBtn}
+                  aria-label="Fewer days"
+                  onClick={() => setSnoozeDays((d) => Math.max(1, d - 1))}
+                >
+                  &minus;
+                </button>
+                <span className={styles.stepValue}>
+                  {snoozeDays} day{snoozeDays !== 1 ? 's' : ''}
+                </span>
+                <button
+                  type="button"
+                  className={styles.stepBtn}
+                  aria-label="More days"
+                  onClick={() => setSnoozeDays((d) => d + 1)}
+                >
+                  +
+                </button>
+                <Button
+                  variant="primary"
+                  onClick={() => {
+                    onSnooze(target.id, snoozeDays);
+                    setActionId(null);
+                  }}
+                >
+                  Snooze
+                </Button>
+              </div>
+            </div>
+
+            {(target.schedule || 'interval') === 'interval' ? (
+            <div className={styles.stepperBlock}>
+              <div className={styles.stepperLabel}>&#128257; Repeats every</div>
+              <div className={styles.stepperControls}>
+                <button
+                  type="button"
+                  className={styles.stepBtn}
+                  aria-label="Repeat less often"
+                  onClick={() => onUpdateReminder(target.id, { every_days: Math.max(1, everyDays - 1) })}
+                >
+                  &minus;
+                </button>
+                <span className={styles.stepValue}>
+                  {everyDays} day{everyDays !== 1 ? 's' : ''}
+                </span>
+                <button
+                  type="button"
+                  className={styles.stepBtn}
+                  aria-label="Repeat more often"
+                  onClick={() => onUpdateReminder(target.id, { every_days: everyDays + 1 })}
+                >
+                  +
+                </button>
+              </div>
+              <div className={styles.stepperHint}>Saved to the reminder — changes stick.</div>
+            </div>
+            ) : null}
+          </>
+        ) : null}
       </Sheet>
 
       <Sheet open={!!companion} title="Also log?" onClose={() => setCompanion(null)}>

@@ -203,6 +203,10 @@ export function saveReminders(reminders: unknown[]): Promise<OkResponse> {
   return api.post('/api/reminders/save', { reminders });
 }
 
+export function saveReminders(reminders: unknown[]): Promise<OkResponse> {
+  return api.post('/api/reminders/save', { reminders });
+}
+
 // --- Symptoms (routes/health.py) ---
 
 /** column -> 0..3 (nose_spray is 0/1). */

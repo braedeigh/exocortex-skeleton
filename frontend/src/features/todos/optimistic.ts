@@ -1,7 +1,7 @@
 import { habitKey } from '../habits/habitMath';
 import { addDays } from './todoHelpers';
 import { isFrosted } from './types';
-import type { SubTask, TodayData, TodoItem, TodoSection } from './types';
+import type { ReminderDef, SubTask, TodayData, TodoItem, TodoSection } from './types';
 import type { BulkTodoAction, SymptomLevels } from '../../api/endpoints';
 
 function withSections(data: TodayData, fn: (sections: TodoSection[]) => TodoSection[]): TodayData {
@@ -231,6 +231,14 @@ export function applyReminderSnooze(data: TodayData, id: string, days: number): 
   return {
     ...data,
     reminders: data.reminders.map((r) => (r.id === id ? { ...r, snoozed_until: until } : r)),
+  };
+}
+
+export function applyReminderPatch(data: TodayData, id: string, patch: Partial<ReminderDef>): TodayData {
+  if (!data.reminders) return data;
+  return {
+    ...data,
+    reminders: data.reminders.map((r) => (r.id === id ? { ...r, ...patch } : r)),
   };
 }
 
