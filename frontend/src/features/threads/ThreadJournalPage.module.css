@@ -561,3 +561,9 @@
   border-color: var(--accent);
   color: var(--accent);
 }
+
+/* The floating dev-notes/ideas pill, lifted clear of the sticky composer
+   (dock padding + the composer's resting textarea height + a breath). */
+.notesPill {
+  bottom: calc(var(--tap-target) + var(--space-2) * 2 + var(--space-3));
+}

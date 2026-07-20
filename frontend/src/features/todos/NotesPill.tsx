@@ -11,6 +11,9 @@ export interface NotesPillProps {
   tab?: string;
   /** Hide the panel's "All ↗" link (pointless on /notes itself). */
   showAllLink?: boolean;
+  /** Extra class on the closed pill — pages with their own bottom furniture
+   * (e.g. the thread page's sticky composer) use it to lift the pill clear. */
+  className?: string;
 }
 
 /**
@@ -21,7 +24,7 @@ export interface NotesPillProps {
  * native pages (/todos as 'today', /notes as 'notes') — the legacy iframe
  * tabs still load the original scripts for the pill.
  */
-export function NotesPill({ onError, tab = 'today', showAllLink = true }: NotesPillProps) {
+export function NotesPill({ onError, tab = 'today', showAllLink = true, className }: NotesPillProps) {
   const [openKind, setOpenKind] = useState<NotesPillKind | null>(null);
   const [sort, setSort] = useState<SortDir>(readStoredSort);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -53,7 +56,7 @@ export function NotesPill({ onError, tab = 'today', showAllLink = true }: NotesP
   }
 
   return (
-    <div className={styles.pill} ref={containerRef}>
+    <div className={[styles.pill, className].filter(Boolean).join(' ')} ref={containerRef}>
       <button
         type="button"
         className={`${styles.sq} ${styles.sqDev}`}

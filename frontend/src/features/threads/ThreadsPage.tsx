@@ -3,7 +3,9 @@ import type { ReactNode } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useSessionsContext } from '../../shell/SessionsContext';
 import { DESKTOP_QUERY } from '../../shell/useMediaQuery';
-import { useThread, useThreads, useThreadsTree } from '../journal/useJournalData';
+import { ToastStack } from '../../ui';
+import { NotesPill } from '../todos/NotesPill';
+import { useThread, useThreads, useThreadsTree, useToasts } from '../journal/useJournalData';
 import { startThreadTalk, talkLabel, type TalkState } from '../journal/threadTalk';
 import type { Thread, ThreadSource } from '../journal/types';
 import { FRONT_EMOJI, useFronts } from '../fronts/useFronts';
@@ -46,6 +48,8 @@ export function ThreadsPage() {
 
   const { data: frontsData } = useFronts();
   const fronts = frontsData ?? [];
+  // Toasts exist here solely for the notes pill's error reporting.
+  const { toasts, push, dismiss } = useToasts();
   const rosterQuery = useThreads(showRetired);
   const treeQuery = useThreadsTree(showRetired);
 
@@ -150,6 +154,9 @@ export function ThreadsPage() {
           onToggleShowRetired={() => setShowRetired((v) => !v)}
         />
       ) : null}
+
+      {!isPublicMode() ? <NotesPill tab="threads" onError={push} /> : null}
+      <ToastStack toasts={toasts} onDismiss={dismiss} />
     </div>
   );
 }

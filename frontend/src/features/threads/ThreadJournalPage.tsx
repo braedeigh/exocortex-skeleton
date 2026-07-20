@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
+import { NotesPill } from '../todos/NotesPill';
 import { useSessionsContext } from '../../shell/SessionsContext';
 import { DESKTOP_QUERY } from '../../shell/useMediaQuery';
 import { Button, IconButton, Sheet, ToastStack } from '../../ui';
@@ -505,6 +506,8 @@ export function ThreadJournalPage({ slug }: ThreadJournalPageProps) {
           ) : null}
         </>
       ) : null}
+
+      {!isPublicMode() ? <NotesPill tab="threads" onError={push} className={styles.notesPill} /> : null}
     </div>
   );
 }
