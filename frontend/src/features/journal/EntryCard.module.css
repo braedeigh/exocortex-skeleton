@@ -53,23 +53,53 @@
   flex: 1;
 }
 
+/* Margin-note chip — a single-line row split into two tap targets: the date
+   segment (jumps to the parent entry in place) and the snippet segment
+   (jumps to the note's thread page, or the same day-jump when it has none).
+   The container keeps the look (accent left border, muted, single line);
+   the segments stretch to fill its height so both stay comfortably
+   tappable side by side. */
 .replyContext {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   width: 100%;
   min-height: var(--tap-target);
   margin: 0 0 var(--space-2);
-  padding: 0 var(--space-3);
-  border: none;
   border-left: 3px solid var(--accent);
   border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--accent) 5%, transparent);
+  overflow: hidden;
+}
+
+.replyContextDate,
+.replyContextSnippet {
+  border: none;
+  background: transparent;
   color: var(--text-muted);
+  font-family: inherit;
   font-size: var(--font-size-sm);
   font-style: italic;
   text-align: left;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
+}
+
+.replyContextDate:hover,
+.replyContextSnippet:hover {
+  color: var(--accent);
+}
+
+.replyContextDate {
+  flex: 0 0 auto;
+  padding: 0 var(--space-2) 0 var(--space-3);
+  white-space: nowrap;
+}
+
+.replyContextSnippet {
+  flex: 1;
+  min-width: 0;
+  padding: 0 var(--space-3) 0 var(--space-2);
+  border-left: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
   /* Single line — a long snippet clips with an ellipsis rather than growing
      the card. */
   overflow: hidden;
@@ -77,8 +107,25 @@
   text-overflow: ellipsis;
 }
 
-.replyContext:hover {
-  color: var(--accent);
+/* Brief "you're here" pulse after a scroll-to-entry jump lands on this card.
+   Plain global class (not a CSS module token) because it's added/removed via
+   classList on a DOM node grabbed by querySelector — the module's hashed
+   class names aren't available there. Box-shadow only (not background),
+   so the flash doesn't fight the card's own color-mix background or need to
+   know which theme/variant it's ending back at. */
+:global(.card-flash) {
+  animation: card-flash-pulse 1.5s ease-out;
+}
+
+@keyframes card-flash-pulse {
+  0% {
+    box-shadow:
+      0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent),
+      var(--shadow-card);
+  }
+  100% {
+    box-shadow: var(--shadow-card);
+  }
 }
 
 .body {

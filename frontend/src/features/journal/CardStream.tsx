@@ -26,8 +26,10 @@ export interface CardStreamProps {
   onNavigateDate: (date: string) => void;
   /** Passed through to "ref" cards' person chips. */
   onPersonClick: (slug: string) => void;
-  /** Passed through to entry cards' reply-context chip. */
-  onReplyContextClick: (ctx: NonNullable<Card['reply_context']>) => void;
+  /** Passed through to entry cards' reply-context chip's date segment. */
+  onReplyContextDate: (ctx: NonNullable<Card['reply_context']>) => void;
+  /** Passed through to entry cards' reply-context chip's snippet segment. */
+  onReplyContextThread: (ctx: NonNullable<Card['reply_context']>) => void;
   addSaving: boolean;
   /** Resolves true on a successful save; the composer clears its draft on
    * success. New notes always append to the end of the day. */
@@ -144,7 +146,8 @@ export function CardStream({
   onConfirmDelete,
   onNavigateDate,
   onPersonClick,
-  onReplyContextClick,
+  onReplyContextDate,
+  onReplyContextThread,
   addSaving,
   onComposeSave,
   onBottomActiveChange,
@@ -196,7 +199,8 @@ export function CardStream({
         onCancel={onCancel}
         onSave={onSave}
         onConfirmDelete={onConfirmDelete}
-        onReplyContextClick={onReplyContextClick}
+        onReplyContextDate={onReplyContextDate}
+        onReplyContextThread={onReplyContextThread}
       />
     );
   }

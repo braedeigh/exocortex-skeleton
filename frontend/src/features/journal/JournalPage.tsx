@@ -39,6 +39,14 @@ interface PendingFind {
   slug: string;
 }
 
+/** A reply-context chip's date (or thread-less snippet) tap — land on the
+ * parent entry once its day has rendered. Mirrors PendingFind's wait pattern
+ * but scrolls/flashes a card element instead of highlighting entity spans. */
+interface PendingScrollCard {
+  date: string;
+  cardId: string;
+}
+
 interface FindState {
   slug: string;
   name: string;
@@ -71,13 +79,28 @@ export function JournalPage() {
     void navigate({ search: { date } });
   }
 
-  /** The reply-context chip on a margin-note card: land on the note's thread
-   * page when its tags resolved one, else fall back to the parent's day. */
-  function onReplyContextClick(ctx: NonNullable<Card['reply_context']>) {
+  /** Shared by both reply-context segments' day-jump path: queue the parent
+   * card to be scrolled/flashed once its day is on screen, and navigate
+   * there unless we're already on that date (still scrolls in that case —
+   * the effect below fires on pendingScrollCard changing either way). */
+  function jumpToReplySource(ctx: NonNullable<Card['reply_context']>) {
+    setPendingScrollCard({ date: ctx.date, cardId: ctx.id });
+    if (currentDate !== ctx.date) goTo(ctx.date);
+  }
+
+  /** The reply-context chip's date segment: always jumps to the parent entry
+   * in place. */
+  function onReplyContextDate(ctx: NonNullable<Card['reply_context']>) {
+    jumpToReplySource(ctx);
+  }
+
+  /** The reply-context chip's snippet segment: land on the note's thread page
+   * when its tags resolved one, else the same day-jump as the date segment. */
+  function onReplyContextThread(ctx: NonNullable<Card['reply_context']>) {
     if (ctx.thread) {
       void navigateTo({ to: '/threads/$slug', params: { slug: ctx.thread } });
     } else {
-      goTo(ctx.date);
+      jumpToReplySource(ctx);
     }
   }
 
@@ -178,6 +201,7 @@ export function JournalPage() {
   const [seededDate, setSeededDate] = useState<string | null>(null);
 
   const [pendingFind, setPendingFind] = useState<PendingFind | null>(null);
+  const [pendingScrollCard, setPendingScrollCard] = useState<PendingScrollCard | null>(null);
   const [findState, setFindState] = useState<FindState | null>(null);
   const findMatchesRef = useRef<HTMLElement[]>([]);
   const bodyRef = useRef<HTMLDivElement | null>(null);
@@ -233,6 +257,22 @@ export function JournalPage() {
     setPendingFind(null);
     requestAnimationFrame(() => runFind(slug));
   }, [pendingFind, bundle, currentDate, dayQuery.isFetching]);
+
+  // Land on (and flash) the reply-context chip's parent card once its day
+  // has rendered — fires immediately when already on that date, since
+  // setPendingScrollCard still changes the dependency below.
+  useEffect(() => {
+    if (!pendingScrollCard || !bundle || currentDate !== pendingScrollCard.date || dayQuery.isFetching) return;
+    const { cardId } = pendingScrollCard;
+    setPendingScrollCard(null);
+    requestAnimationFrame(() => {
+      const el = bodyRef.current?.querySelector<HTMLElement>(`[data-card-id="${cardId}"]`);
+      if (!el) return; // parent card deleted since — nothing to land on
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.classList.add('card-flash');
+      setTimeout(() => el.classList.remove('card-flash'), 1500);
+    });
+  }, [pendingScrollCard, bundle, currentDate, dayQuery.isFetching]);
 
   function onJournalMention(date: string, slug: string) {
     closeFind();
@@ -357,7 +397,8 @@ export function JournalPage() {
                 onConfirmDelete={(id) => requestDeleteCard(id, visibleCards.length === 1)}
                 onNavigateDate={goTo}
                 onPersonClick={setPopoverSlug}
-                onReplyContextClick={onReplyContextClick}
+                onReplyContextDate={onReplyContextDate}
+                onReplyContextThread={onReplyContextThread}
                 addSaving={addCard.isPending}
                 onComposeSave={async (body) => {
                   try {

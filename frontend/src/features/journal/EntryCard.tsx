@@ -16,9 +16,13 @@ export interface EntryCardProps {
   onCancel: () => void;
   onSave: (id: string, body: string) => void;
   onConfirmDelete: (id: string) => void;
-  /** Tapped on the reply-context chip (read mode only) — navigates to the
-   * note's thread page when one resolves, else the parent's journal day. */
-  onReplyContextClick?: (ctx: NonNullable<Card['reply_context']>) => void;
+  /** Tapped on the reply-context chip's date segment (read mode only) —
+   * jumps to the parent's journal day and scrolls/flashes the parent entry. */
+  onReplyContextDate?: (ctx: NonNullable<Card['reply_context']>) => void;
+  /** Tapped on the reply-context chip's snippet segment (read mode only) —
+   * navigates to the note's thread page when one resolves, else the same
+   * day-jump as onReplyContextDate (JournalPage decides which). */
+  onReplyContextThread?: (ctx: NonNullable<Card['reply_context']>) => void;
 }
 
 /** "8:46 AM" from "YYYY-MM-DD HH:MM:SS" — string ops only, no Date/timezone games. */
@@ -55,7 +59,8 @@ export function EntryCard({
   onCancel,
   onSave,
   onConfirmDelete,
-  onReplyContextClick,
+  onReplyContextDate,
+  onReplyContextThread,
 }: EntryCardProps) {
   const [draft, setDraft] = useState(card.body);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -86,7 +91,7 @@ export function EntryCard({
   const classes = [styles.card, isContext ? styles.context : '', editing ? styles.editing : ''].filter(Boolean).join(' ');
 
   return (
-    <div className={classes}>
+    <div className={classes} data-card-id={card.id}>
       <div className={styles.meta}>
         <span className={`${styles.who} ${isK ? styles.who_K : styles.who_B}`}>{card.who}</span>
         <span className={styles.time}>{cardClock(card.ts)}</span>
@@ -126,13 +131,22 @@ export function EntryCard({
       ) : (
         <>
           {card.reply_context ? (
-            <button
-              type="button"
-              className={styles.replyContext}
-              onClick={() => onReplyContextClick?.(card.reply_context!)}
-            >
-              &#8627; note on {formatReplyDate(card.reply_context.date)} — &#8220;{card.reply_context.snippet}&#8221;
-            </button>
+            <div className={styles.replyContext}>
+              <button
+                type="button"
+                className={styles.replyContextDate}
+                onClick={() => onReplyContextDate?.(card.reply_context!)}
+              >
+                &#8627; {formatReplyDate(card.reply_context.date)}
+              </button>
+              <button
+                type="button"
+                className={styles.replyContextSnippet}
+                onClick={() => onReplyContextThread?.(card.reply_context!)}
+              >
+                &#8220;{card.reply_context.snippet}&#8221;
+              </button>
+            </div>
           ) : null}
           <div
             className={`${styles.body} ${isK ? styles.body_K : ''} ${isContext ? styles.body_context : ''}`}
