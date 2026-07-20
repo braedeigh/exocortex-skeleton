@@ -12,6 +12,7 @@ and both receipts + recipes need them:
      and canonical catalog name.
 """
 import json
+import os
 import re
 import shlex
 import subprocess
@@ -63,6 +64,11 @@ def ensure_claude_session(name, cwd, dirs=()):
     MIN_SPAWN_MB — a backstop against OOMing the box, since every button that
     starts a Claude session (triage, person, kitchen, research runner/deep/
     filer, and the annotation-batch worker dispatcher) funnels through here."""
+    if os.environ.get("EXOCORTEX_AGENTS_ENABLED", "") != "1":
+        raise RuntimeError(
+            "agent sessions are disabled on this instance "
+            "(EXOCORTEX_AGENTS_ENABLED is unset)"
+        )
     for d in dirs:
         d.mkdir(parents=True, exist_ok=True)
     sessions = []
