@@ -46,3 +46,32 @@
 .composerRow .editArea {
   flex: 1;
 }
+
+/* Cleared-to-do markers — woven between entries at the minute she tapped.
+   Deliberately NOT a card: no chrome, one quiet line, the stream's ambient
+   texture rather than its content. Three pieces, two greys, 12px floor. */
+.marker {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+}
+
+.markerCheck {
+  color: var(--accent);
+  font-size: var(--font-size-sm);
+}
+
+.markerText {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.markerTime {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}

@@ -18,6 +18,7 @@ import { ThreadPopover } from './ThreadPopover';
 import { resolveDayMode } from './types';
 import {
   useAddCard,
+  useClearedTodos,
   useDeleteCard,
   useJournalDates,
   useJournalDay,
@@ -81,6 +82,9 @@ export function JournalPage() {
   const pausePolling = editingCardId !== null || blobFocused || bottomComposerActive;
 
   const dayQuery = useJournalDay(currentDate, pausePolling);
+  // Same query the ClearedTodosCard uses (deduped by key) — the stream
+  // interleaves the minute-stamped taps between entries.
+  const clearedQuery = useClearedTodos(currentDate ?? null);
   const datesQuery = useJournalDates();
   const peopleQuery = usePeople();
   const threadsQuery = useThreads();
@@ -327,6 +331,7 @@ export function JournalPage() {
             {mode === 'cards' ? (
               <CardStream
                 cards={visibleCards}
+                markers={clearedQuery.data?.marked_items ?? []}
                 editingCardId={editingCardId}
                 savingCardId={savingCardId}
                 matcher={matcher}

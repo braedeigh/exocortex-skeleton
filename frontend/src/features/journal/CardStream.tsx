@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../../ui';
+import type { MarkedTodo } from '../../api/endpoints';
+import { fmtTime } from '../todos/todoHelpers';
 import type { EntityMatcher } from './entityHighlight';
 import { EntryCard } from './EntryCard';
 import { RefCard } from './RefCard';
@@ -8,6 +10,10 @@ import styles from './CardStream.module.css';
 
 export interface CardStreamProps {
   cards: Card[];
+  /** Minute-stamped to-do taps for this day — woven between entries by
+   * time-of-day. Computed overlay, not cards: nothing is minted, an
+   * un-check makes the footprint vanish. */
+  markers?: MarkedTodo[];
   editingCardId: string | null;
   savingCardId: string | null;
   matcher: EntityMatcher;
@@ -125,6 +131,7 @@ function BottomComposer({ saving, onSave, onActiveChange }: BottomComposerProps)
  * ts/id order, with the always-open sticky composer at the end. */
 export function CardStream({
   cards,
+  markers = [],
   editingCardId,
   savingCardId,
   matcher,
@@ -140,6 +147,24 @@ export function CardStream({
 }: CardStreamProps) {
   const context = useMemo(() => cards.filter((c) => c.kind === 'context'), [cards]);
   const lines = useMemo(() => cards.filter((c) => c.kind !== 'context'), [cards]);
+
+  // Stable weave: each marker slots before the first entry whose
+  // time-of-day is later than the tap — entries never reorder. Card ts is
+  // "YYYY-MM-DD HH:MM:SS", markers carry "HH:MM"; sliced string compare is
+  // exact ("14:30" < "14:30:22" ✓). Taps after the last entry trail the day.
+  const woven = useMemo(() => {
+    const out: Array<{ kind: 'card'; card: Card } | { kind: 'marker'; marker: MarkedTodo }> = [];
+    const pending = [...markers].sort((a, b) => a.time.localeCompare(b.time));
+    for (const card of lines) {
+      const t = card.ts.slice(11, 16);
+      while (pending.length && pending[0].time <= t) {
+        out.push({ kind: 'marker', marker: pending.shift() as MarkedTodo });
+      }
+      out.push({ kind: 'card', card });
+    }
+    for (const marker of pending) out.push({ kind: 'marker', marker });
+    return out;
+  }, [lines, markers]);
 
   function renderCard(card: Card) {
     return card.kind === 'ref' ? (
@@ -174,7 +199,19 @@ export function CardStream({
   return (
     <div className={styles.stream}>
       {context.map(renderCard)}
-      {lines.map(renderCard)}
+      {woven.map((w) =>
+        w.kind === 'card' ? (
+          renderCard(w.card)
+        ) : (
+          <div key={`marked-${w.marker.id}`} className={styles.marker}>
+            <span className={styles.markerCheck} aria-hidden="true">
+              &#10003;
+            </span>
+            <span className={styles.markerText}>{w.marker.text}</span>
+            <span className={styles.markerTime}>{fmtTime(w.marker.time)}</span>
+          </div>
+        ),
+      )}
       <BottomComposer saving={addSaving} onSave={onComposeSave} onActiveChange={onBottomActiveChange} />
     </div>
   );

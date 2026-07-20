@@ -56,8 +56,19 @@ export interface ClearedTodo {
   note?: string;
 }
 
+/** A done to-do TAPPED on the queried day, with a minute on its stamp —
+ * the journal stream interleaves these between entries by time. Legacy
+ * day-only stamps have no position to stand on and never appear here. */
+export interface MarkedTodo {
+  id: string;
+  text: string;
+  /** 'HH:MM' from the done_at stamp. */
+  time: string;
+}
+
 export interface ClearedTodosResponse {
   items: ClearedTodo[];
+  marked_items: MarkedTodo[];
 }
 
 /** GET /api/todos/cleared?date= — done items whose effective completion day

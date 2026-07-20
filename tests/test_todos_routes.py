@@ -358,7 +358,28 @@ def test_cleared_time_passthrough_requires_finished_on(client, seed):
 def test_cleared_missing_date_returns_empty(client, seed):
     seed({"now": {"items": [{"id": "a", "text": "A", "done": True, "done_at": "2026-07-19"}]}})
     r = client.get("/api/todos/cleared")
-    assert r.get_json() == {"items": []}
+    assert r.get_json() == {"items": [], "marked_items": []}
+
+
+def test_cleared_marked_items_need_a_minute_and_follow_the_tap_day(client, seed):
+    seed({"now": {"items": [
+        # Tapped on D with a minute — interleavable.
+        {"id": "a", "text": "Timed tap", "done": True, "done_at": "2026-07-19T09:15"},
+        # Legacy day-only stamp — cleared that day, but no position to stand on.
+        {"id": "b", "text": "Legacy tap", "done": True, "done_at": "2026-07-19"},
+        # Tapped on D but completed another day — marker on D, summary card elsewhere.
+        {"id": "c", "text": "Corrected", "done": True,
+         "done_at": "2026-07-19T10:00", "finished_on": "2026-07-18"},
+        # Tapped another day — no marker on D.
+        {"id": "d", "text": "Other day", "done": True, "done_at": "2026-07-18T08:00"},
+    ]}})
+    body = client.get("/api/todos/cleared?date=2026-07-19").get_json()
+    assert body["marked_items"] == [
+        {"id": "a", "text": "Timed tap", "time": "09:15"},
+        {"id": "c", "text": "Corrected", "time": "10:00"},
+    ]
+    # The summary list still files by EFFECTIVE day: a and b (c moved to the 18th).
+    assert {i["id"] for i in body["items"]} == {"a", "b"}
 
 
 # --- snooze ------------------------------------------------------------------

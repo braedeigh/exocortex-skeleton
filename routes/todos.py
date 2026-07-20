@@ -332,24 +332,37 @@ def register(app):
         carry minute precision while finished_on and ?date are date-only).
         Each row is enriched with `marked` (raw done_at, when present — the
         frontend formats it) and `note` (finished_note, when present).
-        Scans every bucket: items finished today are still in their ladder
-        bucket until tomorrow's sweep (_sweep_done_todos only archives
-        done_at < today). Reads the store raw on purpose — load_todos()
-        would trigger the sweep's write, and a GET must not mutate data."""
+        Also returns `marked_items`: done to-dos TAPPED on ?date with a
+        minute on their stamp — the journal stream interleaves these
+        between entries by time. A day-only legacy stamp has no position
+        to stand on, so it stays out of marked_items (the summary card
+        still shows it). Scans every bucket: items finished today are
+        still in their ladder bucket until tomorrow's sweep
+        (_sweep_done_todos only archives done_at < today). Reads the
+        store raw on purpose — load_todos() would trigger the sweep's
+        write, and a GET must not mutate data."""
         date = (request.args.get("date") or "").strip()
         if not date:
-            return jsonify({"items": []})
+            return jsonify({"items": [], "marked_items": []})
         todos = store.read("todos", {})
         items = []
+        marked_items = []
         for sec in todos.values():
             if not isinstance(sec, dict):
                 continue
             for item in sec.get("items", []):
                 if not (isinstance(item, dict) and item.get("done")):
                     continue
+                done_at = item.get("done_at") or ""
+                if done_at[:10] == date and len(done_at) > 10:
+                    marked_items.append({
+                        "id": item.get("id"),
+                        "text": item.get("text", ""),
+                        "time": done_at[11:16],
+                    })
                 # done_at may carry minute precision ('YYYY-MM-DDTHH:MM');
                 # finished_on is always date-only. Compare day parts only.
-                effective = (item.get("finished_on") or item.get("done_at") or "")[:10]
+                effective = (item.get("finished_on") or done_at)[:10]
                 if effective != date:
                     continue
                 row = {"id": item.get("id"), "text": item.get("text", "")}
@@ -363,7 +376,8 @@ def register(app):
                     row["note"] = item["finished_note"]
                 items.append(row)
         items.sort(key=lambda r: ("time" not in r, r.get("time", "")))
-        return jsonify({"items": items})
+        marked_items.sort(key=lambda r: r["time"])
+        return jsonify({"items": items, "marked_items": marked_items})
 
     @app.route("/api/todos/subtask/add", methods=["POST"])
     def add_subtask():
