@@ -19,12 +19,14 @@ import { StreaksRow } from './StreaksRow';
 import { SymptomCard } from './SymptomCard';
 import { TodoFormSheet } from './TodoFormSheet';
 import { TodoSection } from './TodoSection';
+import { TomorrowCard } from './TomorrowCard';
 import { WaitingCard } from './WaitingCard';
 import {
   DONE_LABEL,
   LADDER_LABELS,
   buildTodoIndex,
   collectSnoozed,
+  collectTomorrow,
   collectUpNow,
   collectWaiting,
   computeFocusCounts,
@@ -197,6 +199,11 @@ export function TodosPage() {
 
   const upNow = useMemo(
     () => collectUpNow(sections, serverDate).filter((it) => focusMatch(it, focusFront)),
+    [sections, serverDate, focusFront],
+  );
+
+  const tomorrowItems = useMemo(
+    () => collectTomorrow(sections, serverDate).filter((it) => focusMatch(it, focusFront)),
     [sections, serverDate, focusFront],
   );
 
@@ -384,6 +391,11 @@ export function TodosPage() {
               <UpNowCard
                 items={upNow}
                 serverDate={serverDate}
+                onToggle={todoActions.toggle}
+                onOpenDetail={setSelected}
+              />
+              <TomorrowCard
+                items={tomorrowItems}
                 onToggle={todoActions.toggle}
                 onOpenDetail={setSelected}
               />
