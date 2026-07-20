@@ -30,6 +30,8 @@ import {
   computeFocusCounts,
   focusMatch,
   gateHides,
+  isSnoozed,
+  isWaiting,
   visibleSectionItems,
   withFocusFront,
 } from './todoHelpers';
@@ -405,7 +407,17 @@ export function TodosPage() {
                     label={section.name}
                     colorIndex={i}
                     items={gatedBySection.shown.get(section.name) || []}
-                    totalCount={section.items.filter((it) => !it.done).length}
+                    totalCount={
+                      // Only items that COULD show here: snoozed/waiting live
+                      // in their own cards, so they don't belong in this
+                      // denominator — else the fraction can never resolve.
+                      section.items.filter(
+                        (it) =>
+                          !it.done &&
+                          !isSnoozed(it, serverDate) &&
+                          !isWaiting(it, serverDate, todoIndex),
+                      ).length
+                    }
                     manualOrder={section.manual_order}
                     serverDate={serverDate}
                     fronts={fronts}
