@@ -233,6 +233,24 @@ export function useAddCard(date: string, onError: (message: string) => void) {
   });
 }
 
+/**
+ * Adds a card tagged with `slug` so it appears in that thread's journal
+ * stream — the composer on /threads/$slug. Always appends `--position
+ * bottom`. Invalidates both the thread journal (so the new entry shows up
+ * here) and the day's journal bundle (the card also lives on `today`'s page).
+ */
+export function useAddThreadEntry(slug: string, today: string | null, onError: (message: string) => void) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: string) => addCard(today as string, 'bottom', body, [slug]),
+    onError: (err) => onError(errorMessage(err, 'Add failed')),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['journal', 'threadJournal', slug] });
+      if (today) void queryClient.invalidateQueries({ queryKey: journalDayKey(today) });
+    },
+  });
+}
+
 export function useDeleteCard(date: string, onError: (message: string) => void) {
   const queryClient = useQueryClient();
   return useMutation({

@@ -1,18 +1,50 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useSessionsContext } from '../../shell/SessionsContext';
 import { DESKTOP_QUERY } from '../../shell/useMediaQuery';
+import { Button, ToastStack } from '../../ui';
 import type { EntityMatcher } from '../journal/entityHighlight';
 import { buildEntityMatcher, highlightEntities } from '../journal/entityHighlight';
 import { mdToHtml } from '../journal/markdown';
 import { startThreadTalk, talkLabel, type TalkState } from '../journal/threadTalk';
-import type { ThreadJournalCardEntry, ThreadJournalDayEntry } from '../journal/types';
-import { usePeople, useServerDate, useThreadJournal, useThreads } from '../journal/useJournalData';
+import type { ThreadJournalCardEntry, ThreadJournalDayEntry, ThreadJournalEntry } from '../journal/types';
+import {
+  useAddThreadEntry,
+  usePeople,
+  useServerDate,
+  useThreadJournal,
+  useThreads,
+  useToasts,
+} from '../journal/useJournalData';
 import { FRONT_EMOJI, useFronts } from '../fronts/useFronts';
 import styles from './ThreadJournalPage.module.css';
 
 function isPublicMode(): boolean {
   return typeof window !== 'undefined' && window.VIEW_MODE === 'public';
+}
+
+type SortOrder = 'desc' | 'asc';
+
+const SORT_KEY = 'exo-thread-sort';
+
+/** Lazily read the shared sort preference — same try/catch-on-localStorage
+ * pattern as SplitLayout's readWidth. One preference for every thread. */
+function readSortOrder(): SortOrder {
+  try {
+    const raw = localStorage.getItem(SORT_KEY);
+    if (raw === 'asc' || raw === 'desc') return raw;
+  } catch {
+    // ignore
+  }
+  return 'desc';
+}
+
+function writeSortOrder(order: SortOrder): void {
+  try {
+    localStorage.setItem(SORT_KEY, order);
+  } catch {
+    // ignore
+  }
 }
 
 const MONTH_ABBR = [
@@ -150,7 +182,10 @@ export interface ThreadJournalPageProps {
  * The dedicated per-thread journal page (/threads/$slug) — where "Open full
  * thread" from the Threads page / journal's ThreadPopover lands: every
  * journal record tied to the thread (tagged pool cards ∪ cited sources,
- * routes/threads.py thread_journal), oldest first, read-only.
+ * routes/threads.py thread_journal). Sortable newest/oldest first (a shared
+ * localStorage preference, defaulting to newest first), and a sticky bottom
+ * composer lets her add a new entry (tagged with the thread's slug) or add
+ * one and jump straight into talking about the thread.
  */
 export function ThreadJournalPage({ slug }: ThreadJournalPageProps) {
   const { data, isLoading, isError } = useThreadJournal(slug);
@@ -162,8 +197,12 @@ export function ThreadJournalPage({ slug }: ThreadJournalPageProps) {
   const navigate = useNavigate();
   const { setActive } = useSessionsContext();
   const [talkState, setTalkState] = useState<TalkState>('idle');
+  const [sortOrder, setSortOrder] = useState<SortOrder>(readSortOrder);
+  const { toasts, push, dismiss } = useToasts();
 
-  const serverYear = serverDateData?.server_date ? serverDateData.server_date.slice(0, 4) : null;
+  const today = serverDateData?.server_date ?? null;
+  const serverYear = today ? today.slice(0, 4) : null;
+  const addEntry = useAddThreadEntry(slug, today, push);
 
   const matcher = useMemo(
     () => buildEntityMatcher(peopleData?.people ?? [], threadsData?.threads ?? []),
@@ -179,6 +218,17 @@ export function ThreadJournalPage({ slug }: ThreadJournalPageProps) {
     void navigate({ to: '/journal', search: { date } });
   }
 
+  function toggleSortOrder() {
+    setSortOrder((cur) => {
+      const next: SortOrder = cur === 'desc' ? 'asc' : 'desc';
+      writeSortOrder(next);
+      return next;
+    });
+  }
+
+  /** Shared by the header's "Talk about this thread" button and the
+   * composer's "Add & talk" — both drive the same TalkState so either
+   * surface's label/disabled-while-sending logic stays in sync. */
   async function talk() {
     if (talkState === 'sending') return;
     setTalkState('sending');
@@ -199,8 +249,25 @@ export function ThreadJournalPage({ slug }: ThreadJournalPageProps) {
   const thread = data?.thread;
   const entries = data?.entries ?? [];
 
+  // Payload order is ascending (oldest first) — reverse a copy for the
+  // default "newest first" view. Never mutate the query's cached array.
+  const displayedEntries = useMemo<ThreadJournalEntry[]>(
+    () => (sortOrder === 'desc' ? [...entries].reverse() : entries),
+    [entries, sortOrder],
+  );
+
+  async function handleComposerSave(body: string): Promise<boolean> {
+    try {
+      await addEntry.mutateAsync(body);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   return (
     <div className={styles.page}>
+      <ToastStack toasts={toasts} onDismiss={dismiss} />
       <Link to="/threads" className={styles.backLink}>
         &larr; Threads
       </Link>
@@ -251,11 +318,17 @@ export function ThreadJournalPage({ slug }: ThreadJournalPageProps) {
             ) : null}
           </header>
 
+          {entries.length > 0 ? (
+            <button type="button" className={styles.sortToggle} onClick={toggleSortOrder}>
+              {sortOrder === 'desc' ? '↓ Newest first' : '↑ Oldest first'}
+            </button>
+          ) : null}
+
           <div className={styles.entries}>
             {entries.length === 0 ? (
               <div className={styles.empty}>No journal entries linked yet.</div>
             ) : (
-              entries.map((e) =>
+              displayedEntries.map((e) =>
                 e.kind === 'card' ? (
                   <JournalCardEntry
                     key={`card-${e.id}`}
@@ -281,8 +354,110 @@ export function ThreadJournalPage({ slug }: ThreadJournalPageProps) {
               )
             )}
           </div>
+
+          {!isPublicMode() ? (
+            <ThreadComposer
+              disabled={!today}
+              saving={addEntry.isPending}
+              talkState={talkState}
+              onSave={handleComposerSave}
+              onTalk={talk}
+            />
+          ) : null}
         </>
       ) : null}
+    </div>
+  );
+}
+
+interface ThreadComposerProps {
+  /** True until the server's "today" has loaded — a new card's ts depends
+   * on it, so the composer can't submit before then. */
+  disabled: boolean;
+  saving: boolean;
+  talkState: TalkState;
+  /** Resolves true on a successful save; the composer clears its draft on
+   * success either way (plain Add or as the first half of Add & talk). */
+  onSave: (body: string) => Promise<boolean>;
+  /** The page's shared talk() — run after a successful "Add & talk" save. */
+  onTalk: () => Promise<void>;
+}
+
+/**
+ * Sticky bottom composer for /threads/$slug — mirrors CardStream.tsx's
+ * BottomComposer dock pattern (position: sticky riding `.page`'s bottom
+ * edge, auto-growing textarea starting at one 44px row). Two actions: Add
+ * saves a new card tagged with this thread's slug; Add & talk does the same
+ * and then launches the same "talk about this thread" flow as the header
+ * button, sharing its TalkState.
+ */
+function ThreadComposer({ disabled, saving, talkState, onSave, onTalk }: ThreadComposerProps) {
+  const [draft, setDraft] = useState('');
+  const taRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    if (!taRef.current) return;
+    const ta = taRef.current;
+    ta.style.height = 'auto';
+    // Floor at one 44px row (--tap-target) so the empty composer reads as a
+    // single compact line; +2 covers the top/bottom borders scrollHeight
+    // doesn't include (same trick as CardStream's BottomComposer).
+    ta.style.height = `${Math.max(44, ta.scrollHeight + 2)}px`;
+  }, [draft]);
+
+  const busy = disabled || saving;
+  const canSubmit = !busy && draft.trim().length > 0;
+
+  async function handleAdd() {
+    if (!canSubmit) return;
+    const ok = await onSave(draft);
+    if (ok) setDraft('');
+  }
+
+  async function handleAddAndTalk() {
+    if (!canSubmit || talkState === 'sending') return;
+    const ok = await onSave(draft);
+    if (ok) {
+      setDraft('');
+      await onTalk();
+    }
+  }
+
+  return (
+    <div className={styles.composerDock}>
+      <div className={styles.composerRow}>
+        <textarea
+          ref={taRef}
+          className={styles.composerArea}
+          rows={1}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder="Add to this thread…"
+          disabled={busy}
+        />
+        <div className={styles.composerActions}>
+          <Button
+            variant="primary"
+            onClick={(e) => {
+              e.stopPropagation();
+              void handleAdd();
+            }}
+            disabled={!canSubmit}
+          >
+            Add
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={(e) => {
+              e.stopPropagation();
+              void handleAddAndTalk();
+            }}
+            disabled={!canSubmit || talkState === 'sending'}
+          >
+            💬 Add &amp; talk
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

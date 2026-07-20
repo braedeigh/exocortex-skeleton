@@ -72,6 +72,7 @@ def do_record(argv):
             i += 1
     who = opts["who"]
     ts = opts["ts"]
+    tags = [t.strip() for t in opts.get("tags", "").split(",") if t.strip()]
     ts_dt = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
     base = ts_dt.strftime("%Y-%m-%d.%H%M") + who.lower()
     cid = base
@@ -81,12 +82,13 @@ def do_record(argv):
         n += 1
     body = sys.stdin.read()
     POOL.mkdir(parents=True, exist_ok=True)
+    tags_yaml = "[" + ", ".join(tags) + "]"
     front = (
         f"id: {cid}\\n"
         f"who: {who}\\n"
         f"ts: {ts}\\n"
         "reply_to: null\\n"
-        "tags: []\\n"
+        f"tags: {tags_yaml}\\n"
         "kind: line\\n"
     )
     (POOL / f"{cid}.md").write_text("---\\n" + front + "---\\n" + body)
@@ -239,3 +241,41 @@ def test_add_card_rejects_date_before_cards_cutover(client):
     })
     assert resp.status_code == 400
     assert resp.get_json()["error"] == "day predates the card pool"
+
+
+# --- POST /api/cards/add — optional `tags` ----------------------------------
+
+def test_add_card_with_tags_passes_them_through_to_the_minted_card(client, vault, monkeypatch):
+    monkeypatch.setattr(cards, "_stream_py", lambda: vault / "_system" / "stream.py")
+    resp = client.post("/api/cards/add", json={
+        "date": "2026-07-08",
+        "position": "bottom",
+        "body": "Thinking about the move.",
+        "tags": ["moving", "apartment-hunt"],
+    })
+    assert resp.status_code == 200
+    card = resp.get_json()
+    assert card["tags"] == ["moving", "apartment-hunt"]
+
+
+def test_add_card_rejects_invalid_tag(client):
+    resp = client.post("/api/cards/add", json={
+        "date": "2026-07-08",
+        "position": "bottom",
+        "body": "Some note.",
+        "tags": ["Not_Valid!"],
+    })
+    assert resp.status_code == 400
+    assert resp.get_json()["error"] == "invalid tag"
+
+
+def test_add_card_absent_tags_behaves_exactly_as_before(client, vault, monkeypatch):
+    monkeypatch.setattr(cards, "_stream_py", lambda: vault / "_system" / "stream.py")
+    resp = client.post("/api/cards/add", json={
+        "date": "2026-07-08",
+        "position": "bottom",
+        "body": "One more thought before bed.",
+    })
+    assert resp.status_code == 200
+    card = resp.get_json()
+    assert card["tags"] == []

@@ -30,6 +30,9 @@ from routes.entities import _parse_frontmatter, CARDS_CUTOVER
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 # date . HHMM . b|k . optional counter — see CLAUDE.md background for this task.
 CARD_ID_RE = re.compile(r"^\d{4}-\d{2}-\d{2}\.\d{4}[bk]\d*$")
+# Same shape as routes/threads.py's _SESSION_SLUG — tags mint thread
+# associations, so a tag must be a valid slug.
+TAG_RE = re.compile(r"^[a-z0-9-]{1,40}$")
 
 STREAM_TIMEOUT_SEC = 30
 
@@ -178,6 +181,7 @@ def register(app):
         date = (data.get("date") or "").strip()
         position = data.get("position")
         body = data.get("body")
+        tags = data.get("tags") or []
         if not DATE_RE.match(date):
             return jsonify({"error": "invalid date"}), 400
         if date < CARDS_CUTOVER:
@@ -186,9 +190,14 @@ def register(app):
             return jsonify({"error": "body cannot be empty"}), 400
         if position not in ("top", "bottom"):
             return jsonify({"error": "position must be 'top' or 'bottom'"}), 400
+        if not isinstance(tags, list) or not all(isinstance(t, str) and TAG_RE.match(t) for t in tags):
+            return jsonify({"error": "invalid tag"}), 400
         ts = _insert_ts(date, position, _day_cards(date))
+        args = ["record", "--who", "B", "--ts", ts]
+        if tags:
+            args += ["--tags", ",".join(tags)]
         try:
-            result = _run_stream("record", "--who", "B", "--ts", ts, stdin=body)
+            result = _run_stream(*args, stdin=body)
         except subprocess.TimeoutExpired:
             return jsonify({"error": "timed out adding card"}), 400
         if result.returncode != 0:

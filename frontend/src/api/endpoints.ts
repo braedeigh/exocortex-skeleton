@@ -249,8 +249,13 @@ export function updateCard(id: string, body: string): Promise<Card> {
   return api.post('/api/cards/update', { id, body });
 }
 
-export function addCard(date: string, position: 'top' | 'bottom', body: string): Promise<Card> {
-  return api.post('/api/cards/add', { date, position, body });
+export function addCard(
+  date: string,
+  position: 'top' | 'bottom',
+  body: string,
+  tags?: string[],
+): Promise<Card> {
+  return api.post('/api/cards/add', tags && tags.length > 0 ? { date, position, body, tags } : { date, position, body });
 }
 
 export function deleteCard(id: string): Promise<OkResponse> {

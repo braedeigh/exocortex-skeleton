@@ -132,9 +132,79 @@
   cursor: default;
 }
 
+/* Sort toggle: sits below the header, above the entry stream. Same muted
+   outline look as .talkBtn/.badgeOutline, but comfortably wide rather than
+   full-width — a secondary control, not the page's primary action. */
+.sortToggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap-target);
+  width: fit-content;
+  padding: 0 var(--space-4);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  color: var(--text-muted);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.sortToggle:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .entries {
   display: flex;
   flex-direction: column;
+}
+
+/* --- Bottom composer: mirrors CardStream.module.css's .dock/.editArea/
+   .composerRow (BottomComposer) so the two composers read the same, even
+   though this page's scroller is `.page` itself rather than a nested
+   `.stream`. Sticks to `.page`'s bottom edge while she reads higher up, and
+   settles into normal flow at the true end of the entry list. --- */
+
+.composerDock {
+  position: sticky;
+  bottom: 0;
+  padding: var(--space-2) 0;
+  background: color-mix(in srgb, var(--bg) 86%, transparent);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+
+.composerRow {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+
+.composerArea {
+  flex: 1;
+  width: 100%;
+  min-height: var(--tap-target);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: var(--font-size-base);
+  line-height: 1.6;
+  padding: var(--space-2) var(--space-3);
+  resize: none;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.composerActions {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
 }
 
 /* --- Journal card entry: read-mode twin of EntryCard.module.css --- */
