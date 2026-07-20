@@ -22,7 +22,6 @@ export interface TodoDraft {
   afterId: string;
   fronts: string[];
   durationMin: string; // input-friendly string, '' = none
-  snoozeDays: number | null; // null = untouched, 0 = clear snooze, N = snooze N days
 }
 
 /** A fresh draft for the "+ add" flow, opened preset to `section`. `prefill`
@@ -42,14 +41,11 @@ export function emptyDraft(
     afterId: '',
     fronts: prefill?.fronts ?? [],
     durationMin: '',
-    snoozeDays: null,
   };
 }
 
 /** A draft seeded from an existing item, for the edit flow — mirrors the old
- * per-item editor's init effect (null/undefined fields normalize to ''/[]).
- * `snoozeDays` starts untouched (null): opening the editor doesn't imply a
- * snooze change, only an explicit tap on a snooze chip does. */
+ * per-item editor's init effect (null/undefined fields normalize to ''/[]). */
 export function draftFromItem(item: TodoItem, section: string): TodoDraft {
   return {
     text: item.text,
@@ -61,7 +57,6 @@ export function draftFromItem(item: TodoItem, section: string): TodoDraft {
     afterId: item.after_id || '',
     fronts: itemFronts(item),
     durationMin: item.duration_min ? String(item.duration_min) : '',
-    snoozeDays: null,
   };
 }
 
@@ -117,16 +112,14 @@ export interface TodoDraftDiff {
   patch: TodoDetailsPatch;
   /** Present only when the section changed. */
   moveTo?: string;
-  /** Present only when the draft's snooze was explicitly touched. */
-  snoozeDays?: number;
 }
 
 /**
  * Diff a draft against the item (and section) it started from, producing
- * exactly what Save needs to send: a rename, a details patch, a move, and/or
- * a snooze — each field included only when it changed. Null/undefined base
- * fields normalize to '' (or [] for fronts) before comparing, so a field the
- * draft never touched never shows up as a spurious patch key.
+ * exactly what Save needs to send: a rename, a details patch, and/or a move
+ * — each field included only when it changed. Null/undefined base fields
+ * normalize to '' (or [] for fronts) before comparing, so a field the draft
+ * never touched never shows up as a spurious patch key.
  *
  * Field-clearing follows /api/todos/details' own contract (routes/todos.py):
  * an empty string pops a string key, an empty `fronts` array clears fronts,
@@ -166,6 +159,5 @@ export function diffDraftForSave(draft: TodoDraft, base: TodoItem, baseSection: 
   const diff: TodoDraftDiff = { patch };
   if (newText !== undefined) diff.newText = newText;
   if (moveTo !== undefined) diff.moveTo = moveTo;
-  if (draft.snoozeDays !== null) diff.snoozeDays = draft.snoozeDays;
   return diff;
 }

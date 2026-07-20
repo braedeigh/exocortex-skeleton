@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, Checkbox, IconButton, Sheet } from '../../ui';
 import { BlockerPicker } from './BlockerPicker';
-import { LADDER_LABELS, addDays, fmtAddedDate, isWaiting, waitingReason } from './todoHelpers';
+import { LADDER_LABELS, fmtAddedDate, isWaiting, waitingReason } from './todoHelpers';
 import { emptyDraft, draftFromItem, draftToAddPayload, diffDraftForSave } from './todoDraft';
 import type { TodoDraft } from './todoDraft';
 import { FRONT_EMOJI } from '../fronts/useFronts';
@@ -11,11 +11,11 @@ import type { TodoItem } from './types';
 import styles from './TodoFormSheet.module.css';
 
 /** The subset of useTodoActions the form needs — everything except toggle/
- * reorder/autosort/bulk/add (add mode uses the awaitable `addAsync` instead,
- * so it can chain a follow-up snooze onto the freshly-minted id). */
+ * reorder/autosort/bulk/snooze (add mode uses the awaitable `addAsync`
+ * instead of the fire-and-forget `add`). */
 export type TodoFormActions = Pick<
   ReturnType<typeof useTodoActions>,
-  'addAsync' | 'rename' | 'details' | 'move' | 'snooze' | 'remove' | 'subtaskAdd' | 'subtaskToggle' | 'subtaskRemove'
+  'addAsync' | 'rename' | 'details' | 'move' | 'remove' | 'subtaskAdd' | 'subtaskToggle' | 'subtaskRemove'
 >;
 
 export interface TodoFormSheetProps {
@@ -40,15 +40,12 @@ export interface TodoFormSheetProps {
   actions: TodoFormActions;
 }
 
-const SNOOZE_DAYS = [1, 2, 3, 4, 5, 6];
-const SNOOZE_WEEKS = [1, 2, 3, 4];
-
 /**
  * The unified full-fat to-do form — one modal for both "+ add" and "edit
  * to-do". Every option the form supports is visible flat (no "more options"
  * progressive disclosure): title, section, notes, sub-tasks (edit only),
- * focus fronts, due, do-after, duration, snooze, and an "Added" meta line
- * (edit only).
+ * focus fronts, due, do-after, duration, and an "Added" meta line (edit
+ * only).
  *
  * Nothing commits until Save/Add — the whole form stages into a single
  * `TodoDraft`, and `diffDraftForSave` (edit) / `draftToAddPayload` (add) turn
@@ -112,16 +109,12 @@ export function TodoFormSheet({
       return;
     }
     const payload = draftToAddPayload(draft);
-    let res;
     try {
-      res = await actions.addAsync(payload);
+      await actions.addAsync(payload);
     } catch {
       // The mutation's own onError already rolled back and toasted — keep
       // the modal open so the draft isn't lost.
       return;
-    }
-    if (draft.snoozeDays && draft.snoozeDays > 0 && res.id) {
-      actions.snooze(res.id, draft.snoozeDays);
     }
     onClose();
   }
@@ -132,7 +125,6 @@ export function TodoFormSheet({
     if (diff.newText !== undefined) actions.rename(item.id, diff.newText);
     if (Object.keys(diff.patch).length > 0) actions.details(item.id, diff.patch);
     if (diff.moveTo !== undefined) actions.move(item.id, diff.moveTo);
-    if (diff.snoozeDays !== undefined) actions.snooze(item.id, diff.snoozeDays);
     onClose();
   }
 
@@ -391,54 +383,7 @@ export function TodoFormSheet({
         </div>
       </div>
 
-      {/* 9. Snooze */}
-      <div className={styles.field}>
-        <span className={styles.label}>Snooze</span>
-        {item?.snoozed_until ? (
-          <span className={styles.meta}>Snoozed until {fmtAddedDate(item.snoozed_until)}</span>
-        ) : null}
-        {item?.snoozed_until ? (
-          <button
-            type="button"
-            className={`${styles.chip} ${draft.snoozeDays === 0 ? styles.active : ''}`}
-            onClick={() => patch((d) => ({ ...d, snoozeDays: d.snoozeDays === 0 ? null : 0 }))}
-          >
-            &#8617; Clear snooze
-          </button>
-        ) : null}
-        <div className={styles.snoozeRow}>
-          {SNOOZE_DAYS.map((n) => (
-            <button
-              type="button"
-              key={`d${n}`}
-              className={`${styles.chip} ${draft.snoozeDays === n ? styles.active : ''}`}
-              onClick={() => patch((d) => ({ ...d, snoozeDays: d.snoozeDays === n ? null : n }))}
-            >
-              {n}d
-            </button>
-          ))}
-        </div>
-        <div className={styles.snoozeRow}>
-          {SNOOZE_WEEKS.map((w) => {
-            const days = w * 7;
-            return (
-              <button
-                type="button"
-                key={`w${w}`}
-                className={`${styles.chip} ${draft.snoozeDays === days ? styles.active : ''}`}
-                onClick={() => patch((d) => ({ ...d, snoozeDays: d.snoozeDays === days ? null : days }))}
-              >
-                {w}w
-              </button>
-            );
-          })}
-        </div>
-        {draft.snoozeDays !== null && draft.snoozeDays > 0 ? (
-          <span className={styles.meta}>Snoozes until {fmtAddedDate(addDays(serverDate, draft.snoozeDays))}</span>
-        ) : null}
-      </div>
-
-      {/* 10. Added meta (edit only) */}
+      {/* 9. Added meta (edit only) */}
       {mode === 'edit' && item?.created ? (
         <div className={styles.meta}>Added {fmtAddedDate(item.created)}</div>
       ) : null}

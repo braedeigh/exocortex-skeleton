@@ -12,7 +12,7 @@ function draft(overrides: Partial<TodoDraft> = {}): TodoDraft {
 }
 
 describe('emptyDraft', () => {
-  it('starts blank, presets the section, and leaves snooze untouched', () => {
+  it('starts blank and presets the section', () => {
     const d = emptyDraft('Later');
     expect(d).toMatchObject({
       text: '',
@@ -21,7 +21,6 @@ describe('emptyDraft', () => {
       dueBy: '',
       fronts: [],
       durationMin: '',
-      snoozeDays: null,
     });
   });
   it('applies prefill text/dueBy/fronts', () => {
@@ -33,7 +32,7 @@ describe('emptyDraft', () => {
 });
 
 describe('draftFromItem', () => {
-  it('normalizes null/undefined fields to empty string/array and leaves snooze untouched', () => {
+  it('normalizes null/undefined fields to empty string/array', () => {
     const d = draftFromItem(baseItem(), 'Now');
     expect(d).toMatchObject({
       text: 'Call the pharmacy',
@@ -45,7 +44,6 @@ describe('draftFromItem', () => {
       afterId: '',
       fronts: [],
       durationMin: '',
-      snoozeDays: null,
     });
   });
   it('carries over populated fields, stringifying duration', () => {
@@ -96,13 +94,12 @@ describe('diffDraftForSave — patch', () => {
     d.dueBy = '';
     expect(diffDraftForSave(d, item, 'Now').patch.due_by).toBe('');
   });
-  it('an unchanged item diffs to an empty patch, no moveTo, no snoozeDays', () => {
+  it('an unchanged item diffs to an empty patch, no moveTo', () => {
     const item = baseItem({ notes: 'x', due_by: '2026-08-01', fronts: ['health'], duration_min: 15 });
     const d = draftFromItem(item, 'Now');
     const diff = diffDraftForSave(d, item, 'Now');
     expect(diff.patch).toEqual({});
     expect(diff.moveTo).toBeUndefined();
-    expect(diff.snoozeDays).toBeUndefined();
   });
 });
 
@@ -133,29 +130,12 @@ describe('diffDraftForSave — fronts', () => {
   });
 });
 
-describe('diffDraftForSave — section/snooze', () => {
+describe('diffDraftForSave — section', () => {
   it('a section change reports moveTo', () => {
     const item = baseItem();
     const d = draftFromItem(item, 'Now');
     d.section = 'Later';
     expect(diffDraftForSave(d, item, 'Now').moveTo).toBe('Later');
-  });
-  it('snoozeDays 0 (explicit clear) is passed through', () => {
-    const item = baseItem();
-    const d = draftFromItem(item, 'Now');
-    d.snoozeDays = 0;
-    expect(diffDraftForSave(d, item, 'Now').snoozeDays).toBe(0);
-  });
-  it('snoozeDays N is passed through', () => {
-    const item = baseItem();
-    const d = draftFromItem(item, 'Now');
-    d.snoozeDays = 3;
-    expect(diffDraftForSave(d, item, 'Now').snoozeDays).toBe(3);
-  });
-  it('snoozeDays null (untouched) is omitted', () => {
-    const item = baseItem();
-    const d = draftFromItem(item, 'Now');
-    expect(diffDraftForSave(d, item, 'Now').snoozeDays).toBeUndefined();
   });
 });
 
