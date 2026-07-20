@@ -454,7 +454,7 @@ function ThreadComposer({ disabled, saving, talkState, onSave, onTalk }: ThreadC
             }}
             disabled={!canSubmit || talkState === 'sending'}
           >
-            💬 Add &amp; talk
+            💬 Chat
           </Button>
         </div>
       </div>
