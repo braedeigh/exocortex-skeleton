@@ -4,11 +4,13 @@
   padding: 0;
 }
 
+/* Rows are columns now — text line, then (note | edit controls), then the
+   marked stamp. They only grow as tall as their content actually asks. */
 .row {
   display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-height: 40px;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) 0;
   border-bottom: 1px solid var(--border-soft);
 }
 
@@ -16,12 +18,30 @@
   border-bottom: none;
 }
 
+.main {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 24px;
+}
+
+/* Three text tiers, three greys — hierarchy from color, not tiny type. */
 .text {
   flex: 1;
   min-width: 0;
   overflow-wrap: anywhere;
   color: var(--text);
   font-size: var(--font-size-base);
+}
+
+.note {
+  color: var(--text-secondary);
+  font-size: var(--font-size-base);
+}
+
+.marked {
+  color: var(--text-muted);
+  font-size: var(--font-size-sm); /* the 12px floor — captions only */
 }
 
 .timeChip {
@@ -34,4 +54,53 @@
   background: var(--bg);
   border-radius: var(--radius-pill);
   padding: 2px 10px;
+}
+
+/* Edit mode — controls grow to full tap size (small until edit). */
+.controls {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.controls .input {
+  flex: 1;
+}
+
+.input {
+  min-height: var(--tap-target);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--font-size-base);
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+.noteInput {
+  width: 100%;
+}
+
+.editBtn {
+  margin-left: auto;
+  font-size: var(--font-size-sm);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) 10px;
+  min-height: 32px;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.editBtn:hover {
+  color: var(--text-secondary);
+}
+
+.saveError {
+  color: var(--red);
+  font-size: var(--font-size-sm);
+  padding-top: var(--space-2);
 }

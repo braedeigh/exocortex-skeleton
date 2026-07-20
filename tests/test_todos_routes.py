@@ -90,15 +90,25 @@ def test_toggle_disambiguates_same_text(client, seed):
 
 def test_toggle_stamps_and_clears_done_at(client, seed):
     # done_at drives the overnight sweep: set on check, removed on un-check.
+    # Stamped to minute precision now, so assert the day prefix + a 'T'.
     from datetime import datetime
     today = datetime.now().strftime("%Y-%m-%d")
     seed({"now": {"items": [{"id": "a", "text": "task", "done": False}]}})
     _post(client, "/api/todos/toggle", {"id": "a"})
     a = read_todos()["now"]["items"][0]
-    assert a["done"] is True and a["done_at"] == today
+    assert a["done"] is True
+    assert a["done_at"].startswith(today) and "T" in a["done_at"]
     _post(client, "/api/todos/toggle", {"id": "a"})
     a = read_todos()["now"]["items"][0]
     assert a["done"] is False and "done_at" not in a
+
+
+def test_toggle_stamps_minute_precision(client, seed):
+    import re
+    seed({"now": {"items": [{"id": "a", "text": "task", "done": False}]}})
+    _post(client, "/api/todos/toggle", {"id": "a"})
+    a = read_todos()["now"]["items"][0]
+    assert re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$", a["done_at"])
 
 
 def test_add_inserts_at_top(client, seed):
@@ -264,6 +274,45 @@ def test_details_sets_then_clears_finished_fields(client, seed):
     _post(client, "/api/todos/details", {"id": "a", "finished_on": "", "finished_time": ""})
     it = read_todos()["now"]["items"][0]
     assert "finished_on" not in it and "finished_time" not in it
+
+
+def test_details_sets_then_clears_finished_note(client, seed):
+    """finished_note ("how it went") follows the same set/clear contract as
+    the other detail attrs, and is distinct from the item's `notes`."""
+    seed({"now": {"items": [{"id": "a", "text": "A", "done": False, "notes": "keep me"}]}})
+    _post(client, "/api/todos/details", {"id": "a", "finished_note": "went great"})
+    it = read_todos()["now"]["items"][0]
+    assert it["finished_note"] == "went great"
+    assert it["notes"] == "keep me"   # unrelated to the description notes field
+    _post(client, "/api/todos/details", {"id": "a", "finished_note": ""})
+    it = read_todos()["now"]["items"][0]
+    assert "finished_note" not in it
+    assert it["notes"] == "keep me"
+
+
+def test_cleared_matches_datetime_done_at(client, seed):
+    # done_at is now minute-precision; matching against ?date must compare
+    # only the day part.
+    seed({"now": {"items": [
+        {"id": "a", "text": "Minute stamped", "done": True, "done_at": "2026-07-19T09:15"},
+    ]}})
+    r = client.get("/api/todos/cleared?date=2026-07-19")
+    got = {i["id"] for i in r.get_json()["items"]}
+    assert got == {"a"}
+
+
+def test_cleared_marked_and_note_passthrough(client, seed):
+    seed({"now": {"items": [
+        {"id": "a", "text": "With both", "done": True, "done_at": "2026-07-19T09:15",
+         "finished_note": "went great"},
+        {"id": "b", "text": "Neither", "done": True, "finished_on": "2026-07-19"},
+    ]}})
+    items = client.get("/api/todos/cleared?date=2026-07-19").get_json()["items"]
+    by_id = {i["id"]: i for i in items}
+    assert by_id["a"]["marked"] == "2026-07-19T09:15"   # raw done_at, unformatted
+    assert by_id["a"]["note"] == "went great"
+    assert "marked" not in by_id["b"]   # no done_at at all -> absent
+    assert "note" not in by_id["b"]     # no finished_note -> absent
 
 
 def test_cleared_matches_done_at_across_buckets(client, seed):

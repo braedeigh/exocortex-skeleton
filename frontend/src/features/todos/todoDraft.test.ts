@@ -23,6 +23,7 @@ describe('emptyDraft', () => {
       durationMin: '',
       finishedOn: '',
       finishedTime: '',
+      finishedNote: '',
     });
   });
   it('applies prefill text/dueBy/fronts', () => {
@@ -48,6 +49,7 @@ describe('draftFromItem', () => {
       durationMin: '',
       finishedOn: '',
       finishedTime: '',
+      finishedNote: '',
     });
   });
   it('carries over populated fields, stringifying duration', () => {
@@ -61,6 +63,7 @@ describe('draftFromItem', () => {
       after_id: 'blocker-1',
       finished_on: '2026-08-03',
       finished_time: '14:30',
+      finished_note: 'went fine',
     });
     const d = draftFromItem(item, 'Up Next');
     expect(d).toMatchObject({
@@ -73,6 +76,7 @@ describe('draftFromItem', () => {
       afterId: 'blocker-1',
       finishedOn: '2026-08-03',
       finishedTime: '14:30',
+      finishedNote: 'went fine',
     });
   });
 });
@@ -193,6 +197,24 @@ describe('diffDraftForSave — finished', () => {
     expect(diff.patch).not.toHaveProperty('finished_on');
     expect(diff.patch).not.toHaveProperty('finished_time');
   });
+  it('setting finishedNote from empty produces a patch with the new value', () => {
+    const item = baseItem({ done: true, done_at: '2026-08-01' });
+    const d = draftFromItem(item, 'Now');
+    d.finishedNote = 'went well';
+    expect(diffDraftForSave(d, item, 'Now').patch.finished_note).toBe('went well');
+  });
+  it('clearing finishedNote maps to ""', () => {
+    const item = baseItem({ done: true, finished_note: 'went well' });
+    const d = draftFromItem(item, 'Now');
+    d.finishedNote = '';
+    expect(diffDraftForSave(d, item, 'Now').patch.finished_note).toBe('');
+  });
+  it('unchanged finishedNote keeps the patch key absent', () => {
+    const item = baseItem({ done: true, finished_note: 'went well' });
+    const d = draftFromItem(item, 'Now');
+    const diff = diffDraftForSave(d, item, 'Now');
+    expect(diff.patch).not.toHaveProperty('finished_note');
+  });
 });
 
 describe('draftToAddPayload', () => {
@@ -227,11 +249,12 @@ describe('draftToAddPayload', () => {
     const d = draft({ durationMin: '0' });
     expect(draftToAddPayload(d)).not.toHaveProperty('duration_min');
   });
-  it('excludes finishedOn/finishedTime even when set on the draft', () => {
-    const d = draft({ finishedOn: '2026-08-01', finishedTime: '09:15' });
+  it('excludes finishedOn/finishedTime/finishedNote even when set on the draft', () => {
+    const d = draft({ finishedOn: '2026-08-01', finishedTime: '09:15', finishedNote: 'went well' });
     const payload = draftToAddPayload(d);
     expect(payload).not.toHaveProperty('finished_on');
     expect(payload).not.toHaveProperty('finished_time');
+    expect(payload).not.toHaveProperty('finished_note');
   });
 });
 

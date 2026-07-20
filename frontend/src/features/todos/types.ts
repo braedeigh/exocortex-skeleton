@@ -29,12 +29,17 @@ export interface TodoItem {
    * once. Absent or empty = untagged. Read via todoHelpers.itemFronts. */
   fronts?: string[] | null;
   duration_min?: number | null;
+  /** Auto stamp of when she marked it done, 'YYYY-MM-DDTHH:MM' (minute
+   * precision since 2026-07-20); legacy items stay date-only ('YYYY-MM-DD').
+   * The day part is always `done_at.slice(0, 10)` — readers that only need
+   * the day must slice rather than assume a fixed-length date string. */
   done_at?: string | null;
   /** Assignable "actually done" moment (edit form's Done block) — distinct
-   * from `done_at`, which is the auto date-only stamp of when she marked it
-   * done. */
+   * from `done_at`, which is the auto stamp of when she marked it done. */
   finished_on?: string | null;
   finished_time?: string | null;
+  /** Optional free-text note on how it went, staged in the Done block. */
+  finished_note?: string | null;
   snoozed_until?: string | null;
   /** "Do after" — hidden until this date arrives (see isWaiting in todoHelpers). */
   after_date?: string | null;

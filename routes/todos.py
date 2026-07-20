@@ -150,9 +150,13 @@ def register(app):
     # `category` tag were retired 2026-07-14. finished_on ('YYYY-MM-DD') +
     # finished_time ('HH:MM') record when a to-do was ACTUALLY done,
     # assignable by hand from the edit form — distinct from `done_at`, which
-    # is auto-stamped by the toggle handler for when she MARKED it done.
+    # is auto-stamped by the toggle handler for when she MARKED it done (now
+    # minute-precision, see toggle_todo). finished_note is an optional
+    # completion note — "how it went" — distinct from the item's description
+    # `notes`.
     TODO_STR_FIELDS = ("notes", "due_by", "due_time", "place_id",
-                        "after_date", "after_id", "finished_on", "finished_time")
+                        "after_date", "after_id", "finished_on", "finished_time",
+                        "finished_note")
 
     @app.route("/api/todos/details", methods=["POST"])
     def todo_details():
@@ -302,9 +306,14 @@ def register(app):
                         item["done"] = not item["done"]
                         items.remove(item)
                         if item["done"]:
-                            # Stamp the completion day: it lingers struck-through
-                            # in place today, then load_todos sweeps it to Done.
-                            item["done_at"] = datetime.now().strftime("%Y-%m-%d")
+                            # done_at = when she MARKED it done, now stamped to
+                            # minute precision ('YYYY-MM-DDTHH:MM'); it lingers
+                            # struck-through in place today, then load_todos
+                            # sweeps it to Done. Legacy items carry date-only
+                            # values ('YYYY-MM-DD') — every reader must treat
+                            # the day part as done_at[:10], never compare the
+                            # raw string against a bare date for equality.
+                            item["done_at"] = datetime.now().strftime("%Y-%m-%dT%H:%M")
                             # Checking the main task marks every sub-task done too;
                             # un-checking leaves them as they are (no symmetric undo).
                             for sub in item.get("subtasks", []):
@@ -319,11 +328,14 @@ def register(app):
     @app.route("/api/todos/cleared", methods=["GET"])
     def cleared_todos():
         """Done to-dos whose EFFECTIVE completion day == ?date (finished_on
-        if set, else done_at). Scans every bucket: items finished today are
-        still in their ladder bucket until tomorrow's sweep
-        (_sweep_done_todos only archives done_at < today). Reads the store
-        raw on purpose — load_todos() would trigger the sweep's write, and
-        a GET must not mutate data."""
+        if set, else done_at — compared by day part only, since done_at may
+        carry minute precision while finished_on and ?date are date-only).
+        Each row is enriched with `marked` (raw done_at, when present — the
+        frontend formats it) and `note` (finished_note, when present).
+        Scans every bucket: items finished today are still in their ladder
+        bucket until tomorrow's sweep (_sweep_done_todos only archives
+        done_at < today). Reads the store raw on purpose — load_todos()
+        would trigger the sweep's write, and a GET must not mutate data."""
         date = (request.args.get("date") or "").strip()
         if not date:
             return jsonify({"items": []})
@@ -335,13 +347,20 @@ def register(app):
             for item in sec.get("items", []):
                 if not (isinstance(item, dict) and item.get("done")):
                     continue
-                if (item.get("finished_on") or item.get("done_at")) != date:
+                # done_at may carry minute precision ('YYYY-MM-DDTHH:MM');
+                # finished_on is always date-only. Compare day parts only.
+                effective = (item.get("finished_on") or item.get("done_at") or "")[:10]
+                if effective != date:
                     continue
                 row = {"id": item.get("id"), "text": item.get("text", "")}
                 if item.get("finished_on") and item.get("finished_time"):
                     row["time"] = item["finished_time"]
                 if item.get("fronts"):
                     row["fronts"] = item["fronts"]
+                if item.get("done_at"):
+                    row["marked"] = item["done_at"]
+                if item.get("finished_note"):
+                    row["note"] = item["finished_note"]
                 items.append(row)
         items.sort(key=lambda r: ("time" not in r, r.get("time", "")))
         return jsonify({"items": items})

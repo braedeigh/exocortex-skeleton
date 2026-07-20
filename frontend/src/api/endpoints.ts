@@ -50,6 +50,10 @@ export interface ClearedTodo {
   text: string;
   time?: string;
   fronts?: string[];
+  /** Raw done_at, 'YYYY-MM-DD' or 'YYYY-MM-DDTHH:MM' (legacy items stay date-only). */
+  marked?: string;
+  /** finished_note — optional completion note. */
+  note?: string;
 }
 
 export interface ClearedTodosResponse {
@@ -121,6 +125,7 @@ export type TodoDetailsPatch = Partial<
     | 'after_id'
     | 'finished_on'
     | 'finished_time'
+    | 'finished_note'
   >
 >;
 

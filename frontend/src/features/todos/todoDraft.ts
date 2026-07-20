@@ -25,6 +25,7 @@ export interface TodoDraft {
   // Edit-only — the assignable "actually done" moment (see TodoItem.finished_on).
   finishedOn: string;
   finishedTime: string;
+  finishedNote: string;
 }
 
 /** A fresh draft for the "+ add" flow, opened preset to `section`. `prefill`
@@ -46,6 +47,7 @@ export function emptyDraft(
     durationMin: '',
     finishedOn: '',
     finishedTime: '',
+    finishedNote: '',
   };
 }
 
@@ -64,6 +66,7 @@ export function draftFromItem(item: TodoItem, section: string): TodoDraft {
     durationMin: item.duration_min ? String(item.duration_min) : '',
     finishedOn: item.finished_on || '',
     finishedTime: item.finished_time || '',
+    finishedNote: item.finished_note || '',
   };
 }
 
@@ -168,6 +171,9 @@ export function diffDraftForSave(draft: TodoDraft, base: TodoItem, baseSection: 
 
   const baseFinishedTime = base.finished_time ?? '';
   if (draft.finishedTime !== baseFinishedTime) patch.finished_time = draft.finishedTime;
+
+  const baseFinishedNote = base.finished_note ?? '';
+  if (draft.finishedNote !== baseFinishedNote) patch.finished_note = draft.finishedNote;
 
   const moveTo = draft.section !== baseSection ? draft.section : undefined;
 

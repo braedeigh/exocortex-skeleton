@@ -19,6 +19,10 @@ export function applyToggle(data: TodayData, id: string): TodayData {
         return {
           ...it,
           done,
+          // Date-only optimistic stamp — the real server-side done_at is
+          // minute-precision ('YYYY-MM-DDTHH:MM'); the 5s poll corrects it.
+          // Cache readers only ever need the day part (slice(0, 10)), which
+          // this already matches, so the optimistic value never misleads.
           done_at: done ? data.server_date : null,
           // Checking the main task marks every sub-task done too (mirrors
           // /api/todos/toggle); un-checking leaves them as they are.

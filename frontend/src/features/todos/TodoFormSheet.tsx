@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, Checkbox, IconButton, Sheet } from '../../ui';
 import { BlockerPicker } from './BlockerPicker';
-import { LADDER_LABELS, fmtAddedDate, isWaiting, waitingReason } from './todoHelpers';
+import { LADDER_LABELS, fmtAddedDate, fmtTime, isWaiting, waitingReason } from './todoHelpers';
 import { emptyDraft, draftFromItem, draftToAddPayload, diffDraftForSave } from './todoDraft';
 import type { TodoDraft } from './todoDraft';
 import { FRONT_EMOJI } from '../fronts/useFronts';
@@ -392,7 +392,10 @@ export function TodoFormSheet({
         <div className={styles.field}>
           <span className={styles.label}>Done</span>
           {item.done_at ? (
-            <span className={styles.meta}>Marked done {fmtAddedDate(item.done_at)}</span>
+            <span className={styles.meta}>
+              Marked done {fmtAddedDate(item.done_at.slice(0, 10))}
+              {item.done_at.length > 10 ? `, ${fmtTime(item.done_at.slice(11, 16))}` : ''}
+            </span>
           ) : null}
           <div className={styles.row2}>
             <input
@@ -419,6 +422,14 @@ export function TodoFormSheet({
               &#8617; Remove date
             </button>
           ) : null}
+          <input
+            className={styles.input}
+            type="text"
+            value={draft.finishedNote}
+            onChange={(e) => patch((d) => ({ ...d, finishedNote: e.target.value }))}
+            placeholder="How it went… (optional)"
+            aria-label="Completion note"
+          />
         </div>
       ) : null}
 
