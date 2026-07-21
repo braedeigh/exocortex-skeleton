@@ -184,6 +184,18 @@ def _insert_ts(date, position, day_cards, now=None):
     return ts.strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _counter_tags():
+    """Day-counter tag -> chip info, the counter sibling of the journal's
+    thread-name map: a card tagged `counter-<slug>` (a counter's note cell,
+    see routes/streaks.py) earns a meta-row chip linking back to its counter —
+    Today's streak sheet while active, the Life Map's Retired card after."""
+    from routes.streaks import load_streaks
+    return {
+        s["tag"]: {"label": s["label"], "slug": s["slug"], "status": s["status"]}
+        for s in load_streaks("all")
+    }
+
+
 def register(app):
 
     @app.route("/api/cards/<date>")
@@ -202,6 +214,7 @@ def register(app):
             "date": date,
             "editable": date >= CARDS_CUTOVER,
             "cards": day_cards,
+            "counters": _counter_tags(),
         })
 
     @app.route("/api/cards/add", methods=["POST"])

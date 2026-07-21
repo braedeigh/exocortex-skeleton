@@ -3,9 +3,16 @@ import type { UseMutationResult } from '@tanstack/react-query';
 import { useCallback, useRef, useState } from 'react';
 import { ApiError } from '../../api/client';
 import {
+  addCard,
   addGrowthNote,
+  addStreak,
   addSubtask,
   addTodo,
+  deleteCard,
+  getStreakNotes,
+  retireStreak,
+  updateCard,
+  updateStreak,
   autosortTodos,
   bulkTodos,
   getSymptomDefinitions,
@@ -31,7 +38,6 @@ import {
   toggleSubtask,
   toggleTodo,
   getTodayData,
-  updateStreakNotes,
 } from '../../api/endpoints';
 import type { AddTodoPayload, AddTodoResponse, BulkTodoAction, SymptomLevels, TodoDetailsPatch } from '../../api/endpoints';
 import {
@@ -49,8 +55,10 @@ import {
   applyReminderSnooze,
   applyReorder,
   applySnooze,
+  applyStreakHabitLink,
   applyStreakNotes,
   applyStreakRemove,
+  applyStreakRetire,
   applySubtaskAdd,
   applySubtaskRemove,
   applySubtaskToggle,
@@ -282,24 +290,93 @@ export function useSymptomActions(onError: (message: string) => void) {
   };
 }
 
-/** Streak (day-counter) mutations — label+since is the identity key. */
+/** Streak (day-counter) mutations — id is the identity key. */
 export function useStreakActions(onError: (message: string) => void) {
+  const queryClient = useQueryClient();
   const saveNotes = useOptimisticMutation(
-    (vars: { label: string; since: string; notes: string }) =>
-      updateStreakNotes(vars.label, vars.since, vars.notes),
-    (data, vars) => applyStreakNotes(data, vars.label, vars.since, vars.notes),
+    (vars: { id: string; notes: string }) => updateStreak(vars.id, { notes: vars.notes }),
+    (data, vars) => applyStreakNotes(data, vars.id, vars.notes),
+    onError,
+  );
+  const setHabit = useOptimisticMutation(
+    (vars: { id: string; habitKey: string }) => updateStreak(vars.id, { habit_key: vars.habitKey }),
+    (data, vars) => applyStreakHabitLink(data, vars.id, vars.habitKey),
     onError,
   );
   const remove = useOptimisticMutation(
-    (vars: { label: string; since: string }) => removeStreak(vars.label, vars.since),
-    (data, vars) => applyStreakRemove(data, vars.label, vars.since),
+    (vars: { id: string }) => removeStreak(vars.id),
+    (data, vars) => applyStreakRemove(data, vars.id),
     onError,
   );
+  const retire = useOptimisticMutation(
+    (vars: { id: string; note: string }) => retireStreak(vars.id, vars.note),
+    (data, vars) => applyStreakRetire(data, vars.id),
+    onError,
+  );
+  // Add is not optimistic — the server mints id/slug, so we just refetch.
+  const add = useMutation({
+    mutationFn: (vars: { label: string; since: string }) => addStreak(vars.label, vars.since),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: TODAY_QUERY_KEY }),
+    onError: (e) => onError(e instanceof ApiError ? e.message : 'Could not add day count'),
+  });
 
   return {
-    saveNotes: (label: string, since: string, notes: string) => saveNotes.mutate({ label, since, notes }),
-    remove: (label: string, since: string) => remove.mutate({ label, since }),
+    saveNotes: (id: string, notes: string) => saveNotes.mutate({ id, notes }),
+    setHabit: (id: string, habitKey: string) => setHabit.mutate({ id, habitKey }),
+    remove: (id: string) => remove.mutate({ id }),
+    retire: (id: string, note: string) => retire.mutate({ id, note }),
+    add: (label: string, since: string) => add.mutate({ label, since }),
   };
+}
+
+/** A counter's note cells (pool cards tagged counter-<slug>) + append/edit.
+ * Shared by the Today streak sheet and the Life Map retired card. */
+export function useStreakNotes(slug: string | null, onError: (message: string) => void) {
+  const queryClient = useQueryClient();
+  const queryKey = ['streak-notes', slug ?? ''];
+  const query = useQuery({
+    queryKey,
+    queryFn: ({ signal }) => getStreakNotes(slug as string, signal),
+    enabled: !!slug,
+  });
+  const invalidate = () => queryClient.invalidateQueries({ queryKey });
+  const fail = (e: unknown, fallback: string) =>
+    onError(e instanceof ApiError ? e.message : fallback);
+
+  const append = useMutation({
+    // Note cells are REAL journal cards — they land at the bottom of today's
+    // timeline and carry the counter's tag, which is what the counter's own
+    // stream (and the journal's counter chip) key off.
+    mutationFn: (vars: { tag: string; body: string }) =>
+      addCard(localToday(), 'bottom', vars.body, [vars.tag]),
+    onSettled: invalidate,
+    onError: (e) => fail(e, 'Could not add note'),
+  });
+  const edit = useMutation({
+    mutationFn: (vars: { id: string; body: string }) => updateCard(vars.id, vars.body),
+    onSettled: invalidate,
+    onError: (e) => fail(e, 'Could not save note'),
+  });
+  const removeNote = useMutation({
+    mutationFn: (vars: { id: string }) => deleteCard(vars.id),
+    onSettled: invalidate,
+    onError: (e) => fail(e, 'Could not remove note'),
+  });
+
+  return {
+    notes: query.data?.notes ?? [],
+    loading: query.isLoading,
+    append: (tag: string, body: string) => append.mutate({ tag, body }),
+    appending: append.isPending,
+    edit: (id: string, body: string) => edit.mutate({ id, body }),
+    remove: (id: string) => removeNote.mutate({ id }),
+  };
+}
+
+/** Local YYYY-MM-DD — where a freshly appended note cell lands. */
+function localToday(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 /**

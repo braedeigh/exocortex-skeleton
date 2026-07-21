@@ -18,6 +18,7 @@ STREAMS = {
     "server_date": "public",
     "date": "public",
     "streaks": "frosted",
+    "retired_streaks": "frosted",
 
     # ---- habits ----
     "habits": "public",

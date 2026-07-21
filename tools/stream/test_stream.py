@@ -550,6 +550,78 @@ class TodoMarkerWeaveTests(StreamTestCase):
         self.assertTrue(ok3, messages3)
 
 
+class StreakMarkerWeaveTests(StreamTestCase):
+    """render_day_text weaves '⏹ retired day count' lines in from streaks.json —
+    see stream.streak_retirement_markers. Same isolation shape as
+    TodoMarkerWeaveTests: EXOCORTEX_DATA_DIR points at a private tempdir."""
+
+    def setUp(self):
+        super().setUp()
+        self._data_tmp = tempfile.TemporaryDirectory()
+        self._prev_data_dir = os.environ.get("EXOCORTEX_DATA_DIR")
+        os.environ["EXOCORTEX_DATA_DIR"] = self._data_tmp.name
+
+    def tearDown(self):
+        if self._prev_data_dir is None:
+            os.environ.pop("EXOCORTEX_DATA_DIR", None)
+        else:
+            os.environ["EXOCORTEX_DATA_DIR"] = self._prev_data_dir
+        self._data_tmp.cleanup()
+        super().tearDown()
+
+    def _seed_streaks(self, entries) -> None:
+        (Path(self._data_tmp.name) / "streaks.json").write_text(
+            json.dumps({"streaks": entries}), encoding="utf-8")
+
+    def test_timed_retirement_weaves_with_frozen_count_and_note(self):
+        day = "2026-07-20"
+        stream.record(who="B", body="card A", ts=datetime(2026, 7, 20, 8, 0, 0))
+        stream.record(who="B", body="card B", ts=datetime(2026, 7, 20, 8, 10, 0))
+        self._seed_streaks([
+            {"label": "on peptides", "since": "2026-02-22", "status": "retired",
+             "retired_on": day, "retired_time": "08:05",
+             "retired_note": "done for now"},
+        ])
+        text = stream.render_day_text(day)
+        # 2026-02-22 -> 2026-07-20 is 148 days, frozen at retirement.
+        self.assertIn("⏹ retired day count: on peptides — Day 148 — 8:05 AM — “done for now”", text)
+        pos_a = text.index("card A")
+        pos_marker = text.index("retired day count")
+        pos_b = text.index("card B")
+        self.assertTrue(pos_a < pos_marker < pos_b, text)
+
+    def test_active_and_other_day_retirements_do_not_weave(self):
+        day = "2026-07-20"
+        stream.record(who="B", body="anchor card", ts=datetime(2026, 7, 20, 8, 0, 0))
+        self._seed_streaks([
+            {"label": "off weed", "since": "2026-02-22", "status": "active"},
+            {"label": "of Prozac", "since": "2026-01-01", "status": "retired",
+             "retired_on": "2026-07-19", "retired_time": "10:00"},
+        ])
+        text = stream.render_day_text(day)
+        self.assertNotIn("retired day count", text)
+
+    def test_untimed_retirement_lands_in_the_tail_block(self):
+        day = "2026-07-20"
+        stream.record(who="B", body="anchor card", ts=datetime(2026, 7, 20, 8, 0, 0))
+        self._seed_streaks([
+            {"label": "on peptides", "since": "2026-07-10", "status": "retired",
+             "retired_on": day},
+        ])
+        text = stream.render_day_text(day)
+        self.assertIn("⏹ retired day count: on peptides — Day 10", text)
+        # untimed: renders after the timeline, without a clock suffix
+        self.assertTrue(text.index("anchor card") < text.index("retired day count"))
+        self.assertNotIn("Day 10 — ", text)
+
+    def test_zero_card_day_stays_none_even_with_a_retirement(self):
+        self._seed_streaks([
+            {"label": "on peptides", "since": "2026-07-10", "status": "retired",
+             "retired_on": "2026-07-20", "retired_time": "08:05"},
+        ])
+        self.assertIsNone(stream.render_day_text("2026-07-20"))
+
+
 class DeterminismTests(StreamTestCase):
     def test_render_all_twice_is_byte_identical(self):
         stream.record(who="B", body="one", ts=datetime(2026, 7, 6, 13, 0, 0), tags=["x"])

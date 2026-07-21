@@ -20,6 +20,10 @@ def _rewrite_log_keys(old_key, new_key, also_bare=None):
                 day[new_key] = day.pop(old_key)
             elif also_bare and also_bare in day:
                 day[new_key] = day.pop(also_bare)
+    # Day counters linked to this habit (streaks.json habit_key) follow the
+    # rename/move too — otherwise the link silently dangles.
+    from routes.streaks import rewrite_habit_links
+    rewrite_habit_links(old_key, new_key)
 
 
 def _remove_from_section(item, section, filepath):

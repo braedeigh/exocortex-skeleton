@@ -32,6 +32,10 @@ export interface CardStreamProps {
   threadNames: ReadonlyMap<string, string>;
   /** Passed through to entry cards' meta-row thread chips. */
   onOpenThread: (slug: string) => void;
+  /** Day-counter labels by "counter-<slug>" tag, for note-cell chips. */
+  counterNames?: ReadonlyMap<string, string>;
+  /** Passed through to entry cards' counter chips. */
+  onOpenCounter?: (tag: string) => void;
   addSaving: boolean;
   /** Resolves true on a successful save; the composer clears its draft on
    * success. New notes always append to the end of the day. */
@@ -152,6 +156,8 @@ export function CardStream({
   onReplyContext,
   threadNames,
   onOpenThread,
+  counterNames,
+  onOpenCounter,
   addSaving,
   onComposeSave,
   onBottomActiveChange,
@@ -206,6 +212,8 @@ export function CardStream({
         onReplyContext={onReplyContext}
         threadNames={threadNames}
         onOpenThread={onOpenThread}
+        counterNames={counterNames}
+        onOpenCounter={onOpenCounter}
       />
     );
   }

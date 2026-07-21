@@ -5,6 +5,7 @@
  */
 import { api } from './client';
 import type { SymptomDefinitions, TodayData, TodoItem } from '../features/todos/types';
+import type { StreakNote } from '../features/habits/types';
 import type {
   AllNotesResponse,
   BacklinksResponse,
@@ -218,14 +219,40 @@ export function getSymptomDefinitions(signal?: AbortSignal): Promise<SymptomDefi
   return api.get('/api/symptom-definitions', signal);
 }
 
-// --- Streaks (server.py streaks_*) — identified by label+since, not id ---
+// --- Streaks / day counters (routes/streaks.py) — identified by id ---
 
-export function updateStreakNotes(label: string, since: string, notes: string): Promise<OkResponse> {
-  return api.post('/api/streaks/update', { label, since, notes });
+export function addStreak(label: string, since: string): Promise<OkResponse> {
+  return api.post('/api/streaks/add', { label, since });
 }
 
-export function removeStreak(label: string, since: string): Promise<OkResponse> {
-  return api.post('/api/streaks/remove', { label, since });
+/** Patch a counter's description notes and/or habit link (habit_key: '' clears). */
+export function updateStreak(
+  id: string,
+  patch: { notes?: string; habit_key?: string },
+): Promise<OkResponse> {
+  return api.post('/api/streaks/update', { id, ...patch });
+}
+
+export function removeStreak(id: string): Promise<OkResponse> {
+  return api.post('/api/streaks/remove', { id });
+}
+
+export function retireStreak(id: string, note: string): Promise<OkResponse> {
+  return api.post('/api/streaks/retire', { id, note });
+}
+
+export function unretireStreak(id: string): Promise<OkResponse> {
+  return api.post('/api/streaks/unretire', { id });
+}
+
+export interface StreakNotesResponse {
+  slug: string;
+  tag: string;
+  notes: StreakNote[];
+}
+
+export function getStreakNotes(slug: string, signal?: AbortSignal): Promise<StreakNotesResponse> {
+  return api.get(`/api/streaks/${slug}/notes`, signal);
 }
 
 // --- Habits (daily view) — see routes/habits.py ---

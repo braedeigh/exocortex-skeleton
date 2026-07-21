@@ -122,6 +122,21 @@ export function JournalPage() {
     () => new Map((threadsQuery.data?.threads ?? []).map((t) => [t.id, t.name])),
     [threadsQuery.data],
   );
+  // Day-counter chip labels by "counter-<slug>" tag — the thread chip's
+  // sibling for counter note cells (routes/cards.py _counter_tags).
+  const counterInfo = dayQuery.data?.cards.counters;
+  const counterNames = useMemo(
+    () => new Map(Object.entries(counterInfo ?? {}).map(([tag, c]) => [tag, c.label])),
+    [counterInfo],
+  );
+  /** Counter chip tap → the counter's home: its Today sheet while active,
+   * the Life Map's Retired card once retired. */
+  function openCounter(tag: string) {
+    const c = counterInfo?.[tag];
+    if (!c) return;
+    if (c.status === 'active') void navigateTo({ to: '/todos', search: { streak: c.slug } });
+    else void navigateTo({ to: '/map' });
+  }
   const journalDates = useMemo(() => new Set(datesQuery.data?.dates ?? []), [datesQuery.data]);
 
   const updateCard = useUpdateCard(currentDate ?? '', push);
@@ -391,6 +406,8 @@ export function JournalPage() {
                 onReplyContext={jumpToReplySource}
                 threadNames={threadNames}
                 onOpenThread={(slug) => void navigateTo({ to: '/threads/$slug', params: { slug } })}
+                counterNames={counterNames}
+                onOpenCounter={openCounter}
                 addSaving={addCard.isPending}
                 onComposeSave={async (body) => {
                   try {

@@ -24,6 +24,11 @@ export interface EntryCardProps {
   threadNames?: ReadonlyMap<string, string>;
   /** Tapped on a meta-row thread chip — opens that thread's page. */
   onOpenThread?: (slug: string) => void;
+  /** Day-counter labels keyed by their "counter-<slug>" tag — a note cell's
+   * chip back to its counter (the thread chip's sibling). */
+  counterNames?: ReadonlyMap<string, string>;
+  /** Tapped on a counter chip — jumps to the counter's home. */
+  onOpenCounter?: (tag: string) => void;
 }
 
 /** "8:46 AM" from "YYYY-MM-DD HH:MM:SS" — string ops only, no Date/timezone games. */
@@ -63,6 +68,8 @@ export function EntryCard({
   onReplyContext,
   threadNames,
   onOpenThread,
+  counterNames,
+  onOpenCounter,
 }: EntryCardProps) {
   const [draft, setDraft] = useState(card.body);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -108,6 +115,19 @@ export function EntryCard({
               data-track="card-thread-chip"
             >
               &#x29C9; {threadNames!.get(t)}
+            </button>
+          ))}
+        {card.tags
+          .filter((t) => counterNames?.has(t))
+          .map((t) => (
+            <button
+              key={t}
+              type="button"
+              className={styles.threadChip}
+              onClick={() => onOpenCounter?.(t)}
+              data-track="card-counter-chip"
+            >
+              &#x23F1; {counterNames!.get(t)}
             </button>
           ))}
         <span className={styles.spacer} />

@@ -12,6 +12,8 @@ import { HabitEditPanel } from './HabitEditPanel';
 import { HabitTrackerCard } from './HabitTrackerCard';
 import { MapCard } from './MapCard';
 import { ReminderManagerPanel } from './ReminderManagerPanel';
+import { RetiredCountersCard } from './RetiredCountersCard';
+import type { Streak } from '../habits/types';
 import {
   useActivityActions,
   useContactActions,
@@ -88,6 +90,8 @@ export function LifeMapPage() {
   }
 
   const contacts = data.contacts || [];
+  // Frosted (non-array) in public view — the card simply doesn't render.
+  const retiredCounters = Array.isArray(data.retired_streaks) ? (data.retired_streaks as Streak[]) : [];
   const reminders = data.reminders || [];
 
   /** Quick-log from the Activity card. Grocery has its own subsystem; a
@@ -170,6 +174,12 @@ export function LifeMapPage() {
               onConfirm={askConfirm}
               onRemoveHistory={contactActions.removeHistory}
             />
+          </MapCard>
+        ) : null}
+
+        {!isPublic && retiredCounters.length ? (
+          <MapCard cardKey="retiredCounters" title="Retired Day Counts">
+            <RetiredCountersCard counters={retiredCounters} onError={push} />
           </MapCard>
         ) : null}
       </div>

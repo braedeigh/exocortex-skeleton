@@ -46,6 +46,13 @@ export interface CardsResponse {
   date: string;
   editable: boolean;
   cards: Card[];
+  /**
+   * Day-counter tag -> chip info (routes/cards.py _counter_tags): a card
+   * tagged "counter-<slug>" is one of that counter's note cells and earns a
+   * meta-row chip linking back to the counter — the Today streak sheet while
+   * active, the Life Map's Retired card once retired.
+   */
+  counters?: Record<string, { label: string; slug: string; status: 'active' | 'retired' }>;
 }
 
 export interface Person {

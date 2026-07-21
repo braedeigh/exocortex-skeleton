@@ -128,35 +128,40 @@ describe('applySymptomLog', () => {
   });
 });
 
+const streak = (id: string, label: string, days: number, extra = {}) => ({
+  id,
+  slug: id,
+  tag: `counter-${id}`,
+  label,
+  days,
+  since: '2026-07-04',
+  status: 'active' as const,
+  ...extra,
+});
+
 describe('applyStreakNotes', () => {
-  it('patches only the streak matching label+since', () => {
+  it('patches only the streak matching id', () => {
     const data = baseData({
-      streaks: [
-        { label: 'on doxy', days: 4, since: '2026-07-04' },
-        { label: 'on doxy', days: 40, since: '2026-05-29', notes: 'old' },
-      ],
+      streaks: [streak('a', 'on doxy', 4), streak('b', 'on doxy', 40, { notes: 'old' })],
     });
-    const next = applyStreakNotes(data, 'on doxy', '2026-07-04', '100mg 2x/day');
+    const next = applyStreakNotes(data, 'a', '100mg 2x/day');
     expect(next.streaks).toEqual([
-      { label: 'on doxy', days: 4, since: '2026-07-04', notes: '100mg 2x/day' },
-      { label: 'on doxy', days: 40, since: '2026-05-29', notes: 'old' },
+      streak('a', 'on doxy', 4, { notes: '100mg 2x/day' }),
+      streak('b', 'on doxy', 40, { notes: 'old' }),
     ]);
   });
 });
 
 describe('applyStreakRemove', () => {
-  it('removes only the streak matching label+since', () => {
+  it('removes only the streak matching id', () => {
     const data = baseData({
-      streaks: [
-        { label: 'on doxy', days: 4, since: '2026-07-04' },
-        { label: 'off soda', days: 12, since: '2026-06-26' },
-      ],
+      streaks: [streak('a', 'on doxy', 4), streak('b', 'off soda', 12)],
     });
-    const next = applyStreakRemove(data, 'on doxy', '2026-07-04');
-    expect(next.streaks).toEqual([{ label: 'off soda', days: 12, since: '2026-06-26' }]);
+    const next = applyStreakRemove(data, 'a');
+    expect(next.streaks).toEqual([streak('b', 'off soda', 12)]);
   });
   it('leaves a frosted streaks stream untouched', () => {
     const data = baseData({ streaks: { _frosted: true, shape: 'chips' } });
-    expect(applyStreakRemove(data, 'x', '2026-07-04')).toBe(data);
+    expect(applyStreakRemove(data, 'x')).toBe(data);
   });
 });

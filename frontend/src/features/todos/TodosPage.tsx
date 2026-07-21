@@ -1,4 +1,4 @@
-import { Link } from '@tanstack/react-router';
+import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { useEffect, useMemo, useState } from 'react';
 import { ToastStack } from '../../ui';
 import { GraduationPrompts } from '../habits/GraduationPrompts';
@@ -115,9 +115,20 @@ export function TodosPage() {
   // fresh visit always starts back in the auto (gated) view.
   const [showAll, setShowAll] = useState(false);
   const [selected, setSelected] = useState<TodoItem | null>(null);
-  // Streaks are keyed by label+since (no id) — the sheet re-derives its
-  // streak from the polled data so "Day N" stays live while it's open.
-  const [streakKey, setStreakKey] = useState<{ label: string; since: string } | null>(null);
+  // Sheet state holds the streak's stable id; the open streak re-derives from
+  // the polled data so "Day N" stays live while it's open. Seeded from the
+  // ?streak=<slug> search param (the journal's counter chip deep-link).
+  const [streakId, setStreakId] = useState<string | null>(null);
+  const streakParam = useSearch({ from: '/todos', select: (s: { streak?: string }) => s.streak });
+  const navigate = useNavigate();
+  useEffect(() => {
+    const list = data?.streaks;
+    if (!streakParam || !Array.isArray(list)) return;
+    const hit = list.find((s) => s.slug === streakParam);
+    if (hit) setStreakId(hit.id);
+    // One-shot: consume the param so back/refresh don't re-open the sheet.
+    void navigate({ to: '/todos', search: {}, replace: true });
+  }, [streakParam, data, navigate]);
   // Staged prefill for the "+ add" flow — set by a section header's "+ add"
   // button or AddBar's expand-to-full-editor icon; null = the add form is
   // closed. `text`/`due_by` mirror whatever the launch point already had
@@ -258,9 +269,7 @@ export function TodosPage() {
   const habits = data.habits || [];
   const habitsLog = data.habits_log || {};
   const streaks = Array.isArray(data.streaks) ? data.streaks : [];
-  const openStreak = streakKey
-    ? streaks.find((s) => s.label === streakKey.label && s.since === streakKey.since) || null
-    : null;
+  const openStreak = streakId ? streaks.find((s) => s.id === streakId) || null : null;
 
   return (
     <div className={styles.page}>
@@ -278,7 +287,11 @@ export function TodosPage() {
           </div>
           {/* TODO(habits phase 2): "Show hidden prompts" expand-all toggle
               lived here (old #expand-btn next to date-text). */}
-          <StreaksRow streaks={streaks} onOpen={(s) => setStreakKey({ label: s.label, since: s.since })} />
+          <StreaksRow
+            streaks={streaks}
+            onOpen={(s) => setStreakId(s.id)}
+            onAdd={Array.isArray(data.streaks) ? streakActions.add : undefined}
+          />
           {/* The one attention surface: due reminders (formerly the push-
               notification banners — merged 2026-07-20, replacing ReminderCard)
               + overdue/due-today to-dos, with the Tomorrow look-ahead under
@@ -453,9 +466,12 @@ export function TodosPage() {
       <StreakSheet
         streak={openStreak}
         open={!!openStreak}
-        onClose={() => setStreakKey(null)}
-        onSaveNotes={streakActions.saveNotes}
-        onRemove={streakActions.remove}
+        onClose={() => setStreakId(null)}
+        actions={streakActions}
+        habits={habits}
+        habitsLog={habitsLog}
+        serverDate={serverDate}
+        onError={push}
       />
 
       <TodoFormSheet

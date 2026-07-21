@@ -265,22 +265,34 @@ export function applySymptomLog(data: TodayData, date: string, symptoms: Symptom
   return { ...data, health_data: next };
 }
 
-/** Streaks are keyed by label+since (same composite key the server uses). */
-export function applyStreakNotes(data: TodayData, label: string, since: string, notes: string): TodayData {
+/** Streaks are keyed by stable id (routes/streaks.py back-fills them). */
+export function applyStreakNotes(data: TodayData, id: string, notes: string): TodayData {
   if (!Array.isArray(data.streaks)) return data;
   return {
     ...data,
-    streaks: data.streaks.map((s) => (s.label === label && s.since === since ? { ...s, notes } : s)),
+    streaks: data.streaks.map((s) => (s.id === id ? { ...s, notes } : s)),
   };
 }
 
-export function applyStreakRemove(data: TodayData, label: string, since: string): TodayData {
+export function applyStreakHabitLink(data: TodayData, id: string, habitKey: string): TodayData {
   if (!Array.isArray(data.streaks)) return data;
   return {
     ...data,
-    streaks: data.streaks.filter((s) => !(s.label === label && s.since === since)),
+    streaks: data.streaks.map((s) => (s.id === id ? { ...s, habit_key: habitKey || null } : s)),
   };
 }
+
+export function applyStreakRemove(data: TodayData, id: string): TodayData {
+  if (!Array.isArray(data.streaks)) return data;
+  return {
+    ...data,
+    streaks: data.streaks.filter((s) => s.id !== id),
+  };
+}
+
+/** Retiring drops the counter from the Today chips immediately — the Life
+ * Map's retired list picks it up on its own poll. */
+export const applyStreakRetire = applyStreakRemove;
 
 /** Flip a single habit's completion for `date` — mirrors the server's toggle
  * semantics (present -> removed, absent -> set true) so the optimistic

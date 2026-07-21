@@ -632,6 +632,92 @@ def _render_marker_block(marker: TodoMarker, ts_dt: datetime) -> str:
 
 
 # --------------------------------------------------------------------------------
+# Day-counter retirement markers. Same live-weave model as the to-do markers
+# above: routes/streaks.py stamps retired_on/retired_time/retired_note on a
+# counter and fires a re-render of that day; nothing is ever copied into the
+# pool. The marker rule mirrors that route's fields exactly.
+# --------------------------------------------------------------------------------
+
+@dataclass
+class StreakMarker:
+    label: str
+    days: int                      # the frozen final count (retired_on - since)
+    day: str                       # retired_on, 'YYYY-MM-DD'
+    time: Optional[str] = None     # retired_time 'HH:MM', or None (tail marker)
+    note: Optional[str] = None     # retired_note, if any
+
+
+def _load_streaks_data() -> dict:
+    """Read the day-counters collection (`EXOCORTEX_DATA_DIR/streaks.json`,
+    same fallback layout as `_load_todos_data`). MUST NEVER RAISE — a missing
+    or unreadable file just means no retirements to weave."""
+    env = os.environ.get("EXOCORTEX_DATA_DIR")
+    if env:
+        path = Path(env) / "streaks.json"
+    else:
+        try:
+            path = stream_root().parent / "data" / "streaks.json"
+        except StreamError:
+            return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def streak_retirement_markers(day: str) -> List[StreakMarker]:
+    """Every retired-counter marker landing on `day`, in file order. The final
+    count is frozen at retired_on - since; an entry with unparseable dates
+    still gets a marker (days -1 suppressed to 0) rather than vanishing."""
+    markers: List[StreakMarker] = []
+    for s in _load_streaks_data().get("streaks", []):
+        if not isinstance(s, dict) or s.get("status") != "retired":
+            continue
+        label = s.get("label")
+        retired_on = s.get("retired_on")
+        if not (isinstance(label, str) and label and isinstance(retired_on, str)
+                and retired_on == day):
+            continue
+        try:
+            days = (datetime.strptime(retired_on, "%Y-%m-%d")
+                    - datetime.strptime(str(s.get("since", "")), "%Y-%m-%d")).days
+        except ValueError:
+            days = 0
+        time = s.get("retired_time")
+        time = time if isinstance(time, str) and time else None
+        note = s.get("retired_note")
+        note = note if isinstance(note, str) and note else None
+        markers.append(StreakMarker(label=label, days=max(days, 0), day=day,
+                                    time=time, note=note))
+    return markers
+
+
+def _streak_marker_datetime(marker: StreakMarker) -> Optional[datetime]:
+    if not marker.time:
+        return None
+    try:
+        return datetime.strptime(f"{marker.day} {marker.time}", "%Y-%m-%d %H:%M")
+    except ValueError:
+        return None
+
+
+def _streak_marker_line(marker: StreakMarker, clock: Optional[str]) -> str:
+    """`⏹ retired day count: <label> — Day <N>[ — <clock>][ — "<note>"]` —
+    the day-counter sibling of `_marker_line`."""
+    line = f"⏹ retired day count: {marker.label} — Day {marker.days}"
+    if clock:
+        line += f" — {clock}"
+    if marker.note:
+        line += f" — “{marker.note}”"
+    return line
+
+
+def _render_streak_marker_block(marker: StreakMarker, ts_dt: datetime) -> str:
+    return "\n" + _streak_marker_line(marker, _clock(ts_dt)) + "\n"
+
+
+# --------------------------------------------------------------------------------
 # Day view
 # --------------------------------------------------------------------------------
 
@@ -666,6 +752,9 @@ def render_day_text(day: str, cards: Optional[List[Card]] = None) -> Optional[st
     markers = todo_completion_markers(day)
     timed_markers = [m for m in markers if m.time]
     untimed_markers = [m for m in markers if not m.time]
+    streak_markers = streak_retirement_markers(day)
+    timed_streaks = [m for m in streak_markers if m.time]
+    untimed_streaks = [m for m in streak_markers if not m.time]
 
     text = f"# {day}\n\n`B = Bradie | K = Keeper`\n\n"
     if context_cards:
@@ -683,6 +772,12 @@ def render_day_text(day: str, cards: Optional[List[Card]] = None) -> Optional[st
         ts_dt = _marker_datetime(m)
         if ts_dt is not None:
             events.append((ts_dt, 0, f"{i:04d}", m))
+    # Streak markers share the todo markers' rank (before cards on a same-
+    # minute tie); the "s" key prefix sorts them after todo markers there.
+    for i, m in enumerate(timed_streaks):
+        ts_dt = _streak_marker_datetime(m)
+        if ts_dt is not None:
+            events.append((ts_dt, 0, f"s{i:04d}", m))
     events.sort(key=lambda e: (e[0], e[1], e[2]))
 
     prev_ts: Optional[datetime] = None
@@ -691,14 +786,18 @@ def render_day_text(day: str, cards: Optional[List[Card]] = None) -> Optional[st
             text += f"\n*[{_clock(ts_dt)}]*\n"
         if isinstance(payload, Card):
             text += _render_ref_block(payload) if payload.kind == "ref" else _render_card_block(payload)
+        elif isinstance(payload, StreakMarker):
+            text += _render_streak_marker_block(payload, ts_dt)
         else:
             text += _render_marker_block(payload, ts_dt)
         prev_ts = ts_dt
 
-    if untimed_markers:
+    if untimed_markers or untimed_streaks:
         text += "\n"
         for m in untimed_markers:
             text += _marker_line(m, clock=None) + "\n"
+        for m in untimed_streaks:
+            text += _streak_marker_line(m, clock=None) + "\n"
 
     return text
 

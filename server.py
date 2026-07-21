@@ -25,7 +25,7 @@ from routes import (
     devnotes, ideas, ecosystem, keeper, pending, housing, triage, decisions,
     entities, threads, person, shell, cards, archivals, research,
     research_search, research_sources, research_import, research_text,
-    annotations, spa, fronts, wiki, travel, profile, usage,
+    annotations, spa, fronts, wiki, travel, profile, usage, streaks,
 )
 from routes.shell import VALID_TABS
 
@@ -418,79 +418,11 @@ def _common_data():
         "server_day_of_year": now.timetuple().tm_yday,
         "server_date": now.strftime("%Y-%m-%d"),
         "date": now.strftime("%A, %B %-d"),
-        "streaks": _load_streaks(),
+        # Active counters only — retired ones leave the Today tab and live on
+        # the Life Map (retired_streaks in /api/data/map). routes/streaks.py
+        # owns the whole lifecycle now.
+        "streaks": streaks.load_streaks("active"),
     }
-
-
-def _load_streaks():
-    """User-defined milestone counters shown in the header.
-
-    streaks.json: {"streaks": [{"label": "off weed", "since": "2026-02-22"}, ...]}
-    Each becomes "Day N <label>" where N is days since `since`. Empty by default.
-    """
-    out = []
-    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-    for s in store.read("streaks.json", {}).get("streaks", []):
-        label = str(s.get("label", "")).strip()
-        since = str(s.get("since", "")).strip()
-        if not (label and since):
-            continue
-        try:
-            start = datetime.strptime(since, "%Y-%m-%d")
-        except ValueError:
-            continue
-        out.append({"label": label, "days": (today - start).days, "since": since,
-                    "notes": str(s.get("notes", ""))})
-    return out
-
-
-@app.route("/api/streaks/add", methods=["POST"])
-def add_streak():
-    data = request.json or {}
-    label = (data.get("label") or "").strip()
-    since = (data.get("since") or "").strip()
-    if not label or not since:
-        return jsonify({"error": "label and date required"}), 400
-    try:
-        datetime.strptime(since, "%Y-%m-%d")
-    except ValueError:
-        return jsonify({"error": "date must be YYYY-MM-DD"}), 400
-    d = store.read("streaks.json", {"streaks": []})
-    d.setdefault("streaks", []).append({"label": label, "since": since})
-    store.write("streaks.json", d)
-    return jsonify({"ok": True})
-
-
-@app.route("/api/streaks/update", methods=["POST"])
-def update_streak():
-    """Update the notes on a streak, identified by label+since (the same
-    composite key remove uses)."""
-    data = request.json or {}
-    label = (data.get("label") or "").strip()
-    since = (data.get("since") or "").strip()
-    notes = data.get("notes", "")
-    d = store.read("streaks.json", {"streaks": []})
-    found = False
-    for s in d.get("streaks", []):
-        if str(s.get("label", "")).strip() == label and str(s.get("since", "")).strip() == since:
-            s["notes"] = notes
-            found = True
-    if not found:
-        return jsonify({"error": "streak not found"}), 404
-    store.write("streaks.json", d)
-    return jsonify({"ok": True})
-
-
-@app.route("/api/streaks/remove", methods=["POST"])
-def remove_streak():
-    data = request.json or {}
-    label = (data.get("label") or "").strip()
-    since = (data.get("since") or "").strip()
-    d = store.read("streaks.json", {"streaks": []})
-    d["streaks"] = [s for s in d.get("streaks", [])
-                    if not (str(s.get("label", "")).strip() == label and str(s.get("since", "")).strip() == since)]
-    store.write("streaks.json", d)
-    return jsonify({"ok": True})
 
 
 def _load_car():
@@ -711,6 +643,8 @@ def get_data_map():
         "contacts": _load_contacts(),
         "reminders": _load_reminders(),
         "private_act_types": _private_act_types(),
+        # Retired day counters — the Life Map's "Retired day counts" card.
+        "retired_streaks": streaks.load_streaks("retired"),
     })
     data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("map", [])
     data["idea_notes"] = _load_idea_notes().get("tabs", {}).get("map", [])
@@ -1180,6 +1114,7 @@ terminal.register(app)
 settings.register(app)
 devnotes.register(app)
 ideas.register(app)
+streaks.register(app)
 ecosystem.register(app)
 keeper.register(app)
 pending.register(app)

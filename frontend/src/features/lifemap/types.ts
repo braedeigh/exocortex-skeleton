@@ -10,6 +10,7 @@ import type {
   HabitSettings,
   HabitsLog,
   HabitStarts,
+  Streak,
 } from '../habits/types';
 import type { ActivityEntry, HealthDay, ReminderDef, TimeOfDay } from '../todos/types';
 
@@ -61,6 +62,9 @@ export interface MapData {
   contacts?: Contact[];
   reminders?: ReminderDef[];
   private_act_types?: string[];
+  /** Retired day counters (routes/streaks.py) — the Retired card. Frosted
+   * (non-array) in public view, same as the Today tab's streaks. */
+  retired_streaks?: Streak[] | unknown;
   [key: string]: unknown;
 }
 

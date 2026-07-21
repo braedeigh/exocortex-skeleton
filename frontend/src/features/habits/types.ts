@@ -59,10 +59,35 @@ export interface HabitSettings {
 export type HabitStarts = Record<string, string>;
 
 export interface Streak {
+  /** Stable identity (server back-fills legacy label+since entries). */
+  id: string;
+  /** Tag-safe name; the counter's note cells are pool cards tagged `tag`. */
+  slug: string;
+  /** "counter-<slug>" — the pool tag carried by this counter's note cells. */
+  tag: string;
   label: string;
+  /** Active: ticks daily. Retired: frozen at retired_on - since. */
   days: number;
   since: string;
+  /** Freeform description (dosage, context) — NOT the note-cell log. */
   notes?: string;
+  status: 'active' | 'retired';
+  /** Optional link to a habit — habitKey(section, text) convention. */
+  habit_key?: string | null;
+  retired_on?: string | null;
+  retired_time?: string | null;
+  retired_note?: string | null;
+}
+
+/** One note cell on a counter — a real journal card tagged counter-<slug>.
+ * `editable` = within the rolling 24h server-side edit window; after that
+ * the cell is locked and only appending a new one is offered. */
+export interface StreakNote {
+  id: string;
+  /** "YYYY-MM-DD HH:MM:SS" */
+  ts: string;
+  body: string;
+  editable: boolean;
 }
 
 /** "Working On" aspirations tracker — port of growth_notes.json (see
