@@ -144,6 +144,22 @@ def load_streaks(status="active"):
     return out
 
 
+def retirements_for(day):
+    """Counters retired on `day`, shaped for the journal day view's weave —
+    the web sibling of stream.py's streak_retirement_markers (the Keeper's
+    rendered-markdown weave). Same fields the ⏹ line carries."""
+    out = []
+    for s in load_streaks("retired"):
+        if s.get("retired_on") != day:
+            continue
+        out.append({
+            "slug": s["slug"], "label": s["label"], "days": s["days"],
+            "time": s.get("retired_time") or None,
+            "note": s.get("retired_note") or None,
+        })
+    return out
+
+
 def rewrite_habit_links(old_key, new_key):
     """Follow a habit rename/section-move: any counter linked to old_key now
     points at new_key. Called from routes/habits.py's _rewrite_log_keys so the

@@ -163,3 +163,16 @@ def test_notes_endpoint_serves_tagged_pool_cards(client, data_dir, tmp_path, mon
 
 def test_notes_endpoint_404s_on_unknown_slug(client):
     assert client.get("/api/streaks/nope/notes").status_code == 404
+
+
+def test_retirements_for_serves_only_that_days_retirements(client):
+    client.post("/api/streaks/add", json={"label": "on peptides", "since": days_ago(51)})
+    client.post("/api/streaks/add", json={"label": "off soda", "since": days_ago(9)})
+    sid = next(s["id"] for s in read_streaks() if s["label"] == "on peptides")
+    client.post("/api/streaks/retire", json={"id": sid, "note": "done for now"})
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    (r,) = streaks.retirements_for(today)
+    assert r["label"] == "on peptides" and r["days"] == 51
+    assert r["note"] == "done for now" and len(r["time"]) == 5
+    assert streaks.retirements_for("2020-01-01") == []

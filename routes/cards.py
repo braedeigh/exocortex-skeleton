@@ -210,11 +210,15 @@ def register(app):
         for c in day_cards:
             if c.get("reply_to"):
                 c["reply_context"] = _reply_context(c)
+        from routes.streaks import retirements_for
         return jsonify({
             "date": date,
             "editable": date >= CARDS_CUTOVER,
             "cards": day_cards,
             "counters": _counter_tags(),
+            # Day counters retired on this day — the web view weaves these ⏹
+            # rows between entries, same as the rendered markdown does.
+            "retirements": retirements_for(date),
         })
 
     @app.route("/api/cards/add", methods=["POST"])

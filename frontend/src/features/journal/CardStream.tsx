@@ -5,7 +5,7 @@ import { fmtTime } from '../todos/todoHelpers';
 import type { EntityMatcher } from './entityHighlight';
 import { EntryCard } from './EntryCard';
 import { RefCard } from './RefCard';
-import type { Card } from './types';
+import type { Card, StreakRetirement } from './types';
 import styles from './CardStream.module.css';
 
 export interface CardStreamProps {
@@ -36,6 +36,8 @@ export interface CardStreamProps {
   counterNames?: ReadonlyMap<string, string>;
   /** Passed through to entry cards' counter chips. */
   onOpenCounter?: (tag: string) => void;
+  /** Day counters retired on this day — woven as ⏹ rows, todo-marker style. */
+  retirements?: StreakRetirement[];
   addSaving: boolean;
   /** Resolves true on a successful save; the composer clears its draft on
    * success. New notes always append to the end of the day. */
@@ -158,6 +160,7 @@ export function CardStream({
   onOpenThread,
   counterNames,
   onOpenCounter,
+  retirements = [],
   addSaving,
   onComposeSave,
   onBottomActiveChange,
@@ -168,20 +171,28 @@ export function CardStream({
   // Stable weave: each marker slots before the first entry whose
   // time-of-day is later than the tap — entries never reorder. Card ts is
   // "YYYY-MM-DD HH:MM:SS", markers carry "HH:MM"; sliced string compare is
-  // exact ("14:30" < "14:30:22" ✓). Taps after the last entry trail the day.
+  // exact ("14:30" < "14:30:22" ✓). Taps after the last entry trail the day,
+  // as do timeless retirement rows ("99:99" sorts past any clock).
   const woven = useMemo(() => {
-    const out: Array<{ kind: 'card'; card: Card } | { kind: 'marker'; marker: MarkedTodo }> = [];
-    const pending = [...markers].sort((a, b) => a.time.localeCompare(b.time));
+    type Woven =
+      | { kind: 'card'; card: Card }
+      | { kind: 'marker'; marker: MarkedTodo }
+      | { kind: 'retire'; retire: StreakRetirement };
+    const out: Woven[] = [];
+    const pending: Array<{ time: string; item: Woven }> = [
+      ...markers.map((m) => ({ time: m.time, item: { kind: 'marker', marker: m } as Woven })),
+      ...retirements.map((r) => ({ time: r.time ?? '99:99', item: { kind: 'retire', retire: r } as Woven })),
+    ].sort((a, b) => a.time.localeCompare(b.time));
     for (const card of lines) {
       const t = card.ts.slice(11, 16);
       while (pending.length && pending[0].time <= t) {
-        out.push({ kind: 'marker', marker: pending.shift() as MarkedTodo });
+        out.push((pending.shift() as { item: Woven }).item);
       }
       out.push({ kind: 'card', card });
     }
-    for (const marker of pending) out.push({ kind: 'marker', marker });
+    for (const p of pending) out.push(p.item);
     return out;
-  }, [lines, markers]);
+  }, [lines, markers, retirements]);
 
   function renderCard(card: Card) {
     return card.kind === 'ref' ? (
@@ -224,13 +235,24 @@ export function CardStream({
       {woven.map((w) =>
         w.kind === 'card' ? (
           renderCard(w.card)
-        ) : (
+        ) : w.kind === 'marker' ? (
           <div key={`marked-${w.marker.id}`} className={styles.marker}>
             <span className={styles.markerCheck} aria-hidden="true">
               &#10003;
             </span>
             <span className={styles.markerText}>{w.marker.text}</span>
             <span className={styles.markerTime}>{fmtTime(w.marker.time)}</span>
+          </div>
+        ) : (
+          <div key={`retired-${w.retire.slug}`} className={styles.marker}>
+            <span className={styles.markerCheck} aria-hidden="true">
+              &#9209;
+            </span>
+            <span className={styles.markerText}>
+              retired day count: {w.retire.label} — Day {w.retire.days}
+              {w.retire.note ? <span className={styles.markerNote}>“{w.retire.note}”</span> : null}
+            </span>
+            {w.retire.time ? <span className={styles.markerTime}>{fmtTime(w.retire.time)}</span> : null}
           </div>
         ),
       )}

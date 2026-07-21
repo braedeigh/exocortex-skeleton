@@ -408,6 +408,7 @@ export function JournalPage() {
                 onOpenThread={(slug) => void navigateTo({ to: '/threads/$slug', params: { slug } })}
                 counterNames={counterNames}
                 onOpenCounter={openCounter}
+                retirements={dayQuery.data?.cards.retirements ?? []}
                 addSaving={addCard.isPending}
                 onComposeSave={async (body) => {
                   try {

@@ -75,3 +75,12 @@
   color: var(--text-muted);
   font-size: var(--font-size-sm);
 }
+
+/* A retirement's closing note — her words, quieter than the marker line and
+   indented under it (block, so a long note wraps on its own). */
+.markerNote {
+  display: block;
+  color: var(--text-muted);
+  font-style: italic;
+  padding-top: 2px;
+}

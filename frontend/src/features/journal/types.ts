@@ -53,6 +53,22 @@ export interface CardsResponse {
    * active, the Life Map's Retired card once retired.
    */
   counters?: Record<string, { label: string; slug: string; status: 'active' | 'retired' }>;
+  /**
+   * Day counters retired on this day (routes/streaks.py retirements_for) —
+   * the web weave of the rendered markdown's "⏹ retired day count" lines.
+   */
+  retirements?: StreakRetirement[];
+}
+
+/** One "⏹ retired day count" row in the day stream. */
+export interface StreakRetirement {
+  slug: string;
+  label: string;
+  /** Final count, frozen at retired_on - since. */
+  days: number;
+  /** 'HH:MM', or null (legacy) — timeless rows trail the day. */
+  time: string | null;
+  note: string | null;
 }
 
 export interface Person {
