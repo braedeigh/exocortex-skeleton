@@ -61,7 +61,7 @@ export function buildEntityMatcher(people: Person[], threads: Thread[] = []): En
 
   for (const p of people) {
     addTerm(p.name.split(' ')[0], p.id); // first name as written in prose
-    for (const a of p.aliases || []) addTerm(a, p.id); // "my landlord" -> sally
+    for (const a of p.aliases || []) addTerm(a, p.id); // "my landlord" -> sage
   }
 
   for (const t of threads) {

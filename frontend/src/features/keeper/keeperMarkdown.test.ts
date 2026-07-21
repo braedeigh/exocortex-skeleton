@@ -10,7 +10,7 @@ import {
 } from './keeperMarkdown';
 
 const FILES: Record<string, string> = {
-  sally: 'people/sally.md',
+  sage: 'people/sage.md',
   sleep: 'Patterns/sleep.md',
 };
 const resolve = (name: string) => FILES[name.trim().toLowerCase()];
@@ -31,8 +31,8 @@ describe('parseFrontmatter', () => {
 
 describe('extractFrontmatter', () => {
   it('pulls a tags/aliases block out of the body', () => {
-    const md = '---\ntags: [friend]\n---\n# Sally\n';
-    expect(extractFrontmatter(md)).toEqual({ meta: { tags: ['friend'] }, body: '# Sally\n' });
+    const md = '---\ntags: [friend]\n---\n# Sage\n';
+    expect(extractFrontmatter(md)).toEqual({ meta: { tags: ['friend'] }, body: '# Sage\n' });
   });
 
   it('leaves frontmatter without tags/aliases in place (renders as-is, like legacy)', () => {
@@ -60,8 +60,8 @@ describe('renderChips', () => {
 
 describe('renderKeeperBody', () => {
   it('resolves a [[wikilink]] to a clickable span with its target path', () => {
-    expect(renderKeeperBody('See [[Sally]].', resolve)).toBe(
-      '<p>See <span class="wikilink" data-target="people/sally.md">Sally</span>.</p>',
+    expect(renderKeeperBody('See [[Sage]].', resolve)).toBe(
+      '<p>See <span class="wikilink" data-target="people/sage.md">Sage</span>.</p>',
     );
   });
 
@@ -72,14 +72,14 @@ describe('renderKeeperBody', () => {
   });
 
   it('resolves case-insensitively and trimmed, but shows the raw name', () => {
-    expect(renderKeeperBody('[[ SALLY ]]', resolve)).toBe(
-      '<p><span class="wikilink" data-target="people/sally.md"> SALLY </span></p>',
+    expect(renderKeeperBody('[[ SAGE ]]', resolve)).toBe(
+      '<p><span class="wikilink" data-target="people/sage.md"> SAGE </span></p>',
     );
   });
 
   it('keeps wikilinks working inside headings and list items', () => {
-    expect(renderKeeperBody('# About [[Sally]]', resolve)).toBe(
-      '<h1>About <span class="wikilink" data-target="people/sally.md">Sally</span></h1>',
+    expect(renderKeeperBody('# About [[Sage]]', resolve)).toBe(
+      '<h1>About <span class="wikilink" data-target="people/sage.md">Sage</span></h1>',
     );
     expect(renderKeeperBody('- ping [[sleep]]', resolve)).toBe(
       '<ul><li>ping <span class="wikilink" data-target="Patterns/sleep.md">sleep</span></li></ul>',
@@ -109,10 +109,10 @@ describe('renderKeeperPreview', () => {
   });
 
   it('renders chips ahead of the body and strips the frontmatter from it', () => {
-    const html = renderKeeperPreview('---\ntags: [friend]\naliases: [Sal]\n---\n# Sally', resolve);
+    const html = renderKeeperPreview('---\ntags: [friend]\naliases: [Sal]\n---\n# Sage', resolve);
     expect(html).toBe(
       '<div class="fm-block"><div class="fm-tags"><span class="fm-tag">#friend</span></div>' +
-        '<div class="fm-aliases">also known as: Sal</div></div><h1>Sally</h1>',
+        '<div class="fm-aliases">also known as: Sal</div></div><h1>Sage</h1>',
     );
   });
 

@@ -45,7 +45,7 @@ nonzero. Nothing is staged.
 
 Can also be imported and called directly:
     from scripts.stage_change import stage_change, KNOWN_KINDS
-    entry = stage_change("profile", {"owner_name": "Bradie"})
+    entry = stage_change("profile", {"owner_name": "Rowan"})
 """
 import argparse
 import json

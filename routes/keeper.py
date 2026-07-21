@@ -1,9 +1,9 @@
 """Keeper tab — browse and edit the keeper's memory files.
 
-The keeper (tulku) records everything it remembers about Bradie as markdown in
+The keeper (tulku) records everything it remembers about the owner as markdown in
 the content vault (EXOCORTEX_CONTENT_DIR = .../tulku): about.md, WORRIES.md,
 THREADS.md, people/, Patterns/, context/, the diary, daily journal, protocols.
-This surfaces that whole tree read/write so she can see how memory gets recorded
+This surfaces that whole tree read/write so the owner can see how memory gets recorded
 and fix kinks in place.
 
 Hard-scoped: only *.md files inside CONTENT_DIR are reachable, no traversal out,

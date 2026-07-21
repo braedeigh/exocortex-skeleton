@@ -15,12 +15,12 @@ suffix on same-minute collisions. Topic ids are slugified names, same
 collision handling.
 
 The new entry fields are all optional/backward-compatible (old entries just
-lack them): `flagged` marks an entry Bradie has queued to send to Claude;
+lack them): `flagged` marks an entry the owner has queued to send to Claude;
 `processed` is set by the runner once a session has dealt with an entry;
-`author` == "llm" marks an entry the runner wrote back (absent means hers);
-`reviewed` (llm entries only) is whether she's signed off on it; `session`
+`author` == "llm" marks an entry the runner wrote back (absent means the owner's);
+`reviewed` (llm entries only) is whether the owner has signed off on it; `session`
 is the id of the session that produced an llm entry. A "session" is one
-research-runner run: it records which of her entries were sent, the union
+research-runner run: it records which of the owner's entries were sent, the union
 of their topics, and a status ("running" → "done") with a one-line report
 the runner leaves behind. Session ids share the entry id scheme. An
 optional `"mode": "deep"` marks a session spawned for a single-question

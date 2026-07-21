@@ -11,7 +11,7 @@ Meant to be run by cron every minute:
 
     * * * * * /usr/bin/python3 /opt/exocortex/skeleton/scripts/prompt_dispatcher.py
 
-(Bradie wires up the actual crontab — this script just needs to be runnable
+(The owner wires up the actual crontab — this script just needs to be runnable
 by system python3 with no venv/third-party deps.)
 
 Each run: read scheduled_prompts.json, find pending jobs whose `at` has

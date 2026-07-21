@@ -38,20 +38,20 @@ def test_fresh_install_returns_defaults_and_empty_stored(client):
 # --- PUT partial merge ----------------------------------------------------
 
 def test_put_partial_merge_persists_and_is_reflected_on_get(client):
-    res = client.put("/api/profile", json={"owner_name": "Bradie"})
+    res = client.put("/api/profile", json={"owner_name": "Rowan"})
     assert res.status_code == 200
-    assert res.get_json()["profile"]["owner_name"] == "Bradie"
-    assert read_stored() == {"owner_name": "Bradie"}
+    assert res.get_json()["profile"]["owner_name"] == "Rowan"
+    assert read_stored() == {"owner_name": "Rowan"}
 
-    res = client.put("/api/profile", json={"owner_email": "bradie@example.com"})
+    res = client.put("/api/profile", json={"owner_email": "owner@example.com"})
     assert res.status_code == 200
     body = res.get_json()
-    assert body["profile"]["owner_name"] == "Bradie"  # untouched key survives the merge
-    assert body["profile"]["owner_email"] == "bradie@example.com"
-    assert read_stored() == {"owner_name": "Bradie", "owner_email": "bradie@example.com"}
+    assert body["profile"]["owner_name"] == "Rowan"  # untouched key survives the merge
+    assert body["profile"]["owner_email"] == "owner@example.com"
+    assert read_stored() == {"owner_name": "Rowan", "owner_email": "owner@example.com"}
 
     res = client.get("/api/profile")
-    assert res.get_json()["profile"]["owner_name"] == "Bradie"
+    assert res.get_json()["profile"]["owner_name"] == "Rowan"
 
 
 def test_put_non_dict_body_is_rejected(client):
@@ -62,7 +62,7 @@ def test_put_non_dict_body_is_rejected(client):
 # --- PUT "" clears a key back to inherited --------------------------------
 
 def test_put_empty_string_clears_stored_value_back_to_default(client):
-    client.put("/api/profile", json={"owner_name": "Bradie"})
+    client.put("/api/profile", json={"owner_name": "Rowan"})
     res = client.put("/api/profile", json={"owner_name": ""})
     assert res.status_code == 200
     assert res.get_json()["profile"]["owner_name"] == ""
@@ -71,7 +71,7 @@ def test_put_empty_string_clears_stored_value_back_to_default(client):
 
 def test_put_empty_string_clears_stored_value_back_to_env(client, monkeypatch):
     monkeypatch.setenv("EXOCORTEX_OWNER_NAME", "Env Name")
-    client.put("/api/profile", json={"owner_name": "Bradie"})
+    client.put("/api/profile", json={"owner_name": "Rowan"})
     res = client.put("/api/profile", json={"owner_name": ""})
     assert res.status_code == 200
     assert res.get_json()["profile"]["owner_name"] == "Env Name"

@@ -30,8 +30,10 @@ does (journal:<date> loads in-app, keeper:<path> opens the Files tab):
 When this ever needs queries it can't do per-request, swap the parse for SQLite
 behind these same functions and nothing above the API changes. Until then, YAGNI.
 """
+import os
 import re
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from flask import request, jsonify
 
@@ -43,12 +45,14 @@ THREADS_DIR = "Threads"
 
 # --- "Talk about this thread" session spawning -------------------------------
 # The talk button starts a FRESH claude session per thread (not the Keeper's
-# chat — her call, 2026-07-14: keep the Keeper conversation clean). The /thread
+# chat — the owner's call, 2026-07-14: keep the Keeper conversation clean). The /thread
 # slash command is passed as claude's launch prompt, so there's no race against
 # claude booting that typing into the pane would have. The session runs from
-# the vault (where the Keeper's files live) and dies when she quits claude.
-CLAUDE_BIN = "/home/bradie/.local/bin/claude"
-VAULT_CWD = "/opt/exocortex/personal"
+# the vault (where the Keeper's files live) and dies when the owner quits claude.
+CLAUDE_BIN = os.environ.get("EXOCORTEX_CLAUDE_BIN") or str(Path.home() / ".local" / "bin" / "claude")
+# The vault = the directory holding the content dir (tulku/); sessions launch
+# from there so the Keeper's files are in scope. Overridable for odd layouts.
+VAULT_CWD = os.environ.get("EXOCORTEX_VAULT_DIR") or str(Path(store.CONTENT_DIR).parent)
 _SESSION_SLUG = re.compile(r"^[a-z0-9-]{1,40}$")
 # sessions.json names are capped at 30 chars (routes/terminal.py); leave room
 # for a "-N" retry suffix when the base name's tmux session is still alive.
@@ -98,7 +102,7 @@ _DAY_HR_LINE = re.compile(r"^-{3,}\s*$")
 def _is_day_legend_line(line):
     """The `B = you | K = keeper` legend line under a blob day's title —
     matched structurally (B=, a "|", K=) so it survives whatever names the
-    legend actually carries (e.g. `` `B = Bradie | K = Cinder (灰)` ``)."""
+    legend actually carries (e.g. `` `B = you | K = Ember` ``)."""
     s = line.strip()
     return bool(
         re.match(r"^\W*B\s*=", s, re.IGNORECASE)
@@ -564,8 +568,8 @@ def register(app):
         with every pool card whose TEXT mentions the thread by name/alias
         (word-boundary, case-insensitive — same spirit as entityHighlight.ts's
         matcher on the client), plus a day row for every bare-day citation.
-        Keeper-authored cards (`who: K`) are excluded — her call, 2026-07-20:
-        a thread's journal is her record, not the keeper's commentary. Each
+        Keeper-authored cards (`who: K`) are excluded — the owner's call, 2026-07-20:
+        a thread's journal is the owner's record, not the keeper's commentary. Each
         card entry also carries `reply_to` (the parent card id or null) and
         `editable` (true iff its ts is within the rolling last 24 hours —
         see _card_editable), so the client can offer in-place edit/delete on

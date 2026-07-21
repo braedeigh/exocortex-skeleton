@@ -24,11 +24,13 @@ export function saveScratchpad(content: string): Promise<{ ok: true }> {
 }
 
 /**
- * The exact message legacy notes.html typed into the terminal — a *path
- * reference* to where /api/notes persists the dump (DATA_DIR/notes_dump.md),
- * not the notes text itself. Kept verbatim, em dash and all.
+ * The message typed into the terminal — a *reference* to where /api/notes
+ * persists the dump (DATA_DIR/notes_dump.md), not the notes text itself.
+ * Named by collection + env var rather than an absolute path so it carries no
+ * install-specific location; the receiving Claude session resolves
+ * EXOCORTEX_DATA_DIR itself.
  */
-export const NOTES_DUMP_MESSAGE = '[notes dump ready — read /opt/exocortex/personal/build/notes_dump.md]';
+export const NOTES_DUMP_MESSAGE = '[notes dump ready — read notes_dump.md in EXOCORTEX_DATA_DIR]';
 
 /**
  * POST /api/terminal/send with the legacy payload: `{text, enter: false}` and

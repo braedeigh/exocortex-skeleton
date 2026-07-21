@@ -92,14 +92,14 @@ export function matchesQuery(file: KeeperFile, query: string): boolean {
   return `${file.path} ${file.name}`.toLowerCase().includes(q);
 }
 
-/** Split "people/sally.md" into { dir: "people/", base: "sally.md" } for the
+/** Split "people/sage.md" into { dir: "people/", base: "sage.md" } for the
  * pane-head label (dir rendered muted). */
 export function splitPath(path: string): { dir: string; base: string } {
   const i = path.lastIndexOf('/');
   return i === -1 ? { dir: '', base: path } : { dir: path.slice(0, i + 1), base: path.slice(i + 1) };
 }
 
-/** "people/sally.md" -> "sally" (undo-toast label). */
+/** "people/sage.md" -> "sage" (undo-toast label). */
 export function displayName(path: string): string {
   return (path.split('/').pop() ?? path).replace(/\.md$/, '');
 }

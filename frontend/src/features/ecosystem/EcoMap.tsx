@@ -21,11 +21,15 @@ import type { GeoFeature } from './geo';
 import { TILE_ATTRIBUTION, TILE_URLS, currentTileKey } from './themeColor';
 import type { TileKey } from './themeColor';
 import type { EcoDraft, EcoSource } from './types';
+import { HOME_LAT, HOME_LNG } from '../../ownerHome';
 import styles from './EcoMap.module.css';
 
-/** "My region" home view (Austin / TX); zoom frames Texas + neighbors. */
-const ECO_AUSTIN: [number, number] = [30.2672, -97.7431];
-const ECO_REGION_ZOOM = 5;
+/** "My region" home view — the owner's coordinates from .env.local (see
+ * ownerHome.ts); regional zoom frames their surroundings. Unset, open on a
+ * neutral world view instead. */
+const ECO_HOME: [number, number] =
+  HOME_LAT !== undefined && HOME_LNG !== undefined ? [HOME_LAT, HOME_LNG] : [20, 0];
+const ECO_REGION_ZOOM = HOME_LAT !== undefined ? 5 : 2;
 
 const DRAFT_COLOR = '#7c5cbf';
 
@@ -200,7 +204,7 @@ export const EcoMap = forwardRef<EcoMapHandle, EcoMapProps>(function EcoMap(prop
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const map = L.map(el, { zoomControl: true }).setView(ECO_AUSTIN, ECO_REGION_ZOOM);
+    const map = L.map(el, { zoomControl: true }).setView(ECO_HOME, ECO_REGION_ZOOM);
     mapRef.current = map;
     layerRef.current = L.layerGroup().addTo(map);
     map.on('click', (e: L.LeafletMouseEvent) => {
@@ -447,7 +451,7 @@ export const EcoMap = forwardRef<EcoMapHandle, EcoMapProps>(function EcoMap(prop
       else if (pts.length > 1) map.fitBounds(L.latLngBounds(pts).pad(0.3), { maxZoom: 7 });
     },
     setRegionView() {
-      mapRef.current?.setView(ECO_AUSTIN, ECO_REGION_ZOOM);
+      mapRef.current?.setView(ECO_HOME, ECO_REGION_ZOOM);
     },
     setWorldView() {
       const map = mapRef.current;

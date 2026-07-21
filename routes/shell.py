@@ -2,7 +2,7 @@
 
 The old split.html app shell and its Jinja pages were retired 2026-07-09 after
 the full React rewrite (frontend/ — see frontend/MIGRATION_NOTES.md). The
-originals are archived at /opt/exocortex/personal/reference/old-frontend/ and
+originals are archived in the owner's vault at reference/old-frontend/ and
 in this repo's git history. What remains here:
 
   - VALID_TABS — the canonical dashboard tab list (server.py re-exports it,

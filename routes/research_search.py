@@ -1,6 +1,6 @@
 """GET /api/research/search — search across research entries + note files.
 
-Bradie's own labrador design (FTS + vector as two independent modes, no
+The owner's own labrador design (FTS + vector as two independent modes, no
 fusion, no thresholds), ported. `textsearch.py` is the pure ranking core;
 this module is the I/O edge: it assembles the searchable corpus, persists
 vectors, and calls out to `embeddings.py`.

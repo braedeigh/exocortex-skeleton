@@ -16,6 +16,7 @@ respond. See dev_todo.md's rule against a 4th independent people-file parser.
 """
 from flask import jsonify, request
 
+import config
 import store
 from routes import entities
 from routes.kitchen import shared
@@ -78,12 +79,13 @@ def register(app):
         newly = shared.ensure_claude_session(
             "person", store.PERSON_SKILL_DIR, dirs=(store.PERSON_SKILL_DIR,),
         )
+        owner = config.get_profile().get("owner_name") or "the owner"
         prompt = (
             f"Update the Impression for {person['name']} — their file is "
             f"{store.CONTENT_DIR / person['file']}. Read it and all their journal mentions, "
             f"draft the ## Impression section as a biographical fact-sheet "
-            f"(dated facts about who they are — not what Bradie feels about them), "
-            f"and talk it through with Bradie before saving."
+            f"(dated facts about who they are — not what {owner} feels about them), "
+            f"and talk it through with {owner} before saving."
         )
         shared.send_prompt("person", prompt)
         return jsonify({"ok": True, "session": "person", "newly_spawned": newly})

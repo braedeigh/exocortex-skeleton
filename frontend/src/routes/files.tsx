@@ -4,7 +4,7 @@ import { useDeactivateFrames } from '../shell/useIframeView';
 
 export interface FilesSearch {
   /**
-   * Vault-relative path of a memory file to open, e.g. "people/sally.md".
+   * Vault-relative path of a memory file to open, e.g. "people/sage.md".
    * This is THE deep-link contract for the Files tab — it replaces both the
    * legacy /keeper#<path> hash and the shell's keeper-open postMessage relay
    * (journal popovers, thread refs, etc. should navigate to /files?path=…).

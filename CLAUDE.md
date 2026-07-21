@@ -1,16 +1,15 @@
-# Exocortex — app code (Spark / skeleton repo)
+# Exocortex — app code (skeleton repo)
 
-This is the **app code** (this repo, `/opt/exocortex/skeleton`, remote `exocortex-skeleton`): the live Flask site run by gunicorn (`server:app`). It's the shareable "skeleton" — generic, carries **no personal data**. Personal data + content are **her files**, in the separate vault repo `/opt/exocortex/personal` (remote `exocortex-personal`), wired in via `EXOCORTEX_DATA_DIR` / `EXOCORTEX_CONTENT_DIR`. **Code goes here; her files go there — never mix them.** See `/opt/exocortex/personal/RESTORE.md` for the full wiring, and `/opt/exocortex/personal/CLAUDE.md` for who Bradie is and the overall system. The live app is always `/opt/exocortex/skeleton` — there are no other working copies to confuse it with.
+This is the **app code** (remote `exocortex-skeleton`): a Flask site run by gunicorn (`server:app`). It's the shareable "skeleton" — generic, carries **no personal data**. The owner's data + content live in a **separate private vault** repo, wired in via `EXOCORTEX_DATA_DIR` / `EXOCORTEX_CONTENT_DIR`. **Code goes here; the owner's files go there — never mix them.** Anything personal, install-specific, or a deployment choice belongs in `config.py` (env-overridable), a data file under `EXOCORTEX_DATA_DIR`, or the gitignored `CLAUDE.local.md` / `frontend/.env.local` — never hardcoded in app code. Instance-specific paths and context live in `CLAUDE.local.md` (auto-loaded, not committed).
 
 ## Working here
-- After **Python** edits: `sudo systemctl restart exocortex.service`. After **frontend** edits: `cd frontend && npm run build` (vite → `frontend/dist/`), then refresh — no restart.
-- **Commit when a thing ships.** This repo gets deliberate, named commits — one per feature/fix/refactor, message saying what changed and why. The hourly backup cron only *pushes* this repo (it auto-commits the personal vault only), so uncommitted work here has no safety net: don't end a session with finished work sitting uncommitted.
+- After **Python** edits: restart the service (see `CLAUDE.local.md` for this install's command; generically `sudo systemctl restart exocortex.service`). After **frontend** edits: `cd frontend && npm run build` (vite → `frontend/dist/`), then refresh — no restart.
+- **Commit when a thing ships.** This repo gets deliberate, named commits — one per feature/fix/refactor, message saying what changed and why. Uncommitted work here may have no backup safety net: don't end a session with finished work sitting uncommitted.
 - Data layer goes through `store.py` (`EXOCORTEX_DATA_DIR`). Collections in `SQL_COLLECTIONS` dispatch to `sqlstore.py`: SQLite (`exo.db`) is the database of record, and the JSON files are one-way export mirrors — never read back, so **never write them directly** for SQL-backed collections. Routes live in `server.py` + the `routes/` package (each module exposes `register(app)`, wired up at the bottom of `server.py`). The frontend is a React SPA in `frontend/src/` (feature modules under `src/features/`, TanStack Router), built to `frontend/dist/` and served by `routes/spa.py`. Only `/login` is still server-rendered (`templates/login.html`).
-- Build/dev TODO list: `/opt/exocortex/personal/dev_todo.md` (moved out of this shared repo into the private vault 2026-07-17 — it carried personal context and the skeleton is shareable).
-- **Don't use the harness auto-memory store** (`~/.claude/.../memory/`). Bradie doesn't want a hidden memory context loading into her sessions (her call — same rule the Keeper follows). If something's worth persisting, talk to her and write it into a project markdown she owns (these `CLAUDE.md` files, `RESTORE.md`, `docs/IDEAS.md`, `tulku/` protocol files) — never the harness store.
-- `tools/stream/` is the journal engine (card-pool spine `stream.py`, capture hook `keeper_capture.py`, reconciler `reconcile_transcripts.py`) — moved here from the vault 2026-07-20; the vault keeps exec-only shims at the old `tulku/_system/` paths for existing callers. Root resolved lazily via `TULKU_STREAM_ROOT` (shims pin this) or `EXOCORTEX_CONTENT_DIR`.
+- **Don't use the harness auto-memory store** (`~/.claude/.../memory/`). The owner shouldn't get a hidden memory context loading into sessions. If something's worth persisting, talk to them and write it into a project markdown they own — never the harness store.
+- `tools/stream/` is the journal engine (card-pool spine `stream.py`, capture hook `keeper_capture.py`, reconciler `reconcile_transcripts.py`). Root resolved lazily via `TULKU_STREAM_ROOT` or `EXOCORTEX_CONTENT_DIR`; a vault may keep exec-only shims at its old `_system/` paths for existing callers.
 
-## UI guidelines (firm defaults — from Danielle, her designer friend)
+## UI guidelines (firm defaults)
 Build **touch-first and legible**. These are defaults, not suggestions:
 
 - **Tap targets ~40px tall.** Anything interactive — buttons, toggles, list rows, chips, icon buttons — should be about 40px tall whenever layout allows. Err toward bigger.
@@ -22,7 +21,7 @@ Build **touch-first and legible**. These are defaults, not suggestions:
 ## UI patterns to stay consistent with
 - **Card = the view; title-line button = edit/manage; modal = focused editing.** Cards are collapsible with a chevron and remember open/closed state in localStorage (see e.g. `frontend/src/features/body/CollapsibleCard.tsx`, `lifemap/MapCard.tsx`).
 - Destructive actions confirm first.
-- Theme: light = lavender-grey (`postDawn`), dark = indigo (`twilight`), with an Auto (Austin sunrise/sunset) mode — see `frontend/src/theme/`.
+- Theme: light = lavender-grey (`postDawn`), dark = indigo (`twilight`), with an Auto mode keyed to the owner's-city sunrise/sunset (`frontend/src/theme/`; coordinates from `frontend/.env.local` via `src/ownerHome.ts`).
 
 ## Testing
 
@@ -46,5 +45,3 @@ Tests live in `tests/` and run with **pytest** (a dev-only dep — `./venv/bin/p
   - `test_todos_routes.py` — the HTTP contract: `seed(...)` a starting state, POST JSON, assert the persisted result via `conftest.read_todos()`.
 - **Identity is by `id`.** To-dos are matched by stable `id` (text is a legacy fallback). Tests assert that same-text items stay independent and that the text fallback still works — keep that guarantee when extending routes.
 - **Name tests for the behavior**, not the function (`test_toggle_disambiguates_same_text`), and keep each test to one assertion of intent.
-
-*(Adapting conventions from Bradie's Elixir `CLAUDE.md` — to be folded in once uploaded.)*

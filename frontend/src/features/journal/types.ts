@@ -28,7 +28,7 @@ export interface Card {
   /**
    * Target strings for a "ref" card (keeper-authored annotation): each is
    * either a journal date "YYYY-MM-DD" or a vault-relative file path (e.g.
-   * "people/vivian.md", "THREADS.md"). Always present (default []); only
+   * "people/fern.md", "THREADS.md"). Always present (default []); only
    * meaningful when kind === "ref". See refTargets.ts for classification.
    */
   refs: string[];

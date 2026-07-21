@@ -3,7 +3,7 @@ import styles from './FakeTerminal.module.css';
 
 /**
  * The public-mode "fake terminal" — React port of split.html's `.cc-fake`
- * block (archived at /opt/exocortex/personal/reference/old-frontend/). Renders
+ * block (archived in the owner's vault at reference/old-frontend/). Renders
  * the owner's intro (CONTENT_DIR/public_intro.md, injected by routes/spa.py as
  * window.PUBLIC_INTRO_HTML) as a mock Claude Code session: banner, a fake
  * "what is this site" prompt, the intro as chat output, a blinking cursor, and

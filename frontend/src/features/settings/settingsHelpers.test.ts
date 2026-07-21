@@ -120,20 +120,20 @@ describe('normalizeHexForPicker', () => {
 
 describe('profileChangedFields', () => {
   it('omits fields whose input matches the stored value', () => {
-    const inputs = { owner_name: 'Bradie', owner_email: '', app_name: 'Exocortex' };
-    const stored = { owner_name: 'Bradie', app_name: 'Exocortex' };
+    const inputs = { owner_name: 'Rowan', owner_email: '', app_name: 'Exocortex' };
+    const stored = { owner_name: 'Rowan', app_name: 'Exocortex' };
     expect(profileChangedFields(inputs, stored)).toEqual({});
   });
 
   it('includes an edited field', () => {
-    const inputs = { owner_name: 'Bradie Lee', owner_email: '', app_name: 'Exocortex' };
-    const stored = { owner_name: 'Bradie', app_name: 'Exocortex' };
-    expect(profileChangedFields(inputs, stored)).toEqual({ owner_name: 'Bradie Lee' });
+    const inputs = { owner_name: 'Rowan Vale', owner_email: '', app_name: 'Exocortex' };
+    const stored = { owner_name: 'Rowan', app_name: 'Exocortex' };
+    expect(profileChangedFields(inputs, stored)).toEqual({ owner_name: 'Rowan Vale' });
   });
 
   it('includes an explicit clear of a previously-stored field', () => {
     const inputs = { owner_name: '', owner_email: '', app_name: 'Exocortex' };
-    const stored = { owner_name: 'Bradie', app_name: 'Exocortex' };
+    const stored = { owner_name: 'Rowan', app_name: 'Exocortex' };
     expect(profileChangedFields(inputs, stored)).toEqual({ owner_name: '' });
   });
 

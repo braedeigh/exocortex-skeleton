@@ -7,7 +7,7 @@ keeps climbing until it retires off the list entirely.
 
 Two deliberate asymmetries:
   - **Promotion is suggested** — the UI flags "ready to graduate"; nothing moves
-    until Bradie taps it (see the /api/habits/cadence/promote route).
+    until the owner taps it (see the /api/habits/cadence/promote route).
   - **Demotion is automatic** — miss a spot-check and the habit falls back one rung
     on its own, so nothing silently slips off the list. That's the safety net.
 

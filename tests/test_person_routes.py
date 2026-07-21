@@ -18,13 +18,13 @@ from routes import entities, person
 
 THREADS_FIXTURES_ROOT = Path(__file__).parent / "fixtures" / "threads"
 
-SALLY = """---
-tags: [austin, housemate, landlord]
+SAGE = """---
+tags: [springfield, housemate, landlord]
 aliases: [landlady, my landlord]
 ---
-# Sally
+# Sage
 
-Bradie's landlord in Austin. Sweet but landlord-vibes.
+The owner's landlord in Springfield. Sweet but landlord-vibes.
 
 ## Impression
 Landlord vibes, but sweet underneath.
@@ -38,10 +38,10 @@ Landlord vibes, but sweet underneath.
 def vault(tmp_path, monkeypatch):
     monkeypatch.setattr(store, "CONTENT_DIR", tmp_path)
     (tmp_path / "people").mkdir()
-    (tmp_path / "people" / "sally.md").write_text(SALLY)
+    (tmp_path / "people" / "sage.md").write_text(SAGE)
     (tmp_path / "Journal" / "Daily").mkdir(parents=True)
     (tmp_path / "Journal" / "Daily" / "2026-07-03.md").write_text(
-        "B: sally texted me about the deposit today\n")
+        "B: sage texted me about the deposit today\n")
     return tmp_path
 
 
@@ -54,8 +54,8 @@ def client(vault):
 
 
 def test_person_api_happy_path(client):
-    data = client.get("/api/person/sally").get_json()
-    assert data["person"]["id"] == "sally"
+    data = client.get("/api/person/sage").get_json()
+    assert data["person"]["id"] == "sage"
     assert data["person"]["impression"].startswith("Landlord vibes")
     assert "Referenced In" in data["person"]["body"]
     assert data["stats"]["total"] > 0
@@ -66,7 +66,7 @@ def test_person_api_happy_path(client):
 def test_person_api_resolves_by_alias(client):
     # "landlady" is an alias, not the slug or first name.
     data = client.get("/api/person/landlady").get_json()
-    assert data["person"]["id"] == "sally"
+    assert data["person"]["id"] == "sage"
 
 
 def test_person_api_unknown_slug_404(client):
@@ -92,17 +92,17 @@ def test_summarize_spawns_session_and_sends_prompt(client, monkeypatch):
     monkeypatch.setattr(person.shared, "ensure_claude_session", fake_ensure)
     monkeypatch.setattr(person.shared, "send_prompt", fake_send)
 
-    resp = client.post("/api/person/sally/summarize")
+    resp = client.post("/api/person/sage/summarize")
     data = resp.get_json()
 
     assert data == {"ok": True, "session": "person", "newly_spawned": True}
     assert calls["ensure"][0] == "person"
     assert calls["ensure"][1] == store.PERSON_SKILL_DIR
     assert calls["send"][0] == "person"
-    assert "Sally" in calls["send"][1]
+    assert "Sage" in calls["send"][1]
     # The prompt must carry the file's ABSOLUTE path (via store.CONTENT_DIR) —
     # the person-summary session's cwd is the skill dir, not the vault root.
-    assert str(store.CONTENT_DIR / "people/sally.md") in calls["send"][1]
+    assert str(store.CONTENT_DIR / "people/sage.md") in calls["send"][1]
 
 
 def test_summarize_unknown_slug_404(client):

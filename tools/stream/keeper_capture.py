@@ -19,8 +19,8 @@ hook must stay silent.
 
 Three things differ from fish:
 
-  1. Keeper-mode gate. Bradie launches Claude Code at the repo root and runs
-     `/journalstart`; she also opens *dev* sessions at the same root. Fish captures
+  1. Keeper-mode gate. The owner launches Claude Code at the repo root and runs
+     `/journalstart`; they also open *dev* sessions at the same root. Fish captures
      unconditionally — we must not. So we only capture once this session is armed: the
      `/journalstart` expansion plants the sentinel KEEPER_SESSION_ACTIVE in the
      transcript; each prompt scans the transcript and, once it finds the sentinel,
@@ -29,17 +29,17 @@ Three things differ from fish:
      dev session at the same root is simply never captured, and a keeper session can't be
      lost to a one-shot scan that ran before the sentinel flushed (the old `.off` race).
 
-  2. Second door, deduped. Bradie's web-app Chat-tab sends are minted at the SERVER
+  2. Second door, deduped. The owner's web-app Chat-tab sends are minted at the SERVER
      (skeleton repo, /api/terminal/send) before the text is typed into tmux — this hook
-     only needs to catch what she types directly into a terminal. The server records a
+     only needs to catch what the owner types directly into a terminal. The server records a
      hash of every string it minted in .keeper/ui_captured.jsonl; we consume a matching
      entry instead of minting a duplicate (see _ui_already_captured). This exists because
      hooks snapshot at claude-process launch: a stale process has a dead hook and was
-     silently dropping her app sends (root-caused 2026-07-13).
+     silently dropping the owner's app sends (root-caused 2026-07-13).
 
-  3. Manual K cards. This hook mints ONLY `B` cards. When Bradie answers a question the
+  3. Manual K cards. This hook mints ONLY `B` cards. When the owner answers a question the
      Keeper asked, the Keeper mints the `K` card by hand — `stream.py record --who K`
-     (or `stream.record(who="K", ...)`) — carrying just that question, then sets her
+     (or `stream.record(who="K", ...)`) — carrying just that question, then sets the owner's
      `B` card's `reply_to` to its id. Capture is automatic; the question context is not.
 
 Synthetic messages the harness injects through the same channel (task-notifications,
@@ -48,8 +48,8 @@ system reminders, slash-command echoes) are NOT the operator talking, so they're
 Second arming mode, added 2026-07-20: a thread terminal (spawned by the Talk button,
 running `claude "/thread <slug>"`) plants `THREAD_SESSION_ACTIVE: <slug>` instead of
 the keeper sentinel — see thread.md. A session armed this way mints `B` cards born
-tagged with that slug, so her turns show up in both the daily journal and the
-thread's own inbox. If a session somehow sees both sentinels (e.g. she runs
+tagged with that slug, so the owner's turns show up in both the daily journal and the
+thread's own inbox. If a session somehow sees both sentinels (e.g. the owner runs
 `/journalstart` inside a thread terminal), keeper wins — see `_entry_mode`.
 """
 import fcntl
@@ -81,7 +81,7 @@ def _failure_log() -> pathlib.Path:
 
 
 # Written by the web app's /api/terminal/send (routes/terminal.py in the skeleton
-# repo), which mints Bradie's Chat-tab sends as B cards at the server — before the
+# repo), which mints the owner's Chat-tab sends as B cards at the server — before the
 # text is ever typed into tmux — so capture doesn't depend on this hook being alive
 # (hooks snapshot at claude-process launch and die in stale processes). Each line is
 # {ts, sha256-of-the-typed-string}; we consume a matching entry instead of minting
@@ -136,7 +136,7 @@ def main() -> int:
 
     kind, slug = mode
     # Thread mode only tags if the thread file still resolves at mint time — an alias
-    # she typed by hand or a truncated tmux session name must never cost the capture
+    # the owner typed by hand or a truncated tmux session name must never cost the capture
     # itself, just the tag.
     tags = [slug] if (kind == "thread" and _thread_file_exists(slug)) else None
 
@@ -270,7 +270,7 @@ def _scan_transcript_mode(transcript_path: str):
     """One pass over a whole transcript file -> arming mode: None |
     ("keeper", None) | ("thread", slug). Keeper wins if both sentinels appear
     anywhere in the file (checked across the whole scan, not just one entry) — e.g.
-    she runs /journalstart inside a session that already armed as a thread. Delegates
+    the owner runs /journalstart inside a session that already armed as a thread. Delegates
     the per-entry fences to `_entry_mode`; reconcile_transcripts.py imports both
     functions rather than redefining the fence — one scan, not two that can drift."""
     if not transcript_path:
@@ -302,7 +302,7 @@ def _ui_already_captured(prompt: str) -> bool:
     send endpoint — matched by sha256 of the stripped prompt against a recent
     entry in the UI-capture sidecar (`_ui_captured_path()`).
 
-    The matching entry is CONSUMED (removed from the file), one per hit: if she
+    The matching entry is CONSUMED (removed from the file), one per hit: if the owner
     deliberately says the same words twice — once via the app, once typed straight
     into the terminal — the second occurrence finds no entry left and mints
     normally. Entries older than UI_CAPTURE_WINDOW_SEC are ignored (and pruned by
@@ -352,7 +352,7 @@ def _ui_already_captured(prompt: str) -> bool:
 
 def _log_failure(prompt: str, error: str) -> None:
     """A capture failure must not vanish — append the raw prompt to a local-only sidecar so
-    nothing Bradie typed is lost unsignalled (the hook's whole reason to exist)."""
+    nothing the owner typed is lost unsignalled (the hook's whole reason to exist)."""
     try:
         _state_dir().mkdir(parents=True, exist_ok=True)
         with _failure_log().open("a", encoding="utf-8") as f:

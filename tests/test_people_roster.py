@@ -13,12 +13,12 @@ from flask import Flask
 import store
 from routes import entities
 
-SALLY = """---
-tags: [austin, housemate, landlord]
+SAGE = """---
+tags: [springfield, housemate, landlord]
 ---
-# Sally
+# Sage
 
-Bradie's landlord in Austin. Sweet but landlord-vibes.
+The owner's landlord in Springfield. Sweet but landlord-vibes.
 
 ## Referenced In
 - [[2026-05-10]] (Mother's Day)
@@ -36,7 +36,7 @@ An old friend, no structured references yet.
 def vault(tmp_path, monkeypatch):
     monkeypatch.setattr(store, "CONTENT_DIR", tmp_path)
     (tmp_path / "people").mkdir()
-    (tmp_path / "people" / "sally.md").write_text(SALLY)
+    (tmp_path / "people" / "sage.md").write_text(SAGE)
     (tmp_path / "people" / "david.md").write_text(DAVID)
     return tmp_path
 
@@ -51,12 +51,12 @@ def client(vault):
 
 def test_roster_dates_and_last_note_skip_empty_newest_entry(client):
     people = {p["id"]: p for p in client.get("/api/people/roster").get_json()["people"]}
-    sally = people["sally"]
+    sage = people["sage"]
     # entries() sorts ascending; the roster hands the same order straight through.
-    assert sally["dates"] == ["2026-05-10", "2026-06-28", "2026-07-01"]
+    assert sage["dates"] == ["2026-05-10", "2026-06-28", "2026-07-01"]
     # The newest entry (2026-07-01) has an empty note, so last_note falls back
     # to the newest entry that actually has one.
-    assert sally["last_note"] == {"date": "2026-06-28", "note": "the morning after"}
+    assert sage["last_note"] == {"date": "2026-06-28", "note": "the morning after"}
 
 
 def test_roster_person_with_no_entries_has_empty_dates_and_null_note(client):
@@ -68,9 +68,9 @@ def test_roster_person_with_no_entries_has_empty_dates_and_null_note(client):
 
 def test_roster_carries_blurb_and_tags(client):
     people = {p["id"]: p for p in client.get("/api/people/roster").get_json()["people"]}
-    sally = people["sally"]
-    assert sally["blurb"] == "Bradie's landlord in Austin. Sweet but landlord-vibes."
-    assert sally["tags"] == ["austin", "housemate", "landlord"]
+    sage = people["sage"]
+    assert sage["blurb"] == "The owner's landlord in Springfield. Sweet but landlord-vibes."
+    assert sage["tags"] == ["springfield", "housemate", "landlord"]
     assert people["david"]["tags"] == []
 
 

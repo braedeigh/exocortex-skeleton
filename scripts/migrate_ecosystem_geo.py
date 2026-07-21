@@ -16,7 +16,9 @@ import os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SKELETON = os.path.dirname(HERE)
-DATA = os.environ.get("EXOCORTEX_DATA_DIR", "/opt/exocortex/personal/data")
+DATA = os.environ.get("EXOCORTEX_DATA_DIR")
+if not DATA:
+    sys.exit("set EXOCORTEX_DATA_DIR to the data dir this migration should touch")
 ECO = os.path.join(DATA, "ecosystem.json")
 GEOJSON = os.path.join(SKELETON, "static/vendor/geo/us-counties.geojson")
 

@@ -1,7 +1,7 @@
 """Pure text + vector search core — no I/O, no env, no clock (→ a zero-dep
 `search-core` Rust crate: every function here is data-in/data-out).
 
-Bradie's own labrador design (FTS + vector as two separate modes, no fusion,
+The owner's own labrador design (FTS + vector as two separate modes, no fusion,
 no thresholds), ported: keyword search is a crude tf/length-normalized rank
 (a hand-rolled analog of Postgres `ts_rank` over `websearch_to_tsquery`);
 vector search is flat cosine top-k. Reconciliation (which docs need a fresh

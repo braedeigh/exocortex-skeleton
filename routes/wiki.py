@@ -1,4 +1,4 @@
-"""Wiki home page — the front door of the traversable wiki about Bradie.
+"""Wiki home page — the front door of the traversable wiki about the owner.
 
     GET /api/wiki/home
 

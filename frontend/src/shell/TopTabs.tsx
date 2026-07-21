@@ -42,14 +42,14 @@ const OPTIONAL_TABS: readonly LegacyTab[] = (
 ).filter(isValidTab);
 
 // Public visitors get exactly To Do / Life Map / Kitchen (the PRIMARY_TABS,
-// always shown) plus Ecosystem here — Bradie's explicit call on what the
+// always shown) plus Ecosystem here — the owner's explicit call on what the
 // public site shows, not just "whatever public_config.py happens to expose."
 // Money and Inventory are reachable logged-out too, but stay off the public
 // row on purpose.
 const PUBLIC_OPTIONAL_TABS: readonly LegacyTab[] = (['ecosystem'] as const).filter(isValidTab);
 
 // Always-in-More legacy tabs, in the order given in the spec (templates/index.html
-// more-menu order differs slightly; this is the order Bradie asked for).
+// more-menu order differs slightly; this is the order the owner asked for).
 const ALWAYS_MORE_TABS: ReadonlyArray<{ tab: LegacyTab; label: string }> = [
   { tab: 'people', label: 'People' },
   { tab: 'inventory', label: 'Inventory' },
@@ -170,7 +170,7 @@ function PublicHeader() {
   // The owner's name is the part visitors actually need to read; the
   // " · {name} v{version}" tail is secondary attribution. Rendering them as
   // one ellipsizing string truncated the owner's own name away on phones
-  // (390px cut "Bradie Lee · Exoc…" mid-word) — so when there's an owner, it's
+  // (390px cut "Rowan Vale · Exoc…" mid-word) — so when there's an owner, it's
   // the primary text and the tail lives in its own de-emphasized span that
   // CSS drops on narrow screens instead. With no owner, {name} v{version} *is*
   // the primary text and is never hidden.

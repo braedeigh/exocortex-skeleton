@@ -45,11 +45,11 @@ describe('mdToHtml', () => {
 
 describe('entityHue', () => {
   it('is deterministic for the same name', () => {
-    expect(entityHue('bradie')).toBe(entityHue('bradie'));
+    expect(entityHue('rowan')).toBe(entityHue('rowan'));
   });
 
   it('stays within 0-359', () => {
-    for (const name of ['bradie', 'k', 'a-very-long-slug-name-indeed']) {
+    for (const name of ['rowan', 'k', 'a-very-long-slug-name-indeed']) {
       const hue = entityHue(name);
       expect(hue).toBeGreaterThanOrEqual(0);
       expect(hue).toBeLessThan(360);
@@ -57,6 +57,6 @@ describe('entityHue', () => {
   });
 
   it('differs for different names (not guaranteed, but true for these)', () => {
-    expect(entityHue('bradie')).not.toBe(entityHue('vivian'));
+    expect(entityHue('rowan')).not.toBe(entityHue('fern'));
   });
 });

@@ -1,16 +1,16 @@
 /**
- * solar.ts — Austin sunrise/sunset from day-of-year. Pure math, ported
- * line-for-line from static/js/sky-theme.js sunTimesFromDay(): solar
+ * solar.ts — the owner's-city sunrise/sunset from day-of-year. Pure math,
+ * ported line-for-line from static/js/sky-theme.js sunTimesFromDay(): solar
  * declination from a cosine fit, hour angle at -0.833° (refraction-corrected
- * horizon), equation of time, solar noon shifted into the VPS timezone.
+ * horizon), equation of time, solar noon shifted into the local timezone.
  */
+import { HOME_LAT, HOME_LNG, HOME_TZ_OFFSET } from '../ownerHome';
 
-// Austin, TX coordinates
-export const SKY_LAT = 30.2672;
-export const SKY_LNG = -97.7431;
-
-// Sunrise/sunset — simple solar calculation. VPS is in CDT (UTC-5).
-export const SKY_TZ_OFFSET = -5;
+// The owner's coordinates + tz come from .env.local (see ownerHome.ts).
+// Unset, the equatorial/UTC defaults give a sane ~12h day year-round.
+export const SKY_LAT = HOME_LAT ?? 0;
+export const SKY_LNG = HOME_LNG ?? 0;
+export const SKY_TZ_OFFSET = HOME_TZ_OFFSET ?? 0;
 
 export interface SunTimes {
   /** Decimal local hours, e.g. 6.5 = 06:30. */
@@ -18,24 +18,28 @@ export interface SunTimes {
   sunset: number;
 }
 
-export function sunTimesFromDay(dayOfYear: number): SunTimes {
+export function sunTimesFromDay(
+  dayOfYear: number,
+  lat: number = SKY_LAT,
+  lng: number = SKY_LNG,
+  tzOffset: number = SKY_TZ_OFFSET,
+): SunTimes {
   const rad = Math.PI / 180;
 
   const declination = -23.44 * Math.cos((rad * 360 / 365) * (dayOfYear + 10));
 
   const cosHA =
-    (Math.sin(-0.833 * rad) - Math.sin(SKY_LAT * rad) * Math.sin(declination * rad)) /
-    (Math.cos(SKY_LAT * rad) * Math.cos(declination * rad));
+    (Math.sin(-0.833 * rad) - Math.sin(lat * rad) * Math.sin(declination * rad)) /
+    (Math.cos(lat * rad) * Math.cos(declination * rad));
   if (cosHA > 1 || cosHA < -1) return { sunrise: 6, sunset: 18 };
   const halfDay = Math.acos(cosHA) / rad / 15;
 
   const B = (rad * 360 / 365) * (dayOfYear - 81);
   const EoT = 9.87 * Math.sin(2 * B) - 7.53 * Math.cos(B) - 1.5 * Math.sin(B);
 
-  const solarNoonUTC = 12 - EoT / 60 - SKY_LNG / 15;
+  const solarNoonUTC = 12 - EoT / 60 - lng / 15;
 
-  // Always use VPS timezone (CDT)
-  const solarNoonLocal = solarNoonUTC + SKY_TZ_OFFSET;
+  const solarNoonLocal = solarNoonUTC + tzOffset;
 
   return {
     sunrise: solarNoonLocal - halfDay,

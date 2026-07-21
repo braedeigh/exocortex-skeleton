@@ -394,13 +394,15 @@ def personality_save():
 
 # --- Data loading helpers ---
 
-FOOD_GUIDE = {
-    "safe": ["chicken", "white rice", "kale", "sweet potato", "carrots", "parsnips",
-              "zucchini", "cucumber", "tahini", "rice cakes", "salad"],
-    "hurts": ["chocolate covered coconut", "soy sauce", "olives", "pickled okra"],
-    "unsure": ["sunflower seeds", "pumpkin seeds", "sweet potato chips"],
-    "inflammatory": []
-}
+# The owner's safe/hurts/unsure food lists are DATA (data/food_guide.json),
+# not code — a person's trigger foods are health information and never belong
+# in the shareable skeleton. Read fresh so edits land without a restart.
+_FOOD_GUIDE_DEFAULT = {"safe": [], "hurts": [], "unsure": [], "inflammatory": []}
+
+
+def _food_guide():
+    guide = store.read("food_guide", None) or {}
+    return {**_FOOD_GUIDE_DEFAULT, **guide}
 
 
 def _common_data():
@@ -599,7 +601,7 @@ def get_data_today():
         "contacts": _load_contacts(),
         "applications": applications,
         "meal_defaults": _load_meal_defaults(),
-        "food_guide": FOOD_GUIDE,
+        "food_guide": _food_guide(),
         "activity_log": _load_activity_log(),
         "reminders": _load_reminders(),
         "private_act_types": _private_act_types(),
@@ -639,7 +641,7 @@ def get_data_map():
         "kitchen_trips": kitchen_trips,
         "activity_log": _load_activity_log(),
         "meal_defaults": _load_meal_defaults(),
-        "food_guide": FOOD_GUIDE,
+        "food_guide": _food_guide(),
         "contacts": _load_contacts(),
         "reminders": _load_reminders(),
         "private_act_types": _private_act_types(),
@@ -764,7 +766,7 @@ def get_data_body():
         "health_data": load_health_data(),
         "activity_log": _load_activity_log(),
         "meal_defaults": _load_meal_defaults(),
-        "food_guide": FOOD_GUIDE,
+        "food_guide": _food_guide(),
     })
     # Pull catalog (for safety tags) and the safety tags themselves
     kdata = store.read("kitchen.json", {})
@@ -981,7 +983,7 @@ def get_data():
         "runs": runs_data,
         "activity_log": _load_activity_log(),
         "meal_defaults": _load_meal_defaults(),
-        "food_guide": FOOD_GUIDE,
+        "food_guide": _food_guide(),
         "applications": applications,
     })
     data.update(_load_kitchen_data())

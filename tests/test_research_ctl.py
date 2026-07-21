@@ -410,14 +410,14 @@ def test_capture_session_id_swallows_resolver_exception(data_dir, monkeypatch):
 def test_set_session_writes_claude_session_and_cwd(data_dir):
     question_id, session_id = _seed()
 
-    session = set_session(session_id, "abc-123-sessionid", claude_cwd="/opt/exocortex/personal")
+    session = set_session(session_id, "abc-123-sessionid", claude_cwd="/opt/exocortex/research-runner")
 
     assert session["claude_session"] == "abc-123-sessionid"
-    assert session["claude_cwd"] == "/opt/exocortex/personal"
+    assert session["claude_cwd"] == "/opt/exocortex/research-runner"
     data = _read()
     got = data["sessions"][0]
     assert got["claude_session"] == "abc-123-sessionid"
-    assert got["claude_cwd"] == "/opt/exocortex/personal"
+    assert got["claude_cwd"] == "/opt/exocortex/research-runner"
     # Nothing else on the record was touched.
     assert got["status"] == "running"
     assert got["report"] == ""

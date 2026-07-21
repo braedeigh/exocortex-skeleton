@@ -18,8 +18,8 @@ the pool by this module:
     _system/data/index/YYYY-MM.md    INDEX  one line per card that month. derived.
     Journal/Daily/YYYY-MM-DD.md      VIEW   the day, rendered exactly as it always
                                             looked. derived, disposable.
-    <manifest out path>              VIEW   e.g. people/views/sally.md — every card
-                                            tagged `sally`, inlined verbatim. derived.
+    <manifest out path>              VIEW   e.g. people/views/sage.md — every card
+                                            tagged `sage`, inlined verbatim. derived.
 
 Only cards are truth. Views can be deleted and rebuilt at any time — never hand-edit
 one; edit (or mint) a card and re-render. `validate` catches a view that drifted.
@@ -124,6 +124,25 @@ def daily_dir() -> Path:
 
 def card_path(cid: str) -> Path:
     return pool_dir() / f"{cid}.md"
+
+
+def day_legend() -> str:
+    """The speaker legend under a day view's title. The owner's name is PERSONAL
+    data, so it never lives in this shareable file: resolution is env
+    (STREAM_DAY_LEGEND — the content-scaffold convention) -> the vault's
+    `_system/data/config.json` `day_legend` key -> a generic default. Read
+    lazily per render so a config change lands on the next re-render."""
+    env = os.environ.get("STREAM_DAY_LEGEND")
+    if env:
+        return env
+    cfg_path = stream_root() / "_system" / "data" / "config.json"
+    try:
+        legend = json.loads(cfg_path.read_text(encoding="utf-8")).get("day_legend")
+        if legend:
+            return legend
+    except (OSError, ValueError):
+        pass
+    return "B = you | K = keeper"
 
 
 # --------------------------------------------------------------------------------
@@ -794,7 +813,7 @@ def render_day_text(day: str, cards: Optional[List[Card]] = None) -> Optional[st
     timed_streaks = [m for m in streak_markers if m.time]
     untimed_streaks = [m for m in streak_markers if not m.time]
 
-    text = f"# {day}\n\n`B = Bradie | K = Keeper`\n\n"
+    text = f"# {day}\n\n`{day_legend()}`\n\n"
     if context_cards:
         text += context_cards[0].body + "\n\n"
     text += "---\n"
@@ -1154,7 +1173,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     rec.add_argument(
         "--refs", default=None,
         help="comma-separated reference targets (only meaningful for --kind ref), "
-             "e.g. 2026-05-14,people/vivian.md",
+             "e.g. 2026-05-14,people/fern.md",
     )
     rec.set_defaults(func=_cmd_record)
 

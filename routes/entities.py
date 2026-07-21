@@ -211,7 +211,7 @@ def _pretty_label(rel):
 
 def find_mentions(terms, self_file=None, limit=200):
     """Loose word-boundary hits across the vault (excluding the person's own file).
-    `terms` is a name or list of names/aliases — so "my landlord" catches Sally too.
+    `terms` is a name or list of names/aliases — so "my landlord" catches Sage too.
     Returns newest-first Mention dicts with a one-line snippet for context."""
     if isinstance(terms, str):
         terms = [terms]
@@ -236,7 +236,7 @@ def find_mentions(terms, self_file=None, limit=200):
                 continue
             seen.add(rel)
             # Snippet: a window CENTERED on the first name hit, ellipsized on
-            # whichever sides get cut — "…text text Sally text text…" — so the
+            # whichever sides get cut — "…text text Sage text text…" — so the
             # popup's 2-line clamp always shows the name in context.
             snippet = ""
             for line in text.splitlines():

@@ -18,11 +18,11 @@ from scripts import claude_transcripts as ct
 # ---------------------------------------------------------------------------
 
 def test_transcript_path_flattens_cwd_to_dashes():
-    path = ct.transcript_path("abc-123", "/opt/exocortex/personal/research-runner")
+    path = ct.transcript_path("abc-123", "/opt/exocortex/research-runner")
 
     assert path == (
         ct.CLAUDE_HOME / "projects"
-        / "-opt-exocortex-personal-research-runner" / "abc-123.jsonl"
+        / "-opt-exocortex-research-runner" / "abc-123.jsonl"
     )
 
 

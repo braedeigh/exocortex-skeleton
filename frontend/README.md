@@ -74,7 +74,7 @@ src/
 
 ## Touch-first rules (non-negotiable, enforced in component CSS)
 
-From Bradie's designer friend, ported forward from the skeleton app's UI
+From the owner's designer friend, ported forward from the skeleton app's UI
 guidelines:
 
 - Every interactive element (`Button`, `IconButton`, `TapRow`, `Checkbox`'s

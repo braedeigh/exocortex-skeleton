@@ -149,7 +149,7 @@ class DayViewTests(StreamTestCase):
         expected = (
             "# 2026-07-06\n"
             "\n"
-            "`B = Bradie | K = Keeper`\n"
+            "`B = you | K = keeper`\n"
             "\n"
             "Context: test day.\n"
             "\n"
@@ -171,6 +171,27 @@ class DayViewTests(StreamTestCase):
         self.assertIsNone(stream.render_day_text("2026-01-01"))
         self.assertIsNone(stream.render_day("2026-01-01"))
         self.assertFalse((stream.daily_dir() / "2026-01-01.md").exists())
+
+    def test_day_legend_from_vault_config(self):
+        # The owner's name is data, not code: _system/data/config.json's
+        # day_legend key personalizes the rendered legend line.
+        cfg = Path(self._tmp.name) / "_system" / "data" / "config.json"
+        cfg.parent.mkdir(parents=True, exist_ok=True)
+        cfg.write_text(json.dumps({"day_legend": "B = Alice | K = Keeper"}))
+        stream.record(who="B", body="hello", ts=datetime(2026, 7, 6, 8, 0, 0))
+        text = stream.render_day_text("2026-07-06")
+        self.assertIn("`B = Alice | K = Keeper`", text)
+
+    def test_day_legend_env_wins_over_config(self):
+        cfg = Path(self._tmp.name) / "_system" / "data" / "config.json"
+        cfg.parent.mkdir(parents=True, exist_ok=True)
+        cfg.write_text(json.dumps({"day_legend": "B = Alice | K = Keeper"}))
+        os.environ["STREAM_DAY_LEGEND"] = "B = Env | K = Keeper"
+        try:
+            stream.record(who="B", body="hello", ts=datetime(2026, 7, 6, 8, 0, 0))
+            self.assertIn("`B = Env | K = Keeper`", stream.render_day_text("2026-07-06"))
+        finally:
+            os.environ.pop("STREAM_DAY_LEGEND", None)
 
     def test_multiline_body_prefix_only_first_line(self):
         stream.record(
@@ -232,27 +253,27 @@ class ReplyToAndValidateTests(StreamTestCase):
 
 
 class TagUntagManifestTests(StreamTestCase):
-    def _write_sally_manifest(self):
+    def _write_sage_manifest(self):
         d = stream.manifests_dir()
         d.mkdir(parents=True, exist_ok=True)
-        (d / "sally.md").write_text(
-            "---\nselect: tag=sally\nrender: inline\nout: people/views/sally.md\n---\n",
+        (d / "sage.md").write_text(
+            "---\nselect: tag=sage\nrender: inline\nout: people/views/sage.md\n---\n",
             encoding="utf-8",
         )
 
     def test_tag_then_render_then_untag_then_render(self):
-        cid = stream.record(who="B", body="talked to sally today", ts=datetime(2026, 7, 6, 11, 0, 0))
-        stream.add_tags(cid, ["sally"])
-        self.assertEqual(stream.read_card(cid).tags, ["sally"])
+        cid = stream.record(who="B", body="talked to sage today", ts=datetime(2026, 7, 6, 11, 0, 0))
+        stream.add_tags(cid, ["sage"])
+        self.assertEqual(stream.read_card(cid).tags, ["sage"])
 
-        self._write_sally_manifest()
-        stream.render_manifest("sally")
-        out_path = stream.stream_root() / "people" / "views" / "sally.md"
+        self._write_sage_manifest()
+        stream.render_manifest("sage")
+        out_path = stream.stream_root() / "people" / "views" / "sage.md"
         content = out_path.read_text(encoding="utf-8")
         self.assertIn(f"[[{cid}]]", content)
-        self.assertIn("talked to sally today", content)
+        self.assertIn("talked to sage today", content)
 
-        stream.remove_tags(cid, ["sally"])     # re-renders the manifest itself
+        stream.remove_tags(cid, ["sage"])     # re-renders the manifest itself
         content2 = out_path.read_text(encoding="utf-8")
         self.assertNotIn(f"[[{cid}]]", content2)
         self.assertEqual(stream.read_card(cid).tags, [])
@@ -291,18 +312,18 @@ class EditCardTests(StreamTestCase):
     def test_edit_rerenders_matching_manifest(self):
         d = stream.manifests_dir()
         d.mkdir(parents=True, exist_ok=True)
-        (d / "sally.md").write_text(
-            "---\nselect: tag=sally\nrender: inline\nout: people/views/sally.md\n---\n",
+        (d / "sage.md").write_text(
+            "---\nselect: tag=sage\nrender: inline\nout: people/views/sage.md\n---\n",
             encoding="utf-8",
         )
         cid = stream.record(
-            who="B", body="talked to sally", ts=datetime(2026, 7, 6, 14, 10, 0), tags=["sally"],
+            who="B", body="talked to sage", ts=datetime(2026, 7, 6, 14, 10, 0), tags=["sage"],
         )
-        stream.render_manifest("sally")
-        stream.edit_card(cid, "talked to sally about the weekend")
-        out_path = stream.stream_root() / "people" / "views" / "sally.md"
+        stream.render_manifest("sage")
+        stream.edit_card(cid, "talked to sage about the weekend")
+        out_path = stream.stream_root() / "people" / "views" / "sage.md"
         content = out_path.read_text(encoding="utf-8")
-        self.assertIn("talked to sally about the weekend", content)
+        self.assertIn("talked to sage about the weekend", content)
 
     def test_edit_rejects_empty_body(self):
         cid = stream.record(who="B", body="keep me", ts=datetime(2026, 7, 6, 14, 15, 0))
@@ -369,19 +390,19 @@ class DeleteCardTests(StreamTestCase):
     def test_delete_rerenders_matching_manifest(self):
         d = stream.manifests_dir()
         d.mkdir(parents=True, exist_ok=True)
-        (d / "sally.md").write_text(
-            "---\nselect: tag=sally\nrender: inline\nout: people/views/sally.md\n---\n",
+        (d / "sage.md").write_text(
+            "---\nselect: tag=sage\nrender: inline\nout: people/views/sage.md\n---\n",
             encoding="utf-8",
         )
         cid = stream.record(
-            who="B", body="talked to sally", ts=datetime(2026, 7, 6, 16, 10, 0), tags=["sally"],
+            who="B", body="talked to sage", ts=datetime(2026, 7, 6, 16, 10, 0), tags=["sage"],
         )
-        stream.render_manifest("sally")
+        stream.render_manifest("sage")
         stream.delete_card(cid)
-        out_path = stream.stream_root() / "people" / "views" / "sally.md"
+        out_path = stream.stream_root() / "people" / "views" / "sage.md"
         content = out_path.read_text(encoding="utf-8")
         self.assertNotIn(f"[[{cid}]]", content)
-        self.assertNotIn("talked to sally", content)
+        self.assertNotIn("talked to sage", content)
 
     def test_delete_missing_card_raises(self):
         with self.assertRaises(stream.StreamError):
@@ -530,7 +551,7 @@ class TodoMarkerWeaveTests(StreamTestCase):
         self.assertNotIn("marked to-do complete", text)
         self.assertEqual(
             text,
-            "# 2026-07-20\n\n`B = Bradie | K = Keeper`\n\n---\n\n*[8:00 AM]*\n\nB: solo card\n",
+            "# 2026-07-20\n\n`B = you | K = keeper`\n\n---\n\n*[8:00 AM]*\n\nB: solo card\n",
         )
 
     def test_corrupt_todos_json_renders_exactly_as_without_the_feature(self):

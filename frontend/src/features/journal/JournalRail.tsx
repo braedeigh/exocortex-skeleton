@@ -44,7 +44,7 @@ function writeRailCollapsed(collapsed: boolean): void {
  * Port of journal.html's "cutesy floating rail" (.jrail) — launcher buttons
  * riding the top-right of the journal. People opens a browse-list Sheet
  * that reuses the person popover; Threads navigates to the dedicated
- * /threads page (it used to open a twin Sheet — Bradie asked for the page,
+ * /threads page (it used to open a twin Sheet — the owner asked for the page,
  * 2026-07-14). In-text thread chips still open the ThreadPopover.
  *
  * The legacy .jlist-panel floating cards become Sheets here (the same

@@ -11,13 +11,13 @@ from flask import Flask
 import store
 from routes import entities
 
-SALLY = """---
-tags: [austin, housemate, landlord]
+SAGE = """---
+tags: [springfield, housemate, landlord]
 aliases: [landlady, my landlord]
 ---
-# Sally
+# Sage
 
-Bradie's landlord in Austin. Sweet but landlord-vibes.
+The owner's landlord in Springfield. Sweet but landlord-vibes.
 
 **A later arc paragraph** that should NOT be in the blurb.
 
@@ -46,18 +46,18 @@ An old friend, sometimes called david-armenian for disambiguation.
 def vault(tmp_path, monkeypatch):
     monkeypatch.setattr(store, "CONTENT_DIR", tmp_path)
     (tmp_path / "people").mkdir()
-    (tmp_path / "people" / "sally.md").write_text(SALLY)
+    (tmp_path / "people" / "sage.md").write_text(SAGE)
     (tmp_path / "people" / "david-armenian.md").write_text(DAVID)
     (tmp_path / "Journal" / "Daily").mkdir(parents=True)
     (tmp_path / "Journal" / "Daily" / "2026-07-03.md").write_text(
-        "B: sally texted me about the deposit today\n")
+        "B: sage texted me about the deposit today\n")
     (tmp_path / "Journal" / "Daily" / "2026-07-02.md").write_text(
-        "B: my landlord was being weird again\n")   # alias, not the name "Sally"
+        "B: my landlord was being weird again\n")   # alias, not the name "Sage"
     (tmp_path / "Journal" / "Daily" / "2026-07-01.md").write_text(
         "B: nothing about anyone here\n")
     (tmp_path / "Journal" / "Daily" / "2026-07-06.md").write_text(
         "B: quiet day, nothing much happened\n")   # card-cutover day, no named hit
-    (tmp_path / "THREADS.md").write_text("Housing: moving out from Sally's place.\n")
+    (tmp_path / "THREADS.md").write_text("Housing: moving out from Sage's place.\n")
 
     # Card files (the cricket's per-message log): from CARDS_CUTOVER on, a card
     # tagged with a person's slug counts even when its body doesn't name them —
@@ -66,9 +66,9 @@ def vault(tmp_path, monkeypatch):
     cards = tmp_path / "_system" / "data" / "cards"
     cards.mkdir(parents=True)
     (cards / "2026-07-06.aaa.md").write_text(
-        "---\ntags: [sally]\n---\nTalked about dinner plans.\n")      # unnamed -> +1
+        "---\ntags: [sage]\n---\nTalked about dinner plans.\n")      # unnamed -> +1
     (cards / "2026-07-06.bbb.md").write_text(
-        "---\ntags: [sally]\n---\nSally stopped by after work.\n")    # named -> skip
+        "---\ntags: [sage]\n---\nSage stopped by after work.\n")    # named -> skip
     return tmp_path
 
 
@@ -81,15 +81,15 @@ def client(vault):
 
 
 def test_parses_both_bare_and_wikilinked_dates(vault):
-    person = entities.people_index()["sally"]
+    person = entities.people_index()["sage"]
     dates = [e["date"] for e in person["entries"]]
     assert dates == ["2026-02-27", "2026-05-10", "2026-06-28"]  # bare + wikilink, sorted
     assert person["entries"][0]["note"] == 'as "landlady"'
 
 
 def test_blurb_is_first_paragraph_only(vault):
-    person = entities.people_index()["sally"]
-    assert person["blurb"] == "Bradie's landlord in Austin. Sweet but landlord-vibes."
+    person = entities.people_index()["sage"]
+    assert person["blurb"] == "The owner's landlord in Springfield. Sweet but landlord-vibes."
     assert "arc paragraph" not in person["blurb"]
 
 
@@ -100,10 +100,10 @@ def test_qualifier_filename_keys_on_first_name(vault):
 
 
 def test_mentions_exclude_own_file_and_find_journal_and_threads(vault):
-    person = entities.people_index()["sally"]
-    mentions = entities.find_mentions("Sally", self_file=person["file"])
+    person = entities.people_index()["sage"]
+    mentions = entities.find_mentions("Sage", self_file=person["file"])
     files = {m["file"] for m in mentions}
-    assert "people/sally.md" not in files       # never lists her own file
+    assert "people/sage.md" not in files       # never lists the person's own file
     assert "Journal/Daily/2026-07-03.md" in files
     assert "THREADS.md" in files
     assert "Journal/Daily/2026-07-01.md" not in files  # no mention there
@@ -112,9 +112,9 @@ def test_mentions_exclude_own_file_and_find_journal_and_threads(vault):
 
 
 def test_backlinks_endpoint_shape(client):
-    data = client.get("/api/backlinks?name=Sally").get_json()
-    assert data["name"] == "Sally"
-    assert data["person"]["id"] == "sally"
+    data = client.get("/api/backlinks?name=Sage").get_json()
+    assert data["name"] == "Sage"
+    assert data["person"]["id"] == "sage"
     assert len(data["person"]["entries"]) == 3
     assert any(m["file"] == "THREADS.md" for m in data["mentions"])
     # New: every old field is still there (journal.html/keeper consumers depend
@@ -134,22 +134,22 @@ def test_backlinks_requires_name(client):
 
 
 def test_frontmatter_tags_and_aliases_parsed(vault):
-    person = entities.people_index()["sally"]
-    assert person["tags"] == ["austin", "housemate", "landlord"]
+    person = entities.people_index()["sage"]
+    assert person["tags"] == ["springfield", "housemate", "landlord"]
     assert person["aliases"] == ["landlady", "my landlord"]
     # Frontmatter must not leak into the blurb.
-    assert person["blurb"] == "Bradie's landlord in Austin. Sweet but landlord-vibes."
+    assert person["blurb"] == "The owner's landlord in Springfield. Sweet but landlord-vibes."
 
 
 def test_resolve_person_by_alias(vault):
-    assert entities.resolve_person("my landlord")["id"] == "sally"
-    assert entities.resolve_person("Landlady")["id"] == "sally"   # case-insensitive
+    assert entities.resolve_person("my landlord")["id"] == "sage"
+    assert entities.resolve_person("Landlady")["id"] == "sage"   # case-insensitive
     assert entities.resolve_person("nobody") is None
 
 
 def test_mentions_match_aliases_not_just_name(vault):
-    # "my landlord" (2026-07-02) has no "Sally" in it — only the alias.
-    data = client_get_backlinks("Sally", vault)
+    # "my landlord" (2026-07-02) has no "Sage" in it — only the alias.
+    data = client_get_backlinks("Sage", vault)
     files = {m["file"] for m in data["mentions"]}
     assert "Journal/Daily/2026-07-02.md" in files
 
@@ -164,12 +164,12 @@ def client_get_backlinks(name, vault):
 
 def test_people_endpoint_carries_tags_and_filters(client):
     everyone = client.get("/api/people").get_json()["people"]
-    sally = next(p for p in everyone if p["id"] == "sally")
-    assert sally["tags"] == ["austin", "housemate", "landlord"]
+    sage = next(p for p in everyone if p["id"] == "sage")
+    assert sage["tags"] == ["springfield", "housemate", "landlord"]
 
-    filtered = client.get("/api/people?tag=austin").get_json()["people"]
-    assert any(p["id"] == "sally" for p in filtered)
-    assert all("austin" in [t.lower() for t in p["tags"]] for p in filtered)
+    filtered = client.get("/api/people?tag=springfield").get_json()["people"]
+    assert any(p["id"] == "sage" for p in filtered)
+    assert all("springfield" in [t.lower() for t in p["tags"]] for p in filtered)
 
     none = client.get("/api/people?tag=nonexistent").get_json()["people"]
     assert none == []
@@ -178,7 +178,7 @@ def test_people_endpoint_carries_tags_and_filters(client):
 # --- Impression + body (person-page narrative fields) -----------------------
 
 def test_impression_section_parsed(vault):
-    person = entities.people_index()["sally"]
+    person = entities.people_index()["sage"]
     assert person["impression"].startswith("Landlord vibes, but sweet underneath")
     assert "*(updated 2026-07-01)*" in person["impression"]
     assert "Referenced In" not in person["impression"]
@@ -190,8 +190,8 @@ def test_impression_absent_is_empty_string(vault):
 
 
 def test_body_is_full_markdown_after_frontmatter(vault):
-    person = entities.people_index()["sally"]
-    assert person["body"].startswith("# Sally")
+    person = entities.people_index()["sage"]
+    assert person["body"].startswith("# Sage")
     assert "## Referenced In" in person["body"]
     assert "landlord-vibes" in person["body"]
     # Frontmatter itself must not leak into body.
@@ -201,8 +201,8 @@ def test_body_is_full_markdown_after_frontmatter(vault):
 # --- Mention counts -----------------------------------------------------------
 
 def test_mentions_carry_hit_count(vault):
-    person = entities.people_index()["sally"]
-    mentions = entities.find_mentions("Sally", self_file=person["file"])
+    person = entities.people_index()["sage"]
+    mentions = entities.find_mentions("Sage", self_file=person["file"])
     m = next(m for m in mentions if m["file"] == "Journal/Daily/2026-07-03.md")
     assert m["count"] == 1
 
@@ -210,11 +210,11 @@ def test_mentions_carry_hit_count(vault):
 # --- mention_days: journal counts + tagged cards + entries union -------------
 
 def test_mention_days_counts_journal_and_unions_entries(vault):
-    person = entities.people_index()["sally"]
+    person = entities.people_index()["sage"]
     days = entities.mention_days(person)
     by_date = {d["date"]: d["count"] for d in days}
 
-    assert by_date["2026-07-03"] == 1   # "sally texted me..." — named
+    assert by_date["2026-07-03"] == 1   # "sage texted me..." — named
     assert by_date["2026-07-02"] == 1   # "my landlord" — alias
     assert "2026-07-01" not in by_date  # no mention there at all
 
@@ -225,11 +225,11 @@ def test_mention_days_counts_journal_and_unions_entries(vault):
 
 
 def test_mention_days_counts_unnamed_tagged_card_once_and_skips_named_card(vault):
-    person = entities.people_index()["sally"]
+    person = entities.people_index()["sage"]
     days = entities.mention_days(person)
     by_date = {d["date"]: d["count"] for d in days}
     # The journal file for this day has no hit; the unnamed card adds exactly 1
-    # (the named card, which contains "Sally", is skipped so it isn't double-counted).
+    # (the named card, which contains "Sage", is skipped so it isn't double-counted).
     assert by_date["2026-07-06"] == 1
 
 
@@ -237,7 +237,7 @@ def test_mention_days_ignores_tagged_cards_before_cutover(vault, monkeypatch):
     # Move the cutover forward so today's tagged card would no longer count —
     # proves the CARDS_CUTOVER gate, not just that the card exists.
     monkeypatch.setattr(entities, "CARDS_CUTOVER", "2099-01-01")
-    person = entities.people_index()["sally"]
+    person = entities.people_index()["sage"]
     days = entities.mention_days(person)
     by_date = {d["date"]: d["count"] for d in days}
     assert "2026-07-06" not in by_date
@@ -246,7 +246,7 @@ def test_mention_days_ignores_tagged_cards_before_cutover(vault, monkeypatch):
 # --- person_stats -------------------------------------------------------------
 
 def test_person_stats_prefers_newest_mention_for_last(vault):
-    person = entities.people_index()["sally"]
+    person = entities.people_index()["sage"]
     terms = [person["name"].split()[0]] + person["aliases"]
     mentions = entities.find_mentions(terms, self_file=person["file"])
     days = entities.mention_days(person)

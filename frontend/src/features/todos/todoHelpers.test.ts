@@ -149,7 +149,7 @@ describe('inWindow', () => {
 });
 
 describe('gateHides', () => {
-  // Bradie's real config: job shows 6am–5pm, everything else 3pm–6am.
+  // The owner's real config: job shows 6am–5pm, everything else 3pm–6am.
   const rules = {
     windows: {
       job: { start: '06:00', end: '17:00' },

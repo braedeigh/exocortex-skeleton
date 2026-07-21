@@ -23,7 +23,7 @@ VALID = {
                                   "mode": "log", "schedule": "interval"}]},
     "dev_notes": {"tabs": {"today": [{"id": "1", "text": "fix the thing"}]}},
     "buy_list": {"items": [{"name": "Shikibuton"}]},
-    "profile": {"owner_name": "Bradie", "owner_email": "bradie@example.com", "app_name": "Exocortex"},
+    "profile": {"owner_name": "Rowan", "owner_email": "owner@example.com", "app_name": "Exocortex"},
 }
 
 INVALID = {

@@ -103,10 +103,10 @@ def test_crossref_work_network_error(monkeypatch):
 
 def test_crossref_work_sends_user_agent_with_email(monkeypatch):
     calls = _fake_get_json(monkeypatch, value={"message": {}})
-    paperclients.crossref_work("10.1/xyz", "bradie@example.com")
+    paperclients.crossref_work("10.1/xyz", "owner@example.com")
     url, headers = calls[0]
     assert "10.1/xyz" in url
-    assert headers["User-Agent"] == "Exocortex/1.0 (mailto:bradie@example.com)"
+    assert headers["User-Agent"] == "Exocortex/1.0 (mailto:owner@example.com)"
 
 
 # --- crossref_search_title ----------------------------------------------------

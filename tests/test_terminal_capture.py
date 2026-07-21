@@ -1,6 +1,6 @@
 """Server-side journal capture in terminal_send().
 
-Bradie journals by sending Chat-tab messages, which POST /api/terminal/send;
+The owner journals by sending Chat-tab messages, which POST /api/terminal/send;
 the route types the text into a tmux pane running the Keeper session. A
 UserPromptSubmit hook in the vault also mints a journal card from that same
 prompt -- but the hook's process-launch snapshot goes stale on a long-lived

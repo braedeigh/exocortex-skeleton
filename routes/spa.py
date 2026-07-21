@@ -20,7 +20,7 @@ URL scheme:
 
 Every page is native now (2026-07-09) — the strangler-fig `/tab/<name>`
 iframes and the `/classic` rollback shell are gone with the legacy frontend
-(archived at /opt/exocortex/personal/reference/old-frontend/). `/legacy/<tab>`
+(archived in the owner's vault at reference/old-frontend/). `/legacy/<tab>`
 survives only as a redirect for old bookmarks.
 """
 import json

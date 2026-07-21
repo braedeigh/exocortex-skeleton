@@ -96,10 +96,16 @@ STREAMS = {
 
 # Activity-log entry types stripped from the public view (kept for the owner).
 # These ride inside the otherwise-public `activity_log` stream, so they need
-# row-level redaction rather than a whole-stream rule above. This is the static
-# fallback; the live set is driven by each reminder's `private` flag (see
-# `private_act_types` computed in server.py and applied in filter_for_view).
-PRIVATE_ACTIVITY_TYPES = ("estradiol", "peptides")
+# row-level redaction rather than a whole-stream rule above. The static
+# fallback lives in the owner's DATA (data/public_view.json ->
+# private_activity_types), never in this shareable file — an owner's redaction
+# list is itself a disclosure. The live set is additionally driven by each
+# reminder's `private` flag (see `private_act_types` computed in server.py and
+# applied in filter_for_view).
+def private_activity_types():
+    import store  # local import: keep this module import-cycle-free
+    cfg = store.read("public_view", {})
+    return tuple(cfg.get("private_activity_types") or ())
 
 # Page paths anonymous visitors are allowed to reach.
 # Everything else: API → 401, page → redirect to /login.
@@ -254,11 +260,11 @@ def filter_for_view(data, view_mode):
         elif rule == "frosted":
             out[key] = _frost_placeholder(value)
         # hidden → skip
-    # Row-level redaction: drop private activity types (e.g. estradiol shots) from
-    # the otherwise-public activity log so they never reach a logged-out browser.
-    # The live set comes from the reminders' `private` flags (server computes it
-    # into `private_act_types`); fall back to the static tuple if absent.
-    private_types = set(data.get("private_act_types") or PRIVATE_ACTIVITY_TYPES)
+    # Row-level redaction: drop private activity types from the otherwise-public
+    # activity log so they never reach a logged-out browser. The live set comes
+    # from the reminders' `private` flags (server computes it into
+    # `private_act_types`); fall back to the owner's configured list if absent.
+    private_types = set(data.get("private_act_types") or private_activity_types())
     if isinstance(out.get("activity_log"), list):
         out["activity_log"] = [
             e for e in out["activity_log"]

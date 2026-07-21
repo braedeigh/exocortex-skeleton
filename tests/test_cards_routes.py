@@ -22,11 +22,11 @@ id: 2026-07-08.2114k
 who: K
 ts: 2026-07-08 21:14:00
 reply_to: 2026-07-08.2113b
-tags: [vivian]
+tags: [fern]
 kind: ref
-refs: [2026-05-14, 2026-05-17, people/vivian.md]
+refs: [2026-05-14, 2026-05-17, people/fern.md]
 ---
-Vivian group cancellation — the group she'd been attending got cancelled mid-May; hit the belonging nerve.
+Fern group cancellation — the group they'd been attending got cancelled mid-May; hit the belonging nerve.
 """
 
 LINE_CARD = """---
@@ -137,7 +137,7 @@ def test_get_cards_returns_refs_as_list_for_ref_card(client):
     assert resp.status_code == 200
     card = _by_id(resp.get_json(), "2026-07-08.2114k")
     assert card["kind"] == "ref"
-    assert card["refs"] == ["2026-05-14", "2026-05-17", "people/vivian.md"]
+    assert card["refs"] == ["2026-05-14", "2026-05-17", "people/fern.md"]
 
 
 def test_get_cards_defaults_refs_to_empty_list_when_absent(client):
@@ -154,13 +154,13 @@ def test_update_card_preserves_refs_across_edit_round_trip(client, vault, monkey
     monkeypatch.setattr(cards, "_stream_py", lambda: vault / "_system" / "stream.py")
     resp = client.post("/api/cards/update", json={
         "id": "2026-07-08.2114k",
-        "body": "Vivian group cancellation (edited) — belonging nerve hit hard.",
+        "body": "Fern group cancellation (edited) — belonging nerve hit hard.",
     })
     assert resp.status_code == 200
     body = resp.get_json()
-    assert body["body"] == "Vivian group cancellation (edited) — belonging nerve hit hard."
+    assert body["body"] == "Fern group cancellation (edited) — belonging nerve hit hard."
     assert body["kind"] == "ref"
-    assert body["refs"] == ["2026-05-14", "2026-05-17", "people/vivian.md"]
+    assert body["refs"] == ["2026-05-14", "2026-05-17", "people/fern.md"]
 
 
 # --- POST /api/cards/add ---------------------------------------------------

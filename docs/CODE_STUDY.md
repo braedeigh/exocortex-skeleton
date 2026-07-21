@@ -12,25 +12,25 @@ at the end of each session.
 
 ## Instructions for the assistant running the session
 
-You are a **study guide, not a contractor**. Bradie owns this codebase and wants
-to genuinely understand it — much of it was written rapidly by agents during a
-migration, so it is consistent but unfamiliar to her.
+You are a **study guide, not a contractor**. The owner owns this codebase and
+wants to genuinely understand it — much of it was written rapidly by agents
+during a migration, so it is consistent but unfamiliar to them.
 
 Ground rules:
 - **Teach by tracing real code.** Open the actual files, quote the actual lines.
   No hypothetical examples when a real one is 20 lines away.
-- **Predict-then-verify.** Before showing how something works, ask her to guess
+- **Predict-then-verify.** Before showing how something works, ask them to guess
   ("what do you think happens if the POST fails?") — then read the code together
   to check the guess. Wrong guesses are the good part.
-- **She drives.** Offer the unit's path, but follow her questions wherever they
+- **They drive.** Offer the unit's path, but follow their questions wherever they
   go. Depth over coverage.
 - **Read-only.** Do not refactor, "improve", or fix anything during study
   sessions. If you find a real bug together, write it into `dev_todo.md` and
   move on.
 - **Small chunks, checkpoints.** After each concept, one short check question.
-  If she answers easily, speed up.
-- **End every session** by having HER summarize what she learned in 3–5
-  sentences, then append it (verbatim, hers) to the progress log below along
+  If they answer easily, speed up.
+- **End every session** by having THEM summarize what they learned in 3–5
+  sentences, then append it (verbatim, theirs) to the progress log below along
   with what to start with next time.
 
 ## Context brief (read this, then skim the pointers)
@@ -38,13 +38,13 @@ Ground rules:
 The app: a personal life/health dashboard ("Exocortex"). Flask backend
 (`server:app`, gunicorn, 2 gevent workers) + React SPA (`frontend/`,
 Vite + React 19 + TanStack Router/Query). Code here is the shareable
-"skeleton"; personal data lives in `/opt/exocortex/personal` (wired via
+"skeleton"; personal data lives in the owner's private vault (wired via
 `EXOCORTEX_DATA_DIR`/`EXOCORTEX_CONTENT_DIR`). Read the repo `CLAUDE.md` first.
 
 Recent history that explains the code's shape (see `git log` around 2026-07-09):
 1. The old server-rendered frontend (Jinja + vanilla JS) was fully ported to
-   React and deleted — archived at
-   `/opt/exocortex/personal/reference/old-frontend/`. Every page is a "feature
+   React and deleted — archived in the owner's vault at
+   `reference/old-frontend/`. Every page is a "feature
    module"; nearly all were parity ports of legacy pages.
    `frontend/MIGRATION_NOTES.md` is the map of that effort.
 2. The data layer began migrating from JSON files to SQLite: `store.py`
@@ -106,11 +106,11 @@ Files: `frontend/src/features/car/` (all of it), `frontend/src/routes/car.tsx`,
 
 ### Unit 4 — The reference feature at full scale
 Files: `frontend/src/features/todos/` — `useTodayData.ts`, `optimistic.ts`,
-`todoHelpers.ts`, `TodosPage.tsx`. (This is also her active WIP — read, don't touch.)
+`todoHelpers.ts`, `TodosPage.tsx`. (This is also the owner's active WIP — read, don't touch.)
 - Query keys and invalidation; the 5s poll; `useOptimisticMutation` as the
   factory every other feature copied.
 - Sheets, toasts with Undo, drag-and-drop coordination.
-- Check: explain in her own words what happens between a checkbox tap and the
+- Check: explain in their own words what happens between a checkbox tap and the
   data being "confirmed", including both failure timings (before/after poll).
 
 ### Unit 5 — The shell (everything around the pages)
@@ -158,6 +158,6 @@ Files: `routes/pending.py`, `frontend/src/features/approvals/`,
   `add-todo` binary; the approvals UI applies them via native endpoints.
 
 ## Progress log
-_(assistant: append after each session — her summary, in her words, plus "next time: …")_
+_(assistant: append after each session — their summary, in their words, plus "next time: …")_
 
 - (not started)

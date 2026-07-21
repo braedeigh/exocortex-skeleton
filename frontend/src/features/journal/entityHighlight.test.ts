@@ -4,7 +4,7 @@ import { entityHue } from './markdown';
 import type { Person, Thread } from './types';
 
 function person(overrides: Partial<Person> = {}): Person {
-  return { id: 'bradie', name: 'Bradie Lee', file: 'people/bradie.md', tags: [], aliases: [], ...overrides };
+  return { id: 'rowan', name: 'Rowan Vale', file: 'people/rowan.md', tags: [], aliases: [], ...overrides };
 }
 
 function thread(overrides: Partial<Thread> = {}): Thread {
@@ -14,11 +14,11 @@ function thread(overrides: Partial<Thread> = {}): Thread {
 describe('buildEntityMatcher', () => {
   it('matches first names and aliases, case-insensitively, word-boundary', () => {
     const matcher = buildEntityMatcher([
-      person({ id: 'vivian', name: 'Vivian Ostrander', aliases: ['my landlord'] }),
+      person({ id: 'fern', name: 'Fern Whitlock', aliases: ['my landlord'] }),
     ]);
     expect(matcher.regex).not.toBeNull();
-    expect(matcher.matchToSlug.get('vivian')).toBe('vivian');
-    expect(matcher.matchToSlug.get('my landlord')).toBe('vivian');
+    expect(matcher.matchToSlug.get('fern')).toBe('fern');
+    expect(matcher.matchToSlug.get('my landlord')).toBe('fern');
   });
 
   it('first person to claim a term wins', () => {
@@ -30,12 +30,12 @@ describe('buildEntityMatcher', () => {
   });
 
   it('sorts terms longest-first so multi-word aliases win', () => {
-    const matcher = buildEntityMatcher([person({ id: 'sally', name: 'Sally', aliases: ['my landlord'] })]);
+    const matcher = buildEntityMatcher([person({ id: 'sage', name: 'Sage', aliases: ['my landlord'] })]);
     const source = matcher.regex?.source ?? '';
     const idxLandlord = source.indexOf('my landlord');
-    const idxSally = source.toLowerCase().indexOf('sally');
+    const idxSage = source.toLowerCase().indexOf('sage');
     expect(idxLandlord).toBeGreaterThanOrEqual(0);
-    expect(idxLandlord).toBeLessThan(idxSally);
+    expect(idxLandlord).toBeLessThan(idxSage);
   });
 
   it('returns a null regex when there are no people', () => {
@@ -70,7 +70,7 @@ describe('buildEntityMatcher', () => {
   });
 
   it('builds an identical people matcher whether or not the threads arg is passed', () => {
-    const people = [person({ id: 'vivian', name: 'Vivian Ostrander', aliases: ['my landlord'] })];
+    const people = [person({ id: 'fern', name: 'Fern Whitlock', aliases: ['my landlord'] })];
     const withoutThreads = buildEntityMatcher(people);
     const withEmptyThreads = buildEntityMatcher(people, []);
     expect(withEmptyThreads.regex?.source).toBe(withoutThreads.regex?.source);
@@ -79,44 +79,44 @@ describe('buildEntityMatcher', () => {
 });
 
 describe('highlightEntities', () => {
-  const matcher = buildEntityMatcher([person({ id: 'vivian', name: 'Vivian Ostrander' })]);
+  const matcher = buildEntityMatcher([person({ id: 'fern', name: 'Fern Whitlock' })]);
 
   it('wraps a plain-text match in an entity span with the right slug and color', () => {
-    const hue = entityHue('vivian');
-    const html = highlightEntities('<p>Saw Vivian today.</p>', matcher);
+    const hue = entityHue('fern');
+    const html = highlightEntities('<p>Saw Fern today.</p>', matcher);
     expect(html).toBe(
-      `<p>Saw <span class="entity" data-slug="vivian" style="color:hsl(${hue} 70% 66%);border-bottom-color:hsl(${hue} 70% 66%)">Vivian</span> today.</p>`,
+      `<p>Saw <span class="entity" data-slug="fern" style="color:hsl(${hue} 70% 66%);border-bottom-color:hsl(${hue} 70% 66%)">Fern</span> today.</p>`,
     );
   });
 
   it('does not match inside a code span', () => {
-    const html = highlightEntities('<p><code>Vivian</code> said hi</p>', matcher);
+    const html = highlightEntities('<p><code>Fern</code> said hi</p>', matcher);
     expect(html).not.toContain('class="entity"');
   });
 
   it('does not match inside headings', () => {
-    const h1 = highlightEntities('<h1>Vivian</h1>', matcher);
-    const h2 = highlightEntities('<h2>Vivian</h2>', matcher);
-    const h3 = highlightEntities('<h3>Vivian</h3>', matcher);
+    const h1 = highlightEntities('<h1>Fern</h1>', matcher);
+    const h2 = highlightEntities('<h2>Fern</h2>', matcher);
+    const h3 = highlightEntities('<h3>Fern</h3>', matcher);
     expect(h1).not.toContain('class="entity"');
     expect(h2).not.toContain('class="entity"');
     expect(h3).not.toContain('class="entity"');
   });
 
   it('does not double-wrap text already inside an entity span', () => {
-    const html = highlightEntities('<p><span class="entity" data-slug="vivian">Vivian</span></p>', matcher);
+    const html = highlightEntities('<p><span class="entity" data-slug="fern">Fern</span></p>', matcher);
     expect(html.match(/class="entity"/g)?.length).toBe(1);
   });
 
   it('matches case-insensitively but preserves the original casing in output', () => {
-    const html = highlightEntities('<p>vivian and VIVIAN</p>', matcher);
-    expect(html).toContain('>vivian<');
-    expect(html).toContain('>VIVIAN<');
+    const html = highlightEntities('<p>fern and FERN</p>', matcher);
+    expect(html).toContain('>fern<');
+    expect(html).toContain('>FERN<');
   });
 
   it('is a no-op when there is no regex (no people)', () => {
     const empty = buildEntityMatcher([]);
-    expect(highlightEntities('<p>Vivian</p>', empty)).toBe('<p>Vivian</p>');
+    expect(highlightEntities('<p>Fern</p>', empty)).toBe('<p>Fern</p>');
   });
 
   it('leaves unmatched text untouched', () => {
@@ -125,7 +125,7 @@ describe('highlightEntities', () => {
 
   describe('threads', () => {
     const both = buildEntityMatcher(
-      [person({ id: 'vivian', name: 'Vivian Ostrander' })],
+      [person({ id: 'fern', name: 'Fern Whitlock' })],
       [thread({ aliases: ['TPOT'] })],
     );
 
@@ -142,16 +142,16 @@ describe('highlightEntities', () => {
     });
 
     it('person highlighting output is byte-identical with threads in the matcher', () => {
-      const peopleOnly = buildEntityMatcher([person({ id: 'vivian', name: 'Vivian Ostrander' })]);
-      const input = '<p>Saw Vivian today.</p>';
+      const peopleOnly = buildEntityMatcher([person({ id: 'fern', name: 'Fern Whitlock' })]);
+      const input = '<p>Saw Fern today.</p>';
       expect(highlightEntities(input, both)).toBe(highlightEntities(input, peopleOnly));
     });
 
     it('highlights people and threads side by side in one text node', () => {
-      const hue = entityHue('vivian');
-      const html = highlightEntities('<p>Vivian was at Office Hours.</p>', both);
+      const hue = entityHue('fern');
+      const html = highlightEntities('<p>Fern was at Office Hours.</p>', both);
       expect(html).toBe(
-        `<p><span class="entity" data-slug="vivian" style="color:hsl(${hue} 70% 66%);border-bottom-color:hsl(${hue} 70% 66%)">Vivian</span>` +
+        `<p><span class="entity" data-slug="fern" style="color:hsl(${hue} 70% 66%);border-bottom-color:hsl(${hue} 70% 66%)">Fern</span>` +
           ' was at <span class="entity entity-thread" data-thread="office-hours">Office Hours</span>.</p>',
       );
     });

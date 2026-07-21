@@ -7,7 +7,7 @@ describe('classifyRef', () => {
   });
 
   it('classifies a person file path', () => {
-    expect(classifyRef('people/vivian.md')).toEqual({ type: 'person', slug: 'vivian' });
+    expect(classifyRef('people/fern.md')).toEqual({ type: 'person', slug: 'fern' });
   });
 
   it('classifies a multi-word slug person file path', () => {
@@ -26,16 +26,16 @@ describe('classifyRef', () => {
   });
 
   it('does not treat a people path outside people/ as person', () => {
-    expect(classifyRef('archive/people/vivian.md')).toEqual({
+    expect(classifyRef('archive/people/fern.md')).toEqual({
       type: 'file',
-      path: 'archive/people/vivian.md',
+      path: 'archive/people/fern.md',
     });
   });
 
   it('does not treat a nested people path as person', () => {
-    expect(classifyRef('people/nested/vivian.md')).toEqual({
+    expect(classifyRef('people/nested/fern.md')).toEqual({
       type: 'file',
-      path: 'people/nested/vivian.md',
+      path: 'people/nested/fern.md',
     });
   });
 
@@ -52,7 +52,7 @@ describe('refLabel', () => {
   });
 
   it('prettifies a single-word person slug', () => {
-    expect(refLabel({ type: 'person', slug: 'vivian' })).toBe('Vivian');
+    expect(refLabel({ type: 'person', slug: 'fern' })).toBe('Fern');
   });
 
   it('prettifies a hyphenated person slug', () => {

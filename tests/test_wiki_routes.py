@@ -11,25 +11,25 @@ from routes import wiki
 
 HOME_MD = """\
 ---
-title: Bradie
-pronouns: she/her
-age: 29
-birthday: March 3
-place: Austin, TX
+title: Rowan
+pronouns: they/them
+age: 34
+birthday: June 12
+place: Springfield, IL
 people: [bryan, mom]
 ---
 
-Bradie is a 29-year-old trans woman living in Austin, Texas. Right now she's
-building this exocortex.
+Rowan is a botanist living in Springfield. Right now they're
+building a garden.
 
 ## How this is organized
 
-Bradie's life is sorted into fronts. Pick a front to see what's alive there.
+Rowan's life is sorted into fronts. Pick a front to see what's alive there.
 
 ## How to read this
 
-This is a wiki about Bradie, meant to be walked. "Right now" below is derived
-from her active threads.
+This is a wiki about Rowan, meant to be walked. "Right now" below is derived
+from their active threads.
 """
 
 ACTIVE_THREAD = """\
@@ -138,13 +138,13 @@ def test_home_returns_200_with_title_and_threads(client):
     resp = client.get("/api/wiki/home")
     assert resp.status_code == 200
     data = resp.get_json()
-    assert data["title"] == "Bradie"
+    assert data["title"] == "Rowan"
     assert isinstance(data["threads"], list)
 
 
 def test_home_splits_lead_organized_and_how_to_read(client):
     data = client.get("/api/wiki/home").get_json()
-    assert "building this exocortex" in data["lead"]
+    assert "building a garden" in data["lead"]
     assert "How this is organized" not in data["lead"]
     assert "How to read this" not in data["lead"]
     assert "sorted into fronts" in data["organizedBlurb"]
@@ -154,10 +154,10 @@ def test_home_splits_lead_organized_and_how_to_read(client):
 
 def test_home_frontmatter_fields_pass_through(client):
     data = client.get("/api/wiki/home").get_json()
-    assert data["pronouns"] == "she/her"
-    assert str(data["age"]) == "29"
-    assert data["birthday"] == "March 3"
-    assert data["place"] == "Austin, TX"
+    assert data["pronouns"] == "they/them"
+    assert str(data["age"]) == "34"
+    assert data["birthday"] == "June 12"
+    assert data["place"] == "Springfield, IL"
     assert "hrt_since" not in data
     assert "building" not in data
 

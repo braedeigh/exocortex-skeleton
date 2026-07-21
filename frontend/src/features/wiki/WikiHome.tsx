@@ -10,9 +10,9 @@ import { filterThreadsByFront, groupThreadsByPrimaryFront } from './wikiThreadIn
 import styles from './WikiHome.module.css';
 
 /**
- * WikiHome — the front door of the traversable wiki about Bradie (/wiki).
+ * WikiHome — the front door of the traversable wiki about the owner (/wiki).
  * A short landing page an LLM or a human lands on first, then follows links
- * deeper: who she is (title + infobox facts), the lead paragraph, the "how
+ * deeper: who they are (title + infobox facts), the lead paragraph, the "how
  * this is organized" blurb, a front FILTER over a browse-by-front thread
  * index (each thread its own page at /wiki/<slug> — see WikiThread.tsx), the
  * people who matter, and a quiet note on how to read the rest of the wiki.

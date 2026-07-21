@@ -1,7 +1,7 @@
 /** Shapes returned by routes/keeper.py — see build_tree() and the file endpoints. */
 
 export interface KeeperFile {
-  /** Vault-relative path, e.g. "people/sally.md". */
+  /** Vault-relative path, e.g. "people/sage.md". */
   path: string;
   /** File stem (no directory, no .md) — what the tree rows show. */
   name: string;

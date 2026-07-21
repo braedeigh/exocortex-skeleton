@@ -24,7 +24,7 @@ describe('groupFiles', () => {
       f('Patterns/x.md', 'Patterns'),
       f('about.md', 'Core'),
       f('meetings/m.md', 'meetings'),
-      f('people/sally.md', 'people'),
+      f('people/sage.md', 'people'),
     ]);
     expect(groups.map((g) => g.group)).toEqual(['Core', 'people', 'Patterns', 'meetings', 'zeta']);
   });
@@ -59,24 +59,24 @@ describe('buildStemIndex / resolveStem', () => {
   });
 
   it('lets a people/ file win a name collision, regardless of order', () => {
-    const a = buildStemIndex([f('context/sally.md', 'context'), f('people/sally.md', 'people')]);
-    expect(resolveStem(a, 'sally')).toBe('people/sally.md');
-    const b = buildStemIndex([f('people/sally.md', 'people'), f('context/sally.md', 'context')]);
-    expect(resolveStem(b, 'sally')).toBe('people/sally.md');
+    const a = buildStemIndex([f('context/sage.md', 'context'), f('people/sage.md', 'people')]);
+    expect(resolveStem(a, 'sage')).toBe('people/sage.md');
+    const b = buildStemIndex([f('people/sage.md', 'people'), f('context/sage.md', 'context')]);
+    expect(resolveStem(b, 'sage')).toBe('people/sage.md');
   });
 
   it('trims and lowercases the wikilink name when resolving', () => {
-    const idx = buildStemIndex([f('people/sally.md', 'people')]);
-    expect(resolveStem(idx, '  Sally ')).toBe('people/sally.md');
+    const idx = buildStemIndex([f('people/sage.md', 'people')]);
+    expect(resolveStem(idx, '  Sage ')).toBe('people/sage.md');
     expect(resolveStem(idx, 'nobody')).toBeUndefined();
   });
 });
 
 describe('matchesQuery', () => {
-  const file = f('people/sally-jones.md', 'people');
+  const file = f('people/sage-jones.md', 'people');
 
   it('matches on the name, case-insensitive', () => {
-    expect(matchesQuery(file, 'SALLY')).toBe(true);
+    expect(matchesQuery(file, 'SAGE')).toBe(true);
   });
 
   it('matches on the path (directory part included)', () => {
@@ -129,12 +129,12 @@ describe('group open-state persistence (legacy localStorage keys)', () => {
 
 describe('path helpers', () => {
   it('splits dir (muted in the pane head) from base', () => {
-    expect(splitPath('people/sally.md')).toEqual({ dir: 'people/', base: 'sally.md' });
+    expect(splitPath('people/sage.md')).toEqual({ dir: 'people/', base: 'sage.md' });
     expect(splitPath('about.md')).toEqual({ dir: '', base: 'about.md' });
   });
 
   it('derives the undo-toast display name', () => {
-    expect(displayName('people/sally.md')).toBe('sally');
+    expect(displayName('people/sage.md')).toBe('sage');
     expect(displayName('about.md')).toBe('about');
   });
 });

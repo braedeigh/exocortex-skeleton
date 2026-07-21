@@ -58,7 +58,7 @@ def _thread_sentinel_entry(slug, ts, session="s1"):
     # Mirrors _sentinel_entry's isMeta shape — the /thread expansion is
     # harness-injected the same way /journalstart's is.
     return _user(
-        "Bradie tapped Talk about this thread.\n\n" + _thread_sentinel_line(slug)
+        "The owner tapped Talk about this thread.\n\n" + _thread_sentinel_line(slug)
         + "\n\nDo this now.",
         ts, session, extra={"isMeta": True},
     )
@@ -232,7 +232,7 @@ class SkipRuleTests(ReconcilerTestCase):
             _user("/endsession", "2026-07-14T07:01:00.000Z"),
             _user("[Request interrupted by user]", "2026-07-14T07:02:00.000Z"),
             _user("<system-reminder>some harness note</system-reminder>", "2026-07-14T07:03:00.000Z"),
-            _user("[uploaded: /home/bradie/paste/20260714_075555_paste.txt]", "2026-07-14T07:04:00.000Z"),
+            _user("[uploaded: /home/owner/paste/20260714_075555_paste.txt]", "2026-07-14T07:04:00.000Z"),
         ])
         reconcile_transcripts.main()
         self.assertEqual(stream.load_all_cards(), [])

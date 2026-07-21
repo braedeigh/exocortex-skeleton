@@ -29,9 +29,9 @@ def _pending():
 
 
 def test_stages_valid_profile_change(data_dir):
-    entry = stage_change.stage_change("profile", {"owner_name": "Bradie"})
+    entry = stage_change.stage_change("profile", {"owner_name": "Rowan"})
     assert entry["kind"] == "profile"
-    assert entry["payload"] == {"owner_name": "Bradie"}
+    assert entry["payload"] == {"owner_name": "Rowan"}
     assert isinstance(entry["id"], str) and entry["id"]
     assert _pending() == [entry]
 
@@ -62,7 +62,7 @@ def test_rejects_profile_payload_with_bad_email(data_dir):
 
 def test_rejects_profile_payload_with_unknown_key(data_dir):
     with pytest.raises(stage_change.StageError) as exc_info:
-        stage_change.stage_change("profile", {"owner_name": "Bradie", "is_admin": True})
+        stage_change.stage_change("profile", {"owner_name": "Rowan", "is_admin": True})
     assert "is_admin" in str(exc_info.value)
     assert _pending() == []
 
@@ -81,7 +81,7 @@ def test_cli_smoke_via_subprocess(tmp_path):
     in-process against the monkeypatched data_dir fixture instead."""
     result = subprocess.run(
         [sys.executable, str(SCRIPT_PATH), "profile",
-         json.dumps({"owner_name": "Bradie"}), "--data-dir", str(tmp_path)],
+         json.dumps({"owner_name": "Rowan"}), "--data-dir", str(tmp_path)],
         capture_output=True, text=True, timeout=10,
     )
     assert result.returncode == 0, result.stderr
@@ -91,7 +91,7 @@ def test_cli_smoke_via_subprocess(tmp_path):
     stored = json.loads((tmp_path / "pending_changes.json").read_text())
     assert len(stored["pending"]) == 1
     assert stored["pending"][0]["id"] == out["id"]
-    assert stored["pending"][0]["payload"] == {"owner_name": "Bradie"}
+    assert stored["pending"][0]["payload"] == {"owner_name": "Rowan"}
 
 
 def test_cli_smoke_reports_failure_on_stderr(tmp_path):
