@@ -18,9 +18,17 @@ into per-feature read/write counts. The "store" key is flushed periodically
 by store.py's op counters — per-caller, per-collection read/write counts
 measured at the data seam itself. The five writers never touch each other's
 keys.
+
+GET /api/usage/export packages the collection as a downloadable JSON bundle
+(schema "usage-export/1"). Exports are read-only snapshots — nothing in the
+collection changes. The consent model is deliberate: the file lands on the
+user's own device and stays there; sharing it with anyone is a separate,
+deliberate act by the user. The server never adds a name, domain, or any
+other identity to the bundle — the optional ``label`` query param is a
+self-chosen handle stored verbatim, nothing more.
 """
 import re
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 from flask import request, jsonify
 
@@ -101,3 +109,46 @@ def register(app):
     @app.route("/api/usage")
     def usage_get():
         return jsonify(store.read("feature_usage.json", {"days": {}}))
+
+    @app.route("/api/usage/export")
+    def usage_export():
+        """The whole collection as a downloadable snapshot bundle.
+
+        Optional ``days=N`` keeps only the trailing N-day window (today
+        included); optional ``label=`` is stored verbatim (truncated to 80
+        chars) as the person's self-chosen handle. No identity is ever added
+        server-side.
+        """
+        raw_days = request.args.get("days")
+        window = None
+        if raw_days is not None:
+            try:
+                window = int(raw_days)
+            except (TypeError, ValueError):
+                return jsonify({"error": '"days" must be a positive integer'}), 400
+            if window < 1:
+                return jsonify({"error": '"days" must be a positive integer'}), 400
+
+        today = datetime.now().strftime("%Y-%m-%d")
+        days = store.read("feature_usage.json", {"days": {}}).get("days", {})
+        if window is not None:
+            start = (date.fromisoformat(today) - timedelta(days=window - 1)).isoformat()
+            days = {d: day for d, day in days.items() if start <= d <= today}
+
+        covered = sorted(days)
+        bundle = {
+            "schema": "usage-export/1",
+            "generated": today,
+            "range": {"from": covered[0] if covered else None,
+                      "to": covered[-1] if covered else None},
+            "days": days,
+        }
+        label = request.args.get("label")
+        if label:
+            bundle["label"] = label[:80]
+
+        resp = jsonify(bundle)
+        resp.headers["Content-Type"] = "application/json"
+        resp.headers["Content-Disposition"] = (
+            f'attachment; filename="usage-export-{today}.json"')
+        return resp

@@ -87,3 +87,30 @@ the recording mechanics and a starting voice, but the bottom section ("Who
 you're keeping for — fill this in") is intentionally blank. Fill it in, and
 start `data/context/about.md` as the living record of what's current in your
 life, the first time you sit down with it.
+
+## Usage tracking (self-telemetry — yours, local, opt-in to share)
+
+The app quietly counts its own use, so *you* can see which parts of it earn
+their place: tab visits and active time (a dwell clock that pauses when the
+page is hidden or idle), taps on tagged controls in the To Do and Journal
+tabs, and — on a server install with the cron jobs — which API routes and
+data collections actually fire. Everything lands day-by-day in one local
+collection (`feature_usage`); nothing is content, nothing leaves your
+machine, and nothing records times of day (day-level granularity only).
+
+Three ways to look at it:
+
+- **Usage heat view** (Settings → toggle): on the To Do and Journal tabs,
+  tints every tracked control by how often you actually tap it — cool dashed
+  ring for never-used through a warm wash for your most-used — with a small
+  taps · hours · visits pill. Flip it off, it vanishes without a trace.
+- **Weekly architecture pulse** (server installs, Sunday cron): a `[usage]`
+  dev note listing top routes, top collections per process, tab hours, and —
+  the useful inverse — what got **zero traffic**.
+- **Export** (Settings → "Export usage data"): downloads the counts as a
+  single self-describing JSON file (`usage-export/1`). It carries no name, no
+  domain, no content — tab/control/route names come from the app itself, so
+  two people's exports speak the same vocabulary and can be compared
+  side-by-side (`scripts/usage_compare.py`). The file lands on your device
+  and goes nowhere unless you choose to send it to someone. It's readable
+  JSON on purpose: look it over before you share it.

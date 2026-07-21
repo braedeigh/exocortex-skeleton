@@ -193,6 +193,8 @@ Template: `deploy/crontab.template.txt`. Install with `crontab crontab.txt`
 | Daily 3:00 | `scripts/keeper_rollover.sh close` | Sends `/endsession` into the Keeper's tmux pane — writes the diary entry, closes the journaling day. |
 | Daily 3:10 | `scripts/keeper_rollover.sh open` | Sends `/clear` then `/journalstart` into the same pane — fresh Keeper incarnation for the new day. |
 | Daily 2:00 / weekly Mon 4:00 / weekly Sun 5:00 | vault-side "cricket" automation | Not migrated into this repo (vault-side content tooling — see `deploy/README.md`'s crontab template for the exact lines if you build your own equivalent). |
+| Daily 2:30 | `scripts/usage_rollup.py` | Folds the access log's per-request lines into per-feature read/write counts (the `api` key of the `feature_usage` collection) — see INSTALL.md's "Usage tracking" section. |
+| Weekly Sun 4:30 | `scripts/usage_doctor.py --devnote` | The architecture pulse: posts a `[usage]` dev note with top routes, top collections per process, tab hours, and the zero-traffic lists. |
 
 ## 8. Link the Claude Code slash-commands
 

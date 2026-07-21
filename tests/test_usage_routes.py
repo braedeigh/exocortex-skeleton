@@ -112,3 +112,77 @@ def test_batch_empty_body_is_ok_and_writes_nothing(client):
     assert res.status_code == 200
     assert res.get_json() == {"ok": True}
     assert read_usage() == {"days": {}}
+
+
+# --- GET /api/usage/export ---------------------------------------------------
+
+def seed_days(days):
+    store.write("feature_usage.json", {"days": days})
+
+
+def days_ago(n):
+    from datetime import timedelta
+    return (datetime.now() - timedelta(days=n)).strftime("%Y-%m-%d")
+
+
+def test_export_bundle_shape_and_schema_tag(client):
+    seed_days({
+        days_ago(2): {"tabs": {"journal": 3}},
+        days_ago(0): {"time": {"journal": 60}},
+    })
+    res = client.get("/api/usage/export")
+    assert res.status_code == 200
+    body = res.get_json()
+    assert body["schema"] == "usage-export/1"
+    assert body["generated"] == today()
+    assert body["range"] == {"from": days_ago(2), "to": days_ago(0)}
+    assert body["days"] == {
+        days_ago(2): {"tabs": {"journal": 3}},
+        days_ago(0): {"time": {"journal": 60}},
+    }
+    assert "label" not in body
+
+
+def test_export_sets_download_headers(client):
+    res = client.get("/api/usage/export")
+    assert res.headers["Content-Type"] == "application/json"
+    assert res.headers["Content-Disposition"] == (
+        f'attachment; filename="usage-export-{today()}.json"')
+
+
+def test_export_days_param_keeps_only_the_trailing_window(client):
+    seed_days({
+        days_ago(10): {"tabs": {"old": 1}},
+        days_ago(2): {"tabs": {"recent": 1}},
+        days_ago(0): {"tabs": {"today": 1}},
+    })
+    res = client.get("/api/usage/export?days=3")
+    body = res.get_json()
+    assert set(body["days"]) == {days_ago(2), days_ago(0)}
+    assert body["range"] == {"from": days_ago(2), "to": days_ago(0)}
+
+
+def test_export_label_is_stored_verbatim(client):
+    res = client.get("/api/usage/export?label=fern%20%26%20co")
+    assert res.get_json()["label"] == "fern & co"
+
+
+def test_export_label_absent_omits_the_key(client):
+    assert "label" not in client.get("/api/usage/export").get_json()
+
+
+def test_export_label_truncates_at_80_chars(client):
+    res = client.get("/api/usage/export?label=" + "x" * 200)
+    assert res.get_json()["label"] == "x" * 80
+
+
+def test_export_junk_days_param_400s(client):
+    for junk in ("abc", "0", "-3", "1.5", ""):
+        res = client.get(f"/api/usage/export?days={junk}")
+        assert res.status_code == 400, junk
+
+
+def test_export_empty_collection_has_null_range(client):
+    body = client.get("/api/usage/export").get_json()
+    assert body["days"] == {}
+    assert body["range"] == {"from": None, "to": None}

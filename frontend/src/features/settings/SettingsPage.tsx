@@ -355,6 +355,27 @@ export function SettingsPage() {
               onChange={(e) => onUsageHeatChange(e.target.checked)}
             />
           </label>
+          <div className={styles.toggleRow}>
+            <span>
+              <span className={styles.toggleLabel}>Export usage data</span>
+              <span className={styles.toggleDesc}>
+                Downloads your usage counts as a file &mdash; tab time, taps, routes. Day-level
+                only, no content, no identity. Look it over, then share it if you choose.
+              </span>
+            </span>
+            <button
+              type="button"
+              className={styles.saveBtn}
+              onClick={() => {
+                // A plain navigation is the most reliable download path in the
+                // PWA: the route answers Content-Disposition: attachment, so
+                // the browser saves the file without leaving the page.
+                window.location.assign('/api/usage/export');
+              }}
+            >
+              Export
+            </button>
+          </div>
         </section>
 
         <section className={styles.section}>
