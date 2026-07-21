@@ -98,11 +98,16 @@ export function AddBar({ onAdd, onExpand, focusFront, fronts }: AddBarProps) {
             onClick={expand}
             aria-label="Open full editor"
             title="Open full editor"
+            data-track="todo-add-expand"
           >
             ⤢
           </button>
         ) : null}
-        {expanded ? <Button type="submit">Add</Button> : null}
+        {expanded ? (
+          <Button type="submit" data-track="todo-add">
+            Add
+          </Button>
+        ) : null}
       </div>
       {expanded ? (
         <div className={styles.extra}>

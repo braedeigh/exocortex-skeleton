@@ -18,10 +18,10 @@ export function FindBar({ name, current, total, onPrev, onNext, onClose }: FindB
       <span className={styles.count}>
         {current} of {total}
       </span>
-      <IconButton aria-label="Previous mention" onClick={onPrev}>
+      <IconButton aria-label="Previous mention" onClick={onPrev} data-track="find-prev">
         &uarr;
       </IconButton>
-      <IconButton aria-label="Next mention" onClick={onNext}>
+      <IconButton aria-label="Next mention" onClick={onNext} data-track="find-next">
         &darr;
       </IconButton>
       <IconButton aria-label="Close find" onClick={onClose}>

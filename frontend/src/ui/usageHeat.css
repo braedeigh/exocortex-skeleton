@@ -1,0 +1,101 @@
+/* usageHeat.css — heat-view overlays for [data-track] controls + the summary
+ * pill. Applied only while src/ui/usageHeat.ts is active (it stamps the
+ * data-heat attributes and mounts the pill; nothing here matches otherwise).
+ *
+ * Overlay mechanics — must never affect layout or block interaction:
+ *  - background-image paints a translucent wash OVER the element's own
+ *    background-color without replacing it (controls here use background-
+ *    color, not images);
+ *  - outline (+ negative offset) rings hot/cold controls without touching
+ *    the box model, and doesn't clobber existing box-shadows.
+ *
+ * Colors live in custom properties with variants for both themes. The theme
+ * engine (src/theme/engine.ts) applies palettes as inline custom properties
+ * — there is no light/dark class — so usageHeat.ts stamps
+ * `data-heat-theme="light"|"dark"` on <html> from the effective --bg
+ * luminance (postDawn ≈ light, twilight ≈ dark) and both variants live here.
+ */
+
+:root {
+  /* light (postDawn lavender) — cool faint blue → amber → hot coral */
+  --heat-0-ring: rgba(92, 118, 205, 0.4);
+  --heat-1: rgba(92, 118, 205, 0.12);
+  --heat-2: rgba(148, 122, 205, 0.16);
+  --heat-3: rgba(232, 160, 46, 0.2);
+  --heat-4: rgba(236, 126, 38, 0.28);
+  --heat-5: rgba(228, 72, 56, 0.34);
+  --heat-5-ring: rgba(228, 72, 56, 0.55);
+}
+
+:root[data-heat-theme='dark'] {
+  /* dark (twilight indigo) — same scale, brighter + a touch more opaque */
+  --heat-0-ring: rgba(132, 158, 255, 0.45);
+  --heat-1: rgba(112, 142, 255, 0.16);
+  --heat-2: rgba(172, 140, 255, 0.2);
+  --heat-3: rgba(255, 190, 84, 0.24);
+  --heat-4: rgba(255, 150, 62, 0.3);
+  --heat-5: rgba(255, 98, 82, 0.38);
+  --heat-5-ring: rgba(255, 98, 82, 0.6);
+}
+
+[data-heat] {
+  transition: outline-color 0.2s ease;
+}
+
+/* Tagged but never used — a faint cool outline makes "cold" visible. */
+[data-heat='0'] {
+  outline: 1px dashed var(--heat-0-ring);
+  outline-offset: -1px;
+}
+
+[data-heat='1'] {
+  background-image: linear-gradient(var(--heat-1), var(--heat-1));
+}
+
+[data-heat='2'] {
+  background-image: linear-gradient(var(--heat-2), var(--heat-2));
+}
+
+[data-heat='3'] {
+  background-image: linear-gradient(var(--heat-3), var(--heat-3));
+}
+
+[data-heat='4'] {
+  background-image: linear-gradient(var(--heat-4), var(--heat-4));
+  outline: 1px solid var(--heat-4);
+  outline-offset: -1px;
+}
+
+/* The page's hottest controls get a visible warm ring on top of the wash. */
+[data-heat='5'] {
+  background-image: linear-gradient(var(--heat-5), var(--heat-5));
+  outline: 2px solid var(--heat-5-ring);
+  outline-offset: -2px;
+}
+
+/* Fixed summary pill — bottom-LEFT (NotesPill owns bottom-right), above the
+ * content, below Sheet (100) / Toast (200). ≥44px tall, 13px text (12px
+ * floor respected), tap-to-dismiss. */
+.usage-heat-pill {
+  position: fixed;
+  left: var(--space-4);
+  bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px));
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--card-bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: var(--shadow-card);
+  cursor: pointer;
+}
+
+.usage-heat-pill:hover {
+  border-color: var(--text-muted);
+}

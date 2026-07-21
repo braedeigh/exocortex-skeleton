@@ -6,6 +6,8 @@ export interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement>
   'aria-label': string;
   danger?: boolean;
   children: ReactNode;
+  /** Usage-tracking name (api/usageTracker.ts) — flows onto the <button>. */
+  'data-track'?: string;
 }
 
 /**

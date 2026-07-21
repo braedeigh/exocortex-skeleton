@@ -54,8 +54,9 @@ export function TodoRow({
         checked={item.done}
         onChange={() => onToggle(item.id)}
         aria-label={item.done ? `Mark ${item.text} not done` : `Mark ${item.text} done`}
+        data-track="todo-complete"
       />
-      <button type="button" className={styles.body} onClick={() => onOpen(item)}>
+      <button type="button" className={styles.body} onClick={() => onOpen(item)} data-track="todo-open">
         <span className={`${styles.text} ${item.done ? styles.done : ''}`}>{item.text}</span>
         {item.notes ? (
           <span className={styles.notesPreview}>{item.notes.split('\n')[0].trim()}</span>
@@ -95,6 +96,7 @@ export function TodoRow({
                 checked={sub.done}
                 onChange={() => onSubtaskToggle(item.id, sub.id)}
                 aria-label={sub.done ? `Mark ${sub.text} not done` : `Mark ${sub.text} done`}
+                data-track="todo-subtask-toggle"
               />
               <span className={`${styles.subtaskText} ${sub.done ? styles.done : ''}`}>{sub.text}</span>
             </div>

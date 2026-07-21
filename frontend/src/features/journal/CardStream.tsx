@@ -121,6 +121,7 @@ function BottomComposer({ saving, onSave, onActiveChange }: BottomComposerProps)
         />
         <Button
           variant="primary"
+          data-track="compose-save"
           onClick={(e) => {
             e.stopPropagation();
             void handleSave();

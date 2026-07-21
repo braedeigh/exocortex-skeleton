@@ -11,17 +11,21 @@
 import type { AnyRouter } from '@tanstack/react-router';
 
 /** What "/" resolves to: routes/index.tsx redirects to /todos. */
-const DEFAULT_TAB = 'todos';
+export const DEFAULT_TAB = 'todos';
+
+/** First path segment, lowercased — the app's "tab" identity ("/" counts as
+ * the default tab it redirects to). Shared with usageTracker.ts. */
+export function tabFromPathname(pathname: string): string {
+  return pathname.split('/').find(Boolean)?.toLowerCase() ?? DEFAULT_TAB;
+}
 
 /**
- * Subscribe to router navigation and beacon each distinct tab visit.
- * Call once in main.tsx, right after createRouter.
+ * Valid tab names, derived from the route tree itself (first path segment
+ * of every registered route) rather than a hand-maintained list — so new
+ * route files are counted automatically and junk paths (/login, 404s,
+ * typo'd deep links) are not. Shared with usageTracker.ts.
  */
-export function installUsageBeacon(router: AnyRouter): void {
-  // Valid tab names, derived from the route tree itself (first path segment
-  // of every registered route) rather than a hand-maintained list — so new
-  // route files are counted automatically and junk paths (/login, 404s,
-  // typo'd deep links) are not.
+export function deriveValidTabs(router: AnyRouter): Set<string> {
   const validTabs = new Set<string>();
   for (const path of Object.keys(router.routesByPath as Record<string, unknown>)) {
     const seg = path.split('/').find(Boolean);
@@ -29,12 +33,20 @@ export function installUsageBeacon(router: AnyRouter): void {
       validTabs.add(seg.toLowerCase());
     }
   }
+  return validTabs;
+}
+
+/**
+ * Subscribe to router navigation and beacon each distinct tab visit.
+ * Call once in main.tsx, right after createRouter.
+ */
+export function installUsageBeacon(router: AnyRouter): void {
+  const validTabs = deriveValidTabs(router);
 
   let lastSent: string | null = null;
 
   const send = (pathname: string) => {
-    const seg = pathname.split('/').find(Boolean)?.toLowerCase();
-    const tab = seg ?? DEFAULT_TAB;
+    const tab = tabFromPathname(pathname);
     // Dedupe sub-route navigation within a tab; skip /login and anything
     // that isn't a real app route.
     if (tab === lastSent || tab === 'login' || !validTabs.has(tab)) {

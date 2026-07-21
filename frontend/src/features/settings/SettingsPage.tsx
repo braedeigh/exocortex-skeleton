@@ -13,6 +13,7 @@ import {
   type PhaseName,
   type ThemeMode,
 } from '../../theme';
+import { USAGE_HEAT_EVENT, USAGE_HEAT_STORAGE_KEY } from '../../ui/usageHeat';
 import { AccountSection } from './AccountSection';
 import { ColorField } from './ColorField';
 import { DevNotesSection } from './DevNotesSection';
@@ -70,6 +71,27 @@ export function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const statusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { toasts, push, dismiss } = useToasts();
+
+  // Usage heat view — a localStorage toggle, independent of the theme draft:
+  // commits instantly (no Save), and the window event lets any open /journal
+  // or /todos page react without a reload (see src/ui/usageHeat.ts).
+  const [usageHeat, setUsageHeat] = useState(() => {
+    try {
+      return localStorage.getItem(USAGE_HEAT_STORAGE_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+
+  function onUsageHeatChange(on: boolean) {
+    setUsageHeat(on);
+    try {
+      localStorage.setItem(USAGE_HEAT_STORAGE_KEY, on ? '1' : '');
+    } catch {
+      // storage denied — the toggle still works for this page via the event
+    }
+    window.dispatchEvent(new CustomEvent(USAGE_HEAT_EVENT, { detail: { enabled: on } }));
+  }
 
   useEffect(() => {
     return () => {
@@ -315,6 +337,24 @@ export function SettingsPage() {
               />
             ))}
           </div>
+        </section>
+
+        <section className={styles.section}>
+          <h2 className={styles.heading}>Usage heat view</h2>
+          <label className={styles.toggleRow}>
+            <span>
+              <span className={styles.toggleLabel}>Usage heat view</span>
+              <span className={styles.toggleDesc}>
+                Tint Journal and To Do controls by how often you use them
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              className={styles.toggleInput}
+              checked={usageHeat}
+              onChange={(e) => onUsageHeatChange(e.target.checked)}
+            />
+          </label>
         </section>
 
         <section className={styles.section}>

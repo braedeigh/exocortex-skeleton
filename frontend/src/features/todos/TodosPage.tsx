@@ -359,6 +359,7 @@ export function TodosPage() {
                     type="button"
                     className={styles.headerBtn}
                     onClick={() => setHabitsHidden(false)}
+                    data-track="todo-habits-toggle"
                   >
                     &#9666; Show habits
                   </button>
@@ -369,11 +370,12 @@ export function TodosPage() {
                     className={`${styles.headerBtn} ${showAll ? styles.headerBtnActive : ''}`}
                     onClick={() => setShowAll((v) => !v)}
                     title={showAll ? 'Back to the auto view' : 'Show everything, gates off'}
+                    data-track="todo-show-all"
                   >
                     {showAll ? '✓ Showing all' : '👁 Show all'}
                   </button>
                 ) : null}
-                <Link to="/todos/editor" className={styles.editorLink}>
+                <Link to="/todos/editor" className={styles.editorLink} data-track="todo-edit-all">
                   &#9998; Edit all
                 </Link>
               </div>

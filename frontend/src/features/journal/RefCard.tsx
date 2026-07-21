@@ -87,7 +87,7 @@ export function RefCard({
         <span className={styles.label}>&#8627; ref</span>
         <span className={styles.spacer} />
         {!editing ? (
-          <IconButton aria-label="Edit reference" onClick={() => onEdit(card.id)}>
+          <IconButton aria-label="Edit reference" onClick={() => onEdit(card.id)} data-track="card-edit">
             &#9998;
           </IconButton>
         ) : null}
@@ -107,13 +107,18 @@ export function RefCard({
               Delete
             </Button>
             <span className={styles.controlsSpacer} />
-            <Button variant="secondary" onClick={addTimestamp} disabled={saving}>
+            <Button variant="secondary" onClick={addTimestamp} disabled={saving} data-track="card-timestamp">
               + Timestamp
             </Button>
             <Button variant="secondary" onClick={onCancel} disabled={saving}>
               Cancel
             </Button>
-            <Button variant="primary" onClick={() => onSave(card.id, draft)} disabled={saving || !draft.trim()}>
+            <Button
+              variant="primary"
+              onClick={() => onSave(card.id, draft)}
+              disabled={saving || !draft.trim()}
+              data-track="card-save"
+            >
               Save
             </Button>
           </div>
@@ -154,6 +159,7 @@ export function RefCard({
           </Button>
           <Button
             variant="danger"
+            data-track="card-delete"
             onClick={() => {
               setConfirmOpen(false);
               onConfirmDelete(card.id);

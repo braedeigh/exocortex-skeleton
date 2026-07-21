@@ -41,6 +41,7 @@ export function SnoozedCard({ items, totalCount, onUnsnooze }: SnoozedCardProps)
                 aria-label={`Un-snooze ${it.text}`}
                 title="Un-snooze now"
                 onClick={() => onUnsnooze(it.id)}
+                data-track="todo-unsnooze"
               >
                 &#8617;
               </IconButton>

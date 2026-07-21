@@ -94,6 +94,7 @@ export function ClearedTodosCard({ date }: { date: string }) {
     <button
       type="button"
       className={styles.editBtn}
+      data-track="cleared-edit"
       onClick={(e) => {
         // Lives inside <summary> — don't let the tap also collapse the card.
         e.preventDefault();

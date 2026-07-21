@@ -356,6 +356,7 @@ export function JournalPage() {
                     className={styles.startDay}
                     onClick={startToday}
                     disabled={saveBlobMutation.isPending}
+                    data-track="day-start"
                   >
                     &#9999;&#65039; Start today&apos;s page
                   </button>

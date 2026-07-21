@@ -98,7 +98,13 @@ export function ThreadPopover({ id, onClose, onNavigateDate }: ThreadPopoverProp
                             {s.label} &rarr;
                           </a>
                         ) : (
-                          <button key={j} type="button" className={styles.sourceChip} onClick={() => sourceClick(s)}>
+                          <button
+                            key={j}
+                            type="button"
+                            className={styles.sourceChip}
+                            onClick={() => sourceClick(s)}
+                            data-track="thread-source"
+                          >
                             {s.label} &rarr;
                           </button>
                         ),
@@ -116,6 +122,7 @@ export function ThreadPopover({ id, onClose, onNavigateDate }: ThreadPopoverProp
               className={styles.talkBtn}
               onClick={talkAboutThread}
               disabled={talkState === 'sending'}
+              data-track="thread-talk"
             >
               {talkLabel(talkState)}
             </button>

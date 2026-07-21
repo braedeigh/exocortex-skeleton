@@ -24,11 +24,19 @@ export function CalendarOverlay({ open, onClose, month, onMonthChange, journalDa
   return (
     <Sheet open={open} onClose={onClose} title="Jump to a date">
       <div className={styles.header}>
-        <IconButton aria-label="Previous month" onClick={() => onMonthChange(addMonths(month, -1))}>
+        <IconButton
+          aria-label="Previous month"
+          onClick={() => onMonthChange(addMonths(month, -1))}
+          data-track="calendar-month-nav"
+        >
           &larr;
         </IconButton>
         <span className={styles.monthLabel}>{monthLabel(month.year, month.month)}</span>
-        <IconButton aria-label="Next month" onClick={() => onMonthChange(addMonths(month, 1))}>
+        <IconButton
+          aria-label="Next month"
+          onClick={() => onMonthChange(addMonths(month, 1))}
+          data-track="calendar-month-nav"
+        >
           &rarr;
         </IconButton>
       </div>
@@ -46,6 +54,7 @@ export function CalendarOverlay({ open, onClose, month, onMonthChange, journalDa
               key={i}
               type="button"
               disabled={!cell.hasEntry}
+              data-track="calendar-day"
               className={[
                 styles.day,
                 cell.hasEntry ? styles.hasEntry : '',

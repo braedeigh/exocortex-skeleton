@@ -91,3 +91,18 @@ def test_writer_skips_rolled_up_days_and_today(data_dir, capsys):
     assert "2026-07-20" not in days
     out = capsys.readouterr().out
     assert "2026-07-19" in out and "2026-07-18" in out
+
+
+def test_writer_adds_api_beside_existing_time_and_clicks(data_dir):
+    store.write("feature_usage.json", {"days": {
+        "2026-07-19": {"time": {"journal": 84},
+                       "clicks": {"journal": {"card-edit": 3}}},
+    }})
+    counts = {"2026-07-19": {"habits": {"reads": 2, "writes": 1}}}
+    written, skipped = write_days(counts, today="2026-07-20")
+    assert written == ["2026-07-19"]
+    assert store.read("feature_usage.json")["days"]["2026-07-19"] == {
+        "time": {"journal": 84},                      # untouched
+        "clicks": {"journal": {"card-edit": 3}},      # untouched
+        "api": {"habits": {"reads": 2, "writes": 1}}, # added
+    }

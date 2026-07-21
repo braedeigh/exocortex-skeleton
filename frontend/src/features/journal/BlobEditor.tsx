@@ -122,12 +122,17 @@ export function BlobEditor({ initialContent, matcher, save, onFocusChange, initi
           <button type="button" className={`${styles.toggleBtn} ${mode === 'read' ? styles.active : ''}`} onClick={() => setMode('read')}>
             Read
           </button>
-          <button type="button" className={`${styles.toggleBtn} ${mode === 'edit' ? styles.active : ''}`} onClick={() => setMode('edit')}>
+          <button
+            type="button"
+            className={`${styles.toggleBtn} ${mode === 'edit' ? styles.active : ''}`}
+            onClick={() => setMode('edit')}
+            data-track="blob-edit"
+          >
             Edit
           </button>
         </div>
         {mode === 'edit' ? (
-          <button type="button" className={styles.timestampBtn} onClick={addTimestamp}>
+          <button type="button" className={styles.timestampBtn} onClick={addTimestamp} data-track="blob-timestamp">
             + Timestamp
           </button>
         ) : null}

@@ -87,7 +87,13 @@ export function PersonPopover({ slug, onClose, onJournalMention }: PersonPopover
                 </>
               );
               return isJournal ? (
-                <button type="button" key={i} className={styles.mentionRow} onClick={() => mentionNav(m)}>
+                <button
+                  type="button"
+                  key={i}
+                  className={styles.mentionRow}
+                  onClick={() => mentionNav(m)}
+                  data-track="person-mention"
+                >
                   {content}
                 </button>
               ) : (

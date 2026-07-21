@@ -5,6 +5,8 @@ import { createRouter, RouterProvider } from '@tanstack/react-router';
 import './index.css';
 import { routeTree } from './routeTree.gen';
 import { installUsageBeacon } from './api/usageBeacon';
+import { installUsageTracker } from './api/usageTracker';
+import { installUsageHeat } from './ui/usageHeat';
 import { initTheme } from './theme';
 
 // Boot the theming engine (src/theme — the port of static/js/sky-theme.js)
@@ -41,6 +43,13 @@ const router = createRouter({ routeTree });
 
 // Count tab visits (fire-and-forget POST /api/usage/tab on each navigation).
 installUsageBeacon(router);
+
+// Dwell clock + [data-track] click counter, batched to POST /api/usage/batch.
+installUsageTracker(router);
+
+// The "usage heat view" overlay (Settings toggle) — tints tracked controls
+// on /journal and /todos by how often they're actually used.
+installUsageHeat(router);
 
 declare module '@tanstack/react-router' {
   interface Register {

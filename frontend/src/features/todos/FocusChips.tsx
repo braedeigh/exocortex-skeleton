@@ -17,6 +17,7 @@ export function FocusChips({ counts, active, fronts, onChange }: FocusChipsProps
         type="button"
         className={`${styles.chip} ${!active ? styles.active : ''}`}
         onClick={() => onChange('')}
+        data-track="todo-focus-chip"
       >
         All
         <span className={styles.count}>{counts.total}</span>
@@ -30,6 +31,7 @@ export function FocusChips({ counts, active, fronts, onChange }: FocusChipsProps
             key={f.id}
             className={`${styles.chip} ${f.id === active ? styles.active : ''}`}
             onClick={() => onChange(f.id)}
+            data-track="todo-focus-chip"
           >
             {FRONT_EMOJI[f.id] || '🏷️'} {f.name}
             <span className={styles.count}>{c}</span>
@@ -41,6 +43,7 @@ export function FocusChips({ counts, active, fronts, onChange }: FocusChipsProps
           type="button"
           className={`${styles.chip} ${active === '__none__' ? styles.active : ''}`}
           onClick={() => onChange('__none__')}
+          data-track="todo-focus-chip"
         >
           🏷️ Other
           <span className={styles.count}>{counts.none}</span>

@@ -105,13 +105,14 @@ export function EntryCard({
               type="button"
               className={styles.threadChip}
               onClick={() => onOpenThread?.(t)}
+              data-track="card-thread-chip"
             >
               &#x29C9; {threadNames!.get(t)}
             </button>
           ))}
         <span className={styles.spacer} />
         {!editing ? (
-          <IconButton aria-label="Edit entry" onClick={() => onEdit(card.id)}>
+          <IconButton aria-label="Edit entry" onClick={() => onEdit(card.id)} data-track="card-edit">
             &#9998;
           </IconButton>
         ) : null}
@@ -131,13 +132,18 @@ export function EntryCard({
               Delete
             </Button>
             <span className={styles.controlsSpacer} />
-            <Button variant="secondary" onClick={addTimestamp} disabled={saving}>
+            <Button variant="secondary" onClick={addTimestamp} disabled={saving} data-track="card-timestamp">
               + Timestamp
             </Button>
             <Button variant="secondary" onClick={onCancel} disabled={saving}>
               Cancel
             </Button>
-            <Button variant="primary" onClick={() => onSave(card.id, draft)} disabled={saving || !draft.trim()}>
+            <Button
+              variant="primary"
+              onClick={() => onSave(card.id, draft)}
+              disabled={saving || !draft.trim()}
+              data-track="card-save"
+            >
               Save
             </Button>
           </div>
@@ -149,6 +155,7 @@ export function EntryCard({
               type="button"
               className={styles.replyContext}
               onClick={() => onReplyContext?.(card.reply_context!)}
+              data-track="card-reply-context"
             >
               <span className={styles.replyContextDate}>&#8627; {formatReplyDate(card.reply_context.date)}</span>
               <span className={styles.replyContextSnippet}>&#8220;{card.reply_context.snippet}&#8221;</span>
@@ -169,6 +176,7 @@ export function EntryCard({
           </Button>
           <Button
             variant="danger"
+            data-track="card-delete"
             onClick={() => {
               setConfirmOpen(false);
               onConfirmDelete(card.id);

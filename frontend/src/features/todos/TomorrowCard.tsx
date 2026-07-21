@@ -27,8 +27,9 @@ export function TomorrowCard({ items, onToggle, onOpenDetail }: TomorrowCardProp
             checked={it.done}
             onChange={() => onToggle(it.id)}
             aria-label={`Done: ${it.text}`}
+            data-track="todo-complete"
           />
-          <button type="button" className={styles.text} onClick={() => onOpenDetail(it)}>
+          <button type="button" className={styles.text} onClick={() => onOpenDetail(it)} data-track="todo-open">
             {it.text}
           </button>
           <span className={styles.due}>{it.due_time ? fmtTime(it.due_time) : 'tomorrow'}</span>

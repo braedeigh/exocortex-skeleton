@@ -107,6 +107,7 @@ export function UpNowCard({
             checked={false}
             onChange={() => logDone(r, serverDate)}
             aria-label={`Log ${r.label} done today`}
+            data-track="reminder-log"
           />
           <button type="button" className={styles.text} onClick={() => openSheet(r.id)}>
             {reminderName(r)}
@@ -126,8 +127,9 @@ export function UpNowCard({
               checked={false}
               onChange={() => onToggle(it.id)}
               aria-label={`Done: ${it.text}`}
+              data-track="todo-complete"
             />
-            <button type="button" className={styles.text} onClick={() => onOpenDetail(it)}>
+            <button type="button" className={styles.text} onClick={() => onOpenDetail(it)} data-track="todo-open">
               {it.text}
             </button>
             <span className={`${styles.due} ${overdue ? styles.overdue : ''}`}>
@@ -144,8 +146,14 @@ export function UpNowCard({
             checked
             onChange={() => onToggle(it.id)}
             aria-label={`Mark ${it.text} not done`}
+            data-track="todo-complete"
           />
-          <button type="button" className={`${styles.text} ${styles.doneText}`} onClick={() => onOpenDetail(it)}>
+          <button
+            type="button"
+            className={`${styles.text} ${styles.doneText}`}
+            onClick={() => onOpenDetail(it)}
+            data-track="todo-open"
+          >
             {it.text}
           </button>
           <span className={`${styles.due} ${styles.doneChip}`}>done</span>
@@ -159,6 +167,7 @@ export function UpNowCard({
             checked
             onChange={() => onUndo(serverDate, r.type)}
             aria-label={`Undo today's ${r.label} log`}
+            data-track="reminder-log"
           />
           <button
             type="button"
@@ -211,6 +220,7 @@ export function UpNowCard({
                 </button>
                 <Button
                   variant="primary"
+                  data-track="reminder-snooze"
                   onClick={() => {
                     onSnooze(target.id, snoozeDays);
                     setActionId(null);

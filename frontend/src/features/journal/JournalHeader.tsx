@@ -23,22 +23,32 @@ function formatDayLabel(dateStr: string): string {
 export function JournalHeader({ date, prev, next, isToday, onPrev, onNext, onToday, onOpenCalendar, onOpenDevNotes }: JournalHeaderProps) {
   return (
     <div className={styles.nav}>
-      <IconButton aria-label="Previous day" onClick={onPrev} disabled={!prev}>
+      <IconButton aria-label="Previous day" onClick={onPrev} disabled={!prev} data-track="day-prev">
         &larr;
       </IconButton>
       <div className={styles.title}>{formatDayLabel(date)}</div>
-      <IconButton aria-label="Next day" onClick={onNext} disabled={!next}>
+      <IconButton aria-label="Next day" onClick={onNext} disabled={!next} data-track="day-next">
         &rarr;
       </IconButton>
       {!isToday ? (
-        <Button variant="ghost" className={styles.todayBtn} onClick={onToday}>
+        <Button variant="ghost" className={styles.todayBtn} onClick={onToday} data-track="day-today">
           Today
         </Button>
       ) : null}
-      <IconButton aria-label="Open calendar" title="Jump to a date" onClick={onOpenCalendar}>
+      <IconButton
+        aria-label="Open calendar"
+        title="Jump to a date"
+        onClick={onOpenCalendar}
+        data-track="calendar-open"
+      >
         &#128197;
       </IconButton>
-      <IconButton aria-label="Journal dev notes" title="Journal dev notes" onClick={onOpenDevNotes}>
+      <IconButton
+        aria-label="Journal dev notes"
+        title="Journal dev notes"
+        onClick={onOpenDevNotes}
+        data-track="dev-notes-open"
+      >
         &#128221;
       </IconButton>
     </div>

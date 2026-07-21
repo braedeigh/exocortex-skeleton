@@ -63,6 +63,7 @@ export function NotesPill({ onError, tab = 'today', showAllLink = true, classNam
         title="Dev notes"
         aria-label="Dev notes"
         onClick={() => setOpenKind('dev')}
+        data-track="todo-notes-dev"
       >
         &#128221;
       </button>
@@ -72,6 +73,7 @@ export function NotesPill({ onError, tab = 'today', showAllLink = true, classNam
         title="Ideas"
         aria-label="Ideas"
         onClick={() => setOpenKind('idea')}
+        data-track="todo-notes-ideas"
       >
         &#128161;
       </button>

@@ -43,6 +43,7 @@ export function WaitingCard({ entries, totalCount, onClear }: WaitingCardProps) 
                 aria-label={`Un-block ${item.text}`}
                 title="Clear do-after"
                 onClick={() => onClear(item.id)}
+                data-track="todo-waiting-clear"
               >
                 &#8617;
               </IconButton>

@@ -7,6 +7,8 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
   fullWidth?: boolean;
   children: ReactNode;
+  /** Usage-tracking name (api/usageTracker.ts) — flows onto the <button>. */
+  'data-track'?: string;
 }
 
 /** Touch-first button — min-height 44px, comfortable padding, enforced in CSS. */

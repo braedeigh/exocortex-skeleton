@@ -143,7 +143,7 @@ export function TodoFormSheet({
         <Button variant="secondary" onClick={onClose}>
           Cancel
         </Button>
-        <Button variant="primary" onClick={handleAdd}>
+        <Button variant="primary" onClick={handleAdd} data-track="todo-form-add">
           Add
         </Button>
       </div>
@@ -153,7 +153,7 @@ export function TodoFormSheet({
         <Button variant="secondary" onClick={() => setConfirmingRemove(false)}>
           Keep
         </Button>
-        <Button variant="danger" onClick={handleDelete}>
+        <Button variant="danger" onClick={handleDelete} data-track="todo-form-delete">
           Delete
         </Button>
       </div>
@@ -166,7 +166,7 @@ export function TodoFormSheet({
         <Button variant="secondary" onClick={onClose}>
           Cancel
         </Button>
-        <Button variant="primary" onClick={handleSave}>
+        <Button variant="primary" onClick={handleSave} data-track="todo-form-save">
           Save
         </Button>
       </div>
@@ -196,6 +196,7 @@ export function TodoFormSheet({
               key={label}
               className={`${styles.chip} ${draft.section === label ? styles.active : ''}`}
               onClick={() => patch((d) => ({ ...d, section: label }))}
+              data-track="todo-form-section"
             >
               {label}
             </button>
@@ -231,6 +232,7 @@ export function TodoFormSheet({
                     checked={sub.done}
                     onChange={() => actions.subtaskToggle(item.id, sub.id)}
                     aria-label={sub.done ? `Mark ${sub.text} not done` : `Mark ${sub.text} done`}
+                    data-track="todo-subtask-toggle"
                   />
                   <span className={`${styles.subtaskText} ${sub.done ? styles.subtaskDone : ''}`}>
                     {sub.text}
@@ -239,6 +241,7 @@ export function TodoFormSheet({
                     danger
                     aria-label={`Remove sub-task ${sub.text}`}
                     onClick={() => actions.subtaskRemove(item.id, sub.id)}
+                    data-track="todo-subtask-remove"
                   >
                     &times;
                   </IconButton>
@@ -264,7 +267,7 @@ export function TodoFormSheet({
               placeholder="Add a sub-task…"
               aria-label="New sub-task"
             />
-            <Button type="submit" variant="secondary">
+            <Button type="submit" variant="secondary" data-track="todo-subtask-add">
               Add
             </Button>
           </form>
@@ -280,6 +283,7 @@ export function TodoFormSheet({
               type="button"
               key={f.id}
               className={`${styles.chip} ${draft.fronts.includes(f.id) ? styles.active : ''}`}
+              data-track="todo-form-front"
               onClick={() =>
                 patch((d) => ({
                   ...d,

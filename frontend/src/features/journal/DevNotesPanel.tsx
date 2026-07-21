@@ -81,7 +81,9 @@ export function DevNotesPanel({ open, onClose, onError }: DevNotesPanelProps) {
             }
           }}
         />
-        <Button onClick={submitDraft}>Add</Button>
+        <Button onClick={submitDraft} data-track="dev-note-add">
+          Add
+        </Button>
       </div>
 
       <div className={styles.list}>
@@ -105,13 +107,14 @@ export function DevNotesPanel({ open, onClose, onError }: DevNotesPanelProps) {
                 <div className={styles.itemText}>{n.text}</div>
                 <div className={styles.itemDate}>{n.created}</div>
               </div>
-              <IconButton aria-label="Edit note" onClick={() => startEdit(n.id, n.text)}>
+              <IconButton aria-label="Edit note" onClick={() => startEdit(n.id, n.text)} data-track="dev-note-edit">
                 &#9998;
               </IconButton>
               <IconButton
                 aria-label={confirmDeleteId === n.id ? 'Confirm delete note' : 'Delete note'}
                 danger={confirmDeleteId === n.id}
                 onClick={() => requestDelete(n.id)}
+                data-track="dev-note-delete"
               >
                 {confirmDeleteId === n.id ? '?' : <>&times;</>}
               </IconButton>

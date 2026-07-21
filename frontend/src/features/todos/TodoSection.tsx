@@ -183,7 +183,12 @@ export function TodoSection({
       ref={containerRef}
       className={`${styles.card} ${hovered ? styles.dropTarget : ''}`}
     >
-      <button type="button" className={styles.summary} onClick={() => setOpen((v) => !v)}>
+      <button
+        type="button"
+        className={styles.summary}
+        onClick={() => setOpen((v) => !v)}
+        data-track="todo-section-toggle"
+      >
         <span className={`${styles.arrow} ${open ? styles.open : ''}`} aria-hidden="true">
           &#9654;
         </span>
@@ -198,6 +203,7 @@ export function TodoSection({
             className={styles.headerAction}
             role="button"
             tabIndex={0}
+            data-track="todo-section-add"
             onClick={(e) => {
               e.stopPropagation();
               onAddClick(label);
@@ -213,6 +219,7 @@ export function TodoSection({
             className={styles.autosort}
             role="button"
             tabIndex={0}
+            data-track="todo-autosort"
             onClick={(e) => {
               e.stopPropagation();
               onAutosort(label);
@@ -227,6 +234,7 @@ export function TodoSection({
           className={`${styles.headerAction} ${editing ? styles.headerActionActive : ''}`}
           role="button"
           tabIndex={0}
+          data-track="todo-section-edit"
           onClick={(e) => {
             e.stopPropagation();
             setEditing((v) => !v);
