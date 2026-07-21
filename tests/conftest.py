@@ -15,6 +15,12 @@ import pytest
 # the real data dir. Individual tests get isolated dirs via the `data_dir` fixture.
 os.environ.setdefault("EXOCORTEX_DATA_DIR", tempfile.mkdtemp(prefix="exo-test-default-"))
 
+# Kill the store's op counters for the whole suite (set BEFORE store is
+# imported): tests hammer the store, and nothing may leak into any data dir —
+# not even at interpreter exit (store's atexit flush checks this env too).
+# tests/test_store_stats.py re-enables it per test via monkeypatch.
+os.environ["EXOCORTEX_STORE_STATS_OFF"] = "1"
+
 import store  # noqa: E402
 
 

@@ -31,3 +31,5 @@
 0 5 * * 0 <VAULT_DIR>/scripts/cricket_swarm.sh "$(date -d yesterday +\%Y-\%m-\%d)" thread-scout >> <VAULT_DIR>/scripts/cricket_swarm.log 2>&1
 # Feature-usage rollup: fold yesterday's access-log lines into per-feature read/write counts (feature_usage collection)
 30 2 * * * EXOCORTEX_DATA_DIR=<VAULT_DIR>/data <SKELETON_DIR>/venv/bin/python3 <SKELETON_DIR>/scripts/usage_rollup.py >> <VAULT_DIR>/scripts/usage_rollup.log 2>&1
+# Architecture pulse: weekly usage report (routes, collections per caller, zero-traffic list) as a [usage] dev note
+30 4 * * 0 EXOCORTEX_DATA_DIR=<VAULT_DIR>/data <SKELETON_DIR>/venv/bin/python3 <SKELETON_DIR>/scripts/usage_doctor.py --devnote >> <VAULT_DIR>/scripts/usage_doctor.log 2>&1

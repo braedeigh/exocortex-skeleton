@@ -5,14 +5,18 @@ One collection, feature_usage.json, holds all data sources keyed by day:
     {"days": {"2026-07-20": {"api": {"habits": {"reads": 3, "writes": 1}},
                              "tabs": {"habits": 4},
                              "time": {"habits": 84},
-                             "clicks": {"habits": {"card-edit": 3}}}}}
+                             "clicks": {"habits": {"card-edit": 3}},
+                             "store": {"gunicorn": {"todos": {"reads": 40,
+                                                              "writes": 2}}}}}}
 
 The "tabs" key is written live by the beacon below (the frontend pings it on
 tab switches). The "time" (seconds of dwell per tab) and "clicks" (per-page
 control click counts) keys are written by the batch endpoint below, which the
 frontend flushes to periodically. The "api" key is back-filled for past days
 by scripts/usage_rollup.py, which folds the access log's per-request lines
-into per-feature read/write counts. The four writers never touch each other's
+into per-feature read/write counts. The "store" key is flushed periodically
+by store.py's op counters — per-caller, per-collection read/write counts
+measured at the data seam itself. The five writers never touch each other's
 keys.
 """
 import re

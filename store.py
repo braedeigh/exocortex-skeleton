@@ -12,10 +12,16 @@ that should touch those files directly. Routing all access through here buys us:
 """
 from pathlib import Path
 from contextlib import contextmanager
+from datetime import datetime
+import atexit
 import json
 import os
+import re
 import shutil
+import sys
 import tempfile
+import threading
+import time
 import fcntl
 
 # --- Where everything lives (the lowest layer; other modules import these) ---
@@ -214,10 +220,133 @@ def _sql_backed(name: str) -> bool:
     return not _SQL_OFF and _key(name) in SQL_COLLECTIONS
 
 
+# --- Per-collection op counters (architecture telemetry) ---------------------
+# Every read()/write()/mutate() bumps an in-process counter keyed by
+# (caller, collection, kind); roughly once a minute the counters fold into
+# today's days[<date>]["store"][<caller>][<collection>] = {"reads", "writes"}
+# in feature_usage.json (ONE mutate, += accumulate — the fifth writer, see
+# routes/usage.py), piggybacked on whatever counted op happens to be passing
+# through (no timer thread), plus a best-effort atexit flush. This is the
+# hottest path in the app, so the rules are strict:
+#   - telemetry can NEVER break a real op — every hook swallows everything;
+#   - feature_usage itself is never counted (the flush writes it: no
+#     recursion, no self-counting), and a thread-local re-entry guard keeps
+#     the flush's own mutate from counting or re-triggering a flush;
+#   - a flush is deferred while this thread is inside a mutate() block (a
+#     nested feature_usage mutate would stall on SQLite's write lock) — it
+#     just waits for the next counted op outside one;
+#   - EXOCORTEX_STORE_STATS_OFF=1 kills counting AND flushing entirely,
+#     checked per op (a dict lookup — cheap, and monkeypatchable in tests;
+#     tests/conftest.py sets it for the whole suite).
+
+_STATS_FLUSH_EVERY = 60.0            # seconds between piggybacked flushes
+_STATS_EXCLUDED = "feature_usage"    # the collection the flush itself writes
+_stats_lock = threading.Lock()
+_stats_counts = {}                   # (caller, collection, kind) -> n
+_stats_last_flush = time.monotonic()
+_stats_caller_cache = None           # computed once, lazily; tests reset to None
+_stats_tls = threading.local()       # .in_flush (re-entry), .mutate_depth
+
+
+def _stats_off():
+    return os.environ.get("EXOCORTEX_STORE_STATS_OFF", "") == "1"
+
+
+def _stats_caller():
+    """This process's label: EXOCORTEX_PROC if set, else argv[0]'s basename
+    minus a trailing .py; sanitized to lowercase [a-z0-9_-], max 40 chars,
+    empty -> 'unknown'. Computed once, lazily."""
+    global _stats_caller_cache
+    if _stats_caller_cache is None:
+        raw = os.environ.get("EXOCORTEX_PROC") or ""
+        if not raw:
+            raw = os.path.basename(sys.argv[0] or "")
+            if raw.endswith(".py"):
+                raw = raw[:-3]
+        raw = re.sub(r"[^a-z0-9_-]", "-", raw.lower())[:40]
+        _stats_caller_cache = raw or "unknown"
+    return _stats_caller_cache
+
+
+def _stats_count(name, kind):
+    """Count one op ('reads' or 'writes'); maybe piggyback a flush. Any
+    exception is swallowed — the real operation must never notice."""
+    try:
+        if _stats_off() or getattr(_stats_tls, "in_flush", False):
+            return
+        collection = _key(name)
+        if collection == _STATS_EXCLUDED:
+            return
+        key = (_stats_caller(), collection, kind)
+        with _stats_lock:
+            _stats_counts[key] = _stats_counts.get(key, 0) + 1
+            due = (time.monotonic() - _stats_last_flush) >= _STATS_FLUSH_EVERY
+        if due and not getattr(_stats_tls, "mutate_depth", 0):
+            _stats_flush()
+    except Exception:
+        pass
+
+
+def _stats_flush():
+    """Fold the counters into today's ["store"] key via ONE mutate, then
+    reset them. Best-effort: any failure (data dir gone at interpreter exit,
+    SQLite locked, ...) is swallowed and that window's counts are lost.
+    Registered with atexit; tests call store._stats_flush() directly."""
+    global _stats_last_flush
+    try:
+        if _stats_off() or getattr(_stats_tls, "in_flush", False):
+            return
+        with _stats_lock:
+            _stats_last_flush = time.monotonic()
+            if not _stats_counts:
+                return
+            counts = dict(_stats_counts)
+            _stats_counts.clear()
+        _stats_tls.in_flush = True
+        try:
+            today = datetime.now().strftime("%Y-%m-%d")
+            with mutate("feature_usage.json", {"days": {}}) as data:
+                day = data.setdefault("days", {}).setdefault(today, {})
+                seam = day.setdefault("store", {})
+                for (caller, collection, kind), n in counts.items():
+                    c = seam.setdefault(caller, {}).setdefault(
+                        collection, {"reads": 0, "writes": 0})
+                    c[kind] = c.get(kind, 0) + n
+        finally:
+            _stats_tls.in_flush = False
+    except Exception:
+        pass
+
+
+def _stats_enter_mutate():
+    try:
+        _stats_tls.mutate_depth = getattr(_stats_tls, "mutate_depth", 0) + 1
+    except Exception:
+        pass
+
+
+def _stats_exit_mutate():
+    try:
+        _stats_tls.mutate_depth = max(0, getattr(_stats_tls, "mutate_depth", 1) - 1)
+    except Exception:
+        pass
+
+
+atexit.register(_stats_flush)
+# --- end op counters ---------------------------------------------------------
+
+
 def read(name, default=None):
     """Read a collection. SQL-backed collections read from SQLite — what the
     app displays is what's in the database. Everything else reads its JSON
     file. Returns `default` (or {}) if the collection doesn't exist yet."""
+    _stats_count(name, "reads")
+    return _read(name, default)
+
+
+def _read(name, default=None):
+    """read() minus the telemetry hook — mutate()'s internal read path (a
+    mutate counts as ONE write, not a read + two writes)."""
     if _sql_backed(name):
         import sqlstore
         return sqlstore.get(_key(name), default)
@@ -252,6 +381,12 @@ def write_file(name, data):
 def write(name, data):
     """Write a collection. SQL-backed collections commit to SQLite first, then
     export the JSON mirror; everything else writes its JSON file atomically."""
+    _stats_count(name, "writes")
+    _write(name, data)
+
+
+def _write(name, data):
+    """write() minus the telemetry hook — mutate()'s internal write path."""
     import schemas
     schemas.validate(_key(name), data)
     if _sql_backed(name):
@@ -274,20 +409,29 @@ def mutate(name, default=None):
     flock. Either way: two simultaneous updates can't lose each other, and an
     exception inside the block writes nothing.
     """
+    _stats_count(name, "writes")
     if _sql_backed(name):
         import sqlstore
         import schemas
         with sqlstore.mutate(_key(name), default) as data:
-            yield data
+            _stats_enter_mutate()
+            try:
+                yield data
+            finally:
+                _stats_exit_mutate()
             schemas.validate(_key(name), data)
         return
     path = _path(name)
     lock_path = path.with_suffix(path.suffix + ".lock")
     with open(lock_path, "w") as lock_file:
         fcntl.flock(lock_file, fcntl.LOCK_EX)
-        data = read(name, default)
-        yield data
-        write(name, data)
+        data = _read(name, default)
+        _stats_enter_mutate()
+        try:
+            yield data
+        finally:
+            _stats_exit_mutate()
+        _write(name, data)
 
 
 # --- Backward-compatible aliases ---
