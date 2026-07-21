@@ -64,9 +64,12 @@ checks on the whole pool + a drift check against every derived file).
 Stdlib only. No network. No randomness. Same pool in, same bytes out, always.
 """
 import argparse
+import fcntl
 import json
 import os
 import sys
+import tempfile
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -223,10 +226,35 @@ def render_card_text(card: Card) -> str:
     return header + "\n" + card.body.rstrip("\n") + "\n"
 
 
+@contextmanager
+def pool_lock():
+    """Serialize pool writers across processes (server mint, hook mint, reconciler,
+    cricket tagging). flock on a sidecar beside the pool — never inside it, so
+    load_all_cards()'s *.md glob can't pick it up. Held only around read/mint/write
+    critical sections; renders are deterministic from the pool and stay outside."""
+    d = pool_dir()
+    d.mkdir(parents=True, exist_ok=True)
+    with open(d.parent / "pool.lock", "w") as lock_file:
+        fcntl.flock(lock_file, fcntl.LOCK_EX)
+        yield
+
+
 def write_card(card: Card) -> Path:
+    """Write a card ATOMICALLY: temp file in the pool dir, fsync, os.replace().
+    A reader (or the hourly git commit) sees either the whole card or no card —
+    never a torn one. Same discipline as store.write_file()."""
     pool_dir().mkdir(parents=True, exist_ok=True)
     path = card_path(card.id)
-    path.write_text(render_card_text(card), encoding="utf-8")
+    fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(render_card_text(card))
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
     return path
 
 
@@ -340,18 +368,23 @@ def record(
         raise StreamError(f"--reply-to {reply_to!r} does not resolve to an existing card")
 
     ts_dt = ts or datetime.now()
-    cid = mint_id(ts_dt, who)
-    card = Card(
-        id=cid,
-        who=who,
-        ts=ts_dt.strftime("%Y-%m-%d %H:%M:%S"),
-        reply_to=reply_to,
-        tags=list(tags or []),
-        kind=kind,
-        refs=list(refs or []),
-        body=body,
-    )
-    write_card(card)
+    # Mint + write under the pool lock: mint_id probes the dir for a free id, so
+    # two concurrent recorders (server door + hook + reconciler) could otherwise
+    # resolve the SAME id and the later write would silently swallow the earlier
+    # card. The lock makes probe->write one step; no turn can overwrite another.
+    with pool_lock():
+        cid = mint_id(ts_dt, who)
+        card = Card(
+            id=cid,
+            who=who,
+            ts=ts_dt.strftime("%Y-%m-%d %H:%M:%S"),
+            reply_to=reply_to,
+            tags=list(tags or []),
+            kind=kind,
+            refs=list(refs or []),
+            body=body,
+        )
+        write_card(card)
     render_day(ts_dt.strftime("%Y-%m-%d"))
     render_month_index(ts_dt.strftime("%Y-%m"))
     return cid
@@ -362,19 +395,23 @@ def record(
 # --------------------------------------------------------------------------------
 
 def add_tags(cid: str, tags_to_add: List[str]) -> Card:
-    card = read_card(cid)
-    for t in tags_to_add:
-        if t not in card.tags:
-            card.tags.append(t)
-    write_card(card)
+    # Read-modify-write under the pool lock, so a concurrent tagger (cricket)
+    # and recorder can't interleave and drop one side's change.
+    with pool_lock():
+        card = read_card(cid)
+        for t in tags_to_add:
+            if t not in card.tags:
+                card.tags.append(t)
+        write_card(card)
     _rerender_after_tag_change(card, tags_to_add)
     return card
 
 
 def remove_tags(cid: str, tags_to_remove: List[str]) -> Card:
-    card = read_card(cid)
-    card.tags = [t for t in card.tags if t not in tags_to_remove]
-    write_card(card)
+    with pool_lock():
+        card = read_card(cid)
+        card.tags = [t for t in card.tags if t not in tags_to_remove]
+        write_card(card)
     _rerender_after_tag_change(card, tags_to_remove)
     return card
 
@@ -412,11 +449,12 @@ def _check_cid_safe(cid: str) -> None:
 
 def edit_card(cid: str, body: str) -> Card:
     _check_cid_safe(cid)
-    card = read_card(cid)
     if not body.strip():
         raise StreamError("empty (or whitespace-only) body — card not edited")
-    card.body = body
-    write_card(card)
+    with pool_lock():
+        card = read_card(cid)
+        card.body = body
+        write_card(card)
     _rerender_after_tag_change(card, card.tags)
     return card
 
@@ -802,14 +840,29 @@ def render_day_text(day: str, cards: Optional[List[Card]] = None) -> Optional[st
     return text
 
 
+def _write_view(path: Path, text: str) -> Path:
+    """Atomic write for derived views (temp + os.replace). A view is disposable,
+    but the keeper and the app read these files live — a reader should see the
+    old render or the new one, never a torn one."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+    return path
+
+
 def render_day(day: str) -> Optional[Path]:
     text = render_day_text(day)
     if text is None:
         return None
-    daily_dir().mkdir(parents=True, exist_ok=True)
-    path = daily_dir() / f"{day}.md"
-    path.write_text(text, encoding="utf-8")
-    return path
+    return _write_view(daily_dir() / f"{day}.md", text)
 
 
 # --------------------------------------------------------------------------------
@@ -833,10 +886,7 @@ def render_manifest_text(manifest: Manifest, cards: Optional[List[Card]] = None)
 def render_manifest(name: str) -> Path:
     manifest = load_manifest(name)
     text = render_manifest_text(manifest)
-    out_path = stream_root() / manifest.out
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(text, encoding="utf-8")
-    return out_path
+    return _write_view(stream_root() / manifest.out, text)
 
 
 # --------------------------------------------------------------------------------
@@ -858,10 +908,7 @@ def render_month_index(month: str) -> Optional[Path]:
     )
     if not month_cards:
         return None
-    index_dir().mkdir(parents=True, exist_ok=True)
-    path = index_dir() / f"{month}.md"
-    path.write_text(render_index_text(month, month_cards), encoding="utf-8")
-    return path
+    return _write_view(index_dir() / f"{month}.md", render_index_text(month, month_cards))
 
 
 # --------------------------------------------------------------------------------

@@ -9,6 +9,7 @@ from pathlib import Path
 from datetime import datetime
 from data_helpers import DATA_DIR, UPLOAD_DIR, sweep_uploads
 from routes.cards import _run_stream
+import fcntl
 import hashlib
 import json
 import subprocess
@@ -399,18 +400,23 @@ def _note_ui_capture(typed):
     cutoff = time.time() - UI_CAPTURED_MAX_AGE_SEC
     entry = {"ts": time.time(), "sha256": hashlib.sha256(typed.strip().encode()).hexdigest()}
     try:
-        kept = []
-        if path.exists():
-            for line in path.read_text().splitlines():
-                try:
-                    rec = json.loads(line)
-                except Exception:
-                    continue  # unparseable line -- drop it rather than carry it forward
-                if rec.get("ts", 0) >= cutoff:
-                    kept.append(rec)
-        kept.append(entry)
         state_dir.mkdir(parents=True, exist_ok=True)
-        path.write_text("".join(json.dumps(r) + "\n" for r in kept))
+        # flock against the hook's consume pass (keeper_capture.py holds the same
+        # lock): both sides read-modify-write this file, and an unlocked
+        # interleaving can drop an entry (worst case: one duplicate card).
+        with open(path.with_suffix(".lock"), "w") as lock_file:
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
+            kept = []
+            if path.exists():
+                for line in path.read_text().splitlines():
+                    try:
+                        rec = json.loads(line)
+                    except Exception:
+                        continue  # unparseable line -- drop it rather than carry it forward
+                    if rec.get("ts", 0) >= cutoff:
+                        kept.append(rec)
+            kept.append(entry)
+            path.write_text("".join(json.dumps(r) + "\n" for r in kept))
     except OSError:
         pass
 

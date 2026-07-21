@@ -92,10 +92,44 @@ class IdCollisionTests(StreamTestCase):
 
     def test_different_speaker_same_minute_no_collision(self):
         ts = datetime(2026, 7, 6, 8, 43, 0)
-        cid_b = stream.record(who="B", body="from bradie", ts=ts)
+        cid_b = stream.record(who="B", body="from the owner", ts=ts)
         cid_k = stream.record(who="K", body="from keeper", ts=ts)
         self.assertEqual(cid_b, "2026-07-06.0843b")
         self.assertEqual(cid_k, "2026-07-06.0843k")
+
+    def test_concurrent_records_same_minute_lose_nothing(self):
+        # The mint->write TOCTOU guard: N threads recording in the same minute
+        # for the same speaker must produce N distinct cards — the pool lock
+        # makes probe+write one step, so no card can overwrite another.
+        import threading
+        ts = datetime(2026, 7, 6, 9, 0, 0)
+        ids, errors = [], []
+        lock = threading.Lock()
+
+        def mint(n):
+            try:
+                cid = stream.record(who="B", body=f"turn {n}", ts=ts)
+                with lock:
+                    ids.append(cid)
+            except Exception as exc:  # pragma: no cover - failure path
+                with lock:
+                    errors.append(exc)
+
+        threads = [threading.Thread(target=mint, args=(n,)) for n in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual(errors, [])
+        self.assertEqual(len(set(ids)), 8)
+        bodies = {stream.read_card(cid).body for cid in ids}
+        self.assertEqual(bodies, {f"turn {n}" for n in range(8)})
+
+    def test_write_card_leaves_no_temp_droppings(self):
+        ts = datetime(2026, 7, 6, 9, 30, 0)
+        stream.record(who="B", body="atomic write", ts=ts)
+        leftovers = list(stream.pool_dir().glob("*.tmp"))
+        self.assertEqual(leftovers, [])
 
 
 class DayViewTests(StreamTestCase):

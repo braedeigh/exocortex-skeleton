@@ -52,6 +52,7 @@ tagged with that slug, so her turns show up in both the daily journal and the
 thread's own inbox. If a session somehow sees both sentinels (e.g. she runs
 `/journalstart` inside a thread terminal), keeper wins — see `_entry_mode`.
 """
+import fcntl
 import hashlib
 import json
 import pathlib
@@ -307,29 +308,46 @@ def _ui_already_captured(prompt: str) -> bool:
     normally. Entries older than UI_CAPTURE_WINDOW_SEC are ignored (and pruned by
     the writer), so a stale hash can't swallow a future turn. Any read/write
     trouble fails open to minting — a duplicate card beats a lost one."""
+    # Read-consume-rewrite under the same flock the server's writer holds
+    # (routes/terminal.py::_note_ui_capture), so an interleaving can't drop a
+    # concurrent append. Lock trouble fails open to minting like everything else.
+    path = _ui_captured_path()
     try:
-        lines = _ui_captured_path().read_text(encoding="utf-8").splitlines()
+        lock_file = open(path.with_suffix(".lock"), "w")
     except OSError:
-        return False
-    digest = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
-    now = time.time()
-    keep, found = [], False
-    for line in lines:
+        lock_file = None
+    try:
+        if lock_file is not None:
+            try:
+                fcntl.flock(lock_file, fcntl.LOCK_EX)
+            except OSError:
+                pass
         try:
-            entry = json.loads(line)
-        except Exception:
-            continue
-        if (not found and entry.get("sha256") == digest
-                and now - float(entry.get("ts", 0)) < UI_CAPTURE_WINDOW_SEC):
-            found = True        # consume: this line is not kept
-            continue
-        keep.append(line)
-    if found:
-        try:
-            _ui_captured_path().write_text("\n".join(keep) + ("\n" if keep else ""), encoding="utf-8")
+            lines = path.read_text(encoding="utf-8").splitlines()
         except OSError:
-            pass                # consumption is best-effort; worst case is a skip next time
-    return found
+            return False
+        digest = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+        now = time.time()
+        keep, found = [], False
+        for line in lines:
+            try:
+                entry = json.loads(line)
+            except Exception:
+                continue
+            if (not found and entry.get("sha256") == digest
+                    and now - float(entry.get("ts", 0)) < UI_CAPTURE_WINDOW_SEC):
+                found = True        # consume: this line is not kept
+                continue
+            keep.append(line)
+        if found:
+            try:
+                path.write_text("\n".join(keep) + ("\n" if keep else ""), encoding="utf-8")
+            except OSError:
+                pass                # consumption is best-effort; worst case is a skip next time
+        return found
+    finally:
+        if lock_file is not None:
+            lock_file.close()
 
 
 def _log_failure(prompt: str, error: str) -> None:
