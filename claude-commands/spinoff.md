@@ -89,8 +89,11 @@ never skip the confirm.
 On yes, for each task (from the skeleton checkout):
 
 ```
-./venv/bin/python3 scripts/spinoff_open.py <slug>
+EXOCORTEX_DATA_DIR=<data dir> ./venv/bin/python3 scripts/spinoff_open.py <slug>
 ```
+
+(The env var matters: without it the script resolves the repo's default
+`data/` instead of the instance's real data dir, and won't find your brief.)
 
 (Same narrow-door doctrine as `scripts/stage_change.py` — agents shell out to
 the script; the app's own UI uses `POST /api/spinoff/open`, both wrapping the
