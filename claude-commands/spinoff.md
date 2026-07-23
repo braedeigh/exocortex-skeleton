@@ -24,9 +24,16 @@ say so and propose combining — their call.
 
 For each task, pick a short readable slug (what the tab should be called —
 `keeper-chat`, not `item-1`; numbers mean nothing tomorrow) and write
-`<data dir>/spinoffs/<slug>/BRIEF.md`. The brief must be self-contained: the
-new session gets NOTHING else from this conversation. Pour your context in —
-this is the whole point of spinning off instead of the owner re-typing the task.
+`<data dir>/spinoffs/<slug>/BRIEF.md`.
+
+**The brief is a distilled summary, not a context dump.** The child will do its
+own complete pass over the architecture and the owner's dev notes around the
+item — that's its job, baked into the Protocol below. What you hand it is:
+what the task IS (your distillation of what the owner wants), WHERE to look
+(dev-note sections by name, key files), and your read of the ground — marked
+as unverified. Anything you assert about the code, the child re-verifies
+against the code before believing it. Keep it tight; the child's fresh eyes
+are the point.
 
 ```markdown
 # Spinoff: <one-line title>
@@ -36,17 +43,23 @@ this is the whole point of spinning off instead of the owner re-typing the task.
 they actually want. If it came from the dev/build TODO, quote the entry and
 name its section so the session can find the surrounding notes.>
 
-## Context from the sender session
-<Everything relevant you know: file paths with line numbers, design decisions
-already made, constraints, prior findings, related dev-note entries, what was
-already tried or ruled out. Be generous — this section is the inheritance.>
+## Where to look
+<Pointers only: the dev/build TODO sections by name, related dev-note entries,
+the key files/dirs. A map, not the territory.>
+
+## Sender's summary (UNVERIFIED — re-verify against the code)
+<Your distilled read: constraints, decisions already made by the owner, what
+you believe is true of the architecture. Short. The child treats every claim
+here as a hint to check, not a fact.>
 
 ## Protocol
 You are a task executor, but the owner is in the learning phase and this is
 their system — you build WITH their input, never around it. In order:
-1. **Explore.** Read the dev/build TODO notes surrounding this item and the
-   architecture it touches — the actual routes, stores, frontend features,
-   docs. No edits during this phase.
+1. **Explore.** Completely review the architecture this task touches — the
+   actual routes, stores, frontend features, docs — and read the owner's dev
+   notes related to the item, in full. Verify every claim in "Sender's
+   summary" yourself; it is a hint sheet from another session, not ground
+   truth. No edits during this phase.
 2. **Teach.** Explain to the owner how the relevant structures work today —
    where things live, how the pieces connect, why the code is shaped the way
    it is. Cite file paths so they learn the territory. Assume they want to
