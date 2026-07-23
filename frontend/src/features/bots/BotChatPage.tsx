@@ -561,6 +561,39 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
             chrome. Notes/timer/jumps moved in from the corner cluster; the
             journal pause (●/◌) appears only where the journal is live. */}
         <div className={styles.toolbar}>
+          <button type="button" className={styles.toolBtn} onClick={() => fileRef.current?.click()}>
+            photo
+          </button>
+          <button
+            type="button"
+            className={styles.toolBtn}
+            title="Jump to top"
+            aria-label="Jump to top"
+            onClick={() => jumpTo('top')}
+          >
+            &#9650;&#9650;
+          </button>
+          <button
+            type="button"
+            className={styles.toolBtn}
+            title="Jump to bottom"
+            aria-label="Jump to bottom"
+            onClick={() => jumpTo('bottom')}
+          >
+            &#9660;&#9660;
+          </button>
+          {sessionJournal === true ? (
+            <button
+              type="button"
+              className={[styles.toolBtn, offRecord ? styles.toolBtnPaused : ''].filter(Boolean).join(' ')}
+              title={offRecord ? 'Back on the record' : 'Go off the record'}
+              aria-label={offRecord ? 'Back on the record' : 'Go off the record'}
+              aria-pressed={offRecord}
+              onClick={() => setOffRecord((v) => !v)}
+            >
+              {offRecord ? '◌' : '●'}
+            </button>
+          ) : null}
           <button
             ref={notesBtnRef}
             type="button"
@@ -581,39 +614,6 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
           >
             &#9200;
           </button>
-          <button
-            type="button"
-            className={styles.toolBtn}
-            title="Jump to top"
-            aria-label="Jump to top"
-            onClick={() => jumpTo('top')}
-          >
-            &#9650;&#9650;
-          </button>
-          <button
-            type="button"
-            className={styles.toolBtn}
-            title="Jump to bottom"
-            aria-label="Jump to bottom"
-            onClick={() => jumpTo('bottom')}
-          >
-            &#9660;&#9660;
-          </button>
-          <button type="button" className={styles.toolBtn} onClick={() => fileRef.current?.click()}>
-            photo
-          </button>
-          {sessionJournal === true ? (
-            <button
-              type="button"
-              className={[styles.toolBtn, offRecord ? styles.toolBtnPaused : ''].filter(Boolean).join(' ')}
-              title={offRecord ? 'Back on the record' : 'Go off the record'}
-              aria-label={offRecord ? 'Back on the record' : 'Go off the record'}
-              aria-pressed={offRecord}
-              onClick={() => setOffRecord((v) => !v)}
-            >
-              {offRecord ? '◌' : '●'}
-            </button>
-          ) : null}
           <button
             type="button"
             className={styles.toolBtn}
