@@ -14,6 +14,8 @@ export interface BotConvMeta {
   last_at: string;
   cost_usd: number;
   claude_session_id: string | null;
+  /** false = a non-diary session: logs to its own jsonl, never mints cards. */
+  journal?: boolean;
 }
 
 export interface BotInfo {
@@ -32,6 +34,19 @@ export function getConversation(
   signal?: AbortSignal,
 ): Promise<{ id: string; meta: BotConvMeta; events: unknown[] }> {
   return api.get(`/api/bots/conversation/${encodeURIComponent(id)}`, signal);
+}
+
+/** Create a named session ahead of its first message ('+ New session'). */
+export function createConversation(
+  bot: string,
+  title: string,
+  journal: boolean,
+): Promise<{ ok: true; id: string }> {
+  return api.post(`/api/bots/${encodeURIComponent(bot)}/conversations`, { title, journal });
+}
+
+export function renameConversation(id: string, title: string): Promise<{ ok: true; title: string }> {
+  return api.post(`/api/bots/conversation/${encodeURIComponent(id)}/title`, { title });
 }
 
 export interface SendOptions {

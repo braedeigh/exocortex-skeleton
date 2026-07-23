@@ -145,6 +145,40 @@ def register(app):
                         "journal": bool(b.get("journal")), "conversations": convs})
         return jsonify({"bots": out})
 
+    @app.route("/api/bots/<bot_id>/conversations", methods=["POST"])
+    def bot_conv_create(bot_id):
+        """Create a named session before its first message — the reading
+        room's '+ New session' (the terminal's create-session gesture).
+        `journal: false` makes it a non-diary space: sends still log to the
+        session's own jsonl but never mint journal cards (the same split as
+        tmux sessions outside KEEPER_CAPTURE_SESSIONS)."""
+        if not _bot(bot_id):
+            return jsonify({"error": "unknown bot"}), 404
+        data = request.json or {}
+        title = (data.get("title") or "").strip()[:60]
+        journal = data.get("journal") is not False
+        _chats_dir()
+        with store.mutate("bot_chats/index", {}) as index:
+            conv_id = _new_conv_id(index)
+            index[conv_id] = {"bot": bot_id, "started": _now(), "last_at": _now(),
+                              "claude_session_id": None, "cost_usd": 0.0,
+                              "title": title or "New session", "journal": journal}
+        return jsonify({"ok": True, "id": conv_id})
+
+    @app.route("/api/bots/conversation/<conv_id>/title", methods=["POST"])
+    def bot_conv_rename(conv_id):
+        data = request.json or {}
+        title = (data.get("title") or "").strip()[:60]
+        if not title:
+            return jsonify({"error": "empty title"}), 400
+        _chats_dir()
+        with store.mutate("bot_chats/index", {}) as index:
+            entry = index.get(conv_id)
+            if not isinstance(entry, dict):
+                return jsonify({"error": "not found"}), 404
+            entry["title"] = title
+        return jsonify({"ok": True, "id": conv_id, "title": title})
+
     @app.route("/api/bots/conversation/<conv_id>")
     def bot_conversation(conv_id):
         if not _CONV_ID_RE.match(conv_id):
@@ -185,12 +219,15 @@ def register(app):
                                                "title": text[:60], "cost_usd": 0.0})
             entry["last_at"] = _now()
             resume_sid = entry.get("claude_session_id")
+            # A session created with journal:false is a non-diary space —
+            # its sends never mint cards (they still log to its own jsonl).
+            conv_journals = entry.get("journal", True)
 
         # Capture BEFORE the model runs (Slice-1 guarantee, same door the
         # terminal chat session uses). Slash commands are operator control,
         # not journal content — same rule as terminal_send().
         journaled = False
-        if record and bot.get("journal") and not text.lstrip().startswith("/"):
+        if record and conv_journals and bot.get("journal") and not text.lstrip().startswith("/"):
             journaled = terminal._capture_journal(text, text)
 
         log_path = _chats_dir() / f"{conv_id}.jsonl"

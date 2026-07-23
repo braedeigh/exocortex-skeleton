@@ -28,9 +28,16 @@ export function markConversationOpened(convId: string): void {
 /**
  * The reading room (bot-surface-design §5, Sunflower spec 07-23): not a
  * bubble chat. Her message is an epigraph — small, accent-ruled, hers; the
- * reply is body text. ONE programmatic scroll per turn (her new message to
- * the top of the viewport, at send); after that the scrollbar is hers,
- * unconditionally — no follow mode exists, only the one-shot ↓ latest pill.
+ * reply is body text.
+ *
+ * Scroll contract — FOLLOW-THEN-LOCK (her spec, 07-23): no jump on send. The
+ * reply prints beneath her message and the page follows the new text like a
+ * terminal — until her sent message reaches the top of the viewport, where
+ * following stops dead and stays stopped; further text lands below the fold
+ * for her to scroll into. A short reply never fills the screen, so the page
+ * barely moves and never locks. Her own scroll (wheel/touch/keys) cancels
+ * the following instantly — her hand always outranks the machine. The
+ * ↓ latest pill is the only other way the page ever moves.
  */
 export function BotChatPage({ botId, convId }: { botId: string; convId?: string }) {
   const navigate = useNavigate();
@@ -48,6 +55,10 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
   // The conversation this page is writing into (set by the first send's
   // 'conv' frame for fresh conversations).
   const convRef = useRef<string | undefined>(convId);
+  // Follow-then-lock state: following is on from send until her message hits
+  // the viewport top (lock) or she scrolls herself (cancel).
+  const followRef = useRef(false);
+  const anchorIndexRef = useRef<number | null>(null);
 
   // Bot display name for the empty state / header.
   useEffect(() => {
@@ -64,7 +75,8 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
     };
   }, [botId]);
 
-  // History load when opening an existing conversation.
+  // History load when opening an existing conversation — landing at the
+  // latest turn, like reopening a terminal session.
   useEffect(() => {
     convRef.current = convId;
     if (!convId) {
@@ -77,6 +89,10 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
         if (cancelled) return;
         setTurns(turnsFromHistory(data.events));
         markConversationOpened(convId);
+        requestAnimationFrame(() => {
+          const el = scrollRef.current;
+          if (el) el.scrollTop = el.scrollHeight;
+        });
       })
       .catch(() => {
         if (!cancelled) setSendError('Could not load this conversation.');
@@ -85,6 +101,46 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
       cancelled = true;
     };
   }, [convId]);
+
+  // Her hand outranks the machine: any manual scroll input cancels following.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const cancel = () => {
+      followRef.current = false;
+    };
+    el.addEventListener('wheel', cancel, { passive: true });
+    el.addEventListener('touchmove', cancel, { passive: true });
+    return () => {
+      el.removeEventListener('wheel', cancel);
+      el.removeEventListener('touchmove', cancel);
+    };
+  }, []);
+
+  // The follow step, after each streamed update paints: keep the live tail
+  // in view until the anchor (her sent message) reaches the viewport top —
+  // then clamp there and stop for good.
+  useEffect(() => {
+    if (!followRef.current) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    const anchor =
+      anchorIndexRef.current !== null
+        ? el.querySelector(`[data-turn="${anchorIndexRef.current}"]`)
+        : null;
+    const bottom = el.scrollHeight - el.clientHeight;
+    if (anchor instanceof HTMLElement && anchor.offsetTop <= bottom) {
+      // Locking scroll position: her message at the top, done following.
+      el.scrollTop = anchor.offsetTop - 8;
+      followRef.current = false;
+    } else {
+      el.scrollTop = bottom;
+    }
+  }, [turns]);
+
+  useEffect(() => {
+    if (!streaming) followRef.current = false;
+  }, [streaming]);
 
   // The ↓ latest pill: visible only while writing AND the live tail is out
   // of view. Scroll position is never touched here — display only.
@@ -122,14 +178,11 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
     setTurns(next);
     setStreaming(true);
 
-    // The one allowed programmatic scroll: her new message to the top.
-    requestAnimationFrame(() => {
-      const scroller = scrollRef.current;
-      const block = scroller?.querySelector(`[data-turn="${next.length - 1}"]`);
-      if (scroller && block instanceof HTMLElement) {
-        scroller.scrollTo({ top: block.offsetTop - 8, behavior: 'smooth' });
-      }
-    });
+    // No jump — start following: the reply prints below her message and the
+    // page tracks it until that message reaches the top (the lock), or she
+    // scrolls (the cancel). See the follow effect above.
+    anchorIndexRef.current = next.length - 1;
+    followRef.current = true;
 
     try {
       const conv = await streamSend(

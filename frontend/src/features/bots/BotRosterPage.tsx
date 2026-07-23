@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type KeyboardEvent } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { getBots, type BotInfo } from './botsApi';
+import { Sheet } from '../../ui';
+import { createConversation, getBots, renameConversation, type BotConvMeta } from './botsApi';
 import styles from './BotRosterPage.module.css';
 
 function ago(iso: string | undefined): string | null {
@@ -24,117 +25,221 @@ function openedMap(): Record<string, string> {
 }
 
 /**
- * /bots — the roster (bot-surface-design §5B, Sunflower spec): one card per
- * bot in the SessionListPage card language, past conversations as plain tap
- * rows beneath. A conversation whose last_at is newer than the last time she
- * opened it gets the unread accent (dev note ddeff5a5's "highlighted until
- * opened" want, on the surface that can actually know).
+ * /bots — the Sessions page: the reading-room counterpart of the terminal's
+ * session list. A session is a SPACE, not a persona — she summons whichever
+ * voices she wants inside it with slash commands (/spark, /terra,
+ * /journalstart), exactly like a tmux session ("each session can have more
+ * than 1 bot activated into it"). One card per session: name (renameable),
+ * unread-since-reply accent, freshness; '+ New session' creates a named one,
+ * optionally non-diary (dashed rule — sends log but never journal).
  */
 export function BotRosterPage() {
   const navigate = useNavigate();
-  const [bots, setBots] = useState<BotInfo[]>([]);
+  const [botId, setBotId] = useState<string | null>(null);
+  const [sessions, setSessions] = useState<BotConvMeta[]>([]);
   const [failed, setFailed] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
+  const [newOpen, setNewOpen] = useState(false);
+  const [renameTarget, setRenameTarget] = useState<BotConvMeta | null>(null);
+
+  const refresh = () => {
     getBots()
       .then(({ bots }) => {
-        if (!cancelled) setBots(bots);
+        // v1 runs one engine config; its conversations ARE the sessions.
+        const bot = bots[0];
+        if (!bot) return;
+        setBotId(bot.id);
+        setSessions(bot.conversations);
+        setFailed(false);
       })
-      .catch(() => {
-        if (!cancelled) setFailed(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const opened = openedMap();
-  const isUnread = (convId: string, lastAt: string | undefined) => {
-    if (!lastAt) return false;
-    const seen = opened[convId];
-    return !seen || Date.parse(lastAt) > Date.parse(seen);
+      .catch(() => setFailed(true));
   };
 
-  const openConv = (botId: string, convId?: string) => {
-    void navigate({
-      to: '/bots/$botId',
-      params: { botId },
-      search: convId ? { conv: convId } : {},
-    });
+  useEffect(refresh, []);
+
+  const opened = openedMap();
+  const isUnread = (c: BotConvMeta) => {
+    if (!c.last_at) return false;
+    const seen = opened[c.id];
+    return !seen || Date.parse(c.last_at) > Date.parse(seen);
+  };
+
+  const open = (convId: string) => {
+    if (!botId) return;
+    void navigate({ to: '/bots/$botId', params: { botId }, search: { conv: convId } });
+  };
+
+  const onCreate = (title: string, journal: boolean) => {
+    if (!botId) return;
+    createConversation(botId, title, journal)
+      .then(({ id }) => {
+        setNewOpen(false);
+        open(id);
+      })
+      .catch(() => setFailed(true));
+  };
+
+  const onRename = (title: string) => {
+    if (!renameTarget) return;
+    renameConversation(renameTarget.id, title)
+      .then(() => {
+        setRenameTarget(null);
+        refresh();
+      })
+      .catch(() => setFailed(true));
   };
 
   return (
     <div className={styles.page}>
       <div className={styles.inner}>
-        <h1 className={styles.title}>Bots</h1>
-        {failed ? <div className={styles.pageError}>Couldn&rsquo;t load the roster.</div> : null}
+        <div className={styles.header}>
+          <h1 className={styles.title}>Sessions</h1>
+          <button type="button" className={styles.newBtn} onClick={() => setNewOpen(true)}>
+            + New session
+          </button>
+        </div>
+        {failed ? <div className={styles.pageError}>Couldn&rsquo;t load sessions.</div> : null}
 
-        {bots.map((bot) => {
-          const latest = bot.conversations[0];
-          const unread = latest ? isUnread(latest.id, latest.last_at) : false;
-          return (
-            <section key={bot.id} className={styles.botSection}>
+        <div className={styles.list}>
+          {sessions.map((c) => {
+            const unread = isUnread(c);
+            return (
               <div
+                key={c.id}
                 role="button"
                 tabIndex={0}
-                className={[styles.card, unread ? styles.cardUnread : ''].filter(Boolean).join(' ')}
-                onClick={() => openConv(bot.id, latest?.id)}
+                className={[
+                  styles.card,
+                  unread ? styles.cardUnread : '',
+                  c.journal === false ? styles.cardNoJournal : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+                onClick={() => open(c.id)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault();
-                    openConv(bot.id, latest?.id);
+                    open(c.id);
                   }
                 }}
               >
                 <div className={styles.cardTop}>
                   <span className={[styles.botName, unread ? styles.botNameUnread : ''].filter(Boolean).join(' ')}>
-                    {bot.name}
+                    {c.title || c.id}
                     {unread ? <span className={styles.unreadDot} /> : null}
                   </span>
-                  {latest ? <span className={styles.cardTime}>{ago(latest.last_at)}</span> : null}
+                  <button
+                    type="button"
+                    className={styles.editBtn}
+                    aria-label={`Rename ${c.title || c.id}`}
+                    title="Rename"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setRenameTarget(c);
+                    }}
+                  >
+                    ✎
+                  </button>
+                  <span className={styles.cardTime}>{ago(c.last_at)}</span>
                 </div>
-                <div className={styles.cardSummary}>
-                  {latest ? latest.title : 'Nothing yet — tap to start.'}
-                </div>
+                {c.journal === false ? (
+                  <div className={styles.cardNote}>not journaled</div>
+                ) : null}
               </div>
+            );
+          })}
+          {sessions.length === 0 && !failed ? (
+            <div className={styles.emptyHint}>No sessions yet — start one.</div>
+          ) : null}
+        </div>
 
-              <button
-                type="button"
-                className={styles.newBtn}
-                onClick={() => openConv(bot.id)}
-              >
-                + New conversation
-              </button>
-
-              {bot.conversations.length > 0 ? (
-                <>
-                  <div className={styles.sectionLabel}>Past conversations</div>
-                  <div className={styles.convList}>
-                    {bot.conversations.map((c) => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        className={styles.convRow}
-                        onClick={() => openConv(bot.id, c.id)}
-                      >
-                        <span
-                          className={[styles.convTitle, isUnread(c.id, c.last_at) ? styles.convTitleUnread : '']
-                            .filter(Boolean)
-                            .join(' ')}
-                        >
-                          {c.title || c.id}
-                        </span>
-                        <span className={styles.convTime}>{ago(c.last_at)}</span>
-                      </button>
-                    ))}
-                  </div>
-                </>
-              ) : null}
-            </section>
-          );
-        })}
+        <SessionDialog
+          open={newOpen}
+          title="New session"
+          withJournalToggle
+          onClose={() => setNewOpen(false)}
+          onSave={onCreate}
+        />
+        <SessionDialog
+          open={renameTarget !== null}
+          title={renameTarget ? `Rename ${renameTarget.title || renameTarget.id}` : 'Rename'}
+          initial={renameTarget?.title ?? ''}
+          onClose={() => setRenameTarget(null)}
+          onSave={(t) => onRename(t)}
+        />
       </div>
     </div>
+  );
+}
+
+/** Sheet for create/rename — name field, and (create only) the diary switch. */
+function SessionDialog({
+  open,
+  title,
+  initial = '',
+  withJournalToggle = false,
+  onClose,
+  onSave,
+}: {
+  open: boolean;
+  title: string;
+  initial?: string;
+  withJournalToggle?: boolean;
+  onClose: () => void;
+  onSave: (name: string, journal: boolean) => void;
+}) {
+  const [name, setName] = useState(initial);
+  const [journal, setJournal] = useState(true);
+
+  useEffect(() => {
+    if (open) {
+      setName(initial);
+      setJournal(true);
+    }
+    // Re-seed when the sheet opens, not as parent state refreshes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const save = () => {
+    const clean = name.trim();
+    if (clean) onSave(clean, journal);
+  };
+
+  const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      save();
+    }
+  };
+
+  return (
+    <Sheet open={open} title={title} onClose={onClose}>
+      <div className={styles.dialogBody}>
+        <input
+          autoFocus
+          type="text"
+          className={styles.dialogInput}
+          placeholder="Session name"
+          maxLength={60}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={onKeyDown}
+        />
+        {withJournalToggle ? (
+          <label className={styles.dialogToggle}>
+            <input type="checkbox" checked={journal} onChange={(e) => setJournal(e.target.checked)} />
+            <span>
+              Journal this session
+              <span className={styles.dialogToggleDesc}>
+                Off = a working space: nothing here becomes a diary entry.
+              </span>
+            </span>
+          </label>
+        ) : null}
+        <button type="button" className={styles.dialogSave} onClick={save}>
+          Save
+        </button>
+      </div>
+    </Sheet>
   );
 }

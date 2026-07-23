@@ -157,3 +157,28 @@ def test_conversation_endpoint_round_trips(bot_client):
     roster = bot_client.get("/api/bots").get_json()["bots"]
     keeper = next(b for b in roster if b["id"] == "keeper")
     assert any(c["id"] == conv_id for c in keeper["conversations"])
+
+
+def test_named_session_create_and_rename(bot_client):
+    resp = bot_client.post("/api/bots/keeper/conversations",
+                           json={"title": "morning pages"})
+    assert resp.status_code == 200
+    conv_id = resp.get_json()["id"]
+    meta = store.read("bot_chats/index", {})[conv_id]
+    assert meta["title"] == "morning pages" and meta["journal"] is True
+    resp = bot_client.post(f"/api/bots/conversation/{conv_id}/title",
+                           json={"title": "evening pages"})
+    assert resp.status_code == 200
+    assert store.read("bot_chats/index", {})[conv_id]["title"] == "evening pages"
+
+
+def test_non_journal_session_logs_but_never_mints(bot_client):
+    conv_id = bot_client.post("/api/bots/keeper/conversations",
+                              json={"title": "dev scratch", "journal": False}).get_json()["id"]
+    events = _sse_events(_send(bot_client, text="not a diary line",
+                               conversation_id=conv_id))
+    # streams + logs normally...
+    assert any(e["type"] == "assistant" for e in events)
+    assert _conv_log(conv_id)[0]["text"] == "not a diary line"
+    # ...but the journal door never opened (unlike a default session)
+    assert bot_client._mints == []

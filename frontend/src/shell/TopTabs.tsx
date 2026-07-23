@@ -499,7 +499,7 @@ export function TopTabs() {
                   });
               }}
             >
-              <span className={styles.chatLabel}>Keeper</span>
+              <span className={styles.chatLabel}>Chat</span>
             </button>
           ) : (
             <button
