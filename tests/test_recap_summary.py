@@ -221,6 +221,32 @@ def test_build_dialogue_empty_for_no_recognisable_turns():
     assert recap_summary._build_dialogue(lines) == ""
 
 
+def test_build_bot_dialogue_reads_the_bot_chat_log_format():
+    # The bot surface's own record (bot_chats/<conv>.jsonl, routes/bots.py):
+    # bare user lines, API-shaped assistant events, plumbing in between.
+    lines = [
+        json.dumps({"type": "user", "text": "hi keeper", "ts": "x", "journaled": True}),
+        json.dumps({"type": "assistant", "message": {"role": "assistant",
+                    "content": [{"type": "text", "text": "hello there"}]}}),
+        json.dumps({"type": "result", "subtype": "success", "total_cost_usd": 0.01}),
+        json.dumps({"type": "off-record-gap", "ts": "x"}),
+    ]
+    dialogue = recap_summary.build_bot_dialogue(lines)
+    assert dialogue == "User: hi keeper\nAssistant: hello there"
+
+
+def test_bot_dialogue_flows_through_get_summary(tmp_path, monkeypatch, inline_spawn):
+    fake = fake_claude("Chatting with the keeper.")
+    monkeypatch.setattr(recap_summary, "_run_claude", fake)
+    path = tmp_path / "conv.jsonl"
+    path.write_text(json.dumps({"type": "user", "text": "hi"}) + "\n")
+    recap_summary.get_summary("bot:conv-1", path,
+                              builder=recap_summary.build_bot_dialogue)
+    assert len(fake.calls) == 1
+    assert "User: hi" in fake.calls[0]
+    assert recap_summary.get_summary("bot:conv-1", path) == "Chatting with the keeper."
+
+
 # --- integration with routes/terminal.py's _session_recap -------------------
 
 def test_session_recap_prefers_summary_over_last_output(monkeypatch, data_dir):

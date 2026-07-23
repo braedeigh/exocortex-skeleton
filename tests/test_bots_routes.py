@@ -18,6 +18,7 @@ import stat
 import pytest
 from flask import Flask
 
+import recap_summary
 import store
 from routes import bots, terminal
 
@@ -47,6 +48,9 @@ def bot_client(data_dir, tmp_path, monkeypatch):
     stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
     monkeypatch.setattr(bots, "CLAUDE_BIN", str(stub))
     monkeypatch.setattr(store, "CONTENT_DIR", tmp_path / "content")
+    # The roster asks recap_summary for card summaries — never let a test
+    # kick off a real background Haiku call.
+    monkeypatch.setattr(recap_summary, "_spawn", lambda fn: None)
 
     mints = []
     monkeypatch.setattr(terminal, "_capture_journal",
@@ -217,6 +221,41 @@ def test_non_journal_session_logs_but_never_mints(bot_client):
     assert _conv_log(conv_id)[0]["text"] == "not a diary line"
     # ...but the journal door never opened (unlike a default session)
     assert bot_client._mints == []
+
+
+def test_close_hides_the_session_but_deletes_nothing(bot_client):
+    conv_id = bot_client.post("/api/bots/keeper/conversations",
+                              json={"title": "done with this"}).get_json()["id"]
+    _sse_events(_send(bot_client, text="some work", conversation_id=conv_id))
+    resp = bot_client.post(f"/api/bots/conversation/{conv_id}/close")
+    assert resp.status_code == 200
+    # Gone from the roster...
+    convs = bot_client.get("/api/bots").get_json()["bots"][0]["conversations"]
+    assert not any(c["id"] == conv_id for c in convs)
+    # ...but the log and index entry survive — close archives, never deletes.
+    assert (store.DATA_DIR / "bot_chats" / f"{conv_id}.jsonl").exists()
+    assert store.read("bot_chats/index", {})[conv_id]["archived"]
+
+
+def test_pinned_keeper_session_refuses_to_close(bot_client):
+    conv_id = _journal_conv(bot_client)
+    with store.mutate("bot_chats/index", {}) as index:
+        index[conv_id]["pinned"] = True
+    resp = bot_client.post(f"/api/bots/conversation/{conv_id}/close")
+    assert resp.status_code == 400
+    convs = bot_client.get("/api/bots").get_json()["bots"][0]["conversations"]
+    assert any(c["id"] == conv_id for c in convs)
+
+
+def test_roster_carries_cached_summaries(bot_client, monkeypatch):
+    events = _sse_events(_send(bot_client, text="summarize me"))
+    conv_id = events[0]["conversation_id"]
+    monkeypatch.setattr(recap_summary, "get_summary",
+                        lambda sid, path, builder=None: "Working on the thing."
+                        if sid == f"bot:{conv_id}" else None)
+    convs = bot_client.get("/api/bots").get_json()["bots"][0]["conversations"]
+    conv = next(c for c in convs if c["id"] == conv_id)
+    assert conv["summary"] == "Working on the thing."
 
 
 def test_resume_happens_in_the_conversations_own_cwd(bot_client, tmp_path, monkeypatch):

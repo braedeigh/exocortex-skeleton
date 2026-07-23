@@ -18,6 +18,8 @@ export interface BotConvMeta {
   journal?: boolean;
   /** Pinned sessions sort first (the Keeper session lives at the top). */
   pinned?: boolean;
+  /** Cached Haiku one-liner of what the session is working on. */
+  summary?: string;
 }
 
 export interface BotInfo {
@@ -45,6 +47,12 @@ export function createConversation(
   journal: boolean,
 ): Promise<{ ok: true; id: string }> {
   return api.post(`/api/bots/${encodeURIComponent(bot)}/conversations`, { title, journal });
+}
+
+/** Close (archive) a session — it leaves the roster; its log stays. The
+ * pinned Keeper session refuses (400). */
+export function closeConversation(id: string): Promise<{ ok: true }> {
+  return api.post(`/api/bots/conversation/${encodeURIComponent(id)}/close`, {});
 }
 
 export function updateConversation(

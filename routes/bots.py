@@ -26,6 +26,7 @@ import os
 import re
 import subprocess
 
+import recap_summary
 import store
 from routes import terminal
 
@@ -136,21 +137,46 @@ def _sse(obj):
 def register(app):
     @app.route("/api/bots")
     def bots_list():
-        """Roster + per-bot conversation summaries (newest first)."""
-        _chats_dir()
+        """Roster + per-bot conversation summaries (newest first). Closed
+        (archived) sessions are hidden — their logs and index entries stay."""
+        chats = _chats_dir()
         index = store.read("bot_chats/index", {})
         out = []
         for b in _bots():
             convs = sorted(
                 (dict(meta, id=cid) for cid, meta in index.items()
-                 if isinstance(meta, dict) and meta.get("bot") == b["id"]),
+                 if isinstance(meta, dict) and meta.get("bot") == b["id"]
+                 and not meta.get("archived")),
                 key=lambda c: c.get("last_at", ""), reverse=True)
             # Pinned sessions surface first (the Keeper session lives at the
             # top); the sort above stays stable within each group.
             convs.sort(key=lambda c: 0 if c.get("pinned") else 1)
+            for c in convs:
+                # Haiku card summaries, same machinery as the tmux /sessions
+                # page — cached, background-refreshed, never blocking here.
+                summary = recap_summary.get_summary(
+                    "bot:" + c["id"], chats / f"{c['id']}.jsonl",
+                    builder=recap_summary.build_bot_dialogue)
+                if summary:
+                    c["summary"] = summary
             out.append({"id": b["id"], "name": b.get("name", b["id"]),
                         "journal": bool(b.get("journal")), "conversations": convs})
         return jsonify({"bots": out})
+
+    @app.route("/api/bots/conversation/<conv_id>/close", methods=["POST"])
+    def bot_conv_close(conv_id):
+        """Close a session: it leaves the roster, but nothing is deleted —
+        the jsonl log and index entry stay (her record is the record). The
+        pinned Keeper session always stays open."""
+        _chats_dir()
+        with store.mutate("bot_chats/index", {}) as index:
+            entry = index.get(conv_id)
+            if not isinstance(entry, dict):
+                return jsonify({"error": "not found"}), 404
+            if entry.get("pinned"):
+                return jsonify({"error": "the pinned Keeper session stays open"}), 400
+            entry["archived"] = _now()
+        return jsonify({"ok": True})
 
     @app.route("/api/bots/<bot_id>/conversations", methods=["POST"])
     def bot_conv_create(bot_id):

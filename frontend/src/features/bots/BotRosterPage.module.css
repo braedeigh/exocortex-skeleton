@@ -258,3 +258,35 @@
   font-size: var(--font-size-sm);
   color: var(--text-muted);
 }
+
+/* The pinned Keeper card wears blue — --evening is the theme's periwinkle,
+   so it stays "a nice blue" across postDawn and twilight alike. Declared
+   after .cardUnread so the blue rule wins even when unread. */
+.cardPinned {
+  border-color: color-mix(in srgb, var(--evening) 55%, var(--border));
+  border-left-color: var(--evening);
+  background: color-mix(in srgb, var(--evening) 9%, var(--card-bg));
+}
+
+.cardPinned .pinBadge {
+  border-color: color-mix(in srgb, var(--evening) 55%, var(--border));
+  color: var(--evening);
+}
+
+/* Close (×) — clearly visible, full tap target; arms into a red "Sure?". */
+.closeBtn {
+  flex-shrink: 0;
+  min-width: var(--tap-target);
+  min-height: var(--tap-target);
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-size-lg);
+  cursor: pointer;
+}
+
+.closeArmed {
+  color: var(--red);
+  font-size: var(--font-size-md);
+  font-weight: 600;
+}

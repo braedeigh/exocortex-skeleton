@@ -77,10 +77,14 @@ def _cache_get(session_id):
     return cache.get(session_id) if isinstance(cache, dict) else None
 
 
-def get_summary(session_id, transcript_path):
+def get_summary(session_id, transcript_path, builder=None):
     """Return the cached summary text for `session_id` (or None), triggering
     a background refresh if the transcript looks stale enough to be worth
-    re-summarizing. Never raises, never blocks on the CLI."""
+    re-summarizing. Never raises, never blocks on the CLI.
+
+    `builder` turns the file's tail lines into a "User:/Assistant:" dialogue —
+    default is the Claude Code transcript parser; routes/bots.py passes
+    `build_bot_dialogue` for its own bot_chats/<conv>.jsonl format."""
     if not session_id:
         return None
     path = Path(transcript_path)
@@ -100,12 +104,12 @@ def get_summary(session_id, transcript_path):
         and now - float(entry.get("at") or 0) >= MIN_INTERVAL_SEC
     )
     if stale:
-        _maybe_refresh(session_id, path)
+        _maybe_refresh(session_id, path, builder)
 
     return cached_summary
 
 
-def _maybe_refresh(session_id, path):
+def _maybe_refresh(session_id, path, builder=None):
     last_fail = _last_failure.get(session_id)
     if last_fail is not None and time.time() - last_fail < FAILURE_BACKOFF_SEC:
         return
@@ -113,7 +117,7 @@ def _maybe_refresh(session_id, path):
         if session_id in _in_flight or len(_in_flight) >= _MAX_CONCURRENT:
             return
         _in_flight.add(session_id)
-    _spawn(lambda: _refresh(session_id, path))
+    _spawn(lambda: _refresh(session_id, path, builder))
 
 
 def _spawn(fn):
@@ -130,7 +134,7 @@ def _run_claude(prompt):
     )
 
 
-def _refresh(session_id, path):
+def _refresh(session_id, path, builder=None):
     """Runs off the request thread (see _spawn). Builds the dialogue prompt,
     shells out to Haiku, and caches the result. Never raises out of here --
     this runs unsupervised on a daemon thread."""
@@ -140,7 +144,7 @@ def _refresh(session_id, path):
             lines = _read_tail_lines(path)
         except OSError:
             return
-        dialogue = _build_dialogue(lines)
+        dialogue = (builder or _build_dialogue)(lines)
         if not dialogue:
             return
         prompt = _PROMPT_PREAMBLE + "\n\n" + dialogue
@@ -241,4 +245,32 @@ def _build_dialogue(lines):
         label = "User" if role == "user" else "Assistant"
         turns.append(f"{label}: {_truncate(text)}")
 
+    return "\n".join(turns[-_MAX_MESSAGES:])
+
+
+def build_bot_dialogue(lines):
+    """Dialogue builder for the bot surface's own bot_chats/<conv>.jsonl
+    (routes/bots.py): user turns are {"type":"user","text":...}, assistant
+    turns wrap an API-shaped message. Result/gap/system events are plumbing,
+    not conversation -- skipped."""
+    turns = []
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(obj, dict):
+            continue
+        if obj.get("type") == "user":
+            text = (obj.get("text") or "").strip()
+            if text:
+                turns.append(f"User: {_truncate(text)}")
+        elif obj.get("type") == "assistant":
+            msg = obj.get("message")
+            text = _msg_text(msg) if isinstance(msg, dict) else ""
+            if text:
+                turns.append(f"Assistant: {_truncate(text)}")
     return "\n".join(turns[-_MAX_MESSAGES:])

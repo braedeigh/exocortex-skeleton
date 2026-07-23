@@ -1,7 +1,13 @@
 import { useEffect, useState, type KeyboardEvent } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { Sheet } from '../../ui';
-import { createConversation, getBots, updateConversation, type BotConvMeta } from './botsApi';
+import {
+  closeConversation,
+  createConversation,
+  getBots,
+  updateConversation,
+  type BotConvMeta,
+} from './botsApi';
 import styles from './BotRosterPage.module.css';
 
 function ago(iso: string | undefined): string | null {
@@ -41,6 +47,9 @@ export function BotRosterPage() {
 
   const [newOpen, setNewOpen] = useState(false);
   const [renameTarget, setRenameTarget] = useState<BotConvMeta | null>(null);
+  // Two-step close (destructive-confirm pattern): first tap arms the button
+  // into "Sure?", second tap closes. Arming a different card disarms this one.
+  const [closeArmed, setCloseArmed] = useState<string | null>(null);
 
   const refresh = () => {
     getBots()
@@ -112,6 +121,7 @@ export function BotRosterPage() {
                   styles.card,
                   unread ? styles.cardUnread : '',
                   c.journal === false ? styles.cardNoJournal : '',
+                  c.pinned ? styles.cardPinned : '',
                 ]
                   .filter(Boolean)
                   .join(' ')}
@@ -141,8 +151,32 @@ export function BotRosterPage() {
                   >
                     ✎
                   </button>
+                  {!c.pinned ? (
+                    <button
+                      type="button"
+                      className={[styles.closeBtn, closeArmed === c.id ? styles.closeArmed : '']
+                        .filter(Boolean)
+                        .join(' ')}
+                      aria-label={`Close ${c.title || c.id}`}
+                      title="Close session"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (closeArmed !== c.id) {
+                          setCloseArmed(c.id);
+                          return;
+                        }
+                        setCloseArmed(null);
+                        closeConversation(c.id)
+                          .then(refresh)
+                          .catch(() => setFailed(true));
+                      }}
+                    >
+                      {closeArmed === c.id ? 'Sure?' : '×'}
+                    </button>
+                  ) : null}
                   <span className={styles.cardTime}>{ago(c.last_at)}</span>
                 </div>
+                {c.summary ? <div className={styles.cardSummary}>{c.summary}</div> : null}
                 {c.journal === false ? (
                   <div className={styles.cardNote}>not journaled</div>
                 ) : null}

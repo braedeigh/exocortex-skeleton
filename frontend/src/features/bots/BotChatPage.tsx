@@ -12,6 +12,7 @@ import {
   userTurn,
   type Turn,
 } from './botEvents';
+import { applyStatsEvent, formatWorkingLine, startTurnStats, type TurnStats } from './turnStats';
 import styles from './BotChatPage.module.css';
 
 /** Mark a conversation opened (the roster's unread dot compares this
@@ -58,6 +59,10 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
   // Explicit journal state of this session (null until meta loads; the hint
   // renders only on an explicit false — a workshop space).
   const [sessionJournal, setSessionJournal] = useState<boolean | null>(null);
+  // The working line (turnStats.ts): word · elapsed · tokens · thought.
+  const [stats, setStats] = useState<TurnStats | null>(null);
+  const statsRef = useRef<TurnStats | null>(null);
+  const [, setClockTick] = useState(0);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -155,6 +160,14 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
     if (!streaming) followRef.current = false;
   }, [streaming]);
 
+  // The working line's clock: re-render once a second while streaming so the
+  // elapsed seconds tick even when no tokens are arriving (tool time).
+  useEffect(() => {
+    if (!streaming) return;
+    const id = setInterval(() => setClockTick((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, [streaming]);
+
   // The ↓ latest pill: visible only while writing AND the live tail is out
   // of view. Scroll position is never touched here — display only.
   const updateJump = useCallback(() => {
@@ -208,6 +221,9 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
     const next = [...turnsRef.current, userTurn(text, offRecord)];
     setTurns(next);
     setStreaming(true);
+    const startStats = startTurnStats(Date.now());
+    statsRef.current = startStats;
+    setStats(startStats);
 
     // No jump — start following: the reply prints below her message and the
     // page tracks it until that message reaches the top (the lock), or she
@@ -223,6 +239,10 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
         (event) => {
           applyEvent(turnsRef.current, event);
           setTurns([...turnsRef.current]);
+          if (statsRef.current) {
+            statsRef.current = applyStatsEvent(statsRef.current, event, Date.now());
+            setStats(statsRef.current);
+          }
         },
       );
       if (conv) {
@@ -250,8 +270,9 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
     }
   };
 
-  const last = turns[turns.length - 1];
-  const writing = streaming && !!last && last.role === 'assistant';
+  // The working line runs the whole turn — including the quiet stretch before
+  // the first token, which is exactly when a loading signal matters most.
+  const writing = streaming;
 
   return (
     <div className={styles.page}>
@@ -304,7 +325,8 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
           )}
           {writing ? (
             <div className={styles.writing}>
-              <span className={styles.writingDot} /> still writing…
+              <span className={styles.writingDot} />{' '}
+              {stats ? formatWorkingLine(stats, Date.now()) : 'still writing…'}
             </div>
           ) : null}
         </div>
