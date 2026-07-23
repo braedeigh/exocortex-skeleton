@@ -7,19 +7,26 @@ cd "$(dirname "$0")"
 fail() { echo "✗ $1" >&2; exit 1; }
 
 command -v python3 >/dev/null || fail "python3 not found — install Python 3.11+ (mac: brew install python)"
-command -v npm >/dev/null || fail "npm not found — install Node 20+ (mac: brew install node)"
 
 python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' \
   || fail "Python 3.11+ required (found $(python3 --version))"
-node -e 'process.exit(parseInt(process.versions.node) >= 20 ? 0 : 1)' \
-  || fail "Node 20+ required (found $(node --version))"
 
 echo "→ Python env"
 [ -d venv ] || python3 -m venv venv
 ./venv/bin/pip install -q -r requirements.txt
 
-echo "→ Frontend build (first run downloads packages — a few minutes)"
-(cd frontend && npm install --no-audit --no-fund && npm run build)
+# Release tarballs ship a prebuilt frontend (frontend/dist/.prebuilt marker),
+# so Node/npm aren't needed at all. Git checkouts build from source.
+if [ -f frontend/dist/.prebuilt ] && [ "${FORCE_FRONTEND_BUILD:-}" != "1" ]; then
+  echo "→ Frontend: prebuilt bundle found — skipping npm build"
+  echo "  (set FORCE_FRONTEND_BUILD=1 to rebuild from source; needs Node 20+)"
+else
+  command -v npm >/dev/null || fail "npm not found — install Node 20+ (mac: brew install node)"
+  node -e 'process.exit(parseInt(process.versions.node) >= 20 ? 0 : 1)' \
+    || fail "Node 20+ required (found $(node --version))"
+  echo "→ Frontend build (first run downloads packages — a few minutes)"
+  (cd frontend && npm install --no-audit --no-fund && npm run build)
+fi
 
 echo "→ Journal commands (~/.claude/commands)"
 CMD_DEST="$HOME/.claude/commands"
