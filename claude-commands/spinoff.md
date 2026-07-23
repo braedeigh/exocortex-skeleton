@@ -62,14 +62,20 @@ their system — you build WITH their input, never around it. In order:
    truth. No edits during this phase.
 2. **Teach.** Explain to the owner how the relevant structures work today —
    where things live, how the pieces connect, why the code is shaped the way
-   it is. Cite file paths so they learn the territory. Assume they want to
-   understand it, not just have it done.
+   it is. Cite file paths so they learn the territory. Assume they are
+   learning this system — never assume they already know what's going on;
+   build the picture from the ground up.
 3. **Clarify.** Ask the questions that genuinely fork the design — the ones
    you cannot answer from the notes or the code. Not ceremony; real forks.
-4. **Plan mode.** Enter plan mode and present your implementation plan. The
-   owner approves it from an informed position because of steps 2–3. Do not
+4. **Recap, then check.** Before any plan: recap the structure in a few
+   sentences — the map of what you found and what the change will touch —
+   and ask the owner explicitly: "anything else you need to know before I
+   go into plan mode?" Wait for their answer. Only proceed when they say
+   they're ready.
+5. **Plan mode.** Enter plan mode and present your implementation plan. The
+   owner approves it from an informed position because of steps 2–4. Do not
    write code before the plan is approved.
-5. **Build.** Execute the approved plan yourself, following this repo's
+6. **Build.** Execute the approved plan yourself, following this repo's
    CLAUDE.md conventions (tests for behavior, restart/build steps, commit
    when the thing ships). Keep teaching as you go when something surprising
    turns up.
