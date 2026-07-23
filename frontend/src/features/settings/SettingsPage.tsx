@@ -14,6 +14,7 @@ import {
   type ThemeMode,
 } from '../../theme';
 import { USAGE_HEAT_EVENT, USAGE_HEAT_STORAGE_KEY } from '../../ui/usageHeat';
+import { chatSurfaceIsBots, setChatSurfaceBots } from '../../shell/chatSurface';
 import { AccountSection } from './AccountSection';
 import { ColorField } from './ColorField';
 import { DevNotesSection } from './DevNotesSection';
@@ -91,6 +92,13 @@ export function SettingsPage() {
       // storage denied — the toggle still works for this page via the event
     }
     window.dispatchEvent(new CustomEvent(USAGE_HEAT_EVENT, { detail: { enabled: on } }));
+  }
+
+  // Chat tab surface: terminal (default) or the Keeper bot's reading room.
+  const [chatBots, setChatBots] = useState(chatSurfaceIsBots);
+  function onChatSurfaceChange(on: boolean) {
+    setChatBots(on);
+    setChatSurfaceBots(on);
   }
 
   useEffect(() => {
@@ -337,6 +345,25 @@ export function SettingsPage() {
               />
             ))}
           </div>
+        </section>
+
+        <section className={styles.section}>
+          <h2 className={styles.heading}>Chat surface</h2>
+          <label className={styles.toggleRow}>
+            <span>
+              <span className={styles.toggleLabel}>Chat tab opens the Keeper</span>
+              <span className={styles.toggleDesc}>
+                The Chat tab opens the Keeper&rsquo;s reading room (streaming, journaled)
+                instead of the tmux terminal. The terminal stays in More &#9662; &rarr; Terminal.
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              className={styles.toggleInput}
+              checked={chatBots}
+              onChange={(e) => onChatSurfaceChange(e.target.checked)}
+            />
+          </label>
         </section>
 
         <section className={styles.section}>

@@ -4,6 +4,7 @@ import { Sheet, TapRow } from '../ui';
 import { TAB_META, TAB_ROUTES, VIEW_META, isValidTab, tabForPath, type LegacyTab } from './tabs';
 import { useMediaQuery, DESKTOP_QUERY } from './useMediaQuery';
 import { useSessionsContext } from './SessionsContext';
+import { useChatSurfaceBots } from './chatSurface';
 import styles from './TopTabs.module.css';
 
 /**
@@ -103,9 +104,12 @@ interface MoreMenuContentProps {
   onNavigate: () => void;
   /** false for public visitors: only overflowed tabs, none of the authed-only statics. */
   includeStatic: boolean;
+  /** Mobile + chat-surface=bots: the Chat tab no longer opens the terminal,
+   * so the terminal gets a More entry instead of vanishing. */
+  showTerminal?: boolean;
 }
 
-function MoreMenuContent({ overflowed, activeKey, onNavigate, includeStatic }: MoreMenuContentProps) {
+function MoreMenuContent({ overflowed, activeKey, onNavigate, includeStatic, showTerminal }: MoreMenuContentProps) {
   const navigate = useNavigate();
   return (
     <>
@@ -144,6 +148,17 @@ function MoreMenuContent({ overflowed, activeKey, onNavigate, includeStatic }: M
           {page.label}
         </TapRow>
       ))}
+      {showTerminal ? (
+        <TapRow
+          key="terminal"
+          onClick={() => {
+            onNavigate();
+            void navigate({ to: '/chat' });
+          }}
+        >
+          Terminal
+        </TapRow>
+      ) : null}
       {(includeStatic ? MORE_VIEWS : []).map((view) => (
         <TapRow
           key={view.key}
@@ -218,6 +233,8 @@ function DashboardTabRow({ pathname, isPublic = false }: { pathname: string; isP
   const [overflowed, setOverflowed] = useState<readonly LegacyTab[]>([]);
   const [moreOpen, setMoreOpen] = useState(false);
   const isDesktop = useMediaQuery(DESKTOP_QUERY);
+  const chatBots = useChatSurfaceBots();
+  const showTerminal = !isPublic && !isDesktop && chatBots;
 
   const rowRef = useRef<HTMLDivElement | null>(null);
   const moreWrapRef = useRef<HTMLDivElement | null>(null);
@@ -392,6 +409,7 @@ function DashboardTabRow({ pathname, isPublic = false }: { pathname: string; isP
                 activeKey={activeKey}
                 onNavigate={closeMore}
                 includeStatic={!isPublic}
+                showTerminal={showTerminal}
               />
             </div>
           ) : null}
@@ -409,6 +427,7 @@ function DashboardTabRow({ pathname, isPublic = false }: { pathname: string; isP
             activeKey={activeKey}
             onNavigate={closeMore}
             includeStatic={!isPublic}
+            showTerminal={showTerminal}
           />
         </Sheet>
       ) : null}
@@ -424,6 +443,9 @@ export function TopTabs() {
   // /chat and /sessions via SessionsContext, so switching sessions on the
   // session page updates the label immediately.
   const sessions = useSessionsContext();
+  // Settings can point the Chat tab at the Keeper bot instead of the tmux
+  // terminal ("wanting it to replace the terminal") — see chatSurface.ts.
+  const chatBots = useChatSurfaceBots();
   // Last dashboard route visited, so clicking Dashboard from Journal/Research
   // returns you where you left off instead of always resetting to /todos.
   const lastDashboardTarget = useRef<DashboardTarget>({ to: '/todos' });
@@ -456,22 +478,47 @@ export function TopTabs() {
           // A second tap while already on /chat opens the full-page session
           // switcher (/sessions, SessionListPage); from there — or anywhere
           // else — the tab goes (back) to the active terminal.
-          <button
-            type="button"
-            className={joinClass(
-              styles.dashBtn,
-              styles.chatBtn,
-              (location.pathname === '/chat' || location.pathname === '/sessions') && styles.dashBtnActive,
-            )}
-            onClick={() => {
-              if (location.pathname === '/chat') void navigate({ to: '/sessions' });
-              else void navigate({ to: '/chat' });
-            }}
-          >
-            <span className={styles.chatLabel}>
-              {sessions.titles[sessions.active] || sessions.active || 'Chat'}
-            </span>
-          </button>
+          chatBots ? (
+            // Chat tab → the Keeper's reading room, resuming the latest
+            // conversation; a second tap opens the roster (mirroring the
+            // terminal's tap-again-for-/sessions gesture).
+            <button
+              type="button"
+              className={joinClass(
+                styles.dashBtn,
+                styles.chatBtn,
+                location.pathname.startsWith('/bots') && styles.dashBtnActive,
+              )}
+              onClick={() => {
+                if (location.pathname === '/bots/keeper') void navigate({ to: '/bots' });
+                else
+                  void navigate({
+                    to: '/bots/$botId',
+                    params: { botId: 'keeper' },
+                    search: { conv: 'latest' },
+                  });
+              }}
+            >
+              <span className={styles.chatLabel}>Keeper</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              className={joinClass(
+                styles.dashBtn,
+                styles.chatBtn,
+                (location.pathname === '/chat' || location.pathname === '/sessions') && styles.dashBtnActive,
+              )}
+              onClick={() => {
+                if (location.pathname === '/chat') void navigate({ to: '/sessions' });
+                else void navigate({ to: '/chat' });
+              }}
+            >
+              <span className={styles.chatLabel}>
+                {sessions.titles[sessions.active] || sessions.active || 'Chat'}
+              </span>
+            </button>
+          )
         ) : null}
         <button
           type="button"
