@@ -128,13 +128,17 @@ def test_tui_scroll_down_sends_wheel_down(term_client):
     assert cmds == [f"send-keys -t chat -H {_wheel_hex(False, 2)}"]
 
 
-def test_tui_jump_to_bottom_blasts_wheel_down(term_client):
+def test_tui_jump_to_bottom_bursts_until_pane_settles(term_client):
     term_client._state["mouse"] = "1"
     _scroll(term_client, direction="down", mode="end")
-    cmds = _scroll_calls(term_client)
-    # a big batch of wheel-down to reach the live tail; no copy-mode cancel here
-    assert cmds == [f"send-keys -t chat -H {_wheel_hex(False, 400)}"]
-    assert not any("cancel" in c for c in cmds)
+    burst = f"send-keys -t chat -H {_wheel_hex(False, terminal._WHEEL_END_BURST)}"
+    sends = [c for c in _scroll_calls(term_client) if c.startswith("send-keys")]
+    # wheel bursts repeat until capture-pane stops changing (the fake pane
+    # never changes, so: one real burst + one confirming it hit the edge) —
+    # the loop itself is pinned by tests/test_terminal_scroll.py
+    assert sends == [burst, burst]
+    assert any(c.startswith("capture-pane") for c in _scroll_calls(term_client))
+    assert not any("cancel" in c for c in term_client._tmux_calls)
 
 
 # --- /api/terminal/send key allowlist (command-injection guard) ---

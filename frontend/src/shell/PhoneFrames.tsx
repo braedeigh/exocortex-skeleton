@@ -30,12 +30,20 @@ export function PhoneFrames({ sessions }: { sessions: SessionState }) {
 
   // Unmount terminals for sessions that no longer exist (closed elsewhere,
   // or an rw-* worker that finished and killed its own tmux session).
+  // Never prune `active`: on a fresh page load `list` is still useSessions'
+  // FALLBACK placeholder (['chat']) until /api/sessions answers, and judging
+  // the localStorage-remembered active session against that unmounted its
+  // terminal with nothing to ever re-add it (the add effect only fires when
+  // `active` *changes*) — the same blank-pane-on-refresh bug TerminalFrames
+  // fixed on desktop; this is the mobile half of that fix. If the active
+  // session truly dies, useSessions moves `active` off it and the next pass
+  // prunes it normally.
   useEffect(() => {
     setVisited((prev) => {
-      const next = prev.filter((s) => list.includes(s) || workers.includes(s));
+      const next = prev.filter((s) => s === active || list.includes(s) || workers.includes(s));
       return next.length === prev.length ? prev : next;
     });
-  }, [list, workers]);
+  }, [list, workers, active]);
 
   return (
     <>

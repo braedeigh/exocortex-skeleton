@@ -5,6 +5,7 @@ import { TermNotesPanel } from './TermNotesPanel';
 import { SchedulePanel } from './SchedulePanel';
 import { UploadWidget } from './UploadWidget';
 import { TerminalFrames } from './TerminalFrames';
+import { scrollTerminal } from '../features/phone/phoneApi';
 import type { SessionState } from './useSessions';
 import styles from './TerminalPane.module.css';
 
@@ -43,10 +44,30 @@ export function TerminalPane({ sessions }: { sessions: SessionState }) {
           <UploadWidget session={active} triggerClassName={styles.toolBtn} />
         </div>
 
-        {/* Copy / Schedule / Notes fused into one segmented pill top-right —
-            one shared container background/border/radius, thin dividers
-            between the three segments (see .topRight/.segBtn). */}
+        {/* Jump / Copy / Schedule / Notes fused into one segmented pill
+            top-right — one shared container background/border/radius, thin
+            dividers between the segments (see .topRight/.segBtn). ▲▲/▼▼ are
+            the desktop port of the mobile corner jump buttons (dev note
+            647ff100 — "re add the button to go all the way to the top"). */}
         <div className={styles.topRight}>
+          <button
+            type="button"
+            className={styles.segBtn}
+            title="Jump to top of scrollback"
+            aria-label="Jump to top of scrollback"
+            onClick={() => void scrollTerminal(active, 'up', 'end').catch(() => {})}
+          >
+            &#9650;&#9650;
+          </button>
+          <button
+            type="button"
+            className={styles.segBtn}
+            title="Jump to bottom"
+            aria-label="Jump to bottom of scrollback"
+            onClick={() => void scrollTerminal(active, 'down', 'end').catch(() => {})}
+          >
+            &#9660;&#9660;
+          </button>
           <button
             type="button"
             className={styles.segBtn}

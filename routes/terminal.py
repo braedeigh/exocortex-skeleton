@@ -343,13 +343,34 @@ def _wheel_hex(up, count, col=2, row=2):
     return " ".join(f"{b:02x}" for b in seq.encode())
 
 
+# Jump-to-end batches: how many wheel events per burst, and how many bursts
+# before giving up. 12 * 200 = 2400 events max — the cap only matters when the
+# pane keeps repainting on its own (e.g. Claude mid-generation).
+_WHEEL_END_BURST = 200
+_WHEEL_END_MAX_BURSTS = 12
+
+
 def _scroll_wheel(sess, direction, mode, data):
     """Scroll a full-screen TUI by feeding it mouse-wheel events."""
     up = direction == "up"
     if mode == "lines":
         count = min(data.get("lines", 3), 50)
     elif mode == "end":
-        count = 400  # blast to the top/bottom of the app's own scrollback
+        # "Jump to end" must actually land at the end, not step partway: a
+        # fixed burst count undershoots deep scrollback ("the bottom button
+        # just jumps down bit by bit", dev note f5c7f249). The app owns its
+        # scrollback and tmux can't ask it "are you at the bottom?", so feed
+        # bursts and watch the pane: when a burst no longer changes what's
+        # painted, we've hit the edge.
+        prev = None
+        for _ in range(_WHEEL_END_MAX_BURSTS):
+            _tmux(f"send-keys -t {sess} -H {_wheel_hex(up, _WHEEL_END_BURST)}")
+            time.sleep(0.05)
+            painted = _tmux(f"capture-pane -t {sess} -p").stdout
+            if painted == prev:
+                break
+            prev = painted
+        return
     else:  # page
         count = 12
     _tmux(f"send-keys -t {sess} -H {_wheel_hex(up, count)}")

@@ -40,7 +40,11 @@
   font-family: 'Berkeley Mono', 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
   font-size: 13px;
   line-height: 1.55;
-  white-space: pre;
+  /* pre-wrap, not pre: pane lines longer than the panel (pasted paths, wide
+     Claude output) must wrap instead of running off the page — dev note
+     7b49176c "fix the copy button such that the text inside of it fits". */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   -webkit-user-select: text;
   user-select: text;
 }
