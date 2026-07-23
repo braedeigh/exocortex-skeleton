@@ -68,6 +68,7 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
   const [journalArmed, setJournalArmed] = useState<number | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const columnRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const turnsRef = useRef<Turn[]>(turns);
   turnsRef.current = turns;
@@ -78,6 +79,11 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
   // the viewport top (lock) or she scrolls herself (cancel).
   const followRef = useRef(false);
   const anchorIndexRef = useRef<number | null>(null);
+  // Bottom-pin on open: a conversation always opens anchored to its latest
+  // output, and STAYS anchored through late layout shifts (markdown, fonts,
+  // code blocks growing the page after the first snap) — until her first
+  // scroll, or a send (follow-then-lock takes over from there).
+  const pinBottomRef = useRef(false);
 
   // Bot display name for the empty state / header.
   useEffect(() => {
@@ -109,10 +115,13 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
         setTurns(turnsFromHistory(data.events));
         setSessionJournal(data.meta?.journal === true ? true : data.meta?.journal === false ? false : null);
         markConversationOpened(convId);
-        // Land at the latest turn, always — like reopening a terminal.
+        // Land at the latest turn, always — like reopening a terminal. The
+        // pin (see the ResizeObserver below) keeps us there while the
+        // rendered markdown finishes laying out.
+        pinBottomRef.current = true;
         requestAnimationFrame(() => {
           const el = scrollRef.current;
-          if (el) el.scrollTop = el.scrollHeight;
+          if (el && pinBottomRef.current) el.scrollTop = el.scrollHeight;
         });
       })
       .catch(() => {
@@ -123,12 +132,14 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
     };
   }, [convId]);
 
-  // Her hand outranks the machine: any manual scroll input cancels following.
+  // Her hand outranks the machine: any manual scroll input cancels both the
+  // send-follow and the open-at-bottom pin.
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     const cancel = () => {
       followRef.current = false;
+      pinBottomRef.current = false;
     };
     el.addEventListener('wheel', cancel, { passive: true });
     el.addEventListener('touchmove', cancel, { passive: true });
@@ -136,6 +147,20 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
       el.removeEventListener('wheel', cancel);
       el.removeEventListener('touchmove', cancel);
     };
+  }, []);
+
+  // The pin itself: while pinned, any growth of the content column re-snaps
+  // the viewport to the bottom — this is what makes "opens at the bottom"
+  // survive markdown/code blocks finishing their layout after the load snap.
+  useEffect(() => {
+    const el = scrollRef.current;
+    const col = columnRef.current;
+    if (!el || !col || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => {
+      if (pinBottomRef.current) el.scrollTop = el.scrollHeight;
+    });
+    ro.observe(col);
+    return () => ro.disconnect();
   }, []);
 
   // The follow step, after each streamed update paints: keep the live tail
@@ -203,7 +228,8 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
   };
 
   const jumpTo = (edge: 'top' | 'bottom') => {
-    followRef.current = false; // an explicit jump outranks any follow
+    followRef.current = false; // an explicit jump outranks any follow or pin
+    pinBottomRef.current = false;
     const el = scrollRef.current;
     if (el) el.scrollTo({ top: edge === 'top' ? 0 : el.scrollHeight, behavior: 'smooth' });
   };
@@ -237,7 +263,9 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
 
     // No jump — start following: the reply prints below her message and the
     // page tracks it until that message reaches the top (the lock), or she
-    // scrolls (the cancel). See the follow effect above.
+    // scrolls (the cancel). See the follow effect above. The open-at-bottom
+    // pin hands off to the follow here.
+    pinBottomRef.current = false;
     anchorIndexRef.current = next.length - 1;
     followRef.current = true;
 
@@ -302,7 +330,7 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
   return (
     <div className={styles.page}>
       <div ref={scrollRef} className={styles.scroll}>
-        <div className={styles.column}>
+        <div ref={columnRef} className={styles.column}>
           {turns.length === 0 ? (
             <div className={styles.empty}>
               <div className={styles.emptyName}>{botName}</div>
