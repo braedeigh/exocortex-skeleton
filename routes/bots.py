@@ -141,6 +141,9 @@ def register(app):
                 (dict(meta, id=cid) for cid, meta in index.items()
                  if isinstance(meta, dict) and meta.get("bot") == b["id"]),
                 key=lambda c: c.get("last_at", ""), reverse=True)
+            # Pinned sessions surface first (the Keeper session lives at the
+            # top); the sort above stays stable within each group.
+            convs.sort(key=lambda c: 0 if c.get("pinned") else 1)
             out.append({"id": b["id"], "name": b.get("name", b["id"]),
                         "journal": bool(b.get("journal")), "conversations": convs})
         return jsonify({"bots": out})
@@ -156,7 +159,9 @@ def register(app):
             return jsonify({"error": "unknown bot"}), 404
         data = request.json or {}
         title = (data.get("title") or "").strip()[:60]
-        journal = data.get("journal") is not False
+        # Journal is OPT-IN and rare: the diary is the pinned Keeper session's
+        # door; every other session is a workshop unless deliberately toggled.
+        journal = data.get("journal") is True
         _chats_dir()
         with store.mutate("bot_chats/index", {}) as index:
             conv_id = _new_conv_id(index)
@@ -165,19 +170,26 @@ def register(app):
                               "title": title or "New session", "journal": journal}
         return jsonify({"ok": True, "id": conv_id})
 
-    @app.route("/api/bots/conversation/<conv_id>/title", methods=["POST"])
-    def bot_conv_rename(conv_id):
+    @app.route("/api/bots/conversation/<conv_id>/settings", methods=["POST"])
+    def bot_conv_settings(conv_id):
+        """Rename and/or flip a session's journal switch. Pinning is data-only
+        for now (set at import/migration) — the pinned Keeper session stays
+        the one diary door."""
         data = request.json or {}
-        title = (data.get("title") or "").strip()[:60]
-        if not title:
-            return jsonify({"error": "empty title"}), 400
         _chats_dir()
         with store.mutate("bot_chats/index", {}) as index:
             entry = index.get(conv_id)
             if not isinstance(entry, dict):
                 return jsonify({"error": "not found"}), 404
-            entry["title"] = title
-        return jsonify({"ok": True, "id": conv_id, "title": title})
+            if "title" in data:
+                title = (data.get("title") or "").strip()[:60]
+                if not title:
+                    return jsonify({"error": "empty title"}), 400
+                entry["title"] = title
+            if "journal" in data:
+                entry["journal"] = data.get("journal") is True
+            out = dict(entry, id=conv_id)
+        return jsonify({"ok": True, "conversation": out})
 
     @app.route("/api/bots/conversation/<conv_id>")
     def bot_conversation(conv_id):
@@ -216,12 +228,13 @@ def register(app):
             conv_id = str(conv_req) if conv_req else _new_conv_id(index)
             entry = index.setdefault(conv_id, {"bot": bot_id, "started": _now(),
                                                "claude_session_id": None,
-                                               "title": text[:60], "cost_usd": 0.0})
+                                               "title": text[:60], "cost_usd": 0.0,
+                                               "journal": False})
             entry["last_at"] = _now()
             resume_sid = entry.get("claude_session_id")
-            # A session created with journal:false is a non-diary space —
-            # its sends never mint cards (they still log to its own jsonl).
-            conv_journals = entry.get("journal", True)
+            # Journal is opt-in per session (the pinned Keeper session carries
+            # journal:true) — everything else logs to its own jsonl only.
+            conv_journals = entry.get("journal") is True
 
         # Capture BEFORE the model runs (Slice-1 guarantee, same door the
         # terminal chat session uses). Slash commands are operator control,

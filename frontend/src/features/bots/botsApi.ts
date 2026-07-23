@@ -16,6 +16,8 @@ export interface BotConvMeta {
   claude_session_id: string | null;
   /** false = a non-diary session: logs to its own jsonl, never mints cards. */
   journal?: boolean;
+  /** Pinned sessions sort first (the Keeper session lives at the top). */
+  pinned?: boolean;
 }
 
 export interface BotInfo {
@@ -45,8 +47,11 @@ export function createConversation(
   return api.post(`/api/bots/${encodeURIComponent(bot)}/conversations`, { title, journal });
 }
 
-export function renameConversation(id: string, title: string): Promise<{ ok: true; title: string }> {
-  return api.post(`/api/bots/conversation/${encodeURIComponent(id)}/title`, { title });
+export function updateConversation(
+  id: string,
+  patch: { title?: string; journal?: boolean },
+): Promise<{ ok: true; conversation: BotConvMeta }> {
+  return api.post(`/api/bots/conversation/${encodeURIComponent(id)}/settings`, patch);
 }
 
 export interface SendOptions {

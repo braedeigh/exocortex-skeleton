@@ -165,6 +165,15 @@
   color: var(--accent);
 }
 
+.pinBadge {
+  padding: 2px var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: 400;
+}
+
 .unreadDot {
   width: 8px;
   height: 8px;

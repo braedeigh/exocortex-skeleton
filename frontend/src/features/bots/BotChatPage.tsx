@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { mdToHtml } from '../journal/markdown';
 import { autosizeHeight } from '../phone/phoneLogic';
+import { TermNotesPanel } from '../../shell/TermNotesPanel';
+import { SchedulePanel } from '../../shell/SchedulePanel';
 import { getBots, getConversation, streamSend } from './botsApi';
 import {
   applyEvent,
@@ -47,6 +49,15 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
   const [offRecord, setOffRecord] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [showJump, setShowJump] = useState(false);
+  // The terminal's floating sidekicks, ported: 📝 dev notes and the ⏰
+  // prompt timer (the same shared panels the terminal pane uses).
+  const [panel, setPanel] = useState<'notes' | 'schedule' | null>(null);
+  const [schedSessions, setSchedSessions] = useState<string[]>([]);
+  const notesBtnRef = useRef<HTMLButtonElement>(null);
+  const schedBtnRef = useRef<HTMLButtonElement>(null);
+  // Explicit journal state of this session (null until meta loads; the hint
+  // renders only on an explicit false — a workshop space).
+  const [sessionJournal, setSessionJournal] = useState<boolean | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -88,7 +99,9 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
       .then((data) => {
         if (cancelled) return;
         setTurns(turnsFromHistory(data.events));
+        setSessionJournal(data.meta?.journal === true ? true : data.meta?.journal === false ? false : null);
         markConversationOpened(convId);
+        // Land at the latest turn, always — like reopening a terminal.
         requestAnimationFrame(() => {
           const el = scrollRef.current;
           if (el) el.scrollTop = el.scrollHeight;
@@ -164,6 +177,24 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
   const jumpToLatest = () => {
     const el = scrollRef.current;
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+  };
+
+  const jumpTo = (edge: 'top' | 'bottom') => {
+    followRef.current = false; // an explicit jump outranks any follow
+    const el = scrollRef.current;
+    if (el) el.scrollTo({ top: edge === 'top' ? 0 : el.scrollHeight, behavior: 'smooth' });
+  };
+
+  const togglePanel = (name: 'notes' | 'schedule') => {
+    if (name === 'schedule' && schedSessions.length === 0) {
+      // The timer schedules prompts into tmux sessions (the dispatcher's
+      // delivery lane) — fetch their names once, on first open.
+      fetch('/api/sessions')
+        .then((r) => r.json())
+        .then((d) => setSchedSessions(Array.isArray(d.sessions) ? d.sessions : []))
+        .catch(() => {});
+    }
+    setPanel((p) => (p === name ? null : name));
   };
 
   const send = async () => {
@@ -279,6 +310,56 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
         </div>
       </div>
 
+      {/* The terminal's floating sidekicks, at home here too: notes, timer,
+          and the jump buttons (dev note 647ff100's cousins). */}
+      <div className={styles.cornerCluster}>
+        <button
+          ref={notesBtnRef}
+          type="button"
+          className={styles.cornerBtn}
+          title="Dev notes"
+          aria-label="Dev notes"
+          onClick={() => togglePanel('notes')}
+        >
+          &#128221;
+        </button>
+        <button
+          ref={schedBtnRef}
+          type="button"
+          className={styles.cornerBtn}
+          title="Schedule a prompt"
+          aria-label="Schedule a prompt"
+          onClick={() => togglePanel('schedule')}
+        >
+          &#9200;
+        </button>
+        <button
+          type="button"
+          className={styles.cornerBtn}
+          title="Jump to top"
+          aria-label="Jump to top"
+          onClick={() => jumpTo('top')}
+        >
+          &#9650;&#9650;
+        </button>
+        <button
+          type="button"
+          className={styles.cornerBtn}
+          title="Jump to bottom"
+          aria-label="Jump to bottom"
+          onClick={() => jumpTo('bottom')}
+        >
+          &#9660;&#9660;
+        </button>
+      </div>
+      <TermNotesPanel open={panel === 'notes'} onClose={() => setPanel(null)} triggerRef={notesBtnRef} />
+      <SchedulePanel
+        open={panel === 'schedule'}
+        onClose={() => setPanel(null)}
+        triggerRef={schedBtnRef}
+        sessionNames={schedSessions}
+      />
+
       {showJump ? (
         <button type="button" className={styles.jumpPill} onClick={jumpToLatest}>
           ↓ latest
@@ -287,6 +368,9 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
 
       <div className={[styles.composer, offRecord ? styles.composerOff : ''].filter(Boolean).join(' ')}>
         {sendError ? <div className={styles.sendError}>{sendError}</div> : null}
+        {sessionJournal === false && !offRecord ? (
+          <div className={styles.offNote}>working space — not journaled</div>
+        ) : null}
         {offRecord ? (
           <div className={styles.offNote}>
             off the record — not journaled, not kept (Claude&rsquo;s transcript still sees this)

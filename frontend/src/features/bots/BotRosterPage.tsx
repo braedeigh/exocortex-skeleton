@@ -1,7 +1,7 @@
 import { useEffect, useState, type KeyboardEvent } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { Sheet } from '../../ui';
-import { createConversation, getBots, renameConversation, type BotConvMeta } from './botsApi';
+import { createConversation, getBots, updateConversation, type BotConvMeta } from './botsApi';
 import styles from './BotRosterPage.module.css';
 
 function ago(iso: string | undefined): string | null {
@@ -79,9 +79,9 @@ export function BotRosterPage() {
       .catch(() => setFailed(true));
   };
 
-  const onRename = (title: string) => {
+  const onEdit = (title: string, journal: boolean) => {
     if (!renameTarget) return;
-    renameConversation(renameTarget.id, title)
+    updateConversation(renameTarget.id, { title, journal })
       .then(() => {
         setRenameTarget(null);
         refresh();
@@ -126,6 +126,7 @@ export function BotRosterPage() {
                 <div className={styles.cardTop}>
                   <span className={[styles.botName, unread ? styles.botNameUnread : ''].filter(Boolean).join(' ')}>
                     {c.title || c.id}
+                    {c.pinned ? <span className={styles.pinBadge}>pinned</span> : null}
                     {unread ? <span className={styles.unreadDot} /> : null}
                   </span>
                   <button
@@ -156,45 +157,47 @@ export function BotRosterPage() {
         <SessionDialog
           open={newOpen}
           title="New session"
-          withJournalToggle
           onClose={() => setNewOpen(false)}
           onSave={onCreate}
         />
         <SessionDialog
           open={renameTarget !== null}
-          title={renameTarget ? `Rename ${renameTarget.title || renameTarget.id}` : 'Rename'}
+          title={renameTarget ? `Edit ${renameTarget.title || renameTarget.id}` : 'Edit session'}
           initial={renameTarget?.title ?? ''}
+          initialJournal={renameTarget?.journal === true}
           onClose={() => setRenameTarget(null)}
-          onSave={(t) => onRename(t)}
+          onSave={onEdit}
         />
       </div>
     </div>
   );
 }
 
-/** Sheet for create/rename — name field, and (create only) the diary switch. */
+/** Sheet for create/edit — name field + the diary switch. Journal defaults
+ * OFF: the diary is the pinned Keeper session's door; turning it on
+ * elsewhere is deliberate and rare. */
 function SessionDialog({
   open,
   title,
   initial = '',
-  withJournalToggle = false,
+  initialJournal = false,
   onClose,
   onSave,
 }: {
   open: boolean;
   title: string;
   initial?: string;
-  withJournalToggle?: boolean;
+  initialJournal?: boolean;
   onClose: () => void;
   onSave: (name: string, journal: boolean) => void;
 }) {
   const [name, setName] = useState(initial);
-  const [journal, setJournal] = useState(true);
+  const [journal, setJournal] = useState(initialJournal);
 
   useEffect(() => {
     if (open) {
       setName(initial);
-      setJournal(true);
+      setJournal(initialJournal);
     }
     // Re-seed when the sheet opens, not as parent state refreshes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -225,17 +228,16 @@ function SessionDialog({
           onChange={(e) => setName(e.target.value)}
           onKeyDown={onKeyDown}
         />
-        {withJournalToggle ? (
-          <label className={styles.dialogToggle}>
-            <input type="checkbox" checked={journal} onChange={(e) => setJournal(e.target.checked)} />
-            <span>
-              Journal this session
-              <span className={styles.dialogToggleDesc}>
-                Off = a working space: nothing here becomes a diary entry.
-              </span>
+        <label className={styles.dialogToggle}>
+          <input type="checkbox" checked={journal} onChange={(e) => setJournal(e.target.checked)} />
+          <span>
+            Journal this session
+            <span className={styles.dialogToggleDesc}>
+              Off by default — only the Keeper session writes to the diary. Turn
+              on deliberately, and rarely.
             </span>
-          </label>
-        ) : null}
+          </span>
+        </label>
         <button type="button" className={styles.dialogSave} onClick={save}>
           Save
         </button>

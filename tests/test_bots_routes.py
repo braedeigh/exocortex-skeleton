@@ -100,20 +100,39 @@ def test_send_streams_events_and_writes_her_own_log(bot_client):
     assert meta["cost_usd"] == pytest.approx(0.01)
 
 
+def _journal_conv(client):
+    """A session that writes to the diary (journal is opt-in per session)."""
+    return client.post("/api/bots/keeper/conversations",
+                       json={"title": "keeper", "journal": True}).get_json()["id"]
+
+
 def test_journal_mints_before_claude_is_spawned(bot_client, monkeypatch):
     # If the spawn ran first, the mint recorder would still be empty when it
     # fires — assert the order explicitly by failing the spawn: the card must
     # already be minted even though claude never ran.
+    conv_id = _journal_conv(bot_client)
     def boom(*a, **k):
         raise OSError("no claude")
     monkeypatch.setattr(bots, "_spawn", boom)
-    resp = _send(bot_client, text="a journal line")
+    resp = _send(bot_client, text="a journal line", conversation_id=conv_id)
     assert resp.status_code == 502
     assert bot_client._mints == ["a journal line"]
 
 
+def test_fresh_sessions_do_not_journal_by_default(bot_client):
+    # Implicit conversation (no id) and explicit create without journal:true
+    # are both workshops: nothing mints. The diary door is opt-in.
+    _sse_events(_send(bot_client, text="workshop thought"))
+    conv_id = bot_client.post("/api/bots/keeper/conversations",
+                              json={"title": "scratch"}).get_json()["id"]
+    _sse_events(_send(bot_client, text="another", conversation_id=conv_id))
+    assert bot_client._mints == []
+
+
 def test_off_record_skips_journal_and_log(bot_client):
-    resp = _send(bot_client, text="when did i last...", record=False)
+    conv_id = _journal_conv(bot_client)
+    resp = _send(bot_client, text="when did i last...", record=False,
+                 conversation_id=conv_id)
     events = _sse_events(resp)
     conv_id = events[0]["conversation_id"]
     # streams to the screen normally...
@@ -125,7 +144,9 @@ def test_off_record_skips_journal_and_log(bot_client):
 
 
 def test_slash_commands_do_not_journal(bot_client):
-    _send(bot_client, text="/endsession")
+    # Even in a journaling session, a summon/command is operator control.
+    conv_id = _journal_conv(bot_client)
+    _sse_events(_send(bot_client, text="/endsession", conversation_id=conv_id))
     assert bot_client._mints == []
 
 
@@ -159,17 +180,31 @@ def test_conversation_endpoint_round_trips(bot_client):
     assert any(c["id"] == conv_id for c in keeper["conversations"])
 
 
-def test_named_session_create_and_rename(bot_client):
+def test_named_session_create_rename_and_journal_toggle(bot_client):
     resp = bot_client.post("/api/bots/keeper/conversations",
                            json={"title": "morning pages"})
     assert resp.status_code == 200
     conv_id = resp.get_json()["id"]
     meta = store.read("bot_chats/index", {})[conv_id]
-    assert meta["title"] == "morning pages" and meta["journal"] is True
-    resp = bot_client.post(f"/api/bots/conversation/{conv_id}/title",
-                           json={"title": "evening pages"})
+    # journal is opt-in: omitted means workshop
+    assert meta["title"] == "morning pages" and meta["journal"] is False
+    resp = bot_client.post(f"/api/bots/conversation/{conv_id}/settings",
+                           json={"title": "evening pages", "journal": True})
     assert resp.status_code == 200
-    assert store.read("bot_chats/index", {})[conv_id]["title"] == "evening pages"
+    meta = store.read("bot_chats/index", {})[conv_id]
+    assert meta["title"] == "evening pages" and meta["journal"] is True
+
+
+def test_pinned_session_sorts_first(bot_client):
+    old = _journal_conv(bot_client)
+    newer = bot_client.post("/api/bots/keeper/conversations",
+                            json={"title": "newer"}).get_json()["id"]
+    # Pin the older one (data-side, as the migration does).
+    with store.mutate("bot_chats/index", {}) as index:
+        index[old]["pinned"] = True
+    convs = bot_client.get("/api/bots").get_json()["bots"][0]["conversations"]
+    assert convs[0]["id"] == old
+    assert any(c["id"] == newer for c in convs[1:])
 
 
 def test_non_journal_session_logs_but_never_mints(bot_client):
