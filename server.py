@@ -25,7 +25,7 @@ from routes import (
     devnotes, ideas, ecosystem, keeper, pending, housing, triage, decisions,
     entities, threads, person, shell, cards, archivals, research,
     research_search, research_sources, research_import, research_text,
-    annotations, spa, fronts, wiki, travel, profile, usage, streaks,
+    annotations, spa, fronts, wiki, travel, profile, usage, streaks, spinoff,
 )
 from routes.shell import VALID_TABS
 
@@ -1122,6 +1122,7 @@ keeper.register(app)
 pending.register(app)
 profile.register(app)
 triage.register(app)
+spinoff.register(app)
 decisions.register(app)
 entities.register(app)
 threads.register(app)

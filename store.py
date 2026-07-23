@@ -55,6 +55,10 @@ ARCHIVALS_DIR = Path(os.environ.get("EXOCORTEX_ARCHIVALS_DIR", DATA_DIR / "archi
 # this folder (its CLAUDE.md is the skill). Defaults to a `triage/` at the
 # deployment root (sibling of the data dir), next to recipes/; override via env.
 TRIAGE_DIR = Path(os.environ.get("EXOCORTEX_TRIAGE_DIR", DATA_DIR.parent / "triage"))
+# Spinoff: the shared spawn door for /spinoff — briefs live one per slug at
+# SPINOFF_DIR/<slug>/BRIEF.md. Under DATA_DIR (not a sibling like TRIAGE_DIR):
+# briefs are personal data and should ride the vault's hourly git backup.
+SPINOFF_DIR = Path(os.environ.get("EXOCORTEX_SPINOFF_DIR", DATA_DIR / "spinoffs"))
 # Person pages: the "regenerate impression" button opens a Claude session here
 # (its CLAUDE.md is the skill) to draft a person's ## Impression with her, live.
 # Same idea as TRIAGE_DIR — sibling of the data dir, override via env.
