@@ -196,37 +196,13 @@
   font-size: var(--font-size-md);
 }
 
-/* --- Floating corner cluster (notes / timer / jump) ----------------------- */
-
-.cornerCluster {
-  position: absolute;
-  top: var(--space-3);
-  right: var(--space-3);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  z-index: 5;
-}
-
-.cornerBtn {
-  width: var(--tap-target);
-  height: var(--tap-target);
-  border: 1px solid var(--border-soft);
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--card-bg) 82%, transparent);
-  backdrop-filter: blur(4px);
-  color: var(--text-secondary);
-  font-size: var(--font-size-md);
-  cursor: pointer;
-  box-shadow: var(--shadow-card);
-}
-
 /* --- ↓ latest ------------------------------------------------------------ */
 
 .jumpPill {
   position: absolute;
   right: var(--space-4);
-  bottom: calc(var(--space-8) + 64px + env(safe-area-inset-bottom));
+  /* Clears the composer: input row + the toolbar row above it. */
+  bottom: calc(var(--space-8) + 118px + env(safe-area-inset-bottom));
   min-height: var(--tap-target);
   padding: 0 var(--space-4);
   border: 1px solid var(--border-soft);
@@ -360,6 +336,14 @@
   cursor: default;
 }
 
+/* Journal paused (off the record): the same drained language as composerOff —
+   dashed border, muted glyph. */
+.toolBtnPaused {
+  border-style: dashed;
+  border-color: #55557a;
+  color: #b0b0cc;
+}
+
 /* --- The old upload modal, verbatim (PhoneTerminal.module.css) ------------ */
 
 .uploadOverlay {
@@ -403,25 +387,6 @@
   to {
     transform: rotate(360deg);
   }
-}
-
-.offBtn {
-  flex-shrink: 0;
-  width: var(--tap-target);
-  height: var(--tap-target);
-  border: 1px solid var(--border);
-  border-radius: 50%;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: var(--font-size-base);
-  cursor: pointer;
-  transition: border-color 200ms ease, color 200ms ease;
-}
-
-.offBtnActive {
-  border-style: dashed;
-  border-color: var(--text-muted);
-  color: var(--text-muted);
 }
 
 .input {

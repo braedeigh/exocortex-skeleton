@@ -513,48 +513,8 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
         </div>
       </div>
 
-      {/* The terminal's floating sidekicks, at home here too: notes, timer,
-          and the jump buttons (dev note 647ff100's cousins). */}
-      <div className={styles.cornerCluster}>
-        <button
-          ref={notesBtnRef}
-          type="button"
-          className={styles.cornerBtn}
-          title="Dev notes"
-          aria-label="Dev notes"
-          onClick={() => togglePanel('notes')}
-        >
-          &#128221;
-        </button>
-        <button
-          ref={schedBtnRef}
-          type="button"
-          className={styles.cornerBtn}
-          title="Schedule a prompt"
-          aria-label="Schedule a prompt"
-          onClick={() => togglePanel('schedule')}
-        >
-          &#9200;
-        </button>
-        <button
-          type="button"
-          className={styles.cornerBtn}
-          title="Jump to top"
-          aria-label="Jump to top"
-          onClick={() => jumpTo('top')}
-        >
-          &#9650;&#9650;
-        </button>
-        <button
-          type="button"
-          className={styles.cornerBtn}
-          title="Jump to bottom"
-          aria-label="Jump to bottom"
-          onClick={() => jumpTo('bottom')}
-        >
-          &#9660;&#9660;
-        </button>
-      </div>
+      {/* Notes + timer panels — their trigger buttons live in the composer
+          toolbar now (the corner cluster folded into it, her 07-23 ask). */}
       <TermNotesPanel open={panel === 'notes'} onClose={() => setPanel(null)} triggerRef={notesBtnRef} />
       <SchedulePanel
         open={panel === 'schedule'}
@@ -598,11 +558,62 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
         ) : null}
         {/* The old bottom bar's toolbar row, same colors and placement —
             directly above the input, twilight-indigo like the terminal
-            chrome. Only the buttons that still mean something here. */}
+            chrome. Notes/timer/jumps moved in from the corner cluster; the
+            journal pause (●/◌) appears only where the journal is live. */}
         <div className={styles.toolbar}>
+          <button
+            ref={notesBtnRef}
+            type="button"
+            className={styles.toolBtn}
+            title="Dev notes"
+            aria-label="Dev notes"
+            onClick={() => togglePanel('notes')}
+          >
+            &#128221;
+          </button>
+          <button
+            ref={schedBtnRef}
+            type="button"
+            className={styles.toolBtn}
+            title="Schedule a prompt"
+            aria-label="Schedule a prompt"
+            onClick={() => togglePanel('schedule')}
+          >
+            &#9200;
+          </button>
+          <button
+            type="button"
+            className={styles.toolBtn}
+            title="Jump to top"
+            aria-label="Jump to top"
+            onClick={() => jumpTo('top')}
+          >
+            &#9650;&#9650;
+          </button>
+          <button
+            type="button"
+            className={styles.toolBtn}
+            title="Jump to bottom"
+            aria-label="Jump to bottom"
+            onClick={() => jumpTo('bottom')}
+          >
+            &#9660;&#9660;
+          </button>
           <button type="button" className={styles.toolBtn} onClick={() => fileRef.current?.click()}>
             photo
           </button>
+          {sessionJournal === true ? (
+            <button
+              type="button"
+              className={[styles.toolBtn, offRecord ? styles.toolBtnPaused : ''].filter(Boolean).join(' ')}
+              title={offRecord ? 'Back on the record' : 'Go off the record'}
+              aria-label={offRecord ? 'Back on the record' : 'Go off the record'}
+              aria-pressed={offRecord}
+              onClick={() => setOffRecord((v) => !v)}
+            >
+              {offRecord ? '◌' : '●'}
+            </button>
+          ) : null}
           <button
             type="button"
             className={styles.toolBtn}
@@ -624,20 +635,6 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
           />
         </div>
         <div className={styles.composerRow}>
-          {/* The pause button lives only where the journal is live — a
-              workshop session has nothing to pause. */}
-          {sessionJournal === true ? (
-            <button
-              type="button"
-              className={[styles.offBtn, offRecord ? styles.offBtnActive : ''].filter(Boolean).join(' ')}
-              title={offRecord ? 'Back on the record' : 'Go off the record'}
-              aria-label={offRecord ? 'Back on the record' : 'Go off the record'}
-              aria-pressed={offRecord}
-              onClick={() => setOffRecord((v) => !v)}
-            >
-              {offRecord ? '◌' : '●'}
-            </button>
-          ) : null}
           <textarea
             ref={inputRef}
             className={styles.input}
