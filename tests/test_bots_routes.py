@@ -28,6 +28,8 @@ text = sys.stdin.read()
 with open({argv_log!r}, "a") as f:
     f.write(json.dumps(sys.argv[1:]) + "\\n")
 print(json.dumps({{"type": "system", "subtype": "init", "session_id": "sid-1"}}))
+print(json.dumps({{"type": "stream_event", "event": {{"type": "content_block_delta",
+    "delta": {{"type": "text_delta", "text": "echo"}}}}}}))
 print(json.dumps({{"type": "assistant", "message": {{"role": "assistant",
     "content": [{{"type": "text", "text": "echo: " + text}}]}}}}))
 print(json.dumps({{"type": "result", "subtype": "success",
@@ -83,11 +85,12 @@ def test_send_streams_events_and_writes_her_own_log(bot_client):
     assert resp.status_code == 200
     events = _sse_events(resp)
     conv_id = events[0]["conversation_id"]
-    # relay: conv header, then the stub's three events, then done
+    # relay: conv header, then the stub's four events (deltas included), done
     types = [e["type"] for e in events]
-    assert types == ["conv", "system", "assistant", "result", "done"]
-    assert "echo: hi keeper" in json.dumps(events[2])
-    # her own record: user line + every claude event, in order
+    assert types == ["conv", "system", "stream_event", "assistant", "result", "done"]
+    assert "echo: hi keeper" in json.dumps(events[3])
+    # her own record: user line + every claude event EXCEPT the token deltas
+    # (stream_event is transport; the assistant message carries the text)
     log = _conv_log(conv_id)
     assert log[0]["type"] == "user" and log[0]["text"] == "hi keeper"
     assert [e["type"] for e in log[1:]] == ["system", "assistant", "result"]

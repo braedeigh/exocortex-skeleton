@@ -226,7 +226,13 @@ def register(app):
                                 session_id = event["session_id"]
                             if event.get("total_cost_usd") is not None:
                                 cost = event["total_cost_usd"]
-                        if record:
+                        # Token deltas (stream_event) are transport, not
+                        # record — the assistant message events they build
+                        # carry the same text, so persisting the deltas would
+                        # just triple the log for nothing (Terra: "the jsonl
+                        # is transport"... but even transport doesn't keep
+                        # every wingbeat).
+                        if record and event.get("type") != "stream_event":
                             log.write(json.dumps(event) + "\n")
                         yield _sse(event)
                 proc.wait()

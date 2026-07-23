@@ -61,6 +61,7 @@ const ALWAYS_MORE_TABS: ReadonlyArray<{ tab: LegacyTab; label: string }> = [
 // Native standalone pages in the More menu (Keeper is covered by the Files
 // view below; Personality/Scratchpad/VS Code are SPA routes now).
 const MORE_PAGES: ReadonlyArray<{ key: string; label: string; to: string }> = [
+  { key: 'bots', label: 'Bots', to: '/bots' },
   { key: 'personality', label: 'Personality', to: '/personality' },
   { key: 'scratchpad', label: 'Scratchpad', to: '/scratchpad' },
   { key: 'vscode', label: 'VS Code', to: '/vscode' },
