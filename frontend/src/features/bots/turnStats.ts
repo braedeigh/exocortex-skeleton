@@ -1,15 +1,16 @@
 /**
  * turnStats.ts — the Claude Code-style working line, ported into the reading
- * room: "✻ Percolating… 12s · 1.3k tokens · thought 4s". A pure reducer over
+ * room: "✻ Percolating… 12s · ~1.3k tokens · thought 4s". A pure reducer over
  * the same raw SSE events botEvents.ts sees (kept separate on purpose:
  * botEvents builds the transcript, this builds the heartbeat).
  *
  * Where the numbers come from:
  * - elapsed: wall time since the send started;
- * - tokens: the API's own count — message_delta stream events carry a
- *   cumulative usage.output_tokens for the in-flight message, and a turn can
- *   hold several messages (tool round-trips), so finished messages are banked
- *   on each message_start;
+ * - tokens: the API only reports authoritative usage ONCE per message (the
+ *   closing message_delta), so mid-stream the count is an estimate from
+ *   streamed characters (~4 chars/token, shown with a "~"); each message's
+ *   estimate snaps to the real number when its usage arrives, and finished
+ *   messages are banked across tool round-trips on message_start;
  * - thought: wall time accumulated while thinking deltas are arriving
  *   (gaps over _THINKING_GAP_MS don't count — that's tool time, not thought).
  */
@@ -17,10 +18,15 @@
 export interface TurnStats {
   word: string;
   startedAt: number;
-  /** Output tokens from messages already finished this turn. */
+  /** Output tokens from messages already finished this turn (authoritative
+   * when their usage arrived, else their final estimate). */
   doneTokens: number;
-  /** Cumulative output tokens of the in-flight message (from message_delta). */
-  liveTokens: number;
+  /** The in-flight message's authoritative usage — null until its closing
+   * message_delta lands. */
+  liveUsage: number | null;
+  /** Streamed characters (text + thinking) of the in-flight message — the
+   * estimate basis while liveUsage is null. */
+  liveChars: number;
   thinkingMs: number;
   lastThinkingAt: number | null;
 }
@@ -46,13 +52,15 @@ export const WORKING_WORDS = [
 ];
 
 const _THINKING_GAP_MS = 3000;
+const _CHARS_PER_TOKEN = 4;
 
 export function startTurnStats(now: number, word?: string): TurnStats {
   return {
     word: word ?? WORKING_WORDS[Math.floor(Math.random() * WORKING_WORDS.length)],
     startedAt: now,
     doneTokens: 0,
-    liveTokens: 0,
+    liveUsage: null,
+    liveChars: 0,
     thinkingMs: 0,
     lastThinkingAt: null,
   };
@@ -62,7 +70,11 @@ interface StreamEventShape {
   type?: string;
   message?: { usage?: { output_tokens?: number } };
   usage?: { output_tokens?: number };
-  delta?: { type?: string };
+  delta?: { type?: string; text?: string; thinking?: string };
+}
+
+function liveTokens(s: TurnStats): number {
+  return s.liveUsage ?? Math.round(s.liveChars / _CHARS_PER_TOKEN);
 }
 
 /** Fold one raw SSE event into the stats. Returns a new object (safe to hand
@@ -77,36 +89,47 @@ export function applyStatsEvent(
   if (!ev || typeof ev !== 'object') return stats;
   const next = { ...stats };
   if (ev.type === 'message_start') {
-    // A new message begins — bank the finished one (usage is per-message).
-    next.doneTokens += next.liveTokens;
-    next.liveTokens = ev.message?.usage?.output_tokens ?? 0;
+    // A new message begins — bank the finished one and reset the live basis.
+    next.doneTokens += liveTokens(next);
+    next.liveChars = 0;
+    next.liveUsage = ev.message?.usage?.output_tokens ?? null;
   } else if (ev.type === 'message_delta') {
     const tokens = ev.usage?.output_tokens;
-    if (typeof tokens === 'number') next.liveTokens = tokens;
-  } else if (ev.type === 'content_block_delta' && ev.delta?.type === 'thinking_delta') {
-    if (next.lastThinkingAt !== null && now - next.lastThinkingAt < _THINKING_GAP_MS) {
-      next.thinkingMs += now - next.lastThinkingAt;
+    if (typeof tokens === 'number') next.liveUsage = tokens;
+  } else if (ev.type === 'content_block_delta') {
+    const d = ev.delta;
+    const chunk = d?.type === 'text_delta' ? d.text : d?.type === 'thinking_delta' ? d.thinking : undefined;
+    if (typeof chunk === 'string') next.liveChars += chunk.length;
+    if (d?.type === 'thinking_delta') {
+      if (next.lastThinkingAt !== null && now - next.lastThinkingAt < _THINKING_GAP_MS) {
+        next.thinkingMs += now - next.lastThinkingAt;
+      }
+      next.lastThinkingAt = now;
     }
-    next.lastThinkingAt = now;
   }
   return next;
 }
 
 export function totalTokens(stats: TurnStats): number {
-  return stats.doneTokens + stats.liveTokens;
+  return stats.doneTokens + liveTokens(stats);
+}
+
+/** True while the in-flight message's count is a character estimate. */
+export function tokensAreEstimated(stats: TurnStats): boolean {
+  return stats.liveUsage === null && stats.liveChars > 0;
 }
 
 function fmtTokens(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k tokens` : `${n} tokens`;
 }
 
-/** "Percolating… 12s · 1.3k tokens · thought 4s" — parts appear as their
- * numbers do, so the line starts as just the word and the clock. */
+/** "Percolating… 12s · ~1.3k tokens · thought 4s" — parts appear as their
+ * numbers do; the "~" drops once the API's own count lands. */
 export function formatWorkingLine(stats: TurnStats, now: number): string {
-  const secs = Math.max(0, Math.round((now - stats.startedAt) / 1000));
+  const secs = Math.max(0, Math.floor((now - stats.startedAt) / 1000));
   const parts = [`${stats.word}… ${secs}s`];
   const tokens = totalTokens(stats);
-  if (tokens > 0) parts.push(fmtTokens(tokens));
+  if (tokens > 0) parts.push(`${tokensAreEstimated(stats) ? '~' : ''}${fmtTokens(tokens)}`);
   const thoughtSecs = Math.round(stats.thinkingMs / 1000);
   if (thoughtSecs > 0) parts.push(`thought ${thoughtSecs}s`);
   return parts.join(' · ');

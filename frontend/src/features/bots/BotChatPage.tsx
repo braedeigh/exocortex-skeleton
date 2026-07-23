@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { mdToHtml } from '../journal/markdown';
 import { uploadTerminalPhotos } from '../phone/phoneApi';
@@ -43,6 +43,53 @@ export function markConversationOpened(convId: string): void {
  * the following instantly — her hand always outranks the machine. The
  * ↓ latest pill is the only other way the page ever moves.
  */
+/** One assistant reply, memoized: a closed turn's props never change during
+ * streaming, so it skips both the re-render and the markdown re-parse (the
+ * useMemo) that used to run per token delta across the whole transcript. */
+const Reply = memo(function Reply({
+  index,
+  text,
+  buffer,
+  open,
+  tool,
+  journaled,
+  armed,
+  onBodyTap,
+  onJournalTap,
+}: {
+  index: number;
+  text: string;
+  buffer: string;
+  open: boolean;
+  tool: string | null;
+  journaled: boolean;
+  armed: boolean;
+  onBodyTap: (i: number) => void;
+  onJournalTap: (i: number) => void;
+}) {
+  const html = useMemo(
+    () => mdToHtml(buffer ? (text ? `${text}\n\n${buffer}` : buffer) : text),
+    [text, buffer],
+  );
+  return (
+    <div className={styles.reply}>
+      {/* Tap a finished reply to arm the journal pill; tap again to disarm. */}
+      <div
+        className={styles.replyBody}
+        onClick={() => onBodyTap(index)}
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+      {open && tool ? <div className={styles.toolNote}>{tool}</div> : null}
+      {journaled ? <div className={styles.journaledNote}>✦ in the journal</div> : null}
+      {armed && !journaled && !open ? (
+        <button type="button" className={styles.journalBtn} onClick={() => onJournalTap(index)}>
+          ✦ put this in the journal
+        </button>
+      ) : null}
+    </div>
+  );
+});
+
 export function BotChatPage({ botId, convId }: { botId: string; convId?: string }) {
   const navigate = useNavigate();
   const [botName, setBotName] = useState(botId.charAt(0).toUpperCase() + botId.slice(1));
@@ -69,10 +116,15 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
   const [journalArmed, setJournalArmed] = useState<number | null>(null);
   // Photo attach (the terminal toolbar's photo button, reborn): uploaded
   // paths stage as removable chips until the send folds them into the
-  // message as [uploaded: …] refs the keeper can Read.
+  // message as [uploaded: …] refs the keeper can Read. The upload modal is
+  // the old surface's spinner box, same colors.
   const [attached, setAttached] = useState<string[]>([]);
-  const [uploadLabel, setUploadLabel] = useState<string | null>(null);
+  const [upload, setUpload] = useState<{ label: string; error: boolean } | null>(null);
+  const uploadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  // The stop button aborts this fetch; the server kills claude when the
+  // stream reader goes away (routes/bots.py's finally).
+  const abortRef = useRef<AbortController | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const columnRef = useRef<HTMLDivElement>(null);
@@ -202,13 +254,23 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
     if (sessionJournal !== true) setOffRecord(false);
   }, [sessionJournal]);
 
-  // The working line's clock: re-render once a second while streaming so the
-  // elapsed seconds tick even when no tokens are arriving (tool time).
+  // The working line's clock: re-render while streaming so the elapsed
+  // seconds tick even when no tokens are arriving (tool time). 250ms, not
+  // 1s: the display derives from Date.now() so a dropped frame self-corrects
+  // instead of visibly stuttering the counter.
   useEffect(() => {
     if (!streaming) return;
-    const id = setInterval(() => setClockTick((t) => t + 1), 1000);
+    const id = setInterval(() => setClockTick((t) => t + 1), 250);
     return () => clearInterval(id);
   }, [streaming]);
+
+  useEffect(
+    () => () => {
+      clearTimeout(uploadTimer.current ?? undefined);
+      abortRef.current?.abort();
+    },
+    [],
+  );
 
   // The ↓ latest pill: visible only while writing AND the live tail is out
   // of view. Scroll position is never touched here — display only.
@@ -282,11 +344,13 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
     anchorIndexRef.current = next.length - 1;
     followRef.current = true;
 
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
     try {
       const conv = await streamSend(
         botId,
         text,
-        { conversationId: convRef.current, record: !offRecord },
+        { conversationId: convRef.current, record: !offRecord, signal: ctrl.signal },
         (event) => {
           applyEvent(turnsRef.current, event);
           setTurns([...turnsRef.current]);
@@ -311,38 +375,63 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
         }
       }
     } catch (e) {
-      // A failed send must not eat the message (same guarantee as the
-      // terminal composer): restore the typed text AND the staged photos.
-      el.value = el.value ? `${typed}\n${el.value}` : typed;
-      setAttached((prev) => [...paths, ...prev]);
-      setSendError(e instanceof Error ? e.message : 'Send failed — message restored.');
-      setTurns(turnsRef.current.filter((t, i) => !(i === next.length - 1 && t.role === 'user')));
+      if (ctrl.signal.aborted) {
+        // Her stop, not a failure: the message went out and what streamed
+        // stays — just close the writing turn cleanly.
+        const last = turnsRef.current[turnsRef.current.length - 1];
+        if (last && last.role === 'assistant') {
+          last.open = false;
+          last.tool = null;
+        }
+        setTurns([...turnsRef.current]);
+      } else {
+        // A failed send must not eat the message (same guarantee as the
+        // terminal composer): restore the typed text AND the staged photos.
+        el.value = el.value ? `${typed}\n${el.value}` : typed;
+        setAttached((prev) => [...paths, ...prev]);
+        setSendError(e instanceof Error ? e.message : 'Send failed — message restored.');
+        setTurns(turnsRef.current.filter((t, i) => !(i === next.length - 1 && t.role === 'user')));
+      }
     } finally {
+      abortRef.current = null;
       setStreaming(false);
     }
   };
 
+  const stopTurn = () => abortRef.current?.abort();
+
   // Upload straight away on pick (the old surface's behavior — the wait
   // happens while she types the caption, not after she hits send), staging
   // the returned paths as chips. Files live in the transient uploads dir
-  // (24h sweep); whoever consumes them moves what's worth keeping.
+  // (24h sweep); whoever consumes them moves what's worth keeping. The
+  // spinner modal and its 2.2s error flash are phone.html's, verbatim.
   const onPhotoChange = async (input: HTMLInputElement) => {
     const files = Array.from(input.files ?? []);
     input.value = '';
     if (!files.length) return;
-    setUploadLabel(uploadingLabel(files.length));
+    clearTimeout(uploadTimer.current ?? undefined);
+    setUpload({ label: uploadingLabel(files.length), error: false });
     try {
       const data = await uploadTerminalPhotos(files);
       if (!data.paths || !data.paths.length) throw new Error('no paths returned');
       setAttached((prev) => [...prev, ...data.paths]);
-      setUploadLabel(null);
+      setUpload(null);
     } catch (e) {
-      setUploadLabel(null);
-      setSendError(`Upload failed: ${e instanceof Error ? e.message : 'unknown error'}`);
+      setUpload({ label: `Upload failed: ${e instanceof Error ? e.message : 'unknown error'}`, error: true });
+      uploadTimer.current = setTimeout(() => setUpload(null), 2200);
     }
   };
 
-  const journalReply = async (i: number) => {
+  // Stable callbacks (refs only) so the memoized Reply rows below actually
+  // skip re-rendering — closed turns re-running mdToHtml on every token
+  // delta was the transcript's main render cost.
+  const tapReply = useCallback((i: number) => {
+    const t = turnsRef.current[i];
+    if (!t || t.open || t.journaled || !convRef.current) return;
+    setJournalArmed((a) => (a === i ? null : i));
+  }, []);
+
+  const journalReply = useCallback(async (i: number) => {
     const conv = convRef.current;
     const t = turnsRef.current[i];
     if (!conv || !t || t.journaled) return;
@@ -355,7 +444,7 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
     } finally {
       setJournalArmed(null);
     }
-  };
+  }, []);
 
   // The working line runs the whole turn — including the quiet stretch before
   // the first token, which is exactly when a loading signal matters most.
@@ -400,29 +489,18 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
                 );
               }
               return (
-                <div key={i} className={styles.reply}>
-                  {/* Tap a finished reply to arm the journal pill; tap again
-                      anywhere in it to disarm. */}
-                  <div
-                    className={styles.replyBody}
-                    onClick={() => {
-                      if (t.open || t.journaled || !convRef.current) return;
-                      setJournalArmed((a) => (a === i ? null : i));
-                    }}
-                    dangerouslySetInnerHTML={{ __html: mdToHtml(assistantText(t)) }}
-                  />
-                  {t.open && t.tool ? <div className={styles.toolNote}>{t.tool}</div> : null}
-                  {t.journaled ? <div className={styles.journaledNote}>✦ in the journal</div> : null}
-                  {journalArmed === i && !t.journaled && !t.open ? (
-                    <button
-                      type="button"
-                      className={styles.journalBtn}
-                      onClick={() => void journalReply(i)}
-                    >
-                      ✦ put this in the journal
-                    </button>
-                  ) : null}
-                </div>
+                <Reply
+                  key={i}
+                  index={i}
+                  text={t.text}
+                  buffer={t.buffer}
+                  open={t.open}
+                  tool={t.tool}
+                  journaled={t.journaled}
+                  armed={journalArmed === i}
+                  onBodyTap={tapReply}
+                  onJournalTap={journalReply}
+                />
               );
             })
           )}
@@ -501,7 +579,6 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
             off the record — not journaled, not kept (Claude&rsquo;s transcript still sees this)
           </div>
         ) : null}
-        {uploadLabel ? <div className={styles.offNote}>{uploadLabel}</div> : null}
         {attached.length > 0 ? (
           <div className={styles.chipsRow}>
             {attached.map((p) => (
@@ -519,15 +596,22 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
             ))}
           </div>
         ) : null}
-        <div className={styles.composerRow}>
+        {/* The old bottom bar's toolbar row, same colors and placement —
+            directly above the input, twilight-indigo like the terminal
+            chrome. Only the buttons that still mean something here. */}
+        <div className={styles.toolbar}>
+          <button type="button" className={styles.toolBtn} onClick={() => fileRef.current?.click()}>
+            photo
+          </button>
           <button
             type="button"
-            className={styles.offBtn}
-            title="Attach photos"
-            aria-label="Attach photos"
-            onClick={() => fileRef.current?.click()}
+            className={styles.toolBtn}
+            disabled={!streaming}
+            title="Stop the reply"
+            aria-label="Stop the reply"
+            onClick={stopTurn}
           >
-            🖼
+            stop
           </button>
           <input
             ref={fileRef}
@@ -538,6 +622,8 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
             className={styles.fileInput}
             onChange={(e) => void onPhotoChange(e.currentTarget)}
           />
+        </div>
+        <div className={styles.composerRow}>
           {/* The pause button lives only where the journal is live — a
               workshop session has nothing to pause. */}
           {sessionJournal === true ? (
@@ -578,6 +664,15 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
           </button>
         </div>
       </div>
+
+      {upload ? (
+        <div className={styles.uploadOverlay}>
+          <div className={[styles.uploadBox, upload.error ? styles.uploadError : ''].filter(Boolean).join(' ')}>
+            {!upload.error && <div className={styles.spinner} />}
+            <div>{upload.label}</div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
