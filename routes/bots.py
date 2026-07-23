@@ -111,8 +111,12 @@ def _build_cmd(bot, resume_sid):
     return cmd
 
 
-def _spawn(bot, text, resume_sid):
-    cwd = bot.get("cwd")
+def _spawn(bot, text, resume_sid, cwd_override=None):
+    # Claude Code stores conversations PER DIRECTORY — resuming a session id
+    # from a different cwd fails with "No conversation found". Every
+    # conversation therefore carries the cwd it was born in (imported
+    # terminal sessions keep their original one) and is always resumed there.
+    cwd = cwd_override or bot.get("cwd")
     if not (cwd and os.path.isdir(cwd)):
         cwd = None
     proc = subprocess.Popen(
@@ -155,7 +159,8 @@ def register(app):
         `journal: false` makes it a non-diary space: sends still log to the
         session's own jsonl but never mint journal cards (the same split as
         tmux sessions outside KEEPER_CAPTURE_SESSIONS)."""
-        if not _bot(bot_id):
+        bot = _bot(bot_id)
+        if not bot:
             return jsonify({"error": "unknown bot"}), 404
         data = request.json or {}
         title = (data.get("title") or "").strip()[:60]
@@ -167,7 +172,8 @@ def register(app):
             conv_id = _new_conv_id(index)
             index[conv_id] = {"bot": bot_id, "started": _now(), "last_at": _now(),
                               "claude_session_id": None, "cost_usd": 0.0,
-                              "title": title or "New session", "journal": journal}
+                              "title": title or "New session", "journal": journal,
+                              "cwd": bot.get("cwd")}
         return jsonify({"ok": True, "id": conv_id})
 
     @app.route("/api/bots/conversation/<conv_id>/settings", methods=["POST"])
@@ -229,9 +235,11 @@ def register(app):
             entry = index.setdefault(conv_id, {"bot": bot_id, "started": _now(),
                                                "claude_session_id": None,
                                                "title": text[:60], "cost_usd": 0.0,
-                                               "journal": False})
+                                               "journal": False,
+                                               "cwd": bot.get("cwd")})
             entry["last_at"] = _now()
             resume_sid = entry.get("claude_session_id")
+            conv_cwd = entry.get("cwd")
             # Journal is opt-in per session (the pinned Keeper session carries
             # journal:true) — everything else logs to its own jsonl only.
             conv_journals = entry.get("journal") is True
@@ -252,7 +260,7 @@ def register(app):
                 log.write(json.dumps({"type": "off-record-gap", "ts": _now()}) + "\n")
 
         try:
-            proc = _spawn(bot, text, resume_sid)
+            proc = _spawn(bot, text, resume_sid, cwd_override=conv_cwd)
         except OSError as e:
             return jsonify({"error": f"could not start claude: {e}"}), 502
 

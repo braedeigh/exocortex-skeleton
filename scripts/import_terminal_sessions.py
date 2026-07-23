@@ -143,6 +143,9 @@ def main():
                 "cost_usd": 0.0,
                 "journal": journal,
                 "imported_from": sess,
+                # Claude sessions are per-directory — resume must happen in
+                # the cwd the conversation was born in.
+                "cwd": claude.get("cwd"),
             }
         with open(chats_dir / f"{conv_id}.jsonl", "w", encoding="utf-8") as f:
             for e in events:

@@ -217,3 +217,26 @@ def test_non_journal_session_logs_but_never_mints(bot_client):
     assert _conv_log(conv_id)[0]["text"] == "not a diary line"
     # ...but the journal door never opened (unlike a default session)
     assert bot_client._mints == []
+
+
+def test_resume_happens_in_the_conversations_own_cwd(bot_client, tmp_path, monkeypatch):
+    # Claude sessions are per-directory: an imported conversation carries the
+    # cwd it was born in, and every spawn for it must run there — not in the
+    # bot's default cwd (the "No conversation found with session ID" bug).
+    born_in = tmp_path / "born-here"
+    born_in.mkdir()
+    (store.DATA_DIR / "bot_chats").mkdir(parents=True, exist_ok=True)
+    with store.mutate("bot_chats/index", {}) as index:
+        index["imported-1"] = {"bot": "keeper", "started": "x", "last_at": "x",
+                               "claude_session_id": "sid-old", "cost_usd": 0.0,
+                               "title": "Imported", "journal": False,
+                               "cwd": str(born_in)}
+    seen = {}
+    real_spawn = bots._spawn
+    def spy(bot, text, resume_sid, cwd_override=None):
+        seen["cwd"] = cwd_override
+        seen["resume"] = resume_sid
+        return real_spawn(bot, text, resume_sid, cwd_override)
+    monkeypatch.setattr(bots, "_spawn", spy)
+    _sse_events(_send(bot_client, text="continue", conversation_id="imported-1"))
+    assert seen == {"cwd": str(born_in), "resume": "sid-old"}
