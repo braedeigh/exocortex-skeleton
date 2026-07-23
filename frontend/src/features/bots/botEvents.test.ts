@@ -54,6 +54,28 @@ describe('applyEvent', () => {
   });
 });
 
+describe('journal-mark', () => {
+  it('flags the newest assistant turn whose text matches — and only that one', () => {
+    const turns: Turn[] = [];
+    applyEvent(turns, assistant('same words'));
+    applyEvent(turns, { type: 'result', subtype: 'success' });
+    applyEvent(turns, { type: 'user', text: 'again?' });
+    applyEvent(turns, assistant('same words'));
+    applyEvent(turns, { type: 'result', subtype: 'success' });
+    applyEvent(turns, { type: 'journal-mark', text: 'same words' });
+    // turns: [assistant, user, assistant] — the newest match gets the flag.
+    expect(turns[0].journaled).toBe(false);
+    expect(turns[2].journaled).toBe(true);
+  });
+
+  it('leaves everything untouched when nothing matches', () => {
+    const turns: Turn[] = [];
+    applyEvent(turns, assistant('a reply'));
+    applyEvent(turns, { type: 'journal-mark', text: 'different words' });
+    expect(turns[0].journaled).toBe(false);
+  });
+});
+
 describe('turnsFromHistory', () => {
   it('replays a logged conversation and closes a mid-stream tail', () => {
     const turns = turnsFromHistory([

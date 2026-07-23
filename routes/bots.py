@@ -223,6 +223,28 @@ def register(app):
             out = dict(entry, id=conv_id)
         return jsonify({"ok": True, "conversation": out})
 
+    @app.route("/api/bots/conversation/<conv_id>/journal-output", methods=["POST"])
+    def bot_journal_output(conv_id):
+        """Put one keeper reply into the journal, on a tap — the fine-grained
+        opposite of the pause button: works in any session regardless of its
+        journal switch, and mints a K card (the keeper's voice, not hers).
+        A journal-mark event is appended to the log so the ✦ survives reload
+        (matched by text — the log is the same source both sides read)."""
+        if not _CONV_ID_RE.match(conv_id):
+            return jsonify({"error": "invalid conversation id"}), 400
+        data = request.json or {}
+        text = (data.get("text") or "").strip()
+        if not text:
+            return jsonify({"error": "empty text"}), 400
+        if not isinstance(store.read("bot_chats/index", {}).get(conv_id), dict):
+            return jsonify({"error": "not found"}), 404
+        if not terminal._capture_journal(text, text, who="K"):
+            return jsonify({"error": "journal mint failed"}), 502
+        with open(_chats_dir() / f"{conv_id}.jsonl", "a", encoding="utf-8") as log:
+            log.write(json.dumps({"type": "journal-mark", "text": text,
+                                  "ts": _now()}) + "\n")
+        return jsonify({"ok": True})
+
     @app.route("/api/bots/conversation/<conv_id>")
     def bot_conversation(conv_id):
         if not _CONV_ID_RE.match(conv_id):

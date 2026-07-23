@@ -4,7 +4,7 @@ import { mdToHtml } from '../journal/markdown';
 import { autosizeHeight } from '../phone/phoneLogic';
 import { TermNotesPanel } from '../../shell/TermNotesPanel';
 import { SchedulePanel } from '../../shell/SchedulePanel';
-import { getBots, getConversation, streamSend } from './botsApi';
+import { getBots, getConversation, journalOutput, streamSend } from './botsApi';
 import {
   applyEvent,
   assistantText,
@@ -63,6 +63,9 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
   const [stats, setStats] = useState<TurnStats | null>(null);
   const statsRef = useRef<TurnStats | null>(null);
   const [, setClockTick] = useState(0);
+  // Tap-to-journal: which assistant turn is armed (tap → "✦ put this in the
+  // journal" appears → tap that to mint the K card).
+  const [journalArmed, setJournalArmed] = useState<number | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -159,6 +162,13 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
   useEffect(() => {
     if (!streaming) followRef.current = false;
   }, [streaming]);
+
+  // The pause (off-record) button only exists where the journal is live —
+  // in a workshop session there's nothing to pause. Clear any stale state
+  // when the session turns out not to journal.
+  useEffect(() => {
+    if (sessionJournal !== true) setOffRecord(false);
+  }, [sessionJournal]);
 
   // The working line's clock: re-render once a second while streaming so the
   // elapsed seconds tick even when no tokens are arriving (tool time).
@@ -270,6 +280,21 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
     }
   };
 
+  const journalReply = async (i: number) => {
+    const conv = convRef.current;
+    const t = turnsRef.current[i];
+    if (!conv || !t || t.journaled) return;
+    try {
+      await journalOutput(conv, assistantText(t));
+      t.journaled = true;
+      setTurns([...turnsRef.current]);
+    } catch {
+      setSendError('Could not put that reply in the journal.');
+    } finally {
+      setJournalArmed(null);
+    }
+  };
+
   // The working line runs the whole turn — including the quiet stretch before
   // the first token, which is exactly when a loading signal matters most.
   const writing = streaming;
@@ -314,11 +339,27 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
               }
               return (
                 <div key={i} className={styles.reply}>
+                  {/* Tap a finished reply to arm the journal pill; tap again
+                      anywhere in it to disarm. */}
                   <div
                     className={styles.replyBody}
+                    onClick={() => {
+                      if (t.open || t.journaled || !convRef.current) return;
+                      setJournalArmed((a) => (a === i ? null : i));
+                    }}
                     dangerouslySetInnerHTML={{ __html: mdToHtml(assistantText(t)) }}
                   />
                   {t.open && t.tool ? <div className={styles.toolNote}>{t.tool}</div> : null}
+                  {t.journaled ? <div className={styles.journaledNote}>✦ in the journal</div> : null}
+                  {journalArmed === i && !t.journaled && !t.open ? (
+                    <button
+                      type="button"
+                      className={styles.journalBtn}
+                      onClick={() => void journalReply(i)}
+                    >
+                      ✦ put this in the journal
+                    </button>
+                  ) : null}
                 </div>
               );
             })
@@ -399,16 +440,20 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
           </div>
         ) : null}
         <div className={styles.composerRow}>
-          <button
-            type="button"
-            className={[styles.offBtn, offRecord ? styles.offBtnActive : ''].filter(Boolean).join(' ')}
-            title={offRecord ? 'Back on the record' : 'Go off the record'}
-            aria-label={offRecord ? 'Back on the record' : 'Go off the record'}
-            aria-pressed={offRecord}
-            onClick={() => setOffRecord((v) => !v)}
-          >
-            {offRecord ? '◌' : '●'}
-          </button>
+          {/* The pause button lives only where the journal is live — a
+              workshop session has nothing to pause. */}
+          {sessionJournal === true ? (
+            <button
+              type="button"
+              className={[styles.offBtn, offRecord ? styles.offBtnActive : ''].filter(Boolean).join(' ')}
+              title={offRecord ? 'Back on the record' : 'Go off the record'}
+              aria-label={offRecord ? 'Back on the record' : 'Go off the record'}
+              aria-pressed={offRecord}
+              onClick={() => setOffRecord((v) => !v)}
+            >
+              {offRecord ? '◌' : '●'}
+            </button>
+          ) : null}
           <textarea
             ref={inputRef}
             className={styles.input}

@@ -49,6 +49,12 @@ export function createConversation(
   return api.post(`/api/bots/${encodeURIComponent(bot)}/conversations`, { title, journal });
 }
 
+/** Put one keeper reply into the journal (a K card) — the tap gesture.
+ * Works in any session regardless of its journal switch. */
+export function journalOutput(convId: string, text: string): Promise<{ ok: true }> {
+  return api.post(`/api/bots/conversation/${encodeURIComponent(convId)}/journal-output`, { text });
+}
+
 /** Close (archive) a session — it leaves the roster; its log stays. The
  * pinned Keeper session refuses (400). */
 export function closeConversation(id: string): Promise<{ ok: true }> {

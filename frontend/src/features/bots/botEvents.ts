@@ -31,10 +31,12 @@ export interface Turn {
   offRecord: boolean;
   /** assistant only: current tool activity label ("reading files…"). */
   tool: string | null;
+  /** assistant only: this reply was tapped into the journal (K card). */
+  journaled: boolean;
 }
 
 function turn(role: Turn['role'], text = ''): Turn {
-  return { role, text, buffer: '', open: false, offRecord: false, tool: null };
+  return { role, text, buffer: '', open: false, offRecord: false, tool: null, journaled: false };
 }
 
 export function userTurn(text: string, offRecord: boolean): Turn {
@@ -137,6 +139,21 @@ export function applyEvent(turns: Turn[], raw: unknown): Turn[] {
     case 'error': {
       const text = typeof e.error === 'string' && e.error ? e.error : 'Something went wrong.';
       turns.push(turn('error', text));
+      return turns;
+    }
+    case 'journal-mark': {
+      // A reply she tapped into the journal — flag the newest assistant turn
+      // whose text matches (the mark carries the full text; both sides read
+      // the same log, so equality is exact).
+      if (typeof e.text === 'string') {
+        for (let i = turns.length - 1; i >= 0; i--) {
+          const t = turns[i];
+          if (t.role === 'assistant' && assistantText(t) === e.text) {
+            t.journaled = true;
+            break;
+          }
+        }
+      }
       return turns;
     }
     default:

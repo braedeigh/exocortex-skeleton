@@ -54,7 +54,8 @@ def bot_client(data_dir, tmp_path, monkeypatch):
 
     mints = []
     monkeypatch.setattr(terminal, "_capture_journal",
-                        lambda body, typed, tags=None: mints.append(body) or True)
+                        lambda body, typed, tags=None, who="B":
+                        mints.append((who, body)) or True)
 
     app = Flask(__name__)
     app.config.update(TESTING=True)
@@ -120,7 +121,7 @@ def test_journal_mints_before_claude_is_spawned(bot_client, monkeypatch):
     monkeypatch.setattr(bots, "_spawn", boom)
     resp = _send(bot_client, text="a journal line", conversation_id=conv_id)
     assert resp.status_code == 502
-    assert bot_client._mints == ["a journal line"]
+    assert bot_client._mints == [("B", "a journal line")]
 
 
 def test_fresh_sessions_do_not_journal_by_default(bot_client):
@@ -220,6 +221,30 @@ def test_non_journal_session_logs_but_never_mints(bot_client):
     assert any(e["type"] == "assistant" for e in events)
     assert _conv_log(conv_id)[0]["text"] == "not a diary line"
     # ...but the journal door never opened (unlike a default session)
+    assert bot_client._mints == []
+
+
+def test_tap_puts_a_keeper_reply_into_the_journal_as_a_k_card(bot_client):
+    # Works even in a non-journal workshop session — the tap is the
+    # fine-grained opposite of the session's journal switch.
+    events = _sse_events(_send(bot_client, text="hello"))
+    conv_id = events[0]["conversation_id"]
+    resp = bot_client.post(f"/api/bots/conversation/{conv_id}/journal-output",
+                           json={"text": "echo: hello"})
+    assert resp.status_code == 200
+    # Minted in the keeper's voice, not hers.
+    assert bot_client._mints == [("K", "echo: hello")]
+    # The mark lands in the log so the UI's ✦ survives reload.
+    mark = _conv_log(conv_id)[-1]
+    assert mark["type"] == "journal-mark" and mark["text"] == "echo: hello"
+
+
+def test_tap_journal_validates_conv_and_text(bot_client):
+    assert bot_client.post("/api/bots/conversation/nope/journal-output",
+                           json={"text": "x"}).status_code == 404
+    conv_id = _sse_events(_send(bot_client, text="hi"))[0]["conversation_id"]
+    assert bot_client.post(f"/api/bots/conversation/{conv_id}/journal-output",
+                           json={"text": "  "}).status_code == 400
     assert bot_client._mints == []
 
 

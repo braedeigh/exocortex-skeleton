@@ -104,6 +104,29 @@
   font-style: italic;
 }
 
+/* --- Tap-to-journal ------------------------------------------------------- */
+
+.journaledNote {
+  margin-top: var(--space-1);
+  color: var(--accent);
+  font-size: var(--font-size-sm);
+  font-style: italic;
+}
+
+.journalBtn {
+  margin-top: var(--space-2);
+  min-height: var(--tap-target);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--accent) 8%, var(--card-bg));
+  color: var(--accent);
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  cursor: pointer;
+  animation: pillIn 150ms ease-out;
+}
+
 /* --- Presence: still writing… -------------------------------------------- */
 
 .writing {

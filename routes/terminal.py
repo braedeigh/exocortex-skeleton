@@ -494,11 +494,14 @@ def _thread_tag_for_session(sess):
     return None
 
 
-def _capture_journal(body, typed, tags=None):
-    """Mint a B card for one journal turn, at the server, before the text is
+def _capture_journal(body, typed, tags=None, who="B"):
+    """Mint a card for one journal turn, at the server, before the text is
     ever typed into tmux -- capture must not depend on a terminal process
     staying alive to see it (the whole reason this exists: the hook's
     process-launch snapshot goes stale and silently stops seeing prompts).
+
+    `who` is the card's speaker: "B" (hers, the default) or "K" (the keeper's
+    voice -- the bot surface's tap-a-reply-into-the-journal door).
 
     `tags`, when given, is a single thread slug (from _thread_tag_for_session)
     passed through as `--tags <slug>` so the card is born tagged -- mirroring
@@ -509,7 +512,7 @@ def _capture_journal(body, typed, tags=None):
     here, a live hook minting the same text later is the fallback we want --
     marking it "already captured" would make that fallback dedup itself away.
     """
-    args = ["record", "--who", "B"]
+    args = ["record", "--who", who]
     if tags:
         args += ["--tags", tags]
     try:
@@ -523,7 +526,10 @@ def _capture_journal(body, typed, tags=None):
     if result.returncode != 0:
         _log_capture_failure(body, (result.stderr or "").strip() or "stream.py record failed")
         return False
-    _note_ui_capture(typed)
+    if who == "B":
+        # The hook-dedup hash is keyed to her typed prompts; a keeper card
+        # has no hook fallback to dedup against.
+        _note_ui_capture(typed)
     return True
 
 
