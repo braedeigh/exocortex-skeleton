@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { mdToHtml } from '../journal/markdown';
-import { autosizeHeight } from '../phone/phoneLogic';
+import { uploadTerminalPhotos } from '../phone/phoneApi';
+import { autosizeHeight, uploadedPathsMessage, uploadingLabel } from '../phone/phoneLogic';
 import { TermNotesPanel } from '../../shell/TermNotesPanel';
 import { SchedulePanel } from '../../shell/SchedulePanel';
 import { getBots, getConversation, journalOutput, streamSend } from './botsApi';
@@ -66,6 +67,12 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
   // Tap-to-journal: which assistant turn is armed (tap → "✦ put this in the
   // journal" appears → tap that to mint the K card).
   const [journalArmed, setJournalArmed] = useState<number | null>(null);
+  // Photo attach (the terminal toolbar's photo button, reborn): uploaded
+  // paths stage as removable chips until the send folds them into the
+  // message as [uploaded: …] refs the keeper can Read.
+  const [attached, setAttached] = useState<string[]>([]);
+  const [uploadLabel, setUploadLabel] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const columnRef = useRef<HTMLDivElement>(null);
@@ -248,10 +255,16 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
 
   const send = async () => {
     const el = inputRef.current;
-    const text = el?.value.trim();
-    if (!el || !text || streaming) return;
+    const typed = el?.value.trim() ?? '';
+    // Photos may go alone (refs are a message), but empty-empty is nothing.
+    if (!el || (!typed && attached.length === 0) || streaming) return;
+    const paths = attached;
+    const text = paths.length
+      ? uploadedPathsMessage(paths) + (typed ? `\n${typed}` : '')
+      : typed;
     el.value = '';
     el.style.height = 'auto';
+    setAttached([]);
     setSendError(null);
 
     const next = [...turnsRef.current, userTurn(text, offRecord)];
@@ -299,12 +312,33 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
       }
     } catch (e) {
       // A failed send must not eat the message (same guarantee as the
-      // terminal composer): restore it ahead of anything typed mid-flight.
-      el.value = el.value ? `${text}\n${el.value}` : text;
+      // terminal composer): restore the typed text AND the staged photos.
+      el.value = el.value ? `${typed}\n${el.value}` : typed;
+      setAttached((prev) => [...paths, ...prev]);
       setSendError(e instanceof Error ? e.message : 'Send failed — message restored.');
       setTurns(turnsRef.current.filter((t, i) => !(i === next.length - 1 && t.role === 'user')));
     } finally {
       setStreaming(false);
+    }
+  };
+
+  // Upload straight away on pick (the old surface's behavior — the wait
+  // happens while she types the caption, not after she hits send), staging
+  // the returned paths as chips. Files live in the transient uploads dir
+  // (24h sweep); whoever consumes them moves what's worth keeping.
+  const onPhotoChange = async (input: HTMLInputElement) => {
+    const files = Array.from(input.files ?? []);
+    input.value = '';
+    if (!files.length) return;
+    setUploadLabel(uploadingLabel(files.length));
+    try {
+      const data = await uploadTerminalPhotos(files);
+      if (!data.paths || !data.paths.length) throw new Error('no paths returned');
+      setAttached((prev) => [...prev, ...data.paths]);
+      setUploadLabel(null);
+    } catch (e) {
+      setUploadLabel(null);
+      setSendError(`Upload failed: ${e instanceof Error ? e.message : 'unknown error'}`);
     }
   };
 
@@ -467,7 +501,43 @@ export function BotChatPage({ botId, convId }: { botId: string; convId?: string 
             off the record — not journaled, not kept (Claude&rsquo;s transcript still sees this)
           </div>
         ) : null}
+        {uploadLabel ? <div className={styles.offNote}>{uploadLabel}</div> : null}
+        {attached.length > 0 ? (
+          <div className={styles.chipsRow}>
+            {attached.map((p) => (
+              <span key={p} className={styles.chip}>
+                🖼 {p.split('/').pop()}
+                <button
+                  type="button"
+                  className={styles.chipX}
+                  aria-label={`Remove ${p.split('/').pop()}`}
+                  onClick={() => setAttached((prev) => prev.filter((x) => x !== p))}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        ) : null}
         <div className={styles.composerRow}>
+          <button
+            type="button"
+            className={styles.offBtn}
+            title="Attach photos"
+            aria-label="Attach photos"
+            onClick={() => fileRef.current?.click()}
+          >
+            🖼
+          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            multiple
+            tabIndex={-1}
+            className={styles.fileInput}
+            onChange={(e) => void onPhotoChange(e.currentTarget)}
+          />
           {/* The pause button lives only where the journal is live — a
               workshop session has nothing to pause. */}
           {sessionJournal === true ? (
