@@ -1,8 +1,8 @@
 /**
- * botEvents.ts — pure reducer turning the bot pipe's events into renderable
+ * events.ts — pure reducer turning the bot pipe's events into renderable
  * turns. One function handles BOTH sources: a conversation's history jsonl
- * (GET /api/bots/conversation/<id>) and the live SSE stream of a send —
- * they're the same event vocabulary (routes/bots.py relays claude's
+ * (GET /api/reading-room/conversation/<id>) and the live SSE stream of a send —
+ * they're the same event vocabulary (routes/reading_room.py relays claude's
  * stream-json and logs what it relays), so history replay and live streaming
  * can't drift apart.
  *
@@ -120,9 +120,14 @@ export function applyEvent(turns: Turn[], raw: unknown): Turn[] {
       return turns;
     }
     case 'assistant': {
-      const text = messageText(e.message);
       const t = openAssistant(turns);
-      // The full message supersedes the deltas that built it.
+      // Fold what the deltas already put on screen, not the authoritative
+      // message text: a multi-block message joins its blocks with '\n\n'
+      // that the deltas never carried, and that reshaping shifts every
+      // later character offset — remounting the word flow's spans mid-cool
+      // (a cooled word suddenly flashes ember again). History replay logs
+      // no deltas, so buffer is empty there and the message text is used.
+      const text = t.buffer || messageText(e.message);
       t.buffer = '';
       if (text) t.text = t.text ? `${t.text}\n\n${text}` : text;
       return turns;

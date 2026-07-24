@@ -83,7 +83,7 @@ def get_summary(session_id, transcript_path, builder=None):
     re-summarizing. Never raises, never blocks on the CLI.
 
     `builder` turns the file's tail lines into a "User:/Assistant:" dialogue —
-    default is the Claude Code transcript parser; routes/bots.py passes
+    default is the Claude Code transcript parser; routes/reading_room.py passes
     `build_bot_dialogue` for its own bot_chats/<conv>.jsonl format."""
     if not session_id:
         return None
@@ -249,8 +249,8 @@ def _build_dialogue(lines):
 
 
 def build_bot_dialogue(lines):
-    """Dialogue builder for the bot surface's own bot_chats/<conv>.jsonl
-    (routes/bots.py): user turns are {"type":"user","text":...}, assistant
+    """Dialogue builder for the reading room's own bot_chats/<conv>.jsonl
+    (routes/reading_room.py): user turns are {"type":"user","text":...}, assistant
     turns wrap an API-shaped message. Result/gap/system events are plumbing,
     not conversation -- skipped."""
     turns = []

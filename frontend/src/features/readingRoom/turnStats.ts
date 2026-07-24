@@ -1,8 +1,8 @@
 /**
  * turnStats.ts — the Claude Code-style working line, ported into the reading
  * room: "✻ Percolating… 12s · ~1.3k tokens · thought 4s". A pure reducer over
- * the same raw SSE events botEvents.ts sees (kept separate on purpose:
- * botEvents builds the transcript, this builds the heartbeat).
+ * the same raw SSE events events.ts sees (kept separate on purpose:
+ * events.ts builds the transcript, this builds the heartbeat).
  *
  * Where the numbers come from:
  * - elapsed: wall time since the send started;

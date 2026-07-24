@@ -222,7 +222,7 @@ def test_build_dialogue_empty_for_no_recognisable_turns():
 
 
 def test_build_bot_dialogue_reads_the_bot_chat_log_format():
-    # The bot surface's own record (bot_chats/<conv>.jsonl, routes/bots.py):
+    # The reading room's own record (bot_chats/<conv>.jsonl, routes/reading_room.py):
     # bare user lines, API-shaped assistant events, plumbing in between.
     lines = [
         json.dumps({"type": "user", "text": "hi keeper", "ts": "x", "journaled": True}),

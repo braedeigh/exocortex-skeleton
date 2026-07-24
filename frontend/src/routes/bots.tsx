@@ -1,21 +1,12 @@
 import { createFileRoute, redirect } from '@tanstack/react-router';
-import { BotRosterPage } from '../features/bots/BotRosterPage';
-import { useDeactivateFrames } from '../shell/useIframeView';
 
 /**
- * The bot roster (bot-surface-design §5B) — auth-only on every device: the
- * bot surface spawns headless Claude with vault access, so public visitors
- * bounce exactly like /chat and /sessions do.
+ * /bots is retired in favor of /reading-room (renamed 07-24 — the persona
+ * concept keeps the name "bot"; only this surface's URL changed). This file
+ * stays only as a redirect for old bookmarks and cached PWA clients.
  */
 export const Route = createFileRoute('/bots')({
   beforeLoad: () => {
-    if (typeof window === 'undefined') return;
-    if (window.VIEW_MODE === 'public') throw redirect({ to: '/' });
+    throw redirect({ to: '/reading-room' });
   },
-  component: BotsRoute,
 });
-
-function BotsRoute() {
-  useDeactivateFrames();
-  return <BotRosterPage />;
-}

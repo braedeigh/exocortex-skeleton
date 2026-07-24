@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyEvent, assistantText, turnsFromHistory, userTurn, type Turn } from './botEvents';
+import { applyEvent, assistantText, turnsFromHistory, userTurn, type Turn } from './events';
 
 const delta = (text: string) => ({
   type: 'stream_event',
@@ -24,6 +24,27 @@ describe('applyEvent', () => {
     expect(assistantText(turns[1])).toBe('Hello.');
     applyEvent(turns, { type: 'result', subtype: 'success' });
     expect(turns[1].open).toBe(false);
+  });
+
+  it('keeps the streamed text prefix-stable when a multi-block message folds', () => {
+    // Deltas across two text blocks concatenate directly; the authoritative
+    // message joins them '\n\n'. Folding the message version would shift
+    // every later offset (word-flow spans remount and re-ember). The deltas
+    // win while they exist.
+    const turns: Turn[] = [];
+    applyEvent(turns, delta('block one.'));
+    applyEvent(turns, delta('block two.'));
+    applyEvent(turns, {
+      type: 'assistant',
+      message: {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'block one.' },
+          { type: 'text', text: 'block two.' },
+        ],
+      },
+    });
+    expect(assistantText(turns[0])).toBe('block one.block two.');
   });
 
   it('joins multiple assistant messages in one turn (tool-use rounds) as paragraphs', () => {

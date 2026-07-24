@@ -174,11 +174,36 @@
   font-weight: 400;
 }
 
-.unreadDot {
-  width: 8px;
-  height: 8px;
+/* Status dot: busy (a turn is running — same pulse/accent as the reading
+   room's "still writing…" indicator, ReadingRoomPage.module.css .writingDot) or
+   ready (finished, with activity newer than she last opened it — --orange,
+   the same tint the app already uses for "needs attention" elsewhere). 10px
+   floor per the UI rules — the old 8px unread dot read as too faint. */
+.statusDot {
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.statusDotBusy {
   background: var(--accent);
+  animation: statusPulse 1.2s ease-in-out infinite;
+}
+
+.statusDotReady {
+  background: var(--orange);
+}
+
+@keyframes statusPulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .statusDotBusy {
+    animation: none;
+  }
 }
 
 .cardTime {

@@ -7,8 +7,9 @@ import {
   getBots,
   updateConversation,
   type BotConvMeta,
-} from './botsApi';
-import styles from './BotRosterPage.module.css';
+} from './api';
+import { sessionStatus } from './sessionStatus';
+import styles from './RosterPage.module.css';
 
 function ago(iso: string | undefined): string | null {
   if (!iso) return null;
@@ -23,6 +24,9 @@ function ago(iso: string | undefined): string | null {
 
 function openedMap(): Record<string, string> {
   try {
+    // 'exo-bot-opened' predates the reading-room rename (07-24) — the
+    // persona concept ("bot") stays, so this on-disk/localStorage name is
+    // deliberately unchanged.
     const raw = localStorage.getItem('exo-bot-opened');
     return raw ? (JSON.parse(raw) as Record<string, string>) : {};
   } catch {
@@ -31,15 +35,15 @@ function openedMap(): Record<string, string> {
 }
 
 /**
- * /bots — the Sessions page: the reading-room counterpart of the terminal's
- * session list. A session is a SPACE, not a persona — she summons whichever
- * voices she wants inside it with slash commands (/spark, /terra,
+ * /reading-room — the Sessions page: the reading-room counterpart of the
+ * terminal's session list. A session is a SPACE, not a persona — she summons
+ * whichever voices she wants inside it with slash commands (/spark, /terra,
  * /journalstart), exactly like a tmux session ("each session can have more
  * than 1 bot activated into it"). One card per session: name (renameable),
  * unread-since-reply accent, freshness; '+ New session' creates a named one,
  * optionally non-diary (dashed rule — sends log but never journal).
  */
-export function BotRosterPage() {
+export function RosterPage() {
   const navigate = useNavigate();
   const [botId, setBotId] = useState<string | null>(null);
   const [sessions, setSessions] = useState<BotConvMeta[]>([]);
@@ -64,7 +68,15 @@ export function BotRosterPage() {
       .catch(() => setFailed(true));
   };
 
-  useEffect(refresh, []);
+  useEffect(() => {
+    refresh();
+    // Gentle poll so a busy dot flips to ready on its own — a turn runs
+    // detached from any one HTTP connection, so nothing else here would
+    // notice it finishing.
+    const id = setInterval(refresh, 5500);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const opened = openedMap();
   const isUnread = (c: BotConvMeta) => {
@@ -75,7 +87,7 @@ export function BotRosterPage() {
 
   const open = (convId: string) => {
     if (!botId) return;
-    void navigate({ to: '/bots/$botId', params: { botId }, search: { conv: convId } });
+    void navigate({ to: '/reading-room/$botId', params: { botId }, search: { conv: convId } });
   };
 
   const onCreate = (title: string, journal: boolean) => {
@@ -112,6 +124,7 @@ export function BotRosterPage() {
         <div className={styles.list}>
           {sessions.map((c) => {
             const unread = isUnread(c);
+            const status = sessionStatus(c, opened[c.id]);
             return (
               <div
                 key={c.id}
@@ -137,7 +150,15 @@ export function BotRosterPage() {
                   <span className={[styles.botName, unread ? styles.botNameUnread : ''].filter(Boolean).join(' ')}>
                     {c.title || c.id}
                     {c.pinned ? <span className={styles.pinBadge}>pinned</span> : null}
-                    {unread ? <span className={styles.unreadDot} /> : null}
+                    {status !== 'idle' ? (
+                      <span
+                        aria-hidden="true"
+                        className={[
+                          styles.statusDot,
+                          status === 'busy' ? styles.statusDotBusy : styles.statusDotReady,
+                        ].join(' ')}
+                      />
+                    ) : null}
                   </span>
                   <button
                     type="button"

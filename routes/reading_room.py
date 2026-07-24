@@ -1,4 +1,4 @@
-"""Bot surface API — slice S1 of docs/bot-surface-design (the "pipe").
+"""Reading room API — slice S1 of docs/bot-surface-design (the "pipe").
 
 A bot is a persona wrapped around headless Claude Code: each turn spawns one
 `claude -p --output-format stream-json` subprocess (no resident daemon — the
@@ -23,8 +23,11 @@ from datetime import datetime
 from pathlib import Path
 import json
 import os
+import queue
 import re
 import subprocess
+import tempfile
+import threading
 
 import recap_summary
 import store
@@ -120,14 +123,130 @@ def _spawn(bot, text, resume_sid, cwd_override=None):
     cwd = cwd_override or bot.get("cwd")
     if not (cwd and os.path.isdir(cwd)):
         cwd = None
+    # stderr goes to a spooled temp file, NOT a pipe: nobody reads stderr
+    # until the process ends, and an unread pipe blocks claude cold once it
+    # writes ~64KB of warnings (verbose mode makes that a real number).
+    stderr_f = tempfile.TemporaryFile()
     proc = subprocess.Popen(
         _build_cmd(bot, resume_sid),
-        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=stderr_f,
         cwd=cwd, text=True, bufsize=1,
     )
     proc.stdin.write(text)
     proc.stdin.close()
-    return proc
+    return proc, stderr_f
+
+
+# Live turns, per worker: conv_id -> Popen. Only the explicit stop endpoint
+# ever kills a turn through this — a client disconnect never touches it (the
+# whole point: closing the phone's PWA must not shoot the reply mid-write).
+# Cross-worker stops go through the index's stop_requested flag instead.
+_running_procs = {}
+_stop_requested = set()
+
+# How stale a `running` flag can be before it's presumed dead (a worker that
+# crashed mid-turn never cleared it). Only consulted when the proc isn't in
+# THIS worker's registry — cross-worker we can't see it, so time decides.
+_RUNNING_STALE_SEC = 600
+
+
+def _effective_running(conv_id, entry):
+    if not entry.get("running"):
+        return False
+    proc = _running_procs.get(conv_id)
+    if proc is not None:
+        return proc.poll() is None
+    try:
+        last = datetime.fromisoformat(entry.get("last_at", ""))
+    except (TypeError, ValueError):
+        return True
+    return (datetime.now() - last).total_seconds() < _RUNNING_STALE_SEC
+
+
+def _stderr_tail(stderr_f):
+    try:
+        stderr_f.seek(0)
+        return stderr_f.read().decode("utf-8", "replace").strip()[-500:]
+    except (OSError, ValueError):
+        return ""
+
+
+def _run_turn(proc, stderr_f, conv_id, log_path, record, resume_sid, live_q):
+    """Own one turn end-to-end, detached from any HTTP connection: relay
+    events to the live viewer queue, keep the jsonl log, and persist the
+    resume id the moment it exists — so a turn interrupted by anything
+    (closed PWA, dropped proxy, worker recycle) is still resumable and its
+    finished text is still in the record."""
+    session_id = resume_sid
+    sid_saved = False
+    cost = None
+    try:
+        with open(log_path, "a", encoding="utf-8") as log:
+            for line in proc.stdout:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    event = json.loads(line)
+                except ValueError:
+                    continue  # non-JSON noise on stdout — skip, don't die
+                if isinstance(event, dict):
+                    if event.get("session_id") and event["session_id"] != session_id:
+                        # `--resume` forks a NEW session id each turn. Save it
+                        # on FIRST sight, not at the clean end — an interrupted
+                        # turn must still resume into what claude remembers.
+                        session_id = event["session_id"]
+                        sid_saved = False
+                    if not sid_saved and session_id:
+                        with store.mutate("bot_chats/index", {}) as index:
+                            entry = index.get(conv_id)
+                            if isinstance(entry, dict):
+                                entry["claude_session_id"] = session_id
+                        sid_saved = True
+                    if event.get("total_cost_usd") is not None:
+                        cost = event["total_cost_usd"]
+                # Token deltas (stream_event) are transport, not record — the
+                # assistant message events they build carry the same text.
+                if record and event.get("type") != "stream_event":
+                    log.write(json.dumps(event) + "\n")
+                    log.flush()   # the log is what a re-attaching client reads
+                live_q.put(event)
+                # A stop from the OTHER gunicorn worker lands as an index
+                # flag; check it per message-granular event, never per token
+                # delta (that would re-read the index thousands of times).
+                if event.get("type") != "stream_event" and conv_id not in _stop_requested:
+                    idx_entry = store.read("bot_chats/index", {}).get(conv_id)
+                    if isinstance(idx_entry, dict) and idx_entry.get("stop_requested"):
+                        _stop_requested.add(conv_id)
+                        proc.kill()
+            proc.wait()
+            stopped = conv_id in _stop_requested
+            if proc.returncode != 0 and not stopped:
+                err = _stderr_tail(stderr_f)
+                ev = {"type": "error",
+                      "error": err or f"claude exited {proc.returncode}"}
+                if record:
+                    log.write(json.dumps(ev) + "\n")
+                live_q.put(ev)
+    finally:
+        _running_procs.pop(conv_id, None)
+        _stop_requested.discard(conv_id)
+        try:
+            stderr_f.close()
+        except OSError:
+            pass
+        with store.mutate("bot_chats/index", {}) as index:
+            entry = index.get(conv_id)
+            if isinstance(entry, dict):
+                entry["claude_session_id"] = session_id
+                entry["last_at"] = _now()
+                entry["running"] = False
+                entry.pop("stop_requested", None)
+                if cost is not None:
+                    entry["cost_usd"] = round(
+                        float(entry.get("cost_usd") or 0.0) + float(cost), 6)
+        live_q.put({"type": "done", "conversation_id": conv_id})
+        live_q.put(None)   # viewer sentinel — the stream is over
 
 
 def _sse(obj):
@@ -135,6 +254,11 @@ def _sse(obj):
 
 
 def register(app):
+    # The /api/bots/* rules below are kept as aliases of the canonical
+    # /api/reading-room/* paths purely for cached PWA clients (old service-
+    # worker installs, bookmarked API calls) — they can be dropped once those
+    # have aged out.
+    @app.route("/api/reading-room")
     @app.route("/api/bots")
     def bots_list():
         """Roster + per-bot conversation summaries (newest first). Closed
@@ -152,6 +276,11 @@ def register(app):
             # top); the sort above stays stable within each group.
             convs.sort(key=lambda c: 0 if c.get("pinned") else 1)
             for c in convs:
+                if c.get("running"):
+                    # Same staleness check bot_conversation applies: a flag
+                    # orphaned by a dead worker must not read as busy forever
+                    # on the roster either.
+                    c["running"] = _effective_running(c["id"], c)
                 # Haiku card summaries, same machinery as the tmux /sessions
                 # page — cached, background-refreshed, never blocking here.
                 summary = recap_summary.get_summary(
@@ -163,6 +292,7 @@ def register(app):
                         "journal": bool(b.get("journal")), "conversations": convs})
         return jsonify({"bots": out})
 
+    @app.route("/api/reading-room/conversation/<conv_id>/close", methods=["POST"])
     @app.route("/api/bots/conversation/<conv_id>/close", methods=["POST"])
     def bot_conv_close(conv_id):
         """Close a session: it leaves the roster, but nothing is deleted —
@@ -178,6 +308,7 @@ def register(app):
             entry["archived"] = _now()
         return jsonify({"ok": True})
 
+    @app.route("/api/reading-room/<bot_id>/conversations", methods=["POST"])
     @app.route("/api/bots/<bot_id>/conversations", methods=["POST"])
     def bot_conv_create(bot_id):
         """Create a named session before its first message — the reading
@@ -202,6 +333,7 @@ def register(app):
                               "cwd": bot.get("cwd")}
         return jsonify({"ok": True, "id": conv_id})
 
+    @app.route("/api/reading-room/conversation/<conv_id>/settings", methods=["POST"])
     @app.route("/api/bots/conversation/<conv_id>/settings", methods=["POST"])
     def bot_conv_settings(conv_id):
         """Rename and/or flip a session's journal switch. Pinning is data-only
@@ -223,6 +355,7 @@ def register(app):
             out = dict(entry, id=conv_id)
         return jsonify({"ok": True, "conversation": out})
 
+    @app.route("/api/reading-room/conversation/<conv_id>/journal-output", methods=["POST"])
     @app.route("/api/bots/conversation/<conv_id>/journal-output", methods=["POST"])
     def bot_journal_output(conv_id):
         """Put one keeper reply into the journal, on a tap — the fine-grained
@@ -245,6 +378,7 @@ def register(app):
                                   "ts": _now()}) + "\n")
         return jsonify({"ok": True})
 
+    @app.route("/api/reading-room/conversation/<conv_id>")
     @app.route("/api/bots/conversation/<conv_id>")
     def bot_conversation(conv_id):
         if not _CONV_ID_RE.match(conv_id):
@@ -259,8 +393,37 @@ def register(app):
             except ValueError:
                 continue  # a torn line (crash mid-append) shouldn't hide the rest
         meta = store.read("bot_chats/index", {}).get(conv_id, {})
+        if isinstance(meta, dict) and meta.get("running"):
+            # Report running-ness honestly: a re-attaching client polls this
+            # to know whether to keep waiting, and a flag orphaned by a dead
+            # worker must not keep it waiting forever.
+            meta = dict(meta, running=_effective_running(conv_id, meta))
         return jsonify({"id": conv_id, "meta": meta, "events": events})
 
+    @app.route("/api/reading-room/conversation/<conv_id>/stop", methods=["POST"])
+    @app.route("/api/bots/conversation/<conv_id>/stop", methods=["POST"])
+    def bot_conv_stop(conv_id):
+        """Stop a running turn ON PURPOSE — the stop button's door. This is
+        the only path that kills a turn now; a vanished client never does.
+        The kill lands directly when this worker owns the proc, and via the
+        index's stop_requested flag when the other gunicorn worker does (its
+        turn thread checks the flag per message-granular event)."""
+        if not _CONV_ID_RE.match(conv_id):
+            return jsonify({"error": "invalid conversation id"}), 400
+        proc = _running_procs.get(conv_id)
+        if proc is not None and proc.poll() is None:
+            _stop_requested.add(conv_id)
+            proc.kill()
+            return jsonify({"ok": True})
+        with store.mutate("bot_chats/index", {}) as index:
+            entry = index.get(conv_id)
+            if not isinstance(entry, dict):
+                return jsonify({"error": "not found"}), 404
+            if entry.get("running"):
+                entry["stop_requested"] = _now()
+        return jsonify({"ok": True})
+
+    @app.route("/api/reading-room/<bot_id>/send", methods=["POST"])
     @app.route("/api/bots/<bot_id>/send", methods=["POST"])
     def bot_send(bot_id):
         bot = _bot(bot_id)
@@ -285,7 +448,15 @@ def register(app):
                                                "title": text[:60], "cost_usd": 0.0,
                                                "journal": False,
                                                "cwd": bot.get("cwd")})
+            # One turn at a time per conversation: turns now outlive their
+            # HTTP connection, so a second send racing in (another device,
+            # a retry) must be refused, not run concurrently against the
+            # same resume id.
+            if _effective_running(conv_id, entry):
+                return jsonify({"error": "a turn is already running in this conversation"}), 409
             entry["last_at"] = _now()
+            entry["running"] = True
+            entry.pop("stop_requested", None)
             resume_sid = entry.get("claude_session_id")
             conv_cwd = entry.get("cwd")
             # Journal is opt-in per session (the pinned Keeper session carries
@@ -308,58 +479,45 @@ def register(app):
                 log.write(json.dumps({"type": "off-record-gap", "ts": _now()}) + "\n")
 
         try:
-            proc = _spawn(bot, text, resume_sid, cwd_override=conv_cwd)
+            proc, stderr_f = _spawn(bot, text, resume_sid, cwd_override=conv_cwd)
         except OSError as e:
+            with store.mutate("bot_chats/index", {}) as index:
+                entry = index.get(conv_id)
+                if isinstance(entry, dict):
+                    entry["running"] = False
             return jsonify({"error": f"could not start claude: {e}"}), 502
 
+        # The turn now belongs to this thread, not this request: it logs,
+        # relays, and finishes whether or not anyone is watching. Closing the
+        # PWA mid-reply used to kill claude (the old generator's finally);
+        # now it just closes the window onto a turn that keeps writing.
+        live_q = queue.Queue()
+        _running_procs[conv_id] = proc
+        threading.Thread(
+            target=_run_turn,
+            args=(proc, stderr_f, conv_id, log_path, record, resume_sid, live_q),
+            daemon=True,
+        ).start()
+
         def generate():
-            session_id = resume_sid
-            cost = None
-            try:
-                yield _sse({"type": "conv", "conversation_id": conv_id,
-                            "bot": bot_id, "journaled": journaled})
-                with open(log_path, "a", encoding="utf-8") as log:
-                    for line in proc.stdout:
-                        line = line.strip()
-                        if not line:
-                            continue
-                        try:
-                            event = json.loads(line)
-                        except ValueError:
-                            continue  # non-JSON noise on stdout — skip, don't die
-                        if isinstance(event, dict):
-                            if event.get("session_id"):
-                                session_id = event["session_id"]
-                            if event.get("total_cost_usd") is not None:
-                                cost = event["total_cost_usd"]
-                        # Token deltas (stream_event) are transport, not
-                        # record — the assistant message events they build
-                        # carry the same text, so persisting the deltas would
-                        # just triple the log for nothing (Terra: "the jsonl
-                        # is transport"... but even transport doesn't keep
-                        # every wingbeat).
-                        if record and event.get("type") != "stream_event":
-                            log.write(json.dumps(event) + "\n")
-                        yield _sse(event)
-                proc.wait()
-                if proc.returncode != 0:
-                    err = (proc.stderr.read() or "").strip()[-500:]
-                    yield _sse({"type": "error",
-                                "error": err or f"claude exited {proc.returncode}"})
-                # `--resume` forks a NEW claude session id each turn — store the
-                # latest so the next turn resumes where this one ended.
-                with store.mutate("bot_chats/index", {}) as index:
-                    entry = index.get(conv_id)
-                    if isinstance(entry, dict):
-                        entry["claude_session_id"] = session_id
-                        entry["last_at"] = _now()
-                        if cost is not None:
-                            entry["cost_usd"] = round(
-                                float(entry.get("cost_usd") or 0.0) + float(cost), 6)
-                yield _sse({"type": "done", "conversation_id": conv_id})
-            finally:
-                if proc.poll() is None:
-                    proc.kill()   # client went away mid-turn — don't orphan claude
+            # A pure viewer over the turn thread's queue. Ending (or dying —
+            # GeneratorExit on client disconnect) leaves the turn untouched;
+            # only /stop kills a turn now.
+            yield _sse({"type": "conv", "conversation_id": conv_id,
+                        "bot": bot_id, "journaled": journaled})
+            while True:
+                try:
+                    item = live_q.get(timeout=15)
+                except queue.Empty:
+                    # SSE comment keepalive: nginx's default proxy_read_timeout
+                    # is 60s, and a long tool stretch can be silent longer than
+                    # that — the comment keeps the pipe warm without touching
+                    # the event vocabulary.
+                    yield ": keepalive\n\n"
+                    continue
+                if item is None:
+                    break
+                yield _sse(item)
 
         return Response(generate(), mimetype="text/event-stream",
                         headers={"Cache-Control": "no-cache",

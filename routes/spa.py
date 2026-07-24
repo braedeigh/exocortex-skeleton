@@ -97,6 +97,13 @@ def register(app):
     @app.route("/files")
     @app.route("/chat")
     @app.route("/notes")
+    # The reading room (renamed from "bots" 07-24 — the persona concept
+    # keeps the name "bot" everywhere; only this surface's URL changed).
+    # /bots/* stays reachable too, for old bookmarks and cached PWA clients.
+    @app.route("/reading-room")
+    @app.route("/reading-room/<path:rest>")
+    @app.route("/bots")
+    @app.route("/bots/<path:rest>")
     # Native dashboard tabs (ported from /tab/<name>):
     @app.route("/map")
     @app.route("/kitchen")
@@ -118,7 +125,7 @@ def register(app):
     @app.route("/vscode")
     @app.route("/food-map")
     @app.route("/about")
-    def spa_shell(tab=None, slug=None):
+    def spa_shell(tab=None, slug=None, rest=None):
         return _spa_response()
 
     @app.route("/legacy/<tab>")

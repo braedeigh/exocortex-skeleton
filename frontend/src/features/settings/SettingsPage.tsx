@@ -14,7 +14,7 @@ import {
   type ThemeMode,
 } from '../../theme';
 import { USAGE_HEAT_EVENT, USAGE_HEAT_STORAGE_KEY } from '../../ui/usageHeat';
-import { chatSurfaceIsBots, setChatSurfaceBots } from '../../shell/chatSurface';
+import { chatSurfaceIsReadingRoom, setChatSurfaceReadingRoom } from '../../shell/chatSurface';
 import { AccountSection } from './AccountSection';
 import { ColorField } from './ColorField';
 import { DevNotesSection } from './DevNotesSection';
@@ -95,10 +95,10 @@ export function SettingsPage() {
   }
 
   // Chat tab surface: terminal (default) or the Keeper bot's reading room.
-  const [chatBots, setChatBots] = useState(chatSurfaceIsBots);
+  const [chatBots, setChatBots] = useState(chatSurfaceIsReadingRoom);
   function onChatSurfaceChange(on: boolean) {
     setChatBots(on);
-    setChatSurfaceBots(on);
+    setChatSurfaceReadingRoom(on);
   }
 
   useEffect(() => {

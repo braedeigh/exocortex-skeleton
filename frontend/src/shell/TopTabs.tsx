@@ -4,7 +4,7 @@ import { Sheet, TapRow } from '../ui';
 import { TAB_META, TAB_ROUTES, VIEW_META, isValidTab, tabForPath, type LegacyTab } from './tabs';
 import { useMediaQuery, DESKTOP_QUERY } from './useMediaQuery';
 import { useSessionsContext } from './SessionsContext';
-import { useChatSurfaceBots } from './chatSurface';
+import { useChatSurfaceReadingRoom } from './chatSurface';
 import styles from './TopTabs.module.css';
 
 /**
@@ -61,8 +61,10 @@ const ALWAYS_MORE_TABS: ReadonlyArray<{ tab: LegacyTab; label: string }> = [
 
 // Native standalone pages in the More menu (Keeper is covered by the Files
 // view below; Personality/Scratchpad/VS Code are SPA routes now).
+// This array is purely in-memory (never persisted), so 'bots' was renamed
+// to 'reading-room' along with the surface (07-24).
 const MORE_PAGES: ReadonlyArray<{ key: string; label: string; to: string }> = [
-  { key: 'bots', label: 'Bots', to: '/bots' },
+  { key: 'reading-room', label: 'Reading room', to: '/reading-room' },
   { key: 'personality', label: 'Personality', to: '/personality' },
   { key: 'scratchpad', label: 'Scratchpad', to: '/scratchpad' },
   { key: 'vscode', label: 'VS Code', to: '/vscode' },
@@ -233,7 +235,7 @@ function DashboardTabRow({ pathname, isPublic = false }: { pathname: string; isP
   const [overflowed, setOverflowed] = useState<readonly LegacyTab[]>([]);
   const [moreOpen, setMoreOpen] = useState(false);
   const isDesktop = useMediaQuery(DESKTOP_QUERY);
-  const chatBots = useChatSurfaceBots();
+  const chatBots = useChatSurfaceReadingRoom();
   const showTerminal = !isPublic && !isDesktop && chatBots;
 
   const rowRef = useRef<HTMLDivElement | null>(null);
@@ -445,7 +447,7 @@ export function TopTabs() {
   const sessions = useSessionsContext();
   // Settings can point the Chat tab at the Keeper bot instead of the tmux
   // terminal ("wanting it to replace the terminal") — see chatSurface.ts.
-  const chatBots = useChatSurfaceBots();
+  const chatBots = useChatSurfaceReadingRoom();
   // Last dashboard route visited, so clicking Dashboard from Journal/Research
   // returns you where you left off instead of always resetting to /todos.
   const lastDashboardTarget = useRef<DashboardTarget>({ to: '/todos' });
@@ -487,13 +489,13 @@ export function TopTabs() {
               className={joinClass(
                 styles.dashBtn,
                 styles.chatBtn,
-                location.pathname.startsWith('/bots') && styles.dashBtnActive,
+                location.pathname.startsWith('/reading-room') && styles.dashBtnActive,
               )}
               onClick={() => {
-                if (location.pathname === '/bots/keeper') void navigate({ to: '/bots' });
+                if (location.pathname === '/reading-room/keeper') void navigate({ to: '/reading-room' });
                 else
                   void navigate({
-                    to: '/bots/$botId',
+                    to: '/reading-room/$botId',
                     params: { botId: 'keeper' },
                     search: { conv: 'latest' },
                   });

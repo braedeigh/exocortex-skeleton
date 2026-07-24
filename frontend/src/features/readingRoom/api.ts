@@ -1,5 +1,5 @@
 /**
- * botsApi.ts — typed calls for the bot surface (routes/bots.py).
+ * api.ts — typed calls for the reading room (routes/reading_room.py).
  * Roster/conversation reads use the shared api client; the send is a raw
  * fetch because it streams: the endpoint answers with SSE frames and the
  * response body is read incrementally (EventSource can't POST).
@@ -20,6 +20,10 @@ export interface BotConvMeta {
   pinned?: boolean;
   /** Cached Haiku one-liner of what the session is working on. */
   summary?: string;
+  /** A turn is running server-side right now — turns outlive their HTTP
+   * connection, so a re-attaching client polls this to know whether to
+   * keep waiting. */
+  running?: boolean;
 }
 
 export interface BotInfo {
@@ -30,14 +34,14 @@ export interface BotInfo {
 }
 
 export function getBots(signal?: AbortSignal): Promise<{ bots: BotInfo[] }> {
-  return api.get('/api/bots', signal);
+  return api.get('/api/reading-room', signal);
 }
 
 export function getConversation(
   id: string,
   signal?: AbortSignal,
 ): Promise<{ id: string; meta: BotConvMeta; events: unknown[] }> {
-  return api.get(`/api/bots/conversation/${encodeURIComponent(id)}`, signal);
+  return api.get(`/api/reading-room/conversation/${encodeURIComponent(id)}`, signal);
 }
 
 /** Create a named session ahead of its first message ('+ New session'). */
@@ -46,26 +50,32 @@ export function createConversation(
   title: string,
   journal: boolean,
 ): Promise<{ ok: true; id: string }> {
-  return api.post(`/api/bots/${encodeURIComponent(bot)}/conversations`, { title, journal });
+  return api.post(`/api/reading-room/${encodeURIComponent(bot)}/conversations`, { title, journal });
 }
 
 /** Put one keeper reply into the journal (a K card) — the tap gesture.
  * Works in any session regardless of its journal switch. */
 export function journalOutput(convId: string, text: string): Promise<{ ok: true }> {
-  return api.post(`/api/bots/conversation/${encodeURIComponent(convId)}/journal-output`, { text });
+  return api.post(`/api/reading-room/conversation/${encodeURIComponent(convId)}/journal-output`, { text });
 }
 
 /** Close (archive) a session — it leaves the roster; its log stays. The
  * pinned Keeper session refuses (400). */
 export function closeConversation(id: string): Promise<{ ok: true }> {
-  return api.post(`/api/bots/conversation/${encodeURIComponent(id)}/close`, {});
+  return api.post(`/api/reading-room/conversation/${encodeURIComponent(id)}/close`, {});
+}
+
+/** Stop a running turn on purpose — the stop button's door. This is the only
+ * thing that kills a turn now; a dropped connection never does. */
+export function stopConversation(convId: string): Promise<{ ok: true }> {
+  return api.post(`/api/reading-room/conversation/${encodeURIComponent(convId)}/stop`, {});
 }
 
 export function updateConversation(
   id: string,
   patch: { title?: string; journal?: boolean },
 ): Promise<{ ok: true; conversation: BotConvMeta }> {
-  return api.post(`/api/bots/conversation/${encodeURIComponent(id)}/settings`, patch);
+  return api.post(`/api/reading-room/conversation/${encodeURIComponent(id)}/settings`, patch);
 }
 
 export interface SendOptions {
@@ -76,7 +86,7 @@ export interface SendOptions {
 
 /**
  * Send one turn and stream its events. `onEvent` fires per SSE frame with the
- * parsed event object (the same vocabulary botEvents.ts reduces). Resolves
+ * parsed event object (the same vocabulary events.ts reduces). Resolves
  * with the conversation id (fresh conversations get theirs from the first
  * 'conv' frame) when the stream ends; rejects on transport failure or an
  * error status — the caller restores the composer text on rejection.
@@ -87,7 +97,7 @@ export async function streamSend(
   opts: SendOptions,
   onEvent: (event: Record<string, unknown>) => void,
 ): Promise<string | undefined> {
-  const res = await fetch(`/api/bots/${encodeURIComponent(bot)}/send`, {
+  const res = await fetch(`/api/reading-room/${encodeURIComponent(bot)}/send`, {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },

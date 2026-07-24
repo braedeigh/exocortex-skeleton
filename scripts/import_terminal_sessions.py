@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Roll the live tmux terminal sessions' Claude conversations into the bot
-surface (bot_chats/) so the Sessions page starts with her real, current
+"""Roll the live tmux terminal sessions' Claude conversations into the
+reading room (bot_chats/) so the Sessions page starts with her real, current
 conversations instead of amnesia.
 
 For every session in sessions.json with a live claude process, this:
@@ -28,7 +28,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import store                                      # noqa: E402
-from routes import bots, terminal                 # noqa: E402
+from routes import reading_room, terminal          # noqa: E402
 
 MAX_MESSAGES = 400
 # User-transcript lines that aren't her words: harness command wrappers and
@@ -133,7 +133,7 @@ def main():
         journal = sess in terminal.KEEPER_CAPTURE_SESSIONS or terminal._is_thread_session(sess)
         last_at = datetime.fromtimestamp(path.stat().st_mtime).isoformat(timespec="seconds")
         with store.mutate("bot_chats/index", {}) as index:
-            conv_id = bots._new_conv_id(index)
+            conv_id = reading_room._new_conv_id(index)
             index[conv_id] = {
                 "bot": "keeper",
                 "title": sess.capitalize(),
