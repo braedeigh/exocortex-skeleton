@@ -3,10 +3,10 @@ import { useNavigate } from '@tanstack/react-router';
 import { autosizeHeight, uploadedPathsMessage } from '../phone/phoneLogic';
 import { TermNotesPanel } from '../../shell/TermNotesPanel';
 import { SchedulePanel } from '../../shell/SchedulePanel';
-import { getBots, getConversation, journalOutput, stopConversation, streamSend } from './api';
-import { applyEvent, assistantText, turnsFromHistory, userTurn, type Turn } from './events';
+import { createSession, getConversation, journalOutput, stopConversation, streamSend } from './api';
+import { applyEvent, assistantText, lastUserTurnIndex, turnsFromHistory, userTurn, type Turn } from './events';
 import { formatWorkingLine } from './turnStats';
-import { markConversationOpened } from './openedStore';
+import { isUnread, markConversationOpened } from './openedStore';
 import { Reply, StreamingReply } from './replyViews';
 import { useTurnStats } from './useTurnStats';
 import { useWordFlow } from './useWordFlow';
@@ -42,10 +42,23 @@ import styles from './ReadingRoomPage.module.css';
  * fading in once (streamPacing.ts + StreamingReply below). Purely
  * presentational: turns still hold the full wire text; only the shown
  * frontier is paced. Stop dumps the backlog instantly.
+ *
+ * OPEN-AT-UNREAD ANCHOR (07-24): opening a conversation normally lands at
+ * the bottom, like reopening a terminal — but if it's carrying activity she
+ * hasn't seen since her last visit, that would drop her past the part she
+ * hasn't read. Instead it lands with her LAST MESSAGE at the viewport top,
+ * so the unread reply reads downward from there, same as a fresh reply she
+ * just sent. See the history-load effect below and useScrollContract.ts's
+ * pinToAnchor.
  */
 export function ReadingRoomPage({ botId, convId }: { botId: string; convId?: string }) {
   const navigate = useNavigate();
-  const [botName, setBotName] = useState(botId.charAt(0).toUpperCase() + botId.slice(1));
+  // Sessions dissolved the "bot" persona (07-24) — there's no roster of named
+  // bots to look a display name up in anymore. The header/placeholder show
+  // the session's own title instead, filled in once the history load (below)
+  // resolves it; a brand-new session (nothing to load yet) gets a plain
+  // generic label.
+  const [roomTitle, setRoomTitle] = useState('Reading room');
   const [turns, setTurns] = useState<Turn[]>([]);
   const [streaming, setStreaming] = useState(false);
   // Messages sent while a turn is still writing — the Claude Code queued-
@@ -80,6 +93,12 @@ export function ReadingRoomPage({ botId, convId }: { botId: string; convId?: str
   const busyRef = useRef(false);
   // Lets the re-attach poll loop stop cold on unmount.
   const mountedRef = useRef(true);
+  // Draft prefill fires at most once per mount — the route remounts this
+  // page on every conv change (see reading-room_.$botId.tsx's `key`), so a
+  // plain boolean here already can't leak a prefill across conversations;
+  // it just also guards against a second history load inside the same
+  // mount re-stomping something she's since edited or cleared.
+  const draftAppliedRef = useRef(false);
   useEffect(
     () => () => {
       mountedRef.current = false;
@@ -93,21 +112,6 @@ export function ReadingRoomPage({ botId, convId }: { botId: string; convId?: str
   // The conversation this page is writing into (set by the first send's
   // 'conv' frame for fresh conversations).
   const convRef = useRef<string | undefined>(convId);
-
-  // Bot display name for the empty state / header.
-  useEffect(() => {
-    let cancelled = false;
-    getBots()
-      .then(({ bots }) => {
-        if (cancelled) return;
-        const bot = bots.find((b) => b.id === botId);
-        if (bot) setBotName(bot.name);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [botId]);
 
   const turnStats = useTurnStats(streaming);
 
@@ -155,17 +159,48 @@ export function ReadingRoomPage({ botId, convId }: { botId: string; convId?: str
     getConversation(convId)
       .then((data) => {
         if (cancelled) return;
-        setTurns(turnsFromHistory(data.events));
+        const loadedTurns = turnsFromHistory(data.events);
+        setTurns(loadedTurns);
         setSessionJournal(data.meta?.journal === true ? true : data.meta?.journal === false ? false : null);
-        markConversationOpened(convId);
+        if (data.meta?.title) setRoomTitle(data.meta.title);
+        // Draft prefill: a staged first message she hasn't fired yet. Only
+        // takes the compose box if it's still empty (never stomp something
+        // she's already typed) and only once per mount (the server clears
+        // the draft after a real send; re-loading history within the same
+        // mount — the busyRef fast path above skips this call entirely, but
+        // belt-and-suspenders — must not re-inject it).
+        if (!draftAppliedRef.current && typeof data.meta?.draft === 'string' && data.meta.draft.trim()) {
+          draftAppliedRef.current = true;
+          const el = inputRef.current;
+          if (el && !el.value.trim()) {
+            el.value = data.meta.draft;
+            el.style.height = 'auto';
+            el.style.height = `${autosizeHeight(el.scrollHeight, 132)}px`;
+          }
+        }
+        // Capture the stamp BEFORE it's overwritten — this open's own
+        // freshness can't be judged against a mark this same open just made.
+        const prevOpened = markConversationOpened(convId);
         // Reopened onto a turn that's still writing (the PWA was closed
         // mid-reply and the turn kept going) — pick it back up.
         if (data.meta?.running === true) void reattachApi.reattach(convId);
         setHistLoaded(true);
-        // Land at the latest turn, always — like reopening a terminal (the
-        // pin keeps us there while the rendered markdown finishes laying
-        // out — see useScrollContract.ts).
-        scrollContract.pinToBottom();
+        // Open-at-unread anchor: if she left new activity unread since her
+        // last visit, land with her last message at the viewport top so the
+        // unread reply reads downward from there — otherwise land at the
+        // latest turn, always, like reopening a terminal (the pin keeps us
+        // there while the rendered markdown finishes laying out — see
+        // useScrollContract.ts).
+        const anchorIdx = lastUserTurnIndex(loadedTurns);
+        if (isUnread(data.meta?.last_at, prevOpened)) {
+          if (anchorIdx >= 0) scrollContract.pinToAnchor(anchorIdx);
+          // Unread but she's never sent a message (a fresh session someone
+          // else fed events into) — nothing to anchor on; the container
+          // naturally starts at the top, which is the right place to start
+          // catching up anyway.
+        } else {
+          scrollContract.pinToBottom();
+        }
       })
       .catch(() => {
         // histLoaded stays false — with the conversation's state unknown,
@@ -175,9 +210,10 @@ export function ReadingRoomPage({ botId, convId }: { botId: string; convId?: str
     return () => {
       cancelled = true;
     };
-    // reattachApi.reattach / scrollContract.pinToBottom are stable (useCallback, [] deps).
+    // reattachApi.reattach / scrollContract.pinToBottom / scrollContract.pinToAnchor
+    // are stable (useCallback, [] deps).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [convId, reattachApi.reattach, scrollContract.pinToBottom]);
+  }, [convId, reattachApi.reattach, scrollContract.pinToBottom, scrollContract.pinToAnchor]);
 
   // The pause (off-record) button only exists where the journal is live —
   // in a workshop session there's nothing to pause. Clear any stale state
@@ -217,30 +253,38 @@ export function ReadingRoomPage({ botId, convId }: { botId: string; convId?: str
       abortRef.current = ctrl;
       stopIntentRef.current = false;
       try {
-        const conv = await streamSend(
-          botId,
+        let conv = convRef.current;
+        if (!conv) {
+          // The old create-implicitly-on-send flow is gone from this
+          // client (sessions carry their own config server-side now, so a
+          // send needs a real id to send into) — a brand-new blank compose
+          // creates its session explicitly first, titled from what she's
+          // about to say, same journal-off default as the roster's own
+          // '+ New session' dialog.
+          const created = await createSession(text.slice(0, 40), false);
+          conv = created.id;
+          convRef.current = conv;
+          // The URL catches up as soon as the session exists, not once the
+          // reply finishes — a reload mid-turn lands back here instead of a
+          // blank compose that would try to create a second session.
+          void navigate({
+            to: '/reading-room/$botId',
+            params: { botId },
+            search: { conv },
+            replace: true,
+          });
+        }
+        await streamSend(
+          conv,
           text,
-          { conversationId: convRef.current, record: !sendOffRecord, signal: ctrl.signal },
+          { record: !sendOffRecord, signal: ctrl.signal },
           (event) => {
             applyEvent(turnsRef.current, event);
             setTurns([...turnsRef.current]);
             turnStats.apply(event, Date.now());
           },
         );
-        if (conv) {
-          markConversationOpened(conv);
-          if (!convRef.current) {
-            convRef.current = conv;
-            // Refresh lands back in this conversation, without a history entry
-            // per turn.
-            void navigate({
-              to: '/reading-room/$botId',
-              params: { botId },
-              search: { conv },
-              replace: true,
-            });
-          }
-        }
+        markConversationOpened(conv);
       } catch (e) {
         if (ctrl.signal.aborted) {
           if (stopIntentRef.current) {
@@ -380,7 +424,7 @@ export function ReadingRoomPage({ botId, convId }: { botId: string; convId?: str
         <div ref={scrollContract.columnRef} className={styles.column}>
           {turns.length === 0 ? (
             <div className={styles.empty}>
-              <div className={styles.emptyName}>{botName}</div>
+              <div className={styles.emptyName}>{roomTitle}</div>
               <div className={styles.emptyHint}>Whenever you&rsquo;re ready.</div>
             </div>
           ) : (
@@ -472,7 +516,12 @@ export function ReadingRoomPage({ botId, convId }: { botId: string; convId?: str
         sessionNames={schedSessions}
       />
 
-      {scrollContract.showJump ? (
+      {/* showJump alone covers a live reply scrolled out of view; catchingUp
+          covers the open-at-unread anchor's idle side — a conversation
+          that isn't writing at all still has an unread reply waiting below
+          her anchored message, so the pill stays offered until she either
+          scrolls near it herself or taps this. */}
+      {scrollContract.showJump || scrollContract.catchingUp ? (
         <button type="button" className={styles.jumpPill} onClick={scrollContract.jumpToLatest}>
           ↓ latest
         </button>
@@ -574,7 +623,7 @@ export function ReadingRoomPage({ botId, convId }: { botId: string; convId?: str
             ref={inputRef}
             className={styles.input}
             rows={1}
-            placeholder={`message ${botName}…`}
+            placeholder={`message ${roomTitle}…`}
             autoComplete="off"
             autoCorrect="on"
             autoCapitalize="sentences"

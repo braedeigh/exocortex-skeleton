@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyEvent, assistantText, turnsFromHistory, userTurn, type Turn } from './events';
+import { applyEvent, assistantText, lastUserTurnIndex, turnsFromHistory, userTurn, type Turn } from './events';
 
 const delta = (text: string) => ({
   type: 'stream_event',
@@ -94,6 +94,29 @@ describe('journal-mark', () => {
     applyEvent(turns, assistant('a reply'));
     applyEvent(turns, { type: 'journal-mark', text: 'different words' });
     expect(turns[0].journaled).toBe(false);
+  });
+});
+
+describe('lastUserTurnIndex', () => {
+  it('finds the last user turn among mixed roles', () => {
+    const turns = turnsFromHistory([
+      { type: 'user', text: 'q1' },
+      assistant('a1'),
+      { type: 'result' },
+      { type: 'user', text: 'q2' },
+      assistant('a2'),
+      { type: 'result' },
+    ]);
+    expect(lastUserTurnIndex(turns)).toBe(2);
+  });
+
+  it('returns -1 when there are no user turns', () => {
+    const turns = turnsFromHistory([assistant('a1'), { type: 'result' }]);
+    expect(lastUserTurnIndex(turns)).toBe(-1);
+  });
+
+  it('returns -1 for an empty conversation', () => {
+    expect(lastUserTurnIndex([])).toBe(-1);
   });
 });
 

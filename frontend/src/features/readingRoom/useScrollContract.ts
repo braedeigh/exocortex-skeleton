@@ -5,9 +5,13 @@ import type { Turn } from './events';
 /**
  * useScrollContract.ts — the reading room's entire scroll contract (bot-
  * surface-design §5, Sunflower spec 07-23): FOLLOW-THEN-LOCK on send, the
- * bottom-pin on open, the ↓ latest pill, and the third clause, PARKED
- * READING (her 07-23 ask, from the car). See ReadingRoomPage.tsx's own doc
- * comment for the full narrative — this hook owns the mechanism.
+ * bottom-pin on open, the ↓ latest pill, the third clause, PARKED READING
+ * (her 07-23 ask, from the car), and the fourth, OPEN-AT-UNREAD ANCHOR
+ * (07-24): a conversation that opens with activity she hasn't read lands
+ * with her last message at the viewport top instead of the latest turn at
+ * the bottom, so she reads the unread reply downward instead of skipping
+ * past it. See ReadingRoomPage.tsx's own doc comment for the full
+ * narrative — this hook owns the mechanism.
  */
 export function useScrollContract(args: {
   turns: Turn[];
@@ -18,12 +22,14 @@ export function useScrollContract(args: {
   scrollRef: RefObject<HTMLDivElement | null>;
   columnRef: RefObject<HTMLDivElement | null>;
   showJump: boolean;
+  catchingUp: boolean;
   parkArmed: boolean;
   jumpToLatest: () => void;
   jumpTo: (edge: 'top' | 'bottom') => void;
   disarmPark: () => void;
   beginFollow: (anchorIndex: number) => void;
   pinToBottom: () => void;
+  pinToAnchor: (anchorIndex: number) => void;
 } {
   const { turns, shownChars, streaming, writing } = args;
 
@@ -48,7 +54,19 @@ export function useScrollContract(args: {
   // code blocks growing the page after the first snap) — until her first
   // scroll, or a send (follow-then-lock takes over from there).
   const pinBottomRef = useRef(false);
+  // Open-at-unread anchor: the counterpart to the bottom-pin for a
+  // conversation that opens with unread activity — instead of landing at
+  // the latest turn, it lands with her last message pinned to the viewport
+  // TOP, so the unread reply reads downward from there. Mutually exclusive
+  // with pinBottomRef (only one "where does this conversation open" clause
+  // can hold at a time); survives late layout shifts the same way, via the
+  // ResizeObserver below.
+  const anchorPinRef = useRef<number | null>(null);
   const [showJump, setShowJump] = useState(false);
+  // True while she's mid-catch-up on an anchor-pinned open — clears once
+  // she's scrolled within reach of the bottom (updateJump), same threshold
+  // the ↓ latest pill already uses.
+  const [catchingUp, setCatchingUp] = useState(false);
 
   // The park ticker reads writingRef between renders — mirrored from the
   // `writing` arg exactly as the page used to mirror it locally.
@@ -68,6 +86,8 @@ export function useScrollContract(args: {
   // rendered markdown finishes laying out.
   const pinToBottom = useCallback(() => {
     pinBottomRef.current = true;
+    anchorPinRef.current = null; // the two open-position pins are exclusive
+    setCatchingUp(false); // landing at the latest turn is never a catch-up
     requestAnimationFrame(() => {
       const el = scrollRef.current;
       if (el && pinBottomRef.current) el.scrollTop = el.scrollHeight;
@@ -75,13 +95,15 @@ export function useScrollContract(args: {
   }, []);
 
   // Her hand outranks the machine: any manual scroll input cancels the
-  // send-follow, the open-at-bottom pin, AND the parked reader.
+  // send-follow, the open-at-bottom pin, the open-at-unread anchor, AND the
+  // parked reader.
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     const cancel = () => {
       followRef.current = false;
       pinBottomRef.current = false;
+      anchorPinRef.current = null;
       disarmPark();
     };
     el.addEventListener('wheel', cancel, { passive: true });
@@ -95,12 +117,22 @@ export function useScrollContract(args: {
   // The pin itself: while pinned, any growth of the content column re-snaps
   // the viewport to the bottom — this is what makes "opens at the bottom"
   // survive markdown/code blocks finishing their layout after the load snap.
+  // The open-at-unread anchor gets the same treatment: her last message
+  // stays glued to the viewport top through the same late layout shifts
+  // (a reply's markdown/code blocks finishing their render below her).
   useEffect(() => {
     const el = scrollRef.current;
     const col = columnRef.current;
     if (!el || !col || typeof ResizeObserver === 'undefined') return;
     const ro = new ResizeObserver(() => {
-      if (pinBottomRef.current) el.scrollTop = el.scrollHeight;
+      if (pinBottomRef.current) {
+        el.scrollTop = el.scrollHeight;
+        return;
+      }
+      if (anchorPinRef.current !== null) {
+        const anchor = el.querySelector(`[data-turn="${anchorPinRef.current}"]`);
+        if (anchor instanceof HTMLElement) el.scrollTop = anchor.offsetTop - 8;
+      }
     });
     ro.observe(col);
     return () => ro.disconnect();
@@ -140,6 +172,9 @@ export function useScrollContract(args: {
     if (!el) return;
     const fromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     setShowJump(fromBottom > 200);
+    // Within reach of the bottom counts as caught up — the open-at-unread
+    // anchor's catch-up state clears the same way the jump pill does.
+    if (fromBottom <= 200) setCatchingUp(false);
     // Arriving at the bottom starts the parked-reading dwell clock. Never
     // cleared here: content growing below her isn't her leaving (growth
     // fires no scroll event anyway) — only her hand clears it (disarmPark).
@@ -158,8 +193,39 @@ export function useScrollContract(args: {
     else setShowJump(false);
   }, [streaming, turns, updateJump]);
 
+  // Open-at-unread anchor: a conversation that opens with activity she
+  // hasn't read yet lands with her LAST MESSAGE at the viewport top instead
+  // of the latest turn at the bottom — the unread reply reads downward from
+  // there, like a page she's picking back up mid-chapter rather than
+  // skipping to the end. Mirrors pinToBottom in every other respect (the
+  // rAF snap, the ResizeObserver re-snap above, cancellation on her scroll).
+  const pinToAnchor = useCallback(
+    (anchorIndex: number) => {
+      pinBottomRef.current = false; // the two open-position pins are exclusive
+      anchorPinRef.current = anchorIndex;
+      setCatchingUp(true);
+      requestAnimationFrame(() => {
+        const el = scrollRef.current;
+        if (!el || anchorPinRef.current !== anchorIndex) return;
+        const anchor = el.querySelector(`[data-turn="${anchorIndex}"]`);
+        // No anchor element (shouldn't happen — the caller only pins to a
+        // known user-turn index) — leave scroll at its natural top rather
+        // than guess.
+        if (anchor instanceof HTMLElement) el.scrollTop = anchor.offsetTop - 8;
+        // Seed the jump pill immediately rather than waiting for a scroll
+        // event that may never come if she just sits and reads.
+        updateJump();
+      });
+    },
+    // updateJump is stable (useCallback, [] deps).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
   const jumpToLatest = () => {
     disarmPark(); // landing at the bottom restarts the dwell from scratch
+    anchorPinRef.current = null;
+    setCatchingUp(false);
     const el = scrollRef.current;
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
   };
@@ -167,6 +233,8 @@ export function useScrollContract(args: {
   const jumpTo = (edge: 'top' | 'bottom') => {
     followRef.current = false; // an explicit jump outranks any follow or pin
     pinBottomRef.current = false;
+    anchorPinRef.current = null;
+    setCatchingUp(false);
     disarmPark();
     const el = scrollRef.current;
     if (el) el.scrollTo({ top: edge === 'top' ? 0 : el.scrollHeight, behavior: 'smooth' });
@@ -175,10 +243,12 @@ export function useScrollContract(args: {
   // No jump — start following: the reply prints below her message and the
   // page tracks it until that message reaches the top (the lock), or she
   // scrolls (the cancel). See the follow effect above. The open-at-bottom
-  // pin hands off to the follow here.
+  // pin and the open-at-unread anchor both hand off to the follow here.
   const beginFollow = useCallback(
     (anchorIndex: number) => {
       pinBottomRef.current = false;
+      anchorPinRef.current = null;
+      setCatchingUp(false);
       anchorIndexRef.current = anchorIndex;
       followRef.current = true;
       // A new turn starts the scroll contract over; the follow phase's trips
@@ -240,11 +310,13 @@ export function useScrollContract(args: {
     scrollRef,
     columnRef,
     showJump,
+    catchingUp,
     parkArmed,
     jumpToLatest,
     jumpTo,
     disarmPark,
     beginFollow,
     pinToBottom,
+    pinToAnchor,
   };
 }

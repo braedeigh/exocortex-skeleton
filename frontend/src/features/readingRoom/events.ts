@@ -166,6 +166,17 @@ export function applyEvent(turns: Turn[], raw: unknown): Turn[] {
   }
 }
 
+/** Index of the last user turn, or -1 if she's never sent one. The open-at-
+ * unread scroll anchor (ReadingRoomPage's history-load effect) needs this:
+ * catching up on unread activity means landing on HER last message, not the
+ * conversation's last turn (which is usually the reply she hasn't read). */
+export function lastUserTurnIndex(turns: Turn[]): number {
+  for (let i = turns.length - 1; i >= 0; i--) {
+    if (turns[i].role === 'user') return i;
+  }
+  return -1;
+}
+
 /** Reduce a full history into turns (conversation GET). */
 export function turnsFromHistory(events: unknown[]): Turn[] {
   const turns: Turn[] = [];

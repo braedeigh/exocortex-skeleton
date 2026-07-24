@@ -2,13 +2,13 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import {
   closeConversation,
-  createConversation,
-  getBots,
+  createSession,
+  getSessions,
   updateConversation,
-  type BotConvMeta,
+  type SessionMeta,
 } from './api';
 import { sessionStatus } from './sessionStatus';
-import { openedMap } from './openedStore';
+import { isUnread, openedMap } from './openedStore';
 import { SessionDialog } from './SessionDialog';
 import styles from './RosterPage.module.css';
 
@@ -34,24 +34,19 @@ function ago(iso: string | undefined): string | null {
  */
 export function RosterPage() {
   const navigate = useNavigate();
-  const [botId, setBotId] = useState<string | null>(null);
-  const [sessions, setSessions] = useState<BotConvMeta[]>([]);
+  const [sessions, setSessions] = useState<SessionMeta[]>([]);
   const [failed, setFailed] = useState(false);
 
   const [newOpen, setNewOpen] = useState(false);
-  const [renameTarget, setRenameTarget] = useState<BotConvMeta | null>(null);
+  const [renameTarget, setRenameTarget] = useState<SessionMeta | null>(null);
   // Two-step close (destructive-confirm pattern): first tap arms the button
   // into "Sure?", second tap closes. Arming a different card disarms this one.
   const [closeArmed, setCloseArmed] = useState<string | null>(null);
 
   const refresh = () => {
-    getBots()
-      .then(({ bots }) => {
-        // v1 runs one engine config; its conversations ARE the sessions.
-        const bot = bots[0];
-        if (!bot) return;
-        setBotId(bot.id);
-        setSessions(bot.conversations);
+    getSessions()
+      .then(({ sessions: list }) => {
+        setSessions(list);
         setFailed(false);
       })
       .catch(() => setFailed(true));
@@ -68,20 +63,24 @@ export function RosterPage() {
   }, []);
 
   const opened = openedMap();
-  const isUnread = (c: BotConvMeta) => {
-    if (!c.last_at) return false;
-    const seen = opened[c.id];
-    return !seen || Date.parse(c.last_at) > Date.parse(seen);
-  };
+  // isUnread lives in openedStore.ts so this dot and the reading room's
+  // open-at-unread scroll anchor read the exact same comparison.
+  const cardUnread = (c: SessionMeta) => isUnread(c.last_at, opened[c.id]);
 
+  // The room page's route still carries a `$botId` URL segment (bots-
+  // surface-design's file layout, un-nested via reading-room_.$botId.tsx) —
+  // but with the persona concept dissolved server-side there's no real bot
+  // id to put there anymore. Minimal routing change: keep the route, fill
+  // that segment with a fixed placeholder; the conversation id (the only
+  // identity that still means anything) travels in `?conv=`. Old bookmarked
+  // URLs with a real bot id still route to the same page and just work —
+  // the segment is never read for anything now.
   const open = (convId: string) => {
-    if (!botId) return;
-    void navigate({ to: '/reading-room/$botId', params: { botId }, search: { conv: convId } });
+    void navigate({ to: '/reading-room/$botId', params: { botId: 'session' }, search: { conv: convId } });
   };
 
   const onCreate = (title: string, journal: boolean) => {
-    if (!botId) return;
-    createConversation(botId, title, journal)
+    createSession(title, journal)
       .then(({ id }) => {
         setNewOpen(false);
         open(id);
@@ -112,7 +111,7 @@ export function RosterPage() {
 
         <div className={styles.list}>
           {sessions.map((c) => {
-            const unread = isUnread(c);
+            const unread = cardUnread(c);
             const status = sessionStatus(c, opened[c.id]);
             return (
               <div
@@ -139,6 +138,7 @@ export function RosterPage() {
                   <span className={[styles.botName, unread ? styles.botNameUnread : ''].filter(Boolean).join(' ')}>
                     {c.title || c.id}
                     {c.pinned ? <span className={styles.pinBadge}>pinned</span> : null}
+                    {c.draft ? <span className={styles.stagedBadge}>staged</span> : null}
                     {status !== 'idle' ? (
                       <span
                         aria-hidden="true"

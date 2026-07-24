@@ -174,6 +174,18 @@
   font-weight: 400;
 }
 
+/* A session carrying a staged draft message (server-set, e.g. by an
+   automation) — orange like statusDotReady's "something's waiting on you"
+   tint, so the two read as the same kind of "your move" signal. */
+.stagedBadge {
+  padding: 2px var(--space-2);
+  border: 1px solid color-mix(in srgb, var(--orange) 55%, var(--border));
+  border-radius: var(--radius-pill);
+  color: var(--orange);
+  font-size: var(--font-size-sm);
+  font-weight: 400;
+}
+
 /* Status dot: busy (a turn is running — same pulse/accent as the reading
    room's "still writing…" indicator, ReadingRoomPage.module.css .writingDot) or
    ready (finished, with activity newer than she last opened it — --orange,

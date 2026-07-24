@@ -3,17 +3,18 @@
  * Roster/conversation reads use the shared api client; the send is a raw
  * fetch because it streams: the endpoint answers with SSE frames and the
  * response body is read incrementally (EventSource can't POST).
+ *
+ * Session-first (07-24): the "bot" persona concept dissolved server-side —
+ * a session carries its own config now instead of belonging to one of a
+ * handful of named bots. GET /api/reading-room's `bots` key is legacy and
+ * unused here; `sessions` is the flat roster.
  */
 import { api } from '../../api/client';
 
-export interface BotConvMeta {
+export interface SessionMeta {
   id: string;
-  bot: string;
   title: string;
-  started: string;
   last_at: string;
-  cost_usd: number;
-  claude_session_id: string | null;
   /** false = a non-diary session: logs to its own jsonl, never mints cards. */
   journal?: boolean;
   /** Pinned sessions sort first (the Keeper session lives at the top). */
@@ -24,33 +25,29 @@ export interface BotConvMeta {
    * connection, so a re-attaching client polls this to know whether to
    * keep waiting. */
   running?: boolean;
+  /** A staged first message, set server-side (e.g. by an automation that
+   * wants her to fire it herself) — a non-empty draft prefills the compose
+   * box once on open (see ReadingRoomPage's draft-prefill effect). */
+  draft?: string;
 }
 
-export interface BotInfo {
-  id: string;
-  name: string;
-  journal: boolean;
-  conversations: BotConvMeta[];
-}
-
-export function getBots(signal?: AbortSignal): Promise<{ bots: BotInfo[] }> {
+export function getSessions(signal?: AbortSignal): Promise<{ sessions: SessionMeta[] }> {
   return api.get('/api/reading-room', signal);
 }
 
 export function getConversation(
   id: string,
   signal?: AbortSignal,
-): Promise<{ id: string; meta: BotConvMeta; events: unknown[] }> {
+): Promise<{ id: string; meta: SessionMeta; events: unknown[] }> {
   return api.get(`/api/reading-room/conversation/${encodeURIComponent(id)}`, signal);
 }
 
-/** Create a named session ahead of its first message ('+ New session'). */
-export function createConversation(
-  bot: string,
-  title: string,
-  journal: boolean,
-): Promise<{ ok: true; id: string }> {
-  return api.post(`/api/reading-room/${encodeURIComponent(bot)}/conversations`, { title, journal });
+/** Create a session ahead of its first message — the roster's '+ New
+ * session', and the reading room's own blank-compose first send (the old
+ * create-implicitly-on-send flow is gone; the client drives it explicitly
+ * now). The server picks the rest of the config (cwd/tools) itself. */
+export function createSession(title: string, journal: boolean): Promise<{ ok: true; id: string }> {
+  return api.post('/api/reading-room/conversations', { title, journal });
 }
 
 /** Put one keeper reply into the journal (a K card) — the tap gesture.
@@ -74,46 +71,44 @@ export function stopConversation(convId: string): Promise<{ ok: true }> {
 export function updateConversation(
   id: string,
   patch: { title?: string; journal?: boolean },
-): Promise<{ ok: true; conversation: BotConvMeta }> {
+): Promise<{ ok: true; conversation: SessionMeta }> {
   return api.post(`/api/reading-room/conversation/${encodeURIComponent(id)}/settings`, patch);
 }
 
 export interface SendOptions {
-  conversationId?: string;
   record: boolean;
   signal?: AbortSignal;
 }
 
 /**
- * Send one turn and stream its events. `onEvent` fires per SSE frame with the
- * parsed event object (the same vocabulary events.ts reduces). Resolves
- * with the conversation id (fresh conversations get theirs from the first
- * 'conv' frame) when the stream ends; rejects on transport failure or an
- * error status — the caller restores the composer text on rejection.
+ * Send one turn on an existing conversation and stream its events. `onEvent`
+ * fires per SSE frame with the parsed event object (the same vocabulary
+ * events.ts reduces). Resolves with the conversation id (echoed back on the
+ * first 'conv' frame) when the stream ends; rejects on transport failure or
+ * an error status — the caller restores the composer text on rejection.
+ *
+ * The conversation must already exist (createSession first) — the old
+ * implicit-create-on-send is gone; this only ever sends into a known id.
  */
 export async function streamSend(
-  bot: string,
+  convId: string,
   text: string,
   opts: SendOptions,
   onEvent: (event: Record<string, unknown>) => void,
 ): Promise<string | undefined> {
-  const res = await fetch(`/api/reading-room/${encodeURIComponent(bot)}/send`, {
+  const res = await fetch(`/api/reading-room/conversation/${encodeURIComponent(convId)}/send`, {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     signal: opts.signal,
-    body: JSON.stringify({
-      text,
-      record: opts.record,
-      ...(opts.conversationId ? { conversation_id: opts.conversationId } : {}),
-    }),
+    body: JSON.stringify({ text, record: opts.record }),
   });
   if (!res.ok || !res.body) {
     const data = (await res.json().catch(() => ({}))) as { error?: string };
     throw new Error(data.error || `send failed (${res.status})`);
   }
 
-  let convId = opts.conversationId;
+  let convIdOut: string | undefined = convId;
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let pending = '';
@@ -134,10 +129,10 @@ export async function streamSend(
         continue; // torn frame — the next one resyncs us
       }
       if (event.type === 'conv' && typeof event.conversation_id === 'string') {
-        convId = event.conversation_id;
+        convIdOut = event.conversation_id;
       }
       onEvent(event);
     }
   }
-  return convId;
+  return convIdOut;
 }
