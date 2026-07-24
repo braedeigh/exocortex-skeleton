@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
+import { useNavigate } from '@tanstack/react-router';
 import { useDismiss } from './useDismiss';
 import { addScheduledJob, cancelScheduledJob, getScheduledJobs, type ScheduledJob } from './shellApi';
 import styles from './SchedulePanel.module.css';
@@ -39,6 +40,7 @@ export function SchedulePanel({
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   useDismiss(open, onClose, panelRef, triggerRef);
+  const navigate = useNavigate();
 
   const [jobs, setJobs] = useState<ScheduledJob[]>([]);
   const [sessionChoice, setSessionChoice] = useState<string>(sessionNames[0] ?? NEW_SESSION_VALUE);
@@ -128,7 +130,19 @@ export function SchedulePanel({
 
   return (
     <div className={styles.panel} ref={panelRef}>
-      <div className={styles.title}>&#9200; Schedule a prompt</div>
+      <div className={styles.titleRow}>
+        <div className={styles.title}>&#9200; Schedule a prompt</div>
+        <button
+          type="button"
+          className={styles.automationsBtn}
+          onClick={() => {
+            onClose();
+            void navigate({ to: '/automations' });
+          }}
+        >
+          Automations &#8599;
+        </button>
+      </div>
       <div className={styles.form}>
         <select
           className={styles.select}

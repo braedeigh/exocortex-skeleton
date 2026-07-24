@@ -1,0 +1,169 @@
+/* AutomationsPage — the app-visible registry of recurring scheduled runs.
+ * Card language borrowed from RosterPage.module.css (hairline border + soft
+ * shadow); a disabled run dims its body (name/description/meta) while the
+ * toggle + open-session controls stay full-strength so they're easy to hit. */
+
+.page {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--bg);
+}
+
+.inner {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: var(--space-4) var(--space-3) var(--space-8);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-size-xl);
+  color: var(--text);
+}
+
+.pageError {
+  margin-bottom: var(--space-4);
+  color: var(--red);
+  font-size: var(--font-size-md);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.emptyHint {
+  padding: var(--space-6) 0;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--font-size-md);
+}
+
+.card {
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+  box-shadow: var(--shadow-card);
+}
+
+.cardBody {
+  transition: opacity 0.15s ease;
+}
+
+.cardBodyDisabled {
+  opacity: 0.5;
+}
+
+.cardTop {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-1);
+}
+
+.name {
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.description {
+  color: var(--text-secondary);
+  font-size: var(--font-size-md);
+  line-height: 1.5;
+  margin-bottom: var(--space-2);
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.metaSep {
+  color: var(--text-muted);
+}
+
+.pill {
+  flex-shrink: 0;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.pillOk {
+  border-color: color-mix(in srgb, var(--green) 55%, var(--border));
+  color: var(--green);
+  background: color-mix(in srgb, var(--green) 12%, transparent);
+}
+
+.pillError {
+  border-color: color-mix(in srgb, var(--red) 55%, var(--border));
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 12%, transparent);
+}
+
+.pillMuted {
+  color: var(--text-muted);
+  background: transparent;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.toggleBtn {
+  min-height: var(--tap-target);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  color: var(--text-muted);
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.toggleBtn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.toggleBtnOn {
+  border-color: color-mix(in srgb, var(--green) 55%, var(--border));
+  color: var(--green);
+  background: color-mix(in srgb, var(--green) 12%, transparent);
+}
+
+.openBtn {
+  min-height: var(--tap-target);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
+  color: var(--accent);
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  cursor: pointer;
+}

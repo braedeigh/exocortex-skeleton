@@ -44,7 +44,51 @@ import store                                    # noqa: E402
 from routes import reading_room as rr           # noqa: E402
 
 ORIGIN = "spark_morning"
+RUN_ID = "spark_morning"   # id in the scheduled_runs.json registry
 SKELETON_CWD = str(Path(__file__).resolve().parents[1])
+
+
+def _registry_default():
+    return {
+        "id": RUN_ID,
+        "name": "Morning Spark",
+        "description": "A fresh, oriented Spark session in the reading room each "
+                       "morning, ranked against the build.",
+        "schedule": "0 5 * * *",
+        "schedule_human": "Every day at 5:00 AM",
+        "enabled": True,
+        "last_run": None,
+        "last_status": None,
+        "last_conv_id": None,
+        "last_cost_usd": None,
+    }
+
+
+def _is_enabled():
+    """The UI's pause switch: scripts honor `enabled` so a run can be turned off
+    without touching cron. Unregistered (first run ever) = enabled by default."""
+    for r in store.read("scheduled_runs.json", {"runs": []}).get("runs", []):
+        if isinstance(r, dict) and r.get("id") == RUN_ID:
+            return r.get("enabled", True)
+    return True
+
+
+def _record_status(status, conv_id=None, cost=None):
+    """Write this run's outcome back to the registry so the Automations page can
+    show last-run time/status and a link to the session it produced. Upserts the
+    entry, so the registry is self-seeding on first run."""
+    with store.mutate("scheduled_runs.json", {"runs": []}) as data:
+        runs = data.setdefault("runs", [])
+        entry = next((r for r in runs if isinstance(r, dict) and r.get("id") == RUN_ID), None)
+        if entry is None:
+            entry = _registry_default()
+            runs.append(entry)
+        entry["last_run"] = rr._now()
+        entry["last_status"] = status
+        if conv_id is not None:
+            entry["last_conv_id"] = conv_id
+        if cost is not None:
+            entry["last_cost_usd"] = cost
 
 # Full tool set for the turn — Spark builds, it doesn't just read. (On this
 # box --allowedTools doesn't restrict in -p, but naming them keeps the turn
@@ -126,6 +170,9 @@ def main():
     if not store.DATA_DIR.exists():
         _log(f"ERROR: DATA_DIR {store.DATA_DIR} missing — is EXOCORTEX_DATA_DIR set?")
         return 1
+    if not _is_enabled():
+        _log("disabled in scheduled_runs.json — skipping this run")
+        return 0
     try:
         _archive_prior()
         conv_id = _create_conv()
@@ -134,9 +181,11 @@ def main():
         entry = store.read("bot_chats/index", {}).get(conv_id, {})
         _log(f"orientation done: session={entry.get('claude_session_id')} "
              f"cost=${entry.get('cost_usd')}")
+        _record_status("ok", conv_id=conv_id, cost=entry.get("cost_usd"))
         return 0
     except Exception as e:
         _log(f"ERROR: {type(e).__name__}: {e}")
+        _record_status("error")
         # Best-effort: clear the running flag so a crashed turn doesn't read
         # as forever-busy in the roster.
         try:

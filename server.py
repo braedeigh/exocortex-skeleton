@@ -26,7 +26,7 @@ from routes import (
     entities, threads, person, shell, cards, archivals, research,
     research_search, research_sources, research_import, research_text,
     annotations, spa, fronts, wiki, travel, profile, usage, streaks, spinoff,
-    reading_room,
+    reading_room, automations,
 )
 from routes.shell import VALID_TABS
 
@@ -1114,6 +1114,7 @@ reminders.register(app)
 food_test.register(app)
 terminal.register(app)
 reading_room.register(app)
+automations.register(app)
 settings.register(app)
 devnotes.register(app)
 ideas.register(app)
