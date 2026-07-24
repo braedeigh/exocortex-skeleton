@@ -14,6 +14,7 @@ under test, not the model.
 """
 import json
 import stat
+import subprocess
 from datetime import datetime, timedelta
 
 import pytest
@@ -419,3 +420,312 @@ def test_stop_ends_the_turn_without_an_error_event(bot_client, tmp_path, monkeyp
     meta = _wait_not_running(conv_id)
     assert "error" not in [e["type"] for e in _conv_log(conv_id)]
     assert "stop_requested" not in meta
+
+
+# --- Terrain (GET /api/reading-room/terrain) ---------------------------------
+# The file-tree heatmap's data layer: git heat (routes/reading_room.py's own
+# `git log` call) merged with bot_chats footprint attribution (scripts/
+# extract_footprints.py's sidecar). Repo roots are monkeypatched to scratch
+# git repos under tmp_path — never the real skeleton/vault checkouts — and
+# the module-level cache is reset per test so runs don't bleed into each
+# other.
+
+def _git(repo, *args):
+    subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
+
+
+def _make_git_repo(root):
+    root.mkdir(parents=True, exist_ok=True)
+    _git(root, "init", "-q")
+    _git(root, "config", "user.email", "test@example.com")
+    _git(root, "config", "user.name", "Test")
+    return root
+
+
+def _commit_file(repo, relpath, content):
+    path = repo / relpath
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content)
+    _git(repo, "add", relpath)
+    _git(repo, "commit", "-q", "-m", f"add {relpath}")
+
+
+@pytest.fixture
+def terrain_client(data_dir, monkeypatch):
+    """Isolated data dir (no real footprints/gists/index) + a fresh terrain
+    cache — the module-level cache must not survive across tests."""
+    monkeypatch.setattr(reading_room, "_terrain_cache", {"payload": None, "computed_at": 0.0})
+    app = Flask(__name__)
+    app.config.update(TESTING=True)
+    reading_room.register(app)
+    return app.test_client()
+
+
+def _set_terrain_repos(monkeypatch, skeleton_root, vault_root):
+    monkeypatch.setattr(reading_room, "_terrain_repos", lambda: (
+        {"id": "skeleton", "name": "App code", "root": skeleton_root},
+        {"id": "vault", "name": "Personal vault", "root": vault_root},
+    ))
+
+
+def test_terrain_returns_200_with_missing_sidecars(terrain_client, tmp_path, monkeypatch):
+    # No footprints.json/gists.json/index.json (data_dir is a fresh tmp_path)
+    # and repo roots that aren't even git repos — the git-missing/failing
+    # path must degrade to an empty repo entry, never a 500.
+    _set_terrain_repos(monkeypatch, tmp_path / "not-a-repo-a", tmp_path / "not-a-repo-b")
+    resp = terrain_client.get("/api/reading-room/terrain")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert set(data.keys()) == {"generated_at", "window_days", "repos", "sessions"}
+    assert data["window_days"] == 90
+    assert [r["id"] for r in data["repos"]] == ["skeleton", "vault"]
+    assert all(r["files"] == [] for r in data["repos"])
+    assert data["sessions"] == []
+
+
+def test_denylist_filters_machine_churn(terrain_client, tmp_path, monkeypatch):
+    vault = _make_git_repo(tmp_path / "vault")
+    _commit_file(vault, "dev_todo.md", "# todo\n- thing\n")
+    _commit_file(vault, "data/exo.db", "not really sqlite")
+    _commit_file(vault, "data/bot_chats/2026-01-01.jsonl", "{}\n")
+    _commit_file(vault, "scripts/research_dispatcher.log", "log line\n")
+    _commit_file(vault, "frontend/dist/bundle.js", "// built\n")
+    _set_terrain_repos(monkeypatch, tmp_path / "empty-skeleton", vault)
+    data = terrain_client.get("/api/reading-room/terrain").get_json()
+    vault_out = next(r for r in data["repos"] if r["id"] == "vault")
+    paths = {f["path"] for f in vault_out["files"]}
+    # human-meaningful content survives; machine churn is filtered out
+    assert paths == {"dev_todo.md"}
+
+
+def test_footprint_merge_maps_abs_path_to_repo_relative(terrain_client, tmp_path, monkeypatch):
+    skeleton = _make_git_repo(tmp_path / "skeleton")
+    _commit_file(skeleton, "app.py", "print('hi')\n")
+    _set_terrain_repos(monkeypatch, skeleton, tmp_path / "empty-vault")
+
+    (store.DATA_DIR / "bot_chats").mkdir(parents=True, exist_ok=True)
+    store.write("bot_chats/index", {"conv-1": {"title": "Index Title"}})
+    store.write("bot_chats/gists", {"conv-1": {"title": "Gist Title"}})
+    store.write("bot_chats/footprints", {
+        "conv-1": {
+            "files": {
+                str(skeleton / "app.py"): {"writes": 3, "reads": 1,
+                                           "last": "2026-01-02T00:00:00Z"},
+                str(skeleton / "uncommitted.py"): {"writes": 1, "reads": 0,
+                                                   "last": "2026-01-02T00:00:00Z"},
+            },
+            "extracted_at": "2026-01-02T00:00:00",
+        },
+    })
+
+    data = terrain_client.get("/api/reading-room/terrain").get_json()
+    skel_out = next(r for r in data["repos"] if r["id"] == "skeleton")
+    by_path = {f["path"]: f for f in skel_out["files"]}
+
+    # abs path -> repo-relative path, git touches present
+    assert by_path["app.py"]["sessions"] == [
+        {"id": "conv-1", "title": "Gist Title", "writes": 3, "reads": 1,
+         "last": "2026-01-02T00:00:00Z"},
+    ]
+    assert len(by_path["app.py"]["touches"]) == 1
+    # a file git never saw in the window (e.g. uncommitted) still surfaces,
+    # attributed purely from the footprint, with no git touches
+    assert by_path["uncommitted.py"]["touches"] == []
+    assert by_path["uncommitted.py"]["sessions"][0]["writes"] == 1
+
+    # the session itself is a first-class map entity: identity/status only
+    # (per-file counts live in files[].sessions above)
+    assert data["sessions"] == [
+        {"id": "conv-1", "title": "Gist Title", "bot": None,
+         "running": False, "last": None},
+    ]
+
+
+def test_live_touches_merge_for_a_running_session(terrain_client, tmp_path, monkeypatch):
+    # A mid-turn session's batch footprints are stale; its jsonl must be
+    # re-parsed live, REPLACING the batch entry (a live parse of the same log
+    # is a strict superset — replacement can't double-count).
+    skeleton = _make_git_repo(tmp_path / "skeleton")
+    _commit_file(skeleton, "app.py", "print('hi')\n")
+    _set_terrain_repos(monkeypatch, skeleton, tmp_path / "empty-vault")
+
+    chats = store.DATA_DIR / "bot_chats"
+    chats.mkdir(parents=True, exist_ok=True)
+    last_at = reading_room._now()
+    store.write("bot_chats/index", {"conv-live": {
+        "title": "Mid-flight work", "bot": "spark", "running": True,
+        "last_at": last_at, "cwd": str(skeleton)}})
+    # the batch sidecar saw one Edit on app.py before the turn started...
+    store.write("bot_chats/footprints", {"conv-live": {"files": {
+        str(skeleton / "app.py"): {"writes": 1, "reads": 0,
+                                   "last": "2026-01-01T00:00:00Z"}}}})
+    # ...but the log has since gained a Write on a brand-new file
+    events = [
+        {"type": "user", "text": "go", "ts": "2026-01-01T00:00:00"},
+        {"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "name": "Edit",
+             "input": {"file_path": str(skeleton / "app.py"),
+                       "old_string": "a", "new_string": "b"}},
+            {"type": "tool_use", "name": "Write",
+             "input": {"file_path": str(skeleton / "fresh.py"), "content": "x"}},
+        ]}},
+    ]
+    (chats / "conv-live.jsonl").write_text(
+        "\n".join(json.dumps(e) for e in events) + "\n")
+
+    data = terrain_client.get("/api/reading-room/terrain").get_json()
+    skel_out = next(r for r in data["repos"] if r["id"] == "skeleton")
+    by_path = {f["path"]: f for f in skel_out["files"]}
+    # the mid-turn Write surfaces even though the batch sidecar never saw it
+    assert by_path["fresh.py"]["sessions"][0]["id"] == "conv-live"
+    assert by_path["fresh.py"]["sessions"][0]["writes"] == 1
+    # app.py's counts come from the live parse alone — not batch + live
+    assert by_path["app.py"]["sessions"][0]["writes"] == 1
+    # and the session is on the map, marked running
+    sess = next(s for s in data["sessions"] if s["id"] == "conv-live")
+    assert sess == {"id": "conv-live", "title": "Mid-flight work",
+                    "bot": "spark", "running": True, "last": last_at}
+
+
+def test_running_session_with_no_touches_still_appears_in_sessions(terrain_client, tmp_path, monkeypatch):
+    # A turn that hasn't touched a file yet is still a presence on the map.
+    _set_terrain_repos(monkeypatch, tmp_path / "a", tmp_path / "b")
+    (store.DATA_DIR / "bot_chats").mkdir(parents=True, exist_ok=True)
+    store.write("bot_chats/index", {"conv-idle": {
+        "title": "Just thinking", "bot": "keeper", "running": True,
+        "last_at": reading_room._now()}})
+    data = terrain_client.get("/api/reading-room/terrain").get_json()
+    assert [s["id"] for s in data["sessions"]] == ["conv-idle"]
+    assert data["sessions"][0]["running"] is True
+
+
+def test_terrain_caches_the_payload_for_the_ttl(terrain_client, tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(reading_room, "_terrain_git_touches",
+                        lambda root, window_days: calls.append(root) or {})
+    _set_terrain_repos(monkeypatch, tmp_path / "a", tmp_path / "b")
+
+    terrain_client.get("/api/reading-room/terrain")
+    terrain_client.get("/api/reading-room/terrain")
+    assert len(calls) == 2   # one _build_terrain() call touches 2 repos
+
+    reading_room._terrain_cache["computed_at"] -= reading_room._TERRAIN_CACHE_TTL_SEC + 1
+    terrain_client.get("/api/reading-room/terrain")
+    assert len(calls) == 4   # cache expired -> _build_terrain() ran again
+
+
+def test_terrain_ttl_shortens_while_a_session_is_running(terrain_client, tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(reading_room, "_terrain_git_touches",
+                        lambda root, window_days: calls.append(root) or {})
+    _set_terrain_repos(monkeypatch, tmp_path / "a", tmp_path / "b")
+    (store.DATA_DIR / "bot_chats").mkdir(parents=True, exist_ok=True)
+    store.write("bot_chats/index", {"conv-live": {
+        "title": "Live", "bot": "keeper", "running": True,
+        "last_at": reading_room._now()}})
+
+    terrain_client.get("/api/reading-room/terrain")
+    assert len(calls) == 2
+    # An age the default 300s TTL would call fresh — but with a session
+    # running, the live TTL (~5s) has already expired it.
+    reading_room._terrain_cache["computed_at"] -= reading_room._TERRAIN_LIVE_TTL_SEC + 1
+    terrain_client.get("/api/reading-room/terrain")
+    assert len(calls) == 4
+    # Once nothing is running, the same age is fresh again under 300s.
+    store.write("bot_chats/index", {"conv-live": {"title": "Live", "running": False}})
+    reading_room._terrain_cache["computed_at"] -= reading_room._TERRAIN_LIVE_TTL_SEC + 1
+    terrain_client.get("/api/reading-room/terrain")
+    assert len(calls) == 4   # served from cache
+
+
+# --- Session-first refactor: per-conversation config replaces the bot lookup -
+
+def _index_entry(**over):
+    entry = {"bot": "keeper", "started": reading_room._now(),
+             "last_at": reading_room._now(), "claude_session_id": None,
+             "cost_usd": 0.0, "title": "Custom", "journal": False,
+             "cwd": str(store.CONTENT_DIR.parent)}
+    entry.update(over)
+    return entry
+
+
+def test_conv_send_404s_on_unknown_id(bot_client):
+    resp = bot_client.post("/api/reading-room/conversation/nope/send",
+                           json={"text": "x"})
+    assert resp.status_code == 404
+    assert resp.get_json() == {"error": "not found"}
+
+
+def test_conv_send_uses_the_entrys_own_tools_and_cwd(bot_client, tmp_path, monkeypatch):
+    own_cwd = tmp_path / "own-cwd"
+    own_cwd.mkdir()
+    reading_room._chats_dir()
+    with store.mutate("bot_chats/index", {}) as index:
+        index["custom-1"] = _index_entry(cwd=str(own_cwd),
+                                         allowed_tools=["Read", "Bash"])
+    seen = {}
+    real_spawn = reading_room._spawn
+    def spy(config, text, resume_sid, cwd_override=None):
+        seen["config"] = config
+        seen["cwd_override"] = cwd_override
+        return real_spawn(config, text, resume_sid, cwd_override)
+    monkeypatch.setattr(reading_room, "_spawn", spy)
+    _sse_events(bot_client.post("/api/reading-room/conversation/custom-1/send",
+                                json={"text": "go"}))
+    assert seen["config"]["allowed_tools"] == ["Read", "Bash"]
+    assert seen["config"]["cwd"] == str(own_cwd)
+    assert seen["cwd_override"] == str(own_cwd)
+    # and the spawned claude actually got the tool flag
+    argvs = [json.loads(l) for l in bot_client._argv_log.read_text().splitlines()]
+    argv = argvs[-1]
+    assert argv[argv.index("--allowedTools") + 1] == "Read,Bash"
+
+
+def test_legacy_entry_without_allowed_tools_gets_readonly_trio(bot_client, monkeypatch):
+    reading_room._chats_dir()
+    with store.mutate("bot_chats/index", {}) as index:
+        index["legacy-1"] = _index_entry()   # no allowed_tools field at all
+    seen = {}
+    real_spawn = reading_room._spawn
+    def spy(config, text, resume_sid, cwd_override=None):
+        seen["tools"] = config["allowed_tools"]
+        return real_spawn(config, text, resume_sid, cwd_override)
+    monkeypatch.setattr(reading_room, "_spawn", spy)
+    _sse_events(bot_client.post("/api/reading-room/conversation/legacy-1/send",
+                                json={"text": "hi"}))
+    assert seen["tools"] == reading_room._DEFAULT_ALLOWED_TOOLS
+
+
+def test_draft_is_cleared_by_a_send(bot_client):
+    reading_room._chats_dir()
+    with store.mutate("bot_chats/index", {}) as index:
+        index["draft-1"] = _index_entry(
+            allowed_tools=list(reading_room._BUILDER_TOOLS),
+            draft="Read BRIEF.md and follow its Protocol section exactly.")
+    _sse_events(bot_client.post("/api/reading-room/conversation/draft-1/send",
+                                json={"text": "Read BRIEF.md and follow its Protocol section exactly."}))
+    meta = store.read("bot_chats/index", {})["draft-1"]
+    assert "draft" not in meta
+
+
+def test_new_default_create_route_gives_builder_config(bot_client):
+    resp = bot_client.post("/api/reading-room/conversations",
+                           json={"title": "build thing"})
+    assert resp.status_code == 200
+    conv_id = resp.get_json()["id"]
+    meta = store.read("bot_chats/index", {})[conv_id]
+    assert meta["allowed_tools"] == list(reading_room._BUILDER_TOOLS)
+    assert meta["cwd"] == str(store.BUILD_DIR)
+    assert meta["bot"] == "keeper"
+    assert meta["journal"] is False
+
+
+def test_roster_returns_sessions_and_legacy_bots_shapes(bot_client):
+    conv_id = bot_client.post("/api/reading-room/conversations",
+                              json={"title": "roster check"}).get_json()["id"]
+    data = bot_client.get("/api/reading-room").get_json()
+    assert "sessions" in data and "bots" in data
+    assert any(c["id"] == conv_id for c in data["sessions"])
+    assert data["bots"][0]["id"] == "keeper"
+    assert any(c["id"] == conv_id for c in data["bots"][0]["conversations"])
+    assert data["sessions"] == data["bots"][0]["conversations"]

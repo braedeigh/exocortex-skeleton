@@ -1,10 +1,11 @@
 """Spinoff — the shared spawn door for /spinoff.
 
 A skill in any Claude session writes a brief to SPINOFF_DIR/<slug>/BRIEF.md and
-calls this; it spawns a named tmux session running Claude Code seeded with a
-kickoff that points at the brief. The brief travels by FILE, never
-shell-interpolated into tmux — only the fixed, short kickoff string below is
-ever typed into the pane.
+calls this; it mints a Reading Room conversation (routes/reading_room.py)
+config'd as a builder session, with a kickoff STAGED as a draft rather than
+sent — she opens the session in the Reading Room and hits send herself. The
+brief travels by FILE, never typed/shell-interpolated anywhere — only the
+fixed, short kickoff sentence below is ever staged.
 """
 import os
 import re
@@ -13,7 +14,7 @@ from pathlib import Path
 from flask import jsonify, request
 
 import store
-from .kitchen import shared
+from routes.reading_room import _BUILDER_TOOLS, _chats_dir, _new_conv_id, _now
 
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,38}$")
 
@@ -22,12 +23,13 @@ SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,38}$")
 DEFAULT_SPINOFF_CWD = Path(__file__).resolve().parents[1]
 
 
-def open_spinoff(slug, block=False):
+def open_spinoff(slug):
     """Core shared by the route and scripts/spinoff_open.py (the agents' door).
 
-    Returns (payload, http_status). `block=True` makes the kickoff send
-    synchronous — REQUIRED for short-lived CLI callers, whose process would
-    exit before send_prompt's daemon thread ever types (see shared.send_prompt).
+    Mints (or rejoins) a Reading Room conversation for the spinoff, with the
+    kickoff staged as a draft rather than sent — a re-invocation against a
+    spinoff that already has a live (non-archived) conversation is a rejoin,
+    not a restart, and leaves that conversation untouched.
     """
     if not SLUG_RE.match(slug or ""):
         return {"error": "bad slug"}, 400
@@ -36,23 +38,33 @@ def open_spinoff(slug, block=False):
     if not brief.exists():
         return {"error": f"no brief at {brief}"}, 400
 
-    name = f"spin-{slug}"
-    cwd = Path(os.environ.get("EXOCORTEX_SPINOFF_CWD", DEFAULT_SPINOFF_CWD))
-    try:
-        newly = shared.ensure_claude_session(name, cwd)
-    except RuntimeError as e:
-        return {"error": str(e)}, 503
+    _chats_dir()   # the index (and its .lock) lives inside it
+    with store.mutate("bot_chats/index", {}) as index:
+        existing = next(
+            (cid for cid, entry in index.items()
+             if isinstance(entry, dict) and entry.get("spinoff_slug") == slug
+             and not entry.get("archived")),
+            None)
+        if existing:
+            return {"ok": True, "conversation_id": existing,
+                    "newly_spawned": False, "brief": str(brief)}, 200
 
-    # Only type the kickoff into a session we just spawned — re-invoking
-    # against one already live is a rejoin, not a restart.
-    if newly:
-        kickoff = f"Read {brief} and follow its Protocol section exactly — it defines this session's job."
-        shared.send_prompt(name, kickoff, block=block)
+        cwd = Path(os.environ.get("EXOCORTEX_SPINOFF_CWD", DEFAULT_SPINOFF_CWD))
+        kickoff = (f"Read {brief} and follow its Protocol section exactly — "
+                   "it defines this session's job.")
+        conv_id = _new_conv_id(index)
+        index[conv_id] = {
+            "bot": "keeper", "spinoff_slug": slug, "title": f"spin: {slug}",
+            "started": _now(), "last_at": _now(), "claude_session_id": None,
+            "cost_usd": 0.0, "journal": False, "cwd": str(cwd),
+            "allowed_tools": list(_BUILDER_TOOLS), "draft": kickoff,
+        }
 
     return {
         "ok": True,
-        "session": name,
-        "newly_spawned": newly,
+        "conversation_id": conv_id,
+        "newly_spawned": True,
+        "staged": True,
         "brief": str(brief),
     }, 200
 

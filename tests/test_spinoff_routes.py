@@ -1,9 +1,11 @@
 """routes/spinoff.py — the shared spawn door for /spinoff.
 
-Mirrors test_person_routes.py's session-spawning contract tests: a minimal
-Flask app registering only `spinoff`, ensure_claude_session/send_prompt
-monkeypatched to record calls instead of touching tmux, and store.SPINOFF_DIR
-pointed at a tmp_path via the data_dir-style fixture below.
+Session-first: opening a spinoff mints (or rejoins) a Reading Room
+conversation (routes/reading_room.py) rather than a tmux session. A fresh
+mint gets a builder-tool config and its kickoff STAGED as a `draft` — never
+sent — so the owner fires it herself with a normal send. Re-invoking against
+a slug that already has a live (non-archived) conversation is a rejoin: the
+entry is returned untouched, not re-minted or re-drafted.
 """
 import json
 
@@ -15,13 +17,12 @@ from routes import spinoff
 
 
 @pytest.fixture
-def spinoff_dir(tmp_path, monkeypatch):
-    monkeypatch.setattr(store, "SPINOFF_DIR", tmp_path)
-    return tmp_path
-
-
-@pytest.fixture
-def client(spinoff_dir):
+def spinoff_client(data_dir, monkeypatch):
+    # Mirrors conftest's store-isolation style: data_dir points store.DATA_DIR
+    # (and UPLOAD_DIR) at a fresh tmp_path; SPINOFF_DIR is resolved once at
+    # import time from the (real) DATA_DIR, so it needs its own monkeypatch
+    # to land under the same isolated tree.
+    monkeypatch.setattr(store, "SPINOFF_DIR", data_dir / "spinoffs")
     app = Flask(__name__)
     app.config.update(TESTING=True)
     spinoff.register(app)
@@ -37,72 +38,85 @@ def _write_brief(spinoff_dir, slug, text="Do the thing.\n"):
     d = spinoff_dir / slug
     d.mkdir(parents=True, exist_ok=True)
     (d / "BRIEF.md").write_text(text)
+    return d / "BRIEF.md"
 
 
-def test_bad_slug_400(client):
-    r = _post(client, "NOT-A-SLUG")
+def _index():
+    return store.read("bot_chats/index", {})
+
+
+def test_bad_slug_400(spinoff_client):
+    r = _post(spinoff_client, "NOT-A-SLUG")
     assert r.status_code == 400
     assert r.get_json() == {"error": "bad slug"}
+    assert _index() == {}
 
 
-def test_missing_brief_400_and_no_spawn_attempted(client, spinoff_dir, monkeypatch):
-    calls = []
-    monkeypatch.setattr(spinoff.shared, "ensure_claude_session",
-                         lambda *a, **k: calls.append(("ensure", a, k)) or True)
-    r = _post(client, "some-slug")
+def test_missing_brief_400_and_no_index_write(spinoff_client):
+    r = _post(spinoff_client, "some-slug")
     assert r.status_code == 400
-    assert r.get_json()["error"] == f"no brief at {spinoff_dir / 'some-slug' / 'BRIEF.md'}"
-    assert calls == []
+    brief = store.SPINOFF_DIR / "some-slug" / "BRIEF.md"
+    assert r.get_json() == {"error": f"no brief at {brief}"}
+    assert _index() == {}
 
 
-def test_valid_slug_spawns_session_and_sends_kickoff_with_brief_path(client, spinoff_dir, monkeypatch):
-    _write_brief(spinoff_dir, "cool-idea")
-    calls = {}
-
-    def fake_ensure(name, cwd, dirs=()):
-        calls["ensure"] = (name, cwd, dirs)
-        return True
-
-    def fake_send(session, text, delay=4.0, block=False):
-        calls["send"] = (session, text)
-
-    monkeypatch.setattr(spinoff.shared, "ensure_claude_session", fake_ensure)
-    monkeypatch.setattr(spinoff.shared, "send_prompt", fake_send)
-
-    r = _post(client, "cool-idea")
+def test_valid_slug_mints_a_staged_builder_session(spinoff_client):
+    brief = _write_brief(store.SPINOFF_DIR, "cool-idea")
+    r = _post(spinoff_client, "cool-idea")
     assert r.status_code == 200
-    brief_path = str(spinoff_dir / "cool-idea" / "BRIEF.md")
-    assert r.get_json() == {
-        "ok": True, "session": "spin-cool-idea",
-        "newly_spawned": True, "brief": brief_path,
-    }
-    assert calls["ensure"][0] == "spin-cool-idea"
-    assert calls["send"][0] == "spin-cool-idea"
-    assert brief_path in calls["send"][1]
+    body = r.get_json()
+    assert body["ok"] is True
+    assert body["newly_spawned"] is True
+    assert body["staged"] is True
+    assert body["brief"] == str(brief)
+    conv_id = body["conversation_id"]
+
+    index = _index()
+    entry = index[conv_id]
+    assert entry["spinoff_slug"] == "cool-idea"
+    assert str(brief) in entry["draft"]
+    assert entry["allowed_tools"] == list(spinoff._BUILDER_TOOLS)
+    assert entry["journal"] is False
+    assert entry["cwd"]
+    assert entry["bot"] == "keeper"
+    assert entry["title"] == "spin: cool-idea"
 
 
-def test_already_running_session_skips_kickoff(client, spinoff_dir, monkeypatch):
-    _write_brief(spinoff_dir, "already-up")
-    send_calls = []
-    monkeypatch.setattr(spinoff.shared, "ensure_claude_session", lambda *a, **k: False)
-    monkeypatch.setattr(spinoff.shared, "send_prompt",
-                         lambda *a, **k: send_calls.append((a, k)))
+def test_second_call_rejoins_without_touching_the_entry(spinoff_client):
+    _write_brief(store.SPINOFF_DIR, "twice")
+    first = _post(spinoff_client, "twice").get_json()
+    conv_id = first["conversation_id"]
+    before = _index()[conv_id]
 
-    r = _post(client, "already-up")
+    r = _post(spinoff_client, "twice")
     assert r.status_code == 200
     body = r.get_json()
     assert body["ok"] is True
     assert body["newly_spawned"] is False
-    assert send_calls == []
+    assert body["conversation_id"] == conv_id
+
+    after = _index()
+    # exactly one entry for this slug, and it's byte-for-byte the same as
+    # before — a rejoin must not re-write the draft (or anything else).
+    assert list(after.keys()) == [conv_id]
+    assert after[conv_id] == before
 
 
-def test_memory_guard_raises_503(client, spinoff_dir, monkeypatch):
-    _write_brief(spinoff_dir, "no-room")
+def test_archived_spinoff_gets_a_fresh_conversation(spinoff_client):
+    _write_brief(store.SPINOFF_DIR, "reopen-me")
+    first = _post(spinoff_client, "reopen-me").get_json()
+    old_id = first["conversation_id"]
+    with store.mutate("bot_chats/index", {}) as index:
+        index[old_id]["archived"] = "2026-01-01T00:00:00"
 
-    def fake_ensure(*a, **k):
-        raise RuntimeError("refusing to spawn Claude session 'spin-no-room': only 100MB available")
+    r = _post(spinoff_client, "reopen-me")
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["newly_spawned"] is True
+    new_id = body["conversation_id"]
+    assert new_id != old_id
 
-    monkeypatch.setattr(spinoff.shared, "ensure_claude_session", fake_ensure)
-    r = _post(client, "no-room")
-    assert r.status_code == 503
-    assert "refusing to spawn" in r.get_json()["error"]
+    index = _index()
+    assert index[old_id]["archived"]
+    assert index[new_id]["spinoff_slug"] == "reopen-me"
+    assert not index[new_id].get("archived")

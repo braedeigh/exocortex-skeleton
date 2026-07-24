@@ -1,5 +1,5 @@
 ---
-description: Spin a task from this conversation into its own Claude session in a new terminal tab
+description: Spin a task from this conversation into its own Claude session in the Reading Room
 ---
 
 The owner wants to hand work from THIS conversation to a fresh session — e.g.
@@ -86,7 +86,7 @@ commits, and never discard changes you didn't make.
 <Leave empty. Fill in when the work ships: what landed, commits, what's left.>
 ```
 
-## 3. Spawn — confirm, then open the tab
+## 3. Spawn — confirm, then stage the session
 
 Show the owner what you're about to spawn — slug + one-line task summary per
 session — and **wait for their go**. This starts a real agent doing real work;
@@ -103,11 +103,15 @@ EXOCORTEX_DATA_DIR=<data dir> ./venv/bin/python3 scripts/spinoff_open.py <slug>
 
 (Same narrow-door doctrine as `scripts/stage_change.py` — agents shell out to
 the script; the app's own UI uses `POST /api/spinoff/open`, both wrapping the
-same core in `routes/spinoff.py`.) The JSON reply tells you `newly_spawned`.
-The session
-appears as tab `spin-<slug>` in the terminal session bar; the endpoint types
-the kickoff pointing at the brief, so the new session boots straight into the
-Protocol. If the session already exists, the endpoint rejoins it without
-re-typing the kickoff — tell the owner the tab is already live.
+same core in `routes/spinoff.py`.) The JSON reply tells you `newly_spawned`
+and `conversation_id`. There is no tmux tab: the endpoint mints a Reading
+Room conversation (config'd as a builder session) with the kickoff STAGED as
+a draft, not sent — it boots straight into the Protocol only once she opens
+the session and hits send. If a live (non-archived) conversation for that
+slug already exists, the endpoint rejoins it instead of minting a new one
+(`newly_spawned: false`) and leaves it untouched.
 
-Then tell them which tab(s) to open. Done — the child takes it from there.
+Tell the owner the session(s) are waiting in the Reading Room — she needs to
+open the session and hit send herself to fire the kickoff. If
+`newly_spawned` came back false, tell her the spinoff session already exists
+in the room instead. Done — the child takes it from there once she sends.
