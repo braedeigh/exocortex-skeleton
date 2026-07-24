@@ -649,7 +649,13 @@ def register(app):
     @app.route("/api/terminal/capture")
     def terminal_capture():
         sess = _get_session()
+        # `start` is a tmux scrollback line offset (default -5000). It's
+        # interpolated into a shell=True command, so — like `key` above — it
+        # must be allowlisted: an optional leading '-' and digits only, or
+        # anything outside that is a command-injection vector.
         start = request.args.get("start", "-5000")
+        if not re.fullmatch(r"-?\d{1,7}", start):
+            return jsonify({"error": "invalid start"}), 400
         result = _tmux(f"capture-pane -t {sess} -p -S {start}")
         return jsonify({"text": result.stdout})
 
