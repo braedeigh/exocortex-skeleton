@@ -16,6 +16,7 @@ import subprocess
 import re
 import time
 import store
+import features
 import recap_summary
 
 TMUX_SESSION = "chat"
@@ -557,6 +558,21 @@ def _pending_pop(sess):
 
 
 def register(app):
+    # web_terminal feature flag (features.py): when off, the remote-shell API
+    # below is inert — one 404 gate instead of code removal, so a deployment
+    # can run without a browser-reachable shell while the code stays stock.
+    # Everything else in this module (sessions, schedule, notes, recaps,
+    # upload, needs-input) stays available either way.
+    _SHELL_PREFIXES = ("/api/terminal/send", "/api/terminal/capture",
+                       "/api/terminal/scroll", "/api/terminal/refresh",
+                       "/api/terminal/session")
+
+    @app.before_request
+    def _web_terminal_gate():
+        from flask import request as _rq
+        if _rq.path.startswith(_SHELL_PREFIXES) and not features.enabled("web_terminal"):
+            return jsonify({"error": "web terminal disabled on this install"}), 404
+
     @app.route("/api/notes", methods=["GET"])
     def get_notes():
         content = NOTES_PATH.read_text() if NOTES_PATH.exists() else ""
