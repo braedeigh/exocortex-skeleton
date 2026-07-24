@@ -26,7 +26,7 @@ from routes import (
     entities, threads, person, shell, cards, archivals, research,
     research_search, research_sources, research_import, research_text,
     annotations, spa, fronts, wiki, travel, profile, usage, streaks, spinoff,
-    bots,
+    reading_room,
 )
 from routes.shell import VALID_TABS
 
@@ -369,7 +369,7 @@ def journal_save(date):
     data = request.json or {}
     content = data.get("content", "")
     path = CONTENT_DIR / "Journal" / "Daily" / f"{date}.md"
-    path.write_text(content)
+    store.write_text_file(path, content)
     return jsonify({"ok": True})
 
 
@@ -388,8 +388,7 @@ def personality_get():
 def personality_save():
     data = request.json or {}
     content = data.get("content", "")
-    PERSONALITY_PATH.parent.mkdir(parents=True, exist_ok=True)
-    PERSONALITY_PATH.write_text(content)
+    store.write_text_file(PERSONALITY_PATH, content)
     return jsonify({"ok": True})
 
 
@@ -1114,7 +1113,7 @@ annotations.register(app)
 reminders.register(app)
 food_test.register(app)
 terminal.register(app)
-bots.register(app)
+reading_room.register(app)
 settings.register(app)
 devnotes.register(app)
 ideas.register(app)

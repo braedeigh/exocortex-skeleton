@@ -382,6 +382,30 @@ def write_file(name, data):
         raise
 
 
+def write_text_file(path, content):
+    """Write arbitrary text to `path` ATOMICALLY — for markdown/plain-text files
+    (journal entries, HABITS.md, person docs) that aren't JSON collections and so
+    can't go through write()/write_file().
+
+    Same guarantee as write_file(): temp file in the same directory, fsync, then
+    os.replace() over the target. A reader sees either the whole old file or the
+    whole new one — never a truncated half-write — and if the process dies
+    mid-write the original is left untouched. Creates parent dirs if missing.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
 def write(name, data):
     """Write a collection. SQL-backed collections commit to SQLite first, then
     export the JSON mirror; everything else writes its JSON file atomically."""

@@ -49,14 +49,14 @@ def add_item_to_file(item, section_name, filepath):
                 break
         insert_at += offset
         text = text[:insert_at] + f"- [ ] {item}\n" + text[insert_at:]
-        filepath.write_text(text)
+        _store.write_text_file(filepath, text)
 
 
 def remove_item_from_file(item, filepath):
     text = filepath.read_text()
     text = text.replace(f"- [ ] {item}\n", "", 1)
     text = text.replace(f"- [x] {item}\n", "", 1)
-    filepath.write_text(text)
+    _store.write_text_file(filepath, text)
 
 
 # --- Uploads hygiene ---

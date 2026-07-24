@@ -32,6 +32,38 @@ def test_mutate_persists_changes(data_dir):
     assert store.read("log")["entries"] == ["first"]
 
 
+def test_write_text_file_roundtrip(data_dir):
+    path = data_dir / "note.md"
+    store.write_text_file(path, "# hello\n\n- [ ] thing\n")
+    assert path.read_text() == "# hello\n\n- [ ] thing\n"
+
+
+def test_write_text_file_creates_parent_dirs(data_dir):
+    path = data_dir / "Journal" / "Daily" / "2026-07-24.md"
+    store.write_text_file(path, "a day")
+    assert path.read_text() == "a day"
+
+
+def test_write_text_file_overwrites_atomically_no_tmp_left(data_dir):
+    path = data_dir / "note.md"
+    store.write_text_file(path, "first")
+    store.write_text_file(path, "second")
+    assert path.read_text() == "second"
+    # the temp file used for the atomic replace must not linger
+    assert list(data_dir.glob("*.tmp")) == []
+
+
+def test_write_text_file_leaves_original_intact_on_write_error(data_dir):
+    path = data_dir / "note.md"
+    store.write_text_file(path, "original")
+    # a non-string content raises inside the with-block, after mkstemp — the
+    # existing file must survive untouched and no temp file may be left behind.
+    with pytest.raises(TypeError):
+        store.write_text_file(path, 12345)  # f.write(int) → TypeError
+    assert path.read_text() == "original"
+    assert list(data_dir.glob("*.tmp")) == []
+
+
 def test_mutate_does_not_write_on_exception(data_dir):
     store.write("log", {"entries": ["keep"]})
     with pytest.raises(ValueError):

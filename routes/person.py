@@ -180,6 +180,6 @@ def register(app):
             lines.append("---")
 
             new_raw = "\n".join(lines) + "\n" + body_text
-            file_path.write_text(new_raw)
+            store.write_text_file(file_path, new_raw)
 
         return jsonify({"facts": output_facts})
