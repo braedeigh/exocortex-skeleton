@@ -4,7 +4,7 @@
  * (busy), it finished with activity she hasn't opened yet (ready), or there's
  * nothing new (idle). `openedAt` is read from the same `exo-bot-opened`
  * localStorage map RosterPage's unread accent already uses
- * (markConversationOpened in ReadingRoomPage.tsx writes it) — this doesn't
+ * (markConversationOpened in openedStore.ts writes it) — this doesn't
  * read storage itself so the roster stays the only place that touches it.
  */
 
