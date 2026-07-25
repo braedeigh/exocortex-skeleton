@@ -18,6 +18,7 @@ from data_helpers import (
 from public_config import filter_for_view, is_public_path
 import store
 import config
+import features
 import proxy_auth
 from routes import (
     kitchen, habits, todos, places, health, inventory, money, car,
@@ -1113,8 +1114,19 @@ annotations.register(app)
 reminders.register(app)
 food_test.register(app)
 terminal.register(app)
-reading_room.register(app)
+if features.enabled("reading_room"):
+    # The reading room spawns headless `claude -p` processes as the app user;
+    # the flag lets a deployment keep that surface off. Stock installs: on.
+    reading_room.register(app)
 automations.register(app)
+
+
+@app.route("/api/features")
+def features_snapshot():
+    """Read-only resolved feature flags — lets the frontend (and curl) see
+    which surfaces this install runs. Toggling happens in the data dir's
+    features.json or EXOCORTEX_FEATURE_* env, never through HTTP."""
+    return jsonify(features.snapshot())
 settings.register(app)
 devnotes.register(app)
 ideas.register(app)
