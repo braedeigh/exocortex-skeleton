@@ -138,6 +138,10 @@ PUBLIC_PATHS = (
     "/api/data/ecosystem",
     "/api/version",
     "/api/about",
+    # The web-push hook door (routes/push.py): Claude Code's Stop/Notification
+    # hooks POST here from localhost with no session cookie, authenticated by
+    # a shared secret checked inside the route itself instead.
+    "/api/push/notify",
     # The React SPA shell (routes/spa.py) — the app-shell HTML/JS/CSS/
     # manifest/SW must all be reachable to render the public landing at all.
     # "/legacy/<tab>" entries stay so old public bookmarks can follow the

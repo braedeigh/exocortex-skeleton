@@ -7,6 +7,7 @@ import { routeTree } from './routeTree.gen';
 import { installUsageBeacon } from './api/usageBeacon';
 import { installUsageTracker } from './api/usageTracker';
 import { installUsageHeat } from './ui/usageHeat';
+import { installPresence } from './push/presence';
 import { initTheme } from './theme';
 
 // Boot the theming engine (src/theme — the port of static/js/sky-theme.js)
@@ -50,6 +51,11 @@ installUsageTracker(router);
 // The "usage heat view" overlay (Settings toggle) — tints tracked controls
 // on /journal and /todos by how often they're actually used.
 installUsageHeat(router);
+
+// Web push visibility heartbeat — tells the server whether this device has
+// the app open and visible, so it can skip a redundant push. No-ops unless
+// push is already enabled on this device (src/push/presence.ts).
+installPresence();
 
 declare module '@tanstack/react-router' {
   interface Register {

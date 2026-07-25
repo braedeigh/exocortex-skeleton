@@ -6,3 +6,9 @@ gevent==26.5.0
 pandas==3.0.3
 bcrypt==5.0.0
 jsonschema==4.26.0
+# Web push (routes/push.py): pywebpush sends the payload, py-vapid signs the
+# VAPID JWT, cryptography backs both — pinned to the versions installed on
+# 2026-07-24.
+pywebpush==2.3.0
+py-vapid==1.9.4
+cryptography==49.0.0

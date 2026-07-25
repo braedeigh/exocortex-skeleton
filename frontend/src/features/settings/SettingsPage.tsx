@@ -18,6 +18,7 @@ import { chatSurfaceIsReadingRoom, setChatSurfaceReadingRoom } from '../../shell
 import { AccountSection } from './AccountSection';
 import { ColorField } from './ColorField';
 import { DevNotesSection } from './DevNotesSection';
+import { NotificationsSection } from './NotificationsSection';
 import { PhaseCard } from './PhaseCard';
 import { ProfileSection } from './ProfileSection';
 import { saveTheme } from './settingsApi';
@@ -418,6 +419,11 @@ export function SettingsPage() {
             default.
           </div>
           <ProfileSection />
+        </section>
+
+        <section className={styles.section}>
+          <h2 className={styles.heading}>Notifications</h2>
+          <NotificationsSection />
         </section>
 
         <section className={styles.section}>

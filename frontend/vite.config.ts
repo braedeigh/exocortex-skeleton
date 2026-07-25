@@ -35,6 +35,11 @@ export default defineConfig({
       workbox: {
         // precache the app shell (JS/CSS/HTML/icons)
         globPatterns: ['**/*.{js,css,html,png,svg,ico,webmanifest}'],
+        // Pull the web-push 'push' / 'notificationclick' handlers
+        // (public/push-sw.js, plain JS) into the generated sw.js via
+        // importScripts — keeps them out of the workbox-managed bundle
+        // while still running inside the same service worker.
+        importScripts: ['push-sw.js'],
         // Navigations are NETWORK-FIRST, never precache-first: Flask injects
         // per-request boot globals (VIEW_MODE / PUBLIC_INTRO_HTML /
         // THEME_OVERRIDES / APP_META) into the shell HTML, and the precached

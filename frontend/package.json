@@ -14,6 +14,9 @@
   "dependencies": {
     "@tanstack/react-query": "^5.101.2",
     "@tanstack/react-router": "^1.170.17",
+    "d3-force": "^3.0.0",
+    "d3-selection": "^3.0.0",
+    "d3-zoom": "^3.0.0",
     "leaflet": "^1.9.4",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
@@ -21,6 +24,9 @@
   "devDependencies": {
     "@playwright/test": "^1.61.1",
     "@tanstack/router-plugin": "^1.168.19",
+    "@types/d3-force": "^3.0.10",
+    "@types/d3-selection": "^3.0.11",
+    "@types/d3-zoom": "^3.0.8",
     "@types/leaflet": "^1.9.21",
     "@types/node": "^24.13.2",
     "@types/react": "^19.2.17",

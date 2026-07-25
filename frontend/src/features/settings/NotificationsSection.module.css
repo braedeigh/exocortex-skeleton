@@ -1,0 +1,62 @@
+/* Notifications section — web push enable/disable/test, same conventions as
+ * AccountSection.module.css: 40px+ tap targets, no text under 12px. */
+
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-width: 420px;
+}
+
+.status {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.hint {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-1);
+}
+
+.btn {
+  flex: 1 1 180px;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-4);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--text);
+  color: var(--bg);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btnSecondary {
+  background: var(--card-bg);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+
+.success {
+  font-size: var(--font-size-sm);
+  color: #2a9e3c;
+}
+
+.error {
+  font-size: var(--font-size-sm);
+  color: #c0392b;
+}
