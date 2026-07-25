@@ -24,10 +24,10 @@ the 5 AM turn itself is orientation-only by instruction, not by tool-scoping.
 
 Run by cron every morning (the owner wires the crontab):
 
-    0 5 * * * EXOCORTEX_DATA_DIR=/opt/exocortex/personal/data \
+    0 5 * * * EXOCORTEX_DATA_DIR=... \
         /opt/exocortex/skeleton/venv/bin/python3 \
         /opt/exocortex/skeleton/scripts/spark_morning.py \
-        >> /opt/exocortex/personal/scripts/spark_morning.log 2>&1
+        >> .../spark_morning.log 2>&1
 
 Needs the venv python (imports the app's reading_room route module). Marks the
 conversation with origin="spark_morning" so tomorrow's run can find and archive

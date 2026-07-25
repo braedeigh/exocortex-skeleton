@@ -62,6 +62,13 @@
   }
 }
 
+/* Wide variant (opt-in, `wide` prop) — for content that's wide rather than
+   just long, e.g. the terrain code modal. Only meaningful above the 700px
+   breakpoint; narrower than that the sheet is already full-width. */
+.wide {
+  max-width: 900px;
+}
+
 @keyframes popIn {
   from {
     opacity: 0;

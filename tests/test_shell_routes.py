@@ -45,6 +45,14 @@ def test_dashboard_tab_redirects_to_native_tab():
     assert r.headers["Location"] == "/map"
 
 
+def test_dashboard_travel_redirects_to_native_travel():
+    # Travel is a real tab in the frontend's tabs.ts but was missing from
+    # VALID_TABS here, so this used to bounce to /dashboard/today.
+    r = _client().get("/dashboard/travel")
+    assert r.status_code == 302
+    assert r.headers["Location"] == "/travel"
+
+
 def test_dashboard_nonsense_falls_back_to_dashboard_today():
     r = _client().get("/dashboard/nonsense")
     assert r.status_code == 302

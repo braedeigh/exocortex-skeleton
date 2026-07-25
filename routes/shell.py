@@ -22,10 +22,12 @@ from flask import jsonify, redirect
 
 from data_helpers import CONTENT_DIR
 
-# The 14 dashboard sub-tabs. Single source of truth — server.py re-exports this
+# The 15 dashboard sub-tabs. Single source of truth — server.py re-exports this
 # (`server.VALID_TABS`) for the handful of other places that check tab names.
+# Mirrors frontend/src/shell/tabs.ts VALID_TABS; keep the two in step.
 VALID_TABS = ("today", "map", "kitchen", "inventory", "money", "car", "meditation",
-              "media", "movement", "body", "ideas", "ecosystem", "housing", "people")
+              "media", "movement", "body", "ideas", "ecosystem", "housing", "people",
+              "travel")
 
 # Legacy path -> tab key, for paths that differ from the tab key. The bare tab
 # paths (/map, /kitchen, …) are native SPA routes owned by routes/spa.py.

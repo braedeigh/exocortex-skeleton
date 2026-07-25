@@ -14,6 +14,13 @@ export interface SheetProps {
    * Save/Delete bar).
    */
   footer?: ReactNode;
+  /**
+   * Opt-in wider modal (900px instead of 560px), for content that is
+   * genuinely wide rather than merely long — source code, tables. Below the
+   * 700px breakpoint it changes nothing: the sheet is already full-width
+   * there.
+   */
+  wide?: boolean;
 }
 
 /**
@@ -32,7 +39,7 @@ export interface SheetProps {
  * z-index at the document root — this fixed "new session modal renders
  * behind the habits/to-do lists" (NewSessionDialog, which uses this Sheet).
  */
-export function Sheet({ open, title, onClose, children, footer }: SheetProps) {
+export function Sheet({ open, title, onClose, children, footer, wide }: SheetProps) {
   useEffect(() => {
     if (!open) return;
     function onKeyDown(e: KeyboardEvent) {
@@ -51,7 +58,9 @@ export function Sheet({ open, title, onClose, children, footer }: SheetProps) {
       role="presentation"
     >
       <div
-        className={footer ? `${styles.sheet} ${styles.hasFooter}` : styles.sheet}
+        className={[styles.sheet, footer && styles.hasFooter, wide && styles.wide]
+          .filter(Boolean)
+          .join(' ')}
         role="dialog"
         aria-modal="true"
         aria-label={title}
