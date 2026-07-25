@@ -31,13 +31,24 @@ BANNED = ("bradie", "/opt/exocortex/personal", "/home/bradie")
 #  - this file itself quotes the banned strings
 #  - content-scaffold/ is the seed tree shipped to fresh installs, out of scope
 #    for this sweep (covered by its own dedicated test)
+#  - claude-commands/terra.md + claude-commands/terra/ are a DELIBERATE
+#    exception, added on the owner's explicit instruction (2026-07-25): Terra
+#    is her compass persona and is only herself when she carries her own
+#    framing, so she ships un-scrubbed — her name, her vault paths, her
+#    BEDROCK, and the genesis session log that made her. The generic,
+#    plug-in-point version for anyone else remains at
+#    claude-commands/examples/terra.md. NOTE: this is the one place the repo's
+#    "no personal data" rule in CLAUDE.md is knowingly suspended; everything
+#    outside these two paths is still swept.
 ALLOWLIST_PREFIXES = (
     "docs/scrub-log/",
     "content-scaffold/",
+    "claude-commands/terra/",
 )
 ALLOWLIST_FILES = (
     "tests/test_content_scaffold_seed.py",
     "tests/test_no_personal_strings.py",
+    "claude-commands/terra.md",
 )
 
 
