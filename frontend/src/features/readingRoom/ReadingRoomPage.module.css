@@ -11,6 +11,14 @@
   flex-direction: column;
   position: relative;
   background: var(--bg);
+  /* Makes this a stacking context so TerrainBackdrop's z-index:-1 is scoped
+     HERE rather than escaping to the app shell. Paint order inside a stacking
+     context is: this background, then negative-z children, then in-flow
+     content — so the map sits above the page colour and beneath every word,
+     and .scroll/.composer/.jumpPill need no z-index of their own. That
+     matters: giving .scroll a position/z-index is a change to the element
+     useScrollContract measures and drives, and it doesn't have to be. */
+  isolation: isolate;
 }
 
 .scroll {
@@ -25,7 +33,18 @@
 .column {
   max-width: 68ch;
   margin: 0 auto;
-  padding: var(--space-4) var(--space-3) var(--space-8);
+  /* Bottom was --space-8 (32px), which stacked on top of the last
+     paragraph's own 16px margin — 48px of dead air above the composer, and
+     on a 3x phone that reads as a hole. The composer brings its own top
+     border and padding, so a small gap here is enough separation. */
+  padding: var(--space-4) var(--space-3) var(--space-3);
+}
+
+/* The column's padding is the gap; the last block inside it shouldn't add a
+   second one. Same rule at both levels — the last turn in the column, and
+   the last paragraph/list/code block inside a reply. */
+.column > :last-child {
+  margin-bottom: 0;
 }
 
 /* --- Her message: an epigraph, not a bubble ------------------------------ */
@@ -66,6 +85,10 @@
 
 .replyBody :global(p) {
   margin: 0 0 var(--space-4);
+}
+
+.replyBody > :last-child {
+  margin-bottom: 0;
 }
 
 .replyBody :global(h1),
@@ -318,7 +341,10 @@
   flex-shrink: 0;
   border-top: 1px solid var(--border-soft);
   background: var(--card-bg);
-  padding: var(--space-3) var(--space-3) calc(var(--space-3) + env(safe-area-inset-bottom));
+  /* Bottom is the safe-area inset plus a hair — iMessage's input sits right
+     above the home indicator, not floating a row above it. The extra
+     --space-3 that used to be here read as dead space under the composer. */
+  padding: var(--space-3) var(--space-3) calc(var(--space-1) + env(safe-area-inset-bottom));
   transition: background 200ms ease, border-color 200ms ease;
 }
 
@@ -334,6 +360,134 @@
   margin: 0 auto var(--space-2);
   color: var(--text-muted);
   font-size: var(--font-size-sm);
+}
+
+/* --- Roll over: the pinned Keeper session's one-tap "close the day, wake a
+   fresh Keeper" control (07-24). Same twilight-indigo chrome as the toolbar
+   below (its neighbor, a session-level control) but its own full-width row
+   so the label stays legible — the toolbar's icon buttons are already
+   packed tight. --------------------------------------------------------- */
+
+.rolloverFloat {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  /* Above the conversation (which scrolls under it) but below the notes and
+     schedule panels and the upload overlay, which are modal surfaces. */
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-2);
+  /* Only the control takes taps — the column itself must not block the text
+     scrolling underneath it. */
+  pointer-events: none;
+}
+
+.rolloverFloat > * {
+  pointer-events: auto;
+}
+
+.rolloverBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: var(--tap-target);
+  padding: 0 var(--space-4);
+  /* Floating over the conversation now, so it needs to sit ON something:
+     a touch of translucency plus a blur keeps it from reading as a patch
+     stuck on the page, and the shadow says it's above the text. */
+  background: color-mix(in srgb, #1a1a2e 88%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  border: 1px solid #2a2a4a;
+  border-radius: var(--radius-pill);
+  color: #c8c8e0;
+  font-family: inherit;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.rolloverBtn:active {
+  background: #2a2a4a;
+}
+
+.rolloverBtn:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.rolloverSpin {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border: 2px solid #3a3a5a;
+  border-top-color: #8888aa;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.rolloverError {
+  max-width: min(19rem, calc(100vw - 2 * var(--space-3)));
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: #1a1a2e;
+  color: var(--red, #b3423e);
+  font-size: var(--font-size-sm);
+}
+
+.rolloverConfirmRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  /* A card hanging off the button rather than a full-width row: it opens
+     where the tap happened. Bounded so a narrow phone can't stretch it edge
+     to edge, and opaque because it's asking a destructive question. */
+  width: min(19rem, calc(100vw - 2 * var(--space-3)));
+  padding: var(--space-3);
+  border: 1px solid #2a2a4a;
+  border-radius: var(--radius-md);
+  background: #1a1a2e;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.5);
+}
+
+.rolloverConfirmText {
+  flex: 1 1 100%;
+  color: #c8c8e0;
+  font-size: var(--font-size-md);
+}
+
+.rolloverConfirmBtn,
+.rolloverCancelBtn {
+  flex: 1;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  font-family: inherit;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.rolloverConfirmBtn {
+  border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, #1a1a2e);
+  color: #fff;
+}
+
+.rolloverCancelBtn {
+  border: 1px solid #2a2a4a;
+  background: transparent;
+  color: #8888aa;
+}
+
+.rolloverCancelBtn:active {
+  background: #2a2a4a;
+  color: #c8c8e0;
 }
 
 .sendError {

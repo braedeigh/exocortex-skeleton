@@ -3,6 +3,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { autosizeHeight, uploadedPathsMessage } from '../phone/phoneLogic';
 import { TermNotesPanel } from '../../shell/TermNotesPanel';
 import { SchedulePanel } from '../../shell/SchedulePanel';
+import { TerrainBackdrop } from '../terrain/TerrainBackdrop';
 import { createSession, getConversation, journalOutput, stopConversation, streamSend } from './api';
 import { applyEvent, assistantText, lastUserTurnIndex, turnsFromHistory, userTurn, type Turn } from './events';
 import { formatWorkingLine } from './turnStats';
@@ -14,6 +15,7 @@ import { useScrollContract } from './useScrollContract';
 import { useMessageQueue } from './useMessageQueue';
 import { usePhotoAttach, AttachChips, UploadOverlay } from './photoAttach';
 import { useReattach } from './useReattach';
+import { useKeeperRollover } from './useKeeperRollover';
 import styles from './ReadingRoomPage.module.css';
 
 /**
@@ -78,6 +80,9 @@ export function ReadingRoomPage({ botId, convId }: { botId: string; convId?: str
   // Explicit journal state of this session (null until meta loads; the hint
   // renders only on an explicit false — a workshop space).
   const [sessionJournal, setSessionJournal] = useState<boolean | null>(null);
+  // Explicit pinned state of this session (null until meta loads) — the
+  // "Roll over" control only exists in the one pinned session (the Keeper).
+  const [sessionPinned, setSessionPinned] = useState<boolean | null>(null);
   // Tap-to-journal: which assistant turn is armed (tap → "✦ put this in the
   // journal" appears → tap that to mint the K card).
   const [journalArmed, setJournalArmed] = useState<number | null>(null);
@@ -162,6 +167,7 @@ export function ReadingRoomPage({ botId, convId }: { botId: string; convId?: str
         const loadedTurns = turnsFromHistory(data.events);
         setTurns(loadedTurns);
         setSessionJournal(data.meta?.journal === true ? true : data.meta?.journal === false ? false : null);
+        setSessionPinned(data.meta?.pinned === true);
         if (data.meta?.title) setRoomTitle(data.meta.title);
         // Draft prefill: a staged first message she hasn't fired yet. Only
         // takes the compose box if it's still empty (never stomp something
@@ -338,6 +344,8 @@ export function ReadingRoomPage({ botId, convId }: { botId: string; convId?: str
     ],
   );
 
+  const rollover = useKeeperRollover({ botId, pinned: sessionPinned === true });
+
   const photo = usePhotoAttach();
 
   // canFire: nothing running server-side, no turn actively streaming/
@@ -420,6 +428,11 @@ export function ReadingRoomPage({ botId, convId }: { botId: string; convId?: str
 
   return (
     <div className={styles.page}>
+      {/* Step 1 of the backdrop: the terrain map behind the conversation.
+          The glass, the featured agent and the burning scroll are separate
+          steps and land separately — see TerrainBackdrop.tsx. */}
+      <TerrainBackdrop focusConv={convId} />
+
       <div ref={scrollContract.scrollRef} className={styles.scroll}>
         <div ref={scrollContract.columnRef} className={styles.column}>
           {turns.length === 0 ? (
@@ -505,6 +518,51 @@ export function ReadingRoomPage({ botId, convId }: { botId: string; convId?: str
           ))}
         </div>
       </div>
+
+      {/* Roll over — the pinned Keeper's one-tap "close the day, wake a fresh
+          Keeper". Floats at the top-right of the page (her 07-24 ask) rather
+          than living in the composer: it's a once-a-day, session-level act,
+          not a message control, and the row it occupied down there was a row
+          of height taken from the conversation. Confirm opens as a card under
+          the button, so the destructive step stays anchored to what raised
+          it. Still label-first, never a bare icon — it closes out a day. */}
+      {sessionPinned === true ? (
+        <div className={styles.rolloverFloat}>
+          {rollover.phase === 'confirming' ? (
+            <div className={styles.rolloverConfirmRow}>
+              <span className={styles.rolloverConfirmText}>Close the day and wake a fresh Keeper?</span>
+              <button
+                type="button"
+                className={styles.rolloverConfirmBtn}
+                onClick={() => void rollover.confirm()}
+              >
+                Confirm
+              </button>
+              <button type="button" className={styles.rolloverCancelBtn} onClick={rollover.cancelConfirm}>
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className={styles.rolloverBtn}
+              disabled={rollover.phase === 'rolling'}
+              aria-busy={rollover.phase === 'rolling'}
+              onClick={rollover.requestConfirm}
+            >
+              {rollover.phase === 'rolling' ? (
+                <span className={styles.rolloverSpin} aria-hidden="true" />
+              ) : (
+                '\u{1F319}'
+              )}
+              {rollover.phase === 'rolling' ? 'Rolling over\u2026' : 'Roll over'}
+            </button>
+          )}
+          {rollover.phase === 'error' && rollover.errorMsg ? (
+            <span className={styles.rolloverError}>{rollover.errorMsg}</span>
+          ) : null}
+        </div>
+      ) : null}
 
       {/* Notes + timer panels — their trigger buttons live in the composer
           toolbar now (the corner cluster folded into it, her 07-23 ask). */}

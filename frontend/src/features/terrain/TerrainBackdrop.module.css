@@ -1,0 +1,36 @@
+/* The terrain map as wallpaper (TerrainBackdrop.tsx). Presentation only — the
+   canvas paints exactly what /terrain paints; this file decides how far back
+   in the room it sits.
+
+   Deference: the map is the furniture, the conversation is the content. It
+   holds enough presence to be worth looking at and not one step more. 0.62 is
+   a starting point, not a finding — it's the first number to move if step 1
+   comes back too loud or too faint. */
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  /* Behind every in-flow child of .page, which is a stacking context (see
+     ReadingRoomPage.module.css) — so nothing about the conversation's own
+     layout or scrolling has to change to accommodate a backdrop. */
+  z-index: -1;
+  overflow: hidden;
+  /* Never a gesture target: swipes over the Reading Room scroll the
+     conversation, and a backdrop that swallowed one would read as a bug. */
+  pointer-events: none;
+}
+
+.canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  opacity: 0.62;
+}
+
+/* A backdrop is exactly the kind of ambient movement reduced-motion is meant
+   to quiet. The map stays — it just recedes further. */
+@media (prefers-reduced-motion: reduce) {
+  .canvas {
+    opacity: 0.4;
+  }
+}

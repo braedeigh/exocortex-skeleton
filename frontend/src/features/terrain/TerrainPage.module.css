@@ -1,0 +1,412 @@
+/* TerrainPage — a full-bleed canvas map with a chip bar above it. Page
+   chrome mirrors AtlasPage.module.css; chips follow the touch-first rules
+   (≥40px tall, ≥12px text). The canvas owns pan/zoom, so the page itself
+   never scrolls — the map IS the page. */
+
+.page {
+  position: relative;   /* both chrome bars below anchor to this */
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+
+  /* Nothing in the overlays paints a background, so legibility comes from
+     the text: a halo in the page colour rings every label, the way
+     cartography floats place names over terrain. Declared here so both the
+     top and bottom bars inherit it. */
+  --ink-halo:
+    0 0 3px var(--bg), 0 0 3px var(--bg), 0 0 6px var(--bg), 0 1px 2px var(--bg);
+}
+
+/* The controls float ON the map with no pane behind them at all — no wash,
+   no blur, no divider. The terrain runs unbroken to the top edge and the
+   chips and sliders simply sit in it.
+
+   Legibility then can't come from a background, so it comes from the text
+   itself: --ink-halo (below) rings every label in the page colour, the way
+   map cartography floats place names over terrain. That keeps a dark label
+   readable over a black-hot node without painting a panel over the map.
+
+   No safe-area padding here on purpose — this page renders below the app's
+   own tab chrome, which has already cleared the notch. Adding it again just
+   pushed the controls down for nothing (that was the "big space at the top").
+
+   pointer-events is the load-bearing detail: the pane itself is inert, and
+   only the actual controls opt back in — so a drag that starts anywhere
+   between them pans the map underneath instead of hitting a dead zone. */
+.chrome {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+/* The bottom bar: what's ON the map (repo territories, agent orbs), split
+   from the top bar's "how much of it to draw". Same transparent treatment.
+   Left-anchored with no `right`, so it sizes to its chips and can never run
+   under the colour key pinned at bottom-right. Safe-area padding DOES belong
+   here — this edge really is the screen's edge, where the home indicator is. */
+.chromeBottom {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  z-index: 3;
+  max-width: 72%;
+  pointer-events: none;
+  padding: var(--space-2) var(--space-3) calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+}
+
+.chromeBottom .chipRow {
+  flex-wrap: wrap;
+}
+
+.chrome button,
+.chrome label,
+.chromeBottom button {
+  pointer-events: auto;
+}
+
+/* Note on the pointer-events rules above: everything you can actually touch
+   takes its events back, listed by element rather than a blanket
+   `.chrome * { pointer-events: auto }`, so the gaps between controls stay
+   transparent to the map's pan/zoom.
+
+   Range inputs are deliberately NOT listed: the date row stacks two sliders
+   on one track and re-enables events on the thumbs alone, so a blanket
+   `.chrome input` here would outrank that (0,1,1 beats 0,1,0) and let the
+   upper slider swallow every drag — making the lower handle ungrabbable.
+   TerrainDials.module.css owns that decision; see `.range` / `.rangeDual`. */
+
+.topBar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  padding: var(--space-1) var(--space-3) 0;
+}
+
+/* The page title shrinks to a quiet inline marker instead of a display
+   heading — the nav already says where you are, and at 2xl it cost a whole
+   wrapped row above the chips. Still an <h1> for structure. */
+.title {
+  font-size: var(--font-size-md);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  text-shadow: var(--ink-halo);
+  margin: 0;
+  margin-right: var(--space-1);
+}
+
+.chipRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* Glassy pills, not solid cards: enough tint to read as a control and to
+   keep the label legible, little enough that the map still shows through.
+   Height stays at the house-rule 40px — transparency was the ask, not
+   smaller targets. Padding tightens instead. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--card-bg) 38%, transparent);
+  color: var(--text-secondary);
+  text-shadow: var(--ink-halo);
+  font-family: inherit;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* The selected lens stays solid — "which one is on" has to survive any
+   background the map puts behind it, and that's worth one opaque pill. */
+.chipActive {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  text-shadow: none;
+}
+
+/* Repo legend chips: visible = solid card, hidden = hollow + muted. */
+.repoChip {
+  color: var(--text);
+}
+
+.chipOff {
+  background: transparent;
+  color: var(--text-muted);
+  border-style: dashed;
+}
+
+/* The agents toggle borrows the session orbs' own accent, so the chip and
+   the bodies it governs read as the same thing. Turned off it falls back to
+   the shared .chipOff (hollow + dashed), like the repo chips. */
+.agentChip {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  color: var(--text);
+}
+
+.footprintChip {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--text);
+}
+
+.canvasWrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  /* d3-zoom owns every gesture here — no browser panning/pinching. */
+  touch-action: none;
+  cursor: grab;
+}
+
+.overlayHint {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: var(--text-muted);
+  font-size: var(--font-size-base);
+  text-align: center;
+  padding: var(--space-4);
+  pointer-events: none;
+}
+
+/* --- bottom sheet content --- */
+
+.sheetBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.sheetPath {
+  font-size: var(--font-size-md);
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+
+.sheetMeta {
+  font-size: var(--font-size-md);
+  color: var(--text-muted);
+}
+
+/* "View the code" — the primary action on a tapped file, so it reads as a
+   filled button rather than another list row. */
+.viewCodeBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap-target, 44px);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-lg);
+  background: var(--accent);
+  color: #fff;
+  font-family: inherit;
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sessionList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.sessionRow {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-2);
+}
+
+/* The row's main tap target — opens the conversation like the atlas does. */
+.sessionOpen {
+  flex: 1;
+  min-width: 0;
+  min-height: 48px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sessionTitle {
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.sessionMeta {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.footprintBtn {
+  flex-shrink: 0;
+  min-height: 48px;
+  min-width: var(--tap-target);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.footprintBtnOn {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+/* Session-orb sheet: live badge (12px floor respected, dot + word). */
+.runningBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.runningDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: terrainBreathe 2s ease-in-out infinite;
+}
+
+@keyframes terrainBreathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* --- The color key (bottom-right corner): explains the ramp + the orb. ---
+   pointer-events: none — pan/zoom gestures pass straight through it. */
+
+.key {
+  position: absolute;
+  right: var(--space-3);
+  bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--card-bg) 84%, transparent);
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.keyHidden {
+  opacity: 0;
+}
+
+.keyScale {
+  display: flex;
+  gap: var(--space-2);
+  align-items: stretch;
+}
+
+.keyBar {
+  width: 10px;
+  height: 96px;
+  border-radius: 5px;
+  border: 1px solid var(--border-soft);
+}
+
+.keyTicks {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 1px 0;
+}
+
+.keyTick {
+  font-size: var(--font-size-sm); /* 12px floor */
+  color: var(--text-secondary);
+  line-height: 1;
+}
+
+.keySessionRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.keyRing {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 2.5px solid var(--accent); /* inline style overrides with derived orb color */
+  background: transparent;
+}
+
+/* --- phone / installed PWA: the bottom row rides the bottom edge --- */
+
+/* Both the chips and the colour key drop as low as they honestly can, giving
+   the map back the strip they were floating in. Deliberately the LAST rules
+   in this file: they restate `.key`'s own `bottom` and `.chromeBottom`'s own
+   `padding`, and a media query adds no specificity — source order is what
+   makes these win. (max-width 768px is the complement of the shell's
+   DESKTOP_QUERY, so it covers the installed PWA and mobile browsers alike.)
+
+   env(safe-area-inset-bottom) is the floor here, not decoration: on a
+   gesture-nav phone that band is the system's swipe-up zone, and a chip
+   sitting inside it has its taps eaten by the home indicator. So the padding
+   drops to a hairline ABOVE the inset rather than through it — as low as
+   tappable controls can go without fighting the OS. The key takes the same
+   baseline so the two read as one row across the bottom. */
+@media (max-width: 768px) {
+  .chromeBottom {
+    padding: var(--space-1) var(--space-2) calc(var(--space-1) + env(safe-area-inset-bottom, 0px));
+  }
+
+  .key {
+    right: var(--space-2);
+    bottom: calc(var(--space-1) + env(safe-area-inset-bottom, 0px));
+  }
+}

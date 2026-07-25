@@ -105,9 +105,11 @@ def test_root_injects_app_meta():
     "/threads", "/threads/some-slug",
     # native dashboard tabs (ported from /tab/<name>)
     "/map", "/kitchen", "/inventory", "/money", "/car", "/meditation", "/media",
-    "/movement", "/body", "/ideas", "/ecosystem", "/housing", "/people",
+    "/movement", "/body", "/ideas", "/ecosystem", "/housing", "/people", "/travel",
     # native standalone pages (ported from their Flask templates)
     "/person/some-slug", "/personality", "/scratchpad", "/vscode", "/food-map", "/about",
+    # session-visualization surfaces (born native)
+    "/terrain", "/atlas", "/sessions", "/automations",
 ])
 def test_spa_routes_all_serve_the_injected_shell(path):
     r = _client().get(path)

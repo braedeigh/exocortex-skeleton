@@ -187,6 +187,29 @@ def test_conversation_endpoint_round_trips(bot_client):
     assert any(c["id"] == conv_id for c in keeper["conversations"])
 
 
+def test_never_sent_session_opens_with_its_staged_draft(bot_client):
+    # A freshly-minted session (a /spinoff staged draft, or "+ New session")
+    # has an index entry but no jsonl until its first send. Opening it must
+    # return 200 with empty events and the staged draft intact — NOT 404 —
+    # or the client's history load rejects and the draft never prefills the
+    # composer (the "staged" badge shows but the compose box is empty).
+    resp = bot_client.post("/api/reading-room/conversations",
+                           json={"title": "spun off"})
+    conv_id = resp.get_json()["id"]
+    with store.mutate("bot_chats/index", {}) as index:
+        index[conv_id]["draft"] = "Read the BRIEF and follow its Protocol."
+
+    resp = bot_client.get(f"/api/reading-room/conversation/{conv_id}")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["events"] == []
+    assert data["meta"]["draft"] == "Read the BRIEF and follow its Protocol."
+
+    # A conv_id with no index entry at all is still genuinely not found.
+    assert bot_client.get(
+        "/api/reading-room/conversation/2099-01-01.000000").status_code == 404
+
+
 def test_old_bots_alias_path_still_answers(bot_client):
     # /api/bots/* stays live as an alias of /api/reading-room/* for cached
     # PWA clients that still have the old path baked into their JS bundle.
@@ -453,8 +476,9 @@ def _commit_file(repo, relpath, content):
 @pytest.fixture
 def terrain_client(data_dir, monkeypatch):
     """Isolated data dir (no real footprints/gists/index) + a fresh terrain
-    cache — the module-level cache must not survive across tests."""
-    monkeypatch.setattr(reading_room, "_terrain_cache", {"payload": None, "computed_at": 0.0})
+    cache — the module-level cache must not survive across tests. It's keyed
+    by resolved file cap now (one slot per distinct ?limit=)."""
+    monkeypatch.setattr(reading_room, "_terrain_cache", {})
     app = Flask(__name__)
     app.config.update(TESTING=True)
     reading_room.register(app)
@@ -468,6 +492,13 @@ def _set_terrain_repos(monkeypatch, skeleton_root, vault_root):
     ))
 
 
+def _age_terrain_cache(seconds):
+    """Backdate every cache slot — the cache is keyed by file cap now, so
+    tests can't reach into a single well-known entry."""
+    for slot in reading_room._terrain_cache.values():
+        slot["computed_at"] -= seconds
+
+
 def test_terrain_returns_200_with_missing_sidecars(terrain_client, tmp_path, monkeypatch):
     # No footprints.json/gists.json/index.json (data_dir is a fresh tmp_path)
     # and repo roots that aren't even git repos — the git-missing/failing
@@ -476,7 +507,7 @@ def test_terrain_returns_200_with_missing_sidecars(terrain_client, tmp_path, mon
     resp = terrain_client.get("/api/reading-room/terrain")
     assert resp.status_code == 200
     data = resp.get_json()
-    assert set(data.keys()) == {"generated_at", "window_days", "repos", "sessions"}
+    assert set(data.keys()) == {"generated_at", "window_days", "file_cap", "repos", "sessions"}
     assert data["window_days"] == 90
     assert [r["id"] for r in data["repos"]] == ["skeleton", "vault"]
     assert all(r["files"] == [] for r in data["repos"])
@@ -609,7 +640,7 @@ def test_terrain_caches_the_payload_for_the_ttl(terrain_client, tmp_path, monkey
     terrain_client.get("/api/reading-room/terrain")
     assert len(calls) == 2   # one _build_terrain() call touches 2 repos
 
-    reading_room._terrain_cache["computed_at"] -= reading_room._TERRAIN_CACHE_TTL_SEC + 1
+    _age_terrain_cache(reading_room._TERRAIN_CACHE_TTL_SEC + 1)
     terrain_client.get("/api/reading-room/terrain")
     assert len(calls) == 4   # cache expired -> _build_terrain() ran again
 
@@ -628,14 +659,190 @@ def test_terrain_ttl_shortens_while_a_session_is_running(terrain_client, tmp_pat
     assert len(calls) == 2
     # An age the default 300s TTL would call fresh — but with a session
     # running, the live TTL (~5s) has already expired it.
-    reading_room._terrain_cache["computed_at"] -= reading_room._TERRAIN_LIVE_TTL_SEC + 1
+    _age_terrain_cache(reading_room._TERRAIN_LIVE_TTL_SEC + 1)
     terrain_client.get("/api/reading-room/terrain")
     assert len(calls) == 4
     # Once nothing is running, the same age is fresh again under 300s.
     store.write("bot_chats/index", {"conv-live": {"title": "Live", "running": False}})
-    reading_room._terrain_cache["computed_at"] -= reading_room._TERRAIN_LIVE_TTL_SEC + 1
+    _age_terrain_cache(reading_room._TERRAIN_LIVE_TTL_SEC + 1)
     terrain_client.get("/api/reading-room/terrain")
     assert len(calls) == 4   # served from cache
+
+
+# --- Terrain: the Files slider (?limit=) -------------------------------------
+# The client's Files slider is the only thing that sets the hottest-N-per-repo
+# cut; "All" is ?limit=0. files_total always reports the uncapped truth so the
+# map can say how much it is not showing.
+
+def _repo_with_files(root, n):
+    repo = _make_git_repo(root)
+    for i in range(n):
+        _commit_file(repo, f"f{i:03d}.py", f"# file {i}\n")
+    return repo
+
+
+def test_limit_caps_files_per_repo_and_files_total_stays_honest(terrain_client, tmp_path, monkeypatch):
+    skeleton = _repo_with_files(tmp_path / "skeleton", 12)
+    _set_terrain_repos(monkeypatch, skeleton, tmp_path / "empty-vault")
+
+    data = terrain_client.get("/api/reading-room/terrain?limit=5").get_json()
+    skel = next(r for r in data["repos"] if r["id"] == "skeleton")
+    assert len(skel["files"]) == 5
+    assert skel["files_total"] == 12     # the cut never lies about the whole
+    assert data["file_cap"] == 5
+
+
+def test_limit_zero_means_every_file(terrain_client, tmp_path, monkeypatch):
+    skeleton = _repo_with_files(tmp_path / "skeleton", 12)
+    _set_terrain_repos(monkeypatch, skeleton, tmp_path / "empty-vault")
+
+    data = terrain_client.get("/api/reading-room/terrain?limit=0").get_json()
+    skel = next(r for r in data["repos"] if r["id"] == "skeleton")
+    assert len(skel["files"]) == 12 == skel["files_total"]
+    assert data["file_cap"] is None
+
+
+def test_junk_limit_falls_back_to_the_default_instead_of_erroring(terrain_client, tmp_path, monkeypatch):
+    _set_terrain_repos(monkeypatch, tmp_path / "a", tmp_path / "b")
+    data = terrain_client.get("/api/reading-room/terrain?limit=drop%20table").get_json()
+    assert data["file_cap"] == reading_room._TERRAIN_FILE_CAP
+
+
+def test_limit_is_bounded_so_one_request_cannot_ask_for_everything(terrain_client, tmp_path, monkeypatch):
+    _set_terrain_repos(monkeypatch, tmp_path / "a", tmp_path / "b")
+    data = terrain_client.get("/api/reading-room/terrain?limit=99999999").get_json()
+    assert data["file_cap"] == reading_room._TERRAIN_FILE_CAP_MAX
+
+
+def test_each_limit_gets_its_own_cache_slot(terrain_client, tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(reading_room, "_terrain_git_touches",
+                        lambda root, window_days: calls.append(root) or {})
+    _set_terrain_repos(monkeypatch, tmp_path / "a", tmp_path / "b")
+
+    terrain_client.get("/api/reading-room/terrain?limit=100")
+    terrain_client.get("/api/reading-room/terrain?limit=100")
+    assert len(calls) == 2          # second served from the limit=100 slot
+    terrain_client.get("/api/reading-room/terrain?limit=200")
+    assert len(calls) == 4          # a different cut is a different payload
+
+
+def test_cache_slots_are_bounded(terrain_client, tmp_path, monkeypatch):
+    _set_terrain_repos(monkeypatch, tmp_path / "a", tmp_path / "b")
+    for limit in range(1, reading_room._TERRAIN_CACHE_SLOTS + 5):
+        terrain_client.get(f"/api/reading-room/terrain?limit={limit}")
+    assert len(reading_room._terrain_cache) <= reading_room._TERRAIN_CACHE_SLOTS
+
+
+# --- Terrain: the code modal (GET /api/reading-room/terrain/file) ------------
+# Tap a file node -> its own text, plus a summary lifted from the file's
+# leading docblock. This is an HTTP door onto the filesystem, so the scoping
+# tests below are the load-bearing ones.
+
+def test_terrain_file_returns_content_and_summary(terrain_client, tmp_path, monkeypatch):
+    skeleton = _make_git_repo(tmp_path / "skeleton")
+    _commit_file(skeleton, "routes/thing.py",
+                 '"""What this module is for.\n\nSecond paragraph.\n"""\nX = 1\n')
+    _set_terrain_repos(monkeypatch, skeleton, tmp_path / "vault")
+
+    resp = terrain_client.get("/api/reading-room/terrain/file?repo=skeleton&path=routes/thing.py")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["summary"] == "What this module is for.\n\nSecond paragraph."
+    assert body["content"].endswith("X = 1\n")
+    assert body["binary"] is False and body["truncated"] is False
+
+
+def test_terrain_file_refuses_to_escape_the_repo_root(terrain_client, tmp_path, monkeypatch):
+    skeleton = _make_git_repo(tmp_path / "skeleton")
+    _commit_file(skeleton, "app.py", "x = 1\n")
+    (tmp_path / "outside.txt").write_text("secrets")
+    _set_terrain_repos(monkeypatch, skeleton, tmp_path / "vault")
+
+    for bad in ("../outside.txt", "../../etc/passwd", "/etc/passwd",
+                "app.py/../../outside.txt"):
+        resp = terrain_client.get(
+            "/api/reading-room/terrain/file", query_string={"repo": "skeleton", "path": bad})
+        assert resp.status_code == 404, bad
+
+
+def test_terrain_file_refuses_a_symlink_pointing_out_of_every_repo(terrain_client, tmp_path, monkeypatch):
+    skeleton = _make_git_repo(tmp_path / "skeleton")
+    (tmp_path / "outside.txt").write_text("secrets")
+    (skeleton / "sneaky.txt").symlink_to(tmp_path / "outside.txt")
+    _set_terrain_repos(monkeypatch, skeleton, tmp_path / "vault")
+
+    resp = terrain_client.get("/api/reading-room/terrain/file?repo=skeleton&path=sneaky.txt")
+    assert resp.status_code == 404
+
+
+def test_terrain_file_follows_a_symlink_into_the_sibling_repo(terrain_client, tmp_path, monkeypatch):
+    # The real skeleton's CLAUDE.local.md is exactly this: a file on the map
+    # that lives in the vault. Both repos are readable here by design, so
+    # landing in the sibling root is allowed — landing outside both is not.
+    skeleton = _make_git_repo(tmp_path / "skeleton")
+    vault = _make_git_repo(tmp_path / "vault")
+    _commit_file(vault, "docs/notes.md", "# Notes\n\nReal content.\n")
+    (skeleton / "notes.md").symlink_to(vault / "docs" / "notes.md")
+    _set_terrain_repos(monkeypatch, skeleton, vault)
+
+    resp = terrain_client.get("/api/reading-room/terrain/file?repo=skeleton&path=notes.md")
+    assert resp.status_code == 200
+    assert "Real content." in resp.get_json()["content"]
+
+
+def test_terrain_file_refuses_secrets_by_name(terrain_client, tmp_path, monkeypatch):
+    skeleton = _make_git_repo(tmp_path / "skeleton")
+    (skeleton / ".env").write_text("API_KEY=hunter2\n")
+    (skeleton / "server.key").write_text("-----BEGIN PRIVATE KEY-----\n")
+    _set_terrain_repos(monkeypatch, skeleton, tmp_path / "vault")
+
+    for secret in (".env", "server.key"):
+        resp = terrain_client.get(
+            "/api/reading-room/terrain/file", query_string={"repo": "skeleton", "path": secret})
+        assert resp.status_code == 404, secret
+
+
+def test_terrain_file_flags_binary_without_returning_it(terrain_client, tmp_path, monkeypatch):
+    skeleton = _make_git_repo(tmp_path / "skeleton")
+    (skeleton / "logo.png").write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\x00binary")
+    _set_terrain_repos(monkeypatch, skeleton, tmp_path / "vault")
+
+    body = terrain_client.get(
+        "/api/reading-room/terrain/file?repo=skeleton&path=logo.png").get_json()
+    assert body["binary"] is True
+    assert body["content"] is None
+
+
+def test_terrain_file_truncates_on_whole_lines(terrain_client, tmp_path, monkeypatch):
+    skeleton = _make_git_repo(tmp_path / "skeleton")
+    monkeypatch.setattr(reading_room, "_TERRAIN_FILE_READ_MAX", 50)
+    (skeleton / "big.txt").write_text("".join(f"line {i}\n" for i in range(50)))
+    _set_terrain_repos(monkeypatch, skeleton, tmp_path / "vault")
+
+    body = terrain_client.get(
+        "/api/reading-room/terrain/file?repo=skeleton&path=big.txt").get_json()
+    assert body["truncated"] is True
+    assert body["content"].endswith("\n")     # never a half-line
+    assert body["size"] > len(body["content"])
+
+
+def test_terrain_file_unknown_repo_and_missing_args(terrain_client, tmp_path, monkeypatch):
+    _set_terrain_repos(monkeypatch, tmp_path / "a", tmp_path / "b")
+    assert terrain_client.get(
+        "/api/reading-room/terrain/file?repo=nope&path=x.py").status_code == 404
+    assert terrain_client.get(
+        "/api/reading-room/terrain/file?repo=skeleton").status_code == 400
+
+
+def test_terrain_file_summary_is_none_when_the_file_does_not_say(terrain_client, tmp_path, monkeypatch):
+    skeleton = _make_git_repo(tmp_path / "skeleton")
+    (skeleton / "bare.py").write_text("X = 1\n")
+    _set_terrain_repos(monkeypatch, skeleton, tmp_path / "vault")
+
+    body = terrain_client.get(
+        "/api/reading-room/terrain/file?repo=skeleton&path=bare.py").get_json()
+    assert body["summary"] is None       # no guessing when there's no docblock
 
 
 # --- Session-first refactor: per-conversation config replaces the bot lookup -
@@ -679,6 +886,89 @@ def test_conv_send_uses_the_entrys_own_tools_and_cwd(bot_client, tmp_path, monke
     argvs = [json.loads(l) for l in bot_client._argv_log.read_text().splitlines()]
     argv = argvs[-1]
     assert argv[argv.index("--allowedTools") + 1] == "Read,Bash"
+
+
+def _last_argv(client):
+    return json.loads(client._argv_log.read_text().splitlines()[-1])
+
+
+def test_a_pinned_model_reaches_claude_and_no_pin_inherits_the_cli_default(bot_client):
+    # Two sessions, one pinned to sonnet and one with no `model` field: the
+    # pinned one gets --model, the unpinned one must pass NO --model flag at
+    # all (that absence is what lets ~/.claude/settings.json keep deciding).
+    reading_room._chats_dir()
+    with store.mutate("bot_chats/index", {}) as index:
+        index["pinned-model"] = _index_entry(model="sonnet")
+        index["no-model"] = _index_entry()
+    _sse_events(bot_client.post("/api/reading-room/conversation/pinned-model/send",
+                                json={"text": "go"}))
+    argv = _last_argv(bot_client)
+    assert argv[argv.index("--model") + 1] == "sonnet"
+
+    _sse_events(bot_client.post("/api/reading-room/conversation/no-model/send",
+                                json={"text": "go"}))
+    assert "--model" not in _last_argv(bot_client)
+
+
+def test_a_junk_model_on_an_entry_is_ignored_rather_than_passed_through(bot_client):
+    # Hand-edited/older data could carry anything; _conv_config filters to the
+    # known choices so a bad value degrades to the default instead of failing
+    # every turn of that session.
+    reading_room._chats_dir()
+    with store.mutate("bot_chats/index", {}) as index:
+        index["junk-model"] = _index_entry(model="gpt-9")
+    _sse_events(bot_client.post("/api/reading-room/conversation/junk-model/send",
+                                json={"text": "go"}))
+    assert "--model" not in _last_argv(bot_client)
+
+
+def test_model_can_be_pinned_switched_and_cleared_through_settings(bot_client):
+    conv_id = bot_client.post("/api/reading-room/conversations",
+                              json={"title": "workshop"}).get_json()["id"]
+    # created without a pick: no field at all
+    assert "model" not in store.read("bot_chats/index", {})[conv_id]
+
+    for pick in ("opus[1m]", "haiku"):
+        resp = bot_client.post(f"/api/reading-room/conversation/{conv_id}/settings",
+                               json={"model": pick})
+        assert resp.status_code == 200
+        assert store.read("bot_chats/index", {})[conv_id]["model"] == pick
+
+    # '' clears the pin — the field is REMOVED, not blanked, so _conv_config
+    # reads it as inherit rather than as a falsy model.
+    resp = bot_client.post(f"/api/reading-room/conversation/{conv_id}/settings",
+                           json={"model": ""})
+    assert resp.status_code == 200
+    assert "model" not in store.read("bot_chats/index", {})[conv_id]
+
+
+def test_an_unknown_model_is_rejected_without_persisting_the_rest_of_the_patch(bot_client):
+    conv_id = bot_client.post("/api/reading-room/conversations",
+                              json={"title": "workshop"}).get_json()["id"]
+    resp = bot_client.post(f"/api/reading-room/conversation/{conv_id}/settings",
+                           json={"title": "renamed", "model": "gpt-9"})
+    assert resp.status_code == 400
+    # The whole patch is refused: validation happens before the mutate block,
+    # because an early return inside it would still COMMIT the rename.
+    meta = store.read("bot_chats/index", {})[conv_id]
+    assert meta["title"] == "workshop"
+    assert "model" not in meta
+
+
+def test_create_can_pin_a_model_and_rejects_an_unknown_one(bot_client):
+    conv_id = bot_client.post("/api/reading-room/conversations",
+                              json={"title": "cheap", "model": "haiku"}).get_json()["id"]
+    assert store.read("bot_chats/index", {})[conv_id]["model"] == "haiku"
+    resp = bot_client.post("/api/reading-room/conversations",
+                           json={"title": "bad", "model": "gpt-9"})
+    assert resp.status_code == 400
+
+
+def test_roster_publishes_the_model_choices_the_settings_route_accepts(bot_client):
+    # One authority: the picker's options come from the server, so the client
+    # can't offer something the settings route would 400 on.
+    choices = bot_client.get("/api/reading-room").get_json()["model_choices"]
+    assert choices == reading_room._MODEL_CHOICES
 
 
 def test_legacy_entry_without_allowed_tools_gets_readonly_trio(bot_client, monkeypatch):

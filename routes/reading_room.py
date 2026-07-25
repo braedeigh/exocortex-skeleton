@@ -33,11 +33,13 @@ from flask import request, jsonify, Response
 from datetime import datetime
 from fnmatch import fnmatch
 from pathlib import Path
+import fcntl
 import json
 import os
 import queue
 import re
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -66,6 +68,14 @@ _DEFAULT_ALLOWED_TOOLS = ["Read", "Grep", "Glob"]
 # unlike the read-only legacy default above.
 _BUILDER_TOOLS = ["Read", "Grep", "Glob", "Edit", "Write", "NotebookEdit",
                   "Bash", "WebFetch", "WebSearch", "Task"]
+
+# Per-session model choices. A conversation with NO `model` field (all of them,
+# before this existed) passes no --model flag at all and so inherits the CLI's
+# own default from ~/.claude/settings.json — that inherit-the-default case is
+# the point, not an oversight: changing the default there keeps flowing through
+# to every session she hasn't deliberately pinned. Aliases only (the CLI
+# resolves them to the latest snapshot); '[1m]' asks for the 1M-context variant.
+_MODEL_CHOICES = ["fable", "opus", "opus[1m]", "sonnet", "sonnet[1m]", "haiku"]
 
 
 # --- LEGACY: bot lookups, kept only for the legacy per-bot alias routes ------
@@ -104,10 +114,13 @@ def _conv_config(entry):
     tools = entry.get("allowed_tools")
     if not (isinstance(tools, list) and tools):
         tools = _DEFAULT_ALLOWED_TOOLS
+    model = entry.get("model")
     return {
         "allowed_tools": list(tools),
         "cwd": entry.get("cwd") or str(store.CONTENT_DIR.parent),
         "system_prompt_file": entry.get("system_prompt_file"),
+        # None = inherit the CLI default (see _MODEL_CHOICES).
+        "model": model if model in _MODEL_CHOICES else None,
     }
 
 
@@ -135,15 +148,22 @@ def _now():
 
 def _build_cmd(config, resume_sid):
     """The claude invocation for one turn. `config` is a resolved conversation
-    config (see _conv_config) — allowed_tools/cwd/system_prompt_file. The
+    config (see _conv_config) — allowed_tools/cwd/system_prompt_file/model. The
     prompt goes in via stdin (never argv — no length limit, nothing
     shell-visible). stream-json in -p mode requires --verbose;
     --include-partial-messages is what makes the stream token-granular
-    rather than message-granular."""
+    rather than message-granular.
+
+    Model is resolved PER TURN, not at session birth: every turn is a fresh
+    subprocess reattached with --resume, so changing a session's model takes
+    effect on its next turn with the history intact."""
     cmd = [CLAUDE_BIN, "-p",
            "--output-format", "stream-json",
            "--verbose",
            "--include-partial-messages"]
+    model = config.get("model")
+    if model:
+        cmd += ["--model", model]
     if resume_sid:
         cmd += ["--resume", resume_sid]
     tools = config.get("allowed_tools")
@@ -298,11 +318,23 @@ def _run_turn(proc, stderr_f, conv_id, log_path, record, resume_sid, live_q):
 # scripts/extract_footprints.py for the footprints sidecar this reads. ------
 
 _TERRAIN_WINDOW_DAYS = 90
-_TERRAIN_TOUCH_CAP = 20           # newest git touches kept per file
-_TERRAIN_FILE_CAP = 350           # hottest files kept per repo (a phone canvas
-                                  # force-sim drowns past the low hundreds);
-                                  # session-attributed files always survive the
-                                  # cap, and files_total reports the uncapped count
+_TERRAIN_TOUCH_CAP = 60           # newest git touches kept per file. Sized for
+                                  # the client's date-range filter: it slices
+                                  # these timestamps, so a file whose older
+                                  # touches were trimmed would read as "not
+                                  # touched" in an early window. At ~8 weeks of
+                                  # history and hourly vault backups, 60 covers
+                                  # the busiest files end to end.
+_TERRAIN_FILE_CAP = 350           # DEFAULT hottest files kept per repo (a phone
+                                  # canvas force-sim drowns past the low
+                                  # hundreds). The client's Files slider
+                                  # overrides it via ?limit=; session-attributed
+                                  # files always survive the cap, and files_total
+                                  # reports the uncapped count either way.
+_TERRAIN_FILE_CAP_MAX = 5000      # ceiling on ?limit= — above the real corpus
+                                  # (~3.3k files), so "All" is reachable, but
+                                  # still a bound on what one request can build
+_TERRAIN_CACHE_SLOTS = 6          # distinct ?limit= payloads kept warm at once
 _TERRAIN_CAP_HALF_LIFE_SEC = 7 * 86400   # week half-life for the cap ranking only
 _TERRAIN_CACHE_TTL_SEC = 300      # git log over two repos isn't free
 _TERRAIN_LIVE_TTL_SEC = 5         # ...but a mid-turn session must read fresh:
@@ -347,11 +379,157 @@ _TERRAIN_DENYLIST = (
     "*__pycache__/*",
 )
 
-_terrain_cache = {"payload": None, "computed_at": 0.0}
+# One cache slot per distinct ?limit= the client asks for (the Files slider
+# snaps to a handful of steps, so this stays small). Keyed by the resolved
+# file cap; None means "no cap — every file". Evicts the oldest slot past
+# _TERRAIN_CACHE_SLOTS so a hostile/looping caller can't grow it without bound.
+_terrain_cache = {}
 
 
 def _terrain_denylisted(relpath):
     return any(fnmatch(relpath, pat) for pat in _TERRAIN_DENYLIST)
+
+
+def _terrain_file_cap_arg(raw):
+    """Parse ?limit= into a file cap: None for "all", else a bounded int.
+    Anything unparseable falls back to the default rather than erroring —
+    a junk query string should still draw a map."""
+    if raw is None:
+        return _TERRAIN_FILE_CAP
+    raw = raw.strip().lower()
+    if raw in ("all", "0", "none", ""):
+        return None
+    try:
+        value = int(raw)
+    except ValueError:
+        return _TERRAIN_FILE_CAP
+    if value < 0:
+        return _TERRAIN_FILE_CAP
+    return min(value, _TERRAIN_FILE_CAP_MAX)
+
+
+# Never handed out by /terrain/file, even though they live inside a repo root:
+# the map may legitimately show that a credentials file changed, but "which
+# file is hot" and "show me its contents" are different permissions.
+_TERRAIN_READ_DENYLIST = (
+    "*.env", ".env*", "*/.env*", "*.pem", "*.key", "*.p12", "*.pfx",
+    "*id_rsa*", "*id_ed25519*", "*.git/*", ".git/*", "*credentials*",
+    "*secret*", "*.sqlite", "*.db",
+)
+
+_TERRAIN_FILE_READ_MAX = 256 * 1024   # bytes returned to the code modal
+
+
+def _terrain_safe_path(root, relpath):
+    """Resolve `relpath` under `root`, or None if it escapes, doesn't exist,
+    isn't a regular file, or is read-denylisted.
+
+    Two checks, deliberately different:
+      1. LEXICAL, against the requested root — '../' and friends are refused
+         on spelling, before the filesystem is consulted at all.
+      2. RESOLVED, against every Terrain root — symlinks are judged on where
+         they LAND. This is what lets the skeleton's CLAUDE.local.md (a real
+         symlink into the vault, and a file the map does show) open, while a
+         symlink pointing at /etc/shadow still doesn't.
+    Both repos are readable through this endpoint by design, so allowing a
+    symlink to land in the sibling root grants nothing the caller couldn't
+    already ask for directly — but a path that *escapes both* is refused."""
+    if "\0" in relpath:
+        return None
+    rel = relpath.replace("\\", "/").lstrip("/")
+    if any(fnmatch(rel, pat) for pat in _TERRAIN_READ_DENYLIST):
+        return None
+    try:
+        root_resolved = Path(root).resolve()
+        # (1) lexical: normalize without touching the disk, so '..' can't walk out
+        lexical = os.path.normpath(os.path.join(str(root_resolved), rel))
+        if lexical != str(root_resolved) and not lexical.startswith(str(root_resolved) + os.sep):
+            return None
+        # (2) resolved: follow symlinks, then require a landing inside a root
+        candidate = Path(lexical).resolve()
+    except (OSError, RuntimeError, ValueError):
+        return None
+    for repo in _terrain_repos():
+        try:
+            allowed = Path(repo["root"]).resolve()
+        except (OSError, RuntimeError, ValueError):
+            continue
+        if candidate == allowed or allowed in candidate.parents:
+            break
+    else:
+        return None
+    if not candidate.is_file():
+        return None
+    return candidate
+
+
+def _terrain_file_summary(relpath, text):
+    """"What is this file" — pulled from the file's own leading docblock
+    rather than generated. This codebase (and the vault's markdown) leads
+    with an explanatory header almost everywhere, so the honest summary is
+    already written; anything else would be a guess wearing a fact's clothes.
+    Returns None when a file simply doesn't say."""
+    suffix = Path(relpath).suffix.lower()
+    stripped = text.lstrip()
+    if suffix in (".py",):
+        for quote in ('"""', "'''"):
+            if stripped.startswith(quote):
+                end = stripped.find(quote, len(quote))
+                if end != -1:
+                    return _terrain_clean_summary(stripped[len(quote):end])
+        return None
+    if suffix in (".ts", ".tsx", ".js", ".jsx", ".css", ".scss", ".rs", ".go", ".java", ".c", ".h"):
+        if stripped.startswith("/*"):
+            end = stripped.find("*/", 2)
+            if end != -1:
+                body = stripped[2:end]
+                # Strip the leading '*' gutter JSDoc blocks are drawn with.
+                lines = [re.sub(r"^\s*\* ?", "", ln) for ln in body.splitlines()]
+                return _terrain_clean_summary("\n".join(lines))
+        if stripped.startswith("//"):
+            lines = []
+            for ln in stripped.splitlines():
+                if not ln.strip().startswith("//"):
+                    break
+                lines.append(ln.strip()[2:].strip())
+            return _terrain_clean_summary("\n".join(lines))
+        return None
+    if suffix in (".md", ".markdown"):
+        # First heading plus the prose under it, up to the next heading.
+        lines = stripped.splitlines()
+        out = []
+        for ln in lines[:40]:
+            if out and ln.startswith("#"):
+                break
+            out.append(ln)
+        return _terrain_clean_summary("\n".join(out))
+    if suffix in (".sh", ".bash", ".toml", ".ini", ".conf", ".yml", ".yaml"):
+        lines = []
+        for ln in stripped.splitlines():
+            s = ln.strip()
+            if s.startswith("#!"):
+                continue
+            if not s.startswith("#"):
+                break
+            lines.append(s.lstrip("#").strip())
+        return _terrain_clean_summary("\n".join(lines))
+    return None
+
+
+def _terrain_clean_summary(raw, max_chars=600):
+    """Collapse a docblock into flowing paragraphs, trimmed to a modal-sized
+    bite (whole words, ellipsis when cut)."""
+    paragraphs = []
+    for block in re.split(r"\n\s*\n", raw.strip()):
+        collapsed = " ".join(block.split())
+        if collapsed:
+            paragraphs.append(collapsed)
+    summary = "\n\n".join(paragraphs).strip()
+    if not summary:
+        return None
+    if len(summary) > max_chars:
+        summary = summary[:max_chars].rsplit(" ", 1)[0].rstrip(",.;:") + "…"
+    return summary
 
 
 def _terrain_repos():
@@ -430,11 +608,15 @@ def _terrain_live_ids(index, running_ids):
     return live
 
 
-def _build_terrain():
+def _build_terrain(file_cap=_TERRAIN_FILE_CAP):
     """The terrain payload: per repo, per file, git touch history merged
     with which bot_chats sessions wrote/read it. Reads footprints.json (see
     scripts/extract_footprints.py) + gists.json/index.json defensively —
-    missing sidecars degrade to empty attribution, never a 500."""
+    missing sidecars degrade to empty attribution, never a 500.
+
+    `file_cap` is the hottest-N-per-repo cut; None means no cut at all (the
+    Files slider's "All"). Either way each repo reports `files_total`, the
+    uncapped count, so the map can say how much it isn't showing."""
     footprints = store.read("bot_chats/footprints", {})
     if not isinstance(footprints, dict):
         footprints = {}
@@ -519,7 +701,7 @@ def _build_terrain():
         # Session-attributed files always survive; the rest are ranked by
         # week-half-life-decayed git heat. files_total keeps the cap honest.
         files_total = len(files_out)
-        if files_total > _TERRAIN_FILE_CAP:
+        if file_cap is not None and files_total > file_cap:
             now_ts = time.time()
 
             def _cap_heat(f):
@@ -529,7 +711,7 @@ def _build_terrain():
             attributed = [f for f in files_out if f["sessions"]]
             rest = sorted((f for f in files_out if not f["sessions"]),
                           key=_cap_heat, reverse=True)
-            keep = attributed + rest[:max(0, _TERRAIN_FILE_CAP - len(attributed))]
+            keep = attributed + rest[:max(0, file_cap - len(attributed))]
             files_out = sorted(keep, key=lambda f: f["path"])
 
         repos_out.append({"id": repo["id"], "name": repo["name"], "root": str(root),
@@ -552,12 +734,57 @@ def _build_terrain():
     sessions_out.sort(key=lambda s: s.get("last") or "", reverse=True)
 
     return {"generated_at": datetime.now().isoformat(timespec="seconds"),
-            "window_days": _TERRAIN_WINDOW_DAYS, "repos": repos_out,
+            "window_days": _TERRAIN_WINDOW_DAYS,
+            # What this payload was cut to, so the client's Files slider knows
+            # whether it already holds every file or must refetch to grow.
+            "file_cap": file_cap,
+            "repos": repos_out,
             "sessions": sessions_out}
 
 
 def _sse(obj):
     return f"data: {json.dumps(obj)}\n\n"
+
+
+# --- Keeper rollover control: let the UI fire (and poll) the same close/open
+# job scripts/keeper_rollover.py runs at 3 AM via cron. That script OWNS the
+# cross-process lock (an fcntl.flock on bot_chats/rollover.lock) that keeps
+# the cron run and a UI-triggered manual run from ever overlapping — this
+# module only PEEKS at the same lock file. Shared convention, not a shared
+# import: same path (store.DATA_DIR/"bot_chats"/"rollover.lock"), same
+# non-blocking-probe-and-release shape, deliberately re-implemented here
+# rather than imported from scripts/keeper_rollover.py — a route module
+# reaching across sys.path into scripts/ for two lines of logic isn't worth
+# it. Keep this probe in sync with that script's own rollover_running() if
+# the lock's shape ever changes. ------------------------------------------
+
+def _rollover_lock_path():
+    return store.DATA_DIR / "bot_chats" / "rollover.lock"
+
+
+def rollover_running():
+    """Non-destructive probe, mirroring scripts/keeper_rollover.py's own
+    rollover_running(): open the lock file, try a non-blocking exclusive
+    lock, and release it again immediately on success (a probe must never
+    itself hold the lock) -> False; BlockingIOError means another process
+    holds it -> True. No lock file yet means no real rollover has ever run
+    on this box -> False."""
+    path = _rollover_lock_path()
+    if not path.exists():
+        return False
+    try:
+        fh = open(path, "a+")
+    except OSError:
+        return False
+    try:
+        try:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+        return False
+    finally:
+        fh.close()
 
 
 def register(app):
@@ -599,7 +826,11 @@ def register(app):
                 c["summary"] = summary
         bots = [{"id": "keeper", "name": "Keeper", "journal": True,
                  "conversations": sessions}]
-        return jsonify({"sessions": sessions, "bots": bots})
+        # The model picker's options ride along with the roster so the server
+        # stays the single authority on what the settings route will accept
+        # (the client only supplies display labels).
+        return jsonify({"sessions": sessions, "bots": bots,
+                        "model_choices": list(_MODEL_CHOICES)})
 
     @app.route("/api/reading-room/atlas")
     def reading_room_atlas():
@@ -660,18 +891,122 @@ def register(app):
         EXCEPT while a session is running: then the cache ages out at
         _TERRAIN_LIVE_TTL_SEC so a polling client sees live touches land.
         Running-ness is checked BEFORE consulting the cache (a cheap index
-        read), so a turn starting mid-TTL shortens the window immediately."""
+        read), so a turn starting mid-TTL shortens the window immediately.
+
+        `?limit=<n>` sets the hottest-files-per-repo cut (the client's Files
+        slider); `?limit=0` or `?limit=all` means no cut. Each distinct limit
+        gets its own cache slot, since they're genuinely different payloads.
+        The date controls are NOT server-side: the client slices the touch
+        timestamps it already has, so dragging them costs no request."""
+        file_cap = _terrain_file_cap_arg(request.args.get("limit"))
         index = store.read("bot_chats/index", {})
         anything_running = isinstance(index, dict) and bool(_terrain_running_ids(index))
         ttl = _TERRAIN_LIVE_TTL_SEC if anything_running else _TERRAIN_CACHE_TTL_SEC
         now = time.monotonic()
-        cached = _terrain_cache["payload"]
-        if cached is not None and now - _terrain_cache["computed_at"] < ttl:
-            return jsonify(cached)
-        payload = _build_terrain()
-        _terrain_cache["payload"] = payload
-        _terrain_cache["computed_at"] = now
+        slot = _terrain_cache.get(file_cap)
+        if slot is not None and now - slot["computed_at"] < ttl:
+            return jsonify(slot["payload"])
+        payload = _build_terrain(file_cap)
+        # Evict oldest-computed slots first — bounded memory even if something
+        # walks every possible ?limit= value.
+        while len(_terrain_cache) >= _TERRAIN_CACHE_SLOTS:
+            oldest = min(_terrain_cache, key=lambda k: _terrain_cache[k]["computed_at"])
+            _terrain_cache.pop(oldest, None)
+        _terrain_cache[file_cap] = {"payload": payload, "computed_at": now}
         return jsonify(payload)
+
+    @app.route("/api/reading-room/terrain/file")
+    def reading_room_terrain_file():
+        """One file's own text, for the map's tap-a-node code modal.
+
+        Scoped hard to the two Terrain repos: the path is resolved with
+        symlinks followed (the vault keeps real ones) and must still land
+        inside a repo root, so neither '../' nor a symlink pointing out of
+        the tree can read anything else. Secrets are refused by name even
+        inside those roots — this is an HTTP door onto the filesystem, and it
+        should stay boring."""
+        repo_id = (request.args.get("repo") or "").strip()
+        relpath = (request.args.get("path") or "").strip()
+        if not repo_id or not relpath:
+            return jsonify({"error": "repo and path are required"}), 400
+        repo = next((r for r in _terrain_repos() if r["id"] == repo_id), None)
+        if repo is None:
+            return jsonify({"error": "unknown repo"}), 404
+        resolved = _terrain_safe_path(repo["root"], relpath)
+        if resolved is None:
+            return jsonify({"error": "not found"}), 404
+        try:
+            raw = resolved.read_bytes()
+        except OSError:
+            return jsonify({"error": "not found"}), 404
+        size = len(raw)
+        if b"\0" in raw[:8000]:
+            return jsonify({"repo": repo_id, "path": relpath, "size": size,
+                            "binary": True, "truncated": False,
+                            "summary": None, "content": None, "lines": 0})
+        truncated = size > _TERRAIN_FILE_READ_MAX
+        try:
+            text = raw[:_TERRAIN_FILE_READ_MAX].decode("utf-8", errors="replace")
+        except Exception:
+            return jsonify({"error": "not readable"}), 404
+        if truncated:
+            # Never hand back a half-line — cut at the last complete one.
+            text = text[:text.rfind("\n") + 1] if "\n" in text else text
+        return jsonify({"repo": repo_id, "path": relpath, "size": size,
+                        "binary": False, "truncated": truncated,
+                        "summary": _terrain_file_summary(relpath, text),
+                        "content": text, "lines": text.count("\n") + 1})
+
+    @app.route("/api/reading-room/keeper/rollover", methods=["POST"])
+    @app.route("/api/bots/keeper/rollover", methods=["POST"])
+    def keeper_rollover_start():
+        """Fire the same close/open job cron runs at 3 AM, on demand — the
+        Automations page's manual-run button. Spawned detached and never
+        waited on: a rollover can run for several minutes (waiting out a
+        mid-flight /endsession, then a full /journalstart turn), far longer
+        than this request should stay open. `sys.executable` is gunicorn's
+        venv python — the same interpreter cron invokes the script with, so
+        imports resolve identically either way. The 409 here is a courtesy
+        (fast, friendly feedback) — the real exclusion guarantee is the
+        lock scripts/keeper_rollover.py takes for itself the moment it
+        starts a real run."""
+        if rollover_running():
+            return jsonify({"error": "a rollover is already running"}), 409
+        skeleton_root = Path(__file__).resolve().parents[1]
+        script = skeleton_root / "scripts" / "keeper_rollover.py"
+        log_path = store.DATA_DIR / "keeper_rollover.ui.log"
+        with open(log_path, "a") as log_f:
+            subprocess.Popen(
+                [sys.executable, str(script), "roll"],
+                stdout=log_f, stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+        return jsonify({"ok": True, "started": True}), 202
+
+    @app.route("/api/reading-room/keeper/rollover/status")
+    @app.route("/api/bots/keeper/rollover/status")
+    def keeper_rollover_status():
+        """What the Automations card polls: whether a rollover is in flight
+        right now, which pinned Keeper conversation is currently the diary
+        door (same scan scripts/keeper_rollover.py's _find_pinned does —
+        latest last_at among non-archived pinned bot=="keeper" entries), and
+        the scheduled_runs.json registry entry the script writes its outcome
+        to (last_run/last_status/last_conv_id/last_cost_usd), if it has ever
+        run."""
+        index = store.read("bot_chats/index", {})
+        candidates = [(cid, meta) for cid, meta in index.items()
+                      if isinstance(meta, dict) and meta.get("bot") == "keeper"
+                      and meta.get("pinned") and not meta.get("archived")]
+        pinned_conv_id = None
+        if candidates:
+            candidates.sort(key=lambda c: c[1].get("last_at", ""), reverse=True)
+            pinned_conv_id = candidates[0][0]
+        runs = store.read("scheduled_runs.json", {"runs": []}).get("runs", [])
+        registry = next((r for r in runs if isinstance(r, dict)
+                         and r.get("id") == "keeper_rollover"), None)
+        return jsonify({"running": rollover_running(),
+                        "pinned_conv_id": pinned_conv_id,
+                        "registry": registry})
 
     @app.route("/api/reading-room/conversation/<conv_id>/close", methods=["POST"])
     @app.route("/api/bots/conversation/<conv_id>/close", methods=["POST"])
@@ -693,14 +1028,18 @@ def register(app):
     def reading_room_conv_create():
         """Create a session with the session-first default config: a builder
         session rooted in the skeleton checkout, full dev toolkit. Body:
-        {title, journal}. `bot: "keeper"` is kept purely as a display field
-        for old sidecars/terrain (`meta.get("bot")`) — it no longer drives
-        cwd or tool scoping."""
+        {title, journal, model}. `bot: "keeper"` is kept purely as a display
+        field for old sidecars/terrain (`meta.get("bot")`) — it no longer
+        drives cwd or tool scoping. An omitted/empty `model` writes no field
+        at all, which is what makes the session follow the CLI default."""
         data = request.json or {}
         title = (data.get("title") or "").strip()[:60]
         # Journal is OPT-IN and rare: the diary is the pinned Keeper session's
         # door; every other session is a workshop unless deliberately toggled.
         journal = data.get("journal") is True
+        model = (data.get("model") or "").strip()
+        if model and model not in _MODEL_CHOICES:
+            return jsonify({"error": f"unknown model {model!r}"}), 400
         _chats_dir()
         with store.mutate("bot_chats/index", {}) as index:
             conv_id = _new_conv_id(index)
@@ -709,6 +1048,8 @@ def register(app):
                               "title": title or "New session", "journal": journal,
                               "cwd": str(store.BUILD_DIR),
                               "allowed_tools": list(_BUILDER_TOOLS)}
+            if model:
+                index[conv_id]["model"] = model
         return jsonify({"ok": True, "id": conv_id})
 
     @app.route("/api/reading-room/<bot_id>/conversations", methods=["POST"])
@@ -738,22 +1079,44 @@ def register(app):
     @app.route("/api/reading-room/conversation/<conv_id>/settings", methods=["POST"])
     @app.route("/api/bots/conversation/<conv_id>/settings", methods=["POST"])
     def bot_conv_settings(conv_id):
-        """Rename and/or flip a session's journal switch. Pinning is data-only
-        for now (set at import/migration) — the pinned Keeper session stays
-        the one diary door."""
+        """Rename, flip a session's journal switch, and/or pin its model.
+        Pinning (the sort kind) is data-only for now (set at import/migration)
+        — the pinned Keeper session stays the one diary door.
+
+        `model`: one of _MODEL_CHOICES, or "" / null to DROP the field and go
+        back to inheriting the CLI default. An unknown value is rejected
+        rather than silently ignored — a typo'd model would otherwise fail
+        every turn from then on, far from here."""
         data = request.json or {}
+        # Validate BEFORE opening the mutate block: an early `return` inside
+        # `with store.mutate(...)` is not an exception, so the context manager
+        # commits on the way out — a rejected field would otherwise persist
+        # the fields validated before it.
+        title = None
+        if "title" in data:
+            title = (data.get("title") or "").strip()[:60]
+            if not title:
+                return jsonify({"error": "empty title"}), 400
+        model = None
+        if "model" in data:
+            model = (data.get("model") or "").strip()
+            if model and model not in _MODEL_CHOICES:
+                return jsonify({"error": f"unknown model {model!r}"}), 400
         _chats_dir()
         with store.mutate("bot_chats/index", {}) as index:
             entry = index.get(conv_id)
             if not isinstance(entry, dict):
                 return jsonify({"error": "not found"}), 404
-            if "title" in data:
-                title = (data.get("title") or "").strip()[:60]
-                if not title:
-                    return jsonify({"error": "empty title"}), 400
+            if title:
                 entry["title"] = title
             if "journal" in data:
                 entry["journal"] = data.get("journal") is True
+            if "model" in data:
+                # "" / null drops the field — back to inheriting the default.
+                if model:
+                    entry["model"] = model
+                else:
+                    entry.pop("model", None)
             out = dict(entry, id=conv_id)
         return jsonify({"ok": True, "conversation": out})
 
@@ -785,8 +1148,18 @@ def register(app):
     def bot_conversation(conv_id):
         if not _CONV_ID_RE.match(conv_id):
             return jsonify({"error": "invalid conversation id"}), 400
+        index = store.read("bot_chats/index", {})
+        meta = index.get(conv_id) if isinstance(index, dict) else None
         path = _chats_dir() / f"{conv_id}.jsonl"
         if not path.exists():
+            # A freshly-minted session (a /spinoff staged draft, or "+ New
+            # session") has an index entry but no jsonl until its first send —
+            # that's a real, empty conversation, not a 404. Return it (draft and
+            # all) so the client can load history and prefill the staged draft
+            # instead of the whole open failing. Only a conv_id with no index
+            # entry at all is genuinely not found.
+            if isinstance(meta, dict):
+                return jsonify({"id": conv_id, "meta": meta, "events": []})
             return jsonify({"error": "not found"}), 404
         events = []
         for line in path.read_text().splitlines():
@@ -794,7 +1167,8 @@ def register(app):
                 events.append(json.loads(line))
             except ValueError:
                 continue  # a torn line (crash mid-append) shouldn't hide the rest
-        meta = store.read("bot_chats/index", {}).get(conv_id, {})
+        if not isinstance(meta, dict):
+            meta = {}
         if isinstance(meta, dict) and meta.get("running"):
             # Report running-ness honestly: a re-attaching client polls this
             # to know whether to keep waiting, and a flag orphaned by a dead

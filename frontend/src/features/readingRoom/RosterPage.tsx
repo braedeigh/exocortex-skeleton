@@ -35,6 +35,9 @@ function ago(iso: string | undefined): string | null {
 export function RosterPage() {
   const navigate = useNavigate();
   const [sessions, setSessions] = useState<SessionMeta[]>([]);
+  // Model aliases the server will accept — it stays the authority on the
+  // list; an empty one just hides the picker.
+  const [modelChoices, setModelChoices] = useState<string[]>([]);
   const [failed, setFailed] = useState(false);
 
   const [newOpen, setNewOpen] = useState(false);
@@ -45,8 +48,9 @@ export function RosterPage() {
 
   const refresh = () => {
     getSessions()
-      .then(({ sessions: list }) => {
+      .then(({ sessions: list, model_choices }) => {
         setSessions(list);
+        if (model_choices) setModelChoices(model_choices);
         setFailed(false);
       })
       .catch(() => setFailed(true));
@@ -79,8 +83,8 @@ export function RosterPage() {
     void navigate({ to: '/reading-room/$botId', params: { botId: 'session' }, search: { conv: convId } });
   };
 
-  const onCreate = (title: string, journal: boolean) => {
-    createSession(title, journal)
+  const onCreate = (title: string, journal: boolean, model: string) => {
+    createSession(title, journal, model)
       .then(({ id }) => {
         setNewOpen(false);
         open(id);
@@ -88,9 +92,10 @@ export function RosterPage() {
       .catch(() => setFailed(true));
   };
 
-  const onEdit = (title: string, journal: boolean) => {
+  const onEdit = (title: string, journal: boolean, model: string) => {
     if (!renameTarget) return;
-    updateConversation(renameTarget.id, { title, journal })
+    // '' is meaningful here (clear the pin), so it's always sent.
+    updateConversation(renameTarget.id, { title, journal, model })
       .then(() => {
         setRenameTarget(null);
         refresh();
@@ -201,6 +206,7 @@ export function RosterPage() {
         <SessionDialog
           open={newOpen}
           title="New session"
+          modelChoices={modelChoices}
           onClose={() => setNewOpen(false)}
           onSave={onCreate}
         />
@@ -209,6 +215,8 @@ export function RosterPage() {
           title={renameTarget ? `Edit ${renameTarget.title || renameTarget.id}` : 'Edit session'}
           initial={renameTarget?.title ?? ''}
           initialJournal={renameTarget?.journal === true}
+          initialModel={renameTarget?.model ?? ''}
+          modelChoices={modelChoices}
           onClose={() => setRenameTarget(null)}
           onSave={onEdit}
         />

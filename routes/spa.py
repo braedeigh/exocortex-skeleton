@@ -37,7 +37,7 @@ DIST_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 # Tabs with a native SPA route at /<tab> (today lives at /todos).
 _NATIVE_TABS = frozenset(
     ("map", "kitchen", "inventory", "money", "car", "meditation", "media",
-     "movement", "body", "ideas", "ecosystem", "housing", "people")
+     "movement", "body", "ideas", "ecosystem", "housing", "people", "travel")
 )
 ASSETS_DIR = DIST_DIR / "assets"
 INDEX_PATH = DIST_DIR / "index.html"
@@ -118,6 +118,7 @@ def register(app):
     @app.route("/ecosystem")
     @app.route("/housing")
     @app.route("/people")
+    @app.route("/travel")
     # Native standalone pages (ported from their Flask templates):
     @app.route("/person/<slug>")
     @app.route("/personality")
@@ -125,6 +126,11 @@ def register(app):
     @app.route("/vscode")
     @app.route("/food-map")
     @app.route("/about")
+    # Session-visualization surfaces (born native, no Flask ancestor):
+    @app.route("/terrain")
+    @app.route("/atlas")
+    @app.route("/sessions")
+    @app.route("/automations")
     def spa_shell(tab=None, slug=None, rest=None):
         return _spa_response()
 

@@ -11,6 +11,26 @@
  */
 import { api } from '../../api/client';
 
+/** Cached facts about the nightly rollover job, updated after each run
+ * (on-demand or the cron original) — surfaced so the on-demand trigger can
+ * tell success from failure once the run it kicked off finishes. */
+export interface KeeperRolloverRegistry {
+  last_run?: string;
+  last_status?: string;
+  last_conv_id?: string;
+  last_cost_usd?: number;
+  [key: string]: unknown;
+}
+
+export interface KeeperRolloverStatus {
+  /** A rollover (on-demand or the nightly cron) is running right now. */
+  running: boolean;
+  /** The fresh pinned Keeper session's id, once the run that made it has
+   * finished — the on-demand trigger's navigation target. */
+  pinned_conv_id: string | null;
+  registry: KeeperRolloverRegistry | null;
+}
+
 export interface SessionMeta {
   id: string;
   title: string;
@@ -29,9 +49,16 @@ export interface SessionMeta {
    * wants her to fire it herself) — a non-empty draft prefills the compose
    * box once on open (see ReadingRoomPage's draft-prefill effect). */
   draft?: string;
+  /** Model alias this session is pinned to ('opus', 'sonnet[1m]', …).
+   * ABSENT = inherit the CLI's own default (~/.claude/settings.json) — the
+   * case every session is in until she picks one. Resolved per turn, so
+   * changing it takes effect on the next turn with the history intact. */
+  model?: string;
 }
 
-export function getSessions(signal?: AbortSignal): Promise<{ sessions: SessionMeta[] }> {
+export function getSessions(
+  signal?: AbortSignal,
+): Promise<{ sessions: SessionMeta[]; model_choices?: string[] }> {
   return api.get('/api/reading-room', signal);
 }
 
@@ -46,8 +73,12 @@ export function getConversation(
  * session', and the reading room's own blank-compose first send (the old
  * create-implicitly-on-send flow is gone; the client drives it explicitly
  * now). The server picks the rest of the config (cwd/tools) itself. */
-export function createSession(title: string, journal: boolean): Promise<{ ok: true; id: string }> {
-  return api.post('/api/reading-room/conversations', { title, journal });
+export function createSession(
+  title: string,
+  journal: boolean,
+  model = '',
+): Promise<{ ok: true; id: string }> {
+  return api.post('/api/reading-room/conversations', { title, journal, model });
 }
 
 /** Put one keeper reply into the journal (a K card) — the tap gesture.
@@ -68,11 +99,26 @@ export function stopConversation(convId: string): Promise<{ ok: true }> {
   return api.post(`/api/reading-room/conversation/${encodeURIComponent(convId)}/stop`, {});
 }
 
+/** Patch a session's settings. `model: ''` clears the pin — back to
+ * inheriting the CLI default. An unknown alias is rejected server-side (400). */
 export function updateConversation(
   id: string,
-  patch: { title?: string; journal?: boolean },
+  patch: { title?: string; journal?: boolean; model?: string },
 ): Promise<{ ok: true; conversation: SessionMeta }> {
   return api.post(`/api/reading-room/conversation/${encodeURIComponent(id)}/settings`, patch);
+}
+
+/** Kick off the nightly keeper rollover on demand — /endsession on the
+ * pinned session, then archive it and /journalstart a fresh one. 202 once
+ * it's started; the caller polls getKeeperRolloverStatus for completion. A
+ * 409 (one's already running) surfaces as an ApiError the caller treats as
+ * "start tracking", not a failure — see useKeeperRollover.ts. */
+export function startKeeperRollover(): Promise<{ ok: boolean; started: boolean }> {
+  return api.post('/api/reading-room/keeper/rollover', {});
+}
+
+export function getKeeperRolloverStatus(signal?: AbortSignal): Promise<KeeperRolloverStatus> {
+  return api.get('/api/reading-room/keeper/rollover/status', signal);
 }
 
 export interface SendOptions {

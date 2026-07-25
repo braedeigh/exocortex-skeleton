@@ -1,0 +1,66 @@
+/* The tap-a-file code modal. Wider than the default Sheet — code needs the
+   room — and the code block is the only thing allowed to scroll sideways;
+   the modal itself never does. */
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.path {
+  font-size: var(--font-size-md);
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+
+.summary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--accent) 8%, var(--card-bg));
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border));
+}
+
+.summaryPara {
+  margin: 0;
+  font-size: var(--font-size-base);
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.meta {
+  font-size: var(--font-size-md);
+  color: var(--text-muted);
+}
+
+.hint {
+  font-size: var(--font-size-md);
+  color: var(--text-muted);
+}
+
+.code {
+  margin: 0;
+  padding: var(--space-3);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background: var(--code-bg, color-mix(in srgb, var(--text) 6%, var(--card-bg)));
+  color: var(--text);
+  /* The one element that may scroll in both directions. Capped so a long
+     file can't push the close button off the top of the modal. */
+  max-height: 55vh;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* 12px floor per the house rules — code is dense, but never smaller. */
+  font-size: max(12px, 0.8125rem);
+  line-height: 1.45;
+  tab-size: 2;
+  white-space: pre;
+}
+
+.code code {
+  font: inherit;
+}

@@ -1,0 +1,824 @@
+/**
+ * terrainCanvas.ts — the imperative canvas engine behind TerrainPage: a
+ * d3-force layout drawn on a devicePixelRatio-scaled 2D canvas with d3-zoom
+ * pan/pinch/wheel. Deliberately plain rendering glue (no tests — the logic
+ * worth testing lives in terrainGraph.ts): React owns data + state and calls
+ * setGraph/setTheme/setFootprint; this class owns the sim, the transform,
+ * hit-testing, and the paint.
+ *
+ * Battery contract: the sim draws once per tick and goes fully quiet on
+ * quiescence (d3-force's own 'end' event — no rAF loop ever idles). Pan/zoom
+ * repaints without waking the sim; only a data change (lens, repo toggle,
+ * fresh payload) re-warms it.
+ *
+ * Heat encoding is redundant on purpose (dataviz skill): the heat ramp
+ * carries recency AND node radius scales with the same normalized heat,
+ * with the hottest ~8 files direct-labeled ("2h", "3d") in theme ink — never
+ * in the ramp color. The ramp is the owner's terminal-red spec (07-24): old =
+ * black, warming through maroon to xterm red #cd3131, just-edited = xterm
+ * brightRed #f14c4c — "the color of the text printing into terminal".
+ */
+import {
+  forceCollide,
+  forceLink,
+  forceManyBody,
+  forceSimulation,
+  forceX,
+  forceY,
+  type Simulation,
+  type SimulationLinkDatum,
+  type SimulationNodeDatum,
+} from 'd3-force';
+import { select } from 'd3-selection';
+import { zoom, zoomIdentity, type ZoomBehavior, type ZoomTransform } from 'd3-zoom';
+import {
+  fileLastTouch,
+  normalizeHeat,
+  relativeAge,
+  sessionTouchRings,
+  topHeatFiles,
+  SESSION_NODE_PREFIX,
+  type FileTouchKind,
+  type TerrainEdge,
+  type TerrainNode,
+} from './terrainGraph';
+
+/**
+ * Terminal-red heat ramps — 5 steps cold→hot, per the owner's spec: cold =
+ * black, hot = the red her terminal prints in (ttyd/xterm.js defaults: red
+ * #cd3131, brightRed #f14c4c). The two anchors and the black are hers; only
+ * the intermediate maroons were tuned for perceptual spacing. Dataviz
+ * validator (--ordinal, real surfaces):
+ *  dark (twilight --bg #14101e):  ALL PASS — hot end 5.24:1, gaps ≥0.06,
+ *    hue spread 1°; coldest #341816 sits just above the surface (visible
+ *    structure, 1.15:1 by design — "old = black").
+ *  light (postDawn --bg #aba3b2): monotone/gaps/hue PASS; hot-end check
+ *    FAILS at 1.47:1 (her #f14c4c anchor on lavender) — spec wins, kept
+ *    deliberately. Relief channels per the skill: radius scales with the
+ *    same heat, and the hottest ~8 files carry ink labels with ages. The
+ *    cold half (2.1–7.2:1) does the long-range discrimination in light mode.
+ */
+export const HEAT_RAMP_LIGHT = ['#271513', '#681b1b', '#9b2425', '#cd3131', '#f14c4c'] as const;
+export const HEAT_RAMP_DARK = ['#341816', '#681b1b', '#9b2425', '#cd3131', '#f14c4c'] as const;
+
+/** Focus interaction rings (build 2, per the owner's 07-25 spec): a file the
+ * focused room agent has READ gets a white ring, one it has MODIFIED a purple
+ * ring. Literal colors on purpose — day/night adaptation comes later. */
+const READ_RING = '#ffffff';
+const MODIFIED_RING = '#b45cff';
+
+export interface ThemeInk {
+  bg: string;
+  text: string;
+  textSecondary: string;
+  textMuted: string;
+  border: string;
+  accent: string;
+  /** --evening (blue) — fallback identity token if --accent is ever
+   * overridden into the red family (the heat ramp owns red). */
+  evening: string;
+  dark: boolean;
+}
+
+interface SimNode extends SimulationNodeDatum {
+  id: string;
+  node: TerrainNode;
+  /** 0..1 normalized heat, precomputed once per setGraph. */
+  t: number;
+  radius: number;
+}
+
+interface SimLink extends SimulationLinkDatum<SimNode> {
+  kind?: 'tree' | 'session';
+}
+
+/** Zoom floor. 0.2 was set when the map drew ~700 files; the Files dial now
+ * reaches every file there is (~3,300), and that graph spreads far wider than
+ * 0.2 can pull back from — fit() clamps against this floor, so the map would
+ * overflow the viewport with no way to get out far enough to see it whole.
+ * Low enough now to frame the full corpus on a phone with room to spare. */
+const MIN_ZOOM = 0.03;
+const MAX_ZOOM = 5;
+/** Node radii are in WORLD units, so they shrink with the transform: at the
+ * new floor a radius-3 file paints at 0.09px — i.e. a blank canvas. Every
+ * node is drawn at least this many SCREEN pixels across, so zooming way out
+ * yields a field of fine dots instead of nothing at all. */
+const MIN_NODE_PX = 1.4;
+/** Screen-space tap slop — a fingertip, not a cursor. */
+const TAP_RADIUS_PX = 20;
+/** Dir hub labels appear at/above this zoom ("readable zoom"). */
+const DIR_LABEL_MIN_K = 0.7;
+/** Canvas text floor at default zoom — the app-wide 12px rule. Labels are
+ * drawn in screen space, so they never shrink below this at any zoom. */
+const LABEL_PX = 12;
+
+function hexToRgbTuple(hex: string): [number, number, number] {
+  const h = hex.replace('#', '');
+  return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+}
+
+function mixHex(a: string, b: string, t: number): string {
+  const ar = hexToRgbTuple(a);
+  const br = hexToRgbTuple(b);
+  const c = ar.map((v, i) => Math.round(v + (br[i] - v) * t));
+  return `#${c.map((v) => Math.max(0, Math.min(255, v)).toString(16).padStart(2, '0')).join('')}`;
+}
+
+/** Piecewise-linear heat lookup across the 5 ramp steps. t=0 IS the black
+ * end — "old = black" is the owner's mental model, so cold files never fade
+ * into the surface; the coldest step itself is chosen per mode (near-black
+ * ink on light, just-above-surface on dark). */
+function heatColor(t: number, ramp: readonly string[]): string {
+  if (t <= 0) return ramp[0];
+  if (t >= 1) return ramp[ramp.length - 1];
+  const u = t * (ramp.length - 1);
+  const i = Math.min(ramp.length - 2, Math.floor(u));
+  return mixHex(ramp[i], ramp[i + 1], u - i);
+}
+
+function nodeRadius(node: TerrainNode, t: number): number {
+  if (node.kind === 'repo') return 11;
+  if (node.kind === 'session') return 9; // orbs: fixed — identity, not magnitude
+  if (node.kind === 'dir') return 5.5 + 4.5 * t;
+  return 4 + 9 * t; // file: heat visibly scales size — the redundant channel
+}
+
+// -- orb identity color: an app token, never a color from the heat ramp --
+
+function relLuminance(hex: string): number {
+  const s2lin = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const [r, g, b] = hexToRgbTuple(hex).map((v) => s2lin(v / 255));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function wcagContrast(a: string, b: string): number {
+  const [hi, lo] = [relLuminance(a), relLuminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+/** OKLab hue angle + chroma — used only to keep the orb accent away from
+ * the heat ramp's red family (#cd3131/#f14c4c sit at hue ≈ 25°). */
+function okHueChroma(hex: string): { hue: number; chroma: number } {
+  const s2lin = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const [r, g, b] = hexToRgbTuple(hex).map((v) => s2lin(v / 255));
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  const a = 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s;
+  const bb = 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s;
+  return { hue: ((Math.atan2(bb, a) * 180) / Math.PI + 360) % 360, chroma: Math.hypot(a, bb) };
+}
+
+const RAMP_HUE = 25; // OKLab hue of the terminal reds
+const RED_EXCLUSION_DEG = 30;
+
+/** True when a color would read as red-family next to the heat ramp. */
+function isReddish(hex: string): boolean {
+  if (!/^#[0-9a-fA-F]{6}$/.test(hex)) return false;
+  const { hue, chroma } = okHueChroma(hex);
+  if (chroma < 0.05) return false; // near-neutral can't read as red
+  const d = Math.abs(((hue - RAMP_HUE + 540) % 360) - 180);
+  return d <= RED_EXCLUSION_DEG;
+}
+
+/**
+ * Session-orb stroke color: an identity token, NEVER a heat color. Prefers
+ * the app's --accent (default #7c5cbf violet, hue ≈ 300° — nowhere near the
+ * ramp's red at ≈ 25°); if --accent has been overridden to something
+ * red-family, falls back to --evening (blue #6a7acc), then plain ink.
+ * Whichever token wins is nudged toward ink in 10% steps until it clears
+ * 3:1 on the live surface, and the red check re-runs on the mixed result
+ * (defaults: dark #7c5cbf on #14101e → 3.69:1 as-is; light needs 30% text →
+ * #5f488c on #aba3b2 → 3.08:1).
+ */
+export function deriveOrbColor(accent: string, evening: string, bg: string, text: string): string {
+  if (!/^#[0-9a-fA-F]{6}$/.test(bg)) return text;
+  const candidates = [accent, evening].filter((c) => /^#[0-9a-fA-F]{6}$/.test(c) && !isReddish(c));
+  for (const base of candidates) {
+    for (let f = 0; f <= 0.6001; f += 0.1) {
+      const c = mixHex(base, text, f);
+      if (wcagContrast(c, bg) >= 3 && !isReddish(c)) return c;
+    }
+  }
+  return text;
+}
+
+/** ~24ch truncation for orb title labels. */
+function truncateLabel(s: string, max = 24): string {
+  return s.length <= max ? s : `${s.slice(0, max - 1)}…`;
+}
+
+export class TerrainCanvas {
+  private canvas: HTMLCanvasElement;
+  private ctx: CanvasRenderingContext2D;
+  private sim: Simulation<SimNode, SimLink> | null = null;
+  private zoomBehavior: ZoomBehavior<HTMLCanvasElement, unknown>;
+  private transform: ZoomTransform = zoomIdentity;
+  private simNodes: SimNode[] = [];
+  private simLinks: SimLink[] = [];
+  private hotLabels: Map<string, string> = new Map(); // node id -> "2h"
+  private footprint: Set<string> | null = null;
+  private theme: ThemeInk;
+  private orbStroke = '#7c5cbf';
+  private drawQueued = false;
+  private destroyed = false;
+  private width = 0;
+  private height = 0;
+  private fontFamily = 'system-ui, sans-serif';
+  private selectedId: string | null = null;
+  /** One-shot flash halos: node id → expiry epoch-ms. The timer lives only
+   * until the last flash fades (~1s) — never idles. */
+  private flashes = new Map<string, number>();
+  private flashTimer: number | null = null;
+  /** Breathing pulse for running session orbs: a slow ~10fps interval, alive
+   * ONLY while a running orb exists AND the document is visible — the
+   * no-idle-animation guarantee holds when nothing is running or the PWA is
+   * backgrounded. */
+  private pulseTimer: number | null = null;
+  private hasRunning = false;
+  /**
+   * Ambient mode — the map as *wallpaper* rather than as a page. No gestures,
+   * no taps, no labels: behind a conversation, a filename is noise competing
+   * with the thing she's actually reading. Used by the Reading Room backdrop
+   * (shell-side: TerrainBackdrop.tsx); /terrain itself never sets it.
+   */
+  private ambient = false;
+  /**
+   * Focus mode (backdrop-only): the conversation whose agent this surface is
+   * standing behind. Its orb eases to loosely centered and the files it has
+   * touched are ringed (white = read, purple = modified). null on /terrain,
+   * where the whole objective map is the point.
+   */
+  private focusConv: string | null = null;
+  private focusRings: Map<string, FileTouchKind> = new Map();
+
+  onTap: ((node: TerrainNode | null) => void) | null = null;
+
+  constructor(canvas: HTMLCanvasElement, theme: ThemeInk, opts?: { ambient?: boolean }) {
+    this.canvas = canvas;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('canvas 2d context unavailable');
+    this.ctx = ctx;
+    this.theme = theme;
+    this.ambient = opts?.ambient === true;
+    this.fontFamily =
+      getComputedStyle(document.documentElement).getPropertyValue('--font-sans').trim() || this.fontFamily;
+
+    this.zoomBehavior = zoom<HTMLCanvasElement, unknown>()
+      .scaleExtent([MIN_ZOOM, MAX_ZOOM])
+      .clickDistance(8) // pans suppress the click; taps still land
+      .on('zoom', (event: { transform: ZoomTransform }) => {
+        this.transform = event.transform;
+        this.requestDraw(); // repaint only — pan/zoom never wakes the sim
+      });
+    // An ambient canvas binds neither: every gesture over the Reading Room
+    // belongs to the conversation, and a backdrop that ate a swipe would read
+    // as the page being broken.
+    if (!this.ambient) {
+      select(this.canvas).call(this.zoomBehavior);
+      this.canvas.addEventListener('click', this.handleClick);
+    }
+
+    document.addEventListener('visibilitychange', this.handleVisibility);
+    this.orbStroke = deriveOrbColor(theme.accent, theme.evening, theme.bg, theme.text);
+  }
+
+  destroy(): void {
+    this.destroyed = true;
+    this.sim?.stop();
+    this.stopPulse();
+    if (this.flashTimer !== null) {
+      window.clearInterval(this.flashTimer);
+      this.flashTimer = null;
+    }
+    this.canvas.removeEventListener('click', this.handleClick);
+    document.removeEventListener('visibilitychange', this.handleVisibility);
+    select(this.canvas).on('.zoom', null);
+  }
+
+  /** CSS-pixel size from the layout; backing store scales by DPR. */
+  resize(width: number, height: number): void {
+    const dpr = window.devicePixelRatio || 1;
+    this.width = width;
+    this.height = height;
+    this.canvas.width = Math.max(1, Math.round(width * dpr));
+    this.canvas.height = Math.max(1, Math.round(height * dpr));
+    this.requestDraw();
+  }
+
+  setTheme(theme: ThemeInk): void {
+    this.theme = theme;
+    this.orbStroke = deriveOrbColor(theme.accent, theme.evening, theme.bg, theme.text);
+    this.requestDraw();
+  }
+
+  setFootprint(footprint: Set<string> | null): void {
+    this.footprint = footprint;
+    this.requestDraw();
+  }
+
+  /** Selected node id (or null) — idle session orbs show their title label
+   * only while selected; running orbs are always labeled. */
+  setSelected(id: string | null): void {
+    if (this.selectedId === id) return;
+    this.selectedId = id;
+    this.requestDraw();
+  }
+
+  /**
+   * Focus the map on one conversation's agent (backdrop-only). Its orb eases
+   * to loosely centered, the files it has touched are ringed — white = read,
+   * purple = modified — and the camera frames the orb plus that working set,
+   * honestly: the files stay where they really live in the tree (option A),
+   * only the viewport moves. null clears focus and returns to whole-graph
+   * framing.
+   */
+  setFocus(convId: string | null): void {
+    if (this.focusConv === convId) return;
+    this.focusConv = convId;
+    this.recomputeFocusRings();
+    this.requestDraw();
+  }
+
+  private recomputeFocusRings(): void {
+    this.focusRings = this.focusConv
+      ? sessionTouchRings(this.simNodes.map((sn) => sn.node), this.focusConv)
+      : new Map();
+  }
+
+  /** The transform that loosely centers the focused orb + its ringed files in
+   * view, or null when there's nothing to frame yet (agent hasn't touched a
+   * file, so it has no orb). Files keep their true tree positions — this only
+   * decides where the camera looks. */
+  private computeFocusTransform(): { x: number; y: number; k: number } | null {
+    if (!this.focusConv) return null;
+    const wanted = new Set<string>([`${SESSION_NODE_PREFIX}${this.focusConv}`, ...this.focusRings.keys()]);
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    let found = false;
+    for (const n of this.simNodes) {
+      if (!wanted.has(n.id)) continue;
+      const x = n.x ?? 0;
+      const y = n.y ?? 0;
+      minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+      minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+      found = true;
+    }
+    if (!found) return null;
+    const pad = 90;
+    const w = Math.max(1, maxX - minX) + pad * 2;
+    const h = Math.max(1, maxY - minY) + pad * 2;
+    const k = Math.max(MIN_ZOOM, Math.min(1.2, this.width / w, this.height / h));
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    return { x: this.width / 2 - cx * k, y: this.height / 2 - cy * k, k };
+  }
+
+  /**
+   * One eased step of the focus camera toward its target, re-requesting frames
+   * until it settles, then stopping — no idle loop. The target is recomputed
+   * from live node positions each call, so the camera tracks the agent's
+   * cluster while the sim moves (or new files light) and holds still the moment
+   * everything quiesces. Backdrop-only: it sets `this.transform` directly
+   * rather than through d3-zoom, which is safe because ambient surfaces bind no
+   * gestures to diverge from.
+   */
+  private stepFocusCamera(): void {
+    const target = this.computeFocusTransform();
+    if (!target) return;
+    const cur = this.transform;
+    const dx = target.x - cur.x;
+    const dy = target.y - cur.y;
+    const dk = target.k - cur.k;
+    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5 && Math.abs(dk) < 0.0005) {
+      this.transform = zoomIdentity.translate(target.x, target.y).scale(target.k);
+      return;
+    }
+    const e = 0.16; // a loose follow, not a snap
+    this.transform = zoomIdentity
+      .translate(cur.x + dx * e, cur.y + dy * e)
+      .scale(cur.k + dk * e);
+    if (document.visibilityState === 'visible') this.requestDraw();
+  }
+
+  /**
+   * One-shot ~1s flash on the given node ids (live mode: files whose newest
+   * touch advanced since the previous payload). A short interval repaints
+   * the fade and clears itself when the last flash expires.
+   */
+  flash(ids: Set<string>): void {
+    if (ids.size === 0 || this.destroyed) return;
+    const until = Date.now() + 1000;
+    for (const id of ids) this.flashes.set(id, until);
+    if (this.flashTimer === null) {
+      this.flashTimer = window.setInterval(() => {
+        const now = Date.now();
+        for (const [id, expiry] of this.flashes) {
+          if (expiry <= now) this.flashes.delete(id);
+        }
+        if (this.flashes.size === 0 && this.flashTimer !== null) {
+          window.clearInterval(this.flashTimer);
+          this.flashTimer = null;
+        }
+        this.requestDraw();
+      }, 80);
+    }
+    this.requestDraw();
+  }
+
+  // -- pulse loop management (running orbs only, visible page only) --
+
+  private handleVisibility = (): void => {
+    this.updatePulseLoop();
+  };
+
+  private updatePulseLoop(): void {
+    const want = this.hasRunning && !this.destroyed && document.visibilityState === 'visible';
+    if (want && this.pulseTimer === null) {
+      this.pulseTimer = window.setInterval(() => this.requestDraw(), 100);
+    } else if (!want) {
+      this.stopPulse();
+    }
+  }
+
+  private stopPulse(): void {
+    if (this.pulseTimer !== null) {
+      window.clearInterval(this.pulseTimer);
+      this.pulseTimer = null;
+    }
+  }
+
+  /**
+   * Swap in a (re)built graph. Positions carry over by node id so a lens
+   * change or repo toggle re-warms a settled layout instead of exploding a
+   * fresh one; brand-new nodes seed near their parent (session orbs amid
+   * their footprint). When the node/edge sets are UNCHANGED (a live-mode
+   * refetch that only advanced heats/labels/running flags, or a lens change
+   * on the same files), the sim nodes update in place and the layout never
+   * re-warms — the map holds still while its glow shifts.
+   */
+  setGraph(nodes: TerrainNode[], edges: TerrainEdge[]): void {
+    const prev = new Map(this.simNodes.map((n) => [n.id, n]));
+
+    const sameNodes = nodes.length === prev.size && nodes.every((n) => prev.has(n.id));
+    const prevEdgeKeys = new Set(
+      this.simLinks.map((l) => `${(l.source as SimNode).id}|${(l.target as SimNode).id}`),
+    );
+    const sameEdges =
+      edges.length === prevEdgeKeys.size && edges.every((e) => prevEdgeKeys.has(`${e.source}|${e.target}`));
+
+    if (sameNodes && sameEdges) {
+      for (const sn of this.simNodes) {
+        const node = nodes.find((n) => n.id === sn.id)!;
+        sn.node = node;
+        sn.t = normalizeHeat(node.heat);
+        sn.radius = nodeRadius(node, sn.t);
+      }
+      this.refreshDerived(nodes);
+      this.requestDraw();
+      return;
+    }
+
+    const repoIds = [...new Set(nodes.filter((n) => n.repoId).map((n) => n.repoId))];
+    const anchorFor = (repoId: string): { x: number; y: number } => {
+      const i = repoIds.indexOf(repoId);
+      if (i === -1) return { x: this.width / 2, y: this.height / 2 }; // orbs: no repo pull
+      const spread = Math.min(this.width, 900) * 0.36;
+      const offset = repoIds.length > 1 ? (i - (repoIds.length - 1) / 2) * spread : 0;
+      return { x: this.width / 2 + offset, y: this.height / 2 };
+    };
+
+    // Session orbs seed at the centroid of their footprint files, so a new
+    // orb fades in amid its own territory instead of streaking across the map.
+    const orbSeed = new Map<string, { x: number; y: number; n: number }>();
+    for (const e of edges) {
+      if (e.kind !== 'session') continue;
+      const filePos = prev.get(e.target);
+      if (!filePos) continue;
+      const acc = orbSeed.get(e.source) ?? { x: 0, y: 0, n: 0 };
+      acc.x += filePos.x ?? 0;
+      acc.y += filePos.y ?? 0;
+      acc.n += 1;
+      orbSeed.set(e.source, acc);
+    }
+
+    const byId = new Map<string, SimNode>();
+    this.simNodes = nodes.map((node) => {
+      const t = normalizeHeat(node.heat);
+      const old = prev.get(node.id);
+      const anchor = anchorFor(node.repoId);
+      const parent = node.parentId ? byId.get(node.parentId) : undefined;
+      const seed = orbSeed.get(node.id);
+      const seedX = seed && seed.n > 0 ? seed.x / seed.n : (parent?.x ?? anchor.x);
+      const seedY = seed && seed.n > 0 ? seed.y / seed.n : (parent?.y ?? anchor.y);
+      const sn: SimNode = {
+        id: node.id,
+        node,
+        t,
+        radius: nodeRadius(node, t),
+        x: old?.x ?? seedX + (Math.random() - 0.5) * 60,
+        y: old?.y ?? seedY + (Math.random() - 0.5) * 60,
+        vx: old?.vx ?? 0,
+        vy: old?.vy ?? 0,
+      };
+      byId.set(sn.id, sn);
+      return sn;
+    });
+    this.simLinks = edges
+      .filter((e) => byId.has(e.source) && byId.has(e.target))
+      .map((e): SimLink => ({ source: byId.get(e.source)!, target: byId.get(e.target)!, kind: e.kind }));
+
+    this.refreshDerived(nodes);
+
+    this.sim?.stop();
+    this.sim = forceSimulation<SimNode>(this.simNodes)
+      .force(
+        'link',
+        forceLink<SimNode, SimLink>(this.simLinks)
+          .distance((l) => {
+            if (l.kind === 'session') return 55;
+            const s = l.source as SimNode;
+            return s.node.kind === 'repo' ? 70 : 34;
+          })
+          // Session tethers are weak on purpose: the orb drifts to sit amid
+          // its territory without dragging the tree out of shape.
+          .strength((l) => (l.kind === 'session' ? 0.06 : 0.7)),
+      )
+      .force(
+        'charge',
+        forceManyBody<SimNode>().strength((n) =>
+          n.node.kind === 'file' ? -38 : n.node.kind === 'session' ? -70 : -140,
+        ),
+      )
+      .force('collide', forceCollide<SimNode>((n) => n.radius + 4))
+      .force('x', forceX<SimNode>((n) => anchorFor(n.node.repoId).x).strength((n) => (n.node.kind === 'session' ? 0 : 0.045)))
+      .force('y', forceY<SimNode>((n) => anchorFor(n.node.repoId).y).strength((n) => (n.node.kind === 'session' ? 0 : 0.055)))
+      .alpha(prev.size > 0 ? 0.35 : 1)
+      .on('tick', () => this.requestDraw())
+      // Quiescence = sleep. d3-force stops its own timer at alphaMin; one
+      // final paint and nothing runs until the next setGraph.
+      .on('end', () => this.requestDraw());
+  }
+
+  /** Hot-file labels + running flag, recomputed on every graph feed (both
+   * the in-place and full-rebuild paths). */
+  private refreshDerived(nodes: TerrainNode[]): void {
+    this.hotLabels = new Map(
+      topHeatFiles(nodes, 8).map((n) => {
+        const last = n.file ? fileLastTouch(n.file) : null;
+        return [n.id, last === null ? '' : relativeAge(last)];
+      }),
+    );
+    this.hasRunning = nodes.some((n) => n.kind === 'session' && n.session?.running === true);
+    this.updatePulseLoop();
+    // Node data was just rebuilt/updated — the focused session's writes/reads
+    // may have moved (a live refetch, a lens breath), so re-derive its rings.
+    this.recomputeFocusRings();
+  }
+
+  /** Center the whole graph in view (called once after first data lands). */
+  fitSoon(): void {
+    // Give the sim a few ticks to spread out before measuring.
+    window.setTimeout(() => {
+      if (this.destroyed || this.simNodes.length === 0) return;
+      // A focused surface frames its agent's cluster instead — don't yank the
+      // camera out to the whole graph once the orb exists to home in on.
+      if (this.focusConv && this.computeFocusTransform()) return;
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      for (const n of this.simNodes) {
+        minX = Math.min(minX, n.x ?? 0);
+        maxX = Math.max(maxX, n.x ?? 0);
+        minY = Math.min(minY, n.y ?? 0);
+        maxY = Math.max(maxY, n.y ?? 0);
+      }
+      const w = Math.max(1, maxX - minX + 120);
+      const h = Math.max(1, maxY - minY + 120);
+      const k = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.min(this.width / w, this.height / h, 1.6)));
+      const cx = (minX + maxX) / 2;
+      const cy = (minY + maxY) / 2;
+      const t = zoomIdentity.translate(this.width / 2 - cx * k, this.height / 2 - cy * k).scale(k);
+      select(this.canvas).call(this.zoomBehavior.transform, t);
+    }, 600);
+  }
+
+  private handleClick = (ev: MouseEvent): void => {
+    const rect = this.canvas.getBoundingClientRect();
+    const sx = ev.clientX - rect.left;
+    const sy = ev.clientY - rect.top;
+    const [wx, wy] = this.transform.invert([sx, sy]);
+    const k = this.transform.k;
+    let best: SimNode | null = null;
+    let bestDist = Infinity;
+    for (const n of this.simNodes) {
+      const dx = (n.x ?? 0) - wx;
+      const dy = (n.y ?? 0) - wy;
+      const dist = Math.hypot(dx, dy);
+      // Generous, screen-space hit radius: the node's own drawn radius or a
+      // fingertip's ~20px, whichever is bigger on screen.
+      const hit = Math.max(n.radius, TAP_RADIUS_PX / k);
+      if (dist <= hit && dist < bestDist) {
+        best = n;
+        bestDist = dist;
+      }
+    }
+    this.onTap?.(best?.node ?? null);
+  };
+
+  private requestDraw(): void {
+    if (this.drawQueued || this.destroyed) return;
+    this.drawQueued = true;
+    requestAnimationFrame(() => {
+      this.drawQueued = false;
+      if (!this.destroyed) this.draw();
+    });
+  }
+
+  private draw(): void {
+    // Focus camera eases first so this paint uses the stepped transform; it
+    // self-requests the next frame until it settles on the agent's cluster.
+    if (this.focusConv) this.stepFocusCamera();
+    const { ctx, theme, transform } = this;
+    const dpr = window.devicePixelRatio || 1;
+    const ramp = theme.dark ? HEAT_RAMP_DARK : HEAT_RAMP_LIGHT;
+    const dimmed = this.footprint !== null;
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, this.width, this.height);
+    ctx.translate(transform.x, transform.y);
+    ctx.scale(transform.k, transform.k);
+
+    const now = Date.now();
+    // Breathing pulse phase for running orbs — ~2s period, gentle.
+    const breathe = 1 + 0.16 * Math.sin((now % 2000) / 2000 * Math.PI * 2);
+
+    // -- edges --
+    ctx.lineWidth = 1 / transform.k;
+    for (const link of this.simLinks) {
+      const s = link.source as SimNode;
+      const t = link.target as SimNode;
+      const inPrint = !dimmed || this.footprint!.has(s.id) || this.footprint!.has(t.id);
+      if (link.kind === 'session') {
+        // Orb tethers: faint identity-accent threads, dashed so they never
+        // read as tree structure.
+        ctx.globalAlpha = inPrint ? 0.3 : 0.08;
+        ctx.strokeStyle = this.orbStroke;
+        ctx.setLineDash([4 / transform.k, 5 / transform.k]);
+      } else {
+        ctx.globalAlpha = inPrint ? 0.55 : 0.15;
+        ctx.strokeStyle = theme.border;
+        ctx.setLineDash([]);
+      }
+      ctx.beginPath();
+      ctx.moveTo(s.x ?? 0, s.y ?? 0);
+      ctx.lineTo(t.x ?? 0, t.y ?? 0);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+
+    // -- nodes --
+    const minR = MIN_NODE_PX / transform.k;   // world units for a screen-px floor
+    for (const n of this.simNodes) {
+      const inPrint = !dimmed || this.footprint!.has(n.id);
+      ctx.globalAlpha = inPrint ? 1 : 0.22;
+      // Never let a node shrink below a visible dot, however far out we are.
+      const nr = Math.max(n.radius, minR);
+
+      if (n.node.kind === 'session') {
+        // Session orb: a stroked ring in the identity accent — never a
+        // filled ember disc, so sessions can't be confused with heat.
+        const running = n.node.session?.running === true;
+        const r = running ? nr * breathe : nr;
+        ctx.strokeStyle = this.orbStroke;
+        ctx.lineWidth = 2.5 / transform.k;
+        ctx.beginPath();
+        ctx.arc(n.x ?? 0, n.y ?? 0, r, 0, Math.PI * 2);
+        ctx.stroke();
+        // Halo: a second, fainter ring — the "orb" read.
+        ctx.globalAlpha = (inPrint ? 1 : 0.22) * (running ? 0.45 : 0.25);
+        ctx.lineWidth = 1.5 / transform.k;
+        ctx.beginPath();
+        ctx.arc(n.x ?? 0, n.y ?? 0, r + 4 / transform.k, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = inPrint ? 1 : 0.22;
+        continue;
+      }
+
+      if (n.node.kind === 'file') {
+        ctx.fillStyle = heatColor(n.t, ramp);
+      } else {
+        // Hubs: structural, mostly surface-toned (bg pushed toward ink),
+        // warmed by rolled-up heat so a hot subtree's spine reads warm too.
+        // --text is hex in every sky phase; --text-muted may be rgba, so mix
+        // from text.
+        ctx.fillStyle = mixHex(mixHex(theme.bg, theme.text, 0.22), heatColor(n.t, ramp), 0.5 * n.t);
+      }
+      ctx.beginPath();
+      ctx.arc(n.x ?? 0, n.y ?? 0, nr, 0, Math.PI * 2);
+      ctx.fill();
+      if (n.node.kind !== 'file') {
+        ctx.strokeStyle = theme.border;
+        ctx.lineWidth = 1.5 / transform.k;
+        ctx.stroke();
+      }
+      // Footprint ring — the highlighted session's files.
+      if (dimmed && this.footprint!.has(n.id)) {
+        ctx.strokeStyle = theme.text;
+        ctx.lineWidth = 2 / transform.k;
+        ctx.beginPath();
+        ctx.arc(n.x ?? 0, n.y ?? 0, nr + 3.5 / transform.k, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      // Focus interaction ring — the room agent's reads (white) / mods
+      // (purple). Always full-alpha: it's the whole point of a focused surface.
+      const ring = n.node.kind === 'file' ? this.focusRings.get(n.id) : undefined;
+      if (ring) {
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = ring === 'modified' ? MODIFIED_RING : READ_RING;
+        ctx.lineWidth = 2.4 / transform.k;
+        ctx.beginPath();
+        ctx.arc(n.x ?? 0, n.y ?? 0, nr + 4 / transform.k, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      // One-shot flash: a hot-end halo swelling and fading over ~1s (live
+      // mode's "that file just got touched").
+      const expiry = this.flashes.get(n.id);
+      if (expiry !== undefined && expiry > now) {
+        const p = 1 - (expiry - now) / 1000; // 0 → 1 over the second
+        ctx.globalAlpha = (1 - p) * 0.85;
+        ctx.strokeStyle = ramp[ramp.length - 1];
+        ctx.lineWidth = 2.5 / transform.k;
+        ctx.beginPath();
+        ctx.arc(n.x ?? 0, n.y ?? 0, nr + (3 + 10 * p) / transform.k, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+    }
+    ctx.globalAlpha = 1;
+
+    // -- labels (screen space — never below the 12px floor at any zoom) --
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    const k = transform.k;
+    if (this.ambient) return; // wallpaper doesn't caption itself
+    for (const n of this.simNodes) {
+      const isHot = this.hotLabels.has(n.id);
+      if (n.node.kind === 'file' && !isHot) continue;
+      if (n.node.kind === 'dir' && k < DIR_LABEL_MIN_K) continue;
+      if (n.node.kind === 'session') {
+        // Running orbs announce themselves at every zoom; idle orbs label
+        // only while selected (tapped).
+        const running = n.node.session?.running === true;
+        if (!running && this.selectedId !== n.id) continue;
+      }
+      const inPrint = !dimmed || this.footprint!.has(n.id);
+      if (n.node.kind !== 'repo' && dimmed && !inPrint) continue;
+      const sx = (n.x ?? 0) * k + transform.x;
+      const sy = (n.y ?? 0) * k + transform.y;
+      if (sx < -80 || sx > this.width + 80 || sy < -40 || sy > this.height + 40) continue;
+      if (n.node.kind === 'repo') {
+        ctx.font = `700 ${LABEL_PX + 2}px ${this.fontFamily}`;
+        ctx.fillStyle = theme.text;
+        ctx.fillText(n.node.label, sx, sy - n.radius * k - 5);
+      } else if (n.node.kind === 'dir') {
+        ctx.font = `600 ${LABEL_PX}px ${this.fontFamily}`;
+        ctx.fillStyle = theme.textSecondary;
+        ctx.fillText(n.node.label, sx, sy - n.radius * k - 4);
+      } else if (n.node.kind === 'session') {
+        // Orb titles in ink (identity color stays on the ring itself).
+        ctx.font = `600 ${LABEL_PX}px ${this.fontFamily}`;
+        ctx.fillStyle = theme.text;
+        ctx.fillText(truncateLabel(n.node.label), sx, sy - n.radius * k - 8);
+      } else {
+        // Hottest files: name + relative age, in theme ink (never ramp color).
+        const age = this.hotLabels.get(n.id);
+        ctx.font = `600 ${LABEL_PX}px ${this.fontFamily}`;
+        ctx.fillStyle = theme.text;
+        ctx.fillText(age ? `${n.node.label} · ${age}` : n.node.label, sx, sy - n.radius * k - 4);
+      }
+    }
+  }
+}
+
+/** Reads the live theme tokens off documentElement — the sky engine applies
+ * palettes as inline custom properties, so this is always current. Dark is
+ * judged from the effective --bg luminance (same test usageHeat.ts uses). */
+export function readThemeInk(): ThemeInk {
+  const cs = getComputedStyle(document.documentElement);
+  const get = (name: string, fallback: string) => cs.getPropertyValue(name).trim() || fallback;
+  const bg = get('--bg', '#f5f0e8');
+  let dark = false;
+  if (/^#[0-9a-fA-F]{6}$/.test(bg)) {
+    const [r, g, b] = hexToRgbTuple(bg);
+    dark = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255 < 0.5;
+  }
+  return {
+    bg,
+    text: get('--text', dark ? '#ddd0e8' : '#1a1815'),
+    textSecondary: get('--text-secondary', dark ? 'rgba(200,185,220,0.75)' : '#2a2522'),
+    textMuted: get('--text-muted', dark ? 'rgba(170,155,190,0.5)' : 'rgba(30,25,20,0.6)'),
+    border: get('--border', dark ? '#2e2545' : '#888391'),
+    accent: get('--accent', '#7c5cbf'),
+    evening: get('--evening', '#6a7acc'),
+    dark,
+  };
+}
