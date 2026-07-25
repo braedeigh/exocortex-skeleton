@@ -19,6 +19,7 @@ from routes import terminal
 
 @pytest.fixture
 def term_client(data_dir, tmp_path, monkeypatch):
+    monkeypatch.setenv("EXOCORTEX_FEATURE_WEB_TERMINAL", "1")
     """Minimal app with terminal routes; tmux calls are captured, not run.
 
     Depends on `data_dir` (and patches store.CONTENT_DIR too): the "Enter" key

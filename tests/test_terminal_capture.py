@@ -42,6 +42,7 @@ class FakeStream:
 
 @pytest.fixture
 def term_client(data_dir, tmp_path, monkeypatch):
+    monkeypatch.setenv("EXOCORTEX_FEATURE_WEB_TERMINAL", "1")
     """Minimal app with terminal routes; tmux calls and stream.py calls are
     captured, not run."""
     calls = []
