@@ -78,6 +78,63 @@ _BUILDER_TOOLS = ["Read", "Grep", "Glob", "Edit", "Write", "NotebookEdit",
 _MODEL_CHOICES = ["fable", "opus", "opus[1m]", "sonnet", "sonnet[1m]", "haiku"]
 
 
+# --- Doc-protection guard --------------------------------------------------
+# Keep app-spawned builder/spinoff sessions from editing the hand-curated
+# identity docs (the seed scaffold, the project CLAUDE.md, persona lore, vault
+# doctrine). Terra's cut (07-26): bind the read-only to the SESSION TYPE, not to
+# the files — a session spawned through the Reading Room or a /spinoff can't
+# scribble these, but the owner's own direct vault terminal never runs through
+# here, so she still re-cuts doctrine "at the edge" whenever she chooses. This
+# is DRIFT-protection (a confused session reaches for the Edit tool), NOT a
+# lock: it denies the file-writing tools, not a `Bash` redirect. Structural
+# over prose — the same instinct as tools/stream/keeper_capture.py, one
+# session-config knob further on.
+#
+# Enforced by handing the turn a `permissions.deny` block via `claude
+# --settings` (deny wins over --allowedTools; verified against the CLI). The
+# globs resolve at runtime from store paths, NOT hardcoded — so this is
+# committed code that travels to a fresh install, not a gitignored per-machine
+# settings.json. A session opts out with `guard_docs: false`.
+
+# File-writing tools a builder session carries; a deny rule is emitted per tool
+# per protected path. A session with none of these — the read-only legacy
+# Keeper — gets no guard (it can't write anyway).
+_GUARD_WRITE_TOOLS = ("Edit", "Write", "NotebookEdit")
+
+# Protected paths, RELATIVE to each root (the skeleton checkout and the vault),
+# in the spirit of _TERRAIN_DENYLIST — a small curated set, easy to extend as
+# new hand-curated docs appear. Dirs are protected recursively, files exactly.
+# A pattern absent under a given root (e.g. the vault has no content-scaffold/)
+# just yields an inert deny rule that never matches — harmless.
+_PROTECTED_DOC_DIRS = ("content-scaffold", "claude-commands")
+_PROTECTED_DOC_FILES = ("CLAUDE.md", "docs/BEDROCK.md")
+
+
+def _protected_doc_globs():
+    """Absolute path globs the guard denies writes to, resolved from store dirs
+    (never hardcoded — the vault is instance-specific). Both the skeleton
+    checkout (store.BUILD_DIR) and the vault root (store.CONTENT_DIR's parent —
+    the same root _default_bots()/_terrain_repos() use) contribute."""
+    roots = (Path(store.BUILD_DIR), Path(store.CONTENT_DIR).parent)
+    globs = set()
+    for root in roots:
+        for d in _PROTECTED_DOC_DIRS:
+            globs.add(f"{root / d}/**")
+        for f in _PROTECTED_DOC_FILES:
+            globs.add(str(root / f))
+    return sorted(globs)
+
+
+def _guard_settings_json():
+    """The `--settings` payload: a `permissions.deny` rule for every
+    (write-tool × protected-glob) pair. Absolute paths carry the leading `//`
+    Claude Code uses for filesystem-absolute rules (matches the existing
+    agents/mailclaude/clerk settings)."""
+    deny = [f"{tool}(/{glob})" for glob in _protected_doc_globs()
+            for tool in _GUARD_WRITE_TOOLS]
+    return json.dumps({"permissions": {"deny": deny}})
+
+
 # --- LEGACY: bot lookups, kept only for the legacy per-bot alias routes ------
 # (cached PWA clients still hitting /api/reading-room/<bot_id>/... and
 # /api/bots/...). New code should use _conv_config(entry) instead.
@@ -121,6 +178,10 @@ def _conv_config(entry):
         "system_prompt_file": entry.get("system_prompt_file"),
         # None = inherit the CLI default (see _MODEL_CHOICES).
         "model": model if model in _MODEL_CHOICES else None,
+        # Doc-protection is on by default for every session; only an explicit
+        # `guard_docs: false` turns it off (the deliberate "re-cut a persona
+        # through the app" seam). See _guard_settings_json().
+        "guard_docs": entry.get("guard_docs") is not False,
     }
 
 
@@ -169,6 +230,13 @@ def _build_cmd(config, resume_sid):
     tools = config.get("allowed_tools")
     if isinstance(tools, list) and tools:
         cmd += ["--allowedTools", ",".join(str(t) for t in tools)]
+    # Doc-protection: a write-capable session gets the identity docs denied
+    # unless it explicitly opted out (guard_docs: false). Deny wins over the
+    # --allowedTools above. A read-only session carries no write tool, so it
+    # gets no --settings at all. See the guard section up top.
+    if config.get("guard_docs", True) and isinstance(tools, list) \
+            and any(t in _GUARD_WRITE_TOOLS for t in tools):
+        cmd += ["--settings", _guard_settings_json()]
     prompt_file = config.get("system_prompt_file")
     if prompt_file:
         try:
