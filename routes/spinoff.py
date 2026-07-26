@@ -2,10 +2,21 @@
 
 A skill in any Claude session writes a brief to SPINOFF_DIR/<slug>/BRIEF.md and
 calls this; it mints a Reading Room conversation (routes/reading_room.py)
-config'd as a builder session, with a kickoff STAGED as a draft rather than
-sent — she opens the session in the Reading Room and hits send herself. The
-brief travels by FILE, never typed/shell-interpolated anywhere — only the
-fixed, short kickoff sentence below is ever staged.
+config'd as a builder session with the kickoff carried on the entry AND flagged
+`autostart`, so the session fires its own kickoff the moment she opens it in the
+Reading Room — no manual send. (The kickoff still rides in `draft` as the text
+carrier; `autostart` is what turns "prefill the compose box and wait" into "send
+it automatically" — see the Reading Room's history-load effect and the
+draft/autostart consume in _send_to_conversation.) The brief travels by FILE,
+never typed/shell-interpolated anywhere — only the fixed, short kickoff sentence
+below is ever staged.
+
+Why the flag and not a server-side spawn: the durable turn lives in the gunicorn
+worker (detached thread + _running_procs + SSE), which the standalone
+scripts/spinoff_open.py CLI door can't host. Marking the entry and letting the
+Reading Room fire the existing send path auto-starts a spinoff from EITHER door
+(route or CLI) without new subprocess/auth machinery, and never spawns claude
+unattended — it fires when she's actually in the room.
 """
 import os
 import re
@@ -58,6 +69,7 @@ def open_spinoff(slug):
             "started": _now(), "last_at": _now(), "claude_session_id": None,
             "cost_usd": 0.0, "journal": False, "cwd": str(cwd),
             "allowed_tools": list(_BUILDER_TOOLS), "draft": kickoff,
+            "autostart": True,
         }
 
     return {
@@ -65,6 +77,7 @@ def open_spinoff(slug):
         "conversation_id": conv_id,
         "newly_spawned": True,
         "staged": True,
+        "autostart": True,
         "brief": str(brief),
     }, 200
 

@@ -49,6 +49,11 @@ export interface SessionMeta {
    * wants her to fire it herself) — a non-empty draft prefills the compose
    * box once on open (see ReadingRoomPage's draft-prefill effect). */
   draft?: string;
+  /** Set by /spinoff alongside `draft`: fire the staged kickoff automatically
+   * on open instead of prefilling the compose box, so a spun-off session
+   * starts working the moment she opens it (no manual send). Consumed by the
+   * first send, server-side, same as `draft`. */
+  autostart?: boolean;
   /** Model alias this session is pinned to ('opus', 'sonnet[1m]', …).
    * ABSENT = inherit the CLI's own default (~/.claude/settings.json) — the
    * case every session is in until she picks one. Resolved per turn, so

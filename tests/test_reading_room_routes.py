@@ -210,6 +210,28 @@ def test_never_sent_session_opens_with_its_staged_draft(bot_client):
         "/api/reading-room/conversation/2099-01-01.000000").status_code == 404
 
 
+def test_send_consumes_the_autostart_flag_so_it_never_refires(bot_client):
+    # /spinoff mints a session with draft + autostart:true; the Reading Room
+    # auto-fires that kickoff on open. The send that fires it must clear BOTH
+    # draft and autostart, or reopening the session (e.g. mid-turn) would
+    # auto-fire the kickoff a second time.
+    resp = bot_client.post("/api/reading-room/conversations",
+                           json={"title": "spun off"})
+    conv_id = resp.get_json()["id"]
+    with store.mutate("bot_chats/index", {}) as index:
+        index[conv_id]["draft"] = "Read the BRIEF and follow its Protocol."
+        index[conv_id]["autostart"] = True
+
+    # Fire the staged kickoff exactly as the auto-start effect does: a normal
+    # send into the existing conversation. Drain the stream so the turn runs.
+    _sse_events(_send(bot_client, text="Read the BRIEF and follow its Protocol.",
+                      conversation_id=conv_id))
+
+    entry = store.read("bot_chats/index", {})[conv_id]
+    assert "autostart" not in entry
+    assert "draft" not in entry
+
+
 def test_old_bots_alias_path_still_answers(bot_client):
     # /api/bots/* stays live as an alias of /api/reading-room/* for cached
     # PWA clients that still have the old path baked into their JS bundle.

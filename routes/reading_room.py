@@ -684,9 +684,10 @@ def _build_terrain(file_cap=_TERRAIN_FILE_CAP):
                 entry = files.setdefault(rel, {"touches": [], "sessions": {}})
                 sess = entry["sessions"].setdefault(
                     conv_id, {"id": conv_id, "title": _terrain_session_title(conv_id, gists, index),
-                              "writes": 0, "reads": 0, "last": None})
+                              "writes": 0, "reads": 0, "creates": 0, "last": None})
                 sess["writes"] += int(counts.get("writes") or 0)
                 sess["reads"] += int(counts.get("reads") or 0)
+                sess["creates"] += int(counts.get("creates") or 0)
                 last = counts.get("last")
                 if last and (sess["last"] is None or last > sess["last"]):
                     sess["last"] = last
@@ -1277,8 +1278,12 @@ def register(app):
             entry["running"] = True
             entry.pop("stop_requested", None)
             # A staged kickoff (from /spinoff or a saved draft) is consumed
-            # by the first send that fires it.
+            # by the first send that fires it. `autostart` (set by /spinoff so
+            # the Reading Room auto-fires the kickoff on open) is cleared on the
+            # same beat — once fired it must never re-fire, even if she reopens
+            # the session mid-turn.
             entry.pop("draft", None)
+            entry.pop("autostart", None)
             resume_sid = entry.get("claude_session_id")
             # Journal is opt-in per session (the pinned Keeper session
             # carries journal:true) — everything else logs to its own jsonl
