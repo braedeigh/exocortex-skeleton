@@ -1,0 +1,206 @@
+/* Orchestra — the Observatory's live section. Quiet-until-active (Sunflower):
+   still and calm when idle, the live rows the only thing that breathes. Shares
+   the roster's card language and the app's motion tokens so it reads as one
+   surface with My Sessions below it. */
+
+.orchestra {
+  margin-bottom: var(--space-6);
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-2);
+}
+
+.heading {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* A soft live tally beside the heading — the one place the count lives. */
+.count {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--accent);
+}
+
+/* --- idle: the quiet state --- */
+
+.idle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-1);
+  color: var(--text-muted);
+  font-size: var(--font-size-md);
+}
+
+.idleDot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text) 22%, transparent);
+}
+
+/* --- active: the running rows --- */
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.card {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+  box-shadow: var(--shadow-card);
+}
+
+.cardTop {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* The tap-to-open zone: the whole title line, full ~40px height. */
+.open {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+  min-height: var(--tap-target);
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.liveDot {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: orchestraBreathe 2s ease-in-out infinite;
+}
+
+@keyframes orchestraBreathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.fileCount {
+  flex: none;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+/* Stop — the one control on this read-only surface. Small until armed, then
+   red like the roster's close "Sure?"; two taps so a running turn is never
+   killed by a stray touch. */
+.stopBtn {
+  flex: none;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.stopArmed {
+  border-color: var(--red);
+  color: var(--red);
+}
+
+/* --- the files each agent is writing --- */
+
+.files {
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.file {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.filePath {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+/* Freshly created (not just edited) — the green terrain rings a created file. */
+.newBadge {
+  flex: none;
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--green, #3a8) 18%, transparent);
+  color: var(--green, #3a8);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.fileMore {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+/* The deferred headless fleet — flagged, not built (brief's scope line). */
+.laterNote {
+  margin-top: var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.laterEm {
+  font-style: italic;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .liveDot {
+    animation: none;
+  }
+}

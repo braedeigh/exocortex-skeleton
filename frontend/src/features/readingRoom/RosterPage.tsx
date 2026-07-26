@@ -10,6 +10,7 @@ import {
 import { sessionStatus } from './sessionStatus';
 import { isUnread, openedMap } from './openedStore';
 import { SessionDialog } from './SessionDialog';
+import { Orchestra } from './Orchestra';
 import styles from './RosterPage.module.css';
 
 function ago(iso: string | undefined): string | null {
@@ -72,6 +73,7 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const running = sessions.filter((c) => c.running);
   const opened = openedMap();
   // isUnread lives in openedStore.ts so this dot and the reading room's
   // open-at-unread scroll anchor read the exact same comparison.
@@ -117,13 +119,16 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
     <div className={styles.page}>
       <div className={styles.inner}>
         <div className={styles.header}>
-          <h1 className={styles.title}>Sessions</h1>
+          <h1 className={styles.title}>Observatory</h1>
           <button type="button" className={styles.newBtn} onClick={() => setNewOpen(true)}>
             + New session
           </button>
         </div>
         {failed ? <div className={styles.pageError}>Couldn&rsquo;t load sessions.</div> : null}
 
+        <Orchestra runningSessions={running} onOpen={open} onChanged={refresh} />
+
+        <div className={styles.sectionLabel}>My sessions</div>
         <div className={styles.list}>
           {sessions.map((c) => {
             const unread = cardUnread(c);

@@ -66,7 +66,7 @@ const ALWAYS_MORE_TABS: ReadonlyArray<{ tab: LegacyTab; label: string }> = [
 // Terrain sits next to the reading room on purpose: it's the map *of* those
 // sessions (which files they've been working), so the two read as a pair.
 const MORE_PAGES: ReadonlyArray<{ key: string; label: string; to: string }> = [
-  { key: 'reading-room', label: 'Reading room', to: '/reading-room' },
+  { key: 'reading-room', label: 'Observatory', to: '/reading-room' },
   { key: 'terrain', label: 'Terrain', to: '/terrain' },
   { key: 'atlas', label: 'Atlas', to: '/atlas' },
   { key: 'personality', label: 'Personality', to: '/personality' },
