@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { TerminalPane } from './TerminalPane';
 import { FakeTerminal } from './FakeTerminal';
+import { KeeperPane } from './KeeperPane';
 import { useSessions } from './useSessions';
+import { useChatSurfaceReadingRoom, setChatSurfaceReadingRoom } from './chatSurface';
 import { useMediaQuery, DESKTOP_QUERY } from './useMediaQuery';
 import styles from './SplitLayout.module.css';
 
@@ -27,6 +29,16 @@ import styles from './SplitLayout.module.css';
  * into a slim vertical rail pinned to the left edge, persisted the same way
  * as the divider width. This is public-only: authed users' TerminalPane has
  * no collapse affordance and this state is never consulted for them.
+ *
+ * WHAT'S IN THE LEFT PANE (07-25): for authed desktop it's two surfaces, not
+ * one — the tmux TerminalPane and the Keeper (KeeperPane, the reading room
+ * docked). A switcher at the top of the pane picks. It writes the SAME
+ * localStorage flag the mobile Chat tab reads (chatSurface.ts) rather than
+ * inventing a second knob, so "which surface is my chat" is one answer per
+ * device, settable from Settings or from the pane itself. Both surfaces stay
+ * mounted once visited and toggle by CSS — same reasoning as TerminalFrames:
+ * remounting drops ttyd's websocket, and it would also throw away a reply the
+ * Keeper is mid-stream on.
  */
 
 const WIDTH_KEY = 'exo-split-width';
@@ -58,6 +70,19 @@ export function SplitLayout({ children }: { children: ReactNode }) {
   const terminalEnabled = isDesktop && !isPublic;
 
   const sessions = useSessions(terminalEnabled);
+  // Which of the two authed surfaces the left pane is showing. Not its own
+  // state: it IS the chat-surface flag (see the header comment), so flipping
+  // it in Settings moves this pane and vice versa.
+  const keeperPane = useChatSurfaceReadingRoom();
+  // Mount-on-first-visit, then keep mounted (see header) — starts with
+  // whichever surface the flag opens on.
+  const [visited, setVisited] = useState<ReadonlySet<'keeper' | 'terminal'>>(
+    () => new Set([keeperPane ? 'keeper' : 'terminal'] as const),
+  );
+  useEffect(() => {
+    const pane = keeperPane ? 'keeper' : 'terminal';
+    setVisited((prev) => (prev.has(pane) ? prev : new Set([...prev, pane])));
+  }, [keeperPane]);
   const [width, setWidth] = useState(readWidth);
   const [dragging, setDragging] = useState(false);
   // Lazily read like readWidth() above. Harmless to read for authed users
@@ -151,7 +176,42 @@ export function SplitLayout({ children }: { children: ReactNode }) {
   return (
     <div className={[styles.container, dragging ? styles.dragging : ''].filter(Boolean).join(' ')} ref={containerRef}>
       <div className={styles.left} style={{ flexBasis: `${width}%` }}>
-        {isPublic ? <FakeTerminal onCollapse={() => setCollapsed(true)} /> : <TerminalPane sessions={sessions} />}
+        {isPublic ? (
+          <FakeTerminal onCollapse={() => setCollapsed(true)} />
+        ) : (
+          <div className={styles.paneStack}>
+            <div className={styles.paneSwitch} role="tablist" aria-label="Left pane">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={keeperPane}
+                className={[styles.paneTab, keeperPane ? styles.paneTabActive : ''].filter(Boolean).join(' ')}
+                onClick={() => setChatSurfaceReadingRoom(true)}
+              >
+                Keeper
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={!keeperPane}
+                className={[styles.paneTab, !keeperPane ? styles.paneTabActive : ''].filter(Boolean).join(' ')}
+                onClick={() => setChatSurfaceReadingRoom(false)}
+              >
+                Terminal
+              </button>
+            </div>
+            {visited.has('terminal') ? (
+              <div className={keeperPane ? styles.paneSlotHidden : styles.paneSlot}>
+                <TerminalPane sessions={sessions} />
+              </div>
+            ) : null}
+            {visited.has('keeper') ? (
+              <div className={keeperPane ? styles.paneSlot : styles.paneSlotHidden}>
+                <KeeperPane />
+              </div>
+            ) : null}
+          </div>
+        )}
       </div>
       <div
         className={styles.divider}

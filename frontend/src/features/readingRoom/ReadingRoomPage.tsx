@@ -52,8 +52,24 @@ import styles from './ReadingRoomPage.module.css';
  * so the unread reply reads downward from there, same as a fresh reply she
  * just sent. See the history-load effect below and useScrollContract.ts's
  * pinToAnchor.
+ *
+ * DOCKED MODE (07-25): this page is also the desktop split's left pane (see
+ * shell/KeeperPane.tsx), where there is no URL of its own to keep in step —
+ * the address bar belongs to the right pane. `onOpenConversation` is that
+ * seam: when it's passed, the two places this page would otherwise route
+ * ("the session I just created", "the fresh Keeper the rollover woke") hand
+ * the id to the pane instead, and the app's route never moves. Everything
+ * else about the page is identical in both homes.
  */
-export function ReadingRoomPage({ botId, convId }: { botId: string; convId?: string }) {
+export function ReadingRoomPage({
+  botId,
+  convId,
+  onOpenConversation,
+}: {
+  botId: string;
+  convId?: string;
+  onOpenConversation?: (convId: string) => void;
+}) {
   const navigate = useNavigate();
   // Sessions dissolved the "bot" persona (07-24) — there's no roster of named
   // bots to look a display name up in anymore. The header/placeholder show
@@ -272,13 +288,17 @@ export function ReadingRoomPage({ botId, convId }: { botId: string; convId?: str
           convRef.current = conv;
           // The URL catches up as soon as the session exists, not once the
           // reply finishes — a reload mid-turn lands back here instead of a
-          // blank compose that would try to create a second session.
-          void navigate({
-            to: '/reading-room/$botId',
-            params: { botId },
-            search: { conv },
-            replace: true,
-          });
+          // blank compose that would try to create a second session. Docked
+          // in the split pane there's no URL to catch up; the pane takes the
+          // id instead (same effect: a reload resolves back to this session).
+          if (onOpenConversation) onOpenConversation(conv);
+          else
+            void navigate({
+              to: '/reading-room/$botId',
+              params: { botId },
+              search: { conv },
+              replace: true,
+            });
         }
         await streamSend(
           conv,
@@ -336,6 +356,7 @@ export function ReadingRoomPage({ botId, convId }: { botId: string; convId?: str
     [
       botId,
       navigate,
+      onOpenConversation,
       reattachApi.reattach,
       wordFlow.begin,
       turnStats.start,
@@ -344,7 +365,7 @@ export function ReadingRoomPage({ botId, convId }: { botId: string; convId?: str
     ],
   );
 
-  const rollover = useKeeperRollover({ botId, pinned: sessionPinned === true });
+  const rollover = useKeeperRollover({ botId, pinned: sessionPinned === true, onOpenConversation });
 
   const photo = usePhotoAttach();
 

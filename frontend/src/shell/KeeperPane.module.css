@@ -1,0 +1,8 @@
+/* Placeholder while the roster resolves which conversation this pane opens
+   (one fetch, usually a blink) — page-coloured, so the pane doesn't flash
+   the terminal's indigo before the reading room paints over it. */
+.loading {
+  flex: 1;
+  min-height: 0;
+  background: var(--bg);
+}

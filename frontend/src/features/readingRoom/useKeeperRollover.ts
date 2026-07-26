@@ -14,14 +14,21 @@ export type RolloverPhase = 'idle' | 'confirming' | 'rolling' | 'error';
  * than it shares code with it — this tracks a detached background job, not a
  * live stream.
  */
-export function useKeeperRollover(args: { botId: string; pinned: boolean }): {
+export function useKeeperRollover(args: {
+  botId: string;
+  pinned: boolean;
+  /** Docked mode (the desktop split pane): swap the pane's conversation
+   * instead of routing the whole app to it — see ReadingRoomPage's prop of
+   * the same name. */
+  onOpenConversation?: (convId: string) => void;
+}): {
   phase: RolloverPhase;
   errorMsg: string | null;
   requestConfirm: () => void;
   cancelConfirm: () => void;
   confirm: () => Promise<void>;
 } {
-  const { botId, pinned } = args;
+  const { botId, pinned, onOpenConversation } = args;
   const navigate = useNavigate();
   const [phase, setPhase] = useState<RolloverPhase>('idle');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -78,11 +85,13 @@ export function useKeeperRollover(args: { botId: string; pinned: boolean }): {
         const outcome = status.registry?.last_status;
         if (outcome === 'ok' && status.pinned_conv_id) {
           setPhase('idle');
-          void navigate({
-            to: '/reading-room/$botId',
-            params: { botId },
-            search: { conv: status.pinned_conv_id },
-          });
+          if (onOpenConversation) onOpenConversation(status.pinned_conv_id);
+          else
+            void navigate({
+              to: '/reading-room/$botId',
+              params: { botId },
+              search: { conv: status.pinned_conv_id },
+            });
         } else {
           setErrorMsg('Rollover failed — check keeper_rollover.log');
           setPhase('error');
@@ -93,7 +102,7 @@ export function useKeeperRollover(args: { botId: string; pinned: boolean }): {
       cancelled = true;
       clearInterval(id);
     };
-  }, [phase, navigate, botId]);
+  }, [phase, navigate, botId, onOpenConversation]);
 
   const requestConfirm = useCallback(() => {
     setErrorMsg(null);

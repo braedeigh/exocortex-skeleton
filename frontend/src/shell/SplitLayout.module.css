@@ -21,6 +21,69 @@
   isolation: isolate;
 }
 
+/* Authed desktop only: the switcher + the two stacked surfaces (terminal,
+   Keeper) that live inside .left. Public visitors' FakeTerminal is still a
+   direct child of .left, untouched by any of this. */
+.paneStack {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+}
+
+/* Pinned twilight-indigo, not theme vars — this is the terminal apparatus's
+   chrome (same literals as SessionBar.module.css), and it sits above the
+   Keeper too so the pane header doesn't change colour when she switches. */
+.paneSwitch {
+  display: flex;
+  flex-shrink: 0;
+  background: #1a1a2e;
+  border-bottom: 1px solid rgba(124, 92, 191, 0.25);
+}
+
+.paneTab {
+  flex: 1;
+  min-width: 0;
+  /* Danielle's ~40px tap target — this is a pane-level control, not a
+     compact affordance, so it gets the full height and readable text. */
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  color: #9ca3af;
+  font-family: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  transition: color 0.15s, background-color 0.15s;
+}
+
+.paneTab:hover,
+.paneTab:focus-visible {
+  color: #ececec;
+  background: #23233d;
+}
+
+.paneTabActive {
+  background: #2a2547;
+  border-bottom-color: #7c5cbf;
+  color: #ececec;
+}
+
+/* The surfaces themselves: the shown one fills the stack, the other stays
+   mounted but display:none (keeps ttyd's websocket and any in-flight Keeper
+   reply alive across switches). */
+.paneSlot {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.paneSlotHidden {
+  display: none;
+}
+
 /* Right pane hosts the SPA's routed content — same box the old <main> was:
    positioned flex column so FrameHost (.host is absolute inset:0) fills it and
    native routes lay out normally. */
