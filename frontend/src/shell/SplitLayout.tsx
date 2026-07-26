@@ -30,15 +30,22 @@ import styles from './SplitLayout.module.css';
  * as the divider width. This is public-only: authed users' TerminalPane has
  * no collapse affordance and this state is never consulted for them.
  *
- * WHAT'S IN THE LEFT PANE (07-25): for authed desktop it's two surfaces, not
- * one — the tmux TerminalPane and the Keeper (KeeperPane, the reading room
- * docked). A switcher at the top of the pane picks. It writes the SAME
- * localStorage flag the mobile Chat tab reads (chatSurface.ts) rather than
- * inventing a second knob, so "which surface is my chat" is one answer per
- * device, settable from Settings or from the pane itself. Both surfaces stay
- * mounted once visited and toggle by CSS — same reasoning as TerminalFrames:
- * remounting drops ttyd's websocket, and it would also throw away a reply the
- * Keeper is mid-stream on.
+ * WHAT'S IN THE LEFT PANE (07-25): for authed desktop it's the whole reading
+ * room plus the tmux terminal, picked by a switcher at the top of the pane —
+ * Sessions (the roster) / Reading room (the open conversation) / Terminal.
+ * Three plain tabs rather than the phone's tap-the-active-tab-again gesture:
+ * there's room for them here, and a hidden gesture on a mouse surface is just
+ * a hidden feature.
+ *
+ * Terminal-vs-room writes the SAME localStorage flag the mobile Chat tab
+ * reads (chatSurface.ts) rather than inventing a second knob, so "which
+ * surface is my chat" stays one answer per device, settable from Settings or
+ * from the pane itself. Which reading-room *view* is showing is pane-local
+ * state — it's a place in the room, not a preference.
+ *
+ * The terminal and the room both stay mounted once visited and toggle by CSS
+ * — same reasoning as TerminalFrames: remounting drops ttyd's websocket, and
+ * it would also throw away a reply the Keeper is mid-stream on.
  */
 
 const WIDTH_KEY = 'exo-split-width';
@@ -74,6 +81,9 @@ export function SplitLayout({ children }: { children: ReactNode }) {
   // state: it IS the chat-surface flag (see the header comment), so flipping
   // it in Settings moves this pane and vice versa.
   const keeperPane = useChatSurfaceReadingRoom();
+  // Which view of the room is up: the roster or the open conversation.
+  const [roster, setRoster] = useState(false);
+  const openRoom = useCallback(() => setRoster(false), []);
   // Mount-on-first-visit, then keep mounted (see header) — starts with
   // whichever surface the flag opens on.
   const [visited, setVisited] = useState<ReadonlySet<'keeper' | 'terminal'>>(
@@ -184,17 +194,39 @@ export function SplitLayout({ children }: { children: ReactNode }) {
               <button
                 type="button"
                 role="tab"
-                aria-selected={keeperPane}
-                className={[styles.paneTab, keeperPane ? styles.paneTabActive : ''].filter(Boolean).join(' ')}
-                onClick={() => setChatSurfaceReadingRoom(true)}
+                aria-selected={keeperPane && roster}
+                className={[styles.paneTab, keeperPane && roster ? styles.paneTabActive : '']
+                  .filter(Boolean)
+                  .join(' ')}
+                title="Every reading-room session"
+                onClick={() => {
+                  setRoster(true);
+                  setChatSurfaceReadingRoom(true);
+                }}
               >
-                Keeper
+                Sessions
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={keeperPane && !roster}
+                className={[styles.paneTab, keeperPane && !roster ? styles.paneTabActive : '']
+                  .filter(Boolean)
+                  .join(' ')}
+                title="The open conversation"
+                onClick={() => {
+                  setRoster(false);
+                  setChatSurfaceReadingRoom(true);
+                }}
+              >
+                Reading room
               </button>
               <button
                 type="button"
                 role="tab"
                 aria-selected={!keeperPane}
                 className={[styles.paneTab, !keeperPane ? styles.paneTabActive : ''].filter(Boolean).join(' ')}
+                title="The tmux terminal"
                 onClick={() => setChatSurfaceReadingRoom(false)}
               >
                 Terminal
@@ -207,7 +239,7 @@ export function SplitLayout({ children }: { children: ReactNode }) {
             ) : null}
             {visited.has('keeper') ? (
               <div className={keeperPane ? styles.paneSlot : styles.paneSlotHidden}>
-                <KeeperPane />
+                <KeeperPane roster={roster} onOpenRoom={openRoom} />
               </div>
             ) : null}
           </div>

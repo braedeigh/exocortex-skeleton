@@ -1,3 +1,17 @@
+/* The pane's two views. The shown one fills the pane; the room keeps its
+   box (display:none, not unmounted) while she's in the roster so a streaming
+   reply survives the trip — see KeeperPane.tsx. */
+.slot {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.hidden {
+  display: none;
+}
+
 /* Placeholder while the roster resolves which conversation this pane opens
    (one fetch, usually a blink) — page-coloured, so the pane doesn't flash
    the terminal's indigo before the reading room paints over it. */

@@ -31,8 +31,14 @@ function ago(iso: string | undefined): string | null {
  * than 1 bot activated into it"). One card per session: name (renameable),
  * unread-since-reply accent, freshness; '+ New session' creates a named one,
  * optionally non-diary (dashed rule — sends log but never journal).
+ *
+ * DOCKED MODE (07-25): also the Sessions view of the desktop split's left
+ * pane (shell/KeeperPane.tsx). `onOpenConversation` is the same seam
+ * ReadingRoomPage has — opening a card hands the id to the pane instead of
+ * routing the whole app, so the roster and the room it opens into are both
+ * on the left and the right pane keeps whatever she was reading.
  */
-export function RosterPage() {
+export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convId: string) => void } = {}) {
   const navigate = useNavigate();
   const [sessions, setSessions] = useState<SessionMeta[]>([]);
   // Model aliases the server will accept — it stays the authority on the
@@ -80,6 +86,10 @@ export function RosterPage() {
   // URLs with a real bot id still route to the same page and just work —
   // the segment is never read for anything now.
   const open = (convId: string) => {
+    if (onOpenConversation) {
+      onOpenConversation(convId);
+      return;
+    }
     void navigate({ to: '/reading-room/$botId', params: { botId: 'session' }, search: { conv: convId } });
   };
 
