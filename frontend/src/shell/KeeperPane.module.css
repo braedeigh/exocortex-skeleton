@@ -12,6 +12,15 @@
   display: none;
 }
 
+/* The docked roster carries the floating dev-notes pill. A transform here
+   makes the pill's (and its panel's) position:fixed resolve against THIS
+   pane's box instead of the viewport, so both sit at the left pane's
+   bottom-right rather than floating over the reading pane. translateZ(0) is
+   inert visually — it exists only to establish the containing block. */
+.rosterSlot {
+  transform: translateZ(0);
+}
+
 /* Placeholder while the roster resolves which conversation this pane opens
    (one fetch, usually a blink) — page-coloured, so the pane doesn't flash
    the terminal's indigo before the observatory paints over it. */

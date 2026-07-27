@@ -128,6 +128,9 @@ def register(app):
     @app.route("/about")
     # Session-visualization surfaces (born native, no Flask ancestor):
     @app.route("/terrain")
+    # One file, read-only (?repo=&path=) — where the observatory's session
+    # cards send a tapped file, so it opens in the split's right pane.
+    @app.route("/code")
     @app.route("/atlas")
     @app.route("/sessions")
     @app.route("/automations")

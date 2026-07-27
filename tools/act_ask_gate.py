@@ -33,6 +33,7 @@ Stdlib-only + defensive so it can't brick a turn: an unreadable event defers
 classify, we ASK (fail toward the safe side).
 """
 import json
+import os
 import re
 import sys
 
@@ -101,6 +102,83 @@ _REASON_EXTERNAL = (
     "ACT-VS-ASK GATE — this reaches an external service (irreversible / "
     "outward-facing), so it's hers to approve." + _ASK_TAIL
 )
+# When we DO have a conversation to hang an approval card off (a real spawned
+# turn: EXOCORTEX_CONV_ID set + --approvals-dir passed), a gated Bash command
+# isn't a dead end — we record it as `pending` and tell the agent an inline
+# Approve/Deny card is now on its Orchestra card. On approve it lands in this
+# session's `once`/`always` allow-list and the SAME command sails through next
+# time (this is the one and only path by which the gate ever says "act" for
+# something it would otherwise deny — she opened that door per command).
+_REASON_APPROVAL = (
+    "ACT-VS-ASK GATE — this needs her OK. I've raised an Approve / Deny card for "
+    "this exact command on the session's Orchestra card. Do NOT retry it now: stop "
+    "and wait. When she approves it there the session resumes and you retry the "
+    "same command verbatim (it's whitelisted then); if she denies, find another "
+    "way or stop. Nothing else wakes it — she decides."
+)
+
+
+# --- Approvals sidecar (the ONE place the hook writes) ----------------------
+# A per-conversation file, bot_chats/approvals/<conv_id>.json, shared with the
+# app (routes/observatory.py reads/writes the same shape). All IO here is
+# defensive: any failure degrades to the ordinary deny — the gate must never
+# brick a turn, and failing-closed on the approval path just means an extra tap.
+#   {"pending": {"tool": "Bash", "command": "<cmd>"} | null,
+#    "once":  ["<cmd>", ...],   # one-shot: consumed by the hook on first match
+#    "always":["<cmd>", ...]}   # sticky for the session: never consumed
+_SAFE_CONV_ID = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
+def _approvals_path(argv, conv_id):
+    """The sidecar path from `--approvals-dir <dir>` + EXOCORTEX_CONV_ID, or
+    None when either is missing/unsafe (→ no approval flow, plain deny)."""
+    if not conv_id or ".." in conv_id or not _SAFE_CONV_ID.match(conv_id):
+        return None
+    directory = None
+    for i, arg in enumerate(argv):
+        if arg == "--approvals-dir" and i + 1 < len(argv):
+            directory = argv[i + 1]
+            break
+    return os.path.join(directory, conv_id + ".json") if directory else None
+
+
+def _load_approvals(path):
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_approvals(path, data):
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = f"{path}.{os.getpid()}.tmp"
+        with open(tmp, "w") as f:
+            json.dump(data, f)
+        os.replace(tmp, path)
+        return True
+    except Exception:
+        return False
+
+
+def _resolve_via_approvals(command, path):
+    """For a would-be-denied Bash command with a real sidecar path, decide what
+    the hook should do. Returns "allow" (whitelisted — act), "ask" (recorded as
+    pending — deny with the approval reason), or None (no context / write failed
+    — caller falls back to the ordinary deny)."""
+    rec = _load_approvals(path)
+    if command in (rec.get("always") or []):
+        return "allow"
+    once = rec.get("once")
+    if isinstance(once, list) and command in once:
+        once.remove(command)            # one-shot: consume on use
+        rec["once"] = once
+        _save_approvals(path, rec)       # best-effort; an un-consumed token just re-asks
+        return "allow"
+    rec["pending"] = {"tool": "Bash", "command": command}
+    return "ask" if _save_approvals(path, rec) else None
 
 
 def classify_tool(tool_name, tool_input):
@@ -148,6 +226,19 @@ def main():
             "safe." + _ASK_TAIL)
         sys.exit(0)
     if decision == "deny":
+        # A gated BASH command isn't a dead end when we have a conversation to
+        # hang an approval card off: record it as pending (or clear it if she's
+        # already whitelisted it) instead of a bare deny. Task/mcp and the
+        # no-context case (tests, non-spawned runs) keep the plain deny.
+        if tool_name == "Bash":
+            path = _approvals_path(sys.argv, os.environ.get("EXOCORTEX_CONV_ID") or "")
+            if path:
+                verdict = _resolve_via_approvals((tool_input or {}).get("command", ""), path)
+                if verdict == "allow":
+                    sys.exit(0)              # she opened this door — act (silent)
+                if verdict == "ask":
+                    _emit_deny(_REASON_APPROVAL)
+                    sys.exit(0)
         _emit_deny(reason)
     sys.exit(0)
 

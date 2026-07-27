@@ -11,7 +11,43 @@
   display: flex;
   align-items: baseline;
   gap: var(--space-3);
-  margin: 0 0 var(--space-2);
+  margin: 0 0 var(--space-1);
+}
+
+/* The per-lane '+'. Pushed to the far edge by margin-left:auto so the heading
+   and its tally stay grouped together on the left. A full tap target, and the
+   only *additive* control in the section — it reads as an affordance, not a
+   decoration. */
+.newInLane {
+  margin-left: auto;
+  flex: none;
+  min-width: var(--tap-target);
+  min-height: var(--tap-target);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.newInLane:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+/* One line saying what the room IS. The lanes differ in whether a session
+   stops and asks — invisible unless it's written down, and a permission model
+   she can't see is one she can't trust. */
+.blurb {
+  margin: 0 0 var(--space-3);
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
 }
 
 .heading {
@@ -123,6 +159,129 @@
   color: var(--orange);
 }
 
+/* --- needs her OK: the act-ask approval card (S4 inline) --- */
+/* The loudest card: a gated command is frozen until she decides. Same orange
+   alarm language as .awaiting (a container, not one big tap target — it carries
+   its own Approve/Deny controls). */
+.approval {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--orange);
+  border-left: 3px solid var(--orange);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--orange) 9%, var(--card-bg));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--orange) 30%, transparent),
+    0 6px 20px -10px color-mix(in srgb, var(--orange) 55%, transparent);
+  animation: awaitGlow 2.4s ease-in-out infinite;
+}
+
+/* A quiet inline "open →" beside the title (the card body isn't the tap zone
+   here — the buttons are). */
+.openLink {
+  flex: none;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-2);
+  border: none;
+  background: transparent;
+  color: var(--orange);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.approvalLabel {
+  margin-top: var(--space-1);
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+/* The exact command, in her face and fully legible — it wraps rather than
+   truncating (she must see all of what she's approving). */
+.command {
+  display: block;
+  margin-top: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  color: var(--text);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.approvalActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+/* Once/Always — a two-state segmented pill picking the approval's scope. */
+.scopeToggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+}
+
+.scopeBtn {
+  min-height: var(--tap-target);
+  padding: 0 var(--space-3);
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.scopeOn {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+
+.decideBtns {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.denyBtn {
+  min-height: var(--tap-target);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.approveBtn {
+  min-height: var(--tap-target);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--orange);
+  border-radius: var(--radius-pill);
+  background: var(--orange);
+  color: var(--on-accent, #fff);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.approveBtn:disabled,
+.denyBtn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 /* The question itself — the payload. Bigger than a caption; it's the thing she
    reads and answers. */
 .question {
@@ -232,13 +391,32 @@
   gap: 2px;
 }
 
+/* Each row is a real button now — tap a file to read it in the right pane
+   (/code). That makes these targets, not labels, so they take the house 40px
+   rather than the old ~20px text line: six of them make the card noticeably
+   taller, which is the cost of them being tappable at all. */
 .file {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  width: 100%;
   min-width: 0;
+  min-height: 40px;
+  padding: 0 var(--space-2);
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  font: inherit;
   font-size: var(--font-size-sm);
   color: var(--text-secondary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.file:hover,
+.file:focus-visible {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--text);
 }
 
 .filePath {
@@ -263,6 +441,132 @@
 .fileMore {
   font-size: var(--font-size-sm);
   color: var(--text-muted);
+}
+
+/* Expanded, the list is capped and scrolls rather than pushing the rest of the
+   lane off the screen — a 60-file session must not cost her the cards below
+   it. Roughly nine rows before it starts scrolling. */
+.filesOpen {
+  max-height: 46vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* The expander. Was dead text ("+8 more") — now a real target, because the
+   thing she asked for is to SEE them all. Full-width and quiet: it's a
+   disclosure, not an action. */
+.showAllBtn {
+  width: 100%;
+  min-height: var(--tap-target);
+  margin-top: var(--space-1);
+  padding: 0 var(--space-2);
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.showAllBtn:hover {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+/* --- the resting states a card now has to carry --- */
+/* The lane holds idle sessions too, so the left rule can't always be the live
+   accent: it's the accent only while working, and a quiet border otherwise. */
+.card {
+  transition: border-left-color var(--dur-2, 200ms) ease;
+}
+
+.cardLive {
+  border-left-color: var(--accent);
+}
+
+.card:not(.cardLive) {
+  border-left-color: var(--border);
+}
+
+/* A reply she hasn't read yet — same accent language as the roster's unread. */
+.cardUnread {
+  border-left-color: var(--accent);
+}
+
+.readyDot {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.restDot {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text) 20%, transparent);
+}
+
+/* What it's working on — the line that was already in the payload and never
+   drawn. Sits directly under the title, above the files: the WHAT before the
+   WHICH. */
+.summary {
+  margin-top: var(--space-1);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+.note {
+  margin-top: var(--space-1);
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  font-style: italic;
+}
+
+.badge {
+  flex: none;
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+/* Rename / close. "Small until edit" is honoured by the CARD's own states, but
+   these still get a full hit area — the house rule about × buttons being
+   clearly visible and comfortably tappable is not negotiable. */
+.editBtn,
+.closeBtn {
+  flex: none;
+  min-width: var(--tap-target);
+  min-height: var(--tap-target);
+  padding: 0 var(--space-2);
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--font-size-md);
+  cursor: pointer;
+}
+
+.editBtn:hover,
+.closeBtn:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.closeArmed {
+  color: var(--red);
+  font-size: var(--font-size-sm);
+  font-weight: 700;
 }
 
 /* --- fork-the-work: offload a long-runner onto a fresh spinoff (S3) --- */
@@ -311,7 +615,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .liveDot,
-  .awaiting {
+  .awaiting,
+  .approval {
     animation: none;
   }
 }

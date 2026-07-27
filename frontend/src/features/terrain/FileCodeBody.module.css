@@ -1,6 +1,6 @@
-/* The tap-a-file code modal. Wider than the default Sheet — code needs the
-   room — and the code block is the only thing allowed to scroll sideways;
-   the modal itself never does. */
+/* One file's contents (FileCodeBody), worn by both the map's tap-a-file modal
+   and the /code page. The code block is the only thing allowed to scroll
+   sideways; nothing around it ever does. */
 
 .body {
   display: flex;
@@ -8,7 +8,18 @@
   gap: var(--space-3);
 }
 
+/* Page mode: the body owns the pane's full height so the code block below can
+   take whatever's left over after the summary and meta lines. */
+.bodyFill {
+  min-height: 0;
+  flex: 1;
+}
+
+/* The lines around the code never grow or shrink — in page mode the code block
+   is the only flexible thing in the column, so it always gets the leftover
+   height and always has somewhere to scroll. */
 .path {
+  flex: none;
   font-size: var(--font-size-md);
   color: var(--text-secondary);
   word-break: break-all;
@@ -32,11 +43,13 @@
 }
 
 .meta {
+  flex: none;
   font-size: var(--font-size-md);
   color: var(--text-muted);
 }
 
 .hint {
+  flex: none;
   font-size: var(--font-size-md);
   color: var(--text-muted);
 }
@@ -63,4 +76,12 @@
 
 .code code {
   font: inherit;
+}
+
+/* Page mode: no 55vh cap — there's no close button above it to protect, so the
+   code takes the rest of the pane and scrolls inside itself. */
+.codeFill {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
 }

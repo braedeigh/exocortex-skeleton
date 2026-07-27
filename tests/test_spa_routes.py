@@ -110,6 +110,8 @@ def test_root_injects_app_meta():
     "/person/some-slug", "/personality", "/scratchpad", "/vscode", "/food-map", "/about",
     # session-visualization surfaces (born native)
     "/terrain", "/atlas", "/sessions", "/automations",
+    # one file, read-only — where a session card's file list opens into
+    "/code",
 ])
 def test_spa_routes_all_serve_the_injected_shell(path):
     r = _client().get(path)

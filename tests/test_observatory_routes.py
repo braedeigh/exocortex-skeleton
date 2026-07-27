@@ -1125,3 +1125,210 @@ def test_roster_returns_sessions_and_legacy_bots_shapes(bot_client):
     assert data["bots"][0]["id"] == "keeper"
     assert any(c["id"] == conv_id for c in data["bots"][0]["conversations"])
     assert data["sessions"] == data["bots"][0]["conversations"]
+
+
+# --- Act-vs-ask approvals: the inline Approve/Deny door (S4) ----------------
+
+def _seed_conv(conv_id="2026-07-27.120000"):
+    observatory._chats_dir()   # the index (and its .lock) lives inside it
+    with store.mutate("bot_chats/index", {}) as index:
+        index[conv_id] = {"started": observatory._now(), "title": "t",
+                          "claude_session_id": None}
+    return conv_id
+
+
+def _seed_pending(conv_id, command):
+    observatory._write_approvals(conv_id, {"pending": {"tool": "Bash", "command": command}})
+
+
+def test_pending_approval_rides_the_roster(bot_client):
+    cid = _seed_conv()
+    _seed_pending(cid, "git push")
+    data = bot_client.get("/api/observatory").get_json()
+    sess = next(s for s in data["sessions"] if s["id"] == cid)
+    assert sess["awaiting_approval"] == {"tool": "Bash", "command": "git push"}
+
+
+def test_approve_once_records_command_and_clears_pending(bot_client):
+    cid = _seed_conv()
+    _seed_pending(cid, "git commit -m x")
+    resp = bot_client.post(f"/api/observatory/conversation/{cid}/approve", json={"sticky": False})
+    assert resp.status_code == 200 and resp.get_json()["command"] == "git commit -m x"
+    rec = observatory._read_approvals(cid)
+    assert rec["pending"] is None
+    assert rec["once"] == ["git commit -m x"] and "always" not in rec
+    # and it no longer shows on the roster
+    sess = next(s for s in bot_client.get("/api/observatory").get_json()["sessions"] if s["id"] == cid)
+    assert "awaiting_approval" not in sess
+
+
+def test_approve_sticky_goes_to_always(bot_client):
+    cid = _seed_conv()
+    _seed_pending(cid, "ls /etc")
+    bot_client.post(f"/api/observatory/conversation/{cid}/approve", json={"sticky": True})
+    rec = observatory._read_approvals(cid)
+    assert rec["always"] == ["ls /etc"] and rec.get("once", []) == [] and rec["pending"] is None
+
+
+def test_deny_clears_without_whitelisting(bot_client):
+    cid = _seed_conv()
+    _seed_pending(cid, "rm -rf x")
+    bot_client.post(f"/api/observatory/conversation/{cid}/deny", json={})
+    rec = observatory._read_approvals(cid)
+    assert rec["pending"] is None
+    assert rec.get("once", []) == [] and rec.get("always", []) == []
+
+
+def test_approve_with_nothing_pending_404s(bot_client):
+    cid = _seed_conv()
+    assert bot_client.post(f"/api/observatory/conversation/{cid}/approve", json={}).status_code == 404
+
+
+def test_resolve_approval_rejects_a_bad_conversation_id():
+    _payload, status = observatory.resolve_approval("../evil", "approve", False)
+    assert status == 400
+
+
+def test_a_hand_reply_dismisses_an_unresolved_card(bot_client):
+    cid = _seed_conv()
+    _seed_pending(cid, "git push")
+    resp = bot_client.post(f"/api/observatory/conversation/{cid}/send", json={"text": "never mind"})
+    assert resp.status_code == 200
+    assert observatory._read_approvals(cid).get("pending") is None
+
+
+# --- lanes: the Observatory's two rooms (07-27) -----------------------------
+# A session BELONGS to a lane now instead of being filtered into one. The lane
+# does NOT gate tools (both carry the full builder kit) — it gates whether the
+# session stops and asks, and it fixes the cwd that can never change later.
+
+
+def test_create_defaults_to_the_orchestra_lane(bot_client):
+    conv_id = bot_client.post("/api/observatory/conversations",
+                              json={"title": "builder"}).get_json()["id"]
+    entry = store.read("bot_chats/index", {})[conv_id]
+    assert entry["lane"] == "orchestra"
+    assert entry["cwd"] == str(store.BUILD_DIR)
+    # The lane DRIVES the safety nets rather than freezing them: leaving these
+    # unwritten is what lets a later lane move actually re-scope the session.
+    assert "act_gate" not in entry and "guard_docs" not in entry
+    assert observatory._conv_config(entry)["act_gate"] is True
+
+
+def test_personal_lane_roots_at_the_shared_parent_and_does_not_ask(bot_client):
+    conv_id = bot_client.post("/api/observatory/conversations",
+                              json={"title": "talking", "lane": "personal"}).get_json()["id"]
+    entry = store.read("bot_chats/index", {})[conv_id]
+    assert entry["lane"] == "personal"
+    # The one place a session sees both repos as peers — derived from the two
+    # roots, never hardcoded, so it travels to a differently-laid-out install.
+    assert entry["cwd"] == observatory._root_dir()
+    config = observatory._conv_config(entry)
+    assert config["act_gate"] is False and config["guard_docs"] is False
+    # Same toolkit as Orchestra: the lane gates asking, not ability.
+    assert entry["allowed_tools"] == list(observatory._BUILDER_TOOLS)
+
+
+def test_root_dir_is_the_parent_the_two_repos_share(tmp_path, monkeypatch):
+    # The live layout: skeleton/ and personal/ side by side under one parent.
+    root = tmp_path / "exocortex"
+    (root / "skeleton").mkdir(parents=True)
+    (root / "personal" / "tulku").mkdir(parents=True)
+    monkeypatch.setattr(store, "BUILD_DIR", root / "skeleton")
+    monkeypatch.setattr(store, "CONTENT_DIR", root / "personal" / "tulku")
+    assert observatory._root_dir() == str(root)
+
+
+def test_root_dir_refuses_to_root_a_session_at_the_filesystem_root(tmp_path, monkeypatch):
+    # Repos that share nothing but '/' (an install with them far apart — and
+    # what the test suite's own tmp vault looks like). Rooting a full-toolkit
+    # session at '/' would be absurd, so it falls back to the vault.
+    vault = tmp_path / "somewhere" / "vault"
+    (vault / "tulku").mkdir(parents=True)
+    monkeypatch.setattr(store, "BUILD_DIR", "/opt/elsewhere/skeleton")
+    monkeypatch.setattr(store, "CONTENT_DIR", vault / "tulku")
+    assert observatory._root_dir() == str(vault)
+
+
+def test_create_rejects_an_unknown_lane(bot_client):
+    resp = bot_client.post("/api/observatory/conversations",
+                           json={"title": "nope", "lane": "basement"})
+    assert resp.status_code == 400
+
+
+def test_lane_derives_from_cwd_for_sessions_that_predate_it():
+    # Nothing was migrated, so every pre-lane entry places itself: the builder
+    # ones were born in the checkout, the ~20 legacy Keeper ones in the vault.
+    assert observatory._conv_lane({"cwd": str(store.BUILD_DIR)}) == "orchestra"
+    assert observatory._conv_lane({"cwd": str(store.CONTENT_DIR.parent)}) == "personal"
+
+
+def test_an_unplaceable_session_derives_to_the_GATED_lane():
+    # Fail toward ask. The lane carries act_gate now, so guessing "personal"
+    # for an entry we can't place would silently WIDEN its autonomy — a wrong
+    # guess must cost a tap, not a mistake.
+    assert observatory._conv_lane({}) == "orchestra"
+    assert observatory._conv_lane({"cwd": "\0not-a-path"}) == "orchestra"
+    assert observatory._conv_config({})["act_gate"] is True
+
+
+def test_moving_lanes_rescopes_the_gate_but_never_moves_the_session(bot_client):
+    conv_id = bot_client.post("/api/observatory/conversations",
+                              json={"title": "mover"}).get_json()["id"]
+    born_in = store.read("bot_chats/index", {})[conv_id]["cwd"]
+
+    resp = bot_client.post(f"/api/observatory/conversation/{conv_id}/settings",
+                           json={"lane": "personal"})
+    assert resp.status_code == 200
+    entry = store.read("bot_chats/index", {})[conv_id]
+    assert entry["lane"] == "personal"
+    assert observatory._conv_config(entry)["act_gate"] is False
+    # cwd is fixed at birth: Claude Code stores conversations per directory, so
+    # a session that changed ground could never be --resume'd again.
+    assert entry["cwd"] == born_in
+
+
+def test_settings_rejects_an_unknown_lane(bot_client):
+    conv_id = bot_client.post("/api/observatory/conversations",
+                              json={"title": "mover"}).get_json()["id"]
+    resp = bot_client.post(f"/api/observatory/conversation/{conv_id}/settings",
+                           json={"lane": "attic"})
+    assert resp.status_code == 400
+    assert store.read("bot_chats/index", {})[conv_id]["lane"] == "orchestra"
+
+
+def test_act_gate_override_outranks_the_room_until_she_clears_it(bot_client):
+    conv_id = bot_client.post("/api/observatory/conversations",
+                              json={"title": "pinned gate", "lane": "personal"}).get_json()["id"]
+    # She deliberately asks a Personal session to stop and ask anyway.
+    bot_client.post(f"/api/observatory/conversation/{conv_id}/settings",
+                    json={"act_gate": True})
+    entry = store.read("bot_chats/index", {})[conv_id]
+    assert observatory._conv_config(entry)["act_gate"] is True
+
+    # An explicit choice outranks the room, even after moving rooms...
+    bot_client.post(f"/api/observatory/conversation/{conv_id}/settings",
+                    json={"lane": "orchestra"})
+    assert observatory._conv_config(store.read("bot_chats/index", {})[conv_id])["act_gate"] is True
+
+    # ...until she hands it back to the lane with an explicit null. That's the
+    # difference between a value she chose and one it merely inherited.
+    bot_client.post(f"/api/observatory/conversation/{conv_id}/settings",
+                    json={"act_gate": None})
+    entry = store.read("bot_chats/index", {})[conv_id]
+    assert "act_gate" not in entry
+    assert observatory._conv_config(entry)["act_gate"] is True   # now follows orchestra
+
+
+def test_roster_resolves_lane_and_gate_for_every_card(bot_client):
+    bot_client.post("/api/observatory/conversations", json={"title": "a"})
+    bot_client.post("/api/observatory/conversations",
+                    json={"title": "b", "lane": "personal"})
+    sessions = bot_client.get("/api/observatory").get_json()["sessions"]
+    # Never raw: the client splits the page on these, so a card with no stored
+    # lane must still arrive carrying a resolved one.
+    assert all(c["lane"] in ("orchestra", "personal") for c in sessions)
+    assert all(isinstance(c["act_gate"], bool) for c in sessions)
+    by_title = {c["title"]: c for c in sessions}
+    assert by_title["a"]["lane"] == "orchestra" and by_title["a"]["act_gate"] is True
+    assert by_title["b"]["lane"] == "personal" and by_title["b"]["act_gate"] is False

@@ -1,5 +1,6 @@
 import { useEffect, useState, type KeyboardEvent } from 'react';
 import { Sheet } from '../../ui';
+import type { Lane } from './api';
 import styles from './RosterPage.module.css';
 
 /** Display names for the model aliases the server offers. Anything not
@@ -14,16 +15,44 @@ const MODEL_LABELS: Record<string, string> = {
   haiku: 'Haiku',
 };
 
-/** Sheet for create/edit — name field, model picker, the diary switch.
- * Journal defaults OFF: the diary is the pinned Keeper session's door;
- * turning it on elsewhere is deliberate and rare. Model defaults to '' =
- * inherit the CLI default, which is where every session starts. */
+/** What the dialog hands back. `actGate: null` means "follow the lane" — the
+ * distinction between a choice she made and a value it inherited, which is
+ * what lets a later lane change still re-scope the session. */
+export interface SessionDraft {
+  name: string;
+  journal: boolean;
+  model: string;
+  lane: Lane;
+  actGate: boolean | null;
+}
+
+const LANE_BLURB: Record<Lane, string> = {
+  orchestra: 'Rooted in the app code. Stops and asks before anything irreversible.',
+  personal: 'Rooted where both repos meet. Just acts — you’re the one watching.',
+};
+
+/**
+ * Sheet for create/edit — name, model, lane, the asks-first override, and the
+ * diary switch.
+ *
+ * On CREATE the lane is fixed by which '+' she tapped (shown, not editable —
+ * the lane sets `cwd`, which can never change afterwards, so offering to
+ * change it here would be offering something the backend can't honour). On
+ * EDIT it becomes a real picker, because moving rooms only re-scopes the
+ * safety nets.
+ *
+ * Journal defaults OFF: the diary is the pinned Keeper session's door. Model
+ * defaults to '' = inherit the CLI default.
+ */
 export function SessionDialog({
   open,
   title,
   initial = '',
   initialJournal = false,
   initialModel = '',
+  lane,
+  editable = false,
+  initialActGate = null,
   modelChoices = [],
   onClose,
   onSave,
@@ -33,19 +62,29 @@ export function SessionDialog({
   initial?: string;
   initialJournal?: boolean;
   initialModel?: string;
+  /** The lane being created into, or the session's current one when editing. */
+  lane: Lane;
+  /** True when editing an existing session — unlocks the lane picker. */
+  editable?: boolean;
+  /** null = following the lane default. */
+  initialActGate?: boolean | null;
   modelChoices?: string[];
   onClose: () => void;
-  onSave: (name: string, journal: boolean, model: string) => void;
+  onSave: (draft: SessionDraft) => void;
 }) {
   const [name, setName] = useState(initial);
   const [journal, setJournal] = useState(initialJournal);
   const [model, setModel] = useState(initialModel);
+  const [pickedLane, setPickedLane] = useState<Lane>(lane);
+  const [actGate, setActGate] = useState<boolean | null>(initialActGate);
 
   useEffect(() => {
     if (open) {
       setName(initial);
       setJournal(initialJournal);
       setModel(initialModel);
+      setPickedLane(lane);
+      setActGate(initialActGate);
     }
     // Re-seed when the sheet opens, not as parent state refreshes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -53,7 +92,7 @@ export function SessionDialog({
 
   const save = () => {
     const clean = name.trim();
-    if (clean) onSave(clean, journal, model);
+    if (clean) onSave({ name: clean, journal, model, lane: pickedLane, actGate });
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -62,6 +101,10 @@ export function SessionDialog({
       save();
     }
   };
+
+  // What the gate will actually DO once saved — resolved here so the label
+  // never says "default" without saying what the default resolves to.
+  const gateOn = actGate === null ? pickedLane === 'orchestra' : actGate;
 
   return (
     <Sheet open={open} title={title} onClose={onClose}>
@@ -76,6 +119,33 @@ export function SessionDialog({
           onChange={(e) => setName(e.target.value)}
           onKeyDown={onKeyDown}
         />
+
+        {editable ? (
+          <label className={styles.dialogField}>
+            Room
+            <select
+              className={styles.dialogSelect}
+              value={pickedLane}
+              onChange={(e) => setPickedLane(e.target.value as Lane)}
+            >
+              <option value="orchestra">Orchestra</option>
+              <option value="personal">Personal</option>
+            </select>
+            <span className={styles.dialogFieldDesc}>
+              {LANE_BLURB[pickedLane]} Moving rooms changes that from the next
+              turn on — it does not move where the session runs, which is fixed
+              when it&rsquo;s created.
+            </span>
+          </label>
+        ) : (
+          <div className={styles.dialogField}>
+            <span className={styles.dialogFieldDesc}>
+              <strong>{pickedLane === 'orchestra' ? 'Orchestra' : 'Personal'}</strong>{' '}
+              — {LANE_BLURB[pickedLane]}
+            </span>
+          </div>
+        )}
+
         {modelChoices.length > 0 && (
           <label className={styles.dialogField}>
             Model
@@ -97,6 +167,28 @@ export function SessionDialog({
             </span>
           </label>
         )}
+
+        <label className={styles.dialogField}>
+          Asks first
+          <select
+            className={styles.dialogSelect}
+            value={actGate === null ? '' : actGate ? 'on' : 'off'}
+            onChange={(e) => {
+              const v = e.target.value;
+              setActGate(v === '' ? null : v === 'on');
+            }}
+          >
+            <option value="">Follow the room ({gateOn ? 'asks' : 'just acts'})</option>
+            <option value="on">Always ask</option>
+            <option value="off">Never ask</option>
+          </select>
+          <span className={styles.dialogFieldDesc}>
+            Whether it stops and raises an orange card before something
+            irreversible. Orchestra asks because nobody&rsquo;s watching;
+            Personal doesn&rsquo;t because you are.
+          </span>
+        </label>
+
         <label className={styles.dialogToggle}>
           <input type="checkbox" checked={journal} onChange={(e) => setJournal(e.target.checked)} />
           <span>
@@ -107,6 +199,7 @@ export function SessionDialog({
             </span>
           </span>
         </label>
+
         <button type="button" className={styles.dialogSave} onClick={save}>
           Save
         </button>

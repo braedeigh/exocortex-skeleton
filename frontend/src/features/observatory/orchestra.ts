@@ -17,7 +17,7 @@
  * being *produced*, not files merely glanced at — the same writing/creating
  * signal S3 (fork-the-work) will read to seed a take-over spinoff.
  */
-import type { SessionMeta } from './api';
+import type { PendingApproval, SessionMeta } from './api';
 import type { TerrainData } from '../terrain/api';
 
 export interface OrchestraFile {
@@ -32,22 +32,34 @@ export interface OrchestraFile {
 export interface OrchestraRow {
   id: string;
   title: string;
+  /** The cached Haiku one-liner of what this session is working on. It rides
+   * the roster payload already — the live section just never showed it, so a
+   * running card said WHICH files but never WHAT for. */
+  summary: string | null;
   /** A turn is running server-side right now (breathing dot). */
   running: boolean;
   /** The question a session raised via request_input, or null. A non-null
    * value makes the card glow orange — it's waiting on her, even if its turn
    * has already ended (that's the whole point: the ask outlives the turn). */
   awaiting: string | null;
+  /** A gated command the act-ask gate is blocking on this session, or null.
+   * Non-null raises the inline Approve/Deny card — the most urgent state, even
+   * above awaiting (she can't do anything until she resolves it). */
+  pendingApproval: PendingApproval | null;
   /** Files this session is writing/creating, most-active first. */
   files: OrchestraFile[];
   fileCount: number;
 }
 
 /**
- * Invert the terrain payload into one row per Orchestra session (running OR
- * awaiting her input): the files that session is writing/creating, plus its
- * live state. Rows preserve the roster's order, so the section reads the same
- * way the roster does; the component floats the awaiting ones to the top.
+ * Invert the terrain payload into one row per session: the files it's
+ * writing/creating, plus its live state. Rows preserve the order they were
+ * handed in, so a lane reads the way its roster is sorted; the component
+ * floats the ones needing her to the top.
+ *
+ * Takes WHATEVER sessions it's given — since 07-27 that's every session in a
+ * lane, not just the running ones. An idle session simply comes back with an
+ * empty file list, which is exactly what the card should render for it.
  */
 export function orchestraRows(
   sessions: SessionMeta[],
@@ -58,8 +70,10 @@ export function orchestraRows(
     byId.set(s.id, {
       id: s.id,
       title: s.title || s.id,
+      summary: s.summary ?? null,
       running: s.running === true,
       awaiting: s.awaiting_input ?? null,
+      pendingApproval: s.awaiting_approval ?? null,
       files: [],
       fileCount: 0,
     });

@@ -1,6 +1,13 @@
 import { useState } from 'react';
 import { useTerrain } from '../terrain/api';
-import { forkConversation, stopConversation, type SessionMeta } from './api';
+import {
+  approveConversation,
+  denyConversation,
+  forkConversation,
+  stopConversation,
+  streamSend,
+  type SessionMeta,
+} from './api';
 import { orchestraRows, type OrchestraRow } from './orchestra';
 import styles from './Orchestra.module.css';
 
@@ -53,10 +60,41 @@ export function Orchestra({
       .catch(() => setFork((f) => ({ ...f, [id]: 'error' })));
   };
 
-  // Waiting-on-her floats to the top (a reply is more urgent than watching
-  // work happen); the rest are the ones merely running.
-  const waiting = rows.filter((r) => r.awaiting);
-  const active = rows.filter((r) => !r.awaiting);
+  // Per-row approval UI state: the Once/Always toggle (default Once — the
+  // safest per Terra) and whether a decision is mid-flight.
+  const [sticky, setSticky] = useState<Record<string, boolean>>({});
+  const [deciding, setDeciding] = useState<Record<string, boolean>>({});
+
+  // Resume the blocked turn after she decides: her tap + this send IS the retry
+  // (same transport as request_input). Fire-and-forget — the turn runs detached
+  // server-side; the roster poll shows it running again. onChanged refreshes now
+  // so the card clears the moment the decision lands.
+  const resume = (id: string, text: string) => {
+    void streamSend(id, text, { record: false }, () => {}).catch(() => {});
+    onChanged?.();
+  };
+
+  const doApprove = (id: string) => {
+    setDeciding((d) => ({ ...d, [id]: true }));
+    approveConversation(id, sticky[id] === true)
+      .then(() => resume(id, 'Approved — go ahead and retry that exact command now.'))
+      .catch(() => setDeciding((d) => ({ ...d, [id]: false })));
+  };
+
+  const doDeny = (id: string) => {
+    setDeciding((d) => ({ ...d, [id]: true }));
+    denyConversation(id)
+      .then(() =>
+        resume(id, "I've denied that command — don't run it. Find another way, or stop and tell me why."),
+      )
+      .catch(() => setDeciding((d) => ({ ...d, [id]: false })));
+  };
+
+  // Urgency order, top to bottom: a gated command needing her OK (nothing moves
+  // until she taps) > waiting-on-her (a reply) > merely running.
+  const approvals = rows.filter((r) => r.pendingApproval);
+  const waiting = rows.filter((r) => !r.pendingApproval && r.awaiting);
+  const active = rows.filter((r) => !r.pendingApproval && !r.awaiting);
 
   const renderFiles = (row: OrchestraRow) =>
     row.files.length > 0 ? (
@@ -77,7 +115,11 @@ export function Orchestra({
     <section className={styles.orchestra} aria-label="Orchestra — agents running now">
       <div className={styles.head}>
         <h2 className={styles.heading}>Orchestra</h2>
-        {waiting.length > 0 ? (
+        {approvals.length > 0 ? (
+          <span className={styles.waitCount}>
+            {approvals.length} need{approvals.length === 1 ? 's' : ''} your OK
+          </span>
+        ) : waiting.length > 0 ? (
           <span className={styles.waitCount}>
             {waiting.length} waiting on you
           </span>
@@ -93,6 +135,79 @@ export function Orchestra({
         </div>
       ) : (
         <div className={styles.rows}>
+          {/* Needs her OK — a gated command the act-ask gate stopped. The exact
+              command in her face, an Approve (Once/Always) and a Deny. */}
+          {approvals.map((row) => (
+            <div key={row.id} className={styles.approval}>
+              <div className={styles.awaitTop}>
+                <span className={styles.awaitDot} aria-hidden="true" />
+                <span className={styles.title}>{row.title}</span>
+                <button
+                  type="button"
+                  className={styles.openLink}
+                  onClick={() => onOpen(row.id)}
+                  title="Open this session"
+                >
+                  open →
+                </button>
+              </div>
+              <div className={styles.approvalLabel}>wants to run</div>
+              <code className={styles.command}>{row.pendingApproval?.command}</code>
+              <div className={styles.approvalActions}>
+                <div
+                  className={styles.scopeToggle}
+                  role="group"
+                  aria-label="Approval scope"
+                >
+                  <button
+                    type="button"
+                    className={[styles.scopeBtn, sticky[row.id] !== true ? styles.scopeOn : '']
+                      .filter(Boolean)
+                      .join(' ')}
+                    aria-pressed={sticky[row.id] !== true}
+                    onClick={() => setSticky((s) => ({ ...s, [row.id]: false }))}
+                    title="Allow just this once"
+                  >
+                    Once
+                  </button>
+                  <button
+                    type="button"
+                    className={[styles.scopeBtn, sticky[row.id] === true ? styles.scopeOn : '']
+                      .filter(Boolean)
+                      .join(' ')}
+                    aria-pressed={sticky[row.id] === true}
+                    onClick={() => setSticky((s) => ({ ...s, [row.id]: true }))}
+                    title="Allow this command for the rest of the session"
+                  >
+                    Always
+                  </button>
+                </div>
+                <div className={styles.decideBtns}>
+                  <button
+                    type="button"
+                    className={styles.denyBtn}
+                    disabled={deciding[row.id]}
+                    onClick={() => doDeny(row.id)}
+                  >
+                    Deny
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.approveBtn}
+                    disabled={deciding[row.id]}
+                    onClick={() => doApprove(row.id)}
+                  >
+                    {deciding[row.id]
+                      ? 'Sending…'
+                      : sticky[row.id] === true
+                        ? 'Approve · always'
+                        : 'Approve · once'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+
           {/* Waiting on her — orange, question in her face, tap to answer. */}
           {waiting.map((row) => (
             <button

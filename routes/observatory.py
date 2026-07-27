@@ -78,6 +78,88 @@ _BUILDER_TOOLS = ["Read", "Grep", "Glob", "Edit", "Write", "NotebookEdit",
 _MODEL_CHOICES = ["fable", "opus", "opus[1m]", "sonnet", "sonnet[1m]", "haiku"]
 
 
+# --- Lanes: the Observatory's two rooms ------------------------------------
+# A session BELONGS to a lane; it is not filtered into one. Before this, the
+# live "Orchestra" section was a derived view (running or awaiting) over the
+# same roster "My sessions" already rendered — so a working session was one
+# card drawn twice, in two visual languages, and there was no way to say where
+# anything lived. Now membership is assigned once, at creation, and exclusive:
+# a card sits in its lane whether or not it happens to be running. Live-ness
+# became a STATE the card wears (breathing dot, ticking files, Stop), not a
+# section it migrates to. Her call, 07-27.
+#
+# The lane does NOT gate tools — both lanes carry the full builder toolkit
+# (her call: "it should be able to do honestly anything"). What it gates is
+# whether the session STOPS AND ASKS:
+#
+#   orchestra — work happening while she isn't watching. act_gate + doc-guard
+#               ON: irreversible/out-of-lane actions raise an orange card and
+#               wait, because nobody is there to catch them.
+#   personal  — her, talking, in real time. Both OFF: she IS the check, and
+#               making it ask is pure friction ("instead of worry about it
+#               orchestrating"). Rooted at the parent of both repos, the one
+#               place a session sees the app code and the vault as peers.
+#
+# Per-session overrides (`act_gate` / `guard_docs` written explicitly) still
+# win over the lane default — see _conv_config.
+_LANES = ("orchestra", "personal")
+_DEFAULT_LANE = "orchestra"
+
+
+def _root_dir():
+    """The parent of both repos — the Personal lane's cwd. Derived as the
+    common ancestor of the two Terrain roots rather than hardcoded, so an
+    install that lays its repos out differently still gets a real directory.
+    Falls back to the vault root if they share nothing but '/' (no sane
+    session should be rooted at the filesystem root)."""
+    skeleton = Path(store.BUILD_DIR).resolve()
+    vault = Path(store.CONTENT_DIR).parent.resolve()
+    try:
+        common = Path(os.path.commonpath([str(skeleton), str(vault)]))
+    except ValueError:
+        return str(vault)   # different drives — can't happen on one filesystem
+    return str(vault) if common == Path(common.root) else str(common)
+
+
+def _lane_profile(lane):
+    """The config a lane hands a session at BIRTH. cwd is the piece that can
+    never change afterwards (Claude Code stores conversations per directory —
+    `--resume` from elsewhere fails), which is why the lane is chosen up front
+    rather than inferred later."""
+    if lane == "personal":
+        return {"cwd": _root_dir(),
+                "allowed_tools": list(_BUILDER_TOOLS),
+                "act_gate": False, "guard_docs": False}
+    return {"cwd": str(store.BUILD_DIR),
+            "allowed_tools": list(_BUILDER_TOOLS),
+            "act_gate": True, "guard_docs": True}
+
+
+def _conv_lane(entry):
+    """Which room a session lives in. Assigned at creation; DERIVED for every
+    entry that predates lanes, so nothing needs migrating: a session rooted
+    somewhere OTHER than the app checkout (the vault, the shared root) is
+    Personal. That matches how the two kinds were actually created — builder
+    sessions got store.BUILD_DIR, the ~20 legacy Keeper ones got the vault.
+
+    An entry we can't place — no cwd, or a path that won't resolve — derives
+    to ORCHESTRA, the gated lane. The lane now carries act_gate/guard_docs
+    defaults, so an unknown-derives-to-personal would quietly *widen* a
+    session's autonomy; the whole gate exists on the principle that a wrong
+    guess should cost a tap, not a mistake. Fail toward ask."""
+    lane = entry.get("lane")
+    if lane in _LANES:
+        return lane
+    cwd = entry.get("cwd")
+    if not cwd:
+        return "orchestra"
+    try:
+        return ("orchestra" if Path(cwd).resolve() == Path(store.BUILD_DIR).resolve()
+                else "personal")
+    except (OSError, ValueError, RuntimeError):
+        return "orchestra"
+
+
 # --- Doc-protection guard --------------------------------------------------
 # Keep app-spawned builder/spinoff sessions from editing the hand-curated
 # identity docs (the seed scaffold, the project CLAUDE.md, persona lore, vault
@@ -147,8 +229,11 @@ def _guard_settings_json():
 def _act_gate_hook_command():
     """The command Claude Code runs as the gate: gunicorn's own python on
     tools/act_ask_gate.py, resolved from store.BUILD_DIR so it travels to a
-    fresh install rather than being hardcoded."""
-    return f"{sys.executable} {Path(store.BUILD_DIR) / 'tools' / 'act_ask_gate.py'}"
+    fresh install rather than being hardcoded. `--approvals-dir` tells the hook
+    where the per-conversation approval sidecars live so it can honour a command
+    she's OK'd (see _approvals_path / resolve_approval below)."""
+    gate = Path(store.BUILD_DIR) / "tools" / "act_ask_gate.py"
+    return f"{sys.executable} {gate} --approvals-dir {_approvals_dir()}"
 
 
 def _session_settings(config, tools):
@@ -205,19 +290,28 @@ def _conv_config(entry):
     if not (isinstance(tools, list) and tools):
         tools = _DEFAULT_ALLOWED_TOOLS
     model = entry.get("model")
+    # The LANE supplies the defaults for both safety nets; an explicitly
+    # written field still wins, so the ✎ dialog's per-session "asks first"
+    # override survives a lane change. Absent field = follow the lane, which
+    # is what makes reassigning a session's lane actually re-scope it.
+    lane = _conv_lane(entry)
+    defaults = _lane_profile(lane)
+    guard_docs = entry.get("guard_docs")
+    act_gate = entry.get("act_gate")
     return {
+        "lane": lane,
         "allowed_tools": list(tools),
         "cwd": entry.get("cwd") or str(store.CONTENT_DIR.parent),
         "system_prompt_file": entry.get("system_prompt_file"),
         # None = inherit the CLI default (see _MODEL_CHOICES).
         "model": model if model in _MODEL_CHOICES else None,
-        # Doc-protection is on by default for every session; only an explicit
-        # `guard_docs: false` turns it off (the deliberate "re-cut a persona
-        # through the app" seam). See _guard_settings_json().
-        "guard_docs": entry.get("guard_docs") is not False,
-        # Act-vs-ask autonomy gate: on by default, opt out with
-        # `act_gate: false`. See _session_settings() / tools/act_ask_gate.py.
-        "act_gate": entry.get("act_gate") is not False,
+        # Doc-protection (the seed scaffold, CLAUDE.md, persona lore): on for
+        # Orchestra, off for Personal — re-cutting doctrine by talking to it IS
+        # a Personal session's job. See _guard_settings_json().
+        "guard_docs": defaults["guard_docs"] if guard_docs is None else guard_docs is True,
+        # Act-vs-ask autonomy gate: on for Orchestra (nobody's watching), off
+        # for Personal (she is). See _session_settings() / tools/act_ask_gate.py.
+        "act_gate": defaults["act_gate"] if act_gate is None else act_gate is True,
     }
 
 
@@ -951,6 +1045,92 @@ def request_input(conv_id, question):
     return {"ok": True, "awaiting_input": question}, 200
 
 
+# --- Act-vs-ask APPROVALS: the inline Approve/Deny for a gated command -------
+# When the gate (tools/act_ask_gate.py) would deny a Bash command in a real
+# spawned turn, it records it as `pending` in a per-conversation sidecar
+# (bot_chats/approvals/<conv_id>.json) instead of a bare deny. That `pending`
+# rides the roster onto the session's Orchestra card as `awaiting_approval`,
+# which shows Approve / Deny. Approve moves the command into `once` (one-shot,
+# the hook consumes it on next use) or `always` (sticky for this session); the
+# hook then lets that exact command through. This is a plain shared-file sidecar
+# (not a store collection) precisely because the stdlib-only hook — a separate
+# process that can't import store — reads and writes the same file; both sides
+# keep to the same shape and atomic-replace writes.
+
+def _approvals_dir():
+    return store.DATA_DIR / "bot_chats" / "approvals"
+
+
+def _approvals_path(conv_id):
+    return _approvals_dir() / f"{conv_id}.json"
+
+
+def _read_approvals(conv_id):
+    try:
+        data = json.loads(_approvals_path(conv_id).read_text())
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _write_approvals(conv_id, data):
+    path = _approvals_path(conv_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(data))
+    os.replace(tmp, path)
+
+
+def _pending_approval(conv_id):
+    """The command awaiting her tap on this conversation, or None — read onto
+    the roster so the Orchestra card can raise the Approve/Deny UI."""
+    pending = _read_approvals(conv_id).get("pending")
+    if isinstance(pending, dict) and pending.get("command"):
+        return pending
+    return None
+
+
+def resolve_approval(conv_id, decision, sticky):
+    """Her Approve/Deny on a pending gated command — the validated door the
+    approve/deny routes share. On approve the command joins `always` (sticky) or
+    `once` (one-shot); either way `pending` clears. Returns (payload, status):
+    400 bad id, 404 nothing pending. The caller resumes the turn (her tap + the
+    resume send IS the retry — same transport as request_input)."""
+    if not (conv_id and _CONV_ID_RE.match(str(conv_id))):
+        return {"error": "invalid conversation id"}, 400
+    rec = _read_approvals(conv_id)
+    pending = rec.get("pending") if isinstance(rec, dict) else None
+    if not (isinstance(pending, dict) and pending.get("command")):
+        return {"error": "no pending approval"}, 404
+    command = pending["command"]
+    if decision == "approve":
+        key = "always" if sticky else "once"
+        bucket = rec.get(key)
+        if not isinstance(bucket, list):
+            bucket = []
+        if command not in bucket:
+            bucket.append(command)
+        rec[key] = bucket
+    rec["pending"] = None
+    _write_approvals(conv_id, rec)
+    return {"ok": True, "decision": decision, "sticky": bool(sticky),
+            "command": command}, 200
+
+
+def _dismiss_pending(conv_id):
+    """Drop any unresolved approval card when she replies to the session by
+    hand instead of tapping (a reply moves things on; a card she can't clear is
+    the graveyard Orchestra warns against). Best-effort; leaves once/always
+    intact. If the command is still blocked, the agent's retry re-raises it."""
+    rec = _read_approvals(conv_id)
+    if rec.get("pending"):
+        rec["pending"] = None
+        try:
+            _write_approvals(conv_id, rec)
+        except OSError:
+            pass
+
+
 # --- Fork-the-work: offload a bloated long-runner onto a fresh spinoff -------
 # From a running session's Orchestra card, read what it is WRITING/creating
 # right now (live, same harvest path _build_terrain's overlay uses) and stage a
@@ -1047,39 +1227,6 @@ def register(app):
         free). `bots` is the old per-bot-roster shape, synthesized as a
         single "keeper" entry wrapping the same list, kept for cached PWA
         clients that still expect it."""
-# --- Request-for-input: a running session's structural "I need you" ---------
-# A session that hits a real fork it can't resolve raises this DETERMINISTICALLY
-# (via scripts/request_input.py, which reads its own conv id from
-# EXOCORTEX_CONV_ID) rather than the app inferring "it's asking a question" from
-# the last message — structural over prose, the same instinct as the doc-guard
-# and keeper_capture. The flag rides the roster's meta spread (bots_list)
-# straight onto the Orchestra card, which glows orange and shows the question;
-# the owner's next send clears it (_send_to_conversation, above). Pure
-# augmentation — nothing wakes the session; her answer IS the next --resume
-# turn. She is the transport (no timer/liveness machinery — that's the trap).
-
-_REQUEST_INPUT_MAX = 1000   # a question, not an essay
-
-
-def request_input(conv_id, question):
-    """Set `awaiting_input` (the question) on a conversation — the one validated
-    entry point the agent CLI (and any future HTTP door) share, so agents never
-    write session state directly. Returns (payload, status): 200 on success,
-    400 on a bad id / empty question, 404 on an unknown conversation. Loud,
-    precise failures — same narrow-door doctrine as open_spinoff()."""
-    if not (conv_id and _CONV_ID_RE.match(str(conv_id))):
-        return {"error": "invalid conversation id"}, 400
-    question = (question or "").strip()[:_REQUEST_INPUT_MAX]
-    if not question:
-        return {"error": "empty question"}, 400
-    with store.mutate("bot_chats/index", {}) as index:
-        entry = index.get(conv_id)
-        if not isinstance(entry, dict):
-            return {"error": "not found"}, 404
-        entry["awaiting_input"] = question
-    return {"ok": True, "awaiting_input": question}, 200
-
-
         chats = _chats_dir()
         index = store.read("bot_chats/index", {})
         # Ordered by CREATION time, newest first (her 07-27 call), NOT by
@@ -1108,6 +1255,16 @@ def request_input(conv_id, question):
                 builder=recap_summary.build_bot_dialogue)
             if summary:
                 c["summary"] = summary
+            # A gated command the session is blocked on, waiting for her tap —
+            # rides onto the Orchestra card exactly like awaiting_input does.
+            pending = _pending_approval(c["id"])
+            if pending:
+                c["awaiting_approval"] = pending
+            # Which room the card lives in, and whether it stops to ask —
+            # both RESOLVED here (never raw), so the client never has to
+            # re-derive a lane for the entries that predate the field.
+            c["lane"] = _conv_lane(c)
+            c["act_gate"] = _conv_config(c)["act_gate"]
         bots = [{"id": "keeper", "name": "Keeper", "journal": True,
                  "conversations": sessions}]
         # The model picker's options ride along with the roster so the server
@@ -1317,12 +1474,19 @@ def request_input(conv_id, question):
 
     @app.route("/api/observatory/conversations", methods=["POST"])
     def observatory_conv_create():
-        """Create a session with the session-first default config: a builder
-        session rooted in the skeleton checkout, full dev toolkit. Body:
-        {title, journal, model}. `bot: "keeper"` is kept purely as a display
-        field for old sidecars/terrain (`meta.get("bot")`) — it no longer
-        drives cwd or tool scoping. An omitted/empty `model` writes no field
-        at all, which is what makes the session follow the CLI default."""
+        """Create a session in a LANE. Body: {title, journal, model, lane}.
+
+        The lane picks cwd and the two safety-net defaults (see _lane_profile):
+        `orchestra` roots in the app checkout and asks before irreversible
+        work; `personal` roots at the parent of both repos and just acts. Both
+        carry the full builder toolkit — the lane gates asking, not ability.
+
+        `act_gate`/`guard_docs` are deliberately NOT written here: leaving them
+        absent is what lets the lane keep driving them, so moving a session
+        between lanes actually re-scopes it. The ✎ dialog writes them only when
+        she overrides. Same idea for `model` — an omitted one writes no field
+        and so follows the CLI default. `bot: "keeper"` is a display field for
+        old sidecars/terrain only."""
         data = request.json or {}
         title = (data.get("title") or "").strip()[:60]
         # Journal is OPT-IN and rare: the diary is the pinned Keeper session's
@@ -1331,17 +1495,21 @@ def request_input(conv_id, question):
         model = (data.get("model") or "").strip()
         if model and model not in _MODEL_CHOICES:
             return jsonify({"error": f"unknown model {model!r}"}), 400
+        lane = (data.get("lane") or _DEFAULT_LANE).strip()
+        if lane not in _LANES:
+            return jsonify({"error": f"unknown lane {lane!r}"}), 400
+        profile = _lane_profile(lane)
         _chats_dir()
         with store.mutate("bot_chats/index", {}) as index:
             conv_id = _new_conv_id(index)
             index[conv_id] = {"bot": "keeper", "started": _now(), "last_at": _now(),
                               "claude_session_id": None, "cost_usd": 0.0,
                               "title": title or "New session", "journal": journal,
-                              "cwd": str(store.BUILD_DIR),
-                              "allowed_tools": list(_BUILDER_TOOLS)}
+                              "lane": lane, "cwd": profile["cwd"],
+                              "allowed_tools": list(profile["allowed_tools"])}
             if model:
                 index[conv_id]["model"] = model
-        return jsonify({"ok": True, "id": conv_id})
+        return jsonify({"ok": True, "id": conv_id, "lane": lane})
 
     @app.route("/api/observatory/<bot_id>/conversations", methods=["POST"])
     @app.route("/api/bots/<bot_id>/conversations", methods=["POST"])
@@ -1393,6 +1561,11 @@ def request_input(conv_id, question):
             model = (data.get("model") or "").strip()
             if model and model not in _MODEL_CHOICES:
                 return jsonify({"error": f"unknown model {model!r}"}), 400
+        lane = None
+        if "lane" in data:
+            lane = (data.get("lane") or "").strip()
+            if lane not in _LANES:
+                return jsonify({"error": f"unknown lane {lane!r}"}), 400
         _chats_dir()
         with store.mutate("bot_chats/index", {}) as index:
             entry = index.get(conv_id)
@@ -1408,7 +1581,24 @@ def request_input(conv_id, question):
                     entry["model"] = model
                 else:
                     entry.pop("model", None)
-            out = dict(entry, id=conv_id)
+            if lane:
+                # Moving rooms re-scopes the safety nets on the NEXT turn (the
+                # config is resolved per turn), with the history intact. It
+                # deliberately does NOT move `cwd`: Claude Code stores
+                # conversations per directory, so a session that changed ground
+                # could never be --resume'd again. A card can change rooms; a
+                # session cannot change where it stands.
+                entry["lane"] = lane
+            if "act_gate" in data:
+                # The per-session override. null/absent hands it back to the
+                # lane default rather than pinning it — that's the difference
+                # between "she chose this" and "it inherited".
+                if data.get("act_gate") is None:
+                    entry.pop("act_gate", None)
+                else:
+                    entry["act_gate"] = data.get("act_gate") is True
+            out = dict(entry, id=conv_id, lane=_conv_lane(entry),
+                       act_gate=_conv_config(entry)["act_gate"])
         return jsonify({"ok": True, "conversation": out})
 
     @app.route("/api/observatory/conversation/<conv_id>/journal-output", methods=["POST"])
@@ -1512,6 +1702,23 @@ def request_input(conv_id, question):
         payload, status = open_spinoff(slug)
         return jsonify(payload), status
 
+    @app.route("/api/observatory/conversation/<conv_id>/approve", methods=["POST"])
+    def observatory_conv_approve(conv_id):
+        """Approve the command a gated session is blocked on. `sticky` (default
+        false) = whitelist it for the whole session (`always`); false =
+        one-shot (`once`, consumed on the retry). The client fires a resume send
+        right after so the agent retries and the gate now lets it through."""
+        sticky = bool((request.json or {}).get("sticky"))
+        payload, status = resolve_approval(conv_id, "approve", sticky)
+        return jsonify(payload), status
+
+    @app.route("/api/observatory/conversation/<conv_id>/deny", methods=["POST"])
+    def observatory_conv_deny(conv_id):
+        """Deny the pending command — clears it without whitelisting. The client
+        resumes with a 'denied' nudge so the agent adjusts instead of dangling."""
+        payload, status = resolve_approval(conv_id, "deny", False)
+        return jsonify(payload), status
+
     @app.route("/api/observatory/conversation/<conv_id>/send", methods=["POST"])
     def observatory_conv_send(conv_id):
         """Session-first send: 404s if `conv_id` isn't already in the index
@@ -1600,6 +1807,8 @@ def request_input(conv_id, question):
             # "awaiting_input" flag so the Orchestra card stops glowing the
             # moment she replies. (S2 request-for-input — see request_input().)
             entry.pop("awaiting_input", None)
+            # ...and any unresolved gated-command card (see _dismiss_pending).
+            _dismiss_pending(conv_id)
             resume_sid = entry.get("claude_session_id")
             # Journal is opt-in per session (the pinned Keeper session
             # carries journal:true) — everything else logs to its own jsonl
@@ -1620,17 +1829,12 @@ def request_input(conv_id, question):
                 if isinstance(entry, dict):
                     entry["running"] = False
             return jsonify({"error": f"not enough memory to start claude "
-            # Her answer to a request-for-input IS this send: clear the orange
-            # "awaiting_input" flag so the Orchestra card stops glowing the
-            # moment she replies. (S2 request-for-input — see request_input().)
-            entry.pop("awaiting_input", None)
                                      f"({avail}MB available)"}), 503
 
         # Capture BEFORE the model runs (Slice-1 guarantee, same door the
         # terminal chat session uses). Slash commands are operator control,
         # not journal content — same rule as terminal_send().
         journaled = False
-            config["conv_id"] = conv_id   # so the turn's env carries EXOCORTEX_CONV_ID (_spawn)
         if record and conv_journals and not text.lstrip().startswith("/"):
             journaled = terminal._capture_journal(text, text)
 

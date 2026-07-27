@@ -31,10 +31,31 @@ export interface KeeperRolloverStatus {
   registry: KeeperRolloverRegistry | null;
 }
 
+/** A gated command a session is blocked on, awaiting her Approve / Deny.
+ * `command` is the exact Bash line the act-ask gate stopped. */
+export interface PendingApproval {
+  tool: string;
+  command: string;
+}
+
+/** The Observatory's two rooms. A session BELONGS to one — this is assigned at
+ * creation, not derived from whether it happens to be running. Both lanes carry
+ * the same full toolkit; the lane decides whether the session stops and ASKS:
+ * `orchestra` works while she isn't watching (gated, raises orange cards),
+ * `personal` is her talking in real time (ungated — she's the check). */
+export type Lane = 'orchestra' | 'personal';
+
 export interface SessionMeta {
   id: string;
   title: string;
   last_at: string;
+  /** Which room the card lives in. Always present — the server resolves it
+   * (deriving from `cwd` for entries that predate lanes), so the client never
+   * has to guess. */
+  lane?: Lane;
+  /** Resolved act-vs-ask state: does this session stop before irreversible
+   * work? Defaults from the lane; an explicit per-session choice overrides. */
+  act_gate?: boolean;
   /** When the session was created (ISO-8601). The roster sorts on THIS, not
    * last_at, so a card's position is fixed at birth and never churns on
    * activity. Absent on legacy entries minted before it was stamped —
@@ -63,6 +84,10 @@ export interface SessionMeta {
    * via scripts/request_input.py — the question text. Its Orchestra card glows
    * orange until her next send into the session clears it (server-side). */
   awaiting_input?: string;
+  /** A gated command the act-ask gate is blocking, waiting for her Approve /
+   * Deny tap on the Orchestra card (see approveConversation / denyConversation).
+   * Cleared server-side once she resolves it — or replies by hand. */
+  awaiting_approval?: PendingApproval;
   /** Model alias this session is pinned to ('opus', 'sonnet[1m]', …).
    * ABSENT = inherit the CLI's own default (~/.claude/settings.json) — the
    * case every session is in until she picks one. Resolved per turn, so
@@ -91,8 +116,9 @@ export function createSession(
   title: string,
   journal: boolean,
   model = '',
-): Promise<{ ok: true; id: string }> {
-  return api.post('/api/observatory/conversations', { title, journal, model });
+  lane: Lane = 'orchestra',
+): Promise<{ ok: true; id: string; lane: Lane }> {
+  return api.post('/api/observatory/conversations', { title, journal, model, lane });
 }
 
 /** Put one keeper reply into the journal (a K card) — the tap gesture.
@@ -123,11 +149,41 @@ export function forkConversation(
   return api.post(`/api/observatory/conversation/${encodeURIComponent(convId)}/fork`, {});
 }
 
+/** Approve the gated command a session is blocked on. `sticky` = whitelist it
+ * for the whole session (never asks again); false = one-shot (this retry only).
+ * The caller fires a resume send right after so the agent retries and the gate
+ * now lets it through. */
+export function approveConversation(
+  convId: string,
+  sticky: boolean,
+): Promise<{ ok: boolean; command: string }> {
+  return api.post(`/api/observatory/conversation/${encodeURIComponent(convId)}/approve`, { sticky });
+}
+
+/** Deny the pending gated command — clears it without whitelisting. */
+export function denyConversation(convId: string): Promise<{ ok: boolean; command: string }> {
+  return api.post(`/api/observatory/conversation/${encodeURIComponent(convId)}/deny`, {});
+}
+
 /** Patch a session's settings. `model: ''` clears the pin — back to
  * inheriting the CLI default. An unknown alias is rejected server-side (400). */
 export function updateConversation(
   id: string,
-  patch: { title?: string; journal?: boolean; model?: string },
+  patch: {
+    title?: string;
+    journal?: boolean;
+    model?: string;
+    /** Move the card to the other room. Re-scopes the safety nets on the next
+     * turn (config is resolved per turn) with the history intact — but it does
+     * NOT move the session's `cwd`, which is fixed at birth: Claude Code stores
+     * conversations per directory, so one that changed ground could never be
+     * resumed. A card can change rooms; a session can't change where it stands. */
+    lane?: Lane;
+    /** Per-session override of "asks before irreversible work". `null` hands it
+     * back to the lane default — that's the difference between a choice she
+     * made and a value it merely inherited. */
+    act_gate?: boolean | null;
+  },
 ): Promise<{ ok: true; conversation: SessionMeta }> {
   return api.post(`/api/observatory/conversation/${encodeURIComponent(id)}/settings`, patch);
 }

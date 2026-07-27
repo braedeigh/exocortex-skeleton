@@ -8,6 +8,7 @@ and every chaining/redirect/substitution trick that could sneak an irreversible
 past a first-token check must resolve to ask.
 """
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -164,3 +165,50 @@ def test_build_cmd_wires_the_gate_into_settings():
     assert "--settings" in cmd
     payload = json.loads(cmd[cmd.index("--settings") + 1])
     assert payload["hooks"]["PreToolUse"][0]["matcher"] == "Bash|Task|mcp__.*"
+    # the hook is told where the approval sidecars live
+    assert "--approvals-dir" in payload["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+
+
+# --- the inline approval flow (S4): a gated command she can OK per-command ---
+# With a real conversation to hang a card off (EXOCORTEX_CONV_ID + an approvals
+# dir), a denied Bash command becomes a `pending` record + an "approve me" ask
+# rather than a bare deny; an already-approved command sails through.
+
+def _run_hook_ctx(event, approvals_dir, conv_id):
+    env = {**os.environ, "EXOCORTEX_CONV_ID": conv_id}
+    p = subprocess.run(
+        [sys.executable, str(Path(store.BUILD_DIR) / "tools" / "act_ask_gate.py"),
+         "--approvals-dir", str(approvals_dir)],
+        input=json.dumps(event), capture_output=True, text=True, timeout=10, env=env)
+    return p.stdout.strip()
+
+
+_CONV = "2026-07-27.120000"
+_PUSH = {"tool_name": "Bash", "tool_input": {"command": "git push"}}
+
+
+def test_hook_records_pending_and_asks_for_her_ok(tmp_path):
+    out = _run_hook_ctx(_PUSH, tmp_path, _CONV)
+    payload = json.loads(out)["hookSpecificOutput"]
+    assert payload["permissionDecision"] == "deny"
+    assert "Approve" in payload["permissionDecisionReason"]
+    rec = json.loads((tmp_path / f"{_CONV}.json").read_text())
+    assert rec["pending"] == {"tool": "Bash", "command": "git push"}
+
+
+def test_hook_allows_a_once_approved_command_and_consumes_it(tmp_path):
+    (tmp_path / f"{_CONV}.json").write_text(json.dumps({"once": ["git push"], "pending": None}))
+    assert _run_hook_ctx(_PUSH, tmp_path, _CONV) == ""            # allow = silent
+    assert json.loads((tmp_path / f"{_CONV}.json").read_text())["once"] == []  # consumed
+
+
+def test_hook_allows_an_always_approved_command_without_consuming(tmp_path):
+    (tmp_path / f"{_CONV}.json").write_text(json.dumps({"always": ["git push"]}))
+    assert _run_hook_ctx(_PUSH, tmp_path, _CONV) == ""
+    assert json.loads((tmp_path / f"{_CONV}.json").read_text())["always"] == ["git push"]
+
+
+def test_hook_without_conv_context_keeps_the_plain_request_input_ask(tmp_path):
+    # No --approvals-dir → no card to raise → the original request_input reason.
+    reason = json.loads(_run_hook(_PUSH))["hookSpecificOutput"]["permissionDecisionReason"]
+    assert "request_input" in reason

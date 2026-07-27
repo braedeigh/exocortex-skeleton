@@ -1,0 +1,68 @@
+/* /code — one file as a whole page. The page itself never scrolls; the code
+   block inside FileCodeBody is the one thing that does, so the header stays
+   put while she reads. */
+
+.page {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  overflow: hidden;
+}
+
+.header {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.title {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--text);
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+/* Which repo the path is relative to — 'skeleton' and 'vault' have plenty of
+   same-named files, so the path alone is ambiguous without it. */
+.repo {
+  flex: none;
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+/* Where the file sits, next to its name. The basis lets it wrap onto its own
+   line on a narrow pane instead of ellipsizing away to nothing — the title and
+   the repo pill hold their size, this is the part that gives. */
+.headerPath {
+  flex: 1 1 22ch;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-md);
+  color: var(--text-muted);
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+.empty {
+  margin: auto;
+  max-width: 32ch;
+  text-align: center;
+  font-size: var(--font-size-base);
+  color: var(--text-muted);
+}

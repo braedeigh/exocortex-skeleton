@@ -75,7 +75,7 @@ export function KeeperPane({ roster, onOpenRoom }: { roster: boolean; onOpenRoom
         )}
       </div>
       {roster ? (
-        <div className={styles.slot}>
+        <div className={`${styles.slot} ${styles.rosterSlot}`}>
           <RosterPage onOpenConversation={openFromRoster} />
         </div>
       ) : null}
