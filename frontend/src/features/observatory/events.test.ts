@@ -73,6 +73,25 @@ describe('applyEvent', () => {
     applyEvent(turns, { type: 'error', error: 'claude exited 1' });
     expect(turns.map((t) => t.role)).toEqual(['gap', 'error']);
   });
+
+  it('renders a decision turn carrying the command she approved/denied', () => {
+    const turns: Turn[] = [];
+    applyEvent(turns, { type: 'decision', decision: 'approve', command: 'git commit -m x', ts: 'x' });
+    applyEvent(turns, { type: 'decision', decision: 'deny', command: 'rm -rf /', ts: 'x' });
+    expect(turns.map((t) => t.role)).toEqual(['decision', 'decision']);
+    expect(turns[0].decision).toBe('approve');
+    expect(turns[0].text).toBe('git commit -m x');
+    expect(turns[1].decision).toBe('deny');
+    expect(turns[1].text).toBe('rm -rf /');
+  });
+
+  it('defaults a malformed decision to approve rather than dropping it', () => {
+    const turns: Turn[] = [];
+    applyEvent(turns, { type: 'decision', ts: 'x' }); // no decision/command
+    expect(turns[0].role).toBe('decision');
+    expect(turns[0].decision).toBe('approve');
+    expect(turns[0].text).toBe('');
+  });
 });
 
 describe('journal-mark', () => {

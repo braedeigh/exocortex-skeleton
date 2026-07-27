@@ -112,23 +112,39 @@ export function SessionLane({
   // Resume the blocked turn after she decides: her tap + this send IS the retry
   // (same transport as request_input). Fire-and-forget — the turn runs detached
   // server-side; the roster poll shows it running again.
-  const resume = (id: string, text: string) => {
-    void streamSend(id, text, { record: false }, () => {}).catch(() => {});
+  // The resume text is what the AGENT sees (its retry cue). The optional
+  // `decision` is what SHE sees: it makes the server log a "✓ Approved: <cmd>"
+  // line in the transcript instead of a blank off-record gap. Both approve and
+  // deny carry the exact command the routes hand back.
+  const resume = (
+    id: string,
+    text: string,
+    decision?: { kind: 'approve' | 'deny'; command: string },
+  ) => {
+    void streamSend(id, text, { record: false, decision }, () => {}).catch(() => {});
     onChanged?.();
   };
 
   const doApprove = (id: string) => {
     setDeciding((d) => ({ ...d, [id]: true }));
     approveConversation(id, sticky[id] === true)
-      .then(() => resume(id, 'Approved — go ahead and retry that exact command now.'))
+      .then((res) =>
+        resume(id, 'Approved — go ahead and retry that exact command now.', {
+          kind: 'approve',
+          command: res.command,
+        }),
+      )
       .catch(() => setDeciding((d) => ({ ...d, [id]: false })));
   };
 
   const doDeny = (id: string) => {
     setDeciding((d) => ({ ...d, [id]: true }));
     denyConversation(id)
-      .then(() =>
-        resume(id, "I've denied that command — don't run it. Find another way, or stop and tell me why."),
+      .then((res) =>
+        resume(id, "I've denied that command — don't run it. Find another way, or stop and tell me why.", {
+          kind: 'deny',
+          command: res.command,
+        }),
       )
       .catch(() => setDeciding((d) => ({ ...d, [id]: false })));
   };

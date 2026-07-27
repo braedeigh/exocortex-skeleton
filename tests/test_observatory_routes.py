@@ -150,6 +150,23 @@ def test_off_record_skips_journal_and_log(bot_client):
     assert [e["type"] for e in log] == ["off-record-gap"]
 
 
+def test_approval_resume_logs_the_command_not_a_blank_gap(bot_client):
+    # Her Approve/Deny tap fires an off-record resume send carrying the decision.
+    # It must never journal (control, not a life moment) but must name the exact
+    # command in the transcript — a decision line, not the anonymous gap an
+    # ordinary off-record send leaves.
+    conv_id = _journal_conv(bot_client)
+    resp = _send(bot_client, text="Approved — retry now.", record=False,
+                 decision={"kind": "approve", "command": "git commit -m hi"},
+                 conversation_id=conv_id)
+    conv_id = _sse_events(resp)[0]["conversation_id"]
+    assert bot_client._mints == []  # still never journaled
+    log = _conv_log(conv_id)
+    assert [e["type"] for e in log] == ["decision"]
+    assert log[0]["decision"] == "approve"
+    assert log[0]["command"] == "git commit -m hi"
+
+
 def test_slash_commands_do_not_journal(bot_client):
     # Even in a journaling session, a summon/command is operator control.
     conv_id = _journal_conv(bot_client)

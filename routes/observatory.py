@@ -1729,7 +1729,11 @@ def register(app):
         if not text:
             return jsonify({"error": "empty message"}), 400
         record = data.get("record") is not False   # on unless explicitly off
-        return _send_to_conversation(conv_id, text, record)
+        # Present only on the resume send after she taps Approve/Deny on a gated
+        # command — {kind, command}. Logged as a visible decision line so the
+        # transcript names WHICH command she acted on (see the log-write below).
+        decision = data.get("decision")
+        return _send_to_conversation(conv_id, text, record, decision=decision)
 
     @app.route("/api/observatory/<bot_id>/send", methods=["POST"])
     @app.route("/api/bots/<bot_id>/send", methods=["POST"])
@@ -1750,9 +1754,11 @@ def register(app):
         conv_req = data.get("conversation_id")
         if conv_req is not None and not _CONV_ID_RE.match(str(conv_req)):
             return jsonify({"error": "invalid conversation id"}), 400
-        return _send_to_conversation(conv_req, text, record, legacy_bot=bot)
+        decision = data.get("decision")
+        return _send_to_conversation(conv_req, text, record, legacy_bot=bot,
+                                     decision=decision)
 
-    def _send_to_conversation(conv_id_req, text, record, legacy_bot=None):
+    def _send_to_conversation(conv_id_req, text, record, legacy_bot=None, decision=None):
         """Shared machinery behind both send routes above: one-turn-at-a-time
         gating, capture-first journaling, jsonl logging, the detached
         _run_turn thread, and the SSE relay.
@@ -1843,6 +1849,16 @@ def register(app):
             if record:
                 log.write(json.dumps({"type": "user", "text": text, "ts": _now(),
                                       "journaled": journaled}) + "\n")
+            elif isinstance(decision, dict) and decision.get("kind") in ("approve", "deny"):
+                # She tapped Approve/Deny on a gated command. The resume send
+                # stays off the record (never journaled), but instead of a blank
+                # "off the record" gap we log WHICH command she acted on, so the
+                # transcript reads "✓ Approved: <cmd>" / "✕ Denied: <cmd>".
+                # [prompt: "show the actual command ... apply to all terminals"]
+                log.write(json.dumps({"type": "decision",
+                                      "decision": decision["kind"],
+                                      "command": str(decision.get("command") or ""),
+                                      "ts": _now()}) + "\n")
             else:
                 log.write(json.dumps({"type": "off-record-gap", "ts": _now()}) + "\n")
 

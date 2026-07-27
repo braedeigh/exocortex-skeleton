@@ -288,6 +288,53 @@
   overflow-wrap: anywhere;
 }
 
+/* --- Decision turns: a gated command she approved / denied --------------- */
+/* Not a message and not a blank gap — a visible record of the control action,
+   carrying the exact command so the transcript says what she did. Green for
+   approve, red for deny; the command sits in mono, clamped so a huge multi-line
+   command (a long git commit) can't run away — full text on hover (title). */
+.decision {
+  margin: var(--space-4) 0;
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.decisionApprove {
+  border-left-color: var(--green, #4a8f5b);
+}
+
+.decisionApprove .decisionLabel {
+  color: var(--green, #4a8f5b);
+}
+
+.decisionDeny {
+  border-left-color: var(--red, #b3423e);
+}
+
+.decisionDeny .decisionLabel {
+  color: var(--red, #b3423e);
+}
+
+.decisionLabel {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.decisionCmd {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 4.8em;
+  overflow: hidden;
+}
+
 /* --- Empty state: literary minimum --------------------------------------- */
 
 .empty {

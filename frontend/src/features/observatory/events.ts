@@ -10,6 +10,8 @@
  * - {type:'user', text}                        her message (history only —
  *                                              the live sender pushes it
  *                                              locally via userTurn())
+ * - {type:'decision', decision, command}       a gated command she approved or
+ *                                              denied — shown with the command
  * - {type:'off-record-gap'}                    deliberate hole in the record
  * - {type:'stream_event', event}               token deltas / tool activity
  * - {type:'assistant', message}                authoritative message text
@@ -20,8 +22,9 @@
  */
 
 export interface Turn {
-  role: 'user' | 'assistant' | 'gap' | 'error';
-  /** user/error: the text. assistant: committed markdown (authoritative). */
+  role: 'user' | 'assistant' | 'gap' | 'error' | 'decision';
+  /** user/error: the text. assistant: committed markdown (authoritative).
+   * decision: the exact command she approved/denied. */
   text: string;
   /** assistant only: in-flight delta text not yet confirmed by a message. */
   buffer: string;
@@ -33,6 +36,8 @@ export interface Turn {
   tool: string | null;
   /** assistant only: this reply was tapped into the journal (K card). */
   journaled: boolean;
+  /** decision only: which way she called the gated command. */
+  decision?: 'approve' | 'deny';
 }
 
 function turn(role: Turn['role'], text = ''): Turn {
@@ -101,6 +106,15 @@ export function applyEvent(turns: Turn[], raw: unknown): Turn[] {
     case 'off-record-gap':
       turns.push(turn('gap'));
       return turns;
+    case 'decision': {
+      // She tapped Approve/Deny on a gated command. Off the record (never
+      // journaled), but shown in the transcript with the actual command so
+      // it's a visible record of what she did — not a blank "off the record".
+      const t = turn('decision', typeof e.command === 'string' ? e.command : '');
+      t.decision = e.decision === 'deny' ? 'deny' : 'approve';
+      turns.push(t);
+      return turns;
+    }
     case 'stream_event': {
       const ev = e.event as Record<string, unknown> | undefined;
       if (!ev) return turns;

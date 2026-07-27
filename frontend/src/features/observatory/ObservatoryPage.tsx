@@ -556,6 +556,23 @@ export function ObservatoryPage({
                   </div>
                 );
               }
+              if (t.role === 'decision') {
+                // A gated command she approved/denied — the actual command,
+                // labelled, so the transcript says what she did (green ✓ /
+                // red ✕) instead of a blank "off the record" hole.
+                const approved = t.decision !== 'deny';
+                return (
+                  <div
+                    key={i}
+                    className={[styles.decision, approved ? styles.decisionApprove : styles.decisionDeny].join(' ')}
+                  >
+                    <span className={styles.decisionLabel}>{approved ? '✓ Approved' : '✕ Denied'}</span>
+                    <code className={styles.decisionCmd} title={t.text}>
+                      {t.text}
+                    </code>
+                  </div>
+                );
+              }
               if (t.role === 'error') {
                 return (
                   <div key={i} className={styles.error}>

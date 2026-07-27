@@ -203,6 +203,11 @@ export function getKeeperRolloverStatus(signal?: AbortSignal): Promise<KeeperRol
 
 export interface SendOptions {
   record: boolean;
+  /** Set only on the resume send fired right after she taps Approve/Deny on a
+   * gated command. It rides along so the server logs a visible "✓ Approved:
+   * <command>" marker in the transcript instead of a blank off-record gap —
+   * the command still never enters her journal. */
+  decision?: { kind: 'approve' | 'deny'; command: string };
   signal?: AbortSignal;
 }
 
@@ -227,7 +232,7 @@ export async function streamSend(
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     signal: opts.signal,
-    body: JSON.stringify({ text, record: opts.record }),
+    body: JSON.stringify({ text, record: opts.record, decision: opts.decision }),
   });
   if (!res.ok || !res.body) {
     const data = (await res.json().catch(() => ({}))) as { error?: string };
