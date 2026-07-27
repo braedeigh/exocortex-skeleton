@@ -638,9 +638,9 @@ describe('halfLifeSeconds', () => {
 describe('breathHalfLife', () => {
   const P = 10_000;
 
-  it('starts tight at the day lens and swells to the month lens at half-cycle', () => {
+  it('starts tight at the day lens and swells to the month lens at the top of the inhale', () => {
     expect(breathHalfLife(0, P)).toBeCloseTo(LENS_HALF_LIFE_SECONDS.day, 3);
-    expect(breathHalfLife(P / 2, P)).toBeCloseTo(LENS_HALF_LIFE_SECONDS.month, 3);
+    expect(breathHalfLife(P * 0.4, P)).toBeCloseTo(LENS_HALF_LIFE_SECONDS.month, 3);
   });
 
   it('returns to the day lens by the end of the cycle', () => {
@@ -664,18 +664,30 @@ describe('breathHalfLife', () => {
     expect(vStart).toBeLessThan(vMid / 10);
   });
 
-  it('is symmetric about the midpoint — the swell and the settle match', () => {
-    for (const t of [P / 8, P / 4, P / 3]) {
-      expect(breathHalfLife(t, P)).toBeCloseTo(breathHalfLife(P - t, P), 6);
+  it('exhales longer than it inhales — 4 in, 6 out', () => {
+    // The peak sits at 40% of the cycle, so the settle has 60% to travel: at
+    // any equal offset either side of the peak, the exhale is still higher up
+    // the ramp than the inhale was, because it is moving slower.
+    for (const d of [P / 20, P / 12, P / 8]) {
+      expect(breathHalfLife(P * 0.4 + d, P)).toBeGreaterThan(breathHalfLife(P * 0.4 - d, P));
     }
+  });
+
+  it('is flat at the top of the breath — the turn from swell to settle is soft', () => {
+    const d = 1;
+    const vPeak = Math.abs(breathHalfLife(P * 0.4 + d, P) - breathHalfLife(P * 0.4, P));
+    const vMidInhale = Math.abs(breathHalfLife(P * 0.2 + d, P) - breathHalfLife(P * 0.2, P));
+    expect(vPeak).toBeLessThan(vMidInhale / 10);
   });
 
   it('spends the cycle evenly across the RATIO of memory, not the raw seconds', () => {
     // Interpolated in log space. A linear lerp would sit near `month` for most
     // of the cycle (day..month is a 30x span), making the swell slow and the
     // collapse abrupt. In log space the quarter point is the geometric mean.
+    // Sampled at the midpoint of the INHALE (20% of the cycle, half of the 4s
+    // swell) — the uneven breath moves the halfway point off P/4.
     const geometric = Math.sqrt(LENS_HALF_LIFE_SECONDS.day * LENS_HALF_LIFE_SECONDS.month);
-    expect(breathHalfLife(P / 4, P)).toBeCloseTo(geometric, 3);
+    expect(breathHalfLife(P * 0.2, P)).toBeCloseTo(geometric, 3);
   });
 
   it('repeats across cycles and handles a negative elapsed', () => {

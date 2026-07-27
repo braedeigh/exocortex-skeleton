@@ -33,11 +33,15 @@ export function halfLifeSeconds(span: HeatSpan): number {
   return typeof span === 'number' ? span : LENS_HALF_LIFE_SECONDS[span];
 }
 
+/** Share of the breath cycle spent inhaling — 4 seconds of a 10-second
+ * breath, leaving 6 for the exhale. */
+export const BREATH_INHALE_FRACTION = 0.4;
+
 /**
  * The backdrop's breath: a half-life that swells from `day` out to `month`
  * and settles back, once per `periodMs`.
  *
- * Two choices in here that matter more than they look:
+ * Three choices in here that matter more than they look:
  *
  * 1. **Cosine, not a sawtooth or a triangle.** The value has to arrive at
  *    both ends with zero velocity or the turn reads as a flinch. This is the
@@ -48,6 +52,16 @@ export function halfLifeSeconds(span: HeatSpan): number {
  *    swell and an abrupt collapse. In log space each equal slice of the cycle
  *    is an equal *ratio* of memory, which is what the eye actually reads as
  *    even.
+ * 3. **Uneven — 4 in, 6 out.** The swell takes 4 seconds of the 10-second
+ *    cycle and the settle takes 6, so it's built from TWO half-cosines rather
+ *    than one whole one. A longer exhale than inhale is the rhythm that
+ *    actually settles a nervous system, and it's the difference between the
+ *    map reading as alive and reading as a machine blinking. Both halves are
+ *    still cosines, so point 1 holds at every turn.
+ *
+ *    Prompt that produced it: "make the breathing of the dots by time more
+ *    like box breathing. research what kind of breathing to make it. maybe
+ *    instead just 4 in 6 out."
  *
  * What it looks like on the map: widening the lens is not uniform
  * brightening. Old files enter the ramp while recent ones barely move — so
@@ -56,7 +70,13 @@ export function halfLifeSeconds(span: HeatSpan): number {
 export function breathHalfLife(elapsedMs: number, periodMs = 10_000): number {
   if (!(periodMs > 0)) return LENS_HALF_LIFE_SECONDS.day;
   const phase = ((elapsedMs % periodMs) + periodMs) % periodMs / periodMs;
-  const u = (1 - Math.cos(phase * 2 * Math.PI)) / 2; // 0 -> 1 -> 0, flat at both turns
+  // The inhale owns the first 40% of the cycle and rides 0 -> 1; the exhale
+  // owns the remaining 60% and rides 1 -> 0. Both are half-cosines, so the
+  // value is flat at the top and at both ends of the cycle.
+  const u =
+    phase < BREATH_INHALE_FRACTION
+      ? (1 - Math.cos((phase / BREATH_INHALE_FRACTION) * Math.PI)) / 2
+      : (1 + Math.cos(((phase - BREATH_INHALE_FRACTION) / (1 - BREATH_INHALE_FRACTION)) * Math.PI)) / 2;
   const lo = Math.log(LENS_HALF_LIFE_SECONDS.day);
   const hi = Math.log(LENS_HALF_LIFE_SECONDS.month);
   return Math.exp(lo + (hi - lo) * u);

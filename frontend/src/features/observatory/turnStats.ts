@@ -123,6 +123,22 @@ function fmtTokens(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k tokens` : `${n} tokens`;
 }
 
+/**
+ * A session's lifetime spend, for the roster card and the session header:
+ * "18.2k tokens · $4.21". Same 1-decimal-k shape as the working line above so
+ * the running total and the in-flight count read as the same kind of number,
+ * and millions fold to "m" rather than printing "1832.4k".
+ *
+ * The cost is dropped below a cent — a session that has barely started should
+ * say what it wrote, not claim "$0.00".
+ */
+export function formatSessionSpend(tokens: { output: number; cost_usd: number }): string {
+  const n = tokens.output;
+  const count =
+    n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}m tokens` : fmtTokens(n);
+  return tokens.cost_usd >= 0.01 ? `${count} · $${tokens.cost_usd.toFixed(2)}` : count;
+}
+
 /** "Percolating… 12s · ~1.3k tokens · thought 4s" — parts appear as their
  * numbers do; the "~" drops once the API's own count lands. */
 export function formatWorkingLine(stats: TurnStats, now: number): string {

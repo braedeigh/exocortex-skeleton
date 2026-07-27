@@ -1349,3 +1349,84 @@ def test_roster_resolves_lane_and_gate_for_every_card(bot_client):
     by_title = {c["title"]: c for c in sessions}
     assert by_title["a"]["lane"] == "orchestra" and by_title["a"]["act_gate"] is True
     assert by_title["b"]["lane"] == "personal" and by_title["b"]["act_gate"] is False
+
+
+# --- session token totals -------------------------------------------------
+# Summed from the transcript's per-turn `result` records and cached by byte
+# offset, so a roster poll re-reads only what was appended since the last one.
+
+def _log_turn(conv_id, output_tokens, cost):
+    """Append one finished turn's result record to a conversation's log."""
+    path = observatory._chats_dir() / f"{conv_id}.jsonl"
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps({"type": "assistant", "message": {"role": "assistant"}}) + "\n")
+        f.write(json.dumps({"type": "result", "subtype": "success",
+                            "usage": {"output_tokens": output_tokens,
+                                      "cache_read_input_tokens": 400_000},
+                            "total_cost_usd": cost}) + "\n")
+
+
+def test_session_tokens_sum_output_across_turns_not_cache_reads(bot_client):
+    observatory._chats_dir()
+    observatory._TOKEN_TOTALS.clear()
+    with store.mutate("bot_chats/index", {}) as index:
+        index["tok-1"] = _index_entry(title="Counter")
+    _log_turn("tok-1", 300, 0.25)
+    _log_turn("tok-1", 200, 0.15)
+    # Output only — the 800k of cache reads must not inflate the number she
+    # reads as "what this agent wrote".
+    assert observatory._session_tokens("tok-1") == {"output": 500, "cost_usd": 0.4}
+
+
+def test_session_tokens_count_appended_turns_once(bot_client):
+    observatory._chats_dir()
+    observatory._TOKEN_TOTALS.clear()
+    with store.mutate("bot_chats/index", {}) as index:
+        index["tok-2"] = _index_entry(title="Counter")
+    _log_turn("tok-2", 100, 0.1)
+    assert observatory._session_tokens("tok-2")["output"] == 100
+    # Re-reading without new bytes must not double-count the same records...
+    assert observatory._session_tokens("tok-2")["output"] == 100
+    # ...and a new turn adds only itself.
+    _log_turn("tok-2", 50, 0.05)
+    assert observatory._session_tokens("tok-2")["output"] == 150
+
+
+def test_session_tokens_ignore_a_half_written_final_line(bot_client):
+    observatory._chats_dir()
+    observatory._TOKEN_TOTALS.clear()
+    with store.mutate("bot_chats/index", {}) as index:
+        index["tok-3"] = _index_entry(title="Counter")
+    _log_turn("tok-3", 100, 0.1)
+    # A turn appending right now leaves a torn line with no trailing newline.
+    path = observatory._chats_dir() / "tok-3.jsonl"
+    with open(path, "a", encoding="utf-8") as f:
+        f.write('{"type": "result", "usage": {"output_tok')
+    assert observatory._session_tokens("tok-3")["output"] == 100
+    # Once the line completes it counts exactly once.
+    with open(path, "a", encoding="utf-8") as f:
+        f.write('ens": 70}, "total_cost_usd": 0.07}\n')
+    assert observatory._session_tokens("tok-3")["output"] == 170
+
+
+def test_roster_and_conversation_both_carry_the_token_total(bot_client):
+    observatory._chats_dir()
+    observatory._TOKEN_TOTALS.clear()
+    with store.mutate("bot_chats/index", {}) as index:
+        index["tok-4"] = _index_entry(title="Counter")
+    _log_turn("tok-4", 420, 0.3)
+    card = next(c for c in bot_client.get("/api/observatory").get_json()["sessions"]
+                if c["id"] == "tok-4")
+    assert card["tokens"]["output"] == 420
+    meta = bot_client.get("/api/observatory/conversation/tok-4").get_json()["meta"]
+    assert meta["tokens"]["output"] == 420
+
+
+def test_a_session_with_no_finished_turn_reports_no_total(bot_client):
+    observatory._chats_dir()
+    observatory._TOKEN_TOTALS.clear()
+    with store.mutate("bot_chats/index", {}) as index:
+        index["tok-5"] = _index_entry(title="Fresh")
+    # No jsonl at all yet (a staged /spinoff draft) — absent, not a zero, so
+    # the card can simply say nothing rather than claim "0 tokens".
+    assert observatory._session_tokens("tok-5") is None

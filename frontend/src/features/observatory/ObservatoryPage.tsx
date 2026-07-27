@@ -6,7 +6,7 @@ import { SchedulePanel } from '../../shell/SchedulePanel';
 import { TerrainBackdrop } from '../terrain/TerrainBackdrop';
 import { createSession, getConversation, journalOutput, stopConversation, streamSend } from './api';
 import { applyEvent, assistantText, lastUserTurnIndex, turnsFromHistory, userTurn, type Turn } from './events';
-import { formatWorkingLine } from './turnStats';
+import { formatSessionSpend, formatWorkingLine } from './turnStats';
 import { isUnread, markConversationOpened } from './openedStore';
 import { useOpenSessionHeartbeat } from './useOpenSessions';
 import { Reply, StreamingReply } from './replyViews';
@@ -106,6 +106,9 @@ export function ObservatoryPage({
   // Explicit pinned state of this session (null until meta loads) — the
   // "Roll over" control only exists in the one pinned session (the Keeper).
   const [sessionPinned, setSessionPinned] = useState<boolean | null>(null);
+  // Lifetime spend of this session, preformatted ("18.2k tokens · $4.21"), or
+  // null until a turn has finished. Refreshed whenever history reloads.
+  const [sessionSpend, setSessionSpend] = useState<string | null>(null);
   // Tap-to-journal: which assistant turn is armed (tap → "✦ put this in the
   // journal" appears → tap that to mint the K card).
   const [journalArmed, setJournalArmed] = useState<number | null>(null);
@@ -197,6 +200,7 @@ export function ObservatoryPage({
         setTurns(loadedTurns);
         setSessionJournal(data.meta?.journal === true ? true : data.meta?.journal === false ? false : null);
         setSessionPinned(data.meta?.pinned === true);
+        setSessionSpend(data.meta?.tokens ? formatSessionSpend(data.meta.tokens) : null);
         if (data.meta?.title) setRoomTitle(data.meta.title);
         // Draft prefill: a staged first message she hasn't fired yet. Only
         // takes the compose box if it's still empty (never stomp something
@@ -774,6 +778,15 @@ export function ObservatoryPage({
           >
             stop
           </button>
+          {/* What this session has spent, parked at the far end of the
+              toolbar so it's there when she looks for it and silent when she
+              isn't. Same number as the roster card; it advances a turn at a
+              time, since the total only lands when a turn finishes. */}
+          {sessionSpend ? (
+            <span className={styles.spend} title="Tokens written and cost, this session">
+              {sessionSpend}
+            </span>
+          ) : null}
           <input
             ref={photo.fileRef}
             type="file"

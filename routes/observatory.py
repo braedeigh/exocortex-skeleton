@@ -1090,6 +1090,80 @@ def _pending_approval(conv_id):
     return None
 
 
+# Running token/cost totals per conversation, so the roster doesn't re-read
+# every transcript on every poll. Keyed by conversation id; each entry
+# remembers how far into the .jsonl it has already counted, so a poll only
+# ever reads the bytes appended since the last one. Per-worker (gunicorn runs
+# more than one) — each worker just converges on the same numbers by itself.
+_TOKEN_TOTALS = {}
+
+
+def _session_tokens(conv_id):
+    """Tokens and dollars this session has spent, summed from its transcript.
+
+    Claude Code writes one `result` record per completed turn carrying that
+    turn's `usage` and `total_cost_usd`, so the whole job is adding those up.
+    We report OUTPUT tokens — the same number the in-session working line
+    counts, and the one that means "how much did this agent actually write."
+    Input is dominated by cache reads (hundreds of thousands of tokens a turn,
+    at a tenth the price), so totalling everything would produce a big
+    frightening number that says nothing about the work.
+
+    Honest lag: a turn's record only lands when the turn ENDS, so a session
+    mid-turn shows its total as of the last finished turn. The live count for
+    the turn in flight is the composer's working line, which is the estimate
+    it already shows.
+
+    Prompt that produced it: "make it such that the number of tokens a session
+    has used displays on the session card and maybe inside of the session
+    somewhere."
+    """
+    path = _chats_dir() / f"{conv_id}.jsonl"
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return None
+    state = _TOKEN_TOTALS.get(conv_id)
+    # A shrunken file means it was rewritten under us — recount from scratch.
+    if state is None or size < state["offset"]:
+        state = {"offset": 0, "output": 0, "cost": 0.0}
+    if size > state["offset"]:
+        try:
+            with open(path, "rb") as f:
+                f.seek(state["offset"])
+                chunk = f.read(size - state["offset"])
+        except OSError:
+            return None
+        # Only consume up to the last complete line: a turn may be appending
+        # right now, and half a JSON object counted once is wrong forever.
+        cut = chunk.rfind(b"\n")
+        if cut >= 0:
+            for raw in chunk[:cut].splitlines():
+                if not raw.strip():
+                    continue
+                try:
+                    rec = json.loads(raw)
+                except (ValueError, UnicodeDecodeError):
+                    continue
+                if rec.get("type") != "result":
+                    continue
+                usage = rec.get("usage")
+                if isinstance(usage, dict):
+                    try:
+                        state["output"] += int(usage.get("output_tokens") or 0)
+                    except (TypeError, ValueError):
+                        pass
+                try:
+                    state["cost"] += float(rec.get("total_cost_usd") or 0)
+                except (TypeError, ValueError):
+                    pass
+            state["offset"] += cut + 1
+        _TOKEN_TOTALS[conv_id] = state
+    if not state["output"] and not state["cost"]:
+        return None
+    return {"output": state["output"], "cost_usd": round(state["cost"], 4)}
+
+
 def resolve_approval(conv_id, decision, sticky):
     """Her Approve/Deny on a pending gated command — the validated door the
     approve/deny routes share. On approve the command joins `always` (sticky) or
@@ -1260,6 +1334,11 @@ def register(app):
             pending = _pending_approval(c["id"])
             if pending:
                 c["awaiting_approval"] = pending
+            # What this session has cost so far — read incrementally from its
+            # own transcript, so a roster poll costs a seek and not a re-parse.
+            tokens = _session_tokens(c["id"])
+            if tokens:
+                c["tokens"] = tokens
             # Which room the card lives in, and whether it stops to ask —
             # both RESOLVED here (never raw), so the client never has to
             # re-derive a lane for the entries that predate the field.
@@ -1655,6 +1734,11 @@ def register(app):
             # to know whether to keep waiting, and a flag orphaned by a dead
             # worker must not keep it waiting forever.
             meta = dict(meta, running=_effective_running(conv_id, meta))
+        # Same running total the roster card shows, so the open session can
+        # print what it has spent without a second round trip.
+        tokens = _session_tokens(conv_id)
+        if tokens:
+            meta = dict(meta, tokens=tokens)
         return jsonify({"id": conv_id, "meta": meta, "events": events})
 
     @app.route("/api/observatory/conversation/<conv_id>/stop", methods=["POST"])

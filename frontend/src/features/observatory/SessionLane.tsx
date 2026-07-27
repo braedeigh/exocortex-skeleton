@@ -11,6 +11,7 @@ import {
 } from './api';
 import { orchestraRows, type OrchestraRow } from './orchestra';
 import { sessionStatus } from './sessionStatus';
+import { formatSessionSpend } from './turnStats';
 import type { TerrainData } from '../terrain/api';
 import styles from './Orchestra.module.css';
 
@@ -417,6 +418,12 @@ export function SessionLane({
                     showed it, so a working session said WHICH files but never
                     WHAT FOR. */}
                 {row.summary ? <div className={styles.summary}>{row.summary}</div> : null}
+                {/* What this session has spent so far. Absent on a session
+                    that hasn't finished a turn yet, so a fresh card stays
+                    clean instead of announcing a zero. */}
+                {meta.tokens ? (
+                  <div className={styles.spend}>{formatSessionSpend(meta.tokens)}</div>
+                ) : null}
                 {meta.journal === false ? <div className={styles.note}>not journaled</div> : null}
                 {renderFiles(row)}
 

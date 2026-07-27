@@ -88,6 +88,13 @@ export interface SessionMeta {
    * Deny tap on the Orchestra card (see approveConversation / denyConversation).
    * Cleared server-side once she resolves it — or replies by hand. */
   awaiting_approval?: PendingApproval;
+  /** What this session has spent, summed server-side from the per-turn
+   * records in its own transcript. `output` is tokens the agent actually
+   * wrote (input is mostly cache reads — huge, cheap, and meaningless as a
+   * measure of work). ABSENT until a first turn finishes, so a brand-new
+   * session shows nothing rather than a hollow "0". Lags by the turn in
+   * flight; the composer's working line covers that one live. */
+  tokens?: { output: number; cost_usd: number };
   /** Model alias this session is pinned to ('opus', 'sonnet[1m]', …).
    * ABSENT = inherit the CLI's own default (~/.claude/settings.json) — the
    * case every session is in until she picks one. Resolved per turn, so

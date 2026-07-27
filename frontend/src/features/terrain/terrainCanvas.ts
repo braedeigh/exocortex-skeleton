@@ -674,14 +674,21 @@ export class TerrainCanvas {
       const t = link.target as SimNode;
       const inPrint = !dimmed || this.footprint!.has(s.id) || this.footprint!.has(t.id);
       if (link.kind === 'session') {
-        // Orb tethers: faint identity-accent threads, dashed so they never
-        // read as tree structure.
-        ctx.globalAlpha = inPrint ? 0.3 : 0.08;
+        // Orb tethers: identity-accent threads, dashed so they never read as
+        // tree structure. The dashes carry a little more weight than the tree
+        // edges do — which agent is holding which files is the thing she's
+        // reading the map FOR, and at the old alpha the thread thinned out to
+        // nothing against a busy field. The accent colour itself is untouched
+        // (her call: "i like the purple they are now, but the dotted lines
+        // could be slightly stronger") — only presence changed, not hue.
+        ctx.globalAlpha = inPrint ? 0.45 : 0.13;
         ctx.strokeStyle = this.orbStroke;
+        ctx.lineWidth = 1.3 / transform.k;
         ctx.setLineDash([4 / transform.k, 5 / transform.k]);
       } else {
         ctx.globalAlpha = inPrint ? 0.55 : 0.15;
         ctx.strokeStyle = theme.border;
+        ctx.lineWidth = 1 / transform.k;
         ctx.setLineDash([]);
       }
       ctx.beginPath();

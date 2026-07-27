@@ -483,8 +483,32 @@
   transition: border-left-color var(--dur-2, 200ms) ease;
 }
 
+/* A session mid-turn shouldn't need to be read to be spotted — the whole card
+   glows accent and breathes, not just the left rule and the dot. Deliberately
+   the SAME 2s ease-in-out as .liveDot so a live card and its dot rise and fall
+   together; two near rhythms out of step would read as a stutter. The glow is
+   a box-shadow plus a faint accent wash, so nothing reflows as it breathes and
+   the text underneath keeps its contrast.
+
+   Prompt that produced it: "make any session that is running more obviously
+   running. I want the entire card to glow the brighter purple and kind of glow
+   up and down like the dots currently glow." */
 .cardLive {
   border-left-color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  animation: cardBreathe 2s ease-in-out infinite;
+}
+
+@keyframes cardBreathe {
+  0%,
+  100% {
+    box-shadow: var(--shadow-card), 0 0 14px color-mix(in srgb, var(--accent) 34%, transparent);
+    background: color-mix(in srgb, var(--accent) 9%, var(--card-bg));
+  }
+  50% {
+    box-shadow: var(--shadow-card), 0 0 5px color-mix(in srgb, var(--accent) 12%, transparent);
+    background: color-mix(in srgb, var(--accent) 3%, var(--card-bg));
+  }
 }
 
 .card:not(.cardLive) {
@@ -527,6 +551,15 @@
   color: var(--text-muted);
   font-size: var(--font-size-sm);
   font-style: italic;
+}
+
+/* Lifetime spend. Tabular figures so the numbers hold a column down a lane of
+   cards instead of jittering as digits change width. */
+.spend {
+  margin-top: var(--space-1);
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
 }
 
 .badge {
@@ -616,7 +649,14 @@
 @media (prefers-reduced-motion: reduce) {
   .liveDot,
   .awaiting,
-  .approval {
+  .approval,
+  .cardLive {
     animation: none;
+  }
+
+  /* Still unmistakably live without the breath — the glow just holds still. */
+  .cardLive {
+    box-shadow: var(--shadow-card), 0 0 14px color-mix(in srgb, var(--accent) 34%, transparent);
+    background: color-mix(in srgb, var(--accent) 9%, var(--card-bg));
   }
 }

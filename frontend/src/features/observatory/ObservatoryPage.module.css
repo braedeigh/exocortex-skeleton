@@ -660,6 +660,19 @@
   color: #c8c8e0;
 }
 
+/* Session spend, riding at the end of the toolbar. Not a button — it takes
+   only the width its number needs (the buttons flex to share the rest) and
+   uses tabular figures so it doesn't twitch as the count climbs. */
+.spend {
+  flex: none;
+  align-self: center;
+  padding: 0 var(--space-2);
+  color: #8888aa;
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .toolBtn:disabled {
   opacity: 0.4;
   cursor: default;
