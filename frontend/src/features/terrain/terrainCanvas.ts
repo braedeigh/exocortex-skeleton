@@ -12,11 +12,17 @@
  * fresh payload) re-warms it.
  *
  * Heat encoding is redundant on purpose (dataviz skill): the heat ramp
- * carries recency AND node radius scales with the same normalized heat,
- * with the hottest ~8 files direct-labeled ("2h", "3d") in theme ink — never
- * in the ramp color. The ramp is the owner's terminal-red spec (07-24): old =
- * black, warming through maroon to xterm red #cd3131, just-edited = xterm
- * brightRed #f14c4c — "the color of the text printing into terminal".
+ * carries recency AND node radius scales with the same normalized heat. The
+ * ramp is the owner's terminal-red spec (07-24): old = black, warming through
+ * maroon to xterm red #cd3131, just-edited = xterm brightRed #f14c4c — "the
+ * color of the text printing into terminal".
+ *
+ * Files are captioned only when an agent is spotlit, and then only its own
+ * files — all of them above readable zoom, the dozen it touched most recently
+ * below it. Before that, the eight hottest files were always labeled with
+ * name + age; on the real map that read as arbitrary rather than informative,
+ * because heat moves and so did which eight got named. A name now appears
+ * because a gesture asked for it.
  */
 import {
   forceCollide,
@@ -34,11 +40,8 @@ import { zoom, zoomIdentity, type ZoomBehavior, type ZoomTransform } from 'd3-zo
 import {
   CREATED_FRESH_WINDOW_SECONDS,
   fileCreatedWithin,
-  fileLastTouch,
   normalizeHeat,
-  relativeAge,
   sessionTouchRings,
-  topHeatFiles,
   SESSION_NODE_PREFIX,
   type FileTouchKind,
   type TerrainEdge,
@@ -56,9 +59,11 @@ import {
  *    structure, 1.15:1 by design — "old = black").
  *  light (postDawn --bg #aba3b2): monotone/gaps/hue PASS; hot-end check
  *    FAILS at 1.47:1 (her #f14c4c anchor on lavender) — spec wins, kept
- *    deliberately. Relief channels per the skill: radius scales with the
- *    same heat, and the hottest ~8 files carry ink labels with ages. The
- *    cold half (2.1–7.2:1) does the long-range discrimination in light mode.
+ *    deliberately. Relief channel per the skill: radius scales with the same
+ *    heat. The cold half (2.1–7.2:1) does the long-range discrimination in
+ *    light mode. NOTE: the hot-file ink labels were a second relief channel
+ *    here and were removed 07-27 (they read as arbitrary), so radius now
+ *    carries that load alone on the light surface.
  */
 export const HEAT_RAMP_LIGHT = ['#271513', '#681b1b', '#9b2425', '#cd3131', '#f14c4c'] as const;
 export const HEAT_RAMP_DARK = ['#341816', '#681b1b', '#9b2425', '#cd3131', '#f14c4c'] as const;
@@ -92,6 +97,11 @@ export interface ThemeInk {
   /** --evening (blue) — fallback identity token if --accent is ever
    * overridden into the red family (the heat ramp owns red). */
   evening: string;
+  /** --orange — the app's one "something is waiting on you" tint (the roster's
+   * ready dot, the orchestra's waiting cards). An agent that has done something
+   * since she last opened it wears it out here too, so the map and the session
+   * list raise a hand in the same colour. */
+  orange: string;
   dark: boolean;
 }
 
@@ -121,8 +131,14 @@ const MAX_ZOOM = 5;
 const MIN_NODE_PX = 1.4;
 /** Screen-space tap slop — a fingertip, not a cursor. */
 const TAP_RADIUS_PX = 20;
-/** Dir hub labels appear at/above this zoom ("readable zoom"). */
-const DIR_LABEL_MIN_K = 0.7;
+/** "Readable zoom" — the line above which the map can afford names. Directory
+ * hubs caption themselves here, and so does every file in a spotlit agent's
+ * footprint. */
+const LABEL_MIN_K = 0.7;
+/** Below readable zoom a spotlit agent still names files, but only this many —
+ * the ones it touched most recently. Enough to answer "what has it been
+ * working on" without stacking forty 12px labels into soup. */
+const FOOTPRINT_LABEL_CAP = 12;
 /** Canvas text floor at default zoom — the app-wide 12px rule. Labels are
  * drawn in screen space, so they never shrink below this at any zoom. */
 const LABEL_PX = 12;
@@ -219,6 +235,26 @@ export function deriveOrbColor(primary: string, fallback: string, bg: string, te
   return text;
 }
 
+/**
+ * The sonar ping an agent that's waiting on her sends out: one orange ring
+ * per period, launched from the orb's edge, expanding outward and fading as
+ * it goes. Reach is in SCREEN pixels (divided by the transform at draw time)
+ * so the ping travels the same visible distance at every zoom — a signal
+ * meant to catch the eye shouldn't shrink to nothing when she pulls back to
+ * see the whole map.
+ */
+const PING_PERIOD_MS = 2600;
+const PING_REACH_PX = 26;
+
+/** A stable 0..1 offset from a session id, so waiting orbs ping out of step
+ * with each other. In unison several of them read as one strobing glitch;
+ * staggered, each one reads as its own agent raising a hand. */
+function stringPhase(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i += 1) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return (((h % 1000) + 1000) % 1000) / 1000;
+}
+
 /** ~24ch truncation for orb title labels. */
 function truncateLabel(s: string, max = 24): string {
   return s.length <= max ? s : `${s.slice(0, max - 1)}…`;
@@ -232,8 +268,15 @@ export class TerrainCanvas {
   private transform: ZoomTransform = zoomIdentity;
   private simNodes: SimNode[] = [];
   private simLinks: SimLink[] = [];
-  private hotLabels: Map<string, string> = new Map(); // node id -> "2h"
   private footprint: Set<string> | null = null;
+  /**
+   * The spotlit agent's files, ordered most-recently-touched first, and the
+   * same ids as a set. Both are kept because the two zoom regimes ask
+   * different questions: above readable zoom "is this file in the footprint"
+   * (the set), below it "is this one of the newest few" (the list's head).
+   */
+  private footprintLabels: string[] = [];
+  private footprintLabelSet: Set<string> = new Set();
   private theme: ThemeInk;
   private orbStroke = AGENT_PURPLE;
   private drawQueued = false;
@@ -241,7 +284,6 @@ export class TerrainCanvas {
   private width = 0;
   private height = 0;
   private fontFamily = 'system-ui, sans-serif';
-  private selectedId: string | null = null;
   /** One-shot flash halos: node id → expiry epoch-ms. The timer lives only
    * until the last flash fades (~1s) — never idles. */
   private flashes = new Map<string, number>();
@@ -268,6 +310,32 @@ export class TerrainCanvas {
    */
   private focusConv: string | null = null;
   private focusRings: Map<string, FileTouchKind> = new Map();
+  /**
+   * /terrain's ring set: every file the *shown* agents have read or written,
+   * ringed all at once without anything being focused or tapped. Same colours
+   * the backdrop's focus rings use (purple = written, white = read) and drawn
+   * by the same code — kept in its own field because focusRings is bound to
+   * the backdrop's single focused conversation and its camera easing, neither
+   * of which /terrain wants.
+   */
+  private agentRings: Map<string, FileTouchKind> = new Map();
+  /**
+   * Conversations waiting on her — the roster's "ready" state, out here as an
+   * orange sonar ping. Conversation ids, not orb ids. The page decides who
+   * qualifies (unread, minus any she's already tapped); this class only draws
+   * them and keeps the pulse loop alive while any of them is on screen.
+   */
+  private pingAgents: ReadonlySet<string> = new Set();
+  /**
+   * Which orbs draw their title. null = all of them (the backdrop, and any
+   * caller that never sets it); a set = only these. /terrain passes the agents
+   * active within the hour, so a wide pool stays present without becoming a
+   * wall of names.
+   */
+  private labeledAgents: ReadonlySet<string> | null = null;
+  /** Whether any orb currently ON the map is pinging — the other half, with
+   * hasRunning, of "is there anything worth animating". */
+  private hasPinging = false;
 
   onTap: ((node: TerrainNode | null) => void) | null = null;
 
@@ -334,13 +402,49 @@ export class TerrainCanvas {
     this.requestDraw();
   }
 
-  /** Selected node id (or null) — idle session orbs show their title label
-   * only while selected; running orbs are always labeled. */
-  setSelected(id: string | null): void {
-    if (this.selectedId === id) return;
-    this.selectedId = id;
+  /** File node ids for the spotlit agent, most-recently-touched first (see
+   * sessionFootprintByRecency). Pass an empty array when nothing is spotlit —
+   * files are captioned only for an agent she's actually asked about. */
+  setFootprintLabels(orderedIds: string[]): void {
+    this.footprintLabels = orderedIds;
+    this.footprintLabelSet = new Set(orderedIds);
     this.requestDraw();
   }
+
+  /** The shown agents' read/write rings (see agentTouchRings). Pass an empty
+   * map to clear. */
+  setAgentRings(rings: Map<string, FileTouchKind>): void {
+    this.agentRings = rings;
+    this.requestDraw();
+  }
+
+  /** Which orbs caption themselves. Pass null for "every orb". */
+  setLabeledAgents(ids: ReadonlySet<string> | null): void {
+    this.labeledAgents = ids;
+    this.requestDraw();
+  }
+
+  /** Which conversations send the orange sonar ping — the ones waiting on her
+   * that she hasn't acknowledged yet. */
+  setPingingAgents(ids: ReadonlySet<string>): void {
+    this.pingAgents = ids;
+    this.refreshPinging();
+    this.requestDraw();
+  }
+
+  /** Is any orb actually drawn right now pinging? Recomputed whenever either
+   * side of that question moves — the ping set, or the node set. */
+  private refreshPinging(): void {
+    this.hasPinging = this.simNodes.some(
+      (sn) =>
+        sn.node.kind === 'session' &&
+        sn.node.session !== undefined &&
+        sn.node.session.running !== true &&
+        this.pingAgents.has(sn.node.session.id),
+    );
+    this.updatePulseLoop();
+  }
+
 
   /**
    * Focus the map on one conversation's agent (backdrop-only). Its orb eases
@@ -449,7 +553,14 @@ export class TerrainCanvas {
   };
 
   private updatePulseLoop(): void {
-    const want = this.hasRunning && !this.destroyed && document.visibilityState === 'visible';
+    // Two things earn the loop: a running orb's undulation, and a waiting
+    // orb's sonar ping. Waiting is a much more common state than running, so
+    // this animates more of the time than the original battery contract
+    // implied — still never while the page is hidden, and still nothing at all
+    // when no agent is either working or asking for her (her 07-27 call:
+    // "an orange sonar ping that comes out from it until i click it").
+    const want =
+      (this.hasRunning || this.hasPinging) && !this.destroyed && document.visibilityState === 'visible';
     if (want && this.pulseTimer === null) {
       this.pulseTimer = window.setInterval(() => this.requestDraw(), 100);
     } else if (!want) {
@@ -576,17 +687,11 @@ export class TerrainCanvas {
       .on('end', () => this.requestDraw());
   }
 
-  /** Hot-file labels + running flag, recomputed on every graph feed (both
+  /** Running/pinging flags + focus rings, recomputed on every graph feed (both
    * the in-place and full-rebuild paths). */
   private refreshDerived(nodes: TerrainNode[]): void {
-    this.hotLabels = new Map(
-      topHeatFiles(nodes, 8).map((n) => {
-        const last = n.file ? fileLastTouch(n.file) : null;
-        return [n.id, last === null ? '' : relativeAge(last)];
-      }),
-    );
     this.hasRunning = nodes.some((n) => n.kind === 'session' && n.session?.running === true);
-    this.updatePulseLoop();
+    this.refreshPinging(); // also calls updatePulseLoop
     // Node data was just rebuilt/updated — the focused session's writes/reads
     // may have moved (a live refetch, a lens breath), so re-derive its rings.
     this.recomputeFocusRings();
@@ -709,7 +814,18 @@ export class TerrainCanvas {
       if (n.node.kind === 'session') {
         // Session orb: a stroked ring in the identity accent — never a
         // filled ember disc, so sessions can't be confused with heat.
+        //
+        // Three states, and they are the session roster's own, spoken as a
+        // circle: RUNNING gently undulates (a turn is in flight); WAITING —
+        // finished, with activity newer than the last time she opened it —
+        // holds still and sends an orange sonar ping outward, in the same
+        // --orange the session list raises its hand with; anything else is
+        // simply two still purple rings. The orb body never changes colour,
+        // so waiting is a *motion*, not a repaint. Running beats waiting,
+        // because an agent mid-turn isn't asking for her yet.
+        const sessionId = n.node.session?.id;
         const running = n.node.session?.running === true;
+        const pinging = !running && sessionId !== undefined && this.pingAgents.has(sessionId);
         const r = running ? nr * breathe : nr;
         // In focus mode (backdrop) the agent she's actually viewing burns full
         // purple; every other active agent is dimmed so the running one it's
@@ -718,6 +834,38 @@ export class TerrainCanvas {
         const isFocusOrb =
           this.focusConv !== null && n.id === `${SESSION_NODE_PREFIX}${this.focusConv}`;
         const orbAlpha = this.focusConv === null ? (inPrint ? 1 : 0.22) : isFocusOrb ? 1 : 0.38;
+
+        // Sonar. Two of them, same mechanic, different things to say:
+        //
+        //   ORANGE — this agent is waiting on her (/terrain).
+        //   PURPLE — this is the agent whose conversation she's reading, alive
+        //            behind her words. Backdrop only, and only for the focused
+        //            orb: on the map proper every orb is equally hers, so
+        //            there's no "the one you're inside" to point at.
+        //
+        // Purple joins the running orb's undulation rather than replacing it —
+        // the breath says "working", the sonar says "working *for you, here*".
+        //
+        // The ping goes down FIRST so the orb's own rings paint over its inner
+        // edge — the ring reads as leaving the body rather than crossing it.
+        // Radius runs from the orb's edge outward; alpha falls off faster than
+        // linearly (the ^1.7) so it dissolves near the end of its travel
+        // instead of vanishing mid-stride.
+        const sonar = pinging
+          ? theme.orange
+          : isFocusOrb && sessionId !== undefined
+            ? this.orbStroke
+            : null;
+        if (sonar) {
+          const p = (((now / PING_PERIOD_MS + stringPhase(sessionId!)) % 1) + 1) % 1;
+          ctx.globalAlpha = orbAlpha * 0.8 * (1 - p) ** 1.7;
+          ctx.strokeStyle = sonar;
+          ctx.lineWidth = (1 + 1.4 * (1 - p)) / transform.k;
+          ctx.beginPath();
+          ctx.arc(n.x ?? 0, n.y ?? 0, r + (PING_REACH_PX * p) / transform.k, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+
         ctx.globalAlpha = orbAlpha;
         ctx.strokeStyle = this.orbStroke;
         ctx.lineWidth = (isFocusOrb ? 3.25 : 2.5) / transform.k;
@@ -756,20 +904,25 @@ export class TerrainCanvas {
         ctx.lineWidth = 1.5 / transform.k;
         ctx.stroke();
       }
-      // Footprint ring — the highlighted session's files.
-      if (dimmed && this.footprint!.has(n.id)) {
+      // How this file was touched, when anything on screen touched it: the
+      // backdrop's focused conversation first, else /terrain's shown-agent
+      // set. Reads get a white ring; created and modified files both take the
+      // agent's purple (her 07-27 call: created-ness is the green DOT above,
+      // so the ring only ever says "an agent on this map touched it").
+      // Always full-alpha — it's the whole point of drawing the agents.
+      const ring =
+        n.node.kind === 'file' ? (this.focusRings.get(n.id) ?? this.agentRings.get(n.id)) : undefined;
+      // Footprint ring — the spotlit session's files, in plain ink. Skipped
+      // wherever a touch ring is about to land: that ring says everything
+      // this one does and more (purple = written, white = read), so drawing
+      // both would bury the distinction under a second, flatter circle.
+      if (dimmed && !ring && this.footprint!.has(n.id)) {
         ctx.strokeStyle = theme.text;
         ctx.lineWidth = 2 / transform.k;
         ctx.beginPath();
         ctx.arc(n.x ?? 0, n.y ?? 0, nr + 3.5 / transform.k, 0, Math.PI * 2);
         ctx.stroke();
       }
-      // Focus interaction ring — the room agent's working set. Reads get a
-      // white ring; both created and modified files take the agent's own
-      // purple (her 07-27 call: created-ness is now the green DOT above, so the
-      // ring only ever says "this focused agent touched it"). Always full-alpha:
-      // it's the whole point of a focused surface.
-      const ring = n.node.kind === 'file' ? this.focusRings.get(n.id) : undefined;
       if (ring) {
         ctx.globalAlpha = 1;
         ctx.strokeStyle = ring === 'read' ? READ_RING : this.orbStroke;
@@ -800,15 +953,30 @@ export class TerrainCanvas {
     ctx.textBaseline = 'bottom';
     const k = transform.k;
     if (this.ambient) return; // wallpaper doesn't caption itself
+    // Which files get named, when an agent is spotlit. Above readable zoom
+    // there's room for its whole footprint; below it only the head of the
+    // recency list, so pulling back thins the captions to the newest work
+    // instead of stacking them into soup. Nothing spotlit → no file labels at
+    // all: the eight-hottest labels this replaced looked arbitrary precisely
+    // because no gesture had asked for them.
+    const namedFiles =
+      this.footprintLabels.length === 0
+        ? null
+        : k >= LABEL_MIN_K
+          ? this.footprintLabelSet
+          : new Set(this.footprintLabels.slice(0, FOOTPRINT_LABEL_CAP));
     for (const n of this.simNodes) {
-      const isHot = this.hotLabels.has(n.id);
-      if (n.node.kind === 'file' && !isHot) continue;
-      if (n.node.kind === 'dir' && k < DIR_LABEL_MIN_K) continue;
-      if (n.node.kind === 'session') {
-        // Running orbs announce themselves at every zoom; idle orbs label
-        // only while selected (tapped).
-        const running = n.node.session?.running === true;
-        if (!running && this.selectedId !== n.id) continue;
+      if (n.node.kind === 'file' && !(namedFiles !== null && namedFiles.has(n.id))) continue;
+      if (n.node.kind === 'dir' && k < LABEL_MIN_K) continue;
+      // Orbs wear their titles by default — an agent's name is its identity,
+      // not something to uncover — but the caller can narrow it. /terrain
+      // passes the agents active within the hour, because a twelve-agent pool
+      // labeled in full is a wall of text. (Files are the opposite: named only
+      // on demand, see namedFiles above.) A spotlight still quiets the rest,
+      // via the in-footprint test on the next line.
+      if (n.node.kind === 'session' && this.labeledAgents !== null) {
+        const sid = n.node.session?.id;
+        if (sid === undefined || !this.labeledAgents.has(sid)) continue;
       }
       const inPrint = !dimmed || this.footprint!.has(n.id);
       if (n.node.kind !== 'repo' && dimmed && !inPrint) continue;
@@ -829,11 +997,12 @@ export class TerrainCanvas {
         ctx.fillStyle = theme.text;
         ctx.fillText(truncateLabel(n.node.label), sx, sy - n.radius * k - 8);
       } else {
-        // Hottest files: name + relative age, in theme ink (never ramp color).
-        const age = this.hotLabels.get(n.id);
+        // A spotlit agent's files: filename only, a step quieter than the
+        // orb's own title above them, so the agent still reads as the subject
+        // and its files as the answer.
         ctx.font = `600 ${LABEL_PX}px ${this.fontFamily}`;
-        ctx.fillStyle = theme.text;
-        ctx.fillText(age ? `${n.node.label} · ${age}` : n.node.label, sx, sy - n.radius * k - 4);
+        ctx.fillStyle = theme.textSecondary;
+        ctx.fillText(n.node.label, sx, sy - n.radius * k - 4);
       }
     }
   }
@@ -859,6 +1028,7 @@ export function readThemeInk(): ThemeInk {
     border: get('--border', dark ? '#2e2545' : '#888391'),
     accent: get('--accent', '#7c5cbf'),
     evening: get('--evening', '#6a7acc'),
+    orange: get('--orange', '#d4700a'),
     dark,
   };
 }

@@ -1,0 +1,187 @@
+/* TerrainHeatBar — the heat half-life slider at the bottom of the map
+   (TerrainHeatBar.tsx). Same visual language as TerrainDials: no background of
+   its own, every text bit carrying --ink-halo so it reads over whatever the
+   terrain puts behind it, a 40px grab strip around a 6px line, and a 28px
+   thumb. What's new here is the per-day tick ruler under the track and the
+   three preset buttons beneath it. */
+
+.bar {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: var(--space-1);
+}
+
+/* Label beside the track, matching TerrainDials' first column width so the
+   two sliders line up down the page even though they're separate components. */
+.row {
+  display: grid;
+  grid-template-columns: 3.25rem 1fr;
+  align-items: center;
+  column-gap: var(--space-2);
+}
+
+.label {
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-shadow: var(--ink-halo, none);
+  cursor: pointer;
+}
+
+.track {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+}
+
+/* --- the per-day ruler --------------------------------------------------
+
+   Sits behind the input, centred on the 6px line. Ticks crowd toward the long
+   end because the track is logarithmic; that crowding is the point, so they're
+   drawn at full density rather than thinned. Inert to pointers so the ruler
+   can never eat a drag meant for the slider. */
+.ticks {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 14px;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.tick {
+  position: absolute;
+  top: 50%;
+  width: 1px;
+  height: 8px;
+  transform: translate(-50%, -50%);
+  background: color-mix(in srgb, var(--text) 30%, transparent);
+}
+
+/* The three preset days (1 / 7 / 30) stand taller and brighter, so the
+   anchors the buttons jump to stay findable in the ruler. */
+.tickAnchor {
+  height: 14px;
+  width: 2px;
+  background: color-mix(in srgb, var(--text) 55%, transparent);
+}
+
+/* --- the slider itself (mirrors TerrainDials .range) --- */
+
+.range {
+  -webkit-appearance: none;
+  appearance: none;
+  position: relative;
+  width: 100%;
+  height: 40px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  /* The bottom chrome is inert by default so drags between controls pan the
+     map; the slider takes its own events back. */
+  pointer-events: auto;
+  touch-action: pan-y;
+}
+
+/* Transparent track: the ruler above is the visible line here, so a second
+   filled bar over it would only muddy the ticks. */
+.range::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--text) 14%, transparent);
+}
+
+.range::-moz-range-track {
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--text) 14%, transparent);
+}
+
+.range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 28px;
+  height: 28px;
+  margin-top: -11px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--card-bg);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.range::-moz-range-thumb {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--card-bg);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.range:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: var(--radius-pill);
+}
+
+/* --- presets ------------------------------------------------------------
+
+   Aligned under the track (not the label) so they read as belonging to the
+   slider above them, the same way TerrainDials tucks its readout. */
+.presets {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: -6px;
+  margin-left: calc(3.25rem + var(--space-2));
+}
+
+.preset {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 var(--space-2);
+  border: 1px solid color-mix(in srgb, var(--text) 22%, transparent);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--card-bg) 55%, transparent);
+  color: var(--text-secondary);
+  font-size: var(--font-size-md);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.presetOn {
+  border-color: var(--accent);
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 18%, var(--card-bg));
+}
+
+.readout {
+  font-size: var(--font-size-md);
+  color: var(--text-muted);
+  text-shadow: var(--ink-halo, none);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  margin-left: var(--space-1);
+}
+
+@media (max-width: 430px) {
+  .row {
+    grid-template-columns: 2.75rem 1fr;
+    column-gap: var(--space-1);
+  }
+
+  .presets {
+    margin-left: calc(2.75rem + var(--space-1));
+  }
+
+  /* The readout is the first thing to go when the three presets and the
+     number can't share a line — the slider position already says it. */
+  .readout {
+    display: none;
+  }
+}

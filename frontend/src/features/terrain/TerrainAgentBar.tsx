@@ -2,44 +2,89 @@ import { useState } from 'react';
 import styles from './TerrainAgentBar.module.css';
 
 /**
- * TerrainAgentBar — the bottom agent control (her 07-26 spec):
+ * TerrainAgentBar — the bottom agent control.
  *
- *   [ Active ]  ◀──────█████──────▶   [ Agents · 8 ]
+ *   [ Active ▾ ]  ◀──────█████──────▶   [ Agents · 8 ]
  *
- * - **Active** button: snap to only the agents open in the observatory right
- *   now; while it's on, the window is dimmed (one owner at a time).
- * - **The window**: a dual-handle slider over the roster ranked
- *   most-recent-first (running → open → last active). It slides over the
- *   *agent list itself*, not the calendar (that's the top Dates dial's job) —
- *   drag the handles to pull a band of past agents onto the map.
+ * - **The pool button** opens a popup anchored to itself with two rows of
+ *   choices, and its own label becomes whatever you picked:
+ *     · WHICH AGENTS — Active (did something within the hour) / Open (not
+ *       archived) / All (the whole roster).
+ *     · WHICH SECTION — All / Personal / Orchestra.
+ *   Both are server-side facts, so they mean the same thing on every device.
+ *   "Active" used to mean a browser-local heartbeat, which was invisible and
+ *   evaporated half an hour after she looked away.
+ * - **The window**: a dual-handle slider that slides over the *chosen pool*,
+ *   ranked most-recent-first — not over the calendar (that's the top Dates
+ *   dial's job). It is never dimmed or inert now: the button picks the pool,
+ *   the window picks a slice of it, and those are two different questions.
+ *   Before, Active and the window were two owners of one value, so one of them
+ *   had to be switched off to stop them disagreeing.
  * - **Agents button**: toggles a popup list of the agents currently shown —
  *   tap a row to spotlight that agent's footprint. No inline chips; the bar
  *   stays a control strip, the list is where identity lives.
  *
  * Selection/visibility state is owned by TerrainPage; this is presentation +
- * the two gestures. The dual-handle mechanics mirror TerrainDials' Dates row
+ * the gestures. The dual-handle mechanics mirror TerrainDials' Dates row
  * exactly (only the thumbs take pointer events, so the handle you touch is the
  * one that moves).
+ *
+ * Prompt that produced the selector: "i want it to be options for open,
+ * active, and then also filter by which section they're in… you click the
+ * active button, it makes a little popup right there, you click one, and it
+ * changes it to fit there."
  */
+
+/** Which agents are eligible at all. */
+export type AgentPool = 'active' | 'open' | 'all';
+/** Which room they live in. '' = no filter. */
+export type AgentSection = '' | 'personal' | 'orchestra';
+
+export const POOL_LABELS: Record<AgentPool, string> = {
+  active: 'Active',
+  open: 'Open',
+  all: 'All',
+};
+
+const POOL_HINTS: Record<AgentPool, string> = {
+  active: 'Worked in the last hour',
+  open: 'Not archived',
+  all: 'Every session on record',
+};
+
+export const SECTION_LABELS: Record<AgentSection, string> = {
+  '': 'All',
+  personal: 'Personal',
+  orchestra: 'Orchestra',
+};
+
+const POOLS: readonly AgentPool[] = ['active', 'open', 'all'];
+const SECTIONS: readonly AgentSection[] = ['', 'personal', 'orchestra'];
 
 export interface AgentEntry {
   id: string;
   title: string;
   running: boolean;
-  /** Open in the observatory right now. */
+  /** Did something within the last hour — what "Active" means now. */
   active: boolean;
+  /** Not archived. */
+  open: boolean;
+  /** 'personal' | 'orchestra' | ''. */
+  lane: string;
   files: number;
   last: number | null;
 }
 
 export interface TerrainAgentBarProps {
-  /** Every agent on the map, ranked most-recent-first. */
+  /** The chosen pool, ranked most-recent-first — what the window slides over. */
   ranked: AgentEntry[];
-  /** Ids actually shown right now (page computes from activeOnly + window). */
+  /** Ids actually shown right now (page computes from pool + section + window). */
   shownIds: ReadonlySet<string>;
-  activeOnly: boolean;
-  onActiveOnly: (v: boolean) => void;
-  /** Window over `ranked` by index, [from, to). Meaningful only when !activeOnly. */
+  pool: AgentPool;
+  section: AgentSection;
+  onPool: (pool: AgentPool) => void;
+  onSection: (section: AgentSection) => void;
+  /** Window over `ranked` by index, [from, to). */
   from: number;
   to: number;
   onWindow: (from: number, to: number) => void;
@@ -51,8 +96,10 @@ export interface TerrainAgentBarProps {
 export function TerrainAgentBar({
   ranked,
   shownIds,
-  activeOnly,
-  onActiveOnly,
+  pool,
+  section,
+  onPool,
+  onSection,
   from,
   to,
   onWindow,
@@ -60,37 +107,76 @@ export function TerrainAgentBar({
   onSpotlight,
 }: TerrainAgentBarProps) {
   const [listOpen, setListOpen] = useState(false);
+  const [poolOpen, setPoolOpen] = useState(false);
 
   const n = ranked.length;
-  // Clamp the window to the current roster: a refetch can shrink `n` under a
-  // handle that was parked further out.
+  // Clamp the window to the current roster: switching pools can shrink `n`
+  // under a handle that was parked further out.
   const wTo = Math.min(Math.max(to, 1), Math.max(1, n));
   const wFrom = Math.min(Math.max(from, 0), Math.max(0, wTo - 1));
   const pct = (i: number) => (n > 0 ? (i / n) * 100 : 0);
 
   const shownList = ranked.filter((a) => shownIds.has(a.id));
+  // The button says what it's showing. Section is only named when it's
+  // actually filtering — "Active" beats "Active · All" for the common case.
+  const poolLabel = section
+    ? `${POOL_LABELS[pool]} · ${SECTION_LABELS[section]}`
+    : POOL_LABELS[pool];
 
   return (
     <div className={styles.bar} role="group" aria-label="Agents">
-      <button
-        type="button"
-        className={[styles.btn, activeOnly ? styles.btnOn : ''].filter(Boolean).join(' ')}
-        aria-pressed={activeOnly}
-        onClick={() => onActiveOnly(!activeOnly)}
-        title={
-          activeOnly
-            ? 'Showing only the sessions open in your observatory — tap to slide through past agents'
-            : 'Showing a window of past agents — tap for just your open sessions'
-        }
-      >
-        Active
-      </button>
+      <div className={styles.listWrap}>
+        <button
+          type="button"
+          className={[styles.btn, poolOpen ? styles.btnOn : ''].filter(Boolean).join(' ')}
+          aria-haspopup="menu"
+          aria-expanded={poolOpen}
+          onClick={() => setPoolOpen((v) => !v)}
+          title="Which agents the map draws"
+        >
+          {poolLabel} <span className={styles.caret} aria-hidden="true">▾</span>
+        </button>
+        {poolOpen ? (
+          <div className={styles.pop} role="menu">
+            <div className={styles.popHead}>Which agents</div>
+            {POOLS.map((p) => (
+              <button
+                key={p}
+                type="button"
+                role="menuitemradio"
+                aria-checked={pool === p}
+                className={[styles.popRow, pool === p ? styles.popRowOn : ''].filter(Boolean).join(' ')}
+                onClick={() => {
+                  onPool(p);
+                  setPoolOpen(false);
+                }}
+              >
+                <span className={styles.popLabel}>{POOL_LABELS[p]}</span>
+                <span className={styles.popHint}>{POOL_HINTS[p]}</span>
+              </button>
+            ))}
+            <div className={styles.popHead}>Section</div>
+            {SECTIONS.map((s) => (
+              <button
+                key={s || 'all'}
+                type="button"
+                role="menuitemradio"
+                aria-checked={section === s}
+                className={[styles.popRow, section === s ? styles.popRowOn : ''].filter(Boolean).join(' ')}
+                onClick={() => {
+                  onSection(s);
+                  setPoolOpen(false);
+                }}
+              >
+                <span className={styles.popLabel}>{SECTION_LABELS[s]}</span>
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
 
-      {/* The window over the ranked roster. Dimmed + inert while Active is on. */}
-      <div
-        className={[styles.window, activeOnly ? styles.windowDimmed : ''].filter(Boolean).join(' ')}
-        aria-hidden={activeOnly}
-      >
+      {/* The window over the chosen pool. */}
+      <div className={styles.window}>
         <div className={styles.dualTrack}>
           <span
             className={styles.selected}
@@ -104,7 +190,7 @@ export function TerrainAgentBar({
             max={Math.max(1, n)}
             step={1}
             value={wFrom}
-            disabled={activeOnly || n === 0}
+            disabled={n === 0}
             onChange={(e) => onWindow(Math.min(Number(e.target.value), wTo - 1), wTo)}
             aria-label="Newest agent shown"
           />
@@ -115,7 +201,7 @@ export function TerrainAgentBar({
             max={Math.max(1, n)}
             step={1}
             value={wTo}
-            disabled={activeOnly || n === 0}
+            disabled={n === 0}
             onChange={(e) => onWindow(wFrom, Math.max(Number(e.target.value), wFrom + 1))}
             aria-label="Oldest agent shown"
           />
@@ -133,11 +219,9 @@ export function TerrainAgentBar({
           Agents · {shownIds.size}
         </button>
         {listOpen ? (
-          <div className={styles.pop} role="menu">
+          <div className={`${styles.pop} ${styles.popRight}`} role="menu">
             {shownList.length === 0 ? (
-              <div className={styles.popEmpty}>
-                {activeOnly ? 'No sessions open' : 'No agents in range'}
-              </div>
+              <div className={styles.popEmpty}>No agents in range</div>
             ) : (
               shownList.map((a) => (
                 <button

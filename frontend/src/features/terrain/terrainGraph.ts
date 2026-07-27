@@ -33,6 +33,37 @@ export function halfLifeSeconds(span: HeatSpan): number {
   return typeof span === 'number' ? span : LENS_HALF_LIFE_SECONDS[span];
 }
 
+/** The heat bar's ends, in whole days: one day out to one month. Same two
+ * values the old Day/Week/Month chips sat between — the chips were only ever
+ * three presets on a range the heat math always supported. */
+export const HEAT_DAYS_MIN = 1;
+export const HEAT_DAYS_MAX = 30;
+
+/** Compact age label — minutes under an hour, hours under a day, then days.
+ * One unit ladder the whole way rather than switching to weeks partway, so
+ * two ticks on the same key can always be compared by eye. */
+export function formatAge(seconds: number): string {
+  if (seconds < 3600) return `${Math.max(1, Math.round(seconds / 60))}m`;
+  if (seconds < 86400) return `${Math.round(seconds / 3600)}h`;
+  return `${Math.round(seconds / 86400)}d`;
+}
+
+/**
+ * The three labels down the colour key, hottest first, derived from whatever
+ * half-life the heat bar is set to — they used to be hardcoded per named
+ * lens, which a continuous bar can't be.
+ *
+ * The middle tick is a QUARTER of the half-life, which is where the ramp is
+ * still visibly warm; the bottom is the half-life itself, marked "+" because
+ * everything older piles up below it. At a one-day half-life that reproduces
+ * the old Day key exactly (now / 6h / 1d+).
+ *
+ * Prompt that produced it: "generate them from the half life".
+ */
+export function heatKeyTicks(halfLife: number): [string, string, string] {
+  return ['now', formatAge(halfLife / 4), `${formatAge(halfLife)}+`];
+}
+
 /** Share of the breath cycle spent inhaling — 4 seconds of a 10-second
  * breath, leaving 6 for the exhale. */
 export const BREATH_INHALE_FRACTION = 0.4;
@@ -227,6 +258,11 @@ export interface OrbSession {
    * falls back to the atlas conv→bot map). */
   bot?: string;
   running: boolean;
+  /** Not archived. Only the payload's top-level sessions array knows this, so
+   * an orb built purely from file attribution reads as closed. */
+  open: boolean;
+  /** 'personal' | 'orchestra', or '' when the payload doesn't say. */
+  lane: string;
   /** Unix seconds of the session's last activity, best-effort. */
   last: number | null;
   /** How many file nodes its footprint covers. */
@@ -425,12 +461,15 @@ function emitDir(ctx: BuildCtx, dir: TrieDir, parentId: string, depth: number): 
  * given, restricts which session orbs are emitted — the Observatory backdrop
  * passes its active set so the wallpaper shows only agents that are live right
  * now, not the 90-day footprint backlog. Omitted (the /terrain map, tests) =
- * every footprinted session gets an orb, unchanged. */
+ * every footprinted session gets an orb, unchanged. `opts.alwaysOrbIds` is the
+ * opposite lever: sessions that get an orb even with no footprint at all (see
+ * buildSessionOrbs) — /terrain passes the conversations she has open, so an
+ * agent she's watching is on the map before it has touched anything. */
 export function buildTerrainGraph(
   data: TerrainData,
   lens: HeatSpan,
   nowSeconds = Date.now() / 1000,
-  opts?: { orbSessionIds?: Set<string> | null },
+  opts?: { orbSessionIds?: Set<string> | null; alwaysOrbIds?: Set<string> | null },
 ): TerrainGraph {
   const nodes: TerrainNode[] = [];
   const edges: TerrainEdge[] = [];
@@ -482,7 +521,12 @@ export function buildTerrainGraph(
     edges.push(...repoCtx.edges);
   }
 
-  const orbs = buildSessionOrbs(nodes, data.sessions, opts?.orbSessionIds ?? null);
+  const orbs = buildSessionOrbs(
+    nodes,
+    data.sessions,
+    opts?.orbSessionIds ?? null,
+    opts?.alwaysOrbIds ?? null,
+  );
   nodes.push(...orbs.nodes);
   edges.push(...orbs.edges);
 
@@ -497,11 +541,20 @@ export const SESSION_NODE_PREFIX = 'session:';
  * each of its files. Title/bot/running/last come from the payload's
  * top-level sessions array when it knows the session; otherwise the
  * file-level entries supply title + last and the orb reads as not running.
+ *
+ * `alwaysIds` names sessions that get an orb EVEN WITH NO FOOTPRINT. Orbs are
+ * built by inverting files[].sessions, so without this a conversation that
+ * hasn't touched a file yet — or whose files fell outside the current dials —
+ * simply isn't on the map, however plainly open it is. /terrain passes the
+ * conversations she has open here, so "open" is enough to earn a body. Such an
+ * orb has no tethers and therefore no gravity: the sim parks it at the canvas
+ * anchor rather than amid a territory it doesn't have yet.
  */
 export function buildSessionOrbs(
   fileNodes: TerrainNode[],
   live: TerrainLiveSession[] | undefined,
   allowedIds: Set<string> | null = null,
+  alwaysIds: Set<string> | null = null,
 ): TerrainGraph {
   const liveById = new Map((live ?? []).map((s) => [s.id, s]));
 
@@ -544,6 +597,8 @@ export function buildSessionOrbs(
         title: meta?.title || fp.title || sessionId,
         bot: meta?.bot,
         running: meta?.running === true,
+        open: meta?.open === true,
+        lane: meta?.lane ?? '',
         last: Number.isFinite(isoLast) ? isoLast / 1000 : fp.lastSeen,
         files: fp.fileIds.length,
       },
@@ -551,6 +606,36 @@ export function buildSessionOrbs(
     for (const fileId of fp.fileIds) {
       edges.push({ source: orbId, target: fileId, kind: 'session' });
     }
+  }
+
+  // Footprint-less orbs, second pass: an open conversation the inversion above
+  // never saw. It needs identity to be drawable at all, so it's emitted only
+  // when the payload's sessions array knows it — no title, no orb.
+  for (const sessionId of alwaysIds ?? []) {
+    if (footprints.has(sessionId)) continue;
+    if (allowedIds && !allowedIds.has(sessionId)) continue;
+    const meta = liveById.get(sessionId);
+    if (!meta) continue;
+    const isoLast = meta.last ? Date.parse(meta.last) : NaN;
+    nodes.push({
+      id: `${SESSION_NODE_PREFIX}${sessionId}`,
+      kind: 'session',
+      label: meta.title || sessionId,
+      parentId: null,
+      depth: 0,
+      repoId: '',
+      heat: 0,
+      session: {
+        id: sessionId,
+        title: meta.title || sessionId,
+        bot: meta.bot,
+        running: meta.running === true,
+        open: meta.open === true,
+        lane: meta.lane ?? '',
+        last: Number.isFinite(isoLast) ? isoLast / 1000 : null,
+        files: 0,
+      },
+    });
   }
   return { nodes, edges };
 }
@@ -618,6 +703,29 @@ export function fileLastTouch(file: TerrainFile): number | null {
   return Math.max(...all);
 }
 
+/**
+ * The same footprint as sessionFootprint, but as a LIST ordered by how
+ * recently THIS session touched each file — newest first, ties broken by node
+ * id so the order is stable across refetches instead of shuffling under her.
+ *
+ * It exists because the canvas captions a spotlit agent's files, and below
+ * readable zoom it can only afford to name a handful: "a handful" has to mean
+ * the ones it worked on last, not an arbitrary slice. Files the session has no
+ * usable timestamp for sort to the back rather than dropping out — attribution
+ * outlives a stamp we failed to parse (same rule filterTerrainData follows).
+ */
+export function sessionFootprintByRecency(nodes: TerrainNode[], sessionId: string): string[] {
+  const scored: { id: string; last: number }[] = [];
+  for (const node of nodes) {
+    if (node.kind !== 'file' || !node.file) continue;
+    const s = node.file.sessions.find((x) => x.id === sessionId);
+    if (!s) continue;
+    scored.push({ id: node.id, last: sessionLastSeconds(s.last) ?? -Infinity });
+  }
+  scored.sort((a, b) => b.last - a.last || a.id.localeCompare(b.id));
+  return scored.map((e) => e.id);
+}
+
 /** Node ids belonging to one session's footprint — every file node it
  * touched, so the canvas can ring them and dim everything else. */
 export function sessionFootprint(nodes: TerrainNode[], sessionId: string): Set<string> {
@@ -669,6 +777,38 @@ export function fileCreatedWithin(
     if (last !== null && nowSeconds - last <= windowSeconds) return true;
   }
   return false;
+}
+
+/**
+ * node id → how the STRONGEST of `sessionIds` touched that file. The
+ * many-agents form of sessionTouchRings below: /terrain rings every file the
+ * shown agents have read or written, all at once, so a file touched by three
+ * of them still wears exactly one ring. Strongest signal wins — created beats
+ * modified beats read — because a ring can only say one thing, and the biggest
+ * claim on a file is the truest one to show.
+ *
+ * Prompt that produced it: "i am wanting rings around anything that has been
+ * read or written by these agents ... purple = written, white = read."
+ */
+const RING_RANK: Record<FileTouchKind, number> = { read: 0, modified: 1, created: 2 };
+
+export function agentTouchRings(
+  nodes: TerrainNode[],
+  sessionIds: ReadonlySet<string>,
+): Map<string, FileTouchKind> {
+  const rings = new Map<string, FileTouchKind>();
+  if (sessionIds.size === 0) return rings;
+  for (const node of nodes) {
+    if (node.kind !== 'file' || !node.file) continue;
+    let best: FileTouchKind | null = null;
+    for (const s of node.file.sessions) {
+      if (!sessionIds.has(s.id)) continue;
+      const kind = sessionFileTouch(node.file, s.id);
+      if (kind && (best === null || RING_RANK[kind] > RING_RANK[best])) best = kind;
+    }
+    if (best) rings.set(node.id, best);
+  }
+  return rings;
 }
 
 /** node id → created/modified/read for every file the given session touched —

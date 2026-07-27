@@ -30,7 +30,7 @@ import styles from './TerrainDials.module.css';
  * track quantizes the top of the range into jumps of several files at a time
  * (at 1,000 steps across ~3,300 files, one notch near the top moved ~27).
  * This is a plain integer knob, so the extra resolution costs nothing. */
-const POS_STEPS = 10000;
+export const POS_STEPS = 10000;
 
 export function posFromValue(value: number, min: number, max: number): number {
   if (max <= min) return 0;
@@ -142,10 +142,20 @@ export function TerrainDials({
         <label className={styles.label} htmlFor={filesId}>
           Files
         </label>
-        <div className={styles.track}>
+        {/* Filled like a fuel gauge: the purple length IS how many files are
+            drawn, the grey remainder is how many more there are to ask for.
+            Built as a lit span over a grey line — the same two elements the
+            Dates row below uses — rather than a gradient on the track, so
+            there's one filling technique in this file instead of two. */}
+        <div className={`${styles.track} ${styles.fillTrack}`}>
+          <span
+            className={styles.selected}
+            style={{ left: 0, right: `${100 - (posFromValue(count, 1, countMax) / POS_STEPS) * 100}%` }}
+            aria-hidden="true"
+          />
           <input
             id={filesId}
-            className={styles.range}
+            className={`${styles.range} ${styles.rangeFilled}`}
             type="range"
             min={0}
             max={POS_STEPS}

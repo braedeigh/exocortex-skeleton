@@ -3,25 +3,28 @@ import { useNavigate } from '@tanstack/react-router';
 import { Sheet } from '../../ui';
 import { subscribeTheme } from '../../theme';
 import { useAtlas } from '../atlas/api';
-import { useOpenSessionIds } from '../observatory/useOpenSessions';
+import { isUnread, openedMap } from '../observatory/openedStore';
 import { useTerrain, type TerrainData } from './api';
-import type { TerrainNode } from './terrainGraph';
+import type { FileTouchKind, TerrainNode } from './terrainGraph';
 import {
+  agentTouchRings,
   buildTerrainGraph,
   changedFileIds,
   fileLastTouch,
   filterTerrainData,
   relativeAge,
   sessionFootprint,
+  sessionFootprintByRecency,
   sessionLastSeconds,
   terrainEarliestTouch,
   terrainFileLoaded,
   terrainFileTotal,
+  heatKeyTicks,
   SESSION_NODE_PREFIX,
-  HEAT_LENSES,
-  type HeatLens,
 } from './terrainGraph';
 import { TerrainDials } from './TerrainDials';
+import { TerrainHeatBar } from './TerrainHeatBar';
+import type { AgentPool, AgentSection } from './TerrainAgentBar';
 import { TerrainAgentBar } from './TerrainAgentBar';
 import { FileCodeModal } from './FileCodeModal';
 import {
@@ -33,34 +36,24 @@ import {
 } from './terrainCanvas';
 import styles from './TerrainPage.module.css';
 
-const LENS_LABELS: Record<HeatLens, string> = {
-  day: 'Day',
-  week: 'Week',
-  month: 'Month',
-};
-
-/** Age ticks for the color key, top (hottest) → bottom (oldest), per lens. */
-const KEY_TICKS: Record<HeatLens, readonly string[]> = {
-  day: ['now', '6h', '1d+'],
-  week: ['now', '1d', '1w+'],
-  month: ['now', '1w', '30d+'],
-};
-
 /**
  * The color key — a compact panel pinned to the canvas's bottom-right whose
  * whole job is explaining the colors: the terminal-red heat ramp (just
  * edited #f14c4c at the top, down through #cd3131 to black = old) with age
- * ticks that follow the active lens, plus one row decoding the session-orb
- * ring. pointer-events: none throughout — pan/zoom passes straight through;
- * it hides while the sheet is up so it never fights the modal.
+ * ticks generated from the heat bar's current half-life, plus one row
+ * decoding the session-orb ring. pointer-events: none throughout — pan/zoom
+ * passes straight through; it hides while the sheet is up so it never fights
+ * the modal.
  */
 function TerrainKey({
-  lens,
+  halfLife,
   ink,
   hidden,
   showAgents,
 }: {
-  lens: HeatLens;
+  /** Half-life in seconds — the ticks are derived from it (heatKeyTicks), not
+   * looked up from a fixed set, because the bar is continuous now. */
+  halfLife: number;
   ink: ThemeInk;
   hidden: boolean;
   /** Drops the orb row from the key when the agents are toggled off — a
@@ -78,7 +71,7 @@ function TerrainKey({
       <div className={styles.keyScale}>
         <div className={styles.keyBar} style={{ background: gradient }} />
         <div className={styles.keyTicks}>
-          {KEY_TICKS[lens].map((tick) => (
+          {heatKeyTicks(halfLife).map((tick) => (
             <span key={tick} className={styles.keyTick}>
               {tick}
             </span>
@@ -120,14 +113,25 @@ function usePageVisible(): boolean {
 /**
  * /terrain — "where is being worked on": every file the observatory's
  * sessions touched in the window, as a force-directed tree per repo (App
- * code / Vault), files glowing ember by recency. The heat lens chips pick
- * the half-life (Day 24h / Week 7d / Month 30d, Week default); repo chips
- * toggle each subtree. Tap a file → bottom sheet with its sessions; each
- * session row opens that conversation exactly like the atlas does, or rings
- * its whole footprint on the map. All rendering lives in terrainCanvas.ts;
- * all graph/heat math in terrainGraph.ts (tested).
+ * code / Vault), files glowing ember by recency.
+ *
+ * The chrome splits by what it governs. TOP: how much map to draw — the repo
+ * chips (which territories) and the Files / Dates dials. BOTTOM: how it's
+ * lit and who's on it — the agent bar and the Heat bar, the latter sitting
+ * beside the colour key it explains. Heat is a continuous half-life in days
+ * (7 by default), not the three named lenses it replaced.
+ *
+ * Tap a file → bottom sheet with its sessions; each session row opens that
+ * conversation exactly like the atlas does, or rings its whole footprint on
+ * the map. All rendering lives in terrainCanvas.ts; all graph/heat math in
+ * terrainGraph.ts (tested).
  */
 const DAY_SECONDS = 86400;
+
+/** What "Active" means: did something within the last hour. A real cliff — an
+ * agent quiet for 61 minutes drops out — but a live map wants a short memory,
+ * and the Open pool is right there for the wider view. */
+const ACTIVE_WINDOW_SECONDS = 3600;
 
 /**
  * How many files per repo to ask the server for, escalating as the Files
@@ -173,17 +177,20 @@ export function TerrainPage() {
   // sessions the array doesn't know.
   const atlas = useAtlas();
 
-  const [lens, setLens] = useState<HeatLens>('week');
+  // The heat half-life, in whole days — what the bottom Heat bar sets. A
+  // number, not one of three named lenses: the heat math has always taken a
+  // raw half-life (HeatSpan), so the chips were only ever presets on this.
+  const [heatDays, setHeatDays] = useState(7);
+  const halfLife = heatDays * DAY_SECONDS;
   const [hiddenRepos, setHiddenRepos] = useState<ReadonlySet<string>>(new Set());
-  // The bottom agent control. `activeOnly` (the Active button) = show only the
-  // sessions open in the observatory right now; when off, `agentWindow` is a
-  // band over the roster ranked most-recent-first — [from, to) by index — that
-  // slides past agents onto the map. Active by default: the map opens on what
-  // she's running, not months of history.
-  const [activeOnly, setActiveOnly] = useState(true);
+  // The bottom agent control, in two independent parts: the pool button picks
+  // WHICH agents are eligible (Active = worked in the last hour / Open = not
+  // archived / All) and optionally narrows to one section, while `agentWindow`
+  // is a band over that pool ranked most-recent-first — [from, to) by index.
+  // Active by default: the map opens on what's happening, not on history.
+  const [pool, setPool] = useState<AgentPool>('active');
+  const [section, setSection] = useState<AgentSection>('');
   const [agentWindow, setAgentWindow] = useState<{ from: number; to: number }>({ from: 0, to: 8 });
-  // Live set of conversations open in the observatory — what 'active' means.
-  const openIds = useOpenSessionIds();
   const [selected, setSelected] = useState<TerrainNode | null>(null);
   const [footprintSession, setFootprintSession] = useState<string | null>(null);
   // The file whose code modal is open, if any. Kept separate from `selected`
@@ -260,22 +267,64 @@ export function TerrainPage() {
     [data, range.from, range.to, effectiveCount, now],
   );
 
-  const graph = useMemo(() => (filtered ? buildTerrainGraph(filtered, lens) : null), [filtered, lens]);
+  /**
+   * Who's eligible at all, straight off the payload's session roster: the
+   * chosen pool, then the section filter.
+   *
+   * "Active" is a real timestamp comparison now (did something within the
+   * hour), not the browser-local heartbeat it used to be — so it means the
+   * same thing on every device, and an agent working while she isn't watching
+   * still counts. `open` and `lane` are server-side too.
+   */
+  const poolSessionIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const s of data?.sessions ?? []) {
+      if (section && s.lane !== section) continue;
+      if (pool === 'all') {
+        ids.add(s.id);
+        continue;
+      }
+      if (pool === 'open') {
+        if (s.open === true) ids.add(s.id);
+        continue;
+      }
+      // 'active' — a running turn counts even if its last stamp has aged,
+      // since a long turn is the most active thing on the map.
+      const last = sessionLastSeconds(s.last);
+      if (s.running || (last !== null && now - last <= ACTIVE_WINDOW_SECONDS)) ids.add(s.id);
+    }
+    return ids;
+  }, [data?.sessions, pool, section, now]);
+
+  // `alwaysOrbIds` = every agent in the pool. Orbs are otherwise built by
+  // inverting files[].sessions, so a pool member that hasn't touched a file
+  // yet would have no body on the map at all; this puts it there regardless.
+  const graph = useMemo(
+    () =>
+      filtered
+        ? buildTerrainGraph(filtered, halfLife, undefined, { alwaysOrbIds: poolSessionIds })
+        : null,
+    [filtered, halfLife, poolSessionIds],
+  );
 
   // What's actually drawn — the honest numerator for the Files readout.
   const shownFiles = useMemo(() => (filtered ? terrainFileLoaded(filtered) : 0), [filtered]);
 
-  /** Every agent on the map, ranked most-recent-first (running → open → last
-   * active). The agent bar's window slides over THIS list by index. */
+  /** The pool, ranked most-recent-first (running → active → last touched).
+   * The agent bar's window slides over THIS list by index. */
   const rankedAgents = useMemo(() => {
     if (!graph) return [];
     return graph.nodes
-      .filter((n) => n.kind === 'session' && n.session)
+      .filter((n) => n.kind === 'session' && n.session && poolSessionIds.has(n.session.id))
       .map((n) => ({
         id: n.session!.id,
         title: n.session!.title,
         running: n.session!.running,
-        active: openIds.has(n.session!.id),
+        active:
+          n.session!.running ||
+          (n.session!.last !== null && now - n.session!.last <= ACTIVE_WINDOW_SECONDS),
+        open: n.session!.open,
+        lane: n.session!.lane,
         files: n.session!.files,
         last: n.session!.last,
       }))
@@ -285,17 +334,30 @@ export function TerrainPage() {
           Number(b.active) - Number(a.active) ||
           (b.last ?? 0) - (a.last ?? 0),
       );
-  }, [graph, openIds]);
+  }, [graph, poolSessionIds, now]);
 
-  /** Which agents actually show: Active → the open ones; otherwise the window's
-   * band of the ranked roster. Clamped to the current roster length. */
+  /** The window's slice of the ranked pool — one control, one job. There's no
+   * "and also show the active ones" branch any more: the pool button decides
+   * membership, this decides how much of it. Clamped to the roster length,
+   * which changes whenever the pool does. */
   const shownAgentIds = useMemo(() => {
-    if (activeOnly) return new Set(rankedAgents.filter((a) => a.active).map((a) => a.id));
     const n = rankedAgents.length;
     const to = Math.min(Math.max(agentWindow.to, 1), Math.max(1, n));
     const from = Math.min(Math.max(agentWindow.from, 0), Math.max(0, to - 1));
     return new Set(rankedAgents.slice(from, to).map((a) => a.id));
-  }, [activeOnly, agentWindow, rankedAgents]);
+  }, [agentWindow, rankedAgents]);
+
+  /**
+   * Which orbs get their title drawn: the shown agents that did something
+   * within the hour. Every orb in the pool is DRAWN — naming them all was
+   * right when "active" meant one or two agents, but the Open pool is a dozen
+   * and a dozen labels is a wall. So: present but quiet, and named when live.
+   * Under the Active pool everything qualifies, so everything is named.
+   */
+  const labeledAgentIds = useMemo(
+    () => new Set(rankedAgents.filter((a) => a.active && shownAgentIds.has(a.id)).map((a) => a.id)),
+    [rankedAgents, shownAgentIds],
+  );
 
   const visible = useMemo(() => {
     if (!graph) return null;
@@ -323,6 +385,57 @@ export function TerrainPage() {
       cur?.kind === 'session' && cur.session && !shownIds.has(cur.session.id) ? null : cur,
     );
   }, [visible]);
+
+  /**
+   * Agents that have done something since she last opened them — the same
+   * comparison behind the session roster's orange "ready" dot, reused verbatim
+   * (openedStore.isUnread against each session's last_at) so the map and the
+   * list can't drift about who's waiting on her.
+   */
+  const unreadAgents = useMemo(() => {
+    const opened = openedMap();
+    const out = new Set<string>();
+    for (const s of data?.sessions ?? []) if (isUnread(s.last, opened[s.id])) out.add(s.id);
+    return out;
+  }, [data?.sessions]);
+
+  /**
+   * Who's still pinging: waiting, minus the ones she's tapped on this visit
+   * ("until i click it"). Acknowledgement is deliberately LOCAL to the page
+   * and not written back to openedStore — tapping an orb to look at it isn't
+   * the same as reading the conversation, so the roster keeps its orange dot
+   * until she actually opens it. The map just stops waving at her about an
+   * agent she's already turned to.
+   */
+  const [acknowledged, setAcknowledged] = useState<ReadonlySet<string>>(new Set());
+  const acknowledge = (id: string) =>
+    setAcknowledged((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
+
+  const pingingAgents = useMemo(() => {
+    const out = new Set<string>();
+    for (const id of unreadAgents) if (!acknowledged.has(id)) out.add(id);
+    return out;
+  }, [unreadAgents, acknowledged]);
+
+  /**
+   * Which agents the read/write rings speak for: the ones active within the
+   * hour, so their working sets are ringed without her having to tap anything
+   * — but the moment one is spotlit, just that one, so the dimmed map answers
+   * "what did THIS agent touch" rather than staying a chorus.
+   *
+   * Deliberately the LABELED set rather than every shown agent: under the Open
+   * pool a dozen agents' footprints ringed at once is confetti, and the older
+   * ones aren't the question. They stay un-ringed until spotlit.
+   */
+  const ringSessionIds = useMemo(
+    () => (footprintSession ? new Set([footprintSession]) : labeledAgentIds),
+    [footprintSession, labeledAgentIds],
+  );
+
+  const agentRings = useMemo(
+    () => (visible ? agentTouchRings(visible.nodes, ringSessionIds) : new Map<string, FileTouchKind>()),
+    [visible, ringSessionIds],
+  );
 
   const convToBot = useMemo(() => {
     const map = new Map<string, string>();
@@ -383,17 +496,13 @@ export function TerrainPage() {
       } else if (node?.kind === 'session' && node.session) {
         setSelected(node);
         setFootprintSession(node.session.id);
+        acknowledge(node.session.id); // she turned to it — stop the sonar ping
       } else if (node === null) {
         setSelected(null);
         setFootprintSession(null);
       }
     };
   });
-
-  // Keep the engine's selection in sync — idle orbs label only while tapped.
-  useEffect(() => {
-    engineRef.current?.setSelected(selected?.id ?? null);
-  }, [selected]);
 
   // Live-mode flashes: any file whose newest touch advanced since the
   // previous payload glows for a second — the "watch it work" effect.
@@ -424,6 +533,7 @@ export function TerrainPage() {
     if (!engine || !visible) return;
     if (!footprintSession) {
       engine.setFootprint(null);
+      engine.setFootprintLabels([]);
       return;
     }
     // The session's files plus its own orb — the orb stays lit while its
@@ -431,7 +541,23 @@ export function TerrainPage() {
     const ids = sessionFootprint(visible.nodes, footprintSession);
     ids.add(`${SESSION_NODE_PREFIX}${footprintSession}`);
     engine.setFootprint(ids);
+    // Same files again, ordered newest-touch-first — that order is what lets
+    // the canvas thin the captions to the most recent work when she's zoomed
+    // too far out to fit them all.
+    engine.setFootprintLabels(sessionFootprintByRecency(visible.nodes, footprintSession));
   }, [footprintSession, visible]);
+
+  useEffect(() => {
+    engineRef.current?.setAgentRings(agentRings);
+  }, [agentRings]);
+
+  useEffect(() => {
+    engineRef.current?.setPingingAgents(pingingAgents);
+  }, [pingingAgents]);
+
+  useEffect(() => {
+    engineRef.current?.setLabeledAgents(labeledAgentIds);
+  }, [labeledAgentIds]);
 
   const toggleRepo = (repoId: string) => {
     setHiddenRepos((prev) => {
@@ -471,24 +597,27 @@ export function TerrainPage() {
               : 'Nothing touched in the window yet.'}
           </div>
         ) : null}
-        {ink && !empty && !isLoading && !isError ? (
-          <TerrainKey lens={lens} ink={ink} hidden={selected !== null} showAgents={shownAgentIds.size > 0} />
-        ) : null}
       </div>
 
       <div className={styles.chrome}>
         <div className={styles.topBar}>
           <h1 className={styles.title}>Terrain</h1>
-          <div className={styles.chipRow} role="group" aria-label="Heat half-life">
-            {HEAT_LENSES.map((l) => (
+          {/* Which territories are drawn — up here with the other "how much of
+              the map to show" controls (Files, Dates). The heat lens moved the
+              other way, down to the bottom bar, since it's about how the map
+              is coloured rather than what's in it. */}
+          <div className={styles.chipRow} role="group" aria-label="Territories">
+            {(data?.repos ?? []).map((repo) => (
               <button
-                key={l}
+                key={repo.id}
                 type="button"
-                className={[styles.chip, lens === l ? styles.chipActive : ''].filter(Boolean).join(' ')}
-                aria-pressed={lens === l}
-                onClick={() => setLens(l)}
+                className={[styles.chip, styles.repoChip, hiddenRepos.has(repo.id) ? styles.chipOff : '']
+                  .filter(Boolean)
+                  .join(' ')}
+                aria-pressed={!hiddenRepos.has(repo.id)}
+                onClick={() => toggleRepo(repo.id)}
               >
-                {LENS_LABELS[l]}
+                {repo.name}
               </button>
             ))}
           </div>
@@ -519,41 +648,44 @@ export function TerrainPage() {
         ) : null}
       </div>
 
-      {/* What's ON the map (which territories, whose agents) lives at the
-          bottom, away from the dials that control how much of it you see.
-          Left-anchored so it never runs under the colour key at bottom-right. */}
+      {/* How the map is LIT and whose agents are on it, as one full-width row:
+          the controls take everything left of the colour key, which holds the
+          bottom-right corner and which the Heat bar directly drives. */}
       <div className={styles.chromeBottom}>
-        {/* The agent control: Active button, a window that slides past agents
-            over the ranked roster, and a popup list to spotlight one. */}
-        <TerrainAgentBar
-          ranked={rankedAgents}
-          shownIds={shownAgentIds}
-          activeOnly={activeOnly}
-          onActiveOnly={setActiveOnly}
-          from={agentWindow.from}
-          to={agentWindow.to}
-          onWindow={(from, to) => setAgentWindow({ from, to })}
-          spotlighted={footprintSession}
-          onSpotlight={(id) => {
-            setFootprintSession(id);
-            setSelected(null);
-          }}
-        />
-        <div className={styles.chipRow} role="group" aria-label="Territories">
-          {(data?.repos ?? []).map((repo) => (
-            <button
-              key={repo.id}
-              type="button"
-              className={[styles.chip, styles.repoChip, hiddenRepos.has(repo.id) ? styles.chipOff : '']
-                .filter(Boolean)
-                .join(' ')}
-              aria-pressed={!hiddenRepos.has(repo.id)}
-              onClick={() => toggleRepo(repo.id)}
-            >
-              {repo.name}
-            </button>
-          ))}
+        <div className={styles.bottomControls}>
+          {/* The agent control: Active button, a window that slides past agents
+              over the ranked roster, and a popup list to spotlight one. */}
+          <TerrainAgentBar
+            ranked={rankedAgents}
+            shownIds={shownAgentIds}
+            pool={pool}
+            section={section}
+            onPool={setPool}
+            onSection={setSection}
+            from={agentWindow.from}
+            to={agentWindow.to}
+            onWindow={(from, to) => setAgentWindow({ from, to })}
+            spotlighted={footprintSession}
+            onSpotlight={(id) => {
+              setFootprintSession(id);
+              setSelected(null);
+              if (id) acknowledge(id); // tapping its row in the list counts too
+            }}
+          />
+          {/* The heat lens, sitting next to the colour key it controls. */}
+          <TerrainHeatBar days={heatDays} onDays={setHeatDays} />
         </div>
+        {/* The key holds the bottom-right corner. As a layout sibling it
+            reserves its own width, which is what lets the controls beside it
+            expand right up to its edge. */}
+        {ink && !empty && !isLoading && !isError ? (
+          <TerrainKey
+            halfLife={halfLife}
+            ink={ink}
+            hidden={selected !== null}
+            showAgents={shownAgentIds.size > 0}
+          />
+        ) : null}
       </div>
 
       <Sheet open={selected !== null} title={selected?.label} onClose={() => setSelected(null)}>

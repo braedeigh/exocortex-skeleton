@@ -41,17 +41,21 @@
 
 /* --- the window over the ranked roster --- */
 
+/* No max-width: the bottom chrome spans the whole page now, and the point of
+   that width is for this track to use it — a wider window is a finer grip on
+   the roster.
+
+   It's never dimmed any more either. The old `.windowDimmed` faded this to
+   35% and made it inert whenever the Active toggle was on, because the two
+   controls were rival owners of one value. The pool selector fixed that at
+   the root: the button chooses WHICH agents, this chooses WHICH SLICE of
+   them, and both are always live. */
 .window {
   flex: 1 1 auto;
   min-width: 96px;
-  max-width: 320px;
   display: flex;
   align-items: center;
   min-height: 40px;
-}
-
-.windowDimmed {
-  opacity: 0.35;
 }
 
 .dualTrack {
@@ -167,6 +171,8 @@
   position: absolute;
   bottom: calc(100% + 8px);
   left: 0;
+  /* see .popRight — the bar spans the page now, so a right-hand button's
+     menu has to open leftward or it hangs off the screen */
   min-width: 12rem;
   max-width: 16rem;
   max-height: 40vh;
@@ -185,6 +191,48 @@
   z-index: 5;
 }
 
+/* Section heading inside the pool popup — the menu carries two independent
+   choices (which agents, which section), and without headings the six rows
+   read as one list where picking any replaces the last. */
+.popHead {
+  padding: var(--space-1) var(--space-2) 2px;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* The heading of the SECOND group needs air above it, or the two groups run
+   together into one column of rows. */
+.popHead + .popRow {
+  margin-bottom: 0;
+}
+
+.popHead:not(:first-child) {
+  margin-top: var(--space-1);
+  border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  padding-top: var(--space-2);
+}
+
+/* What a pool actually means, on the row that offers it — "Active" alone
+   can't say "within the hour". Sits right of the label, quiet. */
+.popHint {
+  margin-left: auto;
+  padding-left: var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+}
+
+/* The ▾ on the pool button: this one opens a menu rather than toggling, and
+   nothing else in the bar says so. */
+.caret {
+  margin-left: 4px;
+  font-size: var(--font-size-sm);
+  opacity: 0.7;
+}
+
 .popRow {
   display: flex;
   align-items: center;
@@ -200,6 +248,13 @@
   font-size: var(--font-size-md);
   text-align: left;
   cursor: pointer;
+}
+
+/* The Agents button sits at the far right of a full-width bar, so its menu
+   anchors to its right edge instead of running off the page. */
+.popRight {
+  left: auto;
+  right: 0;
 }
 
 .popRow:hover {

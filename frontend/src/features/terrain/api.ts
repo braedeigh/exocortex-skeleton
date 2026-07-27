@@ -55,6 +55,14 @@ export interface TerrainLiveSession {
   title: string;
   bot: string;
   running: boolean;
+  /** Not archived — the map's "Open" pool. A real server-side state, unlike
+   * the browser-local heartbeat the agent bar used to call "active".
+   * Optional: payloads built before this field existed simply don't say. */
+  open?: boolean;
+  /** 'personal' | 'orchestra' — which room the session lives in, derived
+   * server-side for entries predating the field. Drives the agent bar's
+   * section filter. */
+  lane?: string;
   last: string | null;
 }
 

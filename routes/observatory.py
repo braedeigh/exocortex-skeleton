@@ -946,8 +946,13 @@ def _build_terrain(file_cap=_TERRAIN_FILE_CAP):
     # attribution in the payload, plus anything running right now (even if it
     # hasn't touched a file yet). Identity/status only — the per-file
     # writes/reads live in files[].sessions; the frontend inverts those.
+    # Open sessions join the roster even with no footprint and nothing running:
+    # the map's "Open" pool is defined by this list, so a session missing from
+    # it would be silently under-reported rather than merely undrawn.
+    open_ids = {cid for cid, meta in index.items()
+                if isinstance(meta, dict) and not meta.get("archived")}
     session_ids = {cid for cid, conv in footprints.items()
-                   if isinstance(conv, dict) and conv.get("files")} | running_ids
+                   if isinstance(conv, dict) and conv.get("files")} | running_ids | open_ids
     sessions_out = []
     for cid in session_ids:
         meta = index.get(cid) if isinstance(index.get(cid), dict) else {}
@@ -955,6 +960,13 @@ def _build_terrain(file_cap=_TERRAIN_FILE_CAP):
                              "title": _terrain_session_title(cid, gists, index),
                              "bot": meta.get("bot"),
                              "running": cid in running_ids,
+                             # Open = not archived. A real, server-side state
+                             # she controls, unlike the browser-local heartbeat
+                             # the map used to call "active".
+                             "open": cid in open_ids,
+                             # Which room it lives in. Derived for entries that
+                             # predate the field, so nothing needs migrating.
+                             "lane": _conv_lane(meta),
                              "last": meta.get("last_at")})
     sessions_out.sort(key=lambda s: s.get("last") or "", reverse=True)
 

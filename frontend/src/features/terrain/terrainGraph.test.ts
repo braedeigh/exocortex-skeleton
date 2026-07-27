@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  agentTouchRings,
   buildTerrainGraph,
+  formatAge,
+  heatKeyTicks,
   computeFileHeat,
   fileCreatedWithin,
   CREATED_FRESH_WINDOW_SECONDS,
@@ -10,6 +13,7 @@ import {
   sessionFileTouch,
   sessionFootprint,
   sessionLastSeconds,
+  sessionFootprintByRecency,
   sessionTouchRings,
   topHeatFiles,
   LENS_HALF_LIFE_SECONDS,
@@ -22,7 +26,7 @@ import {
   terrainFileTotal,
   type TerrainNode,
 } from './terrainGraph';
-import type { TerrainData, TerrainFile, TerrainRepo } from './api';
+import type { TerrainData, TerrainFile, TerrainLiveSession, TerrainRepo } from './api';
 
 const NOW = 1_700_000_000; // fixed unix-seconds "now" for deterministic tests
 
@@ -247,7 +251,7 @@ describe('sessionFootprint', () => {
 });
 
 describe('buildSessionOrbs (via buildTerrainGraph)', () => {
-  const liveSessions = [
+  const liveSessions: TerrainLiveSession[] = [
     { id: 's1', title: 'Fix the kitchen', bot: 'spark', running: true, last: new Date((NOW - 30) * 1000).toISOString() },
     { id: 's-elsewhere', title: 'No footprint here', bot: 'keeper', running: false, last: null },
   ];
@@ -335,6 +339,57 @@ describe('buildSessionOrbs (via buildTerrainGraph)', () => {
     const g = buildTerrainGraph(dataWithSessions(), 'week', NOW, {});
     const orbs = g.nodes.filter((n) => n.kind === 'session');
     expect(orbs.map((o) => o.session?.id).sort()).toEqual(['s1', 's2']);
+  });
+
+  // opts.alwaysOrbIds — "any open agent shows on the map", even one that
+  // hasn't touched a file yet and so never appears in the files[] inversion.
+  it('gives a footprint-less session an orb when alwaysOrbIds names it', () => {
+    const g = buildTerrainGraph(dataWithSessions(), 'week', NOW, {
+      alwaysOrbIds: new Set(['s-elsewhere']),
+    });
+    const orb = g.nodes.find((n) => n.kind === 'session' && n.session?.id === 's-elsewhere');
+    expect(orb?.label).toBe('No footprint here');
+    expect(orb?.session?.files).toBe(0);
+  });
+
+  it('gives a footprint-less orb no tethers — it has no territory to be parked in', () => {
+    const g = buildTerrainGraph(dataWithSessions(), 'week', NOW, {
+      alwaysOrbIds: new Set(['s-elsewhere']),
+    });
+    expect(g.edges.some((e) => e.source === 'session:s-elsewhere')).toBe(false);
+  });
+
+  it('never doubles an orb for a session that already has a footprint', () => {
+    const g = buildTerrainGraph(dataWithSessions(), 'week', NOW, {
+      alwaysOrbIds: new Set(['s1', 's-elsewhere']),
+    });
+    expect(g.nodes.filter((n) => n.kind === 'session' && n.session?.id === 's1')).toHaveLength(1);
+  });
+
+  // open/lane drive the agent bar's pool + section filters. They only exist on
+  // the payload's top-level sessions array, so an orb known purely from file
+  // attribution has to degrade rather than guess.
+  it('carries open + lane through from the sessions array', () => {
+    const data = dataWithSessions();
+    data.sessions = [{ ...liveSessions[0], open: true, lane: 'personal' }];
+    const g = buildTerrainGraph(data, 'week', NOW);
+    const orb = g.nodes.find((n) => n.kind === 'session' && n.session?.id === 's1');
+    expect(orb?.session?.open).toBe(true);
+    expect(orb?.session?.lane).toBe('personal');
+  });
+
+  it('reads an orb the sessions array never mentions as closed, with no lane', () => {
+    const g = buildTerrainGraph(dataWithSessions(), 'week', NOW);
+    const orb = g.nodes.find((n) => n.kind === 'session' && n.session?.id === 's2');
+    expect(orb?.session?.open).toBe(false);
+    expect(orb?.session?.lane).toBe('');
+  });
+
+  it('skips an alwaysOrbIds session the payload has no identity for — no title, no orb', () => {
+    const g = buildTerrainGraph(dataWithSessions(), 'week', NOW, {
+      alwaysOrbIds: new Set(['s-unknown']),
+    });
+    expect(g.nodes.some((n) => n.kind === 'session' && n.session?.id === 's-unknown')).toBe(false);
   });
 });
 
@@ -764,5 +819,116 @@ describe('sessionFileTouch / sessionTouchRings (focus rings)', () => {
     expect(rings.get('skeleton:file:n.py')).toBe('created');
     // s2's file is not in s1's ring set.
     expect(rings.has('skeleton:file:o.py')).toBe(false);
+  });
+});
+
+describe('formatAge / heatKeyTicks (the colour key, derived from the half-life)', () => {
+  it('reproduces the old Day key exactly at a one-day half-life', () => {
+    expect(heatKeyTicks(LENS_HALF_LIFE_SECONDS.day)).toEqual(['now', '6h', '1d+']);
+  });
+
+  it('scales with the bar — a longer half-life pushes both ticks older', () => {
+    expect(heatKeyTicks(LENS_HALF_LIFE_SECONDS.week)).toEqual(['now', '2d', '7d+']);
+    expect(heatKeyTicks(LENS_HALF_LIFE_SECONDS.month)).toEqual(['now', '8d', '30d+']);
+  });
+
+  it('always leads with now and marks the oldest tick as a floor', () => {
+    for (const days of [1, 3, 9, 17, 30]) {
+      const ticks = heatKeyTicks(days * 86400);
+      expect(ticks[0]).toBe('now');
+      expect(ticks[2].endsWith('+')).toBe(true);
+    }
+  });
+
+  it('climbs minutes → hours → days without ever switching to weeks', () => {
+    expect(formatAge(600)).toBe('10m');
+    expect(formatAge(7200)).toBe('2h');
+    expect(formatAge(86400 * 9)).toBe('9d');
+  });
+
+  it('never reports a zero age — the shortest label is a minute, not "0m"', () => {
+    expect(formatAge(5)).toBe('1m');
+  });
+});
+
+describe('sessionFootprintByRecency (which files a spotlit agent gets to name)', () => {
+  const old = file('old.py', [NOW], [{ id: 's1', title: 'w', writes: 1, reads: 0, last: NOW - 9000 }]);
+  const recent = file('recent.py', [NOW], [{ id: 's1', title: 'w', writes: 1, reads: 0, last: NOW - 60 }]);
+  const mid = file('mid.py', [NOW], [{ id: 's1', title: 'w', writes: 1, reads: 0, last: NOW - 600 }]);
+  const stampless = file('none.py', [NOW], [{ id: 's1', title: 'w', writes: 1, reads: 0, last: null }]);
+  const other = file('other.py', [NOW], [{ id: 's2', title: 'x', writes: 1, reads: 0, last: NOW - 10 }]);
+
+  function nodes() {
+    return buildTerrainGraph(
+      makeData([
+        { id: 'skeleton', name: 'App code', root: '/app', files: [old, recent, mid, stampless, other] },
+      ]),
+      'week',
+      NOW,
+    ).nodes;
+  }
+
+  it('orders the footprint newest-touch-first', () => {
+    expect(sessionFootprintByRecency(nodes(), 's1').slice(0, 3)).toEqual([
+      'skeleton:file:recent.py',
+      'skeleton:file:mid.py',
+      'skeleton:file:old.py',
+    ]);
+  });
+
+  it('keeps a file whose stamp it cannot read, at the back rather than dropping it', () => {
+    const ids = sessionFootprintByRecency(nodes(), 's1');
+    expect(ids).toHaveLength(4);
+    expect(ids[ids.length - 1]).toBe('skeleton:file:none.py');
+  });
+
+  it('excludes files another agent touched', () => {
+    expect(sessionFootprintByRecency(nodes(), 's1')).not.toContain('skeleton:file:other.py');
+  });
+
+  it('returns nothing for an agent with no footprint', () => {
+    expect(sessionFootprintByRecency(nodes(), 'nobody')).toEqual([]);
+  });
+});
+
+describe('agentTouchRings (every shown agent at once)', () => {
+  const shared = file('shared.py', [NOW], [
+    { id: 's1', title: 'reader', writes: 0, reads: 4, last: NOW - 60 },
+    { id: 's2', title: 'writer', writes: 2, reads: 0, last: NOW - 30 },
+  ]);
+  const mine = file('m.py', [NOW], [{ id: 's1', title: 'reader', writes: 3, reads: 0, last: NOW - 60 }]);
+  const theirs = file('t.py', [NOW], [{ id: 's3', title: 'absent', writes: 1, reads: 0, last: NOW - 60 }]);
+
+  function graph() {
+    return buildTerrainGraph(
+      makeData([{ id: 'skeleton', name: 'App code', root: '/app', files: [shared, mine, theirs] }]),
+      'week',
+      NOW,
+    );
+  }
+
+  it('rings files across every named agent, not just one', () => {
+    const rings = agentTouchRings(graph().nodes, new Set(['s1', 's2']));
+    expect(rings.get('skeleton:file:m.py')).toBe('modified');
+    expect(rings.get('skeleton:file:shared.py')).toBeDefined();
+  });
+
+  it('takes the strongest touch when two agents touched the same file — a write outranks a read', () => {
+    const rings = agentTouchRings(graph().nodes, new Set(['s1', 's2']));
+    expect(rings.get('skeleton:file:shared.py')).toBe('modified');
+  });
+
+  it('reads the shared file as read when only its reader is shown', () => {
+    const rings = agentTouchRings(graph().nodes, new Set(['s1']));
+    expect(rings.get('skeleton:file:shared.py')).toBe('read');
+  });
+
+  it('leaves files untouched by any named agent unringed', () => {
+    const rings = agentTouchRings(graph().nodes, new Set(['s1', 's2']));
+    expect(rings.has('skeleton:file:t.py')).toBe(false);
+  });
+
+  it('rings nothing when no agents are shown', () => {
+    expect(agentTouchRings(graph().nodes, new Set()).size).toBe(0);
   });
 });

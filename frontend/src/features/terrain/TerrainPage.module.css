@@ -44,19 +44,45 @@
   pointer-events: none;
 }
 
-/* The bottom bar: what's ON the map (repo territories, agent orbs), split
-   from the top bar's "how much of it to draw". Same transparent treatment.
-   Left-anchored with no `right`, so it sizes to its chips and can never run
-   under the colour key pinned at bottom-right. Safe-area padding DOES belong
-   here — this edge really is the screen's edge, where the home indicator is. */
+/* The bottom bar: how the map is LIT and who's on it — the agent bar and the
+   Heat slider. Same transparent treatment as the top.
+
+   It spans the FULL page width, as a ROW: the controls take everything
+   available on the left, the colour key sits flush in the bottom-right corner
+   beside them. This used to be left-anchored and capped at 72% so it could
+   never run *under* a free-floating key — but these are sliders, and a
+   slider's width is its precision, so surrendering a third of the page to
+   protect a legend had it backwards. Laying them side by side instead means
+   the controls take every pixel the key isn't using, and nothing overlaps
+   without either one having to guess the other's size.
+
+   align-items: flex-end is what keeps the key on the floor while the controls
+   stack upward next to it.
+
+   Safe-area padding DOES belong here — this edge really is the screen's edge,
+   where the home indicator is. */
 .chromeBottom {
   position: absolute;
   left: 0;
+  right: 0;
   bottom: 0;
   z-index: 3;
-  max-width: 72%;
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
   pointer-events: none;
   padding: var(--space-2) var(--space-3) calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+}
+
+/* The agent bar and the Heat bar, stacked. min-width: 0 so this column is
+   what yields when the row gets tight — the key is a fixed little panel and
+   can't usefully shrink, while a slider can. */
+.bottomControls {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
 }
 
 .chromeBottom .chipRow {
@@ -327,10 +353,14 @@
 /* --- The color key (bottom-right corner): explains the ramp + the orb. ---
    pointer-events: none — pan/zoom gestures pass straight through it. */
 
+/* The key is the right-hand cell of the bottom row — flush to the corner, as
+   it always looked, but now a sibling of the controls rather than a free
+   floater above them. That's the whole trick: as a layout peer it reserves its
+   own space, so the sliders can expand right up to its edge instead of
+   stopping short at a guessed percentage. Never shrinks (its labels are the
+   point); the controls column yields instead. */
 .key {
-  position: absolute;
-  right: var(--space-3);
-  bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+  flex: none;
   z-index: 5;
   display: flex;
   flex-direction: column;
@@ -390,26 +420,22 @@
 
 /* --- phone / installed PWA: the bottom row rides the bottom edge --- */
 
-/* Both the chips and the colour key drop as low as they honestly can, giving
-   the map back the strip they were floating in. Deliberately the LAST rules
-   in this file: they restate `.key`'s own `bottom` and `.chromeBottom`'s own
-   `padding`, and a media query adds no specificity — source order is what
-   makes these win. (max-width 768px is the complement of the shell's
-   DESKTOP_QUERY, so it covers the installed PWA and mobile browsers alike.)
+/* The whole bottom stack drops as low as it honestly can, giving the map back
+   the strip it was floating in. Deliberately the LAST rule in this file: it
+   restates `.chromeBottom`'s own padding, and a media query adds no
+   specificity — source order is what makes it win. (max-width 768px is the
+   complement of the shell's DESKTOP_QUERY, so it covers the installed PWA and
+   mobile browsers alike.)
 
    env(safe-area-inset-bottom) is the floor here, not decoration: on a
-   gesture-nav phone that band is the system's swipe-up zone, and a chip
+   gesture-nav phone that band is the system's swipe-up zone, and a control
    sitting inside it has its taps eaten by the home indicator. So the padding
    drops to a hairline ABOVE the inset rather than through it — as low as
-   tappable controls can go without fighting the OS. The key takes the same
-   baseline so the two read as one row across the bottom. */
+   tappable controls can go without fighting the OS. The key needs no rule of
+   its own any more: it rides inside this stack, so it inherits the same
+   baseline automatically. */
 @media (max-width: 768px) {
   .chromeBottom {
     padding: var(--space-1) var(--space-2) calc(var(--space-1) + env(safe-area-inset-bottom, 0px));
-  }
-
-  .key {
-    right: var(--space-2);
-    bottom: calc(var(--space-1) + env(safe-area-inset-bottom, 0px));
   }
 }

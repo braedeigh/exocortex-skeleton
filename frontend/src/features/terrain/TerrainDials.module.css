@@ -149,6 +149,38 @@
   border-radius: var(--radius-pill);
 }
 
+/* --- single-handle filled track (Files) ---------------------------------
+
+   The grey line lives on this wrapper rather than on the input, so the purple
+   `.selected` span can sit between the line and the thumb. `.rangeFilled` then
+   clears the input's own track, which would otherwise paint over the fill.
+
+   Unlike `.rangeDual` this keeps pointer-events on the whole input: there's
+   one handle here, so the entire track should be grabbable. */
+.fillTrack::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 6px;
+  transform: translateY(-50%);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--text) 22%, transparent);
+}
+
+.rangeFilled {
+  position: relative;
+}
+
+.rangeFilled::-webkit-slider-runnable-track {
+  background: transparent;
+}
+
+.rangeFilled::-moz-range-track {
+  background: transparent;
+}
+
 /* --- dual-handle date range --- */
 
 /* Two full-width inputs stacked on one track. Only the thumbs take pointer

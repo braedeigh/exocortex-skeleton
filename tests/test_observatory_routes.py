@@ -691,7 +691,7 @@ def test_footprint_merge_maps_abs_path_to_repo_relative(terrain_client, tmp_path
     # (per-file counts live in files[].sessions above)
     assert data["sessions"] == [
         {"id": "conv-1", "title": "Gist Title", "bot": None,
-         "running": False, "last": None},
+         "running": False, "open": True, "lane": "orchestra", "last": None},
     ]
 
 
@@ -738,7 +738,8 @@ def test_live_touches_merge_for_a_running_session(terrain_client, tmp_path, monk
     # and the session is on the map, marked running
     sess = next(s for s in data["sessions"] if s["id"] == "conv-live")
     assert sess == {"id": "conv-live", "title": "Mid-flight work",
-                    "bot": "spark", "running": True, "last": last_at}
+                    "bot": "spark", "running": True, "open": True,
+                    "lane": "personal", "last": last_at}
 
 
 def test_running_session_with_no_touches_still_appears_in_sessions(terrain_client, tmp_path, monkeypatch):
@@ -751,6 +752,50 @@ def test_running_session_with_no_touches_still_appears_in_sessions(terrain_clien
     data = terrain_client.get("/api/observatory/terrain").get_json()
     assert [s["id"] for s in data["sessions"]] == ["conv-idle"]
     assert data["sessions"][0]["running"] is True
+
+
+def test_sessions_report_open_and_lane_for_the_maps_pools(terrain_client, tmp_path, monkeypatch):
+    """The map's agent selector is built on these two fields: `open` is the
+    Open pool (not archived — a real server-side state, unlike the browser-
+    local heartbeat it replaced) and `lane` is the Personal/Orchestra filter,
+    derived from cwd for entries that predate the field."""
+    _set_terrain_repos(monkeypatch, tmp_path / "a", tmp_path / "b")
+    (store.DATA_DIR / "bot_chats").mkdir(parents=True, exist_ok=True)
+    store.write("bot_chats/index", {
+        "conv-open": {"title": "Still going", "last_at": "2026-01-03T00:00:00"},
+        "conv-closed": {"title": "Done with it", "last_at": "2026-01-02T00:00:00",
+                        "archived": "2026-01-02T09:00:00"},
+        "conv-personal": {"title": "Vault work", "last_at": "2026-01-01T00:00:00",
+                          "cwd": str(tmp_path / "somewhere-else")},
+    })
+    # An archived session only reaches the roster by having a footprint; the
+    # open ones get there on being open alone.
+    store.write("bot_chats/footprints", {
+        "conv-closed": {"files": {str(tmp_path / "a" / "x.py"): {"writes": 1, "reads": 0}}},
+    })
+
+    by_id = {s["id"]: s for s in terrain_client.get("/api/observatory/terrain").get_json()["sessions"]}
+
+    assert by_id["conv-open"]["open"] is True
+    assert by_id["conv-closed"]["open"] is False
+    # No cwd at all can't be placed, so it derives to the gated lane —
+    # an unknown must never widen a session's scope by accident.
+    assert by_id["conv-open"]["lane"] == "orchestra"
+    # A session rooted anywhere but the app checkout is Personal.
+    assert by_id["conv-personal"]["lane"] == "personal"
+
+
+def test_open_session_joins_the_roster_with_no_footprint_and_nothing_running(
+    terrain_client, tmp_path, monkeypatch
+):
+    """The Open pool is defined by this list, so an open session missing from
+    it would be under-reported rather than merely undrawn."""
+    _set_terrain_repos(monkeypatch, tmp_path / "a", tmp_path / "b")
+    (store.DATA_DIR / "bot_chats").mkdir(parents=True, exist_ok=True)
+    store.write("bot_chats/index", {"conv-quiet": {"title": "Not touched a thing"}})
+    data = terrain_client.get("/api/observatory/terrain").get_json()
+    assert [s["id"] for s in data["sessions"]] == ["conv-quiet"]
+    assert data["sessions"][0]["running"] is False
 
 
 def test_terrain_caches_the_payload_for_the_ttl(terrain_client, tmp_path, monkeypatch):
