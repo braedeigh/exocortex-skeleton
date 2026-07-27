@@ -35,8 +35,10 @@ sudo mkdir -p "$EXOCORTEX_DATA_DIR"
 python3 -m venv venv
 venv/bin/pip install -r requirements.txt
 
-# 4. First run generates auth.json with the password "exocortex".
-#    CHANGE IT immediately in the app's Settings after first login.
+# 4. First run generates auth.json. Set EXOCORTEX_DEFAULT_PASSWORD before
+#    first boot to choose the admin password; if unset, a random one-time
+#    password is generated and printed to the server log — grab it from
+#    `journalctl -u exocortex` (or stderr) and change it in Settings.
 
 # 5. Harden the box: firewall (ufw), fail2ban, SSH key-only login, etc.
 
