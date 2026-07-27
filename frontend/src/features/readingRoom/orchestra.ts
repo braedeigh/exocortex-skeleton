@@ -32,23 +32,37 @@ export interface OrchestraFile {
 export interface OrchestraRow {
   id: string;
   title: string;
+  /** A turn is running server-side right now (breathing dot). */
+  running: boolean;
+  /** The question a session raised via request_input, or null. A non-null
+   * value makes the card glow orange — it's waiting on her, even if its turn
+   * has already ended (that's the whole point: the ask outlives the turn). */
+  awaiting: string | null;
   /** Files this session is writing/creating, most-active first. */
   files: OrchestraFile[];
   fileCount: number;
 }
 
 /**
- * Invert the terrain payload into one row per running session: the files that
- * session is writing/creating. Rows preserve the roster's order (running →
- * most-recent), so the section reads the same way the roster does.
+ * Invert the terrain payload into one row per Orchestra session (running OR
+ * awaiting her input): the files that session is writing/creating, plus its
+ * live state. Rows preserve the roster's order, so the section reads the same
+ * way the roster does; the component floats the awaiting ones to the top.
  */
 export function orchestraRows(
-  running: SessionMeta[],
+  sessions: SessionMeta[],
   terrain: TerrainData | undefined,
 ): OrchestraRow[] {
   const byId = new Map<string, OrchestraRow>();
-  for (const s of running) {
-    byId.set(s.id, { id: s.id, title: s.title || s.id, files: [], fileCount: 0 });
+  for (const s of sessions) {
+    byId.set(s.id, {
+      id: s.id,
+      title: s.title || s.id,
+      running: s.running === true,
+      awaiting: s.awaiting_input ?? null,
+      files: [],
+      fileCount: 0,
+    });
   }
 
   for (const repo of terrain?.repos ?? []) {
@@ -75,5 +89,5 @@ export function orchestraRows(
     row.fileCount = row.files.length;
   }
 
-  return running.map((s) => byId.get(s.id)).filter((r): r is OrchestraRow => r != null);
+  return sessions.map((s) => byId.get(s.id)).filter((r): r is OrchestraRow => r != null);
 }

@@ -254,6 +254,14 @@ def _spawn(config, text, resume_sid, cwd_override=None):
     cwd = cwd_override or config.get("cwd")
     if not (cwd and os.path.isdir(cwd)):
         cwd = None
+    # The turn learns its OWN conversation id from the environment, so a session
+    # can call scripts/request_input.py to raise its "I need you" flag without
+    # being told which conversation it is. Threaded through `config` (not a new
+    # _spawn arg) so the existing test spies on _spawn keep their signatures.
+    env = None
+    conv_id = config.get("conv_id")
+    if conv_id:
+        env = {**os.environ, "EXOCORTEX_CONV_ID": str(conv_id)}
     # stderr goes to a spooled temp file, NOT a pipe: nobody reads stderr
     # until the process ends, and an unread pipe blocks claude cold once it
     # writes ~64KB of warnings (verbose mode makes that a real number).
@@ -261,7 +269,7 @@ def _spawn(config, text, resume_sid, cwd_override=None):
     proc = subprocess.Popen(
         _build_cmd(config, resume_sid),
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=stderr_f,
-        cwd=cwd, text=True, bufsize=1,
+        cwd=cwd, text=True, bufsize=1, env=env,
     )
     proc.stdin.write(text)
     proc.stdin.close()
@@ -871,6 +879,39 @@ def register(app):
         free). `bots` is the old per-bot-roster shape, synthesized as a
         single "keeper" entry wrapping the same list, kept for cached PWA
         clients that still expect it."""
+# --- Request-for-input: a running session's structural "I need you" ---------
+# A session that hits a real fork it can't resolve raises this DETERMINISTICALLY
+# (via scripts/request_input.py, which reads its own conv id from
+# EXOCORTEX_CONV_ID) rather than the app inferring "it's asking a question" from
+# the last message — structural over prose, the same instinct as the doc-guard
+# and keeper_capture. The flag rides the roster's meta spread (bots_list)
+# straight onto the Orchestra card, which glows orange and shows the question;
+# the owner's next send clears it (_send_to_conversation, above). Pure
+# augmentation — nothing wakes the session; her answer IS the next --resume
+# turn. She is the transport (no timer/liveness machinery — that's the trap).
+
+_REQUEST_INPUT_MAX = 1000   # a question, not an essay
+
+
+def request_input(conv_id, question):
+    """Set `awaiting_input` (the question) on a conversation — the one validated
+    entry point the agent CLI (and any future HTTP door) share, so agents never
+    write session state directly. Returns (payload, status): 200 on success,
+    400 on a bad id / empty question, 404 on an unknown conversation. Loud,
+    precise failures — same narrow-door doctrine as open_spinoff()."""
+    if not (conv_id and _CONV_ID_RE.match(str(conv_id))):
+        return {"error": "invalid conversation id"}, 400
+    question = (question or "").strip()[:_REQUEST_INPUT_MAX]
+    if not question:
+        return {"error": "empty question"}, 400
+    with store.mutate("bot_chats/index", {}) as index:
+        entry = index.get(conv_id)
+        if not isinstance(entry, dict):
+            return {"error": "not found"}, 404
+        entry["awaiting_input"] = question
+    return {"ok": True, "awaiting_input": question}, 200
+
+
         chats = _chats_dir()
         index = store.read("bot_chats/index", {})
         sessions = sorted(
@@ -1371,12 +1412,17 @@ def register(app):
                 if isinstance(entry, dict):
                     entry["running"] = False
             return jsonify({"error": f"not enough memory to start claude "
+            # Her answer to a request-for-input IS this send: clear the orange
+            # "awaiting_input" flag so the Orchestra card stops glowing the
+            # moment she replies. (S2 request-for-input — see request_input().)
+            entry.pop("awaiting_input", None)
                                      f"({avail}MB available)"}), 503
 
         # Capture BEFORE the model runs (Slice-1 guarantee, same door the
         # terminal chat session uses). Slash commands are operator control,
         # not journal content — same rule as terminal_send().
         journaled = False
+            config["conv_id"] = conv_id   # so the turn's env carries EXOCORTEX_CONV_ID (_spawn)
         if record and conv_journals and not text.lstrip().startswith("/"):
             journaled = terminal._capture_journal(text, text)
 

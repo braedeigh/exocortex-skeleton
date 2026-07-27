@@ -119,6 +119,28 @@ describe('orchestraRows', () => {
     expect(rows.map((r) => r.id)).toEqual(['b', 'a']);
   });
 
+  it('carries running + awaiting state onto each row', () => {
+    const rows = orchestraRows(
+      [
+        session('run', { running: true }),
+        session('ask', { running: false, awaiting_input: 'sqlite or postgres?' }),
+      ],
+      terrain([]),
+    );
+    const byId = Object.fromEntries(rows.map((r) => [r.id, r]));
+    expect(byId.run).toMatchObject({ running: true, awaiting: null });
+    expect(byId.ask).toMatchObject({ running: false, awaiting: 'sqlite or postgres?' });
+  });
+
+  it('keeps an awaiting session that is no longer running (the ask outlives the turn)', () => {
+    const rows = orchestraRows(
+      [session('ask', { running: false, awaiting_input: 'which way?' })],
+      terrain([]),
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].awaiting).toBe('which way?');
+  });
+
   it('collects a session’s writes across both repos', () => {
     const rows = orchestraRows(
       [session('a')],

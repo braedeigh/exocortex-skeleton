@@ -29,6 +29,15 @@
   color: var(--accent);
 }
 
+/* When something is waiting on her, the tally goes orange and takes over the
+   heading — the loudest thing in the section. */
+.waitCount {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--orange);
+}
+
 /* --- idle: the quiet state --- */
 
 .idle {
@@ -48,12 +57,80 @@
   background: color-mix(in srgb, var(--text) 22%, transparent);
 }
 
-/* --- active: the running rows --- */
+/* --- active/waiting: the rows --- */
 
 .rows {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
+}
+
+/* --- waiting on her: the orange-glow card (S2) --- */
+/* Warm ALARM, not the working-dot's breath — a different meaning must look
+   different. Steady orange border + a faint orange wash + a soft outer glow,
+   so it reads as "your move" from across the page. The whole card is the tap
+   target (it opens the session so she can answer). */
+.awaiting {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--orange);
+  border-left: 3px solid var(--orange);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--orange) 9%, var(--card-bg));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--orange) 30%, transparent),
+    0 6px 20px -10px color-mix(in srgb, var(--orange) 55%, transparent);
+  font: inherit;
+  cursor: pointer;
+  animation: awaitGlow 2.4s ease-in-out infinite;
+}
+
+/* A slow swell of the glow — present but calm; it says "waiting", not "alarm
+   bell". Only the shadow moves (cheap, and transform/opacity-safe siblings
+   stay put), and it stills entirely under reduced-motion. */
+@keyframes awaitGlow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--orange) 30%, transparent),
+      0 6px 20px -10px color-mix(in srgb, var(--orange) 45%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--orange) 45%, transparent),
+      0 8px 26px -8px color-mix(in srgb, var(--orange) 70%, transparent);
+  }
+}
+
+.awaitTop {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--tap-target);
+}
+
+.awaitDot {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--orange);
+}
+
+.answerHint {
+  flex: none;
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--orange);
+}
+
+/* The question itself — the payload. Bigger than a caption; it's the thing she
+   reads and answers. */
+.question {
+  margin-top: var(--space-1);
+  color: var(--text);
+  font-size: var(--font-size-md);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .card {
@@ -200,7 +277,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .liveDot {
+  .liveDot,
+  .awaiting {
     animation: none;
   }
 }

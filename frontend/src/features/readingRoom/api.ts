@@ -54,6 +54,10 @@ export interface SessionMeta {
    * starts working the moment she opens it (no manual send). Consumed by the
    * first send, server-side, same as `draft`. */
   autostart?: boolean;
+  /** A running (or just-finished) session raised a structural "I need you"
+   * via scripts/request_input.py — the question text. Its Orchestra card glows
+   * orange until her next send into the session clears it (server-side). */
+  awaiting_input?: string;
   /** Model alias this session is pinned to ('opus', 'sonnet[1m]', …).
    * ABSENT = inherit the CLI's own default (~/.claude/settings.json) — the
    * case every session is in until she picks one. Resolved per turn, so

@@ -73,7 +73,10 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const running = sessions.filter((c) => c.running);
+  // Orchestra shows anything that needs watching or a reply: running now, OR
+  // awaiting her input (the ask outlives the turn, so an awaiting session isn't
+  // necessarily still "running").
+  const orchestraSessions = sessions.filter((c) => c.running || c.awaiting_input);
   const opened = openedMap();
   // isUnread lives in openedStore.ts so this dot and the reading room's
   // open-at-unread scroll anchor read the exact same comparison.
@@ -126,7 +129,7 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
         </div>
         {failed ? <div className={styles.pageError}>Couldn&rsquo;t load sessions.</div> : null}
 
-        <Orchestra runningSessions={running} onOpen={open} onChanged={refresh} />
+        <Orchestra sessions={orchestraSessions} onOpen={open} onChanged={refresh} />
 
         <div className={styles.sectionLabel}>My sessions</div>
         <div className={styles.list}>
