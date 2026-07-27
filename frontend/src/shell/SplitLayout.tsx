@@ -3,7 +3,7 @@ import { TerminalPane } from './TerminalPane';
 import { FakeTerminal } from './FakeTerminal';
 import { KeeperPane } from './KeeperPane';
 import { useSessions } from './useSessions';
-import { useChatSurfaceReadingRoom, setChatSurfaceReadingRoom } from './chatSurface';
+import { useChatSurfaceObservatory, setChatSurfaceObservatory } from './chatSurface';
 import { useMediaQuery, DESKTOP_QUERY } from './useMediaQuery';
 import styles from './SplitLayout.module.css';
 
@@ -32,7 +32,7 @@ import styles from './SplitLayout.module.css';
  *
  * WHAT'S IN THE LEFT PANE (07-25): for authed desktop it's the whole reading
  * room plus the tmux terminal, picked by a switcher at the top of the pane —
- * Sessions (the roster) / Reading room (the open conversation) / Terminal.
+ * Sessions (the roster) / Observatory (the open conversation) / Terminal.
  * Three plain tabs rather than the phone's tap-the-active-tab-again gesture:
  * there's room for them here, and a hidden gesture on a mouse surface is just
  * a hidden feature.
@@ -40,7 +40,7 @@ import styles from './SplitLayout.module.css';
  * Terminal-vs-room writes the SAME localStorage flag the mobile Chat tab
  * reads (chatSurface.ts) rather than inventing a second knob, so "which
  * surface is my chat" stays one answer per device, settable from Settings or
- * from the pane itself. Which reading-room *view* is showing is pane-local
+ * from the pane itself. Which observatory *view* is showing is pane-local
  * state — it's a place in the room, not a preference.
  *
  * The terminal and the room both stay mounted once visited and toggle by CSS
@@ -80,9 +80,11 @@ export function SplitLayout({ children }: { children: ReactNode }) {
   // Which of the two authed surfaces the left pane is showing. Not its own
   // state: it IS the chat-surface flag (see the header comment), so flipping
   // it in Settings moves this pane and vice versa.
-  const keeperPane = useChatSurfaceReadingRoom();
-  // Which view of the room is up: the roster or the open conversation.
-  const [roster, setRoster] = useState(false);
+  const keeperPane = useChatSurfaceObservatory();
+  // Which view of the room is up: the roster or the open conversation. Opens
+  // on the roster (her 07-27 ask) — the pane lands on the Observatory in
+  // general, not straight into the Keeper conversation.
+  const [roster, setRoster] = useState(true);
   const openRoom = useCallback(() => setRoster(false), []);
   // Mount-on-first-visit, then keep mounted (see header) — starts with
   // whichever surface the flag opens on.
@@ -198,10 +200,10 @@ export function SplitLayout({ children }: { children: ReactNode }) {
                 className={[styles.paneTab, keeperPane && roster ? styles.paneTabActive : '']
                   .filter(Boolean)
                   .join(' ')}
-                title="Every reading-room session"
+                title="Every observatory session"
                 onClick={() => {
                   setRoster(true);
-                  setChatSurfaceReadingRoom(true);
+                  setChatSurfaceObservatory(true);
                 }}
               >
                 Sessions
@@ -216,10 +218,10 @@ export function SplitLayout({ children }: { children: ReactNode }) {
                 title="The open conversation"
                 onClick={() => {
                   setRoster(false);
-                  setChatSurfaceReadingRoom(true);
+                  setChatSurfaceObservatory(true);
                 }}
               >
-                Reading room
+                Observatory
               </button>
               <button
                 type="button"
@@ -227,7 +229,7 @@ export function SplitLayout({ children }: { children: ReactNode }) {
                 aria-selected={!keeperPane}
                 className={[styles.paneTab, !keeperPane ? styles.paneTabActive : ''].filter(Boolean).join(' ')}
                 title="The tmux terminal"
-                onClick={() => setChatSurfaceReadingRoom(false)}
+                onClick={() => setChatSurfaceObservatory(false)}
               >
                 Terminal
               </button>

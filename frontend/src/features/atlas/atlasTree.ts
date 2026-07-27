@@ -1,6 +1,6 @@
 /**
  * atlasTree.ts — pure sorting logic for the Atlas page. Buckets every
- * reading-room session into its home: the exocortex front's five domain
+ * observatory session into its home: the exocortex front's five domain
  * shelves (the hero region), the other 11 life fronts (shelves when they
  * have sessions, a muted chip row when they don't), and an Unsorted shelf
  * for sessions with front === null.

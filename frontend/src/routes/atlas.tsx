@@ -3,9 +3,9 @@ import { AtlasPage } from '../features/atlas/AtlasPage';
 import { useDeactivateFrames } from '../shell/useIframeView';
 
 /**
- * /atlas — a visualizer of every reading-room session sorted into its home
+ * /atlas — a visualizer of every observatory session sorted into its home
  * (the exocortex front's five domain shelves, the other 11 life fronts,
- * Unsorted). Auth-only, same guard as /reading-room: it surfaces session
+ * Unsorted). Auth-only, same guard as /observatory: it surfaces session
  * content, so public visitors bounce to '/'.
  */
 export const Route = createFileRoute('/atlas')({

@@ -22,14 +22,14 @@ def data_dir(tmp_path, monkeypatch):
 
 def test_defaults_are_all_on_stock_upstream(data_dir):
     assert features.enabled("web_terminal") is True
-    assert features.enabled("reading_room") is True
+    assert features.enabled("observatory") is True
     assert features.enabled("mcp_server") is True
 
 
 def test_features_json_in_data_dir_overrides_defaults(data_dir):
     (data_dir / "features.json").write_text(json.dumps({"web_terminal": False}))
     assert features.enabled("web_terminal") is False
-    assert features.enabled("reading_room") is True  # untouched flags keep defaults
+    assert features.enabled("observatory") is True  # untouched flags keep defaults
 
 
 def test_env_wins_over_file(data_dir, monkeypatch):

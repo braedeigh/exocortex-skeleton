@@ -1,6 +1,6 @@
 /**
  * api.ts — typed calls for the automations registry (routes/automations.py).
- * Mirrors the reading room's api.ts: thin wrappers over the shared api
+ * Mirrors the observatory's api.ts: thin wrappers over the shared api
  * client, same-origin, credentials included.
  */
 import { api } from '../../api/client';

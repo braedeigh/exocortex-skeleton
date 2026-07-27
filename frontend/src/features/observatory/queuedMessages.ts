@@ -1,5 +1,5 @@
 /**
- * queuedMessages.ts — persistence for the reading room's queued sends.
+ * queuedMessages.ts — persistence for the observatory's queued sends.
  * A queued message is hers, typed and waiting its turn; the turn it waits on
  * survives the PWA closing (it runs detached server-side), so the queue has
  * to survive too. localStorage, one key per conversation.
@@ -14,7 +14,7 @@ export interface QueuedMessage {
   offRecord: boolean;
 }
 
-// 'exo-bot-queue:*' predates the reading-room rename (07-24) — the persona
+// 'exo-bot-queue:*' predates the observatory rename (07-24) — the persona
 // concept ("bot") stays, so this on-disk/localStorage key prefix is
 // deliberately unchanged.
 const queueKey = (botId: string, convId?: string) => `exo-bot-queue:${convId ?? `new-${botId}`}`;

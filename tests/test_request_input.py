@@ -1,4 +1,4 @@
-"""Request-for-input door (routes/reading_room.py + scripts/request_input.py).
+"""Request-for-input door (routes/observatory.py + scripts/request_input.py).
 
 A running session raises a STRUCTURAL "I need you" flag instead of the app
 inferring it from prose:
@@ -21,7 +21,7 @@ from flask import Flask
 
 import recap_summary
 import store
-from routes import reading_room as rr, terminal
+from routes import observatory as rr, terminal
 
 
 # --- the validated function: set + validation -------------------------------
@@ -106,7 +106,7 @@ def test_roster_surfaces_awaiting_input(bot_client):
     with store.mutate("bot_chats/index", {}) as index:
         index["c1"] = {"bot": "keeper", "title": "asker", "running": True,
                        "last_at": rr._now(), "awaiting_input": "which one?"}
-    sessions = bot_client.get("/api/reading-room").get_json()["sessions"]
+    sessions = bot_client.get("/api/observatory").get_json()["sessions"]
     conv = next(c for c in sessions if c["id"] == "c1")
     assert conv["awaiting_input"] == "which one?"
 
@@ -119,7 +119,7 @@ def test_a_send_clears_awaiting_input(bot_client):
                        "journal": False, "cwd": str(store.BUILD_DIR),
                        "allowed_tools": list(rr._BUILDER_TOOLS),
                        "awaiting_input": "which one?"}
-    _drain(bot_client.post("/api/reading-room/conversation/c1/send",
+    _drain(bot_client.post("/api/observatory/conversation/c1/send",
                            json={"text": "use sqlite"}))
     assert "awaiting_input" not in store.read("bot_chats/index", {})["c1"]
 
@@ -133,7 +133,7 @@ def test_the_turn_gets_its_conv_id_in_the_environment(bot_client):
                        "claude_session_id": None, "cost_usd": 0.0, "title": "w",
                        "journal": False, "cwd": str(store.BUILD_DIR),
                        "allowed_tools": list(rr._BUILDER_TOOLS)}
-    _drain(bot_client.post("/api/reading-room/conversation/c1/send",
+    _drain(bot_client.post("/api/observatory/conversation/c1/send",
                            json={"text": "go"}))
     seen = [json.loads(l) for l in bot_client._env_log.read_text().splitlines()]
     assert seen == ["c1"]

@@ -4,10 +4,10 @@
 Replaces `keeper_rollover.sh`, which drove the rollover by typing slash
 commands into the Keeper's tmux pane (`send-keys` — literally simulating a
 keystroke stream: text, a pause, then Enter). That worked when the Keeper's
-only surface was a tmux TUI. It now also lives in the reading room as a
+only surface was a tmux TUI. It now also lives in the observatory as a
 headless `claude -p` conversation, so this script does the same nightly job
 through that surface instead: no pane to type into, just the same _spawn +
-_run_turn machinery routes/reading_room.py uses for every turn.
+_run_turn machinery routes/observatory.py uses for every turn.
 
 The job, same as the .sh version's close/open halves:
 
@@ -30,7 +30,7 @@ Run by cron every night (the owner wires the crontab):
         /opt/exocortex/skeleton/scripts/keeper_rollover.py \
         >> .../keeper_rollover.log 2>&1
 
-Needs the venv python (imports the app's reading_room route module). The
+Needs the venv python (imports the app's observatory route module). The
 pinned Keeper conversation is found by scanning bot_chats/index for a
 non-archived entry with bot=="keeper" and pinned truthy — not by an id this
 script stamped itself (the pinned conversation predates this script and gets
@@ -46,18 +46,18 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import store                                    # noqa: E402
-from routes import reading_room as rr           # noqa: E402
+from routes import observatory as rr           # noqa: E402
 import json                                      # noqa: E402
 
 ORIGIN = "keeper_rollover"
 RUN_ID = "keeper_rollover"   # id in the scheduled_runs.json registry
 
 # --- Cross-process lock: the 3 AM cron firing and a UI-triggered manual
-# rollover (routes/reading_room.py's POST .../keeper/rollover) must never run
+# rollover (routes/observatory.py's POST .../keeper/rollover) must never run
 # at once — both would race to close/reopen the same pinned conversation.
 # One file, one fcntl.flock, taken exclusive+non-blocking so a second comer
 # fails fast instead of queueing behind the first. Shared convention with
-# routes/reading_room.py: SAME path (store.DATA_DIR/"bot_chats"/
+# routes/observatory.py: SAME path (store.DATA_DIR/"bot_chats"/
 # "rollover.lock"), but no cross-import — that module re-implements the
 # read-only probe below (rollover_running) itself rather than importing this
 # one, to keep a route module out of scripts/'s sys.path games. Keep the two
@@ -104,7 +104,7 @@ def rollover_running():
     this script's own main() (which calls _acquire_lock directly and keeps
     the lock); kept here per the module's docstring contract for anything
     else in-process that wants to ask, and mirrored (not imported) by
-    routes/reading_room.py's own copy for the UI's status endpoint."""
+    routes/observatory.py's own copy for the UI's status endpoint."""
     path = _lock_path()
     if not path.exists():
         return False

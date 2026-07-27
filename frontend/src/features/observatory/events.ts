@@ -1,8 +1,8 @@
 /**
  * events.ts — pure reducer turning the bot pipe's events into renderable
  * turns. One function handles BOTH sources: a conversation's history jsonl
- * (GET /api/reading-room/conversation/<id>) and the live SSE stream of a send —
- * they're the same event vocabulary (routes/reading_room.py relays claude's
+ * (GET /api/observatory/conversation/<id>) and the live SSE stream of a send —
+ * they're the same event vocabulary (routes/observatory.py relays claude's
  * stream-json and logs what it relays), so history replay and live streaming
  * can't drift apart.
  *
@@ -167,7 +167,7 @@ export function applyEvent(turns: Turn[], raw: unknown): Turn[] {
 }
 
 /** Index of the last user turn, or -1 if she's never sent one. The open-at-
- * unread scroll anchor (ReadingRoomPage's history-load effect) needs this:
+ * unread scroll anchor (ObservatoryPage's history-load effect) needs this:
  * catching up on unread activity means landing on HER last message, not the
  * conversation's last turn (which is usually the reply she hasn't read). */
 export function lastUserTurnIndex(turns: Turn[]): number {

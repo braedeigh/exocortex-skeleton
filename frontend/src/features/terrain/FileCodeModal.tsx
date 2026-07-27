@@ -12,7 +12,7 @@ import styles from './FileCodeModal.module.css';
  * out, re-fitted, or re-simulated — it's simply covered and then uncovered.
  *
  * The summary above the code is the file's OWN leading docblock, lifted
- * server-side (routes/reading_room.py `_terrain_file_summary`), not a
+ * server-side (routes/observatory.py `_terrain_file_summary`), not a
  * generated description. This codebase explains itself at the top of nearly
  * every file, so the honest answer to "what is this" was already written;
  * when a file doesn't say, the modal says nothing rather than guessing.

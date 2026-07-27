@@ -11,11 +11,11 @@
   position: absolute;
   inset: 0;
   /* Behind every in-flow child of .page, which is a stacking context (see
-     ReadingRoomPage.module.css) — so nothing about the conversation's own
+     ObservatoryPage.module.css) — so nothing about the conversation's own
      layout or scrolling has to change to accommodate a backdrop. */
   z-index: -1;
   overflow: hidden;
-  /* Never a gesture target: swipes over the Reading Room scroll the
+  /* Never a gesture target: swipes over the Observatory scroll the
      conversation, and a backdrop that swallowed one would read as a bug. */
   pointer-events: none;
 }

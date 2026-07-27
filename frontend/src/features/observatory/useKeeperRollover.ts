@@ -18,7 +18,7 @@ export function useKeeperRollover(args: {
   botId: string;
   pinned: boolean;
   /** Docked mode (the desktop split pane): swap the pane's conversation
-   * instead of routing the whole app to it — see ReadingRoomPage's prop of
+   * instead of routing the whole app to it — see ObservatoryPage's prop of
    * the same name. */
   onOpenConversation?: (convId: string) => void;
 }): {
@@ -45,7 +45,7 @@ export function useKeeperRollover(args: {
   // one status fetch picks the "Rolling over…" state back up. Only pinned
   // sessions ever show this control, so this only ever fires for the Keeper
   // session — `pinned` starts false (meta hasn't loaded yet) and flips true
-  // once ReadingRoomPage's history load resolves it, which is effectively
+  // once ObservatoryPage's history load resolves it, which is effectively
   // "on mount" for the one session that matters.
   useEffect(() => {
     if (!pinned) return;
@@ -88,7 +88,7 @@ export function useKeeperRollover(args: {
           if (onOpenConversation) onOpenConversation(status.pinned_conv_id);
           else
             void navigate({
-              to: '/reading-room/$botId',
+              to: '/observatory/$botId',
               params: { botId },
               search: { conv: status.pinned_conv_id },
             });

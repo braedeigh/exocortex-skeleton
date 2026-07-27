@@ -3,6 +3,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { Sheet } from '../../ui';
 import { subscribeTheme } from '../../theme';
 import { useAtlas } from '../atlas/api';
+import { useOpenSessionIds } from '../observatory/useOpenSessions';
 import { useTerrain, type TerrainData } from './api';
 import type { TerrainNode } from './terrainGraph';
 import {
@@ -21,9 +22,9 @@ import {
   type HeatLens,
 } from './terrainGraph';
 import { TerrainDials } from './TerrainDials';
+import { TerrainAgentBar } from './TerrainAgentBar';
 import { FileCodeModal } from './FileCodeModal';
 import {
-  deriveOrbColor,
   readThemeInk,
   TerrainCanvas,
   HEAT_RAMP_DARK,
@@ -68,7 +69,7 @@ function TerrainKey({
 }) {
   const ramp = ink.dark ? HEAT_RAMP_DARK : HEAT_RAMP_LIGHT;
   const gradient = `linear-gradient(to bottom, ${[...ramp].reverse().join(', ')})`;
-  const orb = deriveOrbColor(ink.accent, ink.evening, ink.bg, ink.text);
+  const orb = ink.accent; // agents (and their tethers) wear the app --accent — matches the engine
   return (
     <div
       className={[styles.key, hidden ? styles.keyHidden : ''].filter(Boolean).join(' ')}
@@ -117,7 +118,7 @@ function usePageVisible(): boolean {
 }
 
 /**
- * /terrain — "where is being worked on": every file the reading room's
+ * /terrain — "where is being worked on": every file the observatory's
  * sessions touched in the window, as a force-directed tree per repo (App
  * code / Vault), files glowing ember by recency. The heat lens chips pick
  * the half-life (Day 24h / Week 7d / Month 30d, Week default); repo chips
@@ -174,9 +175,15 @@ export function TerrainPage() {
 
   const [lens, setLens] = useState<HeatLens>('week');
   const [hiddenRepos, setHiddenRepos] = useState<ReadonlySet<string>>(new Set());
-  // Session orbs — the agents that have been working in here. On by default;
-  // toggled off when you want the territory without the bodies standing on it.
-  const [showAgents, setShowAgents] = useState(true);
+  // The bottom agent control. `activeOnly` (the Active button) = show only the
+  // sessions open in the observatory right now; when off, `agentWindow` is a
+  // band over the roster ranked most-recent-first — [from, to) by index — that
+  // slides past agents onto the map. Active by default: the map opens on what
+  // she's running, not months of history.
+  const [activeOnly, setActiveOnly] = useState(true);
+  const [agentWindow, setAgentWindow] = useState<{ from: number; to: number }>({ from: 0, to: 8 });
+  // Live set of conversations open in the observatory — what 'active' means.
+  const openIds = useOpenSessionIds();
   const [selected, setSelected] = useState<TerrainNode | null>(null);
   const [footprintSession, setFootprintSession] = useState<string | null>(null);
   // The file whose code modal is open, if any. Kept separate from `selected`
@@ -258,32 +265,64 @@ export function TerrainPage() {
   // What's actually drawn — the honest numerator for the Files readout.
   const shownFiles = useMemo(() => (filtered ? terrainFileLoaded(filtered) : 0), [filtered]);
 
-  /** How many agent orbs the current view would carry — drives the chip's
-   * count, and hides the chip entirely when nobody has been through here. */
-  const agentCount = useMemo(
-    () => (graph ? graph.nodes.filter((n) => n.kind === 'session').length : 0),
-    [graph],
-  );
+  /** Every agent on the map, ranked most-recent-first (running → open → last
+   * active). The agent bar's window slides over THIS list by index. */
+  const rankedAgents = useMemo(() => {
+    if (!graph) return [];
+    return graph.nodes
+      .filter((n) => n.kind === 'session' && n.session)
+      .map((n) => ({
+        id: n.session!.id,
+        title: n.session!.title,
+        running: n.session!.running,
+        active: openIds.has(n.session!.id),
+        files: n.session!.files,
+        last: n.session!.last,
+      }))
+      .sort(
+        (a, b) =>
+          Number(b.running) - Number(a.running) ||
+          Number(b.active) - Number(a.active) ||
+          (b.last ?? 0) - (a.last ?? 0),
+      );
+  }, [graph, openIds]);
+
+  /** Which agents actually show: Active → the open ones; otherwise the window's
+   * band of the ranked roster. Clamped to the current roster length. */
+  const shownAgentIds = useMemo(() => {
+    if (activeOnly) return new Set(rankedAgents.filter((a) => a.active).map((a) => a.id));
+    const n = rankedAgents.length;
+    const to = Math.min(Math.max(agentWindow.to, 1), Math.max(1, n));
+    const from = Math.min(Math.max(agentWindow.from, 0), Math.max(0, to - 1));
+    return new Set(rankedAgents.slice(from, to).map((a) => a.id));
+  }, [activeOnly, agentWindow, rankedAgents]);
 
   const visible = useMemo(() => {
     if (!graph) return null;
     // Orbs carry repoId '' so the repo chips never touch them — they roam
-    // across both territories. The Agents chip is what governs them.
+    // across both territories. The agent control governs which orbs are drawn.
     const nodes = graph.nodes.filter(
-      (n) => !hiddenRepos.has(n.repoId) && (showAgents || n.kind !== 'session'),
+      (n) =>
+        !hiddenRepos.has(n.repoId) &&
+        (n.kind !== 'session' || (n.session ? shownAgentIds.has(n.session.id) : false)),
     );
     const ids = new Set(nodes.map((n) => n.id));
     const edges = graph.edges.filter((e) => ids.has(e.source) && ids.has(e.target));
     return { nodes, edges };
-  }, [graph, hiddenRepos, showAgents]);
+  }, [graph, hiddenRepos, shownAgentIds]);
 
-  // Hiding the agents must also drop any orb-specific state hanging off them,
-  // or the sheet would keep describing a body that's no longer on the map.
+  // An orb dropped from view (mode flipped to active, or a session it named
+  // aged out of "open") must also drop any state hanging off it, or the sheet
+  // and the footprint ring would keep pointing at a body no longer on the map.
   useEffect(() => {
-    if (showAgents) return;
-    setSelected((cur) => (cur?.kind === 'session' ? null : cur));
-    setFootprintSession(null);
-  }, [showAgents]);
+    const shownIds = new Set(
+      (visible?.nodes ?? []).filter((n) => n.kind === 'session' && n.session).map((n) => n.session!.id),
+    );
+    setFootprintSession((cur) => (cur && !shownIds.has(cur) ? null : cur));
+    setSelected((cur) =>
+      cur?.kind === 'session' && cur.session && !shownIds.has(cur.session.id) ? null : cur,
+    );
+  }, [visible]);
 
   const convToBot = useMemo(() => {
     const map = new Map<string, string>();
@@ -409,7 +448,7 @@ export function TerrainPage() {
     // else the atlas conv→bot map, else 'keeper' (v1 single-engine).
     const botId = convToBot.get(convId) ?? 'keeper';
     void navigate({
-      to: '/reading-room/$botId',
+      to: '/observatory/$botId',
       params: { botId },
       search: { conv: convId },
     });
@@ -433,7 +472,7 @@ export function TerrainPage() {
           </div>
         ) : null}
         {ink && !empty && !isLoading && !isError ? (
-          <TerrainKey lens={lens} ink={ink} hidden={selected !== null} showAgents={showAgents} />
+          <TerrainKey lens={lens} ink={ink} hidden={selected !== null} showAgents={shownAgentIds.size > 0} />
         ) : null}
       </div>
 
@@ -453,15 +492,6 @@ export function TerrainPage() {
               </button>
             ))}
           </div>
-          {footprintSession ? (
-            <button
-              type="button"
-              className={[styles.chip, styles.footprintChip].join(' ')}
-              onClick={() => setFootprintSession(null)}
-            >
-              footprint · clear ×
-            </button>
-          ) : null}
           {customRange ? (
             <button
               type="button"
@@ -489,11 +519,27 @@ export function TerrainPage() {
         ) : null}
       </div>
 
-      {/* What's ON the map (which territories, whose orbs) lives at the
+      {/* What's ON the map (which territories, whose agents) lives at the
           bottom, away from the dials that control how much of it you see.
           Left-anchored so it never runs under the colour key at bottom-right. */}
       <div className={styles.chromeBottom}>
-        <div className={styles.chipRow} role="group" aria-label="What to show">
+        {/* The agent control: Active button, a window that slides past agents
+            over the ranked roster, and a popup list to spotlight one. */}
+        <TerrainAgentBar
+          ranked={rankedAgents}
+          shownIds={shownAgentIds}
+          activeOnly={activeOnly}
+          onActiveOnly={setActiveOnly}
+          from={agentWindow.from}
+          to={agentWindow.to}
+          onWindow={(from, to) => setAgentWindow({ from, to })}
+          spotlighted={footprintSession}
+          onSpotlight={(id) => {
+            setFootprintSession(id);
+            setSelected(null);
+          }}
+        />
+        <div className={styles.chipRow} role="group" aria-label="Territories">
           {(data?.repos ?? []).map((repo) => (
             <button
               key={repo.id}
@@ -507,22 +553,6 @@ export function TerrainPage() {
               {repo.name}
             </button>
           ))}
-          {agentCount > 0 ? (
-            <button
-              type="button"
-              // Either/or, not both: .agentChip is declared after .chipOff, so
-              // applying them together would let the "on" tint win over the
-              // hollow "off" look at equal specificity.
-              className={[styles.chip, showAgents ? styles.agentChip : styles.chipOff]
-                .filter(Boolean)
-                .join(' ')}
-              aria-pressed={showAgents}
-              onClick={() => setShowAgents((v) => !v)}
-              title={showAgents ? 'Hide the agents working on this' : 'Show the agents working on this'}
-            >
-              Agents · {agentCount}
-            </button>
-          ) : null}
         </div>
       </div>
 

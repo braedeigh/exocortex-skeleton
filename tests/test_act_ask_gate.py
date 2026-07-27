@@ -16,14 +16,14 @@ import pytest
 
 import store
 import tools.act_ask_gate as gate
-from routes import reading_room as rr
+from routes import observatory as rr
 
 
 # --- Bash: the reversible/in-lane allow path (ACT) --------------------------
 
 ACT_COMMANDS = [
     "ls", "ls -la /tmp", "pwd", "cd /opt/exocortex/skeleton", "echo hello",
-    "cat routes/reading_room.py", "head -20 x.py", "tail -5 y", "wc -l z",
+    "cat routes/observatory.py", "head -20 x.py", "tail -5 y", "wc -l z",
     "grep -n foo bar.py", "rg pattern", "find . -name '*.py'",
     "git status", "git diff", "git log --oneline -5", "git show HEAD",
     "git add routes/x.py", "git branch", "git rev-parse HEAD", "git ls-files",
@@ -129,7 +129,7 @@ def test_hook_defers_on_unreadable_input_instead_of_bricking():
     assert p.returncode == 0 and p.stdout.strip() == ""
 
 
-# --- the wiring in routes/reading_room.py -----------------------------------
+# --- the wiring in routes/observatory.py -----------------------------------
 
 def test_session_settings_carries_gate_hook_for_a_bash_session():
     settings = rr._session_settings({"guard_docs": True, "act_gate": True},

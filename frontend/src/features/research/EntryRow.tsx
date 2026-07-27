@@ -1,6 +1,6 @@
 /**
  * EntryRow.tsx — the shared entry row, now rendered only from ThreadView's
- * reading-room flow (thread blocks + the Uncategorized pseudo-thread). Kind
+ * observatory flow (thread blocks + the Uncategorized pseudo-thread). Kind
  * badge (skipped for 'note', the overwhelming majority — pure noise in an
  * open flow), per-kind extras (source link/verdict/metadata/full-text
  * buttons, claim verdict cycle, question status + deep research), long text

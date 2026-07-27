@@ -2,7 +2,7 @@ import { memo, useMemo, useRef } from 'react';
 import { mdToHtml } from '../journal/markdown';
 import { assistantText, type Turn } from './events';
 import { tailWords } from './streamPacing';
-import styles from './ReadingRoomPage.module.css';
+import styles from './ObservatoryPage.module.css';
 
 /** One assistant reply, memoized: a closed turn's props never change during
  * streaming, so it skips both the re-render and the markdown re-parse (the

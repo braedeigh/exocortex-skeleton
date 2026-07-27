@@ -388,7 +388,7 @@
   margin: 6px 0;
 }
 
-/* Reading-room long-text clamp — caps a note/reply at ~10 lines so one huge
+/* Observatory long-text clamp — caps a note/reply at ~10 lines so one huge
    entry doesn't dominate the flow; the .moreBtn toggle below only renders
    when the text actually overflows this. */
 .entryTextClamped {
@@ -1142,7 +1142,7 @@
   min-width: 140px;
 }
 
-/* one entry's wrapper in the reading-room flow — always open, no fold */
+/* one entry's wrapper in the observatory flow — always open, no fold */
 .block {
   border: none;
   border-radius: 0;

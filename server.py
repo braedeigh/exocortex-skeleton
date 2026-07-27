@@ -27,7 +27,7 @@ from routes import (
     entities, threads, person, shell, cards, archivals, research,
     research_search, research_sources, research_import, research_text,
     annotations, spa, fronts, wiki, travel, profile, usage, streaks, spinoff,
-    reading_room, automations, push,
+    observatory, automations, push,
 )
 from routes.shell import VALID_TABS
 
@@ -1114,10 +1114,10 @@ annotations.register(app)
 reminders.register(app)
 food_test.register(app)
 terminal.register(app)
-if features.enabled("reading_room"):
-    # The reading room spawns headless `claude -p` processes as the app user;
+if features.enabled("observatory"):
+    # The observatory spawns headless `claude -p` processes as the app user;
     # the flag lets a deployment keep that surface off. Stock installs: on.
-    reading_room.register(app)
+    observatory.register(app)
 automations.register(app)
 
 

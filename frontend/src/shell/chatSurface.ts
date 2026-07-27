@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react';
 
 /**
  * chatSurface.ts — which surface the mobile Chat tab opens: the tmux
- * terminal (/chat, the default) or the Keeper bot's reading room
- * (/reading-room/keeper — bot-surface-design, "wanting it to replace the
+ * terminal (/chat, the default) or the Keeper bot's observatory
+ * (/observatory/keeper — bot-surface-design, "wanting it to replace the
  * terminal"). A localStorage flag with a change event, same shape as
  * usageHeat's, so Settings can flip it and TopTabs re-renders without a
  * reload. The terminal itself stays reachable (More ▾ → Terminal) while the
@@ -13,11 +13,11 @@ import { useEffect, useState } from 'react';
 export const CHAT_SURFACE_KEY = 'exo-chat-surface';
 export const CHAT_SURFACE_EVENT = 'exo:chat-surface';
 
-// The stored value 'bots' predates the reading-room rename (07-24) — the
+// The stored value 'bots' predates the observatory rename (07-24) — the
 // persona concept ("bot") stays, so this on-disk/localStorage value is
 // deliberately unchanged; only the exported function names below follow
 // the rename.
-export function chatSurfaceIsReadingRoom(): boolean {
+export function chatSurfaceIsObservatory(): boolean {
   try {
     return localStorage.getItem(CHAT_SURFACE_KEY) === 'bots';
   } catch {
@@ -25,7 +25,7 @@ export function chatSurfaceIsReadingRoom(): boolean {
   }
 }
 
-export function setChatSurfaceReadingRoom(on: boolean): void {
+export function setChatSurfaceObservatory(on: boolean): void {
   try {
     localStorage.setItem(CHAT_SURFACE_KEY, on ? 'bots' : 'terminal');
   } catch {
@@ -34,10 +34,10 @@ export function setChatSurfaceReadingRoom(on: boolean): void {
   window.dispatchEvent(new CustomEvent(CHAT_SURFACE_EVENT, { detail: { bots: on } }));
 }
 
-export function useChatSurfaceReadingRoom(): boolean {
-  const [on, setOn] = useState(chatSurfaceIsReadingRoom);
+export function useChatSurfaceObservatory(): boolean {
+  const [on, setOn] = useState(chatSurfaceIsObservatory);
   useEffect(() => {
-    const refresh = () => setOn(chatSurfaceIsReadingRoom());
+    const refresh = () => setOn(chatSurfaceIsObservatory());
     window.addEventListener(CHAT_SURFACE_EVENT, refresh);
     window.addEventListener('storage', refresh);
     return () => {

@@ -8,6 +8,7 @@ import { createSession, getConversation, journalOutput, stopConversation, stream
 import { applyEvent, assistantText, lastUserTurnIndex, turnsFromHistory, userTurn, type Turn } from './events';
 import { formatWorkingLine } from './turnStats';
 import { isUnread, markConversationOpened } from './openedStore';
+import { useOpenSessionHeartbeat } from './useOpenSessions';
 import { Reply, StreamingReply } from './replyViews';
 import { useTurnStats } from './useTurnStats';
 import { useWordFlow } from './useWordFlow';
@@ -16,10 +17,10 @@ import { useMessageQueue } from './useMessageQueue';
 import { usePhotoAttach, AttachChips, UploadOverlay } from './photoAttach';
 import { useReattach } from './useReattach';
 import { useKeeperRollover } from './useKeeperRollover';
-import styles from './ReadingRoomPage.module.css';
+import styles from './ObservatoryPage.module.css';
 
 /**
- * The reading room (bot-surface-design §5, Sunflower spec 07-23): not a
+ * The observatory (bot-surface-design §5, Sunflower spec 07-23): not a
  * bubble chat. Her message is an epigraph — small, accent-ruled, hers; the
  * reply is body text.
  *
@@ -61,7 +62,7 @@ import styles from './ReadingRoomPage.module.css';
  * the id to the pane instead, and the app's route never moves. Everything
  * else about the page is identical in both homes.
  */
-export function ReadingRoomPage({
+export function ObservatoryPage({
   botId,
   convId,
   onOpenConversation,
@@ -71,12 +72,17 @@ export function ReadingRoomPage({
   onOpenConversation?: (convId: string) => void;
 }) {
   const navigate = useNavigate();
+  // Presence heartbeat: while this room is open and visible, stamp its
+  // conversation "open" so the terrain page's agent bar can show it as active
+  // (openSessionsStore.ts). Keyed on convId, so the docked pane re-stamps when
+  // it swaps conversations; a no-op until a convId exists (brand-new room).
+  useOpenSessionHeartbeat(convId);
   // Sessions dissolved the "bot" persona (07-24) — there's no roster of named
   // bots to look a display name up in anymore. The header/placeholder show
   // the session's own title instead, filled in once the history load (below)
   // resolves it; a brand-new session (nothing to load yet) gets a plain
   // generic label.
-  const [roomTitle, setRoomTitle] = useState('Reading room');
+  const [roomTitle, setRoomTitle] = useState('Observatory');
   const [turns, setTurns] = useState<Turn[]>([]);
   const [streaming, setStreaming] = useState(false);
   // Messages sent while a turn is still writing — the Claude Code queued-
@@ -115,11 +121,17 @@ export function ReadingRoomPage({
   // Lets the re-attach poll loop stop cold on unmount.
   const mountedRef = useRef(true);
   // Draft prefill fires at most once per mount — the route remounts this
-  // page on every conv change (see reading-room_.$botId.tsx's `key`), so a
+  // page on every conv change (see observatory_.$botId.tsx's `key`), so a
   // plain boolean here already can't leak a prefill across conversations;
   // it just also guards against a second history load inside the same
   // mount re-stomping something she's since edited or cleared.
   const draftAppliedRef = useRef(false);
+  // A spun-off session auto-fires its staged kickoff (server sets
+  // meta.autostart): the history load stashes the kickoff text here instead of
+  // prefilling the compose box, and the effect further down fires it once
+  // canFire goes true. The ref belt keeps that fire to exactly one.
+  const [pendingAutostart, setPendingAutostart] = useState<string | null>(null);
+  const autoStartFiredRef = useRef(false);
   useEffect(
     () => () => {
       mountedRef.current = false;
@@ -193,11 +205,19 @@ export function ReadingRoomPage({
         // belt-and-suspenders — must not re-inject it).
         if (!draftAppliedRef.current && typeof data.meta?.draft === 'string' && data.meta.draft.trim()) {
           draftAppliedRef.current = true;
-          const el = inputRef.current;
-          if (el && !el.value.trim()) {
-            el.value = data.meta.draft;
-            el.style.height = 'auto';
-            el.style.height = `${autosizeHeight(el.scrollHeight, 132)}px`;
+          if (data.meta?.autostart) {
+            // A /spinoff session: don't put the kickoff in the box for her to
+            // send — stash it for the autostart effect below, which fires it
+            // the moment the load settles. The server clears draft+autostart on
+            // that send, so it never re-fires.
+            setPendingAutostart(data.meta.draft);
+          } else {
+            const el = inputRef.current;
+            if (el && !el.value.trim()) {
+              el.value = data.meta.draft;
+              el.style.height = 'auto';
+              el.style.height = `${autosizeHeight(el.scrollHeight, 132)}px`;
+            }
           }
         }
         // Capture the stamp BEFORE it's overwritten — this open's own
@@ -294,7 +314,7 @@ export function ReadingRoomPage({
           if (onOpenConversation) onOpenConversation(conv);
           else
             void navigate({
-              to: '/reading-room/$botId',
+              to: '/observatory/$botId',
               params: { botId },
               search: { conv },
               replace: true,
@@ -374,6 +394,18 @@ export function ReadingRoomPage({
   // useMessageQueue.ts for why each of these gates the auto-fire.
   const canFire = histLoaded && !writing && !wordFlow.pacing && !sendError;
   const messageQueue = useMessageQueue({ botId, convId, canFire, onFire: sendMessage });
+
+  // Auto-start a spun-off session: once history has loaded and nothing else is
+  // running (canFire), fire the staged kickoff exactly once through the normal
+  // send path — so the turn spawns server-managed and durable, and the server
+  // clears draft+autostart on that send so a reopen can't re-fire it.
+  useEffect(() => {
+    if (pendingAutostart == null || !canFire || autoStartFiredRef.current) return;
+    autoStartFiredRef.current = true;
+    const kickoff = pendingAutostart;
+    setPendingAutostart(null);
+    void sendMessage(kickoff, false);
+  }, [pendingAutostart, canFire, sendMessage]);
 
   const send = () => {
     const el = inputRef.current;

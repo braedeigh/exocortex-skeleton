@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Auto-sorter for Reading Room chat sessions.
+"""Auto-sorter for Observatory chat sessions.
 
 For every `bot_chats/index.json` entry with no `bot_chats/gists.json` entry
 yet, builds a compact transcript excerpt from the conversation's own jsonl
@@ -42,7 +42,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import recap_summary                              # noqa: E402
 import store                                       # noqa: E402
 
-# Same override seam as routes/reading_room.py: an install where `claude`
+# Same override seam as routes/observatory.py: an install where `claude`
 # isn't on this script's PATH (e.g. cron with a bare env) can point it at an
 # absolute path.
 CLAUDE_BIN = os.environ.get("EXOCORTEX_CLAUDE_BIN", "claude")

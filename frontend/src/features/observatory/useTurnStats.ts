@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { applyStatsEvent, startTurnStats, type TurnStats } from './turnStats';
 
 /**
- * useTurnStats.ts — the reading room's working line state: word · elapsed ·
+ * useTurnStats.ts — the observatory's working line state: word · elapsed ·
  * tokens · thought (turnStats.ts). Owns the stats value plus the clock that
  * keeps its elapsed-seconds display ticking between events.
  */

@@ -19,7 +19,7 @@ config.get_profile() so tests can monkeypatch env without reimports:
 Flags gate at exactly one chokepoint each (grep the flag name to find it):
     web_terminal  — the remote-shell API (/api/terminal/send|capture|scroll|
                     refresh|session): routes/terminal.py before_request gate.
-    reading_room  — the headless-claude bot surface (spawns `claude -p` as the
+    observatory  — the headless-claude bot surface (spawns `claude -p` as the
                     app user): registration gate in server.py. Off until the
                     owner's agent-spawn policy allows it.
     mcp_server    — the stdio MCP surface for LLM clients: startup check in
@@ -33,7 +33,7 @@ import store
 
 DEFAULTS = {
     "web_terminal": True,
-    "reading_room": True,
+    "observatory": True,
     "mcp_server": True,
 }
 

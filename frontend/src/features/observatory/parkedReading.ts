@@ -1,5 +1,5 @@
 /**
- * parkedReading.ts — pure logic for the reading room's third scroll clause:
+ * parkedReading.ts — pure logic for the observatory's third scroll clause:
  * PARKED READING (her 07-23 ask, thought up in the car). She's read to the
  * bottom and left the phone in a mount — after a dwell, the page starts
  * turning its own pages so the reply keeps arriving without her hand:

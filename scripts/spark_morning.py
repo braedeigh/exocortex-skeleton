@@ -2,13 +2,13 @@
 """spark_morning.py — the 5 AM build-orientation ritual.
 
 Every morning: kill yesterday's Spark session and respawn a fresh one in the
-reading room, already oriented on the build so the owner walks up to a ranked
+observatory, already oriented on the build so the owner walks up to a ranked
 take instead of a blank prompt.
 
-A "Spark session" is just a native reading-room conversation (it shows up in
+A "Spark session" is just a native observatory conversation (it shows up in
 the flat Sessions list next to `chat`/`dev2`, no bot label) whose first turn is
 seeded with `/spark` + an orientation kickoff. The turn runs headless `claude`
-exactly the way routes/reading_room.bot_send does — same _spawn + _run_turn —
+exactly the way routes/observatory.bot_send does — same _spawn + _run_turn —
 but SYNCHRONOUSLY (a one-shot cron script has no HTTP connection to detach
 from and nothing to stay alive for). When it finishes, the ranked orientation
 is already sitting in bot_chats/<conv>.jsonl, ready to open.
@@ -29,7 +29,7 @@ Run by cron every morning (the owner wires the crontab):
         /opt/exocortex/skeleton/scripts/spark_morning.py \
         >> .../spark_morning.log 2>&1
 
-Needs the venv python (imports the app's reading_room route module). Marks the
+Needs the venv python (imports the app's observatory route module). Marks the
 conversation with origin="spark_morning" so tomorrow's run can find and archive
 exactly its own prior sessions and never touch a hand-made one.
 """
@@ -41,7 +41,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import store                                    # noqa: E402
-from routes import reading_room as rr           # noqa: E402
+from routes import observatory as rr           # noqa: E402
 
 ORIGIN = "spark_morning"
 RUN_ID = "spark_morning"   # id in the scheduled_runs.json registry
@@ -52,7 +52,7 @@ def _registry_default():
     return {
         "id": RUN_ID,
         "name": "Morning Spark",
-        "description": "A fresh, oriented Spark session in the reading room each "
+        "description": "A fresh, oriented Spark session in the observatory each "
                        "morning, ranked against the build.",
         "schedule": "0 5 * * *",
         "schedule_human": "Every day at 5:00 AM",
@@ -132,7 +132,7 @@ def _archive_prior():
 
 
 def _create_conv():
-    """Respawn half: a fresh conversation in the flat reading-room list, cwd'd
+    """Respawn half: a fresh conversation in the flat observatory list, cwd'd
     into the skeleton so Spark works on the app code."""
     rr._chats_dir()
     with store.mutate("bot_chats/index", {}) as index:

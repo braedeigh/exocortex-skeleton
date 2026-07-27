@@ -4,7 +4,7 @@ import { Sheet, TapRow } from '../ui';
 import { TAB_META, TAB_ROUTES, VIEW_META, isValidTab, tabForPath, type LegacyTab } from './tabs';
 import { useMediaQuery, DESKTOP_QUERY } from './useMediaQuery';
 import { useSessionsContext } from './SessionsContext';
-import { useChatSurfaceReadingRoom } from './chatSurface';
+import { useChatSurfaceObservatory } from './chatSurface';
 import styles from './TopTabs.module.css';
 
 /**
@@ -62,11 +62,11 @@ const ALWAYS_MORE_TABS: ReadonlyArray<{ tab: LegacyTab; label: string }> = [
 // Native standalone pages in the More menu (Keeper is covered by the Files
 // view below; Personality/Scratchpad/VS Code are SPA routes now).
 // This array is purely in-memory (never persisted), so 'bots' was renamed
-// to 'reading-room' along with the surface (07-24).
-// Terrain sits next to the reading room on purpose: it's the map *of* those
+// to 'observatory' along with the surface (07-24).
+// Terrain sits next to the observatory on purpose: it's the map *of* those
 // sessions (which files they've been working), so the two read as a pair.
 const MORE_PAGES: ReadonlyArray<{ key: string; label: string; to: string }> = [
-  { key: 'reading-room', label: 'Observatory', to: '/reading-room' },
+  { key: 'observatory', label: 'Observatory', to: '/observatory' },
   { key: 'terrain', label: 'Terrain', to: '/terrain' },
   { key: 'atlas', label: 'Atlas', to: '/atlas' },
   { key: 'personality', label: 'Personality', to: '/personality' },
@@ -239,7 +239,7 @@ function DashboardTabRow({ pathname, isPublic = false }: { pathname: string; isP
   const [overflowed, setOverflowed] = useState<readonly LegacyTab[]>([]);
   const [moreOpen, setMoreOpen] = useState(false);
   const isDesktop = useMediaQuery(DESKTOP_QUERY);
-  const chatBots = useChatSurfaceReadingRoom();
+  const chatBots = useChatSurfaceObservatory();
   const showTerminal = !isPublic && !isDesktop && chatBots;
 
   const rowRef = useRef<HTMLDivElement | null>(null);
@@ -451,7 +451,7 @@ export function TopTabs() {
   const sessions = useSessionsContext();
   // Settings can point the Chat tab at the Keeper bot instead of the tmux
   // terminal ("wanting it to replace the terminal") — see chatSurface.ts.
-  const chatBots = useChatSurfaceReadingRoom();
+  const chatBots = useChatSurfaceObservatory();
   // Last dashboard route visited, so clicking Dashboard from Journal/Research
   // returns you where you left off instead of always resetting to /todos.
   const lastDashboardTarget = useRef<DashboardTarget>({ to: '/todos' });
@@ -485,25 +485,17 @@ export function TopTabs() {
           // switcher (/sessions, SessionListPage); from there — or anywhere
           // else — the tab goes (back) to the active terminal.
           chatBots ? (
-            // Chat tab → the Keeper's reading room, resuming the latest
-            // conversation; a second tap opens the roster (mirroring the
-            // terminal's tap-again-for-/sessions gesture).
+            // Chat tab → the Observatory roster in general (her 07-27 ask),
+            // not straight into the Keeper conversation. The Keeper sits pinned
+            // at the top of the roster, one tap away.
             <button
               type="button"
               className={joinClass(
                 styles.dashBtn,
                 styles.chatBtn,
-                location.pathname.startsWith('/reading-room') && styles.dashBtnActive,
+                location.pathname.startsWith('/observatory') && styles.dashBtnActive,
               )}
-              onClick={() => {
-                if (location.pathname === '/reading-room/keeper') void navigate({ to: '/reading-room' });
-                else
-                  void navigate({
-                    to: '/reading-room/$botId',
-                    params: { botId: 'keeper' },
-                    search: { conv: 'latest' },
-                  });
-              }}
+              onClick={() => void navigate({ to: '/observatory' })}
             >
               <span className={styles.chatLabel}>Chat</span>
             </button>

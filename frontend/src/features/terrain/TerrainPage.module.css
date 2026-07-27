@@ -164,6 +164,9 @@
   color: var(--text);
 }
 
+/* The bottom agent control lives in its own module (TerrainAgentBar.module.css)
+   now — the Active button, the roster window, and the popup list. */
+
 .canvasWrap {
   position: relative;
   flex: 1;

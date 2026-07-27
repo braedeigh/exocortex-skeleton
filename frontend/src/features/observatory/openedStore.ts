@@ -1,6 +1,6 @@
 /**
  * openedStore.ts — single owner of the 'exo-bot-opened' localStorage map:
- * which conversations she's opened, and when. ReadingRoomPage marks a
+ * which conversations she's opened, and when. ObservatoryPage marks a
  * conversation opened on load; RosterPage reads the whole map to compare
  * against each conversation's last_at for the unread dot.
  */
@@ -12,7 +12,7 @@
  * unread activity (see isUnread below). */
 export function markConversationOpened(convId: string): string | null {
   try {
-    // 'exo-bot-opened' predates the reading-room rename (07-24) — the
+    // 'exo-bot-opened' predates the observatory rename (07-24) — the
     // persona concept ("bot") stays, so this on-disk/localStorage name is
     // deliberately unchanged.
     const raw = localStorage.getItem('exo-bot-opened');
@@ -28,7 +28,7 @@ export function markConversationOpened(convId: string): string | null {
 }
 
 /** True iff `lastAt` postdates `openedAt` — the one comparison behind both
- * the roster's unread dot and the reading room's open-at-unread scroll
+ * the roster's unread dot and the observatory's open-at-unread scroll
  * anchor, kept in one place so they can't drift apart. A conversation with
  * no last_at is never unread; one never opened is unread the moment it has
  * any activity at all. Date.parse, NOT string order: the server stamps
@@ -42,7 +42,7 @@ export function isUnread(lastAt: unknown, openedAt: string | null | undefined): 
 
 export function openedMap(): Record<string, string> {
   try {
-    // 'exo-bot-opened' predates the reading-room rename (07-24) — the
+    // 'exo-bot-opened' predates the observatory rename (07-24) — the
     // persona concept ("bot") stays, so this on-disk/localStorage name is
     // deliberately unchanged.
     const raw = localStorage.getItem('exo-bot-opened');

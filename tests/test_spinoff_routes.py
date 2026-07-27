@@ -1,9 +1,9 @@
 """routes/spinoff.py — the shared spawn door for /spinoff.
 
-Session-first: opening a spinoff mints (or rejoins) a Reading Room
-conversation (routes/reading_room.py) rather than a tmux session. A fresh
+Session-first: opening a spinoff mints (or rejoins) a Observatory
+conversation (routes/observatory.py) rather than a tmux session. A fresh
 mint gets a builder-tool config and its kickoff carried on the entry as a
-`draft` AND flagged `autostart` — the Reading Room fires that kickoff
+`draft` AND flagged `autostart` — the Observatory fires that kickoff
 automatically the moment she opens the session (no manual send). Re-invoking
 against a slug that already has a live (non-archived) conversation is a
 rejoin: the entry is returned untouched, not re-minted or re-drafted.
@@ -77,7 +77,7 @@ def test_valid_slug_mints_an_autostarting_builder_session(spinoff_client):
     entry = index[conv_id]
     assert entry["spinoff_slug"] == "cool-idea"
     assert str(brief) in entry["draft"]
-    # The kickoff auto-fires on open (Reading Room reads meta.autostart) rather
+    # The kickoff auto-fires on open (Observatory reads meta.autostart) rather
     # than sitting in the compose box waiting for a manual send.
     assert entry["autostart"] is True
     assert entry["allowed_tools"] == list(spinoff._BUILDER_TOOLS)

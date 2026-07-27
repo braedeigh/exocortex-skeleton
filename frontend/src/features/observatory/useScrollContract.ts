@@ -3,14 +3,14 @@ import { PARK_BOTTOM_PX, parkStep, shouldArm } from './parkedReading';
 import type { Turn } from './events';
 
 /**
- * useScrollContract.ts — the reading room's entire scroll contract (bot-
+ * useScrollContract.ts — the observatory's entire scroll contract (bot-
  * surface-design §5, Sunflower spec 07-23): FOLLOW-THEN-LOCK on send, the
  * bottom-pin on open, the ↓ latest pill, the third clause, PARKED READING
  * (her 07-23 ask, from the car), and the fourth, OPEN-AT-UNREAD ANCHOR
  * (07-24): a conversation that opens with activity she hasn't read lands
  * with her last message at the viewport top instead of the latest turn at
  * the bottom, so she reads the unread reply downward instead of skipping
- * past it. See ReadingRoomPage.tsx's own doc comment for the full
+ * past it. See ObservatoryPage.tsx's own doc comment for the full
  * narrative — this hook owns the mechanism.
  */
 export function useScrollContract(args: {

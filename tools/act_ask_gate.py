@@ -2,7 +2,7 @@
 """act_ask_gate.py — the act-vs-ask autonomy gate (PreToolUse hook).
 
 Phase 4 of the observability arc, and the ONLY piece that grants autonomy. It
-generalizes the shipped doc-guard (routes/reading_room.py), which is already an
+generalizes the shipped doc-guard (routes/observatory.py), which is already an
 act-vs-ask gate that always says "ask", into one that says "act" for the
 reversible/in-lane and "ask" for the irreversible/out-of-lane.
 
@@ -24,7 +24,7 @@ Contract (Claude Code PreToolUse): reads a JSON event on stdin
 ({"tool_name", "tool_input": {...}}); prints a hookSpecificOutput with
 permissionDecision "deny" to block (in headless -p there's no interactive
 prompt, so "deny"+reason IS the ask), or nothing to allow. Wired via
-`claude --settings` in routes/reading_room.py `_build_cmd`, matcher
+`claude --settings` in routes/observatory.py `_build_cmd`, matcher
 "Bash|Task|mcp__.*" — reads/edits aren't gated here (edits are git-reversible
 and the doc-guard covers the protected paths).
 

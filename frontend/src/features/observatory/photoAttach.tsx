@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { uploadTerminalPhotos } from '../phone/phoneApi';
 import { uploadingLabel } from '../phone/phoneLogic';
-import styles from './ReadingRoomPage.module.css';
+import styles from './ObservatoryPage.module.css';
 
 interface Attached {
   path: string;

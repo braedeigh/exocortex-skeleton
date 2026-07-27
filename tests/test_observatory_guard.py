@@ -1,4 +1,4 @@
-"""Doc-protection guard (routes/reading_room.py).
+"""Doc-protection guard (routes/observatory.py).
 
 The guard denies a write-capable, app-spawned session (builder / spinoff) the
 file-writing tools on the hand-curated identity docs — the seed scaffold, the
@@ -13,7 +13,7 @@ import json
 import pytest
 
 import store
-from routes import reading_room as rr
+from routes import observatory as rr
 
 
 @pytest.fixture

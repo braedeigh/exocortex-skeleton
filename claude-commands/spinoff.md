@@ -1,5 +1,5 @@
 ---
-description: Spin a task from this conversation into its own Claude session in the Reading Room
+description: Spin a task from this conversation into its own Claude session in the Observatory
 ---
 
 The owner wants to hand work from THIS conversation to a fresh session — e.g.
@@ -111,7 +111,7 @@ the session and hits send. If a live (non-archived) conversation for that
 slug already exists, the endpoint rejoins it instead of minting a new one
 (`newly_spawned: false`) and leaves it untouched.
 
-Tell the owner the session(s) are waiting in the Reading Room — she needs to
+Tell the owner the session(s) are waiting in the Observatory — she needs to
 open the session and hit send herself to fire the kickoff. If
 `newly_spawned` came back false, tell her the spinoff session already exists
 in the room instead. Done — the child takes it from there once she sends.

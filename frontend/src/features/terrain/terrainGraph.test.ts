@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   buildTerrainGraph,
   computeFileHeat,
+  fileCreatedWithin,
+  CREATED_FRESH_WINDOW_SECONDS,
   fileLastTouch,
   normalizeHeat,
   relativeAge,
@@ -316,6 +318,44 @@ describe('buildSessionOrbs (via buildTerrainGraph)', () => {
       NOW,
     );
     expect(g.nodes.some((n) => n.kind === 'session')).toBe(false);
+  });
+
+  it('restricts orbs to opts.orbSessionIds when given (the backdrop active set)', () => {
+    const g = buildTerrainGraph(dataWithSessions(), 'week', NOW, { orbSessionIds: new Set(['s1']) });
+    const orbs = g.nodes.filter((n) => n.kind === 'session');
+    expect(orbs.map((o) => o.session?.id)).toEqual(['s1']);
+  });
+
+  it('drops every orb when the active set is empty (nothing live, no focus)', () => {
+    const g = buildTerrainGraph(dataWithSessions(), 'week', NOW, { orbSessionIds: new Set() });
+    expect(g.nodes.some((n) => n.kind === 'session')).toBe(false);
+  });
+
+  it('emits every footprinted orb when orbSessionIds is omitted (the /terrain map)', () => {
+    const g = buildTerrainGraph(dataWithSessions(), 'week', NOW, {});
+    const orbs = g.nodes.filter((n) => n.kind === 'session');
+    expect(orbs.map((o) => o.session?.id).sort()).toEqual(['s1', 's2']);
+  });
+});
+
+describe('fileCreatedWithin', () => {
+  it('true when a session created the file and last touched it within the window', () => {
+    const f = file('new.ts', [], [{ id: 's1', title: 'x', writes: 1, reads: 0, creates: 1, last: NOW - 3600 }]);
+    expect(fileCreatedWithin(f, CREATED_FRESH_WINDOW_SECONDS, NOW)).toBe(true);
+  });
+
+  it('false when the creating touch is older than the window', () => {
+    const f = file(
+      'old.ts',
+      [],
+      [{ id: 's1', title: 'x', writes: 1, reads: 0, creates: 1, last: NOW - 2 * CREATED_FRESH_WINDOW_SECONDS }],
+    );
+    expect(fileCreatedWithin(f, CREATED_FRESH_WINDOW_SECONDS, NOW)).toBe(false);
+  });
+
+  it('false when the session only modified it (creates 0), however recent', () => {
+    const f = file('mod.ts', [], [{ id: 's1', title: 'x', writes: 4, reads: 0, creates: 0, last: NOW - 60 }]);
+    expect(fileCreatedWithin(f, CREATED_FRESH_WINDOW_SECONDS, NOW)).toBe(false);
   });
 });
 
@@ -679,6 +719,7 @@ describe('sessionFileTouch / sessionTouchRings (focus rings)', () => {
   const readOnly = file('r.py', [NOW], [{ id: 's1', title: 'work', writes: 0, reads: 3, last: NOW - 90 }]);
   const attributed = file('a.py', [NOW], [{ id: 's1', title: 'work', writes: 0, reads: 0, last: NOW - 90 }]);
   const other = file('o.py', [NOW], [{ id: 's2', title: 'elsewhere', writes: 4, reads: 0, last: NOW - 30 }]);
+  const created = file('n.py', [NOW], [{ id: 's1', title: 'work', writes: 1, reads: 0, creates: 1, last: NOW - 20 }]);
 
   it('reads a file it wrote as modified even when it also read it — the stronger signal wins', () => {
     expect(sessionFileTouch(modified, 's1')).toBe('modified');
@@ -692,18 +733,23 @@ describe('sessionFileTouch / sessionTouchRings (focus rings)', () => {
     expect(sessionFileTouch(attributed, 's1')).toBe('read');
   });
 
+  it('reads a freshly-created file as created — the strongest signal, above modified', () => {
+    expect(sessionFileTouch(created, 's1')).toBe('created');
+  });
+
   it('returns null for a session that never touched the file', () => {
     expect(sessionFileTouch(other, 's1')).toBeNull();
   });
 
   it('rings exactly the focused session\'s files, classified per file', () => {
     const data = makeData([
-      { id: 'skeleton', name: 'App code', root: '/app', files: [modified, readOnly, other] },
+      { id: 'skeleton', name: 'App code', root: '/app', files: [modified, readOnly, created, other] },
     ]);
     const g = buildTerrainGraph(data, 'week', NOW);
     const rings = sessionTouchRings(g.nodes, 's1');
     expect(rings.get('skeleton:file:m.py')).toBe('modified');
     expect(rings.get('skeleton:file:r.py')).toBe('read');
+    expect(rings.get('skeleton:file:n.py')).toBe('created');
     // s2's file is not in s1's ring set.
     expect(rings.has('skeleton:file:o.py')).toBe(false);
   });

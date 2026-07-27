@@ -1,4 +1,4 @@
-"""HTTP contract for the Keeper rollover control (routes/reading_room.py's
+"""HTTP contract for the Keeper rollover control (routes/observatory.py's
 POST/GET .../keeper/rollover[/status]).
 
 Isolated per-test via the `data_dir` fixture (store.DATA_DIR -> tmp_path), same
@@ -15,14 +15,14 @@ import pytest
 from flask import Flask
 
 import store
-from routes import reading_room
+from routes import observatory
 
 
 @pytest.fixture
 def client(data_dir):
     app = Flask(__name__)
     app.config.update(TESTING=True)
-    reading_room.register(app)
+    observatory.register(app)
     return app.test_client()
 
 
@@ -31,7 +31,7 @@ def _lock_path(data_dir):
 
 
 def test_status_empty_when_unseeded(client):
-    resp = client.get("/api/reading-room/keeper/rollover/status")
+    resp = client.get("/api/observatory/keeper/rollover/status")
     assert resp.status_code == 200
     assert resp.get_json() == {"running": False, "pinned_conv_id": None, "registry": None}
 
@@ -65,7 +65,7 @@ def test_status_reflects_pinned_conv_and_registry(client, data_dir):
                        "last_cost_usd": 0.42}
     store.write("scheduled_runs.json", {"runs": [registry_entry]})
 
-    resp = client.get("/api/reading-room/keeper/rollover/status")
+    resp = client.get("/api/observatory/keeper/rollover/status")
     body = resp.get_json()
     assert body["running"] is False
     assert body["pinned_conv_id"] == "2026-07-24.090000"
@@ -87,7 +87,7 @@ def test_post_returns_202_and_spawns_detached(client, monkeypatch):
 
     monkeypatch.setattr(subprocess, "Popen", FakePopen)
 
-    resp = client.post("/api/reading-room/keeper/rollover")
+    resp = client.post("/api/observatory/keeper/rollover")
     assert resp.status_code == 202
     assert resp.get_json() == {"ok": True, "started": True}
 
@@ -116,17 +116,17 @@ def test_post_409_when_lock_already_held(client, data_dir, monkeypatch):
     fh = open(lock_path, "a+")
     fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
     try:
-        resp = client.post("/api/reading-room/keeper/rollover")
+        resp = client.post("/api/observatory/keeper/rollover")
         assert resp.status_code == 409
         assert resp.get_json() == {"error": "a rollover is already running"}
         assert calls == []   # never spawned
 
-        status = client.get("/api/reading-room/keeper/rollover/status").get_json()
+        status = client.get("/api/observatory/keeper/rollover/status").get_json()
         assert status["running"] is True
     finally:
         fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
         fh.close()
 
     # lock released — status flips back
-    status = client.get("/api/reading-room/keeper/rollover/status").get_json()
+    status = client.get("/api/observatory/keeper/rollover/status").get_json()
     assert status["running"] is False

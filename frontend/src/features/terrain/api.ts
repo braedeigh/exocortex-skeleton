@@ -1,5 +1,5 @@
 /**
- * api.ts — typed fetch for GET /api/reading-room/terrain (routes/reading_room.py,
+ * api.ts — typed fetch for GET /api/observatory/terrain (routes/observatory.py,
  * built in parallel with this page — see terrainGraph.ts for the contract this
  * was coded against). "Where is being worked on": every repo's file tree in
  * the last `window_days`, files glowing ember by recency of touch.
@@ -12,6 +12,12 @@ export interface TerrainSession {
   title: string;
   writes: number;
   reads: number;
+  /**
+   * How many files this session CREATED fresh (a Write to a path that didn't
+   * exist), a subset of `writes`. Optional — old sidecars/payloads predate it.
+   * Terrain rings a created file green while its agent is the focused/active one.
+   */
+  creates?: number;
   /**
    * The session's last touch of this file — an ISO-8601 **string**, not unix
    * seconds, because it comes from the footprints sidecar rather than from
@@ -69,7 +75,7 @@ export const TERRAIN_KEY = ['terrain'] as const;
 
 function getTerrain(limit: number | null, signal?: AbortSignal): Promise<TerrainData> {
   const q = limit === null ? 'all' : String(limit);
-  return api.get(`/api/reading-room/terrain?limit=${encodeURIComponent(q)}`, signal);
+  return api.get(`/api/observatory/terrain?limit=${encodeURIComponent(q)}`, signal);
 }
 
 /**
@@ -115,7 +121,7 @@ export interface TerrainFileContent {
 }
 
 /**
- * GET /api/reading-room/terrain/file — the tapped node's actual text.
+ * GET /api/observatory/terrain/file — the tapped node's actual text.
  * Enabled only while the modal is open, and cached indefinitely per
  * repo+path: source on disk doesn't move under you mid-read, and reopening
  * the same file should be instant.
@@ -125,7 +131,7 @@ export function useTerrainFile(repo: string | null, path: string | null) {
     queryKey: ['terrain-file', repo, path] as const,
     queryFn: async ({ signal }) =>
       api.get<TerrainFileContent>(
-        `/api/reading-room/terrain/file?repo=${encodeURIComponent(repo!)}&path=${encodeURIComponent(path!)}`,
+        `/api/observatory/terrain/file?repo=${encodeURIComponent(repo!)}&path=${encodeURIComponent(path!)}`,
         signal,
       ),
     enabled: repo !== null && path !== null,

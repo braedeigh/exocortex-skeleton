@@ -1,12 +1,12 @@
 """Spinoff — the shared spawn door for /spinoff.
 
 A skill in any Claude session writes a brief to SPINOFF_DIR/<slug>/BRIEF.md and
-calls this; it mints a Reading Room conversation (routes/reading_room.py)
+calls this; it mints a Observatory conversation (routes/observatory.py)
 config'd as a builder session with the kickoff carried on the entry AND flagged
 `autostart`, so the session fires its own kickoff the moment she opens it in the
-Reading Room — no manual send. (The kickoff still rides in `draft` as the text
+Observatory — no manual send. (The kickoff still rides in `draft` as the text
 carrier; `autostart` is what turns "prefill the compose box and wait" into "send
-it automatically" — see the Reading Room's history-load effect and the
+it automatically" — see the Observatory's history-load effect and the
 draft/autostart consume in _send_to_conversation.) The brief travels by FILE,
 never typed/shell-interpolated anywhere — only the fixed, short kickoff sentence
 below is ever staged.
@@ -14,7 +14,7 @@ below is ever staged.
 Why the flag and not a server-side spawn: the durable turn lives in the gunicorn
 worker (detached thread + _running_procs + SSE), which the standalone
 scripts/spinoff_open.py CLI door can't host. Marking the entry and letting the
-Reading Room fire the existing send path auto-starts a spinoff from EITHER door
+Observatory fire the existing send path auto-starts a spinoff from EITHER door
 (route or CLI) without new subprocess/auth machinery, and never spawns claude
 unattended — it fires when she's actually in the room.
 """
@@ -25,7 +25,7 @@ from pathlib import Path
 from flask import jsonify, request
 
 import store
-from routes.reading_room import _BUILDER_TOOLS, _chats_dir, _new_conv_id, _now
+from routes.observatory import _BUILDER_TOOLS, _chats_dir, _new_conv_id, _now
 
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,38}$")
 
@@ -37,7 +37,7 @@ DEFAULT_SPINOFF_CWD = Path(__file__).resolve().parents[1]
 def open_spinoff(slug):
     """Core shared by the route and scripts/spinoff_open.py (the agents' door).
 
-    Mints (or rejoins) a Reading Room conversation for the spinoff, with the
+    Mints (or rejoins) a Observatory conversation for the spinoff, with the
     kickoff staged as a draft rather than sent — a re-invocation against a
     spinoff that already has a live (non-archived) conversation is a rejoin,
     not a restart, and leaves that conversation untouched.

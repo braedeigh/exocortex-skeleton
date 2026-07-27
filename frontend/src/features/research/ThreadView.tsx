@@ -1,5 +1,5 @@
 /**
- * ThreadView.tsx — one thread as a reading room: an open chronological flow
+ * ThreadView.tsx — one thread as a observatory: an open chronological flow
  * read top-to-bottom, not a stack of collapsed cards. Top-level entries
  * render oldest-first (threadStructure hands back newest-first for the
  * directory's recap line, so this view reverses a copy); replies under a
@@ -31,7 +31,7 @@ import { UNFILED_ID, type Entry, type Topic } from './types';
 import styles from './ResearchPage.module.css';
 
 /** One entry, always open, with its replies nested underneath (recursively,
- * reply-of-reply). No collapse, no open-state persistence — the reading-room
+ * reply-of-reply). No collapse, no open-state persistence — the observatory
  * flow shows everything. */
 function ThreadEntryBlock({
   entry,
@@ -160,7 +160,7 @@ export function ThreadView({ topic }: { topic: Topic }) {
   const sessions = sessionsForTopic(state.sessions, topic.id);
 
   // threadStructure/unfiledStructure hand back topLevel newest-first (that
-  // ordering suits the directory's recap line); the reading room reads
+  // ordering suits the directory's recap line); the observatory reads
   // oldest-to-newest top-to-bottom, so reverse a copy here rather than touch
   // the shared helper (its own tests pin the newest-first contract).
   const topLevelOldestFirst = [...topLevel].reverse();

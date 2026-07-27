@@ -1,12 +1,12 @@
 /**
- * api.ts — typed calls for the reading room (routes/reading_room.py).
+ * api.ts — typed calls for the observatory (routes/observatory.py).
  * Roster/conversation reads use the shared api client; the send is a raw
  * fetch because it streams: the endpoint answers with SSE frames and the
  * response body is read incrementally (EventSource can't POST).
  *
  * Session-first (07-24): the "bot" persona concept dissolved server-side —
  * a session carries its own config now instead of belonging to one of a
- * handful of named bots. GET /api/reading-room's `bots` key is legacy and
+ * handful of named bots. GET /api/observatory's `bots` key is legacy and
  * unused here; `sessions` is the flat roster.
  */
 import { api } from '../../api/client';
@@ -35,6 +35,11 @@ export interface SessionMeta {
   id: string;
   title: string;
   last_at: string;
+  /** When the session was created (ISO-8601). The roster sorts on THIS, not
+   * last_at, so a card's position is fixed at birth and never churns on
+   * activity. Absent on legacy entries minted before it was stamped —
+   * consumers fall back to last_at. */
+  started?: string;
   /** false = a non-diary session: logs to its own jsonl, never mints cards. */
   journal?: boolean;
   /** Pinned sessions sort first (the Keeper session lives at the top). */
@@ -47,7 +52,7 @@ export interface SessionMeta {
   running?: boolean;
   /** A staged first message, set server-side (e.g. by an automation that
    * wants her to fire it herself) — a non-empty draft prefills the compose
-   * box once on open (see ReadingRoomPage's draft-prefill effect). */
+   * box once on open (see ObservatoryPage's draft-prefill effect). */
   draft?: string;
   /** Set by /spinoff alongside `draft`: fire the staged kickoff automatically
    * on open instead of prefilling the compose box, so a spun-off session
@@ -68,18 +73,18 @@ export interface SessionMeta {
 export function getSessions(
   signal?: AbortSignal,
 ): Promise<{ sessions: SessionMeta[]; model_choices?: string[] }> {
-  return api.get('/api/reading-room', signal);
+  return api.get('/api/observatory', signal);
 }
 
 export function getConversation(
   id: string,
   signal?: AbortSignal,
 ): Promise<{ id: string; meta: SessionMeta; events: unknown[] }> {
-  return api.get(`/api/reading-room/conversation/${encodeURIComponent(id)}`, signal);
+  return api.get(`/api/observatory/conversation/${encodeURIComponent(id)}`, signal);
 }
 
 /** Create a session ahead of its first message — the roster's '+ New
- * session', and the reading room's own blank-compose first send (the old
+ * session', and the observatory's own blank-compose first send (the old
  * create-implicitly-on-send flow is gone; the client drives it explicitly
  * now). The server picks the rest of the config (cwd/tools) itself. */
 export function createSession(
@@ -87,25 +92,25 @@ export function createSession(
   journal: boolean,
   model = '',
 ): Promise<{ ok: true; id: string }> {
-  return api.post('/api/reading-room/conversations', { title, journal, model });
+  return api.post('/api/observatory/conversations', { title, journal, model });
 }
 
 /** Put one keeper reply into the journal (a K card) — the tap gesture.
  * Works in any session regardless of its journal switch. */
 export function journalOutput(convId: string, text: string): Promise<{ ok: true }> {
-  return api.post(`/api/reading-room/conversation/${encodeURIComponent(convId)}/journal-output`, { text });
+  return api.post(`/api/observatory/conversation/${encodeURIComponent(convId)}/journal-output`, { text });
 }
 
 /** Close (archive) a session — it leaves the roster; its log stays. The
  * pinned Keeper session refuses (400). */
 export function closeConversation(id: string): Promise<{ ok: true }> {
-  return api.post(`/api/reading-room/conversation/${encodeURIComponent(id)}/close`, {});
+  return api.post(`/api/observatory/conversation/${encodeURIComponent(id)}/close`, {});
 }
 
 /** Stop a running turn on purpose — the stop button's door. This is the only
  * thing that kills a turn now; a dropped connection never does. */
 export function stopConversation(convId: string): Promise<{ ok: true }> {
-  return api.post(`/api/reading-room/conversation/${encodeURIComponent(convId)}/stop`, {});
+  return api.post(`/api/observatory/conversation/${encodeURIComponent(convId)}/stop`, {});
 }
 
 /** Fork-the-work: stage a clean-context take-over spinoff seeded with the files
@@ -115,7 +120,7 @@ export function stopConversation(convId: string): Promise<{ ok: true }> {
 export function forkConversation(
   convId: string,
 ): Promise<{ ok: boolean; conversation_id: string; newly_spawned?: boolean }> {
-  return api.post(`/api/reading-room/conversation/${encodeURIComponent(convId)}/fork`, {});
+  return api.post(`/api/observatory/conversation/${encodeURIComponent(convId)}/fork`, {});
 }
 
 /** Patch a session's settings. `model: ''` clears the pin — back to
@@ -124,7 +129,7 @@ export function updateConversation(
   id: string,
   patch: { title?: string; journal?: boolean; model?: string },
 ): Promise<{ ok: true; conversation: SessionMeta }> {
-  return api.post(`/api/reading-room/conversation/${encodeURIComponent(id)}/settings`, patch);
+  return api.post(`/api/observatory/conversation/${encodeURIComponent(id)}/settings`, patch);
 }
 
 /** Kick off the nightly keeper rollover on demand — /endsession on the
@@ -133,11 +138,11 @@ export function updateConversation(
  * 409 (one's already running) surfaces as an ApiError the caller treats as
  * "start tracking", not a failure — see useKeeperRollover.ts. */
 export function startKeeperRollover(): Promise<{ ok: boolean; started: boolean }> {
-  return api.post('/api/reading-room/keeper/rollover', {});
+  return api.post('/api/observatory/keeper/rollover', {});
 }
 
 export function getKeeperRolloverStatus(signal?: AbortSignal): Promise<KeeperRolloverStatus> {
-  return api.get('/api/reading-room/keeper/rollover/status', signal);
+  return api.get('/api/observatory/keeper/rollover/status', signal);
 }
 
 export interface SendOptions {
@@ -161,7 +166,7 @@ export async function streamSend(
   opts: SendOptions,
   onEvent: (event: Record<string, unknown>) => void,
 ): Promise<string | undefined> {
-  const res = await fetch(`/api/reading-room/conversation/${encodeURIComponent(convId)}/send`, {
+  const res = await fetch(`/api/observatory/conversation/${encodeURIComponent(convId)}/send`, {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },

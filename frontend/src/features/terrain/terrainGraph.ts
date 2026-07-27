@@ -1,6 +1,6 @@
 /**
  * terrainGraph.ts — pure graph construction + heat math for the Terrain page.
- * Turns the /api/reading-room/terrain payload into a force-graph-ready node/
+ * Turns the /api/observatory/terrain payload into a force-graph-ready node/
  * edge list: each repo is a root hub, directories are hub nodes (single-child
  * chains collapsed into one labeled node, e.g. "routes/kitchen"), and files
  * are leaves. No layout math here — that's the d3-force sim's job; this
@@ -23,7 +23,7 @@ export const HEAT_LENSES: readonly HeatLens[] = ['day', 'week', 'month'];
 
 /**
  * A heat span is either one of the three named lenses or a raw half-life in
- * seconds. The raw form exists for the Reading Room backdrop's *breathing*
+ * seconds. The raw form exists for the Observatory backdrop's *breathing*
  * (see breathHalfLife below): three named values can only ever step between
  * three glows, and stepping isn't breathing.
  */
@@ -401,8 +401,17 @@ function emitDir(ctx: BuildCtx, dir: TrieDir, parentId: string, depth: number): 
 }
 
 /** Builds the full multi-repo graph for one heat lens. `nowSeconds` is
- * injectable for tests; defaults to the real clock. */
-export function buildTerrainGraph(data: TerrainData, lens: HeatSpan, nowSeconds = Date.now() / 1000): TerrainGraph {
+ * injectable for tests; defaults to the real clock. `opts.orbSessionIds`, when
+ * given, restricts which session orbs are emitted — the Observatory backdrop
+ * passes its active set so the wallpaper shows only agents that are live right
+ * now, not the 90-day footprint backlog. Omitted (the /terrain map, tests) =
+ * every footprinted session gets an orb, unchanged. */
+export function buildTerrainGraph(
+  data: TerrainData,
+  lens: HeatSpan,
+  nowSeconds = Date.now() / 1000,
+  opts?: { orbSessionIds?: Set<string> | null },
+): TerrainGraph {
   const nodes: TerrainNode[] = [];
   const edges: TerrainEdge[] = [];
 
@@ -453,7 +462,7 @@ export function buildTerrainGraph(data: TerrainData, lens: HeatSpan, nowSeconds 
     edges.push(...repoCtx.edges);
   }
 
-  const orbs = buildSessionOrbs(nodes, data.sessions);
+  const orbs = buildSessionOrbs(nodes, data.sessions, opts?.orbSessionIds ?? null);
   nodes.push(...orbs.nodes);
   edges.push(...orbs.edges);
 
@@ -472,6 +481,7 @@ export const SESSION_NODE_PREFIX = 'session:';
 export function buildSessionOrbs(
   fileNodes: TerrainNode[],
   live: TerrainLiveSession[] | undefined,
+  allowedIds: Set<string> | null = null,
 ): TerrainGraph {
   const liveById = new Map((live ?? []).map((s) => [s.id, s]));
 
@@ -495,6 +505,9 @@ export function buildSessionOrbs(
   const edges: TerrainEdge[] = [];
   for (const [sessionId, fp] of footprints) {
     if (fp.fileIds.length === 0) continue;
+    // Backdrop restricts orbs to its active set; the objective map passes null
+    // and keeps every footprinted session.
+    if (allowedIds && !allowedIds.has(sessionId)) continue;
     const meta = liveById.get(sessionId);
     const isoLast = meta?.last ? Date.parse(meta.last) : NaN;
     const orbId = `${SESSION_NODE_PREFIX}${sessionId}`;
@@ -598,21 +611,48 @@ export function sessionFootprint(nodes: TerrainNode[], sessionId: string): Set<s
 
 // ---- focus rings: how one session touched a file ------------------------------
 
-/** Whether the focused session READ or MODIFIED a given file. 'modified' wins
- * whenever it wrote at least once (a file it both read and changed reads as
- * changed — the stronger signal); 'read' when it only read (or is attributed to
- * the file with no write count); null when the session never touched it. Drives
- * the room backdrop's focus rings (white = read, purple = modified). */
-export type FileTouchKind = 'modified' | 'read';
+/** How the focused session touched a file, strongest signal first: 'created'
+ * if it wrote the file into existence fresh, else 'modified' if it wrote it at
+ * all (a file it both read and changed reads as changed), else 'read' if it
+ * only read it (or is attributed with no write count); null when the session
+ * never touched it. Drives the room backdrop's focus rings — green = created,
+ * purple = modified, white = read. */
+export type FileTouchKind = 'created' | 'modified' | 'read';
 
 export function sessionFileTouch(file: TerrainFile, sessionId: string): FileTouchKind | null {
   const s = file.sessions.find((x) => x.id === sessionId);
   if (!s) return null;
+  if ((s.creates ?? 0) > 0) return 'created';
   return (s.writes ?? 0) > 0 ? 'modified' : 'read';
 }
 
-/** node id → read/modified for every file the given session touched — the ring
- * set the focused-agent backdrop draws around the agent's working set. */
+/** One day, the window a "freshly created" file glows green in its own dot. */
+export const CREATED_FRESH_WINDOW_SECONDS = 24 * 3600;
+
+/**
+ * Whether a file reads as *freshly created* — regardless of which agent is in
+ * focus. True when some session wrote it into existence (creates>0) and did so
+ * within `windowSeconds`. The footprints sidecar carries no standalone
+ * creation stamp, so the creating session's last touch is the proxy: a file
+ * just written won't have drifted from its birth by more than the window.
+ * Drives the backdrop's green dot fill (her 07-27 call: green dot anywhere it's
+ * new, the purple ring reserved for the focused agent's own working set).
+ */
+export function fileCreatedWithin(
+  file: TerrainFile,
+  windowSeconds: number,
+  nowSeconds: number = Date.now() / 1000,
+): boolean {
+  for (const s of file.sessions) {
+    if ((s.creates ?? 0) <= 0) continue;
+    const last = sessionLastSeconds(s.last);
+    if (last !== null && nowSeconds - last <= windowSeconds) return true;
+  }
+  return false;
+}
+
+/** node id → created/modified/read for every file the given session touched —
+ * the ring set the focused-agent backdrop draws around the agent's working set. */
 export function sessionTouchRings(nodes: TerrainNode[], sessionId: string): Map<string, FileTouchKind> {
   const rings = new Map<string, FileTouchKind>();
   for (const node of nodes) {

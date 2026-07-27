@@ -4,7 +4,7 @@ file-tree heatmap of where work has happened).
 
 Parses every `bot_chats/<conv>.jsonl` — the NDJSON event log of a
 `claude -p --output-format stream-json` conversation (see
-routes/reading_room.py) — and harvests which files each conversation
+routes/observatory.py) — and harvests which files each conversation
 touched, via the tool_use blocks in its assistant events:
 
     {"type": "assistant", "message": {"content": [
@@ -19,6 +19,15 @@ concrete file, so those are only recorded when they resolve to a file that
 actually exists on disk. Bash and everything else are ignored for v1 — no
 path to harvest reliably.
 
+A file the session CREATED fresh (a Write to a path that didn't exist) is
+also counted, in its own `creates` tally. The tool_use can't tell a new file
+from an overwrite, but the Write tool_RESULT can: it answers a new file with
+"File created successfully at: <path>" and an overwrite/edit with "The file
+<path> has been updated" — so that one result line is the reliable "created,
+not just modified" signal. A created file always shows up in `writes` too;
+`creates` just flags the novelty (Terrain rings it green while its agent is
+active).
+
 A conversation's own JSONL doesn't timestamp every event: only the human
 turn-starter (`{"type": "user", "ts": ...}`, local time) and claude's own
 tool-result/task envelopes (`{"type": "user", "timestamp": ...}`, UTC "Z")
@@ -32,7 +41,7 @@ Output is a derived sidecar, `bot_chats/footprints.json`, written via
 FULL REBUILD every run — idempotent, safe to cron or re-run by hand:
 
     {"<conv_id>": {"files": {"<abs_path>": {"writes": n, "reads": n,
-                                             "last": "<iso ts>"}}, ...},
+                                             "creates": n, "last": "<iso ts>"}}, ...},
                     "extracted_at": "<iso ts>"}, ...}
 
 Usage:
@@ -53,6 +62,11 @@ import store                                       # noqa: E402
 
 WRITE_TOOLS = frozenset(("Edit", "Write", "NotebookEdit"))
 READ_TOOLS = frozenset(("Read", "Grep", "Glob"))
+
+# The Write tool's result line for a brand-new file (vs. "The file ... has been
+# updated" for an overwrite) — the one place in the log that distinguishes a
+# creation from a modification.
+_CREATED_MARKER = "File created successfully at: "
 
 # Sidecars/locks that live alongside the conversation logs in bot_chats/ —
 # never conversation transcripts themselves.
@@ -78,6 +92,36 @@ def _tool_path(name, inp):
     if name in ("Grep", "Glob"):
         return inp.get("path")
     return None
+
+
+def _result_text(content):
+    """A tool_result's text, whether it arrived as a bare string or as a list
+    of content blocks (both shapes show up across CC versions)."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        for block in content:
+            if isinstance(block, dict) and isinstance(block.get("text"), str):
+                return block["text"]
+    return None
+
+
+def _created_path(content):
+    """The absolute path a Write tool_result reports creating fresh, or None.
+    Matches the '<marker><path>' line; the path is followed by a
+    ' (file state ...)' note in current CC, which is trimmed off."""
+    text = _result_text(content)
+    if not text:
+        return None
+    text = text.lstrip()
+    if not text.startswith(_CREATED_MARKER):
+        return None
+    rest = text[len(_CREATED_MARKER):]
+    cut = rest.find(" (file state")
+    if cut != -1:
+        rest = rest[:cut]
+    rest = rest.strip()
+    return rest or None
 
 
 def _normalize_path(path, conv_cwd):
@@ -127,13 +171,17 @@ def _nearest_ts(ts_index, ts_line_nums, line_idx):
 
 
 def _extract_touches(events, conv_cwd):
-    """(ts_index, touches) for one conversation's event list.
+    """(ts_index, touches, creates) for one conversation's event list.
 
     ts_index: [(line_idx, epoch, raw_str), ...] sorted by line_idx.
     touches:  [(line_idx, "write"|"read", abs_path), ...] in log order.
+    creates:  [(line_idx, abs_path), ...] — files a Write tool_result reported
+              creating fresh. Harvested from the RESULT (a user event), not the
+              tool_use, since only the result distinguishes new from overwrite.
     """
     ts_index = []
     touches = []
+    creates = []
     for i, ev in enumerate(events):
         if not isinstance(ev, dict):
             continue
@@ -141,40 +189,61 @@ def _extract_touches(events, conv_cwd):
         epoch = _parse_ts(raw_ts)
         if epoch is not None:
             ts_index.append((i, epoch, raw_ts))
-        if ev.get("type") != "assistant":
-            continue
-        content = ev.get("message", {})
-        content = content.get("content") if isinstance(content, dict) else None
+        # tool_use lives in assistant events, tool_result in user events — scan
+        # any message.content list and dispatch on the item type, so both are
+        # covered in one pass.
+        msg = ev.get("message")
+        content = msg.get("content") if isinstance(msg, dict) else None
         if not isinstance(content, list):
             continue
         for item in content:
-            if not isinstance(item, dict) or item.get("type") != "tool_use":
+            if not isinstance(item, dict):
                 continue
-            kind = _classify_tool(item.get("name"))
-            if kind is None:
-                continue
-            raw_path = _tool_path(item.get("name"), item.get("input"))
-            abspath = _normalize_path(raw_path, conv_cwd)
-            if abspath is None:
-                continue
-            if kind == "read" and not os.path.isfile(abspath):
-                continue  # Grep/Glob at a dir (or a since-vanished path) — skip
-            touches.append((i, kind, abspath))
-    return ts_index, touches
+            itype = item.get("type")
+            if itype == "tool_use":
+                kind = _classify_tool(item.get("name"))
+                if kind is None:
+                    continue
+                raw_path = _tool_path(item.get("name"), item.get("input"))
+                abspath = _normalize_path(raw_path, conv_cwd)
+                if abspath is None:
+                    continue
+                if kind == "read" and not os.path.isfile(abspath):
+                    continue  # Grep/Glob at a dir (or a since-vanished path) — skip
+                touches.append((i, kind, abspath))
+            elif itype == "tool_result":
+                created = _created_path(item.get("content"))
+                if created is None:
+                    continue
+                abspath = _normalize_path(created, conv_cwd)
+                if abspath is not None:
+                    creates.append((i, abspath))
+    return ts_index, touches, creates
 
 
-def _aggregate(touches, ts_index, fallback_last):
-    """Per-conv touches -> {abs_path: {"writes", "reads", "last"}}."""
+def _aggregate(touches, creates, ts_index, fallback_last):
+    """Per-conv touches -> {abs_path: {"writes", "reads", "creates", "last"}}."""
     ts_line_nums = [t[0] for t in ts_index]
     files = {}
-    for line_idx, kind, abspath in touches:
-        entry = files.setdefault(abspath, {"writes": 0, "reads": 0,
-                                            "_last_epoch": None, "last": fallback_last})
-        entry["writes" if kind == "write" else "reads"] += 1
+
+    def _entry(abspath):
+        return files.setdefault(abspath, {"writes": 0, "reads": 0, "creates": 0,
+                                          "_last_epoch": None, "last": fallback_last})
+
+    def _stamp(entry, line_idx):
         epoch, raw = _nearest_ts(ts_index, ts_line_nums, line_idx)
         if epoch is not None and (entry["_last_epoch"] is None or epoch > entry["_last_epoch"]):
             entry["_last_epoch"] = epoch
             entry["last"] = raw
+
+    for line_idx, kind, abspath in touches:
+        entry = _entry(abspath)
+        entry["writes" if kind == "write" else "reads"] += 1
+        _stamp(entry, line_idx)
+    for line_idx, abspath in creates:
+        entry = _entry(abspath)
+        entry["creates"] += 1
+        _stamp(entry, line_idx)
     for entry in files.values():
         del entry["_last_epoch"]
     return files
@@ -182,13 +251,13 @@ def _aggregate(touches, ts_index, fallback_last):
 
 def harvest_conversation(path, conv_cwd, fallback_last=None):
     """One conversation's jsonl -> {abs_path: {"writes": n, "reads": n,
-    "last": iso}} — the same harvest the batch run does, exposed as an
-    importable seam so routes/reading_room.py can re-parse a RUNNING
+    "creates": n, "last": iso}} — the same harvest the batch run does, exposed
+    as an importable seam so routes/observatory.py can re-parse a RUNNING
     conversation live (the batch sidecar is stale the moment a turn is
     mid-flight) without duplicating any of the parsing logic."""
     events = _load_events(Path(path))
-    ts_index, touches = _extract_touches(events, conv_cwd)
-    return _aggregate(touches, ts_index, fallback_last)
+    ts_index, touches, creates = _extract_touches(events, conv_cwd)
+    return _aggregate(touches, creates, ts_index, fallback_last)
 
 
 def _load_events(path):
@@ -225,7 +294,7 @@ def main():
     extracted_at = datetime.now().isoformat(timespec="seconds")
 
     result = {}
-    total_writes = total_reads = total_touches = total_files = 0
+    total_writes = total_reads = total_creates = total_touches = total_files = 0
     for path in conv_paths:
         conv_id = path.stem
         meta = index.get(conv_id) if isinstance(index.get(conv_id), dict) else {}
@@ -233,19 +302,22 @@ def main():
                                      meta.get("last_at") or meta.get("started"))
         writes = sum(f["writes"] for f in files.values())
         reads = sum(f["reads"] for f in files.values())
+        creates = sum(f["creates"] for f in files.values())
         total_writes += writes
         total_reads += reads
+        total_creates += creates
         total_touches += writes + reads   # every touch lands in exactly one counter
         total_files += len(files)
         if args.dry_run:
-            print(f"{conv_id}: {len(files)} files ({writes} writes, {reads} reads)")
+            print(f"{conv_id}: {len(files)} files ({writes} writes, {reads} reads, "
+                  f"{creates} created)")
         else:
             result[conv_id] = {"files": files, "extracted_at": extracted_at}
 
     if args.dry_run:
         print(f"\nTOTAL: {len(conv_paths)} conversations, {total_files} file entries, "
-              f"{total_touches} touches ({total_writes} writes, {total_reads} reads) — "
-              f"dry run, nothing written")
+              f"{total_touches} touches ({total_writes} writes, {total_reads} reads, "
+              f"{total_creates} created) — dry run, nothing written")
         return
 
     with store.mutate("bot_chats/footprints", {}) as data:

@@ -16,7 +16,7 @@ function ago(iso: string | undefined): string | null {
 }
 
 /**
- * /atlas — a map, not a dashboard: every reading-room session sorted into
+ * /atlas — a map, not a dashboard: every observatory session sorted into
  * its home. The exocortex front is the hero (its five domain shelves render
  * even when empty, so the architecture stays visible); the other 11 life
  * fronts render as shelves only when they hold sessions, collapsing into a
@@ -125,7 +125,7 @@ function SessionCard({ session }: { session: AtlasSession }) {
 
   const open = () => {
     void navigate({
-      to: '/reading-room/$botId',
+      to: '/observatory/$botId',
       params: { botId: session.bot },
       search: { conv: session.id },
     });

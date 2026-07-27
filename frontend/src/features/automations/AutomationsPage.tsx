@@ -59,7 +59,7 @@ export function AutomationsPage() {
   };
 
   const openSession = (convId: string) => {
-    void navigate({ to: '/reading-room/$botId', params: { botId: 'keeper' }, search: { conv: convId } });
+    void navigate({ to: '/observatory/$botId', params: { botId: 'keeper' }, search: { conv: convId } });
   };
 
   return (

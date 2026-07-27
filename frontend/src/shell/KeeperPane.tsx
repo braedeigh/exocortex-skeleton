@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ReadingRoomPage } from '../features/readingRoom/ReadingRoomPage';
-import { RosterPage } from '../features/readingRoom/RosterPage';
-import { getSessions } from '../features/readingRoom/api';
+import { ObservatoryPage } from '../features/observatory/ObservatoryPage';
+import { RosterPage } from '../features/observatory/RosterPage';
+import { getSessions } from '../features/observatory/api';
 import styles from './KeeperPane.module.css';
 
 /**
- * The reading room docked in the desktop split's left pane — the desktop half
+ * The observatory docked in the desktop split's left pane — the desktop half
  * of what the mobile Chat tab does when Settings points it at the reading
  * room (chatSurface.ts). The WHOLE room, not just the Keeper: `roster` picks
  * between the Sessions list and the open conversation, driven by the pane
@@ -13,7 +13,7 @@ import styles from './KeeperPane.module.css';
  * left pane without giving up the right one.
  *
  * Which conversation it opens on: the same rule as the Chat tab's
- * `?conv=latest` (see reading-room_.$botId.tsx's LatestConvResolver) — the
+ * `?conv=latest` (see observatory_.$botId.tsx's LatestConvResolver) — the
  * pinned Keeper session if there is one, else the newest, else a fresh
  * compose. Resolved here rather than by that route resolver because the pane
  * has no URL of its own to resolve *into*; it holds the id in state.
@@ -66,7 +66,7 @@ export function KeeperPane({ roster, onOpenRoom }: { roster: boolean; onOpenRoom
         {conv === undefined ? (
           <div className={styles.loading} />
         ) : (
-          <ReadingRoomPage
+          <ObservatoryPage
             key={conv ?? 'new'}
             botId="keeper"
             convId={conv ?? undefined}

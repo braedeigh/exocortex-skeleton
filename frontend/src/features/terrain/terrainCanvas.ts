@@ -32,6 +32,8 @@ import {
 import { select } from 'd3-selection';
 import { zoom, zoomIdentity, type ZoomBehavior, type ZoomTransform } from 'd3-zoom';
 import {
+  CREATED_FRESH_WINDOW_SECONDS,
+  fileCreatedWithin,
   fileLastTouch,
   normalizeHeat,
   relativeAge,
@@ -61,11 +63,24 @@ import {
 export const HEAT_RAMP_LIGHT = ['#271513', '#681b1b', '#9b2425', '#cd3131', '#f14c4c'] as const;
 export const HEAT_RAMP_DARK = ['#341816', '#681b1b', '#9b2425', '#cd3131', '#f14c4c'] as const;
 
-/** Focus interaction rings (build 2, per the owner's 07-25 spec): a file the
- * focused room agent has READ gets a white ring, one it has MODIFIED a purple
- * ring. Literal colors on purpose — day/night adaptation comes later. */
+/**
+ * The agent's purple (her call, 07-26): the orb ring, its dotted tethers, AND
+ * the files it has modified all share ONE purple — "this agent and what it
+ * changed", spoken in a single colour. That purple is the app's --accent — the
+ * same violet the map's dial thumbs wear — read live from the theme in
+ * setTheme, so an install that retints --accent retints the agents with it.
+ * AGENT_PURPLE below is only the fallback used before the first theme lands.
+ * Reads stay white, heat stays red, and a file the agent CREATED fresh gets
+ * its own green. Exported so the /terrain legend can decode the orb.
+ */
+export const AGENT_PURPLE = '#7c5cbf';
+/** A file the focused agent has READ gets a white ring. */
 const READ_RING = '#ffffff';
-const MODIFIED_RING = '#b45cff';
+/** Freshly-created files (within 24h, anywhere on the map) fill their DOT
+ * git-add green — her 07-27 call, moving "new" off the ring and onto the body
+ * so it reads regardless of which agent is focused. The focused agent's own
+ * created + modified files then both take the purple ring (this.orbStroke). */
+const CREATED_GREEN = '#22c55e';
 
 export interface ThemeInk {
   bg: string;
@@ -182,18 +197,19 @@ function isReddish(hex: string): boolean {
 }
 
 /**
- * Session-orb stroke color: an identity token, NEVER a heat color. Prefers
- * the app's --accent (default #7c5cbf violet, hue ≈ 300° — nowhere near the
- * ramp's red at ≈ 25°); if --accent has been overridden to something
- * red-family, falls back to --evening (blue #6a7acc), then plain ink.
- * Whichever token wins is nudged toward ink in 10% steps until it clears
- * 3:1 on the live surface, and the red check re-runs on the mixed result
- * (defaults: dark #7c5cbf on #14101e → 3.69:1 as-is; light needs 30% text →
- * #5f488c on #aba3b2 → 3.08:1).
+ * Session-orb stroke color: an identity token, NEVER a heat color. Takes
+ * `primary` then `fallback` in preference order and returns the first that
+ * isn't red-family (the ramp owns red) once nudged toward ink to clear 3:1 on
+ * the live surface; if neither survives, plain ink.
+ *
+ * Orb identity is the app's --evening BLUE now, not the violet --accent — build
+ * 2 gave purple a job (a file the agent MODIFIED gets a purple ring), and one
+ * accent can't mean two things. Blue for the body, purple for what it changed,
+ * white for what it read, red for heat: four signals that never collide.
  */
-export function deriveOrbColor(accent: string, evening: string, bg: string, text: string): string {
+export function deriveOrbColor(primary: string, fallback: string, bg: string, text: string): string {
   if (!/^#[0-9a-fA-F]{6}$/.test(bg)) return text;
-  const candidates = [accent, evening].filter((c) => /^#[0-9a-fA-F]{6}$/.test(c) && !isReddish(c));
+  const candidates = [primary, fallback].filter((c) => /^#[0-9a-fA-F]{6}$/.test(c) && !isReddish(c));
   for (const base of candidates) {
     for (let f = 0; f <= 0.6001; f += 0.1) {
       const c = mixHex(base, text, f);
@@ -219,7 +235,7 @@ export class TerrainCanvas {
   private hotLabels: Map<string, string> = new Map(); // node id -> "2h"
   private footprint: Set<string> | null = null;
   private theme: ThemeInk;
-  private orbStroke = '#7c5cbf';
+  private orbStroke = AGENT_PURPLE;
   private drawQueued = false;
   private destroyed = false;
   private width = 0;
@@ -239,15 +255,16 @@ export class TerrainCanvas {
   /**
    * Ambient mode — the map as *wallpaper* rather than as a page. No gestures,
    * no taps, no labels: behind a conversation, a filename is noise competing
-   * with the thing she's actually reading. Used by the Reading Room backdrop
+   * with the thing she's actually reading. Used by the Observatory backdrop
    * (shell-side: TerrainBackdrop.tsx); /terrain itself never sets it.
    */
   private ambient = false;
   /**
    * Focus mode (backdrop-only): the conversation whose agent this surface is
    * standing behind. Its orb eases to loosely centered and the files it has
-   * touched are ringed (white = read, purple = modified). null on /terrain,
-   * where the whole objective map is the point.
+   * touched are ringed (white = read, purple = created-or-modified). Freshly
+   * created files also fill their dot green, independent of focus. null on
+   * /terrain, where the whole objective map is the point.
    */
   private focusConv: string | null = null;
   private focusRings: Map<string, FileTouchKind> = new Map();
@@ -271,7 +288,7 @@ export class TerrainCanvas {
         this.transform = event.transform;
         this.requestDraw(); // repaint only — pan/zoom never wakes the sim
       });
-    // An ambient canvas binds neither: every gesture over the Reading Room
+    // An ambient canvas binds neither: every gesture over the Observatory
     // belongs to the conversation, and a backdrop that ate a swipe would read
     // as the page being broken.
     if (!this.ambient) {
@@ -280,7 +297,7 @@ export class TerrainCanvas {
     }
 
     document.addEventListener('visibilitychange', this.handleVisibility);
-    this.orbStroke = deriveOrbColor(theme.accent, theme.evening, theme.bg, theme.text);
+    this.orbStroke = theme.accent; // agent + its dotted tethers = the app --accent (her 07-26 call)
   }
 
   destroy(): void {
@@ -308,7 +325,7 @@ export class TerrainCanvas {
 
   setTheme(theme: ThemeInk): void {
     this.theme = theme;
-    this.orbStroke = deriveOrbColor(theme.accent, theme.evening, theme.bg, theme.text);
+    this.orbStroke = theme.accent; // agent + its dotted tethers track the live --accent
     this.requestDraw();
   }
 
@@ -328,7 +345,7 @@ export class TerrainCanvas {
   /**
    * Focus the map on one conversation's agent (backdrop-only). Its orb eases
    * to loosely centered, the files it has touched are ringed — white = read,
-   * purple = modified — and the camera frames the orb plus that working set,
+   * purple = created-or-modified — and the camera frames the orb plus that working set,
    * honestly: the files stay where they really live in the tree (option A),
    * only the viewport moves. null clears focus and returns to whole-graph
    * framing.
@@ -687,13 +704,21 @@ export class TerrainCanvas {
         // filled ember disc, so sessions can't be confused with heat.
         const running = n.node.session?.running === true;
         const r = running ? nr * breathe : nr;
+        // In focus mode (backdrop) the agent she's actually viewing burns full
+        // purple; every other active agent is dimmed so the running one it's
+        // standing behind reads as THE one (her 07-27 call). Off focus
+        // (/terrain) orbs keep the objective in/out-of-print alpha.
+        const isFocusOrb =
+          this.focusConv !== null && n.id === `${SESSION_NODE_PREFIX}${this.focusConv}`;
+        const orbAlpha = this.focusConv === null ? (inPrint ? 1 : 0.22) : isFocusOrb ? 1 : 0.38;
+        ctx.globalAlpha = orbAlpha;
         ctx.strokeStyle = this.orbStroke;
-        ctx.lineWidth = 2.5 / transform.k;
+        ctx.lineWidth = (isFocusOrb ? 3.25 : 2.5) / transform.k;
         ctx.beginPath();
         ctx.arc(n.x ?? 0, n.y ?? 0, r, 0, Math.PI * 2);
         ctx.stroke();
         // Halo: a second, fainter ring — the "orb" read.
-        ctx.globalAlpha = (inPrint ? 1 : 0.22) * (running ? 0.45 : 0.25);
+        ctx.globalAlpha = orbAlpha * (running ? 0.45 : 0.25);
         ctx.lineWidth = 1.5 / transform.k;
         ctx.beginPath();
         ctx.arc(n.x ?? 0, n.y ?? 0, r + 4 / transform.k, 0, Math.PI * 2);
@@ -703,7 +728,12 @@ export class TerrainCanvas {
       }
 
       if (n.node.kind === 'file') {
-        ctx.fillStyle = heatColor(n.t, ramp);
+        // Freshly created (within 24h, any agent) fills the dot green;
+        // otherwise it glows ember by recency like every other file.
+        const fresh = n.node.file
+          ? fileCreatedWithin(n.node.file, CREATED_FRESH_WINDOW_SECONDS, now / 1000)
+          : false;
+        ctx.fillStyle = fresh ? CREATED_GREEN : heatColor(n.t, ramp);
       } else {
         // Hubs: structural, mostly surface-toned (bg pushed toward ink),
         // warmed by rolled-up heat so a hot subtree's spine reads warm too.
@@ -727,12 +757,15 @@ export class TerrainCanvas {
         ctx.arc(n.x ?? 0, n.y ?? 0, nr + 3.5 / transform.k, 0, Math.PI * 2);
         ctx.stroke();
       }
-      // Focus interaction ring — the room agent's reads (white) / mods
-      // (purple). Always full-alpha: it's the whole point of a focused surface.
+      // Focus interaction ring — the room agent's working set. Reads get a
+      // white ring; both created and modified files take the agent's own
+      // purple (her 07-27 call: created-ness is now the green DOT above, so the
+      // ring only ever says "this focused agent touched it"). Always full-alpha:
+      // it's the whole point of a focused surface.
       const ring = n.node.kind === 'file' ? this.focusRings.get(n.id) : undefined;
       if (ring) {
         ctx.globalAlpha = 1;
-        ctx.strokeStyle = ring === 'modified' ? MODIFIED_RING : READ_RING;
+        ctx.strokeStyle = ring === 'read' ? READ_RING : this.orbStroke;
         ctx.lineWidth = 2.4 / transform.k;
         ctx.beginPath();
         ctx.arc(n.x ?? 0, n.y ?? 0, nr + 4 / transform.k, 0, Math.PI * 2);

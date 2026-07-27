@@ -97,11 +97,11 @@ def register(app):
     @app.route("/files")
     @app.route("/chat")
     @app.route("/notes")
-    # The reading room (renamed from "bots" 07-24 — the persona concept
+    # The observatory (renamed from "bots" 07-24 — the persona concept
     # keeps the name "bot" everywhere; only this surface's URL changed).
     # /bots/* stays reachable too, for old bookmarks and cached PWA clients.
-    @app.route("/reading-room")
-    @app.route("/reading-room/<path:rest>")
+    @app.route("/observatory")
+    @app.route("/observatory/<path:rest>")
     @app.route("/bots")
     @app.route("/bots/<path:rest>")
     # Native dashboard tabs (ported from /tab/<name>):

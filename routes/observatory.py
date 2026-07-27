@@ -1,10 +1,10 @@
-"""Reading room API — slice S1 of docs/bot-surface-design (the "pipe").
+"""Observatory API — slice S1 of docs/bot-surface-design (the "pipe").
 
 SESSION-FIRST MODEL: each conversation (an entry in bot_chats/index.json) is
 its own self-contained unit of config — it carries its own `cwd`,
 `allowed_tools`, and (optionally) `system_prompt_file` directly, resolved by
 `_conv_config()`. The "bot" layer that used to own this config has been
-dissolved; "bots" survive only as (a) the legacy `/api/reading-room/<bot_id>/
+dissolved; "bots" survive only as (a) the legacy `/api/observatory/<bot_id>/
 ...` and `/api/bots/...` route aliases kept for cached PWA clients, and (b) a
 `bot` display field carried on each entry (old sidecars/terrain read
 `meta.get("bot")`). New conversations get their config at creation time, not
@@ -63,7 +63,7 @@ _CONV_ID_RE = re.compile(r"^[A-Za-z0-9.\-]{1,60}$")
 # backfilling the index. New conversations always get an explicit list.
 _DEFAULT_ALLOWED_TOOLS = ["Read", "Grep", "Glob"]
 
-# What a builder session (the Reading Room's default for new sessions, and
+# What a builder session (the Observatory's default for new sessions, and
 # what spinoff conversations get) is allowed to touch — a full dev toolkit,
 # unlike the read-only legacy default above.
 _BUILDER_TOOLS = ["Read", "Grep", "Glob", "Edit", "Write", "NotebookEdit",
@@ -82,7 +82,7 @@ _MODEL_CHOICES = ["fable", "opus", "opus[1m]", "sonnet", "sonnet[1m]", "haiku"]
 # Keep app-spawned builder/spinoff sessions from editing the hand-curated
 # identity docs (the seed scaffold, the project CLAUDE.md, persona lore, vault
 # doctrine). Terra's cut (07-26): bind the read-only to the SESSION TYPE, not to
-# the files — a session spawned through the Reading Room or a /spinoff can't
+# the files — a session spawned through the Observatory or a /spinoff can't
 # scribble these, but the owner's own direct vault terminal never runs through
 # here, so she still re-cuts doctrine "at the edge" whenever she chooses. This
 # is DRIFT-protection (a confused session reaches for the Edit tool), NOT a
@@ -169,7 +169,7 @@ def _session_settings(config, tools):
 
 
 # --- LEGACY: bot lookups, kept only for the legacy per-bot alias routes ------
-# (cached PWA clients still hitting /api/reading-room/<bot_id>/... and
+# (cached PWA clients still hitting /api/observatory/<bot_id>/... and
 # /api/bots/...). New code should use _conv_config(entry) instead.
 
 def _default_bots():
@@ -315,9 +315,10 @@ def _spawn(config, text, resume_sid, cwd_override=None):
     return proc, stderr_f
 
 
-# Live turns, per worker: conv_id -> Popen. Only the explicit stop endpoint
-# ever kills a turn through this — a client disconnect never touches it (the
-# whole point: closing the phone's PWA must not shoot the reply mid-write).
+# Live turns, per worker: conv_id -> Popen. Only the explicit stop and close
+# endpoints ever kill a turn through this — a client disconnect never touches
+# it (the whole point: closing the phone's PWA must not shoot the reply
+# mid-write; only a deliberate Stop or Close does).
 # Cross-worker stops go through the index's stop_requested flag instead.
 _running_procs = {}
 _stop_requested = set()
@@ -339,6 +340,20 @@ def _effective_running(conv_id, entry):
     except (TypeError, ValueError):
         return True
     return (datetime.now() - last).total_seconds() < _RUNNING_STALE_SEC
+
+
+def _kill_local_proc(conv_id):
+    """Kill a live turn IF this worker owns its process. Returns True when it
+    did. Records the conv_id in _stop_requested so the turn thread reads the
+    death as an intentional stop, not a crash (see the returncode check in the
+    stream finalizer). A turn owned by the OTHER gunicorn worker isn't visible
+    here — callers fall back to the index's stop_requested flag for that."""
+    proc = _running_procs.get(conv_id)
+    if proc is not None and proc.poll() is None:
+        _stop_requested.add(conv_id)
+        proc.kill()
+        return True
+    return False
 
 
 def _stderr_tail(stderr_f):
@@ -1019,10 +1034,10 @@ def _fork_brief_md(title, surface):
 
 def register(app):
     # The /api/bots/* rules below are kept as aliases of the canonical
-    # /api/reading-room/* paths purely for cached PWA clients (old service-
+    # /api/observatory/* paths purely for cached PWA clients (old service-
     # worker installs, bookmarked API calls) — they can be dropped once those
     # have aged out.
-    @app.route("/api/reading-room")
+    @app.route("/api/observatory")
     @app.route("/api/bots")
     def bots_list():
         """Roster: every open (non-archived) conversation, pinned first then
@@ -1067,10 +1082,16 @@ def request_input(conv_id, question):
 
         chats = _chats_dir()
         index = store.read("bot_chats/index", {})
+        # Ordered by CREATION time, newest first (her 07-27 call), NOT by
+        # last activity: a card's spot is fixed the moment it's made, so the
+        # roster never reshuffles under her when an agent replies. Recency
+        # still shows — the unread accent, the busy/ready dot, the "Xm ago"
+        # stamp — it just no longer moves the card. `started` back-fills to
+        # last_at for any legacy entry minted before it was stamped.
         sessions = sorted(
             (dict(meta, id=cid) for cid, meta in index.items()
              if isinstance(meta, dict) and not meta.get("archived")),
-            key=lambda c: c.get("last_at", ""), reverse=True)
+            key=lambda c: c.get("started") or c.get("last_at", ""), reverse=True)
         # Pinned sessions surface first (the Keeper session lives at the
         # top); the sort above stays stable within each group.
         sessions.sort(key=lambda c: 0 if c.get("pinned") else 1)
@@ -1095,8 +1116,8 @@ def request_input(conv_id, question):
         return jsonify({"sessions": sessions, "bots": bots,
                         "model_choices": list(_MODEL_CHOICES)})
 
-    @app.route("/api/reading-room/atlas")
-    def reading_room_atlas():
+    @app.route("/api/observatory/atlas")
+    def observatory_atlas():
         """The sorter's map: life fronts + exocortex sub-domains (the
         vocabulary), and every session (archived included — the atlas is a
         librarian's view, not the live roster) merged with its gists.json
@@ -1146,8 +1167,8 @@ def request_input(conv_id, question):
                       reverse=True)
         return jsonify({"fronts": fronts, "domains": domains, "sessions": sessions})
 
-    @app.route("/api/reading-room/terrain")
-    def reading_room_terrain():
+    @app.route("/api/observatory/terrain")
+    def observatory_terrain():
         """The heatmap's data layer: git heat + session attribution, merged
         per repo/file. Cached in-process for _TERRAIN_CACHE_TTL_SEC — two
         repos' worth of `git log` isn't free, and this isn't a per-tap read —
@@ -1178,8 +1199,8 @@ def request_input(conv_id, question):
         _terrain_cache[file_cap] = {"payload": payload, "computed_at": now}
         return jsonify(payload)
 
-    @app.route("/api/reading-room/terrain/file")
-    def reading_room_terrain_file():
+    @app.route("/api/observatory/terrain/file")
+    def observatory_terrain_file():
         """One file's own text, for the map's tap-a-node code modal.
 
         Scoped hard to the two Terrain repos: the path is resolved with
@@ -1220,7 +1241,7 @@ def request_input(conv_id, question):
                         "summary": _terrain_file_summary(relpath, text),
                         "content": text, "lines": text.count("\n") + 1})
 
-    @app.route("/api/reading-room/keeper/rollover", methods=["POST"])
+    @app.route("/api/observatory/keeper/rollover", methods=["POST"])
     @app.route("/api/bots/keeper/rollover", methods=["POST"])
     def keeper_rollover_start():
         """Fire the same close/open job cron runs at 3 AM, on demand — the
@@ -1246,7 +1267,7 @@ def request_input(conv_id, question):
             )
         return jsonify({"ok": True, "started": True}), 202
 
-    @app.route("/api/reading-room/keeper/rollover/status")
+    @app.route("/api/observatory/keeper/rollover/status")
     @app.route("/api/bots/keeper/rollover/status")
     def keeper_rollover_status():
         """What the Automations card polls: whether a rollover is in flight
@@ -1271,12 +1292,17 @@ def request_input(conv_id, question):
                         "pinned_conv_id": pinned_conv_id,
                         "registry": registry})
 
-    @app.route("/api/reading-room/conversation/<conv_id>/close", methods=["POST"])
+    @app.route("/api/observatory/conversation/<conv_id>/close", methods=["POST"])
     @app.route("/api/bots/conversation/<conv_id>/close", methods=["POST"])
     def bot_conv_close(conv_id):
-        """Close a session: it leaves the roster, but nothing is deleted —
-        the jsonl log and index entry stay (her record is the record). The
-        pinned Keeper session always stays open."""
+        """Close a session: it stops any live turn, then leaves the roster.
+        Nothing is deleted — the jsonl log and index entry stay (her record is
+        the record). The pinned Keeper session always stays open.
+
+        Closing STOPS a running turn (same kill path as /stop): the subprocess
+        is killed if this worker owns it, else the owning worker is flagged via
+        stop_requested. Pinned is checked FIRST, so refusing to close the Keeper
+        never kills its turn."""
         _chats_dir()
         with store.mutate("bot_chats/index", {}) as index:
             entry = index.get(conv_id)
@@ -1284,11 +1310,13 @@ def request_input(conv_id, question):
                 return jsonify({"error": "not found"}), 404
             if entry.get("pinned"):
                 return jsonify({"error": "the pinned Keeper session stays open"}), 400
+            if not _kill_local_proc(conv_id) and entry.get("running"):
+                entry["stop_requested"] = _now()
             entry["archived"] = _now()
         return jsonify({"ok": True})
 
-    @app.route("/api/reading-room/conversations", methods=["POST"])
-    def reading_room_conv_create():
+    @app.route("/api/observatory/conversations", methods=["POST"])
+    def observatory_conv_create():
         """Create a session with the session-first default config: a builder
         session rooted in the skeleton checkout, full dev toolkit. Body:
         {title, journal, model}. `bot: "keeper"` is kept purely as a display
@@ -1315,13 +1343,13 @@ def request_input(conv_id, question):
                 index[conv_id]["model"] = model
         return jsonify({"ok": True, "id": conv_id})
 
-    @app.route("/api/reading-room/<bot_id>/conversations", methods=["POST"])
+    @app.route("/api/observatory/<bot_id>/conversations", methods=["POST"])
     @app.route("/api/bots/<bot_id>/conversations", methods=["POST"])
     def bot_conv_create(bot_id):
         """LEGACY: create a session the old bot-lookup way (vault cwd, no
         allowed_tools field written — new entries read back through the
         read-only legacy fallback in _conv_config). Kept for cached PWA
-        clients; new callers should use POST /api/reading-room/conversations."""
+        clients; new callers should use POST /api/observatory/conversations."""
         bot = _bot(bot_id)
         if not bot:
             return jsonify({"error": "unknown bot"}), 404
@@ -1339,7 +1367,7 @@ def request_input(conv_id, question):
                               "cwd": bot.get("cwd")}
         return jsonify({"ok": True, "id": conv_id})
 
-    @app.route("/api/reading-room/conversation/<conv_id>/settings", methods=["POST"])
+    @app.route("/api/observatory/conversation/<conv_id>/settings", methods=["POST"])
     @app.route("/api/bots/conversation/<conv_id>/settings", methods=["POST"])
     def bot_conv_settings(conv_id):
         """Rename, flip a session's journal switch, and/or pin its model.
@@ -1383,7 +1411,7 @@ def request_input(conv_id, question):
             out = dict(entry, id=conv_id)
         return jsonify({"ok": True, "conversation": out})
 
-    @app.route("/api/reading-room/conversation/<conv_id>/journal-output", methods=["POST"])
+    @app.route("/api/observatory/conversation/<conv_id>/journal-output", methods=["POST"])
     @app.route("/api/bots/conversation/<conv_id>/journal-output", methods=["POST"])
     def bot_journal_output(conv_id):
         """Put one keeper reply into the journal, on a tap — the fine-grained
@@ -1406,7 +1434,7 @@ def request_input(conv_id, question):
                                   "ts": _now()}) + "\n")
         return jsonify({"ok": True})
 
-    @app.route("/api/reading-room/conversation/<conv_id>")
+    @app.route("/api/observatory/conversation/<conv_id>")
     @app.route("/api/bots/conversation/<conv_id>")
     def bot_conversation(conv_id):
         if not _CONV_ID_RE.match(conv_id):
@@ -1439,7 +1467,7 @@ def request_input(conv_id, question):
             meta = dict(meta, running=_effective_running(conv_id, meta))
         return jsonify({"id": conv_id, "meta": meta, "events": events})
 
-    @app.route("/api/reading-room/conversation/<conv_id>/stop", methods=["POST"])
+    @app.route("/api/observatory/conversation/<conv_id>/stop", methods=["POST"])
     @app.route("/api/bots/conversation/<conv_id>/stop", methods=["POST"])
     def bot_conv_stop(conv_id):
         """Stop a running turn ON PURPOSE — the stop button's door. This is
@@ -1449,10 +1477,7 @@ def request_input(conv_id, question):
         turn thread checks the flag per message-granular event)."""
         if not _CONV_ID_RE.match(conv_id):
             return jsonify({"error": "invalid conversation id"}), 400
-        proc = _running_procs.get(conv_id)
-        if proc is not None and proc.poll() is None:
-            _stop_requested.add(conv_id)
-            proc.kill()
+        if _kill_local_proc(conv_id):
             return jsonify({"ok": True})
         with store.mutate("bot_chats/index", {}) as index:
             entry = index.get(conv_id)
@@ -1462,7 +1487,7 @@ def request_input(conv_id, question):
                 entry["stop_requested"] = _now()
         return jsonify({"ok": True})
 
-    @app.route("/api/reading-room/conversation/<conv_id>/fork", methods=["POST"])
+    @app.route("/api/observatory/conversation/<conv_id>/fork", methods=["POST"])
     def bot_conv_fork(conv_id):
         """Fork-the-work: stage a fresh take-over spinoff seeded with what this
         session is writing/creating right now. Reads the live footprint, writes
@@ -1487,11 +1512,11 @@ def request_input(conv_id, question):
         payload, status = open_spinoff(slug)
         return jsonify(payload), status
 
-    @app.route("/api/reading-room/conversation/<conv_id>/send", methods=["POST"])
-    def reading_room_conv_send(conv_id):
+    @app.route("/api/observatory/conversation/<conv_id>/send", methods=["POST"])
+    def observatory_conv_send(conv_id):
         """Session-first send: 404s if `conv_id` isn't already in the index
         (unlike the legacy per-bot route, this door never mints a fresh
-        conversation — POST /api/reading-room/conversations does that)."""
+        conversation — POST /api/observatory/conversations does that)."""
         data = request.json or {}
         text = (data.get("text") or "").strip()
         if not text:
@@ -1499,11 +1524,11 @@ def request_input(conv_id, question):
         record = data.get("record") is not False   # on unless explicitly off
         return _send_to_conversation(conv_id, text, record)
 
-    @app.route("/api/reading-room/<bot_id>/send", methods=["POST"])
+    @app.route("/api/observatory/<bot_id>/send", methods=["POST"])
     @app.route("/api/bots/<bot_id>/send", methods=["POST"])
     def bot_send(bot_id):
         """LEGACY per-bot send. With a conversation_id, this is now identical
-        to reading_room_conv_send (the entry's own config wins). Without
+        to observatory_conv_send (the entry's own config wins). Without
         one, it mints a fresh conversation the OLD way — the bot's cwd, no
         allowed_tools field (read-only legacy fallback) — for cached PWA
         clients that still call this door to start new sessions."""
@@ -1566,7 +1591,7 @@ def request_input(conv_id, question):
             entry.pop("stop_requested", None)
             # A staged kickoff (from /spinoff or a saved draft) is consumed
             # by the first send that fires it. `autostart` (set by /spinoff so
-            # the Reading Room auto-fires the kickoff on open) is cleared on the
+            # the Observatory auto-fires the kickoff on open) is cleared on the
             # same beat — once fired it must never re-fire, even if she reopens
             # the session mid-turn.
             entry.pop("draft", None)

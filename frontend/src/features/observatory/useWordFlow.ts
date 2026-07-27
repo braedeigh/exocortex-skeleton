@@ -10,7 +10,7 @@ import {
 } from './streamPacing';
 
 /**
- * useWordFlow.ts — the reading room's WORD FLOW (her 07-23 ask): owns the
+ * useWordFlow.ts — the observatory's WORD FLOW (her 07-23 ask): owns the
  * pacing ticker that releases a streaming reply's text a word at a time
  * (streamPacing.ts owns the arithmetic; this hook owns the interval and the
  * render-driving state).

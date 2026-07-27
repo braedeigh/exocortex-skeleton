@@ -1,4 +1,4 @@
-"""Fork-the-work (routes/reading_room.py).
+"""Fork-the-work (routes/observatory.py).
 
 From a running session's live footprint, stage a clean-context take-over
 spinoff seeded with the files it is WRITING/creating (reads excluded — lookup
@@ -18,7 +18,7 @@ import pytest
 from flask import Flask
 
 import store
-from routes import reading_room as rr
+from routes import observatory as rr
 
 
 @pytest.fixture
@@ -96,7 +96,7 @@ def test_fork_stages_a_spinoff_seeded_with_the_write_surface(fork_client):
     _seed_running("c1", skeleton)
     _write_jsonl("c1", [_edit(skeleton / "routes" / "existing.py")])
 
-    resp = fork_client.post("/api/reading-room/conversation/c1/fork")
+    resp = fork_client.post("/api/observatory/conversation/c1/fork")
     assert resp.status_code == 200
     body = resp.get_json()
     assert body["ok"] is True and body["newly_spawned"] is True
@@ -118,11 +118,11 @@ def test_fork_400s_a_session_with_no_write_surface(fork_client):
     skeleton = fork_client._skeleton
     _seed_running("c2", skeleton)
     _write_jsonl("c2", [_read(skeleton / "docs" / "ref.md")])
-    resp = fork_client.post("/api/reading-room/conversation/c2/fork")
+    resp = fork_client.post("/api/observatory/conversation/c2/fork")
     assert resp.status_code == 400
     # nothing staged
     assert not any(e.get("spinoff_slug") for e in store.read("bot_chats/index", {}).values())
 
 
 def test_fork_404s_an_unknown_conversation(fork_client):
-    assert fork_client.post("/api/reading-room/conversation/nope/fork").status_code == 404
+    assert fork_client.post("/api/observatory/conversation/nope/fork").status_code == 404

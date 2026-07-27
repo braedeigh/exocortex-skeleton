@@ -1,6 +1,6 @@
 /**
- * api.ts — typed fetch for GET /api/reading-room/atlas (routes/reading_room.py).
- * The atlas is a read-only map of every reading-room session sorted into its
+ * api.ts — typed fetch for GET /api/observatory/atlas (routes/observatory.py).
+ * The atlas is a read-only map of every observatory session sorted into its
  * home: the 12 life fronts (routes/fronts.py's vocabulary — see
  * ../fronts/useFronts.ts), one of which ("exocortex") further splits into
  * five domain shelves.
@@ -42,7 +42,7 @@ export interface AtlasData {
 export const ATLAS_KEY = ['atlas'] as const;
 
 function getAtlas(signal?: AbortSignal): Promise<AtlasData> {
-  return api.get('/api/reading-room/atlas', signal);
+  return api.get('/api/observatory/atlas', signal);
 }
 
 /** The atlas is a slow-changing map, not a live feed — no polling. */

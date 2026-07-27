@@ -3,10 +3,10 @@
  * section. Two signals that already exist in the app get combined here, with
  * NO new backend plumbing:
  *
- *   - WHICH sessions are running now  ← the roster (GET /api/reading-room,
+ *   - WHICH sessions are running now  ← the roster (GET /api/observatory,
  *     already `_effective_running`-corrected server-side).
  *   - WHAT each one is writing        ← the terrain payload (GET
- *     /api/reading-room/terrain), which live-re-parses a running session's
+ *     /api/observatory/terrain), which live-re-parses a running session's
  *     jsonl and attributes writes/creates/reads per file.
  *
  * The roster is the authority on running-ness; terrain only supplies files.

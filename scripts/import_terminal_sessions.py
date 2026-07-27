@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Roll the live tmux terminal sessions' Claude conversations into the
-reading room (bot_chats/) so the Sessions page starts with her real, current
+observatory (bot_chats/) so the Sessions page starts with her real, current
 conversations instead of amnesia.
 
 For every session in sessions.json with a live claude process, this:
@@ -9,7 +9,7 @@ For every session in sessions.json with a live claude process, this:
   skipped; capped at the most recent MAX_MESSAGES so the chat page stays
   light);
 - creates an index entry linking the session's claude_session_id, so the next
-  send in the reading room RESUMES that very conversation.
+  send in the observatory RESUMES that very conversation.
 
 Idempotent: a tmux session already imported (index entry carrying its
 `imported_from`) is skipped on re-run.
@@ -28,7 +28,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import store                                      # noqa: E402
-from routes import reading_room, terminal          # noqa: E402
+from routes import observatory, terminal          # noqa: E402
 
 MAX_MESSAGES = 400
 # User-transcript lines that aren't her words: harness command wrappers and
@@ -133,7 +133,7 @@ def main():
         journal = sess in terminal.KEEPER_CAPTURE_SESSIONS or terminal._is_thread_session(sess)
         last_at = datetime.fromtimestamp(path.stat().st_mtime).isoformat(timespec="seconds")
         with store.mutate("bot_chats/index", {}) as index:
-            conv_id = reading_room._new_conv_id(index)
+            conv_id = observatory._new_conv_id(index)
             index[conv_id] = {
                 "bot": "keeper",
                 "title": sess.capitalize(),

@@ -17,7 +17,7 @@ export interface SessionStatusMeta {
 
 export function sessionStatus(meta: SessionStatusMeta, openedAt: string | undefined): SessionStatus {
   // A `running` flag here is already the server's effective value (routes/
-  // reading_room.py resolves staleness before this ever reaches the client)
+  // observatory.py resolves staleness before this ever reaches the client)
   // — busy wins outright, regardless of last_at.
   if (meta.running) return 'busy';
 

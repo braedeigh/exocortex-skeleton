@@ -1,5 +1,5 @@
 /**
- * streamPacing.ts — pure logic for the reading room's WORD FLOW (her 07-23
+ * streamPacing.ts — pure logic for the observatory's WORD FLOW (her 07-23
  * ask): tokens arrive from the wire in bursts, but the page shouldn't lurch.
  * Incoming text pools in a backlog (the gap between what the wire has sent
  * and what the page has shown), and a ticker releases it a word at a time —
@@ -12,7 +12,7 @@
  * has finished. Releases snap forward to word boundaries: whole words read,
  * half words shimmer.
  *
- * This module is arithmetic only; ReadingRoomPage owns the interval and the DOM.
+ * This module is arithmetic only; ObservatoryPage owns the interval and the DOM.
  */
 
 /** Ticker granularity. */

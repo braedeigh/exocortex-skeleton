@@ -6,7 +6,7 @@ import { readThemeInk, TerrainCanvas } from './terrainCanvas';
 import styles from './TerrainBackdrop.module.css';
 
 /**
- * TerrainBackdrop — the terrain map as wallpaper behind the Reading Room.
+ * TerrainBackdrop — the terrain map as wallpaper behind the Observatory.
  *
  * STEP 1 of the backdrop build (2026-07-24), and deliberately only step 1:
  * the map, dimmed, behind the conversation. No glass, no featured agent, no
@@ -52,7 +52,8 @@ const BACKDROP_TIER = null;
 /**
  * @param focusConv the conversation whose agent this backdrop stands behind —
  *   its orb eases to loosely centered and the files it has touched are ringed
- *   (white = read, purple = modified). Undefined on a session with no agent
+ *   (white = read, purple = created-or-modified; freshly created files also
+ *   fill green). Undefined on a session with no agent
  *   yet, where the backdrop just shows the whole breathing map.
  */
 export function TerrainBackdrop({ focusConv }: { focusConv?: string | null } = {}) {
@@ -83,6 +84,12 @@ export function TerrainBackdrop({ focusConv }: { focusConv?: string | null } = {
   // own clock, outside React's render cycle.
   const dataRef = useRef<TerrainData | undefined>(undefined);
   dataRef.current = data;
+
+  // The focused conversation, in a ref for the same reason — the breath's paint
+  // loop (empty-dep effect) reads it to keep the focused agent in the active
+  // set even while it sits momentarily idle behind her.
+  const focusConvRef = useRef<string | null | undefined>(focusConv);
+  focusConvRef.current = focusConv;
 
   // Engine lifecycle — one instance per mount, sized by ResizeObserver.
   useEffect(() => {
@@ -133,7 +140,17 @@ export function TerrainBackdrop({ focusConv }: { focusConv?: string | null } = {
       const payload = dataRef.current;
       if (!engine || !payload) return;
       const elapsed = calm ? BREATH_PERIOD_MS / 2 : performance.now() - started;
-      const graph = buildTerrainGraph(payload, breathHalfLife(elapsed, BREATH_PERIOD_MS));
+      // Active set (her 07-27 call): only agents live right now get an orb, so
+      // the wallpaper stops carrying the 90-day footprint backlog. The focused
+      // conversation is always in it — she's standing behind it — so its orb
+      // holds even between turns; the canvas then burns it brightest.
+      const orbSessionIds = new Set<string>();
+      for (const s of payload.sessions ?? []) if (s.running) orbSessionIds.add(s.id);
+      const focus = focusConvRef.current;
+      if (focus) orbSessionIds.add(focus);
+      const graph = buildTerrainGraph(payload, breathHalfLife(elapsed, BREATH_PERIOD_MS), undefined, {
+        orbSessionIds,
+      });
       // Same node ids every time, so this updates heat in place and never
       // re-warms the layout — the map holds still, only the embers move.
       engine.setGraph(graph.nodes, graph.edges);
