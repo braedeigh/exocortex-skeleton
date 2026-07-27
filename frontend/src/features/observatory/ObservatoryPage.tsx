@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { autosizeHeight, uploadedPathsMessage } from '../phone/phoneLogic';
 import { TermNotesPanel } from '../../shell/TermNotesPanel';
@@ -99,8 +99,9 @@ export function ObservatoryPage({
   const [schedSessions, setSchedSessions] = useState<string[]>([]);
   const notesBtnRef = useRef<HTMLButtonElement>(null);
   const schedBtnRef = useRef<HTMLButtonElement>(null);
-  // Explicit journal state of this session (null until meta loads; the hint
-  // renders only on an explicit false — a workshop space).
+  // Explicit journal state of this session (null until meta loads). Nothing
+  // announces it in the composer — she knows which sessions are journaled; it
+  // only gates the off-the-record toggle, which exists in journaled sessions.
   const [sessionJournal, setSessionJournal] = useState<boolean | null>(null);
   // Explicit pinned state of this session (null until meta loads) — the
   // "Roll over" control only exists in the one pinned session (the Keeper).
@@ -428,6 +429,20 @@ export function ObservatoryPage({
     void sendMessage(text, offRecord);
   };
 
+  // Enter sends, Shift+Enter (or Ctrl/Cmd+Enter) makes a newline — but only
+  // where there's a real keyboard. On a phone the on-screen return key must
+  // stay a return key, so the gate is the pointer, not the window width: a
+  // narrow desktop window still sends, a wide tablet still gets its newline.
+  // IME composition (`isComposing`) swallows the Enter that commits a
+  // candidate word, so that keystroke never sends a half-typed message.
+  const onComposerKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.nativeEvent.isComposing) return;
+    if (!window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
+    e.preventDefault();
+    send();
+  };
+
   const stopTurn = () => {
     // Her stop dumps the word flow's backlog — whatever streamed shows whole.
     wordFlow.flush();
@@ -442,6 +457,32 @@ export function ObservatoryPage({
       void stopConversation(convRef.current).catch(() => {});
     }
   };
+
+  // Escape stops the turn from anywhere on the page — the Claude Code gesture,
+  // no reaching for the stop button, and it works with the cursor sitting in
+  // the composer. An open notes/timer panel gets the key first (Escape closes
+  // it), so the key can't kill a turn out from under her while she's somewhere
+  // else; with nothing running it does nothing at all. The handler is kept in
+  // a ref that's refreshed every render, so the window listener binds once and
+  // still always sees current state.
+  const escapeRef = useRef<() => void>(() => {});
+  escapeRef.current = () => {
+    if (panel) {
+      setPanel(null);
+      return;
+    }
+    if (!writingRef.current && !wordFlow.pacing) return;
+    stopTurn();
+  };
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      // A composing IME owns Escape (it cancels the candidate) — leave it be.
+      if (e.key !== 'Escape' || e.isComposing) return;
+      escapeRef.current();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   const togglePanel = (name: 'notes' | 'schedule') => {
     if (name === 'schedule' && schedSessions.length === 0) {
@@ -640,9 +681,6 @@ export function ObservatoryPage({
 
       <div className={[styles.composer, offRecord ? styles.composerOff : ''].filter(Boolean).join(' ')}>
         {sendError ? <div className={styles.sendError}>{sendError}</div> : null}
-        {sessionJournal === false && !offRecord ? (
-          <div className={styles.offNote}>working space — not journaled</div>
-        ) : null}
         {offRecord ? (
           <div className={styles.offNote}>
             off the record — not journaled, not kept (Claude&rsquo;s transcript still sees this)
@@ -739,6 +777,7 @@ export function ObservatoryPage({
             autoCorrect="on"
             autoCapitalize="sentences"
             spellCheck
+            onKeyDown={onComposerKeyDown}
             onInput={(e) => {
               const t = e.currentTarget;
               t.style.height = 'auto';
