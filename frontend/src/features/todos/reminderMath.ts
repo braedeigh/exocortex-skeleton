@@ -1,3 +1,23 @@
+/**
+ * reminderMath.ts — decides which of your to-do "reminders" are showing right
+ * now, and how loud each one looks.
+ *
+ * Plain English: a reminder is a recurring nudge — "change the water filter,"
+ * "log a symptom." This file takes the list of reminders plus everything
+ * you've logged and, for each one, works out: is it due? overdue? how many
+ * days since you last did it? — and what it should *wear*: red (overdue),
+ * orange (due now), or a calm "ongoing." It's pure logic; nothing here draws
+ * anything. The to-do cards call visibleReminders() and render what comes back.
+ *
+ * Two schedule shapes: "weekly" (due on certain weekdays) and "interval" (due
+ * every N days). Three modes: log (only appear when due), countdown (always
+ * there, counting down), track (silent — never nags).
+ *
+ * Touches: ./types (the ReminderDef / ActivityEntry / TimeOfDay shapes).
+ * Called by the to-do reminder UI.
+ *
+ * (Predates the prompt-logging rule, so no captured prompt — future changes log theirs.)
+ */
 import type { ActivityEntry, ReminderDef, TimeOfDay } from './types';
 
 export type ReminderTone = 'red' | 'orange' | 'ongoing';
@@ -43,6 +63,7 @@ function nextScheduled(weekdays: number[], ref: Date): Date | null {
   return null;
 }
 
+// How many days since you last logged this type of thing? null means never logged.
 export function daysSince(entries: ActivityEntry[], type: string, todayISO: string): number | null {
   const matches = entries.filter((e) => e.type === type);
   if (!matches.length) return null;
@@ -67,6 +88,8 @@ export function computeReminderState(r: ReminderDef, entries: ActivityEntry[], t
   const schedule = r.schedule || 'interval';
   const dueText = (r.due_text || '').trim();
 
+  // Weekly: find the most recent scheduled weekday. If you haven't logged
+  // anything since then, it's due — and "overdue" (red) if that day wasn't today.
   if (schedule === 'weekly') {
     const weekdays = r.weekdays || [];
     if (!weekdays.length) return { show: false };
@@ -94,6 +117,8 @@ export function computeReminderState(r: ReminderDef, entries: ActivityEntry[], t
     return { show: true, tone, sub, daysText: dText, overdue, pulse: overdue && mode === 'log' };
   }
 
+  // Interval: due once it's been every_days since the last log (default 3),
+  // and overdue once it's been overdue_days (default twice the interval).
   const everyDays = r.every_days ?? 3;
   const overdueDays = r.overdue_days ?? everyDays * 2;
   const due = days === null || days >= everyDays;
@@ -152,6 +177,8 @@ export function visibleReminders(
   return out;
 }
 
+// Some reminders have a "companion" — log the first thing and this pops the
+// second one next (e.g. log X → now nudge Y), unless Y's already logged today.
 export function companionToPrompt(
   reminders: ReminderDef[],
   entries: ActivityEntry[],

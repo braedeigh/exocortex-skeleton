@@ -9,6 +9,18 @@ This is the **app code** (remote `exocortex-skeleton`): a Flask site run by guni
 - **Don't use the harness auto-memory store** (`~/.claude/.../memory/`). The owner shouldn't get a hidden memory context loading into sessions. If something's worth persisting, talk to them and write it into a project markdown they own — never the harness store.
 - `tools/stream/` is the journal engine (card-pool spine `stream.py`, capture hook `keeper_capture.py`, reconciler `reconcile_transcripts.py`). Root resolved lazily via `TULKU_STREAM_ROOT` or `EXOCORTEX_CONTENT_DIR`; a vault may keep exec-only shims at its old `_system/` paths for existing callers.
 
+## Plain-language layer (the code explains itself, in plain English)
+This codebase is **bilingual**: plain-English explanation lives *inside* the files as a first-class layer, so the owner — who doesn't live deep in code — can open any file and read it like a notebook. Follow this whenever you write or change code:
+
+- **New file → a top-of-file block in plain English:** what this file does and which other files it touches. Enough to *get it*, not a totalizing spec.
+- **Touch a file that has no block → add one.** If you edit any code file that's missing its top-of-file plain-English block, write one as you pass through. That's how the whole codebase gets covered over time — file by file, as they're touched.
+- **Meaningful code → an inline note in plain English, present tense** — what a chunk does / why it's this way, right at the spot. Renames, typos, and trivial glue don't earn a note (same bar as "when do you write a test").
+- **Bake in the prompt that produced it**, verbatim where possible, next to what it made (file-level prompt in the top block; a spot-level prompt inline). **Strip anything personal** — health, relationships, names, life detail — so this repo stays shareable; keep only the technical ask. Distill a mostly-personal prompt down to its technical rider.
+- **Overwrite, never accumulate.** These notes are *present tense*, not a changelog. Edit a spot again → **delete the old note and its prompt, write the new one.** Only ever one note per spot, always describing the code as it is *now* — no history piles up in the body, nothing to prune.
+- **The note must never lie.** A confident English sentence sitting next to code that no longer matches it is *worse* than no note — the owner reads the English, not the code, and a stale note walks her (and the next Claude) straight into a bug. **Never claim more certainty than the code earns:** where you only honestly know a region, say a region, plainly. Overwrite means overwrite. This honesty is the whole point.
+
+Reference examples: `frontend/src/features/todos/reminderMath.ts` (block added from scratch) and `frontend/src/features/journal/calendarMath.ts` (a developer block rewritten into this style).
+
 ## UI guidelines (firm defaults)
 Build **touch-first and legible**. These are defaults, not suggestions:
 

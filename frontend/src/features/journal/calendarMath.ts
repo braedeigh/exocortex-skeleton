@@ -1,9 +1,22 @@
 /**
- * calendarMath.ts — pure month-grid math for the calendar overlay, ported
- * from journal.html's renderCalendar()/calNav(). Uses `Date` only to derive
- * day-of-week/days-in-month from integer (year, month, day) components —
- * never to parse a timestamp string, so there's no timezone ambiguity here
- * (unlike "today", which always comes from the server).
+ * calendarMath.ts — the math behind the little month calendar in the journal.
+ *
+ * Plain English: when you pop open the calendar to jump to a day, this file
+ * builds the grid — how many blank squares before the 1st, how many days in
+ * the month, which squares have a journal entry (so they're clickable), which
+ * one is today, which one you've got selected. It also does the "< prev /
+ * next >" month arrows. Pure math: it hands back a list of cells, and the
+ * calendar UI draws them.
+ *
+ * One honest thing worth keeping: it only ever builds `Date` from plain
+ * (year, month, day) numbers to ask "what weekday? how many days?" — it never
+ * parses a timestamp string, so there's no timezone weirdness here. ("Today"
+ * is the exception — that always comes in from the server as a string.)
+ *
+ * Touches: nothing else in the app — it's self-contained. The journal's
+ * CalendarOverlay calls buildCalendarCells() / addMonths() and renders them.
+ *
+ * (Predates the prompt-logging rule, so no captured prompt — future changes log theirs.)
  */
 
 export interface CalendarMonth {
