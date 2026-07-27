@@ -135,6 +135,39 @@ def _guard_settings_json():
     return json.dumps({"permissions": {"deny": deny}})
 
 
+# --- Act-vs-ask autonomy gate (S4) — the ONE piece that grants autonomy -----
+# A PreToolUse hook (tools/act_ask_gate.py) that generalizes the doc-guard above
+# from "always ask" into a real decision: ACT (defer) for the reversible/in-lane,
+# ASK (deny → the agent raises an orange request via scripts/request_input.py)
+# for the irreversible/out-of-lane. Keys on REVERSIBILITY + LANE, never the
+# agent's confidence; fails toward ASK (Bash is allow-listed). Bound to the
+# session type like the doc-guard, default on, opt out with `act_gate: false`.
+# Purely additive — the hook only ever DENIES, so it can't widen a session.
+
+def _act_gate_hook_command():
+    """The command Claude Code runs as the gate: gunicorn's own python on
+    tools/act_ask_gate.py, resolved from store.BUILD_DIR so it travels to a
+    fresh install rather than being hardcoded."""
+    return f"{sys.executable} {Path(store.BUILD_DIR) / 'tools' / 'act_ask_gate.py'}"
+
+
+def _session_settings(config, tools):
+    """The combined `--settings` dict for one turn: the doc-guard's
+    permissions.deny (guard_docs) AND the act-vs-ask PreToolUse hook (act_gate).
+    One payload, since Claude Code takes a single --settings. Each half binds to
+    the session type (a write tool / Bash present) and defaults on with its own
+    opt-out. A read-only legacy session triggers neither → {} → no --settings."""
+    settings = {}
+    if config.get("guard_docs", True) and any(t in _GUARD_WRITE_TOOLS for t in tools):
+        settings.update(json.loads(_guard_settings_json()))
+    if config.get("act_gate", True) and "Bash" in tools:
+        settings["hooks"] = {"PreToolUse": [{
+            "matcher": "Bash|Task|mcp__.*",
+            "hooks": [{"type": "command", "command": _act_gate_hook_command()}],
+        }]}
+    return settings
+
+
 # --- LEGACY: bot lookups, kept only for the legacy per-bot alias routes ------
 # (cached PWA clients still hitting /api/reading-room/<bot_id>/... and
 # /api/bots/...). New code should use _conv_config(entry) instead.
@@ -182,6 +215,9 @@ def _conv_config(entry):
         # `guard_docs: false` turns it off (the deliberate "re-cut a persona
         # through the app" seam). See _guard_settings_json().
         "guard_docs": entry.get("guard_docs") is not False,
+        # Act-vs-ask autonomy gate: on by default, opt out with
+        # `act_gate: false`. See _session_settings() / tools/act_ask_gate.py.
+        "act_gate": entry.get("act_gate") is not False,
     }
 
 
@@ -228,15 +264,18 @@ def _build_cmd(config, resume_sid):
     if resume_sid:
         cmd += ["--resume", resume_sid]
     tools = config.get("allowed_tools")
-    if isinstance(tools, list) and tools:
+    tools = list(tools) if isinstance(tools, list) else []
+    if tools:
         cmd += ["--allowedTools", ",".join(str(t) for t in tools)]
-    # Doc-protection: a write-capable session gets the identity docs denied
-    # unless it explicitly opted out (guard_docs: false). Deny wins over the
-    # --allowedTools above. A read-only session carries no write tool, so it
-    # gets no --settings at all. See the guard section up top.
-    if config.get("guard_docs", True) and isinstance(tools, list) \
-            and any(t in _GUARD_WRITE_TOOLS for t in tools):
-        cmd += ["--settings", _guard_settings_json()]
+    # One --settings payload carries both structural safety nets, each bound to
+    # the SESSION TYPE (not the files/commands) and defaulting on: the
+    # doc-guard's permissions.deny (guard_docs) and the act-vs-ask PreToolUse
+    # hook (act_gate). Deny wins over --allowedTools; a read-only legacy session
+    # triggers neither and gets no --settings at all. See both guard sections up
+    # top.
+    settings = _session_settings(config, tools)
+    if settings:
+        cmd += ["--settings", json.dumps(settings)]
     prompt_file = config.get("system_prompt_file")
     if prompt_file:
         try:

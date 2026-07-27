@@ -64,9 +64,18 @@ def test_build_cmd_skips_guard_for_read_only_session(roots):
 
 
 def test_build_cmd_honors_explicit_opt_out(roots):
-    # `guard_docs: false` is the deliberate "re-cut a persona through the app" seam.
-    config = {"allowed_tools": list(rr._BUILDER_TOOLS), "guard_docs": False}
-    assert "--settings" not in rr._build_cmd(config, resume_sid=None)
+    # `guard_docs: false` is the deliberate "re-cut a persona through the app"
+    # seam — it drops the doc-guard's permissions. The act-vs-ask hook is a
+    # SEPARATE safety net (act_gate, default on), so --settings can still carry
+    # it; opting out of BOTH is what removes --settings entirely.
+    cmd = rr._build_cmd({"allowed_tools": list(rr._BUILDER_TOOLS), "guard_docs": False},
+                        resume_sid=None)
+    payload = json.loads(cmd[cmd.index("--settings") + 1])
+    assert "permissions" not in payload    # doc-guard off...
+    assert "hooks" in payload              # ...but the act-gate hook remains
+    assert "--settings" not in rr._build_cmd(
+        {"allowed_tools": list(rr._BUILDER_TOOLS), "guard_docs": False, "act_gate": False},
+        resume_sid=None)
 
 
 def test_conv_config_defaults_guard_on_and_honors_false():
