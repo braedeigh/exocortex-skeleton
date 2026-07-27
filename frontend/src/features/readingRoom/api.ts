@@ -108,6 +108,16 @@ export function stopConversation(convId: string): Promise<{ ok: true }> {
   return api.post(`/api/reading-room/conversation/${encodeURIComponent(convId)}/stop`, {});
 }
 
+/** Fork-the-work: stage a clean-context take-over spinoff seeded with the files
+ * this session is writing/creating right now (reads excluded). Returns the
+ * staged conversation id — she opens it from My Sessions once she's stopped the
+ * original (two sessions writing the same files would clobber each other). */
+export function forkConversation(
+  convId: string,
+): Promise<{ ok: boolean; conversation_id: string; newly_spawned?: boolean }> {
+  return api.post(`/api/reading-room/conversation/${encodeURIComponent(convId)}/fork`, {});
+}
+
 /** Patch a session's settings. `model: ''` clears the pin — back to
  * inheriting the CLI default. An unknown alias is rejected server-side (400). */
 export function updateConversation(

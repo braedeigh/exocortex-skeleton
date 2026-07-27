@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useTerrain } from '../terrain/api';
-import { stopConversation, type SessionMeta } from './api';
+import { forkConversation, stopConversation, type SessionMeta } from './api';
 import { orchestraRows, type OrchestraRow } from './orchestra';
 import styles from './Orchestra.module.css';
 
@@ -39,6 +39,19 @@ export function Orchestra({
   const { data: terrain } = useTerrain(live, 350);
   const rows = orchestraRows(sessions, terrain);
   const [stopArmed, setStopArmed] = useState<string | null>(null);
+  // Per-row fork state: 'forking' while it stages, 'done' once the take-over
+  // spinoff is in My Sessions, 'error' on failure.
+  const [fork, setFork] = useState<Record<string, 'forking' | 'done' | 'error'>>({});
+
+  const doFork = (id: string) => {
+    setFork((f) => ({ ...f, [id]: 'forking' }));
+    forkConversation(id)
+      .then(() => {
+        setFork((f) => ({ ...f, [id]: 'done' }));
+        onChanged?.(); // the staged spinoff shows up in My Sessions
+      })
+      .catch(() => setFork((f) => ({ ...f, [id]: 'error' })));
+  };
 
   // Waiting-on-her floats to the top (a reply is more urgent than watching
   // work happen); the rest are the ones merely running.
@@ -140,6 +153,32 @@ export function Orchestra({
                 </button>
               </div>
               {renderFiles(row)}
+
+              {/* Fork-the-work: offload a bloated long-runner. Only when it has
+                  a write surface to hand over. Take-over, not parallel — on
+                  success it stages into My Sessions; she stops this one, then
+                  opens the fork (no auto-navigate that would run both at once). */}
+              {row.fileCount > 0 ? (
+                fork[row.id] === 'done' ? (
+                  <div className={styles.forkDone}>
+                    ✓ Forked into a fresh session — open it in <strong>My sessions</strong>. Stop
+                    this one first, so the two don&rsquo;t clobber each other.
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className={styles.forkBtn}
+                    disabled={fork[row.id] === 'forking'}
+                    onClick={() => doFork(row.id)}
+                  >
+                    {fork[row.id] === 'forking'
+                      ? 'Staging a fork…'
+                      : fork[row.id] === 'error'
+                        ? 'Fork failed — tap to retry'
+                        : 'Fork this work into a fresh session'}
+                  </button>
+                )
+              ) : null}
             </div>
           ))}
         </div>

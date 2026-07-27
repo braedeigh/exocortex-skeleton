@@ -897,6 +897,87 @@ def request_input(conv_id, question):
     return {"ok": True, "awaiting_input": question}, 200
 
 
+# --- Fork-the-work: offload a bloated long-runner onto a fresh spinoff -------
+# From a running session's Orchestra card, read what it is WRITING/creating
+# right now (live, same harvest path _build_terrain's overlay uses) and stage a
+# clean-context spinoff seeded with that file surface — the durable truth is the
+# FILES, so this dodges conversation handoff entirely. TAKE-OVER, not parallel:
+# the fork continues the same work and the original should be stopped (two live
+# sessions writing the same files clobber each other; parallel needs git
+# worktree isolation — a separate, bigger task). Reads are excluded on purpose —
+# lookup noise that would bury the signal. Staging only (open_spinoff), never an
+# auto-run.
+
+
+def _fork_work_surface(conv_id, meta):
+    """The files a session is writing/creating right now, grouped by repo and
+    made repo-relative. Live-parsed (not the batch sidecar) so it reflects this
+    moment. Returns [] when the session has written nothing yet — nothing to
+    fork."""
+    path = store.DATA_DIR / "bot_chats" / f"{conv_id}.jsonl"
+    if not path.is_file():
+        return []
+    try:
+        files = harvest_conversation(
+            path, meta.get("cwd"), meta.get("last_at") or meta.get("started"))
+    except OSError:
+        return []
+    repos = _terrain_repos()
+    grouped = {}   # repo name -> [(relpath, created_bool), ...]
+    for abspath, counts in (files or {}).items():
+        if not isinstance(counts, dict):
+            continue
+        if int(counts.get("writes") or 0) + int(counts.get("creates") or 0) <= 0:
+            continue   # a pure read — not part of the work surface
+        for repo in repos:
+            try:
+                rel = os.path.relpath(abspath, repo["root"])
+            except ValueError:
+                continue
+            if rel == os.curdir or rel.startswith(os.pardir):
+                continue   # not under this repo
+            grouped.setdefault(repo["name"], []).append(
+                (rel.replace(os.sep, "/"), int(counts.get("creates") or 0) > 0))
+            break
+    return [(name, sorted(items)) for name, items in sorted(grouped.items())]
+
+
+def _fork_slug(title):
+    """A valid, unique-enough spinoff slug from the source title (SLUG_RE in
+    routes/spinoff.py: lowercase/digits/hyphens, <=39 chars)."""
+    base = re.sub(r"[^a-z0-9]+", "-", (title or "").lower()).strip("-")[:20] or "session"
+    return f"fork-{base}-{datetime.now().strftime('%m%d-%H%M%S')}".strip("-")[:39]
+
+
+def _fork_brief_md(title, surface):
+    """The staged spinoff's BRIEF: the file surface + take-over Protocol. The
+    prior session's RECALL is deliberately not handed over — the files are the
+    durable truth, and reading them IS the handoff."""
+    lines = [f"# Fork: take over the work of “{title}”", "",
+             "## The task",
+             f"A long-running session (**{title}**) was building the surface below. Its",
+             "conversation got long, so this is a **clean-context take-over**: you continue",
+             "the SAME work from the files themselves, not from its chat history.", "",
+             "## The work surface (what it was writing / creating)"]
+    for repo_name, items in surface:
+        lines.append(f"**{repo_name}**")
+        lines += [f"- `{rel}`{'  — created fresh' if created else ''}" for rel, created in items]
+        lines.append("")
+    lines += [
+        "## Protocol",
+        "1. **Read every file above** — that IS the current state of the work; the prior",
+        "   session's recall is not handed to you (the files are the durable truth).",
+        "2. Infer what is in progress and **continue it** — do not restart from scratch.",
+        "3. **Take-over, not parallel:** the original session should be stopped first — two",
+        "   sessions writing these same files clobber each other.",
+        "4. Follow this repo's CLAUDE.md conventions; test behavior; commit when a thing ships.",
+        "",
+        "## Result",
+        "<Leave empty. Fill in what you continued and shipped.>",
+        ""]
+    return "\n".join(lines)
+
+
 def register(app):
     # The /api/bots/* rules below are kept as aliases of the canonical
     # /api/reading-room/* paths purely for cached PWA clients (old service-
@@ -1341,6 +1422,31 @@ def request_input(conv_id, question):
             if entry.get("running"):
                 entry["stop_requested"] = _now()
         return jsonify({"ok": True})
+
+    @app.route("/api/reading-room/conversation/<conv_id>/fork", methods=["POST"])
+    def bot_conv_fork(conv_id):
+        """Fork-the-work: stage a fresh take-over spinoff seeded with what this
+        session is writing/creating right now. Reads the live footprint, writes
+        a BRIEF, and mints a staged spinoff (open_spinoff — never auto-run). A
+        session with no write surface yet gets a 400 (nothing to fork). Import
+        of open_spinoff is lazy: routes.spinoff imports THIS module, so a
+        top-level import here would be circular."""
+        if not _CONV_ID_RE.match(conv_id):
+            return jsonify({"error": "invalid conversation id"}), 400
+        meta = store.read("bot_chats/index", {}).get(conv_id)
+        if not isinstance(meta, dict):
+            return jsonify({"error": "not found"}), 404
+        surface = _fork_work_surface(conv_id, meta)
+        if not surface:
+            return jsonify({"error": "this session isn't writing any files yet — nothing to fork"}), 400
+        slug = _fork_slug(meta.get("title") or conv_id)
+        brief_path = store.SPINOFF_DIR / slug / "BRIEF.md"
+        brief_path.parent.mkdir(parents=True, exist_ok=True)
+        brief_path.write_text(_fork_brief_md(meta.get("title") or conv_id, surface),
+                              encoding="utf-8")
+        from routes.spinoff import open_spinoff
+        payload, status = open_spinoff(slug)
+        return jsonify(payload), status
 
     @app.route("/api/reading-room/conversation/<conv_id>/send", methods=["POST"])
     def reading_room_conv_send(conv_id):

@@ -265,6 +265,39 @@
   color: var(--text-muted);
 }
 
+/* --- fork-the-work: offload a long-runner onto a fresh spinoff (S3) --- */
+/* A quiet, full-width offered action under the file list — not a loud control;
+   it's a deliberate, occasional move, so it stays understated until tapped. */
+.forkBtn {
+  width: 100%;
+  min-height: var(--tap-target);
+  margin-top: var(--space-2);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.forkBtn:disabled {
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.forkDone {
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--green, #3a9e8c) 12%, transparent);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
 /* The deferred headless fleet — flagged, not built (brief's scope line). */
 .laterNote {
   margin-top: var(--space-3);
