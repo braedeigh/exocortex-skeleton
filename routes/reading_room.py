@@ -864,6 +864,39 @@ def rollover_running():
         fh.close()
 
 
+# --- Request-for-input: a running session's structural "I need you" ---------
+# A session that hits a real fork it can't resolve raises this DETERMINISTICALLY
+# (via scripts/request_input.py, which reads its own conv id from
+# EXOCORTEX_CONV_ID) rather than the app inferring "it's asking a question" from
+# the last message — structural over prose, the same instinct as the doc-guard
+# and keeper_capture. The flag rides the roster's meta spread (bots_list)
+# straight onto the Orchestra card, which glows orange and shows the question;
+# the owner's next send clears it (_send_to_conversation, above). Pure
+# augmentation — nothing wakes the session; her answer IS the next --resume
+# turn. She is the transport (no timer/liveness machinery — that's the trap).
+
+_REQUEST_INPUT_MAX = 1000   # a question, not an essay
+
+
+def request_input(conv_id, question):
+    """Set `awaiting_input` (the question) on a conversation — the one validated
+    entry point the agent CLI (and any future HTTP door) share, so agents never
+    write session state directly. Returns (payload, status): 200 on success,
+    400 on a bad id / empty question, 404 on an unknown conversation. Loud,
+    precise failures — same narrow-door doctrine as open_spinoff()."""
+    if not (conv_id and _CONV_ID_RE.match(str(conv_id))):
+        return {"error": "invalid conversation id"}, 400
+    question = (question or "").strip()[:_REQUEST_INPUT_MAX]
+    if not question:
+        return {"error": "empty question"}, 400
+    with store.mutate("bot_chats/index", {}) as index:
+        entry = index.get(conv_id)
+        if not isinstance(entry, dict):
+            return {"error": "not found"}, 404
+        entry["awaiting_input"] = question
+    return {"ok": True, "awaiting_input": question}, 200
+
+
 def register(app):
     # The /api/bots/* rules below are kept as aliases of the canonical
     # /api/reading-room/* paths purely for cached PWA clients (old service-
@@ -1393,12 +1426,17 @@ def request_input(conv_id, question):
             # the session mid-turn.
             entry.pop("draft", None)
             entry.pop("autostart", None)
+            # Her answer to a request-for-input IS this send: clear the orange
+            # "awaiting_input" flag so the Orchestra card stops glowing the
+            # moment she replies. (S2 request-for-input — see request_input().)
+            entry.pop("awaiting_input", None)
             resume_sid = entry.get("claude_session_id")
             # Journal is opt-in per session (the pinned Keeper session
             # carries journal:true) — everything else logs to its own jsonl
             # only. Conversation-only now: no bot-level factor.
             conv_journals = entry.get("journal") is True
             config = _conv_config(entry)
+            config["conv_id"] = conv_id   # so the turn's env carries EXOCORTEX_CONV_ID (_spawn)
             bot_id = entry.get("bot")
 
         # Refuse to start another ~400MB claude process below the memory
