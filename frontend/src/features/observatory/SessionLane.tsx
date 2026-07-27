@@ -10,7 +10,7 @@ import {
   type SessionMeta,
 } from './api';
 import { orchestraRows, type OrchestraRow } from './orchestra';
-import { sessionStatus } from './sessionStatus';
+import { lastActivityLabel, sessionStatus } from './sessionStatus';
 import { formatSessionSpend } from './turnStats';
 import type { TerrainData } from '../terrain/api';
 import styles from './Orchestra.module.css';
@@ -44,6 +44,16 @@ import styles from './Orchestra.module.css';
  * phone without the card swallowing the lane below it — and each row is a 40px
  * tap target now (they open the file), so six is taller than it used to be. */
 const FILES_SHOWN = 6;
+
+/** The card's housekeeping line: "4m ago · 18.2k tokens · $4.21". Built from
+ * whichever halves exist, so a fresh session shows nothing rather than a row
+ * of blanks and separators. Recomputed per render, which is what keeps the
+ * "4m ago" honest as the roster polls. */
+function cardMeta(meta: SessionMeta): string {
+  return [lastActivityLabel(meta.last_at), meta.tokens ? formatSessionSpend(meta.tokens) : null]
+    .filter(Boolean)
+    .join(' · ');
+}
 
 export function SessionLane({
   lane,
@@ -418,12 +428,13 @@ export function SessionLane({
                     showed it, so a working session said WHICH files but never
                     WHAT FOR. */}
                 {row.summary ? <div className={styles.summary}>{row.summary}</div> : null}
-                {/* What this session has spent so far. Absent on a session
-                    that hasn't finished a turn yet, so a fresh card stays
-                    clean instead of announcing a zero. */}
-                {meta.tokens ? (
-                  <div className={styles.spend}>{formatSessionSpend(meta.tokens)}</div>
-                ) : null}
+                {/* One quiet line of housekeeping: when it last did anything
+                    (last_at moves on both her send and the turn's finish), and
+                    what it has spent. Either half can be missing — a session
+                    with no finished turn has no spend, a never-run one has no
+                    stamp — so they're joined only where both exist and the
+                    line disappears entirely when neither does. */}
+                {cardMeta(meta) ? <div className={styles.cardMeta}>{cardMeta(meta)}</div> : null}
                 {meta.journal === false ? <div className={styles.note}>not journaled</div> : null}
                 {renderFiles(row)}
 
