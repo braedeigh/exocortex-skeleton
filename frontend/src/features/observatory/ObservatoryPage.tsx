@@ -14,7 +14,7 @@ import { useTurnStats } from './useTurnStats';
 import { useWordFlow } from './useWordFlow';
 import { useScrollContract } from './useScrollContract';
 import { useMessageQueue } from './useMessageQueue';
-import { usePhotoAttach, AttachChips, UploadOverlay } from './photoAttach';
+import { usePhotoAttach, AttachChips, DropVeil, UploadOverlay } from './photoAttach';
 import { useReattach } from './useReattach';
 import { useKeeperRollover } from './useKeeperRollover';
 import styles from './ObservatoryPage.module.css';
@@ -822,6 +822,7 @@ export function ObservatoryPage({
         </div>
       </div>
 
+      <DropVeil active={photo.dragging} />
       <UploadOverlay upload={photo.upload} />
     </div>
   );

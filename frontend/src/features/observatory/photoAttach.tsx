@@ -15,6 +15,18 @@ interface Attached {
  * The thumb is a local object URL over the picked File (uploads aren't
  * served over HTTP); revoked on remove/send/unmount. The upload modal is
  * the old surface's spinner box, same colors.
+ *
+ * Two ways in, one path through: the photo button opens the picker, and a
+ * file dragged ANYWHERE over the observatory drops onto it — no corner to
+ * aim at. While a drag is over the window the whole page veils (DropVeil),
+ * which is both the invitation and the target. Both routes land in
+ * uploadFiles(), so a dropped file stages exactly like a picked one.
+ *
+ * Prompt that produced the drop half: "fix the 'drop file to upload' option
+ * such that any item i drag over the entire app makes the whole screen go a
+ * little translucent or something and allows me to upload it without dragging
+ * to that upper corner" — ported here from the terminal pane's corner catcher
+ * (shell/UploadWidget.tsx, which keeps its own pane-scoped version).
  */
 // This hook and its two presentational components (AttachChips,
 // UploadOverlay) are one tightly-coupled unit by design.
@@ -25,6 +37,8 @@ export function usePhotoAttach(): {
   fileRef: React.RefObject<HTMLInputElement | null>;
   openPicker: () => void;
   onPhotoChange: (input: HTMLInputElement) => Promise<void>;
+  /** True while a file drag is over the window — raises the veil. */
+  dragging: boolean;
   remove: (path: string) => void;
   drain: () => string[];
 } {
@@ -52,9 +66,7 @@ export function usePhotoAttach(): {
   // the returned paths as chips. Files live in the transient uploads dir
   // (24h sweep); whoever consumes them moves what's worth keeping. The
   // spinner modal and its 2.2s error flash are phone.html's, verbatim.
-  const onPhotoChange = useCallback(async (input: HTMLInputElement) => {
-    const files = Array.from(input.files ?? []);
-    input.value = '';
+  const uploadFiles = useCallback(async (files: File[]) => {
     if (!files.length) return;
     clearTimeout(uploadTimer.current ?? undefined);
     setUpload({ label: uploadingLabel(files.length), error: false });
@@ -62,12 +74,15 @@ export function usePhotoAttach(): {
       const data = await uploadTerminalPhotos(files);
       if (!data.paths || !data.paths.length) throw new Error('no paths returned');
       // paths[] come back in send order, so paths[i] is files[i]'s new home —
-      // the picked File doubles as its own thumbnail.
+      // an image doubles as its own thumbnail. Anything else (a PDF, a log)
+      // gets no thumb and stages as a named chip instead, since an <img> over
+      // a non-image just renders broken.
       setAttached((prev) => [
         ...prev,
         ...data.paths.map((p, i) => ({
           path: p,
-          thumb: files[i] ? URL.createObjectURL(files[i]) : null,
+          thumb:
+            files[i] && files[i].type.startsWith('image/') ? URL.createObjectURL(files[i]) : null,
         })),
       ]);
       setUpload(null);
@@ -76,6 +91,62 @@ export function usePhotoAttach(): {
       uploadTimer.current = setTimeout(() => setUpload(null), 2200);
     }
   }, []);
+
+  const onPhotoChange = useCallback(
+    async (input: HTMLInputElement) => {
+      const files = Array.from(input.files ?? []);
+      input.value = '';
+      await uploadFiles(files);
+    },
+    [uploadFiles],
+  );
+
+  // Drop-anywhere. The listeners sit on the document, not on a corner
+  // catcher, so the whole page is the target.
+  //
+  // The depth counter is the fiddly part: dragenter/dragleave also fire as the
+  // pointer crosses between nested elements, so a naive leave-hides-it flickers
+  // the veil every time the cursor passes a child. Counting enters minus leaves
+  // means the veil only drops when the drag has genuinely left the window (or
+  // dropped). dragover must preventDefault or the browser navigates away to
+  // the dropped file instead of giving it to us.
+  const [dragging, setDragging] = useState(false);
+  const dragDepth = useRef(0);
+  useEffect(() => {
+    const carriesFiles = (e: DragEvent) => e.dataTransfer?.types?.includes('Files') === true;
+    const onEnter = (e: DragEvent) => {
+      if (!carriesFiles(e)) return;   // dragged text or a link: not our business
+      dragDepth.current += 1;
+      setDragging(true);
+    };
+    const onLeave = (e: DragEvent) => {
+      if (!carriesFiles(e)) return;
+      dragDepth.current = Math.max(0, dragDepth.current - 1);
+      if (dragDepth.current === 0) setDragging(false);
+    };
+    const onOver = (e: DragEvent) => {
+      if (!carriesFiles(e)) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    };
+    const onDrop = (e: DragEvent) => {
+      if (!carriesFiles(e)) return;
+      e.preventDefault();
+      dragDepth.current = 0;
+      setDragging(false);
+      void uploadFiles(Array.from(e.dataTransfer?.files ?? []));
+    };
+    document.addEventListener('dragenter', onEnter);
+    document.addEventListener('dragleave', onLeave);
+    document.addEventListener('dragover', onOver);
+    document.addEventListener('drop', onDrop);
+    return () => {
+      document.removeEventListener('dragenter', onEnter);
+      document.removeEventListener('dragleave', onLeave);
+      document.removeEventListener('dragover', onOver);
+      document.removeEventListener('drop', onDrop);
+    };
+  }, [uploadFiles]);
 
   const remove = useCallback((path: string) => {
     setAttached((prev) => {
@@ -92,7 +163,20 @@ export function usePhotoAttach(): {
     return paths;
   }, []);
 
-  return { attached, upload, fileRef, openPicker, onPhotoChange, remove, drain };
+  return { attached, upload, fileRef, openPicker, onPhotoChange, dragging, remove, drain };
+}
+
+/** The whole-page veil raised while a file is dragged over the observatory:
+ * the page dims a little and says where the file will land. Purely a signal —
+ * the document's own listeners take the drop, so nothing depends on her
+ * hitting this element. */
+export function DropVeil({ active }: { active: boolean }) {
+  if (!active) return null;
+  return (
+    <div className={styles.dropVeil} aria-hidden="true">
+      <div className={styles.dropVeilLabel}>Drop to attach</div>
+    </div>
+  );
 }
 
 /** The staged-photo chips row, above the composer: a picture's own thumb if

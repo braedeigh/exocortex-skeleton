@@ -688,6 +688,32 @@
 
 /* --- The old upload modal, verbatim (PhoneTerminal.module.css) ------------ */
 
+/* The drag veil. `fixed`, not `absolute` like the upload overlay below: a file
+   dragged over ANY part of the window should read as droppable, including the
+   chrome outside this page's box. pointer-events: none so it can't eat the
+   drop it's advertising — the document's listeners do the catching. */
+.dropVeil {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 10, 26, 0.55);
+  border: 2px dashed var(--accent);
+}
+
+.dropVeilLabel {
+  padding: 18px 26px;
+  border-radius: 14px;
+  background: #1a1a2e;
+  border: 1px solid var(--accent);
+  color: #e0e0e0;
+  font-size: var(--font-size-base);
+  font-weight: 600;
+}
+
 .uploadOverlay {
   position: absolute;
   inset: 0;
