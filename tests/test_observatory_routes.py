@@ -15,6 +15,7 @@ under test, not the model.
 import json
 import stat
 import subprocess
+import threading
 from datetime import datetime, timedelta
 
 import pytest
@@ -65,7 +66,20 @@ def bot_client(data_dir, tmp_path, monkeypatch):
     client = app.test_client()
     client._mints = mints
     client._argv_log = argv_log
-    return client
+    before = set(threading.enumerate())
+    yield client
+
+    # JOIN THE TURN THREADS BEFORE TEARING DOWN. A send hands the turn to a
+    # detached daemon thread on purpose (it must outlive the HTTP request), and
+    # its last act is writing `running: False` back through the store. Left
+    # unjoined it lands AFTER monkeypatch has restored store.DATA_DIR — a write
+    # aimed at whatever the real environment points at. That is exactly how a
+    # test's empty index once went over the owner's live session roster. The
+    # process-wide quarantine in conftest is the wall; this is not leaving
+    # anything leaning on it.
+    for t in threading.enumerate():
+        if t not in before and t is not threading.current_thread():
+            t.join(timeout=5)
 
 
 def _send(client, **body):
@@ -1380,6 +1394,61 @@ def test_act_gate_override_outranks_the_room_until_she_clears_it(bot_client):
     entry = store.read("bot_chats/index", {})[conv_id]
     assert "act_gate" not in entry
     assert observatory._conv_config(entry)["act_gate"] is True   # now follows orchestra
+
+
+def _session(client, conv_id):
+    sessions = client.get("/api/observatory").get_json()["sessions"]
+    return next(s for s in sessions if s["id"] == conv_id)
+
+
+def test_the_roster_separates_the_resolved_gate_from_her_pin(bot_client):
+    """`act_gate` = what the next turn will DO; `act_gate_set` = what she PINNED
+    (absent when the room is driving it). One field can't be both: the ✎ dialog
+    reads the pin back to seed its picker, so a resolved value arriving under
+    that name is indistinguishable from a choice she made."""
+    conv_id = bot_client.post("/api/observatory/conversations",
+                              json={"title": "unpinned"}).get_json()["id"]
+    card = _session(bot_client, conv_id)
+    assert card["act_gate"] is True          # Orchestra asks...
+    assert "act_gate_set" not in card        # ...but she never said so.
+
+    bot_client.post(f"/api/observatory/conversation/{conv_id}/settings",
+                    json={"act_gate": False})
+    card = _session(bot_client, conv_id)
+    assert card["act_gate"] is False and card["act_gate_set"] is False
+
+
+def test_settings_response_carries_her_pin_beside_the_resolved_gate(bot_client):
+    conv_id = bot_client.post("/api/observatory/conversations",
+                              json={"title": "mover"}).get_json()["id"]
+    conv = bot_client.post(f"/api/observatory/conversation/{conv_id}/settings",
+                           json={"lane": "personal"}).get_json()["conversation"]
+    assert conv["act_gate"] is False
+    assert "act_gate_set" not in conv
+
+
+def test_moving_rooms_without_touching_the_picker_does_not_pin_the_gate(bot_client):
+    """The ✎ round-trip that kept every lock: she opens an Orchestra session,
+    changes only Room → Personal, saves. The dialog always sends `act_gate`, so
+    whatever it seeded from comes back — and if that was the RESOLVED true, the
+    save pins the gate and the new room can never turn it off. Reading the pin
+    (absent → null) keeps the move a move."""
+    conv_id = bot_client.post("/api/observatory/conversations",
+                              json={"title": "mover"}).get_json()["id"]
+    card = _session(bot_client, conv_id)
+
+    # Exactly what RosterPage.onEdit posts, seeded the way the dialog seeds it.
+    bot_client.post(f"/api/observatory/conversation/{conv_id}/settings",
+                    json={"title": card["title"], "journal": False, "model": "",
+                          "lane": "personal",
+                          "act_gate": card.get("act_gate_set")})
+
+    entry = store.read("bot_chats/index", {})[conv_id]
+    assert entry["lane"] == "personal"
+    assert "act_gate" not in entry
+    assert observatory._conv_config(entry)["act_gate"] is False
+    assert observatory._session_settings(observatory._conv_config(entry),
+                                         observatory._BUILDER_TOOLS) == {}
 
 
 def test_roster_resolves_lane_and_gate_for_every_card(bot_client):
