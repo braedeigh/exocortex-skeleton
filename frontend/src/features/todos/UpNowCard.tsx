@@ -26,6 +26,21 @@ const TONE_CLASS: Record<string, string> = {
   ongoing: styles.toneOngoing,
 };
 
+const SUBS_OPEN_PREFIX = 'upNowSubsOpen:';
+
+/** Whether this item's subtask list was last left open. Defaults to open, so
+ * a brand-new multi-part errand shows its pieces without being hunted for. */
+function readSubsOpen(id: string): boolean {
+  try {
+    const v = localStorage.getItem(SUBS_OPEN_PREFIX + id);
+    if (v === '0') return false;
+    if (v === '1') return true;
+  } catch {
+    // localStorage unavailable — fall through to the default
+  }
+  return true;
+}
+
 /**
  * The one attention surface at the top of the page: everything that needs
  * her today — due/overdue recurring reminders (marked 🔁) and overdue +
@@ -44,8 +59,15 @@ const TONE_CLASS: Record<string, string> = {
  * sheet. Done subtasks stay visible struck through, matching how the card
  * treats checked-off rows. Completed parents don't list their subtasks —
  * once the whole thing is done the breakdown is just noise.
- * (Prompt: "edit the Up now tab to be able to show sub items, currently it
- * does not display them.")
+ *
+ * Each subtask list collapses behind a chevron on its parent row, remembered
+ * per item in localStorage so it survives a refresh. Collapsing still shows
+ * the count of what's left, so folding a long errand away never hides the
+ * fact that it's unfinished. Lists start open — a new errand shouldn't have
+ * to be hunted for.
+ * (Prompts: "edit the Up now tab to be able to show sub items, currently it
+ * does not display them." / "make it such that i can collapse the sub
+ * to-dos.")
  */
 export function UpNowCard({
   items,
@@ -64,6 +86,21 @@ export function UpNowCard({
   const [actionId, setActionId] = useState<string | null>(null);
   const [snoozeDays, setSnoozeDays] = useState(3);
   const [companion, setCompanion] = useState<{ reminder: ReminderDef; date: string } | null>(null);
+  // Overlays localStorage: an id only lands here once she's toggled it this
+  // session, so untouched items keep answering from what was saved.
+  const [subsOpen, setSubsOpen] = useState<Record<string, boolean>>({});
+
+  const isSubsOpen = (id: string) => subsOpen[id] ?? readSubsOpen(id);
+
+  function toggleSubs(id: string) {
+    const next = !isSubsOpen(id);
+    setSubsOpen((m) => ({ ...m, [id]: next }));
+    try {
+      localStorage.setItem(SUBS_OPEN_PREFIX + id, next ? '1' : '0');
+    } catch {
+      // state just won't persist
+    }
+  }
 
   const loggedToday = new Set(
     activityLog.filter((e) => e.date === serverDate).map((e) => e.type),
@@ -131,6 +168,9 @@ export function UpNowCard({
 
       {items.filter((it) => !it.done).map((it) => {
         const overdue = isOverdue(it.due_by, serverDate);
+        const subs = it.subtasks || [];
+        const open = isSubsOpen(it.id);
+        const remaining = subs.filter((s) => !s.done).length;
         return (
           <div className={styles.itemBlock} key={it.id}>
             <div className={styles.row}>
@@ -144,13 +184,30 @@ export function UpNowCard({
               <button type="button" className={styles.text} onClick={() => onOpenDetail(it)} data-track="todo-open">
                 {it.text}
               </button>
+              {subs.length ? (
+                <button
+                  type="button"
+                  className={styles.subToggle}
+                  aria-expanded={open}
+                  aria-label={
+                    open
+                      ? `Collapse subtasks for ${it.text}`
+                      : `Expand ${remaining} remaining subtasks for ${it.text}`
+                  }
+                  onClick={() => toggleSubs(it.id)}
+                  data-track="todo-subtasks-toggle"
+                >
+                  <span aria-hidden="true">{open ? '▾' : '▸'}</span>
+                  <span className={styles.subCount}>{remaining}</span>
+                </button>
+              ) : null}
               <span className={`${styles.due} ${overdue ? styles.overdue : ''}`}>
                 {overdue ? `overdue · ${fmtAddedDate(it.due_by)}` : 'today'}
               </span>
             </div>
-            {it.subtasks?.length ? (
+            {subs.length && open ? (
               <div className={styles.subtasks}>
-                {it.subtasks.map((sub) => (
+                {subs.map((sub) => (
                   <div key={sub.id} className={styles.subtaskRow}>
                     <Checkbox
                       className={styles.subtaskCheckbox}
