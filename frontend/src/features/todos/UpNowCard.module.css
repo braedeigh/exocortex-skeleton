@@ -130,3 +130,39 @@
   gap: var(--space-2);
   margin-top: var(--space-4);
 }
+
+/* An open to-do and its subtasks stack as one unit, so the subtask list
+   hangs under its own parent instead of joining the card's flat row flow. */
+.itemBlock {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Indented to line up under the parent's text: checkbox box width (24px)
+   plus the row's own gap. */
+.subtasks {
+  padding-left: calc(24px + var(--space-3));
+  display: flex;
+  flex-direction: column;
+}
+
+.subtaskRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 40px;
+}
+
+.subtaskCheckbox {
+  flex-shrink: 0;
+}
+
+.subtaskText {
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+.subtaskDone {
+  text-decoration: line-through;
+  opacity: 0.5;
+}

@@ -12,6 +12,7 @@ export interface UpNowCardProps {
   serverDate: string;
   timeOfDay: TimeOfDay;
   onToggle: (id: string) => void;
+  onSubtaskToggle: (parentId: string, subId: string) => void;
   onOpenDetail: (item: TodoItem) => void;
   onLog: (date: string, type: string) => void;
   onUndo: (date: string, type: string) => void;
@@ -36,6 +37,15 @@ const TONE_CLASS: Record<string, string> = {
  * cadence stepper (saved to the reminder definition). To-do items also stay
  * in their ladder sections below; this is a digest, not a move. Renders
  * nothing when nothing needs attention.
+ *
+ * A still-open to-do shows its subtasks inline underneath, each tickable
+ * right here — so a multi-part errand ("Amazon order" → trash can, spray
+ * bottles, hangers) can be worked from this card without opening the detail
+ * sheet. Done subtasks stay visible struck through, matching how the card
+ * treats checked-off rows. Completed parents don't list their subtasks —
+ * once the whole thing is done the breakdown is just noise.
+ * (Prompt: "edit the Up now tab to be able to show sub items, currently it
+ * does not display them.")
  */
 export function UpNowCard({
   items,
@@ -44,6 +54,7 @@ export function UpNowCard({
   serverDate,
   timeOfDay,
   onToggle,
+  onSubtaskToggle,
   onOpenDetail,
   onLog,
   onUndo,
@@ -121,20 +132,40 @@ export function UpNowCard({
       {items.filter((it) => !it.done).map((it) => {
         const overdue = isOverdue(it.due_by, serverDate);
         return (
-          <div className={styles.row} key={it.id}>
-            <Checkbox
-              className={styles.check}
-              checked={false}
-              onChange={() => onToggle(it.id)}
-              aria-label={`Done: ${it.text}`}
-              data-track="todo-complete"
-            />
-            <button type="button" className={styles.text} onClick={() => onOpenDetail(it)} data-track="todo-open">
-              {it.text}
-            </button>
-            <span className={`${styles.due} ${overdue ? styles.overdue : ''}`}>
-              {overdue ? `overdue · ${fmtAddedDate(it.due_by)}` : 'today'}
-            </span>
+          <div className={styles.itemBlock} key={it.id}>
+            <div className={styles.row}>
+              <Checkbox
+                className={styles.check}
+                checked={false}
+                onChange={() => onToggle(it.id)}
+                aria-label={`Done: ${it.text}`}
+                data-track="todo-complete"
+              />
+              <button type="button" className={styles.text} onClick={() => onOpenDetail(it)} data-track="todo-open">
+                {it.text}
+              </button>
+              <span className={`${styles.due} ${overdue ? styles.overdue : ''}`}>
+                {overdue ? `overdue · ${fmtAddedDate(it.due_by)}` : 'today'}
+              </span>
+            </div>
+            {it.subtasks?.length ? (
+              <div className={styles.subtasks}>
+                {it.subtasks.map((sub) => (
+                  <div key={sub.id} className={styles.subtaskRow}>
+                    <Checkbox
+                      className={styles.subtaskCheckbox}
+                      checked={sub.done}
+                      onChange={() => onSubtaskToggle(it.id, sub.id)}
+                      aria-label={sub.done ? `Mark ${sub.text} not done` : `Mark ${sub.text} done`}
+                      data-track="todo-subtask-toggle"
+                    />
+                    <span className={`${styles.subtaskText} ${sub.done ? styles.subtaskDone : ''}`}>
+                      {sub.text}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
         );
       })}

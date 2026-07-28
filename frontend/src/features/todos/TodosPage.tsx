@@ -303,6 +303,7 @@ export function TodosPage() {
             serverDate={serverDate}
             timeOfDay={data.time_of_day}
             onToggle={todoActions.toggle}
+            onSubtaskToggle={todoActions.subtaskToggle}
             onOpenDetail={setSelected}
             onLog={reminderActions.log}
             onUndo={reminderActions.undo}
