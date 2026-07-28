@@ -21,6 +21,15 @@ def client(data_dir):
     return app.test_client()
 
 
+@pytest.fixture(autouse=True)
+def _clean_owner_env(monkeypatch):
+    """Ambient EXOCORTEX_OWNER_*/APP_NAME on the deploy box must not leak into
+    these tests — clear them so a 'fresh install' really is fresh. Tests that
+    want an env value set it themselves (their setenv runs after this)."""
+    for var in ("EXOCORTEX_OWNER_NAME", "EXOCORTEX_OWNER_EMAIL", "EXOCORTEX_APP_NAME"):
+        monkeypatch.delenv(var, raising=False)
+
+
 def read_stored():
     return store.read("profile", {})
 
