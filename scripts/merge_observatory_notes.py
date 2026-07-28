@@ -10,9 +10,9 @@ Goes through store.mutate → sqlstore (the database of record, exo.db), which
 also re-exports the JSON mirror, so both layers end up consistent. Idempotent:
 once 'observatory' is empty, re-running is a no-op. Safe to delete afterward.
 
-Run as the service user (bradie) with the live data dir, e.g.:
-  sudo -u bradie env EXOCORTEX_DATA_DIR=/opt/exocortex/personal/data \
-    /opt/exocortex/skeleton/venv/bin/python3 scripts/merge_observatory_notes.py
+Run as the service user with the live data dir, e.g.:
+  sudo -u <service-user> env EXOCORTEX_DATA_DIR=/path/to/data \
+    /path/to/skeleton/venv/bin/python3 scripts/merge_observatory_notes.py
 """
 import os
 import sys
