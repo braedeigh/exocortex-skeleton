@@ -2,29 +2,36 @@ import { useRef, useState } from 'react';
 import { SessionBar } from './SessionBar';
 import { CopyPanel } from './CopyPanel';
 import { TermNotesPanel } from './TermNotesPanel';
-import { SchedulePanel } from './SchedulePanel';
-import { UploadWidget } from './UploadWidget';
 import { TerminalFrames } from './TerminalFrames';
 import { scrollTerminal } from '../features/phone/phoneApi';
 import type { SessionState } from './useSessions';
 import styles from './TerminalPane.module.css';
 
-type FloatingPanel = 'notes' | 'schedule' | null;
+type FloatingPanel = 'notes' | null;
 
 /**
- * Left pane of the desktop split — the React port of split.html's
- * `.pane-terminal` (templates/split.html:506-554), including the widgets
- * that weren't ported yet: terminal notes, scheduled prompts, and upload
- * (drag-and-drop + picker). It's the session bar over the live ttyd
+ * Left pane of the desktop split — the session bar over the live ttyd
  * terminal (one persistent iframe per visited session — see TerminalFrames),
- * plus a floating toolbar: Copy (selectable-text overlay), Upload, Schedule,
- * and Notes.
+ * plus a small floating toolbar: jump to top/bottom, Copy (selectable-text
+ * overlay), and Notes.
+ *
+ * This is a PLAIN SHELL surface, not a Claude one. The conversation with
+ * Claude moved to the Observatory, so the two widgets here that only made
+ * sense while a Claude prompt was on the other end are gone: the paperclip
+ * (uploaded a photo and typed its path into the prompt) and the stopwatch
+ * (scheduled a *prompt* to be typed into a session at a set time). Both
+ * still live on the Observatory page, which is where that work happens now;
+ * only this pane dropped them. What's left is a terminal: attach, type,
+ * scroll, copy.
+ *
+ * Prompt that shaped it: "replace the terminal tab with a pure terminal —
+ * it's falling out of use as a Claude surface, I want a shell I can run
+ * sudo commands from instead of SSHing in."
  */
 export function TerminalPane({ sessions }: { sessions: SessionState }) {
   const [copyOpen, setCopyOpen] = useState(false);
   const [panel, setPanel] = useState<FloatingPanel>(null);
   const notesBtnRef = useRef<HTMLButtonElement>(null);
-  const schedBtnRef = useRef<HTMLButtonElement>(null);
   const { active } = sessions;
 
   const togglePanel = (name: Exclude<FloatingPanel, null>) => {
@@ -37,14 +44,7 @@ export function TerminalPane({ sessions }: { sessions: SessionState }) {
       <div className={styles.body}>
         <TerminalFrames sessions={sessions} />
 
-        {/* Paperclip alone, top-left — dragging a file anywhere over the pane
-            still triggers the same upload (UploadWidget's document-wide
-            dragenter listener), this is just the click-to-pick trigger. */}
-        <div className={styles.topLeft}>
-          <UploadWidget session={active} triggerClassName={styles.toolBtn} />
-        </div>
-
-        {/* Jump / Copy / Schedule / Notes fused into one segmented pill
+        {/* Jump / Copy / Notes fused into one segmented pill
             top-right — one shared container background/border/radius, thin
             dividers between the segments (see .topRight/.segBtn). ▲▲/▼▼ are
             the desktop port of the mobile corner jump buttons (dev note
@@ -78,16 +78,6 @@ export function TerminalPane({ sessions }: { sessions: SessionState }) {
             &#128203;
           </button>
           <button
-            ref={schedBtnRef}
-            type="button"
-            className={styles.segBtn}
-            title="Schedule a prompt"
-            aria-label="Schedule a prompt"
-            onClick={() => togglePanel('schedule')}
-          >
-            &#9200;
-          </button>
-          <button
             ref={notesBtnRef}
             type="button"
             className={styles.segBtn}
@@ -99,12 +89,6 @@ export function TerminalPane({ sessions }: { sessions: SessionState }) {
           </button>
         </div>
 
-        <SchedulePanel
-          open={panel === 'schedule'}
-          onClose={() => setPanel(null)}
-          triggerRef={schedBtnRef}
-          sessionNames={sessions.sessions}
-        />
         <TermNotesPanel open={panel === 'notes'} onClose={() => setPanel(null)} triggerRef={notesBtnRef} />
 
         {copyOpen && <CopyPanel session={active} onClose={() => setCopyOpen(false)} />}

@@ -15,19 +15,10 @@
   min-height: 0;
 }
 
-/* All floating overlay buttons live in one of two top corners: paperclip
- * (upload) alone top-left, Copy/Schedule/Notes top-right — "put all of the
- * popup buttons all in one corner... put the paperclip button on the top
- * left." Both float above the iframe. */
-.topLeft {
-  position: absolute;
-  top: var(--space-3);
-  left: var(--space-3);
-  z-index: 50;
-  display: flex;
-  gap: var(--space-2);
-}
-
+/* Every floating overlay button lives in one top-right pill above the
+ * iframe — "put all of the popup buttons all in one corner." (The top-left
+ * paperclip that used to sit opposite it went out with the upload widget
+ * when this pane became a plain shell.) */
 /* Top-right: one fused segmented pill — the container owns the background,
  * border, radius, and blur; the three buttons inside are borderless
  * segments separated by thin dividers. */
@@ -49,7 +40,7 @@
   border-color: var(--accent);
 }
 
-/* One segment of the fused pill (copy 📋 / schedule ⏰ / notes 📝). */
+/* One segment of the fused pill (jump ▲▲/▼▼ / copy 📋 / notes 📝). */
 .segBtn {
   width: 40px;
   height: 40px;
@@ -71,25 +62,3 @@
   color: var(--text);
 }
 
-/* Standalone floating tool button — now only the top-left paperclip
- * (UploadWidget's trigger). */
-.toolBtn {
-  width: 40px;
-  height: 40px;
-  min-width: 40px;
-  min-height: 40px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: rgba(26, 26, 46, 0.85);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  color: var(--text-muted);
-  font-size: 16px;
-  cursor: pointer;
-}
-
-.toolBtn:hover {
-  border-color: var(--accent);
-  background: rgba(124, 92, 191, 0.35);
-  color: var(--text);
-}
