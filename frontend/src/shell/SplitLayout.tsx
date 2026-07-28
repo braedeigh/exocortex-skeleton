@@ -43,6 +43,12 @@ import styles from './SplitLayout.module.css';
  * from the pane itself. Which observatory *view* is showing is pane-local
  * state — it's a place in the room, not a preference.
  *
+ * The switcher isn't the only thing that writes that flag: a feature pushing
+ * a session at the terminal (see the exo:set-session effect below) flips it
+ * to Terminal too, so the pane surfaces itself when something needs to be
+ * seen there. The terminal has stopped being a place she goes and become a
+ * place things arrive.
+ *
  * The terminal and the room both stay mounted once visited and toggle by CSS
  * — same reasoning as TerminalFrames: remounting drops ttyd's websocket, and
  * it would also throw away a reply the Keeper is mid-stream on.
@@ -142,15 +148,28 @@ export function SplitLayout({ children }: { children: ReactNode }) {
     };
   }, [dragging, onPointerMove, endDrag]);
 
-  // Other features can flip the docked terminal to a named tmux session
-  // (research's "follow live") — this instance owns desktop session state,
-  // so the request arrives as a window event rather than through context.
+  // Other features push the docked terminal at a named tmux session —
+  // research's "follow live", and "talk to this thread" from the threads
+  // pages and the journal's thread popover. This instance owns desktop
+  // session state, so the request arrives as a window event rather than
+  // through context.
+  //
+  // Pushing a session also REVEALS the terminal (flips the surface flag),
+  // because the terminal isn't a surface anyone navigates to any more — the
+  // conversation lives in the observatory. Without this, thread-talk spawned
+  // its claude session and switched the pane to it underneath a hidden
+  // observatory: running, invisible, and only findable by guessing that the
+  // Terminal tab had something new in it. Clicking back to Sessions or
+  // Observatory puts it away again.
   const { setActive } = sessions;
   useEffect(() => {
     if (!terminalEnabled) return;
     function onSetSession(e: Event) {
       const name = (e as CustomEvent).detail;
-      if (typeof name === 'string' && name) setActive(name);
+      if (typeof name === 'string' && name) {
+        setActive(name);
+        setChatSurfaceObservatory(false);
+      }
     }
     window.addEventListener('exo:set-session', onSetSession);
     return () => window.removeEventListener('exo:set-session', onSetSession);
