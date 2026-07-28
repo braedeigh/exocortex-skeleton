@@ -249,9 +249,10 @@ const PING_REACH_PX = 26;
 /**
  * How long the FOCUSED agent's purple ring takes to travel and fade. Unlike
  * the orange ping this one has no period of its own: the backdrop fires it at
- * the turn of the breath (see pulseFocusSonar), so the rhythm is the map's,
- * not a second clock beating against it. Comfortably inside the ~6s exhale, so
- * the ring finishes and leaves silence before the next inhale.
+ * both turns of the breath (see pulseFocusSonar), so the rhythm is the map's,
+ * not a second clock beating against it. Rings therefore arrive 4s and 6s
+ * apart; this is short enough to finish and leave silence inside even the
+ * shorter gap, so two are never in flight at once.
  */
 const FOCUS_SONAR_MS = 2200;
 
@@ -432,12 +433,14 @@ export class TerrainCanvas {
 
   /**
    * Launch one purple ring from the focused agent's orb, now. The backdrop
-   * calls this at the top of each breath — the moment the map stops widening
-   * its memory and starts letting it go — so the agent's signal rides the same
-   * rhythm as the terrain instead of running on a clock of its own.
+   * calls this at each turn of the breath — the top, where the map stops
+   * widening its memory and starts letting it go, and the bottom, where it
+   * turns back — so the agent's signal rides the terrain's rhythm instead of
+   * running on a clock of its own.
    *
    * Prompt that produced it: "make the purple ping at the switch between grow
-   * and shrink for the heat map".
+   * and shrink for the heat map" → "do the pulse at both the top and the
+   * bottom of the breath cycle".
    */
   pulseFocusSonar(): void {
     this.focusSonarAt = Date.now();
@@ -882,11 +885,11 @@ export class TerrainCanvas {
         //     orbs read as separate hands going up rather than one strobe.
         //     /terrain has no breath for it to ride.
         //   PURPLE — the agent whose conversation she's reading, on the
-        //     backdrop. Fired by the BREATH, at the moment the map stops
-        //     widening its memory and starts letting it go (see
-        //     pulseFocusSonar). One ring per breath, on the turn — so the
-        //     agent and the terrain are one organism keeping one rhythm,
-        //     instead of two animations beating against each other.
+        //     backdrop. Fired by the BREATH, at both of its turns (see
+        //     pulseFocusSonar) — so the agent and the terrain are one organism
+        //     keeping one rhythm, instead of two animations beating against
+        //     each other. Two rings a cycle, 4s and 6s apart, uneven because
+        //     the breath is.
         //
         // Purple joins the running orb's undulation rather than replacing it:
         // the breath says "working", the sonar says "working for you, here".
