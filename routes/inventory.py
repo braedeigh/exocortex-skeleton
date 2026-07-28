@@ -12,6 +12,77 @@ def _fronts_list(v):
     return [x.strip() for x in v if isinstance(x, str) and x.strip()]
 
 
+def graduate_buy_item(name):
+    """Move a buy-list item into active inventory — the 'bought → owned' step,
+    factored out of the move_buy_to_active route so BOTH sides of the
+    to-do <-> buy-list bridge can reuse it. PURE: touches only buy_list +
+    active_inventory, never the to-dos, so it can't deadlock on the todos lock a
+    caller may already hold. Returns the removed buy item (carrying its `todo`
+    link, if any) or None when the name isn't on the list.
+
+    Prompt that made it: "checking a shopping item off graduates it into owned
+    Inventory" — the graduation half of a mirrored to-do / buy-list item."""
+    bdata = store.read("buy_list.json", {"items": []})
+    item = next((i for i in bdata["items"] if i["name"].lower() == name.lower()), None)
+    if item is None:
+        return None
+    bdata["items"] = [i for i in bdata["items"] if i["name"].lower() != name.lower()]
+    store.write("buy_list.json", bdata)
+
+    adata = store.read("active_inventory.json", {"items": []})
+    today = datetime.now().strftime("%Y-%m-%d")
+    existing = next((i for i in adata["items"] if i["name"].lower() == name.lower()), None)
+    if existing:
+        existing["status"] = "in_use"
+        existing["last_cost"] = item.get("cost", "") or existing.get("last_cost", "")
+        existing.setdefault("ordered_at", [])
+        existing["ordered_at"].append(today)
+        if item.get("where"):
+            existing["where"] = item["where"]
+        if item.get("order_url"):
+            existing["order_url"] = item["order_url"]
+    else:
+        adata["items"].append({
+            "name": item["name"],
+            "category": item.get("category", ""),
+            "status": "in_use",
+            "last_cost": item.get("cost", ""),
+            "where": item.get("where", ""),
+            "notes": item.get("notes", ""),
+            "order_url": item.get("order_url", ""),
+            "ordered_at": [today],
+        })
+    store.write("active_inventory.json", adata)
+    return item
+
+
+def _mark_linked_todo_done(link):
+    """The buy → to-do half of the bridge: given a buy item's {'parent','sub'}
+    link, mark that to-do (or its subtask) done. No-op when unlinked. Matches
+    the parent to-do by `id`."""
+    if not link or not link.get("parent"):
+        return
+    parent, sub = link.get("parent"), link.get("sub")
+    stamp = datetime.now().strftime("%Y-%m-%dT%H:%M")
+    with store.mutate("todos", {}) as todos:
+        for key in todos:
+            if not isinstance(todos[key], dict):
+                continue
+            for item in todos[key].get("items", []):
+                if item.get("id") != parent:
+                    continue
+                if sub:
+                    for s in item.get("subtasks", []):
+                        if s.get("id") == sub:
+                            s["done"] = True
+                            return
+                    return
+                if not item.get("done"):
+                    item["done"] = True
+                    item["done_at"] = stamp
+                return
+
+
 def register(app):
 
     # --- Priority Notes (freeform sticky-note for buy decisions) ---
@@ -201,40 +272,11 @@ def register(app):
     def move_buy_to_active():
         data = request.json
         name = data["name"]
-        buy_path = DATA_DIR / "buy_list.json"
-        if not buy_path.exists():
-            return jsonify({"error": "No buy list"}), 404
-        bdata = store.read("buy_list.json")
-        item = next((i for i in bdata["items"] if i["name"] == name), None)
-        if not item:
+        item = graduate_buy_item(name)
+        if item is None:
             return jsonify({"error": "Not on buy list"}), 404
-        bdata["items"] = [i for i in bdata["items"] if i["name"] != name]
-        store.write("buy_list.json", bdata)
-
-        adata = _load_active()
-        today = datetime.now().strftime("%Y-%m-%d")
-        existing = next((i for i in adata["items"] if i["name"].lower() == name.lower()), None)
-        if existing:
-            existing["status"] = "in_use"
-            existing["last_cost"] = item.get("cost", "") or existing.get("last_cost", "")
-            existing.setdefault("ordered_at", [])
-            existing["ordered_at"].append(today)
-            if item.get("where"):
-                existing["where"] = item["where"]
-            if item.get("order_url"):
-                existing["order_url"] = item["order_url"]
-        else:
-            adata["items"].append({
-                "name": item["name"],
-                "category": item.get("category", ""),
-                "status": "in_use",
-                "last_cost": item.get("cost", ""),
-                "where": item.get("where", ""),
-                "notes": item.get("notes", ""),
-                "order_url": item.get("order_url", ""),
-                "ordered_at": [today],
-            })
-        _save_active(adata)
+        # bridge: if this buy item mirrors a to-do, tick that to-do done too
+        _mark_linked_todo_done(item.get("todo"))
         return jsonify({"ok": True})
 
     @app.route("/api/active/restock", methods=["POST"])

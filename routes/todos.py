@@ -79,6 +79,30 @@ def _rerender_days(*days):
             pass
 
 
+def _graduate_linked_buy(parent_id, sub_id):
+    """The to-do → buy half of the bridge: when a shopping item is checked done,
+    move its linked buy-list item into owned inventory. Finds the buy item by its
+    {'parent','sub'} link, then hands off to inventory.graduate_buy_item.
+    Best-effort — never raises into the toggle's response.
+
+    Prompt: "if I check one off, the UI and data interact" — a to-do and a buy
+    item can mirror each other; checking the to-do graduates the buy item."""
+    try:
+        bdata = store.read("buy_list.json", {"items": []})
+        match = next(
+            (i for i in bdata["items"]
+             if isinstance(i.get("todo"), dict)
+             and i["todo"].get("parent") == parent_id
+             and i["todo"].get("sub") == sub_id),
+            None,
+        )
+        if match:
+            from routes.inventory import graduate_buy_item
+            graduate_buy_item(match["name"])
+    except Exception:
+        pass
+
+
 def register(app):
 
     @app.route("/api/todos/add", methods=["POST"])
@@ -351,6 +375,8 @@ def register(app):
         # the write we just made, not a stale todos.json).
         rerender_days = []
         matched = False
+        toggled_id = None
+        now_done = False
         with store.mutate("todos", {}) as todos:
             for key in todos:
                 if not isinstance(todos[key], dict):
@@ -359,7 +385,9 @@ def register(app):
                 for item in items:
                     if _match(item, ident):
                         matched = True
+                        toggled_id = item.get("id")
                         item["done"] = not item["done"]
+                        now_done = item["done"]
                         items.remove(item)
                         if item["done"]:
                             # done_at = when she MARKED it done, now stamped to
@@ -387,6 +415,12 @@ def register(app):
                 if matched:
                     break
         _rerender_days(*rerender_days)
+        # bridge: checking a standalone shopping to-do (sub=None link, e.g. the
+        # vacuum / kitchen table) graduates its linked buy-list item into owned
+        # inventory. Parent cards aren't linked, so bulk-checking one won't
+        # cascade — graduation fires on the item actually toggled.
+        if now_done and toggled_id:
+            _graduate_linked_buy(toggled_id, None)
         return jsonify({"ok": True})
 
     @app.route("/api/todos/cleared", methods=["GET"])
@@ -480,17 +514,30 @@ def register(app):
         data = request.json or {}
         ident = data.get("id") or data.get("item", "")
         sub_id = data.get("sub_id")
+        parent_id = None
+        became_done = False
         with store.mutate("todos", {}) as todos:
+            found = False
             for key in todos:
                 if not isinstance(todos[key], dict):
                     continue
                 for item in todos[key].get("items", []):
                     if _match(item, ident):
+                        parent_id = item.get("id")
                         for sub in item.get("subtasks", []):
                             if sub.get("id") == sub_id:
                                 sub["done"] = not sub["done"]
+                                became_done = sub["done"]
                                 break
-                        return jsonify({"ok": True})
+                        found = True
+                        break
+                if found:
+                    break
+        # bridge: checking a linked shopping subtask graduates its buy-list item
+        # into owned inventory. Run AFTER the mutate closes so the buy/active
+        # writes can't deadlock on the todos lock we just held.
+        if became_done:
+            _graduate_linked_buy(parent_id, sub_id)
         return jsonify({"ok": True})
 
     @app.route("/api/todos/subtask/remove", methods=["POST"])
