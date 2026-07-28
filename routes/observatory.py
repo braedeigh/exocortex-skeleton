@@ -1354,7 +1354,17 @@ def register(app):
             # Which room the card lives in, and whether it stops to ask —
             # both RESOLVED here (never raw), so the client never has to
             # re-derive a lane for the entries that predate the field.
+            #
+            # `act_gate_set` is the RAW override beside the resolved answer:
+            # true/false when she pinned one, ABSENT when the field is unwritten
+            # and the room is driving it. The ✎ dialog seeds its picker from
+            # this, never from the resolved `act_gate` — seeding from the
+            # resolved value made an inherited "asks" look like a choice, and
+            # saving wrote it back as one, so moving Orchestra → Personal kept
+            # every gate. Resolved is for showing; raw is for editing.
             c["lane"] = _conv_lane(c)
+            if c.get("act_gate") is not None:
+                c["act_gate_set"] = c["act_gate"] is True
             c["act_gate"] = _conv_config(c)["act_gate"]
         bots = [{"id": "keeper", "name": "Keeper", "journal": True,
                  "conversations": sessions}]
@@ -1688,8 +1698,13 @@ def register(app):
                     entry.pop("act_gate", None)
                 else:
                     entry["act_gate"] = data.get("act_gate") is True
+            # Same resolved-plus-raw shape the roster returns: `act_gate` is
+            # what the next turn will DO, `act_gate_set` is her pin (absent =
+            # the room is driving it). See the roster for why both are needed.
             out = dict(entry, id=conv_id, lane=_conv_lane(entry),
                        act_gate=_conv_config(entry)["act_gate"])
+            if entry.get("act_gate") is not None:
+                out["act_gate_set"] = entry["act_gate"] is True
         return jsonify({"ok": True, "conversation": out})
 
     @app.route("/api/observatory/conversation/<conv_id>/journal-output", methods=["POST"])

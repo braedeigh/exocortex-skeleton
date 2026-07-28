@@ -236,6 +236,12 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
           onClose={() => setNewInLane(null)}
           onSave={onCreate}
         />
+        {/* The ✎ sheet seeds "Asks first" from `act_gate_set` — her PIN — not
+            from the resolved `act_gate`. Resolved is what the session
+            currently DOES, which for an un-pinned Orchestra session is "asks"
+            by inheritance; seeding from it made the picker read "Always ask",
+            and saving wrote that back as a deliberate choice, so moving a
+            session Orchestra → Personal carried every gate along with it. */}
         <SessionDialog
           open={editTarget !== null}
           title={editTarget ? `Edit ${editTarget.title || editTarget.id}` : 'Edit session'}
@@ -244,7 +250,7 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
           initialModel={editTarget?.model ?? ''}
           lane={editTarget?.lane === 'personal' ? 'personal' : 'orchestra'}
           editable
-          initialActGate={editTarget?.act_gate ?? null}
+          initialActGate={editTarget?.act_gate_set ?? null}
           modelChoices={modelChoices}
           onClose={() => setEditTarget(null)}
           onSave={onEdit}

@@ -54,8 +54,14 @@ export interface SessionMeta {
    * has to guess. */
   lane?: Lane;
   /** Resolved act-vs-ask state: does this session stop before irreversible
-   * work? Defaults from the lane; an explicit per-session choice overrides. */
+   * work? Defaults from the lane; an explicit per-session choice overrides.
+   * Read-only — for SHOWING what the next turn will do. */
   act_gate?: boolean;
+  /** Her per-session PIN, raw: absent means no pin and the room is driving it.
+   * This is what the ✎ dialog seeds from — seeding from the resolved
+   * `act_gate` turned an inherited "asks" into a choice on save, so an
+   * Orchestra → Personal move carried every gate along with it. */
+  act_gate_set?: boolean;
   /** When the session was created (ISO-8601). The roster sorts on THIS, not
    * last_at, so a card's position is fixed at birth and never churns on
    * activity. Absent on legacy entries minted before it was stamped —
