@@ -778,15 +778,6 @@ export function ObservatoryPage({
           >
             stop
           </button>
-          {/* What this session has spent, parked at the far end of the
-              toolbar so it's there when she looks for it and silent when she
-              isn't. Same number as the roster card; it advances a turn at a
-              time, since the total only lands when a turn finishes. */}
-          {sessionSpend ? (
-            <span className={styles.spend} title="Tokens written and cost, this session">
-              {sessionSpend}
-            </span>
-          ) : null}
           <input
             ref={photo.fileRef}
             type="file"
@@ -820,6 +811,16 @@ export function ObservatoryPage({
             ↑
           </button>
         </div>
+        {/* What this session has spent, sitting directly under the input —
+            her call, so on the phone it's the line right above the keyboard
+            rather than buried in the toolbar above the box. Same number as
+            the roster card; it advances a turn at a time, since the total
+            only lands when a turn finishes. */}
+        {sessionSpend ? (
+          <div className={styles.spend} title="Tokens written and cost, this session">
+            {sessionSpend}
+          </div>
+        ) : null}
       </div>
 
       <DropVeil active={photo.dragging} />

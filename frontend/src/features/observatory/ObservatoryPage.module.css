@@ -660,16 +660,19 @@
   color: #c8c8e0;
 }
 
-/* Session spend, riding at the end of the toolbar. Not a button — it takes
-   only the width its number needs (the buttons flex to share the rest) and
-   uses tabular figures so it doesn't twitch as the count climbs. */
+/* Session spend, directly under the input — on the phone that puts it on the
+   line just above the keyboard, which is where she asked for it. Aligned to
+   the same 68ch column as the input rather than the full composer width, so
+   it sits under the text she's typing and not out at the edge. Tabular
+   figures so it doesn't twitch as the count climbs. */
 .spend {
-  flex: none;
-  align-self: center;
-  padding: 0 var(--space-2);
+  max-width: 68ch;
+  margin: var(--space-1) auto 0;
+  padding-right: calc(var(--tap-target) + var(--space-2));
   color: #8888aa;
   font-size: var(--font-size-sm);
   font-variant-numeric: tabular-nums;
+  text-align: right;
   white-space: nowrap;
 }
 
