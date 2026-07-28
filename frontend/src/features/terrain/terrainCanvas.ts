@@ -246,6 +246,15 @@ export function deriveOrbColor(primary: string, fallback: string, bg: string, te
 const PING_PERIOD_MS = 2600;
 const PING_REACH_PX = 26;
 
+/**
+ * How long the FOCUSED agent's purple ring takes to travel and fade. Unlike
+ * the orange ping this one has no period of its own: the backdrop fires it at
+ * the turn of the breath (see pulseFocusSonar), so the rhythm is the map's,
+ * not a second clock beating against it. Comfortably inside the ~6s exhale, so
+ * the ring finishes and leaves silence before the next inhale.
+ */
+const FOCUS_SONAR_MS = 2200;
+
 /** A stable 0..1 offset from a session id, so waiting orbs ping out of step
  * with each other. In unison several of them read as one strobing glitch;
  * staggered, each one reads as its own agent raising a hand. */
@@ -333,6 +342,9 @@ export class TerrainCanvas {
    * wall of names.
    */
   private labeledAgents: ReadonlySet<string> | null = null;
+  /** Epoch-ms of the last focus sonar launch, 0 = never fired. The backdrop
+   * sets this at each breath turn; the ring animates out from that instant. */
+  private focusSonarAt = 0;
   /** Whether any orb currently ON the map is pinging — the other half, with
    * hasRunning, of "is there anything worth animating". */
   private hasPinging = false;
@@ -416,6 +428,33 @@ export class TerrainCanvas {
   setAgentRings(rings: Map<string, FileTouchKind>): void {
     this.agentRings = rings;
     this.requestDraw();
+  }
+
+  /**
+   * Launch one purple ring from the focused agent's orb, now. The backdrop
+   * calls this at the top of each breath — the moment the map stops widening
+   * its memory and starts letting it go — so the agent's signal rides the same
+   * rhythm as the terrain instead of running on a clock of its own.
+   *
+   * Prompt that produced it: "make the purple ping at the switch between grow
+   * and shrink for the heat map".
+   */
+  pulseFocusSonar(): void {
+    this.focusSonarAt = Date.now();
+    this.requestDraw();
+  }
+
+  /** One sonar ring: launched from the orb's edge, travelling outward, fading
+   * faster than linearly (the ^1.7) so it dissolves near the end of its travel
+   * rather than vanishing mid-stride. `p` is 0..1 through the ring's life. */
+  private strokeSonar(x: number, y: number, r: number, color: string, p: number, alpha: number): void {
+    const { ctx, transform } = this;
+    ctx.globalAlpha = alpha * 0.8 * (1 - p) ** 1.7;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = (1 + 1.4 * (1 - p)) / transform.k;
+    ctx.beginPath();
+    ctx.arc(x, y, r + (PING_REACH_PX * p) / transform.k, 0, Math.PI * 2);
+    ctx.stroke();
   }
 
   /** Which orbs caption themselves. Pass null for "every orb". */
@@ -835,35 +874,33 @@ export class TerrainCanvas {
           this.focusConv !== null && n.id === `${SESSION_NODE_PREFIX}${this.focusConv}`;
         const orbAlpha = this.focusConv === null ? (inPrint ? 1 : 0.22) : isFocusOrb ? 1 : 0.38;
 
-        // Sonar. Two of them, same mechanic, different things to say:
+        // Sonar. Two of them, same ring, different things to say — and, more
+        // to the point, different clocks:
         //
-        //   ORANGE — this agent is waiting on her (/terrain).
-        //   PURPLE — this is the agent whose conversation she's reading, alive
-        //            behind her words. Backdrop only, and only for the focused
-        //            orb: on the map proper every orb is equally hers, so
-        //            there's no "the one you're inside" to point at.
+        //   ORANGE — this agent is waiting on her (/terrain). Free-running on
+        //     its own ~2.6s period, staggered per agent so several waiting
+        //     orbs read as separate hands going up rather than one strobe.
+        //     /terrain has no breath for it to ride.
+        //   PURPLE — the agent whose conversation she's reading, on the
+        //     backdrop. Fired by the BREATH, at the moment the map stops
+        //     widening its memory and starts letting it go (see
+        //     pulseFocusSonar). One ring per breath, on the turn — so the
+        //     agent and the terrain are one organism keeping one rhythm,
+        //     instead of two animations beating against each other.
         //
-        // Purple joins the running orb's undulation rather than replacing it —
-        // the breath says "working", the sonar says "working *for you, here*".
+        // Purple joins the running orb's undulation rather than replacing it:
+        // the breath says "working", the sonar says "working for you, here".
         //
-        // The ping goes down FIRST so the orb's own rings paint over its inner
+        // Either goes down FIRST so the orb's own rings paint over its inner
         // edge — the ring reads as leaving the body rather than crossing it.
-        // Radius runs from the orb's edge outward; alpha falls off faster than
-        // linearly (the ^1.7) so it dissolves near the end of its travel
-        // instead of vanishing mid-stride.
-        const sonar = pinging
-          ? theme.orange
-          : isFocusOrb && sessionId !== undefined
-            ? this.orbStroke
-            : null;
-        if (sonar) {
+        if (pinging) {
           const p = (((now / PING_PERIOD_MS + stringPhase(sessionId!)) % 1) + 1) % 1;
-          ctx.globalAlpha = orbAlpha * 0.8 * (1 - p) ** 1.7;
-          ctx.strokeStyle = sonar;
-          ctx.lineWidth = (1 + 1.4 * (1 - p)) / transform.k;
-          ctx.beginPath();
-          ctx.arc(n.x ?? 0, n.y ?? 0, r + (PING_REACH_PX * p) / transform.k, 0, Math.PI * 2);
-          ctx.stroke();
+          this.strokeSonar(n.x ?? 0, n.y ?? 0, r, theme.orange, p, orbAlpha);
+        } else if (isFocusOrb && this.focusSonarAt > 0) {
+          const age = now - this.focusSonarAt;
+          if (age >= 0 && age < FOCUS_SONAR_MS) {
+            this.strokeSonar(n.x ?? 0, n.y ?? 0, r, this.orbStroke, age / FOCUS_SONAR_MS, orbAlpha);
+          }
         }
 
         ctx.globalAlpha = orbAlpha;

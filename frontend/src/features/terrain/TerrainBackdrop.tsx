@@ -126,6 +126,10 @@ export function TerrainBackdrop({ focusConv }: { focusConv?: string | null } = {
   // reduced-motion preference freezes it at the midpoint rather than removing
   // the map, so the backdrop stays a picture instead of becoming an event.
   const breathStartRef = useRef(0);
+  // Last half-life seen and whether it was climbing — together they spot the
+  // turn from inhale to exhale, which is when the focus sonar fires.
+  const breathPrevRef = useRef<number | null>(null);
+  const breathRisingRef = useRef(false);
   useEffect(() => {
     const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     // Phase origin is fixed for the life of the mount. It deliberately does
@@ -140,6 +144,22 @@ export function TerrainBackdrop({ focusConv }: { focusConv?: string | null } = {
       const payload = dataRef.current;
       if (!engine || !payload) return;
       const elapsed = calm ? BREATH_PERIOD_MS / 2 : performance.now() - started;
+      const half = breathHalfLife(elapsed, BREATH_PERIOD_MS);
+      // The focused agent's purple sonar fires at the TOP of the breath — the
+      // instant the map stops widening its memory and starts letting it go —
+      // so the agent and the terrain keep one rhythm instead of two.
+      //
+      // Detected as a change of DIRECTION rather than by testing the phase
+      // against BREATH_INHALE_FRACTION: the inhale/exhale split has already
+      // been retuned once (even → 4-in-6-out), and a turn is a turn whatever
+      // the split becomes. Under prefers-reduced-motion the half-life is
+      // pinned, so it never rises, so this never fires — correct.
+      const prev = breathPrevRef.current;
+      if (prev !== null) {
+        if (breathRisingRef.current && half < prev) engine.pulseFocusSonar();
+        if (half !== prev) breathRisingRef.current = half > prev;
+      }
+      breathPrevRef.current = half;
       // Active set (her 07-27 call): only agents live right now get an orb, so
       // the wallpaper stops carrying the 90-day footprint backlog. The focused
       // conversation is always in it — she's standing behind it — so its orb
@@ -148,9 +168,7 @@ export function TerrainBackdrop({ focusConv }: { focusConv?: string | null } = {
       for (const s of payload.sessions ?? []) if (s.running) orbSessionIds.add(s.id);
       const focus = focusConvRef.current;
       if (focus) orbSessionIds.add(focus);
-      const graph = buildTerrainGraph(payload, breathHalfLife(elapsed, BREATH_PERIOD_MS), undefined, {
-        orbSessionIds,
-      });
+      const graph = buildTerrainGraph(payload, half, undefined, { orbSessionIds });
       // Same node ids every time, so this updates heat in place and never
       // re-warms the layout — the map holds still, only the embers move.
       engine.setGraph(graph.nodes, graph.edges);
