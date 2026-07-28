@@ -1,7 +1,12 @@
 /**
- * Pure buy-list / active-inventory logic ported from static/js/inventory.js —
- * grouping (kind → category → priority), status metadata, date formatting.
- * No DOM, no fetch: everything here is vitest-testable.
+ * Pure buy-list / active-inventory logic — the grouping, filtering and text
+ * formatting the Inventory tab renders from. No DOM, no fetch, so all of it
+ * is vitest-testable (inventoryHelpers.test.ts).
+ *
+ * Three families live here: the buy list's phone-first view (group by
+ * priority or by category, filter by store, format the deadline), the older
+ * kind/front grouping kept from the ported static/js/inventory.js, and the
+ * active/past inventory partitions the tables use.
  */
 import type { ActiveItem, BuyItem } from './types';
 
@@ -156,6 +161,111 @@ export function knownCategories(buy: BuyItem[], active: ActiveItem[]): string[] 
     if (c) all.add(c);
   });
   return [...all].sort();
+}
+
+// --- Buy list: priority grouping + store filter (the phone-first view) ---
+
+export interface PriorityGroup {
+  priority: string;
+  label: string;
+  color: string;
+  items: BuyItem[];
+}
+
+const PRIORITY_GROUPS: { priority: string; label: string }[] = [
+  { priority: 'high', label: 'High priority' },
+  { priority: 'medium', label: 'Medium' },
+  { priority: 'low', label: 'Low' },
+];
+
+/** Soonest `by` deadline first (dated before undated), then name A–Z. */
+function byDeadlineThenName(a: BuyItem, b: BuyItem): number {
+  const da = (a.by || '').trim();
+  const db = (b.by || '').trim();
+  if (da && db && da !== db) return da < db ? -1 : 1;
+  if (da && !db) return -1;
+  if (db && !da) return 1;
+  return (a.name || '').localeCompare(b.name || '');
+}
+
+/** A plain 'YYYY-MM-DD' deadline → 'Jul 31' for the row's sub-line. Parsed by
+ * hand rather than through `new Date`: the built-in reads a bare date as UTC
+ * midnight, which renders as the *previous* day in any US timezone. Anything
+ * that isn't a plain date (freeform text like "before the move") comes back
+ * untouched. */
+export function formatByDate(by?: string): string {
+  const raw = (by || '').trim();
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+  if (!m) return raw;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  if (isNaN(d.getTime())) return raw;
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+/** Buy items → High / Medium / Low groups (that order; blank/unknown priority
+ * falls into Medium), each sorted by deadline then name; empty groups dropped.
+ * The phone-first default view — flat and scannable, most urgent on top. */
+export function groupBuyByPriority(items: BuyItem[]): PriorityGroup[] {
+  const buckets: Record<string, BuyItem[]> = { high: [], medium: [], low: [] };
+  items.forEach((i) => {
+    const p = (i.priority || '').toLowerCase();
+    (buckets[p] || buckets.medium).push(i);
+  });
+  return PRIORITY_GROUPS.map(({ priority, label }) => ({
+    priority,
+    label,
+    color: priorityColor(priority),
+    items: [...buckets[priority]].sort(byDeadlineThenName),
+  })).filter((g) => g.items.length);
+}
+
+/** Best-effort store normalization: a freeform `where` ("Target / HEB",
+ * "Target now / Sur La Table") maps to canonical store labels by keyword, so
+ * the shopping-mode filter chips stay clean even though the field is free
+ * text. Extend as new stores show up. Generic US retailers, not personal. */
+const STORE_ALIASES: { label: string; re: RegExp }[] = [
+  { label: 'Target', re: /target/i },
+  { label: 'HEB', re: /\bh\.?-?e\.?-?b\b/i },
+  { label: 'Amazon', re: /amazon/i },
+  { label: 'Marketplace', re: /marketplace|facebook/i },
+  { label: 'IKEA', re: /ikea/i },
+  { label: 'Home Depot', re: /home ?depot/i },
+  { label: 'Micro Center', re: /micro ?center/i },
+  { label: 'Sur La Table', re: /sur la table/i },
+  { label: 'Container Store', re: /container store/i },
+  { label: 'Walmart', re: /wal-?mart/i },
+  { label: 'Costco', re: /costco/i },
+  { label: 'Whole Foods', re: /whole foods/i },
+  { label: 'Sprouts', re: /sprouts/i },
+  { label: 'Dollar store', re: /dollar ?(store|tree|general)/i },
+];
+
+/** Canonical store labels this item's `where` mentions (zero or more). */
+export function itemStores(item: BuyItem): string[] {
+  const w = item.where || '';
+  return STORE_ALIASES.filter((s) => s.re.test(w)).map((s) => s.label);
+}
+
+export interface StoreChip {
+  label: string;
+  count: number;
+}
+
+/** Distinct stores across the list, most-common first — the shopping-mode
+ * filter chips (at a store, pull up just what's there). Items whose `where`
+ * matches no known store contribute no chip (they still show under "All"). */
+export function buyStores(items: BuyItem[]): StoreChip[] {
+  const counts = new Map<string, number>();
+  items.forEach((i) => itemStores(i).forEach((s) => counts.set(s, (counts.get(s) || 0) + 1)));
+  return [...counts.entries()]
+    .map(([label, count]) => ({ label, count }))
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+}
+
+/** Filter to items whose `where` mentions `store` (null = no filter). */
+export function filterBuyByStore(items: BuyItem[], store: string | null): BuyItem[] {
+  if (!store) return items;
+  return items.filter((i) => itemStores(i).includes(store));
 }
 
 // --- Active inventory ---

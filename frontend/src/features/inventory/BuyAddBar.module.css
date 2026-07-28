@@ -1,0 +1,63 @@
+/* Buy-list quick-add — mirrors AddBar.module.css (to-do quick-add) so the two
+   pages feel like one system. Same tokens: spacing scale, tap target, radius,
+   border, card bg. Adds a .miniInput for the category/where fields on the
+   revealed row (they flow rather than each spanning the full width). */
+/* No side padding, unlike the to-do bar: the Inventory page already pads
+   itself, so the field lines up flush with the section cards below it. */
+.bar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: 0 0 var(--space-3);
+}
+
+.topRow {
+  display: flex;
+  gap: var(--space-2);
+  align-items: stretch;
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  box-sizing: border-box;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--text);
+  font-size: var(--font-size-base);
+}
+
+/* The kind/priority/category/where controls — hidden until the field above is
+   focused or has text (see BuyAddBar.tsx `expanded`). */
+.extra {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.select {
+  min-height: var(--tap-target);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--text);
+  font-size: var(--font-size-base);
+}
+
+.miniInput {
+  flex: 1 1 140px;
+  min-width: 120px;
+  box-sizing: border-box;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--text);
+  font-size: var(--font-size-base);
+}

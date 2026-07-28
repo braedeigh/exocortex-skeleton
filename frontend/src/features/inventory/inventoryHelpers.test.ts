@@ -5,9 +5,14 @@ import {
   buyItemsOfKind,
   categoryLabel,
   formatBuyDate,
+  formatByDate,
   groupActiveByCategory,
+  buyStores,
+  filterBuyByStore,
   groupBuyByCategory,
   groupBuyByFront,
+  groupBuyByPriority,
+  itemStores,
   groupPastByCategory,
   UNTAGGED_FRONT,
   isSortedKind,
@@ -22,6 +27,73 @@ import {
   usedRangeText,
 } from './inventoryHelpers';
 import type { ActiveItem, BuyItem } from './types';
+
+const buy = (over: Partial<BuyItem> = {}): BuyItem => ({ name: 'x', ...over });
+
+describe('groupBuyByPriority', () => {
+  it('groups high/medium/low in that order, blank priority → medium', () => {
+    const groups = groupBuyByPriority([
+      buy({ name: 'lo', priority: 'low' }),
+      buy({ name: 'hi', priority: 'high' }),
+      buy({ name: 'blank' }),
+      buy({ name: 'med', priority: 'medium' }),
+    ]);
+    expect(groups.map((g) => g.priority)).toEqual(['high', 'medium', 'low']);
+    expect(groups[1].items.map((i) => i.name).sort()).toEqual(['blank', 'med']);
+  });
+  it('drops empty groups', () => {
+    expect(groupBuyByPriority([buy({ priority: 'high' })]).map((g) => g.priority)).toEqual(['high']);
+  });
+  it('sorts within a group by deadline (soonest first), then name', () => {
+    const [g] = groupBuyByPriority([
+      buy({ name: 'no-date', priority: 'high' }),
+      buy({ name: 'later', priority: 'high', by: '2026-08-01' }),
+      buy({ name: 'soon', priority: 'high', by: '2026-07-31' }),
+    ]);
+    expect(g.items.map((i) => i.name)).toEqual(['soon', 'later', 'no-date']);
+  });
+});
+
+describe('formatByDate', () => {
+  it('renders a plain YYYY-MM-DD without slipping a day', () => {
+    // `new Date('2026-07-31')` is UTC midnight, which prints as Jul 30 in any
+    // US timezone — the row must not show a deadline a day early.
+    expect(formatByDate('2026-07-31')).toBe('Jul 31');
+    expect(formatByDate('2026-01-01')).toBe('Jan 1');
+  });
+  it('passes freeform deadlines through untouched', () => {
+    expect(formatByDate('before the move')).toBe('before the move');
+  });
+  it('is empty for missing/blank input', () => {
+    expect(formatByDate(undefined)).toBe('');
+    expect(formatByDate('   ')).toBe('');
+  });
+});
+
+describe('store filter (itemStores / buyStores / filterBuyByStore)', () => {
+  it('maps freeform where to canonical stores; unknown → none', () => {
+    expect(itemStores(buy({ where: 'Target now / Sur La Table / Amazon' }))).toEqual([
+      'Target',
+      'Amazon',
+      'Sur La Table',
+    ]);
+    expect(itemStores(buy({ where: 'hardware aisle' }))).toEqual([]);
+  });
+  it('buyStores counts stores, most-common first', () => {
+    const chips = buyStores([
+      buy({ where: 'Target / HEB' }),
+      buy({ where: 'Target' }),
+      buy({ where: 'Amazon' }),
+    ]);
+    expect(chips[0]).toEqual({ label: 'Target', count: 2 });
+    expect(chips.find((c) => c.label === 'HEB')).toEqual({ label: 'HEB', count: 1 });
+  });
+  it('filterBuyByStore keeps items mentioning the store; null = all', () => {
+    const items = [buy({ name: 'a', where: 'Target / HEB' }), buy({ name: 'b', where: 'Amazon' })];
+    expect(filterBuyByStore(items, 'Target').map((i) => i.name)).toEqual(['a']);
+    expect(filterBuyByStore(items, null)).toHaveLength(2);
+  });
+});
 
 describe('asList', () => {
   it('passes arrays through', () => {

@@ -205,8 +205,7 @@
 }
 .kindHeader .count,
 .catHeader .count,
-.kindSummary .count,
-.frontHeader .count {
+.kindSummary .count {
   opacity: 0.6;
   font-weight: 400;
 }
@@ -255,21 +254,6 @@
   padding: 6px 0 2px 10px;
 }
 
-/* per-front group header inside a kind block */
-.frontHeader {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  margin-bottom: 4px;
-}
-.unsortedHint {
-  font-size: 12px;
-  color: var(--text-muted);
-  margin-bottom: 8px;
-}
-.catGroup {
-  margin-bottom: 10px;
-}
 .catHeader {
   font-size: 12px;
   font-weight: 600;
@@ -279,97 +263,8 @@
   margin-bottom: 4px;
 }
 
-.buyRow {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  min-height: 40px;
-  padding: 6px 0;
-  font-size: var(--font-size-base);
-  color: var(--text);
-  min-width: 0;
-}
-.priorityDot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  margin-right: 8px;
-  flex-shrink: 0;
-}
-.buyName {
-  border: none;
-  background: none;
-  font: inherit;
-  color: inherit;
-  cursor: pointer;
-  font-weight: 700;
-  text-align: left;
-  padding: 8px 0;
-  min-width: 0;
-  overflow-wrap: break-word;
-  word-break: break-word;
-}
-.buyName:hover {
-  color: var(--accent);
-}
-.frontTags {
-  font-size: 13px;
-  margin-left: 8px;
-  white-space: nowrap;
-  flex-shrink: 0;
-  cursor: default;
-}
-/* 🔗 order link — a real <a>, sized like the word buttons */
-.linkBtn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 40px;
-  min-height: 40px;
-  padding: 6px;
-  font-size: 15px;
-  text-decoration: none;
-  border-radius: var(--radius-sm);
-  transition: background 0.15s;
-}
-.linkBtn:hover {
-  background: rgba(124, 92, 191, 0.1);
-}
-.costBadge {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text);
-  background: rgba(26, 188, 156, 0.1);
-  border: 1px solid rgba(26, 188, 156, 0.25);
-  border-radius: 16px;
-  padding: 4px 12px;
-  margin-left: auto;
-  margin-right: 6px;
-  white-space: nowrap;
-}
-.rowSpacer {
-  margin-left: auto;
-}
-/* quiet word actions (.buy-word-btn port — bumped to a 40px hit area) */
-.wordBtn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-muted);
-  padding: 8px 6px;
-  min-height: 40px;
-  white-space: nowrap;
-  transition: color 0.15s ease;
-}
-.wordBtn:hover {
-  color: var(--accent);
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-/* × remove (.delete-btn port — kept visible on touch, full on hover) */
+/* × remove (.delete-btn port — kept visible on touch, full on hover). Shared
+   by the buy cards and the active/past tables. */
 .deleteBtn {
   opacity: 0.35;
   background: none;
@@ -383,45 +278,177 @@
   line-height: 1;
   transition: all 0.15s;
 }
-.buyRow:hover .deleteBtn,
 tr:hover .deleteBtn {
   opacity: 1;
 }
 .deleteBtn:hover {
   color: var(--red);
 }
-.metaLine {
-  width: 100%;
-  font-size: 12px;
-  color: var(--text-muted);
-  padding-left: 16px;
-  margin-top: 2px;
+
+/* --- Buy List: phone-first store filter + compact priority cards --- */
+.storeFilter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
 }
-.metaBy {
+.storeChip {
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 20px;
+  border: 1px solid rgba(124, 92, 191, 0.25);
+  background: none;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.storeChip:hover {
+  border-color: var(--accent);
+}
+.storeChipActive,
+.storeChipActive:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.storeChipActive .count {
+  opacity: 0.85;
+}
+
+/* by priority / by category — the secondary control, so it says which axis is
+   active with weight and color instead of a filled pill. Right-aligned to
+   leave the store chips as the loud thing on the row above. */
+.groupToggle {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+  margin: -4px 0 6px;
+}
+.groupBtn {
+  min-height: 40px;
+  padding: 0 10px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: color 0.15s ease;
+}
+.groupBtn:hover {
+  color: var(--text-secondary);
+}
+.groupBtnActive,
+.groupBtnActive:hover {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.buyCard {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 48px;
+  border-left: 3px solid transparent;
+  border-radius: 8px;
+  padding: 2px 2px 2px 10px;
+  transition: background 0.15s ease;
+}
+.buyCard:hover {
+  background: rgba(124, 92, 191, 0.05);
+}
+.buyCardMain {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  padding: 6px 4px;
+}
+.buyCardName {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.25;
+}
+.buyCardMain:hover .buyCardName {
+  color: var(--accent);
+}
+.buyCardSub {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.buyWhere {
+  max-width: 55vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.buyCost {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+/* deadline — the one place the row is allowed to raise its voice */
+.buyBy {
   color: var(--red);
+  font-weight: 600;
+  white-space: nowrap;
 }
-.notesLine {
-  width: 100%;
-  font-size: 12px;
-  color: var(--text-muted);
-  padding-left: 16px;
-  margin-top: 2px;
-  white-space: pre-line;
-  line-height: 1.45;
+.boughtBtn {
+  flex-shrink: 0;
+  min-width: 40px;
+  min-height: 40px;
+  border: none;
+  background: none;
+  color: var(--green, #1abc9c);
+  font-size: 18px;
+  cursor: pointer;
+  border-radius: 8px;
+  opacity: 0.7;
+  transition: opacity 0.15s ease, background 0.15s ease;
 }
+.boughtBtn:hover {
+  opacity: 1;
+  background: rgba(26, 188, 156, 0.12);
+}
+/* × stays visible on mobile (no hover): clear but quiet, full on hover */
+.buyCard .deleteBtn {
+  flex-shrink: 0;
+  min-width: 40px;
+  min-height: 40px;
+  font-size: 20px;
+  opacity: 0.5;
+}
+.buyCard:hover .deleteBtn {
+  opacity: 1;
+}
+
 .emptyList {
   font-size: 14px;
   color: var(--text-muted);
   padding: 4px 0;
 }
 
-/* --- add form / shared inputs --- */
+/* --- shared form inputs (modals, archivals; the buy list's own add form
+       moved to BuyAddBar at the top of the page) --- */
 
-.addForm {
-  margin-top: 10px;
-  border-top: 1px solid var(--border-soft);
-  padding-top: 10px;
-}
 .formRow {
   display: flex;
   flex-wrap: wrap;
@@ -453,10 +480,6 @@ tr:hover .deleteBtn {
 }
 .grow {
   flex: 1;
-  min-width: 160px;
-}
-.grow2 {
-  flex: 2;
   min-width: 160px;
 }
 .textarea {

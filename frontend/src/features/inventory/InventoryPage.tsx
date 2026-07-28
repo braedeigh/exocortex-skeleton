@@ -1,9 +1,13 @@
 /**
  * Inventory tab — React port of templates/index.html #tab-inventory +
- * static/js/inventory.js + static/js/archivals.js. Layout order matches the
- * old page: priority notes, restock banner, Buy List, Consumables (active),
- * Durables (archivals catalog), Past Consumables — plus the ?buy=<name>
- * deep-link detail view that replaces /item/buy/<name>.
+ * static/js/inventory.js + static/js/archivals.js. Top to bottom: the
+ * BuyAddBar quick-add (owner view only), priority notes, restock banner, Buy
+ * List, Consumables (active), Durables (archivals catalog), Past Consumables
+ * — plus the ?buy=<name> deep-link detail view that replaces
+ * /item/buy/<name>.
+ *
+ * The quick-add sits above everything because adding is the thing done most
+ * and it used to be buried at the bottom of the Buy List section.
  *
  * Deliberately skipped (matching the rest of the React migration):
  * the pending-approvals modal and the per-tab tagged-todo strip.
@@ -18,6 +22,7 @@ import { ArchivalsSection } from './ArchivalsSection';
 import { BoughtDialog } from './BoughtDialog';
 import { BuyItemDetail } from './BuyItemDetail';
 import { BuyItemModal } from './BuyItemModal';
+import { BuyAddBar } from './BuyAddBar';
 import { BuyListSection } from './BuyListSection';
 import { ConfirmDialog, PromptDialog } from './Modal';
 import type { ConfirmState, PromptState } from './Modal';
@@ -176,6 +181,10 @@ export function InventoryPage({ buyName }: InventoryPageProps) {
           </button>
         </div>
 
+        {!isPublic ? (
+          <BuyAddBar onAdd={actions.addBuy} knownCategories={knownCategories(buyList, allActive)} />
+        ) : null}
+
         {isLoading && !data ? <div className={styles.bannerLoading}>Loading…</div> : null}
         {isError && !data ? (
           <div className={styles.bannerError}>
@@ -196,10 +205,8 @@ export function InventoryPage({ buyName }: InventoryPageProps) {
               items={buyList}
               open={sectionOpen(true)}
               onOpenItem={setBuyModalName}
-              onSetKind={actions.setBuyKind}
               onMarkBought={markBought}
               onDelete={confirmDeleteBuy}
-              onAdd={actions.addBuy}
             />
             <ActiveInventorySection
               items={active}

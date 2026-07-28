@@ -1,27 +1,40 @@
 /**
- * Buy List — Consumables / Durables / Services / Unsorted, each its own
- * separately-collapsible <details> (open state remembered in localStorage),
- * with items grouped by front (the shared life-domain vocabulary,
- * features/fronts) inside each kind. Category is demoted to the meta line.
- * Rows get a 🔗 order-link button when the item has an order_url; unsorted
- * rows keep the one-tap C/D/S filing words; every row has "bought" and a
- * two-step-confirm ×.
+ * Buy List — the phone-first view. Three controls up top: a store-filter chip
+ * row (tap the store you're standing in to see just what's there), a quiet
+ * by-priority / by-category switch, and then the items themselves as compact
+ * cards inside collapsible groups (each group's open state, and the chosen
+ * grouping, stick in localStorage).
+ *
+ * Each card is deliberately quiet: priority as a colored left edge, the name,
+ * and one muted sub-line (📍 where · cost · by-date, the date in red). Tap the
+ * card to open the edit sheet for everything else — why, notes, fronts, kind,
+ * order link. The row itself keeps only ✓ bought and × remove.
+ *
+ * Grouping defaults to priority. Category is offered alongside it because a
+ * list where nearly everything sits at one priority collapses into a single
+ * wall of items — category is the axis that still separates things then.
+ *
+ * Adding happens in BuyAddBar at the top of the page, not here — this section
+ * only shows and clears the list.
+ *
+ * Prompt: make the Buy List bearable on a phone — see items without a bunch of
+ * detail like the to-do pages, tap to edit, list priority and where-to-buy;
+ * one-tap filter by store for when out and about, and move the entry form to
+ * the top of the page.
+ *
+ * Touches: inventoryHelpers (groupBuyByPriority, groupBuyByCategory,
+ * buyStores, filterBuyByStore, formatByDate, priorityColor), BuyAddBar (the
+ * add form that used to live here), inventory.module.css.
  */
 import { useState } from 'react';
-import type { FormEvent, ReactNode } from 'react';
-import { FRONT_EMOJI, frontLabel, useFronts } from '../fronts/useFronts';
-import type { Front } from '../fronts/useFronts';
-import { FrontChips, toggleFront } from './FrontChips';
+import type { ReactNode } from 'react';
 import {
-  BUY_KINDS,
-  buyItemsOfKind,
-  categoryLabel,
-  formatBuyDate,
-  groupBuyByFront,
-  isSortedKind,
-  knownBuyCategories,
+  buyStores,
+  filterBuyByStore,
+  formatByDate,
+  groupBuyByCategory,
+  groupBuyByPriority,
   priorityColor,
-  unsortedBuyItems,
 } from './inventoryHelpers';
 import type { BuyItem } from './types';
 import styles from './inventory.module.css';
@@ -30,98 +43,83 @@ export interface BuyListSectionProps {
   items: BuyItem[];
   open: boolean;
   onOpenItem: (name: string) => void;
-  onSetKind: (name: string, kind: string) => void;
-  onMarkBought: (item: BuyItem) => void;
-  onDelete: (name: string) => void;
-  onAdd: (payload: {
-    name: string;
-    priority: string;
-    kind: string;
-    where: string;
-    category: string;
-    notes: string;
-    fronts: string[];
-  }) => Promise<void>;
-}
-
-interface RowProps {
-  fronts: Front[];
-  onOpenItem: (name: string) => void;
-  onSetKind: (name: string, kind: string) => void;
   onMarkBought: (item: BuyItem) => void;
   onDelete: (name: string) => void;
 }
 
+/** Which axis the list is grouped on — the toggle above the groups. */
+type Grouping = 'priority' | 'category';
+
+const GROUPING_KEY = 'inv-buy-group';
+
+interface BuyGroup {
+  key: string;
+  label: string;
+  color: string;
+  items: BuyItem[];
+}
+
+/** Both groupings flattened to one shape so the render below doesn't branch.
+ * Priority groups carry their color; category headers stay neutral (the color
+ * on a category row would collide with the priority edge on its cards). */
+function buildGroups(items: BuyItem[], grouping: Grouping): BuyGroup[] {
+  if (grouping === 'category') {
+    return groupBuyByCategory(items).map((g) => ({
+      key: g.category,
+      label: g.label,
+      color: 'var(--text-secondary)',
+      items: g.items,
+    }));
+  }
+  return groupBuyByPriority(items).map((g) => ({
+    key: g.priority,
+    label: g.label,
+    color: g.color,
+    items: g.items,
+  }));
+}
+
+/** Compact card: colored priority edge, name, quiet where·cost·by sub-line.
+ * Tap the body → edit sheet; ✓ bought and × remove stay on the row. */
 function BuyRow({
   item,
-  fronts,
   onOpenItem,
-  onSetKind,
   onMarkBought,
   onDelete,
-}: RowProps & { item: BuyItem }) {
-  const meta: { key: string; node: ReactNode }[] = [];
-  if (item.why) meta.push({ key: 'why', node: <em>{item.why}</em> });
-  if (item.by) {
-    meta.push({ key: 'by', node: <span className={styles.metaBy}>by {item.by}</span> });
-  }
-  if (item.category) {
-    meta.push({ key: 'category', node: <span>{categoryLabel(item.category)}</span> });
-  }
-  if (item.added) {
-    meta.push({ key: 'added', node: <span title={item.added}>added {formatBuyDate(item.added)}</span> });
-  }
-
-  const tagNames = (item.fronts || []).map((f) => frontLabel(fronts, f)).join(' · ');
-
+}: {
+  item: BuyItem;
+  onOpenItem: (name: string) => void;
+  onMarkBought: (item: BuyItem) => void;
+  onDelete: (name: string) => void;
+}) {
+  const where = (item.where || '').trim();
+  const cost = (item.cost || '').trim();
+  const by = formatByDate(item.by);
   return (
-    <div className={styles.buyRow}>
-      <span className={styles.priorityDot} style={{ background: priorityColor(item.priority) }} />
-      <button type="button" className={styles.buyName} onClick={() => onOpenItem(item.name)}>
-        {item.name}
-      </button>
-      {item.fronts?.length ? (
-        <span className={styles.frontTags} title={tagNames}>
-          {(item.fronts || []).map((f) => FRONT_EMOJI[f] || '🏷️').join('')}
-        </span>
-      ) : null}
-      {item.cost ? (
-        <span className={styles.costBadge}>{item.cost}</span>
-      ) : (
-        <span className={styles.rowSpacer} />
-      )}
-      {item.order_url ? (
-        <a
-          className={styles.linkBtn}
-          href={item.order_url}
-          target="_blank"
-          rel="noopener noreferrer"
-          title={`Open order link: ${item.order_url}`}
-          aria-label={`Open order link for ${item.name}`}
-        >
-          🔗
-        </a>
-      ) : null}
-      {!isSortedKind(item.kind)
-        ? BUY_KINDS.map((k) => (
-            <button
-              type="button"
-              key={k.key}
-              className={styles.wordBtn}
-              title={`File under ${k.label}`}
-              onClick={() => onSetKind(item.name, k.key)}
-            >
-              {k.key}
-            </button>
-          ))
-        : null}
+    <div className={styles.buyCard} style={{ borderLeftColor: priorityColor(item.priority) }}>
       <button
         type="button"
-        className={styles.wordBtn}
-        title="Mark as bought"
+        className={styles.buyCardMain}
+        onClick={() => onOpenItem(item.name)}
+        aria-label={`Open ${item.name}`}
+      >
+        <span className={styles.buyCardName}>{item.name}</span>
+        {where || cost || by ? (
+          <span className={styles.buyCardSub}>
+            {where ? <span className={styles.buyWhere}>📍 {where}</span> : null}
+            {cost ? <span className={styles.buyCost}>{cost}</span> : null}
+            {by ? <span className={styles.buyBy}>by {by}</span> : null}
+          </span>
+        ) : null}
+      </button>
+      <button
+        type="button"
+        className={styles.boughtBtn}
+        title="Mark bought"
+        aria-label={`Mark ${item.name} bought`}
         onClick={() => onMarkBought(item)}
       >
-        bought
+        ✓
       </button>
       <button
         type="button"
@@ -132,46 +130,12 @@ function BuyRow({
       >
         &times;
       </button>
-      {meta.length ? (
-        <div className={styles.metaLine}>
-          {meta.map((m, i) => (
-            <span key={m.key}>
-              {i > 0 ? ' · ' : ''}
-              {m.node}
-            </span>
-          ))}
-        </div>
-      ) : null}
-      {item.notes ? <div className={styles.notesLine}>{item.notes}</div> : null}
     </div>
   );
 }
 
-/** One kind's items grouped by front (fronts.json order, untagged last). */
-function FrontGroups({ items, rowProps }: { items: BuyItem[]; rowProps: RowProps }) {
-  const groups = groupBuyByFront(
-    items,
-    rowProps.fronts.map((f) => f.id),
-  );
-  return (
-    <>
-      {groups.map((g) => (
-        <div className={styles.catGroup} key={g.front}>
-          <div className={styles.frontHeader}>
-            {frontLabel(rowProps.fronts, g.front) || g.front}{' '}
-            <span className={styles.count}>({g.items.length})</span>
-          </div>
-          {g.items.map((item) => (
-            <BuyRow key={`${g.front}:${item.name}`} item={item} {...rowProps} />
-          ))}
-        </div>
-      ))}
-    </>
-  );
-}
-
-/** Separately-collapsible kind block — open state sticks per kind. */
-function KindSection({
+/** Separately-collapsible group block — open state sticks per group. */
+function GroupSection({
   storageKey,
   label,
   color,
@@ -217,167 +181,101 @@ export function BuyListSection({
   items,
   open,
   onOpenItem,
-  onSetKind,
   onMarkBought,
   onDelete,
-  onAdd,
 }: BuyListSectionProps) {
-  const { data: frontsData } = useFronts();
-  const fronts = frontsData || [];
-
-  const [name, setName] = useState('');
-  const [kind, setKind] = useState('consumable');
-  const [priority, setPriority] = useState('medium');
-  const [category, setCategory] = useState('');
-  const [where, setWhere] = useState('');
-  const [notes, setNotes] = useState('');
-  const [selectedFronts, setSelectedFronts] = useState<string[]>([]);
-  const [adding, setAdding] = useState(false);
-
-  const knownCats = knownBuyCategories(items);
-  const unsorted = unsortedBuyItems(items);
-  const rowProps: RowProps = { fronts, onOpenItem, onSetKind, onMarkBought, onDelete };
-
-  async function submit(e?: FormEvent) {
-    e?.preventDefault();
-    const trimmed = name.trim();
-    if (!trimmed || adding) return;
-    setAdding(true);
+  const [store, setStore] = useState<string | null>(null);
+  const [grouping, setGrouping] = useState<Grouping>(() => {
     try {
-      await onAdd({
-        name: trimmed,
-        priority,
-        kind,
-        where: where.trim(),
-        category: category.trim(),
-        notes: notes.trim(),
-        fronts: selectedFronts,
-      });
-      // Same reset as the old form: kind/priority/front selections stick around.
-      setName('');
-      setWhere('');
-      setCategory('');
-      setNotes('');
+      return localStorage.getItem(GROUPING_KEY) === 'category' ? 'category' : 'priority';
     } catch {
-      // error toast already pushed upstream; keep the inputs (old behavior)
-    } finally {
-      setAdding(false);
+      return 'priority';
+    }
+  });
+
+  function chooseGrouping(next: Grouping) {
+    setGrouping(next);
+    try {
+      localStorage.setItem(GROUPING_KEY, next);
+    } catch {
+      // private mode — the choice just won't stick
     }
   }
 
-  const hasAny =
-    unsorted.length > 0 || BUY_KINDS.some((k) => buyItemsOfKind(items, k.key).length > 0);
+  const stores = buyStores(items);
+  const groups = buildGroups(filterBuyByStore(items, store), grouping);
 
   return (
     <details className={styles.section} open={open}>
       <summary className={styles.summary}>Buy List{items.length ? ` (${items.length})` : ''}</summary>
       <div className={styles.sectionBody}>
-        {hasAny ? (
+        {items.length ? (
           <>
-            {BUY_KINDS.map((k) => {
-              const kindItems = buyItemsOfKind(items, k.key);
-              if (!kindItems.length) return null;
-              return (
-                <KindSection
-                  key={k.key}
-                  storageKey={`inv-buy-open:${k.key}`}
-                  label={k.label}
-                  color={k.color}
-                  count={kindItems.length}
+            {stores.length ? (
+              <div className={styles.storeFilter} role="group" aria-label="Filter by store">
+                <button
+                  type="button"
+                  className={`${styles.storeChip} ${store === null ? styles.storeChipActive : ''}`}
+                  onClick={() => setStore(null)}
                 >
-                  <FrontGroups items={kindItems} rowProps={rowProps} />
-                </KindSection>
-              );
-            })}
-            {unsorted.length ? (
-              <KindSection
-                storageKey="inv-buy-open:unsorted"
-                label="Unsorted"
-                color="var(--text-muted)"
-                count={unsorted.length}
-              >
-                <div className={styles.unsortedHint}>
-                  Tap C / D / S to file as Consumable, Durable or Service
-                </div>
-                <FrontGroups items={unsorted} rowProps={rowProps} />
-              </KindSection>
+                  All <span className={styles.count}>({items.length})</span>
+                </button>
+                {stores.map((s) => (
+                  <button
+                    type="button"
+                    key={s.label}
+                    className={`${styles.storeChip} ${store === s.label ? styles.storeChipActive : ''}`}
+                    onClick={() => setStore((cur) => (cur === s.label ? null : s.label))}
+                  >
+                    {s.label} <span className={styles.count}>({s.count})</span>
+                  </button>
+                ))}
+              </div>
             ) : null}
+
+            {/* Quiet by design: the store chips are the loud control, so this
+                one says which axis is active with color alone. */}
+            <div className={styles.groupToggle} role="group" aria-label="Group by">
+              {(['priority', 'category'] as Grouping[]).map((g) => (
+                <button
+                  type="button"
+                  key={g}
+                  className={`${styles.groupBtn} ${grouping === g ? styles.groupBtnActive : ''}`}
+                  aria-pressed={grouping === g}
+                  onClick={() => chooseGrouping(g)}
+                >
+                  by {g}
+                </button>
+              ))}
+            </div>
+
+            {groups.length ? (
+              groups.map((g) => (
+                <GroupSection
+                  key={g.key}
+                  storageKey={`inv-buy-open:${grouping}:${g.key}`}
+                  label={g.label}
+                  color={g.color}
+                  count={g.items.length}
+                >
+                  {g.items.map((item) => (
+                    <BuyRow
+                      key={item.name}
+                      item={item}
+                      onOpenItem={onOpenItem}
+                      onMarkBought={onMarkBought}
+                      onDelete={onDelete}
+                    />
+                  ))}
+                </GroupSection>
+              ))
+            ) : (
+              <div className={styles.emptyList}>Nothing here{store ? ` at ${store}` : ''}</div>
+            )}
           </>
         ) : (
           <div className={styles.emptyList}>Nothing on the list</div>
         )}
-
-        <form className={styles.addForm} onSubmit={submit}>
-          <datalist id="inv-buy-categories">
-            {knownCats.map((c) => (
-              <option value={c} key={c} />
-            ))}
-          </datalist>
-          <div className={styles.formRow}>
-            <input
-              type="text"
-              className={`${styles.input} ${styles.grow2}`}
-              placeholder="Item name..."
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-            <select
-              className={styles.select}
-              value={kind}
-              onChange={(e) => setKind(e.target.value)}
-              aria-label="Kind"
-            >
-              <option value="consumable">Consumable</option>
-              <option value="durable">Durable</option>
-              <option value="service">Service</option>
-            </select>
-            <select
-              className={styles.select}
-              value={priority}
-              onChange={(e) => setPriority(e.target.value)}
-              aria-label="Priority"
-            >
-              <option value="high">High</option>
-              <option value="medium">Medium</option>
-              <option value="low">Low</option>
-            </select>
-          </div>
-          <div className={styles.formRow}>
-            <FrontChips
-              selected={selectedFronts}
-              onToggle={(f) => setSelectedFronts((s) => toggleFront(s, f))}
-            />
-          </div>
-          <div className={styles.formRow}>
-            <input
-              type="text"
-              className={`${styles.input} ${styles.grow}`}
-              list="inv-buy-categories"
-              placeholder="Category (e.g. supplements)"
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-            />
-            <input
-              type="text"
-              className={`${styles.input} ${styles.grow}`}
-              placeholder="Where (optional)"
-              value={where}
-              onChange={(e) => setWhere(e.target.value)}
-            />
-          </div>
-          <div className={styles.formRow}>
-            <input
-              type="text"
-              className={`${styles.input} ${styles.grow}`}
-              placeholder="Notes (optional)"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-            />
-            <button type="submit" className={styles.primaryBtn} disabled={adding}>
-              Add
-            </button>
-          </div>
-        </form>
       </div>
     </details>
   );
