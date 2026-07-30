@@ -57,6 +57,29 @@ _ALLOW = [
         r"^npx (vitest|tsc|oxlint|eslint|prettier)\b",
         r"^\S*python3? -m (pytest|py_compile)\b",
         r"^\S*python3? \S*scripts/request_input\.py\b",
+        # The journal engine's REVERSIBLE verbs (tools/stream/stream.py, usually
+        # reached through a vault shim at another path — hence the loose prefix,
+        # anchored at a path boundary so `mystream.py` doesn't sneak in).
+        # `record` appends a card, `render` rebuilds a view that is disposable by
+        # design (the card pool is the only truth), `validate` and `--help` only
+        # read. `edit`/`delete` stay denied — they overwrite or drop the one copy
+        # of an utterance — and so do `tag`/`untag`, which belong to the vault's
+        # housekeeping pass, not to a journaling session.
+        # Without this the nightly rollover's /journalstart and /endsession turns
+        # (scripts/keeper_rollover.py, gated because they build their config from
+        # the legacy bot lookup instead of the conversation's own) could not mint
+        # the day's context card, re-render a day, or validate the pool at close
+        # — and being unattended, they can't even raise an approval card.
+        # CALLING SHAPE MATTERS: `record` takes its body on STDIN, and
+        # _UNSAFE_META below bans `<`, `>` and real newlines — so a heredoc or an
+        # inline multi-line body still asks. Pipe it instead
+        # (`cat body.md | python3 .../stream.py record --who K`), and read output
+        # from a plain `... validate`, never `... validate 2>&1 | tail`.
+        # Prompt: "fix the stream — the act-vs-ask gate rejects every invocation
+        # of the journal engine from a journaling session, so it can't mint its
+        # context card, re-render a day, or validate the pool at close. Allow the
+        # reversible verbs; keep the destructive ones asking."
+        r"^\S*python3? (?:\S*/)?stream\.py (record|render|validate|--help)\b",
     )
 ]
 

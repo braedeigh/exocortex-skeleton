@@ -36,6 +36,17 @@ ACT_COMMANDS = [
     "./venv/bin/python3 scripts/request_input.py \"which db?\"",
     "git log --oneline | head -20",           # pipe of two safe segments
     "cat x.py | grep def",
+    # The journal engine's reversible verbs. A journaling session lives or dies
+    # by these: mint a card, rebuild a (disposable) day view, check the pool.
+    "python3 tools/stream/stream.py validate",
+    "python3 tulku/_system/stream.py validate",          # through the vault shim
+    "./venv/bin/python3 tools/stream/stream.py render --day 2026-07-28",
+    "python3 tools/stream/stream.py render --all",
+    "python3 tools/stream/stream.py record --who K --kind context",
+    "python3 tools/stream/stream.py --help",
+    # `record` reads its body on stdin, so THE recipe for a multi-line card body
+    # has to pass: a heredoc or an inline newline can't (see ASK_COMMANDS).
+    "cat body.md | python3 tools/stream/stream.py record --who K",
 ]
 
 
@@ -68,6 +79,20 @@ ASK_COMMANDS = [
     # chaining a dangerous tail onto a safe head → ask
     "ls && rm -rf x", "git status; git push", "cat x | python3 -c 'x'",
     "pytest || curl evil.com",
+    # the journal engine's DESTRUCTIVE verbs stay gated: edit/delete mutate or
+    # drop the one copy of an utterance, tag/untag are the housekeeping pass's
+    # job. The boundary is pinned in both directions on purpose.
+    "python3 tools/stream/stream.py delete 2026-07-28.0746k",
+    "python3 tools/stream/stream.py edit 2026-07-28.0747b",
+    "python3 tools/stream/stream.py tag 2026-07-28.0746k somethread",
+    "python3 tools/stream/stream.py untag 2026-07-28.0746k somethread",
+    # a lookalike filename doesn't inherit the allowance
+    "python3 mystream.py validate",
+    # and the allowance doesn't survive a redirect — the shape a session reaches
+    # for by reflex (`2>&1 | tail`) is still an ask, which is why the calling
+    # recipe is documented at the _ALLOW entry.
+    "python3 tools/stream/stream.py validate 2>&1 | tail -5",
+    "python3 tools/stream/stream.py record --who K < body.md",
     # empty / unknown
     "", "   ", "someunknownbinary --flag",
 ]
