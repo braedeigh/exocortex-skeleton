@@ -443,19 +443,22 @@
   color: var(--text-muted);
 }
 
-/* Expanded, the list is capped and scrolls rather than pushing the rest of the
-   lane off the screen — a 60-file session must not cost her the cards below
-   it. Roughly nine rows before it starts scrolling. */
+/* The list only renders while the drawer is open, and it's capped and scrolls
+   rather than pushing the rest of the lane off the screen — a 60-file session
+   must not cost her the cards below it. Roughly nine rows before it scrolls. */
 .filesOpen {
   max-height: 46vh;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
 
-/* The expander. Was dead text ("+8 more") — now a real target, because the
-   thing she asked for is to SEE them all. Full-width and quiet: it's a
-   disclosure, not an action. */
-.showAllBtn {
+/* The drawer handle — "5 files edited". This is what a resting card shows in
+   place of the file list itself. Full-width and quiet: it's a disclosure, not
+   an action. */
+.filesToggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   width: 100%;
   min-height: var(--tap-target);
   margin-top: var(--space-1);
@@ -471,7 +474,22 @@
   cursor: pointer;
 }
 
-.showAllBtn:hover {
+/* Same chevron idiom as the collapsible cards elsewhere (body/CollapsibleCard):
+   a small triangle that rotates a quarter turn and takes the accent when open,
+   so "there is more behind this" reads the same way everywhere in the app. */
+.filesArrow {
+  flex: none;
+  display: inline-block;
+  font-size: var(--font-size-sm);
+  transition: transform 0.15s, color 0.15s;
+}
+
+.filesArrowOpen {
+  color: var(--accent);
+  transform: rotate(90deg);
+}
+
+.filesToggle:hover {
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 8%, transparent);
 }

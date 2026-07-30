@@ -40,11 +40,6 @@ import styles from './Orchestra.module.css';
  * two lanes must not mean two pollers hitting the same endpoint.
  */
 
-/** Files listed before the expander takes over. Six is about what fits on a
- * phone without the card swallowing the lane below it — and each row is a 40px
- * tap target now (they open the file), so six is taller than it used to be. */
-const FILES_SHOWN = 6;
-
 /** The card's housekeeping line: "4m ago · 18.2k tokens · $4.21". Built from
  * whichever halves exist, so a fresh session shows nothing rather than a row
  * of blanks and separators. Recomputed per render, which is what keeps the
@@ -169,37 +164,53 @@ export function SessionLane({
   const needing = approvals.length + waiting.length;
   const running = rest.filter((r) => r.running).length;
 
+  // The edited files are a drawer, shut by default: a card standing at rest
+  // says HOW MANY files it touched, not which. Six of them used to sit open on
+  // every card, so a lane of working sessions was mostly file paths and she had
+  // to scroll past them to reach the next card. Now the count is the whole
+  // resting state and the list is one tap away.
+  //
+  // Opening shows all of them rather than the old first-six-then-more: the
+  // drawer already does the job the cap was doing (keeping a resting card
+  // short), and an open list is height-capped and scrolls (.filesOpen), so even
+  // a sixty-file session can't push the lane off the screen.
+  // [prompt: "files that have been edited auto collapsed rather than showing
+  // all the time, with the option to open it up"]
   const renderFiles = (row: OrchestraRow) => {
     if (row.files.length === 0) return null;
     const open = expanded[row.id] === true;
-    const shown = open ? row.files : row.files.slice(0, FILES_SHOWN);
-    const hidden = row.files.length - shown.length;
     return (
       <>
-        <ul className={[styles.files, open ? styles.filesOpen : ''].filter(Boolean).join(' ')}>
-          {shown.map((f) => (
-            <li key={`${f.repo}:${f.path}`}>
-              <button
-                type="button"
-                className={styles.file}
-                title={`Read ${f.repo}/${f.path}`}
-                onClick={() => openFile(f.repo, f.path)}
-              >
-                <span className={styles.filePath}>{f.path}</span>
-                {f.creates > 0 ? <span className={styles.newBadge}>new</span> : null}
-              </button>
-            </li>
-          ))}
-        </ul>
-        {hidden > 0 || open ? (
-          <button
-            type="button"
-            className={styles.showAllBtn}
-            aria-expanded={open}
-            onClick={() => setExpanded((e) => ({ ...e, [row.id]: !open }))}
+        <button
+          type="button"
+          className={styles.filesToggle}
+          aria-expanded={open}
+          onClick={() => setExpanded((e) => ({ ...e, [row.id]: !open }))}
+        >
+          <span
+            className={[styles.filesArrow, open ? styles.filesArrowOpen : ''].filter(Boolean).join(' ')}
+            aria-hidden="true"
           >
-            {open ? 'Show fewer' : `Show all ${row.files.length} files`}
-          </button>
+            &#9654;
+          </span>
+          {row.files.length === 1 ? '1 file edited' : `${row.files.length} files edited`}
+        </button>
+        {open ? (
+          <ul className={[styles.files, styles.filesOpen].join(' ')}>
+            {row.files.map((f) => (
+              <li key={`${f.repo}:${f.path}`}>
+                <button
+                  type="button"
+                  className={styles.file}
+                  title={`Read ${f.repo}/${f.path}`}
+                  onClick={() => openFile(f.repo, f.path)}
+                >
+                  <span className={styles.filePath}>{f.path}</span>
+                  {f.creates > 0 ? <span className={styles.newBadge}>new</span> : null}
+                </button>
+              </li>
+            ))}
+          </ul>
         ) : null}
       </>
     );
