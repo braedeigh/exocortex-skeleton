@@ -23,6 +23,18 @@
  * name + age; on the real map that read as arbitrary rather than informative,
  * because heat moves and so did which eight got named. A name now appears
  * because a gesture asked for it.
+ *
+ * Two gestures ask, and they ask for different amounts. HOVER (mouse only) is
+ * a preview: put the cursor on an orb and every OTHER agent's dotted tethers
+ * and file rings fall away, so the one under the cursor is the only agent
+ * still speaking — the terrain underneath (heat, dots, hubs, tree edges) is
+ * left exactly as it was. TAP is the commitment: the whole map dims to that
+ * agent's footprint and its files caption themselves. Hover stands down while
+ * a tap-spotlight is up, so the two never argue over the same pixels.
+ *
+ * Prompt that produced the hover layer: "if you hover over an agent on
+ * terrain, the other rings and lines become grayed out from the other agents
+ * to focus on what is showing there."
  */
 import {
   forceCollide,
@@ -349,6 +361,22 @@ export class TerrainCanvas {
   /** Whether any orb currently ON the map is pinging — the other half, with
    * hasRunning, of "is there anything worth animating". */
   private hasPinging = false;
+  /**
+   * The agent under the cursor, if any — a conversation id, mouse-only. Purely
+   * a lighting change: it never moves the camera, never touches the sim, and
+   * costs one repaint when it changes. Touch pointers are ignored outright so
+   * a tap can't leave a phone stuck in a hover it has no way to leave.
+   */
+  private hoverAgent: string | null = null;
+  /**
+   * The hovered agent's OWN read/write rings, cached until the hover or the
+   * graph moves. Kept separate from agentRings because the two answer
+   * different questions: agentRings says "the strongest thing any shown agent
+   * did to this file", which is right for the resting map but wrong the moment
+   * she asks about one agent — hovering should say what THIS one did to it,
+   * even if a louder agent also wrote it.
+   */
+  private hoverRings: Map<string, FileTouchKind> = new Map();
 
   onTap: ((node: TerrainNode | null) => void) | null = null;
 
@@ -375,6 +403,8 @@ export class TerrainCanvas {
     if (!this.ambient) {
       select(this.canvas).call(this.zoomBehavior);
       this.canvas.addEventListener('click', this.handleClick);
+      this.canvas.addEventListener('pointermove', this.handlePointerMove);
+      this.canvas.addEventListener('pointerleave', this.handlePointerLeave);
     }
 
     document.addEventListener('visibilitychange', this.handleVisibility);
@@ -390,6 +420,8 @@ export class TerrainCanvas {
       this.flashTimer = null;
     }
     this.canvas.removeEventListener('click', this.handleClick);
+    this.canvas.removeEventListener('pointermove', this.handlePointerMove);
+    this.canvas.removeEventListener('pointerleave', this.handlePointerLeave);
     document.removeEventListener('visibilitychange', this.handleVisibility);
     select(this.canvas).on('.zoom', null);
   }
@@ -736,7 +768,10 @@ export class TerrainCanvas {
     this.refreshPinging(); // also calls updatePulseLoop
     // Node data was just rebuilt/updated — the focused session's writes/reads
     // may have moved (a live refetch, a lens breath), so re-derive its rings.
+    // Same for whatever the cursor is resting on: a live poll landing mid-hover
+    // must not freeze that agent's ring set at the shape it had a moment ago.
     this.recomputeFocusRings();
+    this.recomputeHoverRings();
   }
 
   /** Center the whole graph in view (called once after first data lands). */
@@ -764,15 +799,17 @@ export class TerrainCanvas {
     }, 600);
   }
 
-  private handleClick = (ev: MouseEvent): void => {
+  /** Nearest node within its hit radius of a client-space point, or null.
+   * `sessionsOnly` narrows it to orbs: hover is aiming AT an agent, and on a
+   * dense field a file half a pixel closer shouldn't steal the shot. */
+  private nodeAt(ev: { clientX: number; clientY: number }, sessionsOnly = false): SimNode | null {
     const rect = this.canvas.getBoundingClientRect();
-    const sx = ev.clientX - rect.left;
-    const sy = ev.clientY - rect.top;
-    const [wx, wy] = this.transform.invert([sx, sy]);
+    const [wx, wy] = this.transform.invert([ev.clientX - rect.left, ev.clientY - rect.top]);
     const k = this.transform.k;
     let best: SimNode | null = null;
     let bestDist = Infinity;
     for (const n of this.simNodes) {
+      if (sessionsOnly && n.node.kind !== 'session') continue;
       const dx = (n.x ?? 0) - wx;
       const dy = (n.y ?? 0) - wy;
       const dist = Math.hypot(dx, dy);
@@ -784,8 +821,53 @@ export class TerrainCanvas {
         bestDist = dist;
       }
     }
-    this.onTap?.(best?.node ?? null);
+    return best;
+  }
+
+  private handleClick = (ev: MouseEvent): void => {
+    this.onTap?.(this.nodeAt(ev)?.node ?? null);
   };
+
+  /**
+   * Hover: which agent is under the cursor. Mouse-only — a touch pointer fires
+   * this too, and honouring it would leave a phone lit up for an agent she
+   * merely tapped past, with no "move the cursor away" available to undo it.
+   * Nothing here wakes the sim; a changed hover costs exactly one repaint.
+   */
+  private handlePointerMove = (ev: PointerEvent): void => {
+    if (ev.pointerType !== 'mouse') return;
+    const hit = this.nodeAt(ev, true);
+    // The cursor still turns into a pointer over any tappable node — files
+    // open their sheet as well — even though only orbs drive the hover dim.
+    this.canvas.style.cursor = hit || this.nodeAt(ev)?.node.kind === 'file' ? 'pointer' : '';
+    this.setHoverAgent(hit?.node.session?.id ?? null);
+  };
+
+  private handlePointerLeave = (ev: PointerEvent): void => {
+    if (ev.pointerType !== 'mouse') return;
+    this.canvas.style.cursor = '';
+    this.setHoverAgent(null);
+  };
+
+  private setHoverAgent(id: string | null): void {
+    if (this.hoverAgent === id) return;
+    this.hoverAgent = id;
+    this.recomputeHoverRings();
+    this.requestDraw();
+  }
+
+  private recomputeHoverRings(): void {
+    this.hoverRings = this.hoverAgent
+      ? sessionTouchRings(this.simNodes.map((sn) => sn.node), this.hoverAgent)
+      : new Map();
+  }
+
+  /** The hover that's actually in effect. A committed tap-spotlight outranks
+   * it: that gesture has already dimmed the map to one agent, and a second
+   * dimming rule layered over it would only fight the first. */
+  private activeHover(): string | null {
+    return this.footprint === null ? this.hoverAgent : null;
+  }
 
   private requestDraw(): void {
     if (this.drawQueued || this.destroyed) return;
@@ -804,6 +886,10 @@ export class TerrainCanvas {
     const dpr = window.devicePixelRatio || 1;
     const ramp = theme.dark ? HEAT_RAMP_DARK : HEAT_RAMP_LIGHT;
     const dimmed = this.footprint !== null;
+    // The agent under the cursor, if the tap-spotlight isn't already speaking.
+    // Everything it changes is an ALPHA: the other agents' tethers and rings
+    // recede, nothing about the terrain itself moves or re-colours.
+    const hover = this.activeHover();
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, this.width, this.height);
@@ -828,7 +914,16 @@ export class TerrainCanvas {
         // nothing against a busy field. The accent colour itself is untouched
         // (her call: "i like the purple they are now, but the dotted lines
         // could be slightly stronger") — only presence changed, not hue.
-        ctx.globalAlpha = inPrint ? 0.45 : 0.13;
+        //
+        // Under a hover, the tethers sort into two: the hovered agent's own
+        // threads brighten a step, and every other agent's drop most of the
+        // way out. Which end of the link is the orb isn't assumed — the graph
+        // builds session edges orb→file, but reading it off the node kind
+        // means a flipped edge dims the right agent rather than nobody.
+        const orbEnd = s.node.kind === 'session' ? s : t.node.kind === 'session' ? t : null;
+        const sid = orbEnd?.node.session?.id;
+        ctx.globalAlpha =
+          hover !== null ? (sid === hover ? 0.62 : 0.06) : inPrint ? 0.45 : 0.13;
         ctx.strokeStyle = this.orbStroke;
         ctx.lineWidth = 1.3 / transform.k;
         ctx.setLineDash([4 / transform.k, 5 / transform.k]);
@@ -875,7 +970,22 @@ export class TerrainCanvas {
         // (/terrain) orbs keep the objective in/out-of-print alpha.
         const isFocusOrb =
           this.focusConv !== null && n.id === `${SESSION_NODE_PREFIX}${this.focusConv}`;
-        const orbAlpha = this.focusConv === null ? (inPrint ? 1 : 0.22) : isFocusOrb ? 1 : 0.38;
+        // Hover does the same thing one rung softer than focus does: the orb
+        // under the cursor burns full, its neighbours recede far enough to
+        // read as context but not so far as to vanish — she's pointing at one
+        // agent, not asking the others to leave the map.
+        const orbAlpha =
+          this.focusConv !== null
+            ? isFocusOrb
+              ? 1
+              : 0.38
+            : hover !== null
+              ? sessionId === hover
+                ? 1
+                : 0.26
+              : inPrint
+                ? 1
+                : 0.22;
 
         // Sonar. Two of them, same ring, different things to say — and, more
         // to the point, different clocks:
@@ -908,7 +1018,7 @@ export class TerrainCanvas {
 
         ctx.globalAlpha = orbAlpha;
         ctx.strokeStyle = this.orbStroke;
-        ctx.lineWidth = (isFocusOrb ? 3.25 : 2.5) / transform.k;
+        ctx.lineWidth = (isFocusOrb || sessionId === hover ? 3.25 : 2.5) / transform.k;
         ctx.beginPath();
         ctx.arc(n.x ?? 0, n.y ?? 0, r, 0, Math.PI * 2);
         ctx.stroke();
@@ -950,8 +1060,19 @@ export class TerrainCanvas {
       // agent's purple (her 07-27 call: created-ness is the green DOT above,
       // so the ring only ever says "an agent on this map touched it").
       // Always full-alpha — it's the whole point of drawing the agents.
-      const ring =
+      let ring =
         n.node.kind === 'file' ? (this.focusRings.get(n.id) ?? this.agentRings.get(n.id)) : undefined;
+      // Under a hover the rings answer a narrower question. A file the hovered
+      // agent touched wears ITS relationship — purple where this agent wrote,
+      // white where it only read, even if a louder agent also wrote the file
+      // and was winning the ring a moment ago. Every other ring on the map
+      // fades to a trace: still there, no longer competing.
+      let ringAlpha = 1;
+      if (hover !== null && n.node.kind === 'file') {
+        const own = this.hoverRings.get(n.id);
+        if (own) ring = own;
+        else if (ring) ringAlpha = 0.1;
+      }
       // Footprint ring — the spotlit session's files, in plain ink. Skipped
       // wherever a touch ring is about to land: that ring says everything
       // this one does and more (purple = written, white = read), so drawing
@@ -964,7 +1085,7 @@ export class TerrainCanvas {
         ctx.stroke();
       }
       if (ring) {
-        ctx.globalAlpha = 1;
+        ctx.globalAlpha = ringAlpha;
         ctx.strokeStyle = ring === 'read' ? READ_RING : this.orbStroke;
         ctx.lineWidth = 2.4 / transform.k;
         ctx.beginPath();
@@ -1014,7 +1135,11 @@ export class TerrainCanvas {
       // labeled in full is a wall of text. (Files are the opposite: named only
       // on demand, see namedFiles above.) A spotlight still quiets the rest,
       // via the in-footprint test on the next line.
-      if (n.node.kind === 'session' && this.labeledAgents !== null) {
+      // The one exception is the orb under the cursor: pointing at an agent is
+      // itself the question "who is this", so it says its name even when it's
+      // outside the labeled set (an older agent under the Open pool, say).
+      const hovered = n.node.kind === 'session' && n.node.session?.id === hover;
+      if (n.node.kind === 'session' && this.labeledAgents !== null && !hovered) {
         const sid = n.node.session?.id;
         if (sid === undefined || !this.labeledAgents.has(sid)) continue;
       }
@@ -1023,6 +1148,10 @@ export class TerrainCanvas {
       const sx = (n.x ?? 0) * k + transform.x;
       const sy = (n.y ?? 0) * k + transform.y;
       if (sx < -80 || sx > this.width + 80 || sy < -40 || sy > this.height + 40) continue;
+      // Names follow their orbs into the background: with a hover up, the
+      // other agents' titles recede alongside their rings rather than sitting
+      // there at full weight over a map that's stopped talking about them.
+      ctx.globalAlpha = hover !== null && n.node.kind === 'session' && !hovered ? 0.3 : 1;
       if (n.node.kind === 'repo') {
         ctx.font = `700 ${LABEL_PX + 2}px ${this.fontFamily}`;
         ctx.fillStyle = theme.text;
