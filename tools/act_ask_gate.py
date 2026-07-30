@@ -50,7 +50,17 @@ _ALLOW = [
         r"^(ls|pwd|cd|pushd|popd|cat|head|tail|wc|echo|printf|grep|rg|egrep|fgrep"
         r"|find|tree|file|stat|sort|uniq|cut|column|jq|diff|cmp|basename|dirname"
         r"|realpath|readlink|date|whoami|env|true|:|test|nl|tac)\b",
-        r"^git (status|diff|log|show|branch|remote|ls-files|rev-parse|blame"
+        # Git reads. The optional prefix is for git's GLOBAL flags, which sit
+        # between `git` and the verb — `git -C /repo log` is the ordinary way to
+        # read a repo you aren't standing in, and without this it matched
+        # nothing and got denied as an unknown command.
+        # `-c <key>=<value>` is deliberately NOT allowed: it can set core.pager
+        # or core.sshCommand, which git then EXECUTES, so `git -c
+        # core.pager='sh -c ...' log` would run arbitrary code through a
+        # read-shaped command. The four below only choose which repo is read.
+        # Prompt: "git -C <path> log is blocked by the gate — fix it."
+        r"^git (?:(?:-C \S+|--no-pager|--git-dir=\S+|--work-tree=\S+) )*"
+        r"(status|diff|log|show|branch|remote|ls-files|rev-parse|blame"
         r"|describe|config|add|stash list|show-ref|cat-file)\b",
         r"^(pytest|tox)\b",
         r"^npm (test|ci|ls|list|run (build|lint|typecheck|test))\b",
