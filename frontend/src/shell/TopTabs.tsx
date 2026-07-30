@@ -66,6 +66,10 @@ const ALWAYS_MORE_TABS: ReadonlyArray<{ tab: LegacyTab; label: string }> = [
 // Terrain sits next to the observatory on purpose: it's the map *of* those
 // sessions (which files they've been working), so the two read as a pair.
 const MORE_PAGES: ReadonlyArray<{ key: string; label: string; to: string }> = [
+  // Fronts leads the list: it's the only page here about her life rather than
+  // about the system, and it's a way IN to the other surfaces (each front
+  // hands off to the to-dos filtered to it) rather than a destination.
+  { key: 'fronts', label: 'Fronts', to: '/fronts' },
   { key: 'observatory', label: 'Observatory', to: '/observatory' },
   { key: 'terrain', label: 'Terrain', to: '/terrain' },
   { key: 'atlas', label: 'Atlas', to: '/atlas' },

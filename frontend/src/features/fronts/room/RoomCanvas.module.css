@@ -1,0 +1,118 @@
+/* RoomCanvas.module.css — panels as furniture.
+ *
+ * Same card language as the rest of the app (hairline border, soft shadow) so
+ * a room reads as this app's rooms and not as a window manager bolted on. The
+ * chrome stays quiet: a panel is a container for her content, and the content
+ * is what should be looked at.
+ */
+
+.canvas {
+  position: relative;
+  width: 100%;
+}
+
+/* Under CANVAS_MIN_WIDTH the geometry is dropped for a plain column. */
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--card-bg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.stack .panel {
+  max-height: 60vh;
+}
+
+.panelHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  min-height: var(--tap-target);
+  border-bottom: 1px solid var(--border-soft);
+  flex: none;
+}
+
+/* Only draggable on the canvas — in the stacked view the header is just a
+ * header, so there's no grab cursor promising an interaction that isn't there. */
+.panelHead[data-draggable='true'] {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.panelHead[data-draggable='true']:active {
+  cursor: grabbing;
+}
+
+.panelTitle {
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panelBadge {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+  flex: none;
+}
+
+.panelBody {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-3);
+  -webkit-overflow-scrolling: touch;
+}
+
+/* The resize grip. Visible enough to find (the × buttons lesson), but it's
+ * chrome, so it stays in the muted tier until the panel is hovered. */
+.resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 22px;
+  height: 22px;
+  cursor: nwse-resize;
+  touch-action: none;
+  background:
+    linear-gradient(
+      135deg,
+      transparent 0 46%,
+      var(--text-muted) 46% 54%,
+      transparent 54% 100%
+    );
+  opacity: 0.5;
+  transition: opacity 150ms ease-out;
+}
+
+@media (hover: hover) {
+  .panel:hover .resize {
+    opacity: 0.9;
+  }
+}
+
+.empty {
+  color: var(--text-muted);
+  font-size: var(--font-size-md);
+  padding: var(--space-4) 0;
+  text-align: center;
+}

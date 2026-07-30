@@ -1,0 +1,100 @@
+/* panels.module.css — the content inside a room's furniture.
+ *
+ * Panels sit inside a window with its own header and border, so the content
+ * carries no card of its own: nesting a card in a card is the fastest way to
+ * make a room look like a filing cabinet. Rows are flat, the rung headings do
+ * the structuring.
+ */
+
+.groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.rung {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 0 0 var(--space-2);
+}
+
+.rungCount {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Rows are read-only here, so they don't need a 40px target — but they keep a
+ * comfortable line height so a dense panel is still scannable. */
+.row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border-soft);
+  font-size: var(--font-size-base);
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.row:last-child {
+  border-bottom: none;
+}
+
+.rowText {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The one place a panel raises its voice — overdue, running low, high
+ * priority. Warm rather than alarming; a room shouldn't shout. */
+.due {
+  flex: none;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--orange);
+  white-space: nowrap;
+}
+
+.meta {
+  flex: none;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.empty {
+  margin: 0;
+  padding: var(--space-4) 0;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--font-size-md);
+}
+
+.link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-target);
+  color: var(--accent);
+  text-decoration: none;
+  font-size: var(--font-size-md);
+  font-weight: 500;
+}
+
+.link:hover {
+  text-decoration: underline;
+}

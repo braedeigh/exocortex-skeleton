@@ -73,6 +73,13 @@ export interface SessionMeta {
   pinned?: boolean;
   /** Cached Haiku one-liner of what the session is working on. */
   summary?: string;
+  /** Her last real ask, one line, stamped at send time. Shown on the card only
+   * while the session is RUNNING or UNREAD — the window where `summary` is
+   * still describing the previous thing, since it refreshes in the background
+   * at most once a minute. Never set from an off-the-record send or a
+   * journaling session (see routes/observatory.py), so the card can show it
+   * without re-deciding what's private. */
+  last_prompt?: string;
   /** A turn is running server-side right now — turns outlive their HTTP
    * connection, so a re-attaching client polls this to know whether to
    * keep waiting. */
@@ -97,6 +104,12 @@ export interface SessionMeta {
    * default would save back as a deliberate pin. Same raw-beside-resolved split
    * as act_gate / act_gate_set. */
   model_effective?: string;
+  /** The claude session `--resume` reattaches to. Written on FIRST sight of any
+   * event in a turn, so an interrupted turn stays resumable — but a turn that
+   * died before claude said anything at all (bad spawn, the memory floor) never
+   * got one. Its absence is what tells the red card's button to say "Try again"
+   * instead of "Resume": there'd be no history to resume INTO. */
+  claude_session_id?: string | null;
   /** The last turn ENDED in failure (claude exited non-zero, or the spawn never
    * happened) — the message, capped at the stderr tail the server keeps. Set in
    * _run_turn's finally, cleared by a clean turn or her next send, so it means

@@ -99,6 +99,11 @@ def _sse_events(resp):
     return out
 
 
+def _conv_from_roster(client, conv_id):
+    convs = client.get("/api/observatory").get_json()["bots"][0]["conversations"]
+    return next(c for c in convs if c["id"] == conv_id)
+
+
 def _conv_log(conv_id):
     path = store.DATA_DIR / "bot_chats" / f"{conv_id}.jsonl"
     return [json.loads(l) for l in path.read_text().splitlines()]
@@ -372,6 +377,119 @@ def test_roster_clears_a_running_flag_orphaned_by_a_dead_worker(bot_client):
     convs = bot_client.get("/api/observatory").get_json()["bots"][0]["conversations"]
     conv = next(c for c in convs if c["id"] == conv_id)
     assert conv["running"] is True
+
+
+# --- last_prompt: her ask, on the card, while it works ----------------------
+# Stamped at send time (no jsonl re-read per roster poll). Two gates are
+# privacy, not polish, and both live server-side so the card never re-decides.
+
+def test_a_real_ask_lands_on_the_card(bot_client):
+    conv_id = bot_client.post("/api/observatory/keeper/conversations",
+                              json={"title": "work"}).get_json()["id"]
+    _sse_events(_send(bot_client, text="collapse the file list on session cards",
+                      conversation_id=conv_id))
+    conv = _conv_from_roster(bot_client, conv_id)
+    assert conv["last_prompt"] == "collapse the file list on session cards"
+
+
+def test_an_off_record_send_never_lands_on_the_card(bot_client):
+    # The whole point of off-the-record is that the turn leaves no trace.
+    conv_id = bot_client.post("/api/observatory/keeper/conversations",
+                              json={"title": "work"}).get_json()["id"]
+    _sse_events(_send(bot_client, text="something i want no trace of at all",
+                      record=False, conversation_id=conv_id))
+    assert "last_prompt" not in _conv_from_roster(bot_client, conv_id)
+
+
+def test_a_journaling_session_never_puts_its_prompts_on_the_card(bot_client):
+    # A journaling session's prompts ARE the diary, and the pinned Keeper
+    # session sits at the top of the roster.
+    conv_id = _journal_conv(bot_client)
+    _sse_events(_send(bot_client, text="a private thing about my day",
+                      conversation_id=conv_id))
+    assert "last_prompt" not in _conv_from_roster(bot_client, conv_id)
+
+
+def test_a_bare_continuation_leaves_the_previous_ask_up(bot_client):
+    conv_id = bot_client.post("/api/observatory/keeper/conversations",
+                              json={"title": "work"}).get_json()["id"]
+    _sse_events(_send(bot_client, text="rework the roster card layout",
+                      conversation_id=conv_id))
+    for filler in ("go", "keep going", "yeah do it", "/compact"):
+        _sse_events(_send(bot_client, text=filler, conversation_id=conv_id))
+        # "go" says nothing about the work; the real ask is still the truest
+        # thing the card can say.
+        assert _conv_from_roster(bot_client, conv_id)["last_prompt"] == \
+            "rework the roster card layout"
+
+
+def test_a_long_ask_is_trimmed_to_one_line(bot_client):
+    conv_id = bot_client.post("/api/observatory/keeper/conversations",
+                              json={"title": "work"}).get_json()["id"]
+    _sse_events(_send(bot_client, text="ok so\nthe real ask is on the second line " + "x" * 300,
+                      conversation_id=conv_id))
+    got = _conv_from_roster(bot_client, conv_id)["last_prompt"]
+    assert len(got) == observatory._MAX_PROMPT_CHARS
+    assert "\n" not in got
+    # Whitespace is collapsed rather than cut at the first newline, so the
+    # throat-clearing opener doesn't hide the point.
+    assert got.startswith("ok so the real ask is on the second line")
+
+
+# --- model_effective: what the card shows a session is running on -----------
+# Nearly every session pins no model and inherits the CLI's default, so a card
+# reading the raw field would answer "unset" for almost all of them. The roster
+# resolves the answer beside the raw field, never over it.
+
+def test_roster_resolves_an_unpinned_session_to_the_cli_default(bot_client, monkeypatch):
+    monkeypatch.setattr(observatory, "_cli_default_model", lambda: "opus[1m]")
+    conv_id = bot_client.post("/api/observatory/keeper/conversations",
+                              json={"title": "inherits"}).get_json()["id"]
+    conv = _conv_from_roster(bot_client, conv_id)
+    assert conv["model_effective"] == "opus[1m]"
+    assert "model" not in conv   # the raw pin is still absent — nothing was written
+
+
+def test_a_pinned_model_wins_over_the_cli_default(bot_client, monkeypatch):
+    monkeypatch.setattr(observatory, "_cli_default_model", lambda: "opus[1m]")
+    # The ✎ dialog's door, not the legacy per-bot create (which takes no model).
+    conv_id = bot_client.post("/api/observatory/conversations",
+                              json={"title": "pinned", "model": "haiku"}).get_json()["id"]
+    conv = _conv_from_roster(bot_client, conv_id)
+    assert conv["model_effective"] == "haiku"
+    assert conv["model"] == "haiku"
+
+
+def test_clearing_the_pin_falls_back_to_the_cli_default(bot_client, monkeypatch):
+    monkeypatch.setattr(observatory, "_cli_default_model", lambda: "opus[1m]")
+    conv_id = bot_client.post("/api/observatory/conversations",
+                              json={"title": "pinned", "model": "haiku"}).get_json()["id"]
+    bot_client.post(f"/api/observatory/conversation/{conv_id}/settings",
+                    json={"name": "pinned", "model": ""})
+    conv = _conv_from_roster(bot_client, conv_id)
+    assert "model" not in conv                      # the pin is gone…
+    assert conv["model_effective"] == "opus[1m]"    # …and the default shows through
+
+
+def test_no_model_anywhere_leaves_the_field_off(bot_client, monkeypatch):
+    # The card shows nothing rather than guessing or printing "unknown".
+    monkeypatch.setattr(observatory, "_cli_default_model", lambda: None)
+    conv_id = bot_client.post("/api/observatory/keeper/conversations",
+                              json={"title": "bare"}).get_json()["id"]
+    assert "model_effective" not in _conv_from_roster(bot_client, conv_id)
+
+
+def test_an_unreadable_cli_settings_file_is_not_fatal(monkeypatch, tmp_path):
+    # A decoration must never 500 the roster.
+    monkeypatch.setattr(observatory.Path, "home", staticmethod(lambda: tmp_path))
+    assert observatory._cli_default_model() is None
+    (tmp_path / ".claude").mkdir()
+    (tmp_path / ".claude" / "settings.json").write_text("{not json")
+    assert observatory._cli_default_model() is None
+    (tmp_path / ".claude" / "settings.json").write_text('{"model": "  "}')
+    assert observatory._cli_default_model() is None
+    (tmp_path / ".claude" / "settings.json").write_text('{"model": "sonnet"}')
+    assert observatory._cli_default_model() == "sonnet"
 
 
 def test_non_journal_session_logs_but_never_mints(bot_client):
@@ -1658,3 +1776,75 @@ def test_a_session_with_no_finished_turn_reports_no_total(bot_client):
     # No jsonl at all yet (a staged /spinoff draft) — absent, not a zero, so
     # the card can simply say nothing rather than claim "0 tokens".
     assert observatory._session_tokens("tok-5") is None
+
+
+# --- front-tagged session creation ---------------------------------------------
+
+def _fronts_vocab():
+    import store
+    store.write("fronts.json", {"fronts": [{"id": "living-space", "name": "Living space"}]})
+
+
+def test_create_tags_the_session_with_its_front(bot_client):
+    """A session started from a front's room is filed to that front EXPLICITLY —
+    the field lands on the index entry, which is what outranks whatever
+    scripts/sort_bot_chats.py would later infer."""
+    import store
+    _fronts_vocab()
+    r = bot_client.post("/api/observatory/conversations",
+                    json={"title": "Shelving", "front": "living-space"})
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["front"] == "living-space"
+
+    entry = store.read("bot_chats/index", {})[body["id"]]
+    assert entry["front"] == "living-space"
+
+
+def test_create_seeds_the_session_with_the_front_brief(bot_client):
+    """Seeding points system_prompt_file at the front's brief, which
+    observatory feeds to --append-system-prompt at spawn — so the conversation
+    opens already knowing which part of her life it's in."""
+    import store
+    from pathlib import Path
+    _fronts_vocab()
+    store.write("todos", {"now": {"items": [
+        {"id": "t1", "text": "Get shelving", "done": False, "fronts": ["living-space"]},
+    ]}})
+
+    body = bot_client.post("/api/observatory/conversations",
+                       json={"title": "Shelving", "front": "living-space"}).get_json()
+    assert body["seeded"] is True
+
+    entry = store.read("bot_chats/index", {})[body["id"]]
+    text = Path(entry["system_prompt_file"]).read_text()
+    assert "Living space" in text
+    assert "Get shelving" in text
+
+
+def test_create_can_tag_without_seeding(bot_client):
+    import store
+    _fronts_vocab()
+    body = bot_client.post("/api/observatory/conversations",
+                       json={"front": "living-space", "seed": False}).get_json()
+    assert body["seeded"] is False
+    entry = store.read("bot_chats/index", {})[body["id"]]
+    assert entry["front"] == "living-space"
+    assert "system_prompt_file" not in entry
+
+
+def test_create_rejects_an_unknown_front(bot_client):
+    _fronts_vocab()
+    r = bot_client.post("/api/observatory/conversations", json={"front": "not-a-front"})
+    assert r.status_code == 400
+
+
+def test_create_without_a_front_writes_no_front_fields(bot_client):
+    """A bare create must leave both fields absent — system_prompt_file belongs
+    to persona sessions and a front seed must never squat on it."""
+    import store
+    _fronts_vocab()
+    body = bot_client.post("/api/observatory/conversations", json={"title": "Plain"}).get_json()
+    entry = store.read("bot_chats/index", {})[body["id"]]
+    assert "front" not in entry
+    assert "system_prompt_file" not in entry

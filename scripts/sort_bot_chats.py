@@ -260,6 +260,14 @@ def main(argv=None):
         if entry.get("running"):
             print(f"  {conv_id}: running — skipped")
             continue
+        # A session started from a front's room carries an EXPLICIT `front` on
+        # its index entry. That's a filing she made on purpose, so the sorter
+        # never re-guesses it — inferring over it would silently move a
+        # conversation out of the room she started it in. --conv still forces
+        # a re-sort, which is the escape hatch when a filing was wrong.
+        if entry.get("front") and not args.conv:
+            print(f"  {conv_id}: filed explicitly to {entry['front']} — skipped")
+            continue
         todo.append(conv_id)
 
     if not todo:

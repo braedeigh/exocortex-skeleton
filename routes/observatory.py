@@ -78,6 +78,61 @@ _BUILDER_TOOLS = ["Read", "Grep", "Glob", "Edit", "Write", "NotebookEdit",
 _MODEL_CHOICES = ["fable", "opus", "opus[1m]", "sonnet", "sonnet[1m]", "haiku"]
 
 
+# Bare continuations — "go", "keep going", "yeah do it". They're a quarter of
+# all last-sent prompts and they say nothing about what a session is doing, so
+# they never become the card's `last_prompt`; the previous real ask stays up
+# instead. Anchored and whole-string: "go on to the money page" is a real ask.
+_CONTINUATION_RE = re.compile(
+    r"^(go|ok(ay)?|y(es|ep|eah)|sure|do +it|go +ahead|keep +going|carry +on|"
+    r"continue|next|k|proceed|please|thanks|thank +you|ty|good|nice|perfect|"
+    r"cool|great|yay|done)\W*$", re.I)
+
+# Long enough to be worth a line on the card. The regex above catches the known
+# noise words; this is the backstop for the ones nobody thought of.
+_MIN_PROMPT_CHARS = 12
+_MAX_PROMPT_CHARS = 120
+
+
+def _card_prompt(text):
+    """Her ask, trimmed to one line for the session card — or None when this
+    send shouldn't be shown there at all.
+
+    Whitespace is collapsed rather than split on the first newline: a prompt
+    that opens with "ok so" and puts the meat on line two would otherwise show
+    its throat-clearing and hide its point.
+
+    [prompt: "display the last prompt I gave along with the generated summary",
+    shown while the session is running or unread]"""
+    one_line = " ".join((text or "").split())
+    if not one_line or one_line.startswith("/"):
+        return None            # slash commands are operator control, not an ask
+    if len(one_line) < _MIN_PROMPT_CHARS or _CONTINUATION_RE.match(one_line):
+        return None
+    return one_line[:_MAX_PROMPT_CHARS]
+
+
+def _cli_default_model():
+    """What an UNPINNED session actually runs on: the `model` in Claude Code's
+    own settings.json, or None if it says nothing (then the CLI picks, and
+    honestly neither do we).
+
+    Most sessions carry no `model` field at all — that's the designed case, not
+    an oversight (see _MODEL_CHOICES) — so without this a roster showing "which
+    model is this on" would answer "unset" for nearly everything, which is true
+    of the session and useless to her. Read fresh each roster build rather than
+    cached at import: changing the CLI default is exactly the sort of thing that
+    should show up on the next poll without a service restart.
+
+    Any trouble reading it degrades to None (the card just shows no model) --
+    the roster must never 500 over a decoration."""
+    try:
+        raw = json.loads((Path.home() / ".claude" / "settings.json").read_text())
+    except (OSError, ValueError):
+        return None
+    model = raw.get("model") if isinstance(raw, dict) else None
+    return model if isinstance(model, str) and model.strip() else None
+
+
 # --- Lanes: the Observatory's two rooms ------------------------------------
 # A session BELONGS to a lane; it is not filtered into one. Before this, the
 # live "Orchestra" section was a derived view (running or awaiting) over the
@@ -1341,6 +1396,9 @@ def register(app):
         # Pinned sessions surface first (the Keeper session lives at the
         # top); the sort above stays stable within each group.
         sessions.sort(key=lambda c: 0 if c.get("pinned") else 1)
+        # Resolved ONCE for the whole roster, not per card — it's one file read
+        # and the answer is the same for every unpinned session.
+        cli_model = _cli_default_model()
         for c in sessions:
             if c.get("running"):
                 # Same staleness check bot_conversation applies: a flag
@@ -1354,6 +1412,15 @@ def register(app):
                 builder=recap_summary.build_bot_dialogue)
             if summary:
                 c["summary"] = summary
+            # Which model this session's next turn will actually use: its own
+            # pin, else the CLI default. Sits BESIDE the raw `model` (which
+            # stays exactly as stored) rather than replacing it — same split as
+            # act_gate / act_gate_set below, and for the same reason: the ✎
+            # dialog's picker must seed from the raw field, or an inherited
+            # default would save back as a deliberate pin.
+            effective_model = c.get("model") or cli_model
+            if effective_model:
+                c["model_effective"] = effective_model
             # A gated command the session is blocked on, waiting for her tap —
             # rides onto the Orchestra card exactly like awaiting_input does.
             pending = _pending_approval(c["id"])
@@ -1613,6 +1680,23 @@ def register(app):
         if lane not in _LANES:
             return jsonify({"error": f"unknown lane {lane!r}"}), 400
         profile = _lane_profile(lane)
+        # `front` — set when the session is started from a front's room. Two
+        # things follow from it, and they're separable:
+        #   TAG: the front lands on the index entry, so the room's sessions
+        #     panel can find it. This is EXPLICIT filing and it outranks
+        #     whatever scripts/sort_bot_chats.py would later infer.
+        #   SEED: unless seed=false, the front's brief (its open to-dos, buy
+        #     list and threads) is written to disk and pointed at by
+        #     system_prompt_file, so the conversation opens already knowing
+        #     which part of her life it's in.
+        front = (data.get("front") or "").strip()
+        brief_path = None
+        if front:
+            from routes import fronts as fronts_mod
+            if not fronts_mod.is_known_front(front):
+                return jsonify({"error": f"unknown front {front!r}"}), 400
+            if data.get("seed") is not False:
+                brief_path = fronts_mod.write_front_brief(front)
         _chats_dir()
         with store.mutate("bot_chats/index", {}) as index:
             conv_id = _new_conv_id(index)
@@ -1623,7 +1707,14 @@ def register(app):
                               "allowed_tools": list(profile["allowed_tools"])}
             if model:
                 index[conv_id]["model"] = model
-        return jsonify({"ok": True, "id": conv_id, "lane": lane})
+            if front:
+                index[conv_id]["front"] = front
+            # Only written for a seeded front session — a bare create must
+            # leave the field absent so persona sessions keep owning it.
+            if brief_path:
+                index[conv_id]["system_prompt_file"] = brief_path
+        return jsonify({"ok": True, "id": conv_id, "lane": lane,
+                        "front": front or None, "seeded": bool(brief_path)})
 
     @app.route("/api/observatory/<bot_id>/conversations", methods=["POST"])
     @app.route("/api/bots/<bot_id>/conversations", methods=["POST"])
@@ -1943,6 +2034,26 @@ def register(app):
             # no longer the last thing this session did. If THIS turn fails too,
             # _run_turn writes the flag straight back.
             entry.pop("last_error", None)
+            # Her ask, for the card to show while the session is working or
+            # unread — the window where the cached Haiku summary is still
+            # describing the PREVIOUS thing (recap_summary refreshes in the
+            # background, no more than once a minute).
+            #
+            # Two hard gates, both here rather than at the card, so there's one
+            # place to get them right:
+            #   - off the record never lands. It exists so a turn leaves no
+            #     trace; painting it on the roster would walk straight around
+            #     that.
+            #   - a JOURNALING session never lands. Its prompts are the diary,
+            #     and the pinned Keeper session sits at the top of the roster —
+            #     "show the last prompt" would put her journal on the card.
+            # A send that fails either gate leaves the previous value alone
+            # rather than clearing it: the last real ask is still the truest
+            # thing the card can say about what this session is doing.
+            if record and entry.get("journal") is not True:
+                card_prompt = _card_prompt(text)
+                if card_prompt:
+                    entry["last_prompt"] = card_prompt
             resume_sid = entry.get("claude_session_id")
             # Journal is opt-in per session (the pinned Keeper session
             # carries journal:true) — everything else logs to its own jsonl

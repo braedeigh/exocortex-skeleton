@@ -119,6 +119,43 @@ export function SessionLane({
   // says so instead of looking like the tap did nothing (which is exactly how
   // this bug presented). Cleared when she taps again.
   const [decideErr, setDecideErr] = useState<Record<string, string>>({});
+  // Per-row resume state on a red card: 'sending' while the nudge goes out, or
+  // the failure text if even the retry couldn't get through.
+  const [resuming, setResuming] = useState<Record<string, string>>({});
+
+  // What a resumed session is told. `--resume` hands it the whole conversation
+  // back, so this is a CUE, not context — and a deliberately cautious one: the
+  // turn died mid-flight, possibly halfway through an edit, and a blunt
+  // "continue" invites it to redo work it already did. Look first, then decide.
+  const RESUME_CUE =
+    'That turn ended in an error. Check what state things are actually in before continuing.';
+
+  // Tap "Resume session?" on a red card. Off the record: this is operator
+  // control, not something she said — the same class as a slash command.
+  // Routed through resumeAfterDecision because the conversation may still be
+  // winding down, and a 409 there means "not yet", not "no".
+  //
+  // Nothing here clears the red: her send does that server-side (`last_error`
+  // is popped before the new turn starts), and the roster poll brings the
+  // cleared card back. One source of truth for the flag, which is the server.
+  const doResume = (id: string) => {
+    setResuming((r) => ({ ...r, [id]: 'sending' }));
+    resumeAfterDecision(() => streamSend(id, RESUME_CUE, { record: false }, () => {}))
+      .then(() => {
+        setResuming((r) => {
+          const next = { ...r };
+          delete next[id];
+          return next;
+        });
+        onChanged?.();
+      })
+      .catch((err) =>
+        setResuming((r) => ({
+          ...r,
+          [id]: err instanceof Error ? err.message : 'could not resume the session',
+        })),
+      );
+  };
 
   const doFork = (id: string) => {
     setFork((f) => ({ ...f, [id]: 'forking' }));
@@ -499,6 +536,17 @@ export function SessionLane({
                     already on the roster payload — the live card just never
                     showed it, so a working session said WHICH files but never
                     WHAT FOR. */}
+                {/* What she asked, then what it made of it — cause above
+                    effect. Only while the session is WORKING or UNREAD: those
+                    are the two states where the question "what did I ask for?"
+                    is still live. Once she's read the reply the summary is the
+                    better artifact and this would just be a longer card.
+                    Everything about what's safe to show here was decided at
+                    send time (routes/observatory.py) — the card only picks the
+                    moment. */}
+                {(row.running || status === 'ready') && meta.last_prompt ? (
+                  <div className={styles.lastPrompt}>{meta.last_prompt}</div>
+                ) : null}
                 {row.summary ? <div className={styles.summary}>{row.summary}</div> : null}
                 {/* One quiet line of housekeeping: when it last did anything
                     (last_at moves on both her send and the turn's finish), and
@@ -512,6 +560,35 @@ export function SessionLane({
                     out what — the whole point of the card is to answer that
                     from the lane. */}
                 {row.error ? <div className={styles.errorNote}>{row.error}</div> : null}
+                {/* One tap to put the session back on its feet. No confirm —
+                    it's a retry, not a destructive act.
+
+                    The LABEL tells the truth about what the tap does. With a
+                    stored claude session id, --resume hands the agent its whole
+                    history back and this really is a resume. Without one (the
+                    turn died before claude said anything), there is nothing to
+                    resume into and the tap starts a fresh agent that knows
+                    none of it — so it says "Try again" instead, rather than
+                    promising continuity it can't deliver. */}
+                {row.error ? (
+                  <>
+                    <button
+                      type="button"
+                      className={styles.resumeBtn}
+                      disabled={resuming[row.id] === 'sending'}
+                      onClick={() => doResume(row.id)}
+                    >
+                      {resuming[row.id] === 'sending'
+                        ? 'Resuming…'
+                        : meta.claude_session_id
+                          ? 'Resume session?'
+                          : 'Try again?'}
+                    </button>
+                    {resuming[row.id] && resuming[row.id] !== 'sending' ? (
+                      <div className={styles.errorNote}>{resuming[row.id]}</div>
+                    ) : null}
+                  </>
+                ) : null}
                 {renderFiles(row)}
 
                 {/* Fork-the-work: offload a bloated long-runner. Only offered

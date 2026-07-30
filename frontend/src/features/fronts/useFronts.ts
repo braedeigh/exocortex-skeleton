@@ -3,9 +3,15 @@
  * fronts.json): a small set of life-domain tags (health, appearance,
  * finances, living-space, job, hobbies, learning, exocortex) used across
  * features. Originally lived in the research feature (it backs topic
- * tagging there); the todos feature also stamps a front id onto each to-do's
- * `theme` field, so the query hook + label helpers moved here to be shared
- * rather than duplicated.
+ * tagging there); the todos feature also tags each to-do, via a `fronts`
+ * LIST on the item — an item can sit on several fronts at once (see
+ * todoHelpers.itemFronts) — so the query hook + label helpers moved here to
+ * be shared rather than duplicated.
+ *
+ * Every front id used out in the data must exist in fronts.json. FocusChips
+ * builds its chip row by mapping over THIS vocabulary, so an item tagged with
+ * an id that isn't here gets no chip — and because it does have a front, it
+ * doesn't fall into "Other" either. It goes reachable only from "All".
  */
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../api/client';

@@ -129,6 +129,22 @@ export function TodosPage() {
     // One-shot: consume the param so back/refresh don't re-open the sheet.
     void navigate({ to: '/todos', search: {}, replace: true });
   }, [streakParam, data, navigate]);
+  // ?front=<id> — the Fronts overview's deep link. Adopts the front as the
+  // active focus chip (setFocusFront persists it, so it survives the nav) and
+  // then consumes the param, same one-shot shape as ?streak= above. Clears
+  // only `front` so it doesn't stomp a ?streak= arriving in the same URL.
+  const frontParam = useSearch({ from: '/todos', select: (s: { front?: string }) => s.front });
+  useEffect(() => {
+    if (!frontParam) return;
+    setFocusFront(frontParam);
+    void navigate({
+      to: '/todos',
+      search: (prev: { streak?: string; front?: string }) => ({ ...prev, front: undefined }),
+      replace: true,
+    });
+    // One-shot on the param itself; setFocusFront is a stable local closure.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [frontParam, navigate]);
   // Staged prefill for the "+ add" flow — set by a section header's "+ add"
   // button or AddBar's expand-to-full-editor icon; null = the add form is
   // closed. `text`/`due_by` mirror whatever the launch point already had
