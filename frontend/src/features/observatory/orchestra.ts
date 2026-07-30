@@ -46,6 +46,10 @@ export interface OrchestraRow {
    * Non-null raises the inline Approve/Deny card — the most urgent state, even
    * above awaiting (she can't do anything until she resolves it). */
   pendingApproval: PendingApproval | null;
+  /** The last turn's failure message, or null. Makes the card glow red — the
+   * one state that isn't about her attention but about the session being
+   * broken, so it outranks unread. */
+  error: string | null;
   /** Files this session is writing/creating, most-active first. */
   files: OrchestraFile[];
   fileCount: number;
@@ -74,6 +78,7 @@ export function orchestraRows(
       running: s.running === true,
       awaiting: s.awaiting_input ?? null,
       pendingApproval: s.awaiting_approval ?? null,
+      error: s.last_error ?? null,
       files: [],
       fileCount: 0,
     });

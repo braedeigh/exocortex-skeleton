@@ -9,6 +9,7 @@ import {
   type Lane,
   type SessionMeta,
 } from './api';
+import { resumeAfterDecision } from './resumeAfterDecision';
 import { orchestraRows, type OrchestraRow } from './orchestra';
 import { lastActivityLabel, sessionStatus } from './sessionStatus';
 import { formatSessionSpend } from './turnStats';
@@ -40,12 +41,22 @@ import styles from './Orchestra.module.css';
  * two lanes must not mean two pollers hitting the same endpoint.
  */
 
-/** The card's housekeeping line: "4m ago · 18.2k tokens · $4.21". Built from
- * whichever halves exist, so a fresh session shows nothing rather than a row
- * of blanks and separators. Recomputed per render, which is what keeps the
- * "4m ago" honest as the roster polls. */
+/** The card's housekeeping line: "opus[1m] · 4m ago · 18.2k tokens · $4.21".
+ * Built from whichever parts exist, so a fresh session shows nothing rather
+ * than a row of blanks and separators. Recomputed per render, which is what
+ * keeps the "4m ago" honest as the roster polls.
+ *
+ * The model leads it. `model_effective` is the resolved answer — the session's
+ * own pin if it has one, otherwise the CLI default the server looked up — so
+ * this reads as "what it runs on" and not "what she happened to override",
+ * which for most sessions would be nothing at all.
+ * [prompt: "show what model is running from a session"] */
 function cardMeta(meta: SessionMeta): string {
-  return [lastActivityLabel(meta.last_at), meta.tokens ? formatSessionSpend(meta.tokens) : null]
+  return [
+    meta.model_effective ?? null,
+    lastActivityLabel(meta.last_at),
+    meta.tokens ? formatSessionSpend(meta.tokens) : null,
+  ]
     .filter(Boolean)
     .join(' · ');
 }
@@ -104,6 +115,10 @@ export function SessionLane({
   // safest per Terra) and whether a decision is mid-flight.
   const [sticky, setSticky] = useState<Record<string, boolean>>({});
   const [deciding, setDeciding] = useState<Record<string, boolean>>({});
+  // Set when a decision landed but the resume never got through, so the card
+  // says so instead of looking like the tap did nothing (which is exactly how
+  // this bug presented). Cleared when she taps again.
+  const [decideErr, setDecideErr] = useState<Record<string, string>>({});
 
   const doFork = (id: string) => {
     setFork((f) => ({ ...f, [id]: 'forking' }));
@@ -116,44 +131,74 @@ export function SessionLane({
   };
 
   // Resume the blocked turn after she decides: her tap + this send IS the retry
-  // (same transport as request_input). Fire-and-forget — the turn runs detached
-  // server-side; the roster poll shows it running again.
+  // (same transport as request_input). The turn runs detached server-side; the
+  // roster poll shows it running again.
   // The resume text is what the AGENT sees (its retry cue). The optional
   // `decision` is what SHE sees: it makes the server log a "✓ Approved: <cmd>"
   // line in the transcript instead of a blank off-record gap. Both approve and
   // deny carry the exact command the routes hand back.
-  const resume = (
+  //
+  // The send goes through resumeAfterDecision rather than straight out, because
+  // the Approve card is raised the moment the gate blocks — i.e. while the agent
+  // is still writing the last message of the turn it was told to stop. A resume
+  // fired into that window hits the server's one-turn-at-a-time guard (409) and
+  // used to be dropped on the floor, which is what made an approved session sit
+  // there doing nothing. Now it waits for the turn to land and then sends.
+  const resume = async (
     id: string,
     text: string,
     decision?: { kind: 'approve' | 'deny'; command: string },
   ) => {
-    void streamSend(id, text, { record: false, decision }, () => {}).catch(() => {});
-    onChanged?.();
+    try {
+      await resumeAfterDecision(() =>
+        streamSend(id, text, { record: false, decision }, () => {}),
+      );
+    } catch (err) {
+      // A decision she made that never reached the agent must be visible.
+      setDecideErr((e) => ({
+        ...e,
+        [id]: err instanceof Error ? err.message : 'could not resume the session',
+      }));
+      setDeciding((d) => ({ ...d, [id]: false }));
+    } finally {
+      onChanged?.();
+    }
   };
 
-  const doApprove = (id: string) => {
+  const decide = (
+    id: string,
+    resolve: () => Promise<{ command: string }>,
+    kind: 'approve' | 'deny',
+    cue: string,
+  ) => {
     setDeciding((d) => ({ ...d, [id]: true }));
-    approveConversation(id, sticky[id] === true)
-      .then((res) =>
-        resume(id, 'Approved — go ahead and retry that exact command now.', {
-          kind: 'approve',
-          command: res.command,
-        }),
-      )
-      .catch(() => setDeciding((d) => ({ ...d, [id]: false })));
+    setDecideErr((e) => ({ ...e, [id]: '' }));
+    resolve()
+      .then((res) => resume(id, cue, { kind, command: res.command }))
+      .catch((err: unknown) => {
+        setDecideErr((e) => ({
+          ...e,
+          [id]: err instanceof Error ? err.message : 'could not record that decision',
+        }));
+        setDeciding((d) => ({ ...d, [id]: false }));
+      });
   };
 
-  const doDeny = (id: string) => {
-    setDeciding((d) => ({ ...d, [id]: true }));
-    denyConversation(id)
-      .then((res) =>
-        resume(id, "I've denied that command — don't run it. Find another way, or stop and tell me why.", {
-          kind: 'deny',
-          command: res.command,
-        }),
-      )
-      .catch(() => setDeciding((d) => ({ ...d, [id]: false })));
-  };
+  const doApprove = (id: string) =>
+    decide(
+      id,
+      () => approveConversation(id, sticky[id] === true),
+      'approve',
+      'Approved — go ahead and retry that exact command now.',
+    );
+
+  const doDeny = (id: string) =>
+    decide(
+      id,
+      () => denyConversation(id),
+      'deny',
+      "I've denied that command — don't run it. Find another way, or stop and tell me why.",
+    );
 
   // Urgency order, top to bottom: a gated command needing her OK (nothing moves
   // until she taps) > waiting-on-her (a reply) > everything else, in lane order.
@@ -312,6 +357,13 @@ export function SessionLane({
                   </button>
                 </div>
               </div>
+              {/* A decision that never reached the agent says so here. Silence
+                  was the whole bug: the tap looked accepted and nothing moved. */}
+              {decideErr[row.id] ? (
+                <div className={styles.decideError} role="alert">
+                  Couldn’t resume this session — {decideErr[row.id]}. Tap again.
+                </div>
+              ) : null}
             </div>
           ))}
 
@@ -343,10 +395,15 @@ export function SessionLane({
             return (
               <div
                 key={row.id}
+                // Three states, in strict precedence: broken beats busy beats
+                // unread. A card can honestly be more than one of these at
+                // once (a failed turn is also unread activity), and stacking
+                // their glows would just muddy both — so the most urgent
+                // truth is the one the card wears.
                 className={[
                   styles.card,
-                  row.running ? styles.cardLive : '',
-                  status === 'ready' ? styles.cardUnread : '',
+                  row.error ? styles.cardError : row.running ? styles.cardLive : '',
+                  !row.error && !row.running && status === 'ready' ? styles.cardUnread : '',
                 ]
                   .filter(Boolean)
                   .join(' ')}
@@ -358,7 +415,11 @@ export function SessionLane({
                     onClick={() => onOpen(row.id)}
                     title="Open this session"
                   >
-                    {row.running ? (
+                    {/* Same precedence the card's glow uses: broken, busy,
+                        unread, resting. */}
+                    {row.error ? (
+                      <span className={styles.errorDot} aria-hidden="true" />
+                    ) : row.running ? (
                       <span className={styles.liveDot} aria-hidden="true" />
                     ) : status === 'ready' ? (
                       <span className={styles.readyDot} aria-hidden="true" />
@@ -446,7 +507,11 @@ export function SessionLane({
                     stamp — so they're joined only where both exist and the
                     line disappears entirely when neither does. */}
                 {cardMeta(meta) ? <div className={styles.cardMeta}>{cardMeta(meta)}</div> : null}
-                {meta.journal === false ? <div className={styles.note}>not journaled</div> : null}
+                {/* Why it's red. Without the message the glow only says
+                    "something broke", which sends her into the session to find
+                    out what — the whole point of the card is to answer that
+                    from the lane. */}
+                {row.error ? <div className={styles.errorNote}>{row.error}</div> : null}
                 {renderFiles(row)}
 
                 {/* Fork-the-work: offload a bloated long-runner. Only offered

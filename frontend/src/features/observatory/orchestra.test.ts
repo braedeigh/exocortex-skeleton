@@ -157,4 +157,13 @@ describe('orchestraRows', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].fileCount).toBe(0);
   });
+
+  it('carries the last turn’s failure through as the row’s error', () => {
+    const rows = orchestraRows([session('a', { last_error: 'claude exited 3' })], undefined);
+    expect(rows[0].error).toBe('claude exited 3');
+  });
+
+  it('leaves error null on a session that ended cleanly', () => {
+    expect(orchestraRows([session('a')], undefined)[0].error).toBeNull();
+  });
 });

@@ -90,6 +90,19 @@ export interface SessionMeta {
    * via scripts/request_input.py — the question text. Its Orchestra card glows
    * orange until her next send into the session clears it (server-side). */
   awaiting_input?: string;
+  /** Which model this session's next turn will actually run on — its own pin
+   * if it has one, else the CLI's own default, resolved server-side. Absent
+   * only when neither says anything. Read-only, for SHOWING: the ✎ dialog seeds
+   * its picker from the raw `model` below, never from this, or an inherited
+   * default would save back as a deliberate pin. Same raw-beside-resolved split
+   * as act_gate / act_gate_set. */
+  model_effective?: string;
+  /** The last turn ENDED in failure (claude exited non-zero, or the spawn never
+   * happened) — the message, capped at the stderr tail the server keeps. Set in
+   * _run_turn's finally, cleared by a clean turn or her next send, so it means
+   * "the last thing this session did was fail", not "it failed once". Its card
+   * glows red. */
+  last_error?: string;
   /** A gated command the act-ask gate is blocking, waiting for her Approve /
    * Deny tap on the Orchestra card (see approveConversation / denyConversation).
    * Cleared server-side once she resolves it — or replies by hand. */
@@ -214,6 +227,29 @@ export function getKeeperRolloverStatus(signal?: AbortSignal): Promise<KeeperRol
   return api.get('/api/observatory/keeper/rollover/status', signal);
 }
 
+/**
+ * A send that the server refused, carrying the HTTP status so callers can tell
+ * the kinds of "no" apart. The one that matters: 409 means "a turn is already
+ * running in this conversation" — a wait-and-retry, not a failure. Every other
+ * status is a real error. Before this, every refusal arrived as a bare Error
+ * and the approve-then-resume path could not distinguish "busy for another
+ * second" from "broken", so it treated both as nothing-to-do.
+ */
+export class SendError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'SendError';
+    this.status = status;
+  }
+}
+
+/** True for the one refusal that just means "not yet" — see SendError. */
+export function isTurnBusy(err: unknown): boolean {
+  return err instanceof SendError && err.status === 409;
+}
+
 export interface SendOptions {
   record: boolean;
   /** Set only on the resume send fired right after she taps Approve/Deny on a
@@ -249,7 +285,7 @@ export async function streamSend(
   });
   if (!res.ok || !res.body) {
     const data = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(data.error || `send failed (${res.status})`);
+    throw new SendError(data.error || `send failed (${res.status})`, res.status);
   }
 
   let convIdOut: string | undefined = convId;
