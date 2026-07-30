@@ -32,10 +32,15 @@ import styles from './SplitLayout.module.css';
  *
  * WHAT'S IN THE LEFT PANE (07-25): for authed desktop it's the whole reading
  * room plus the tmux terminal, picked by a switcher at the top of the pane —
- * Sessions (the roster) / Observatory (the open conversation) / Terminal.
- * Three plain tabs rather than the phone's tap-the-active-tab-again gesture:
- * there's room for them here, and a hidden gesture on a mouse surface is just
- * a hidden feature.
+ * Observatory (the roster) / the open session, tab-labelled with its own title /
+ * Terminal. Three plain tabs rather than the phone's tap-the-active-tab-again
+ * gesture: there's room for them here, and a hidden gesture on a mouse surface
+ * is just a hidden feature.
+ *
+ * The middle tab wears the conversation's name rather than a fixed word: the
+ * roster tab is the one that means "the Observatory in general", so repeating
+ * that word on the tab beside it named nothing. The title is reported up from
+ * the room (see roomTitle below) and ellipsized by CSS when it's long.
  *
  * Terminal-vs-room writes the SAME localStorage flag the mobile Chat tab
  * reads (chatSurface.ts) rather than inventing a second knob, so "which
@@ -92,6 +97,12 @@ export function SplitLayout({ children }: { children: ReactNode }) {
   // general, not straight into the Keeper conversation.
   const [roster, setRoster] = useState(true);
   const openRoom = useCallback(() => setRoster(false), []);
+  // The open conversation's own title, reported up by the room (KeeperPane ->
+  // ObservatoryPage). null until it resolves, and again for the moment between
+  // conversations. It's what the second tab is LABELLED — a tab that just says
+  // "Observatory" tells her nothing the first tab doesn't; the session's name
+  // tells her which room the switch would put her back into.
+  const [roomTitle, setRoomTitle] = useState<string | null>(null);
   // Mount-on-first-visit, then keep mounted (see header) — starts with
   // whichever surface the flag opens on.
   const [visited, setVisited] = useState<ReadonlySet<'keeper' | 'terminal'>>(
@@ -225,7 +236,7 @@ export function SplitLayout({ children }: { children: ReactNode }) {
                   setChatSurfaceObservatory(true);
                 }}
               >
-                Sessions
+                Observatory
               </button>
               <button
                 type="button"
@@ -234,13 +245,13 @@ export function SplitLayout({ children }: { children: ReactNode }) {
                 className={[styles.paneTab, keeperPane && !roster ? styles.paneTabActive : '']
                   .filter(Boolean)
                   .join(' ')}
-                title="The open conversation"
+                title={roomTitle ?? 'The open conversation'}
                 onClick={() => {
                   setRoster(false);
                   setChatSurfaceObservatory(true);
                 }}
               >
-                Observatory
+                {roomTitle ?? 'Session'}
               </button>
               <button
                 type="button"
@@ -260,7 +271,7 @@ export function SplitLayout({ children }: { children: ReactNode }) {
             ) : null}
             {visited.has('keeper') ? (
               <div className={keeperPane ? styles.paneSlot : styles.paneSlotHidden}>
-                <KeeperPane roster={roster} onOpenRoom={openRoom} />
+                <KeeperPane roster={roster} onOpenRoom={openRoom} onRoomTitle={setRoomTitle} />
               </div>
             ) : null}
           </div>

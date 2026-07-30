@@ -56,6 +56,12 @@
   font-size: 14px;
   cursor: pointer;
   transition: color 0.15s, background-color 0.15s;
+  /* The middle tab is labelled with the open session's own title, which can run
+     to 60 characters — clip it here instead of letting it shove the other two
+     tabs out of the pane. The full title stays in the tab's tooltip. */
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .paneTab:hover,

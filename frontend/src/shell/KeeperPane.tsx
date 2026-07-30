@@ -28,7 +28,17 @@ import styles from './KeeperPane.module.css';
  * into it); the roster is mounted only while shown, since it polls and
  * refreshes on mount anyway.
  */
-export function KeeperPane({ roster, onOpenRoom }: { roster: boolean; onOpenRoom: () => void }) {
+export function KeeperPane({
+  roster,
+  onOpenRoom,
+  onRoomTitle,
+}: {
+  roster: boolean;
+  onOpenRoom: () => void;
+  /** Passed straight through to the room so the pane switcher's tab can wear
+   * the open session's title (see SplitLayout). */
+  onRoomTitle?: (title: string | null) => void;
+}) {
   // undefined = still resolving; null = resolved to "no sessions, start fresh".
   const [conv, setConv] = useState<string | null | undefined>(undefined);
 
@@ -71,6 +81,7 @@ export function KeeperPane({ roster, onOpenRoom }: { roster: boolean; onOpenRoom
             botId="keeper"
             convId={conv ?? undefined}
             onOpenConversation={openConversation}
+            onTitleChange={onRoomTitle}
           />
         )}
       </div>

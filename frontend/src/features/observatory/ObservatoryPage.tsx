@@ -66,10 +66,14 @@ export function ObservatoryPage({
   botId,
   convId,
   onOpenConversation,
+  onTitleChange,
 }: {
   botId: string;
   convId?: string;
   onOpenConversation?: (convId: string) => void;
+  /** Docked mode: report this session's title so the pane's tab can wear it
+   * instead of a generic label. null while it's still unresolved. */
+  onTitleChange?: (title: string | null) => void;
 }) {
   const navigate = useNavigate();
   // Presence heartbeat: while this room is open and visible, stamp its
@@ -82,7 +86,12 @@ export function ObservatoryPage({
   // the session's own title instead, filled in once the history load (below)
   // resolves it; a brand-new session (nothing to load yet) gets a plain
   // generic label.
-  const [roomTitle, setRoomTitle] = useState('Observatory');
+  //
+  // null means "not resolved yet", kept distinct from the generic label so the
+  // docked pane's tab can hold off on wearing a title until there's a real one
+  // (see onTitleChange) rather than flashing the placeholder as if it were one.
+  const [roomTitle, setRoomTitle] = useState<string | null>(null);
+  const roomLabel = roomTitle ?? 'Observatory';
   const [turns, setTurns] = useState<Turn[]>([]);
   const [streaming, setStreaming] = useState(false);
   // Messages sent while a turn is still writing — the Claude Code queued-
@@ -261,6 +270,14 @@ export function ObservatoryPage({
     // are stable (useCallback, [] deps).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [convId, reattachApi.reattach, scrollContract.pinToBottom, scrollContract.pinToAnchor]);
+
+  // Docked mode: hand the title to the pane holding us, so its tab reads as the
+  // session she's actually in. Fires with null on mount too — the pane remounts
+  // this page per conversation, so that's what clears the previous session's
+  // name off the tab while the new one loads.
+  useEffect(() => {
+    onTitleChange?.(roomTitle);
+  }, [roomTitle, onTitleChange]);
 
   // The pause (off-record) button only exists where the journal is live —
   // in a workshop session there's nothing to pause. Clear any stale state
@@ -535,7 +552,7 @@ export function ObservatoryPage({
         <div ref={scrollContract.columnRef} className={styles.column}>
           {turns.length === 0 ? (
             <div className={styles.empty}>
-              <div className={styles.emptyName}>{roomTitle}</div>
+              <div className={styles.emptyName}>{roomLabel}</div>
               <div className={styles.emptyHint}>Whenever you&rsquo;re ready.</div>
             </div>
           ) : (
@@ -793,7 +810,7 @@ export function ObservatoryPage({
             ref={inputRef}
             className={styles.input}
             rows={1}
-            placeholder={`message ${roomTitle}…`}
+            placeholder={`message ${roomLabel}…`}
             autoComplete="off"
             autoCorrect="on"
             autoCapitalize="sentences"
