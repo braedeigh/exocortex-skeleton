@@ -467,6 +467,12 @@ def _run_turn(proc, stderr_f, conv_id, log_path, record, resume_sid, live_q):
     session_id = resume_sid
     sid_saved = False
     cost = None
+    # What killed this turn, if anything — hoisted out of the log-writing block
+    # so the index update in `finally` can persist it. That's what puts a red
+    # card on the roster: an error used to exist only as an event in the live
+    # stream and a line in the jsonl, so a turn that died with nobody watching
+    # left a card that looked merely idle.
+    turn_error = None
     try:
         with open(log_path, "a", encoding="utf-8") as log:
             for line in proc.stdout:
@@ -510,8 +516,8 @@ def _run_turn(proc, stderr_f, conv_id, log_path, record, resume_sid, live_q):
             stopped = conv_id in _stop_requested
             if proc.returncode != 0 and not stopped:
                 err = _stderr_tail(stderr_f)
-                ev = {"type": "error",
-                      "error": err or f"claude exited {proc.returncode}"}
+                turn_error = err or f"claude exited {proc.returncode}"
+                ev = {"type": "error", "error": turn_error}
                 if record:
                     log.write(json.dumps(ev) + "\n")
                 live_q.put(ev)
@@ -529,6 +535,13 @@ def _run_turn(proc, stderr_f, conv_id, log_path, record, resume_sid, live_q):
                 entry["last_at"] = _now()
                 entry["running"] = False
                 entry.pop("stop_requested", None)
+                # How the turn ended, so the roster can show it. A clean turn
+                # clears any error the PREVIOUS one left — the flag means "the
+                # last thing this session did was fail", not "it failed once".
+                if turn_error:
+                    entry["last_error"] = turn_error
+                else:
+                    entry.pop("last_error", None)
                 if cost is not None:
                     entry["cost_usd"] = round(
                         float(entry.get("cost_usd") or 0.0) + float(cost), 6)
@@ -1926,6 +1939,10 @@ def register(app):
             entry.pop("awaiting_input", None)
             # ...and any unresolved gated-command card (see _dismiss_pending).
             _dismiss_pending(conv_id)
+            # A fresh attempt clears the red: whatever went wrong last time is
+            # no longer the last thing this session did. If THIS turn fails too,
+            # _run_turn writes the flag straight back.
+            entry.pop("last_error", None)
             resume_sid = entry.get("claude_session_id")
             # Journal is opt-in per session (the pinned Keeper session
             # carries journal:true) — everything else logs to its own jsonl
@@ -1941,12 +1958,16 @@ def register(app):
         # BEFORE the model actually runs.
         avail = _mem_available_mb()
         if avail is not None and avail < MIN_SPAWN_MB:
+            msg = f"not enough memory to start claude ({avail}MB available)"
             with store.mutate("bot_chats/index", {}) as index:
                 entry = index.get(conv_id)
                 if isinstance(entry, dict):
                     entry["running"] = False
-            return jsonify({"error": f"not enough memory to start claude "
-                                     f"({avail}MB available)"}), 503
+                    # Flag it here too: an autostarted send (a spinoff firing
+                    # itself) has no one reading the HTTP response, so without
+                    # this the failure would be invisible on the roster.
+                    entry["last_error"] = msg
+            return jsonify({"error": msg}), 503
 
         # Capture BEFORE the model runs (Slice-1 guarantee, same door the
         # terminal chat session uses). Slash commands are operator control,
@@ -1987,11 +2008,13 @@ def register(app):
         try:
             proc, stderr_f = _spawn(config, text, resume_sid, cwd_override=config.get("cwd"))
         except OSError as e:
+            msg = f"could not start claude: {e}"
             with store.mutate("bot_chats/index", {}) as index:
                 entry = index.get(conv_id)
                 if isinstance(entry, dict):
                     entry["running"] = False
-            return jsonify({"error": f"could not start claude: {e}"}), 502
+                    entry["last_error"] = msg   # same reason as the memory floor above
+            return jsonify({"error": msg}), 502
 
         # The turn now belongs to this thread, not this request: it logs,
         # relays, and finishes whether or not anyone is watching. Closing the

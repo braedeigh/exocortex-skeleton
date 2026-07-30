@@ -617,6 +617,85 @@ def test_stop_ends_the_turn_without_an_error_event(bot_client, tmp_path, monkeyp
     assert "stop_requested" not in meta
 
 
+# --- last_error: the roster's red card --------------------------------------
+# A turn that dies used to exist only as an event in the live stream and a line
+# in the jsonl — so a session that failed with nobody watching looked idle on
+# the roster. The index now carries how the last turn ENDED.
+
+FAILING_STUB = """#!/usr/bin/env python3
+import sys
+sys.stderr.write("boom: the model went away\\n")
+sys.exit(3)
+"""
+
+
+def _install_failing_stub(tmp_path, monkeypatch):
+    stub = tmp_path / "claude-fails"
+    stub.write_text(FAILING_STUB)
+    stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setattr(observatory, "CLAUDE_BIN", str(stub))
+
+
+def test_a_failed_turn_records_last_error_on_the_session(bot_client, tmp_path, monkeypatch):
+    _install_failing_stub(tmp_path, monkeypatch)
+    events = _sse_events(_send(bot_client, text="go"))
+    conv_id = events[0]["conversation_id"]
+    meta = _wait_not_running(conv_id)
+    assert "boom: the model went away" in meta["last_error"]
+
+
+def test_a_clean_turn_clears_a_previous_failure(bot_client, tmp_path, monkeypatch):
+    _install_failing_stub(tmp_path, monkeypatch)
+    conv_id = _sse_events(_send(bot_client, text="go"))[0]["conversation_id"]
+    assert _wait_not_running(conv_id).get("last_error")
+    # The flag means "the last thing this session did was fail" — so a turn
+    # that succeeds has to take it back off, not leave the card red forever.
+    monkeypatch.setattr(observatory, "CLAUDE_BIN", str(tmp_path / "claude-stub"))
+    _sse_events(_send(bot_client, text="again", conversation_id=conv_id))
+    assert "last_error" not in _wait_not_running(conv_id)
+
+
+def test_a_stop_is_not_recorded_as_an_error(bot_client, tmp_path, monkeypatch):
+    _install_slow_stub(tmp_path, monkeypatch)
+    resp = _send(bot_client, text="never mind")
+    it = resp.iter_encoded()
+    conv_id = _first_frame_conv(it)
+    assert bot_client.post(f"/api/observatory/conversation/{conv_id}/stop").status_code == 200
+    b"".join(it)
+    assert "last_error" not in _wait_not_running(conv_id)
+
+
+def test_a_spawn_that_never_starts_still_reddens_the_card(bot_client, monkeypatch):
+    # Nobody may be reading the 502 — an autostarted spinoff fires its own
+    # kickoff — so the failure has to land on the roster, not just in the reply.
+    def boom(*a, **k):
+        raise OSError("no claude on PATH")
+    monkeypatch.setattr(observatory, "_spawn", boom)
+    conv_id = bot_client.post("/api/observatory/keeper/conversations",
+                              json={"title": "doomed"}).get_json()["id"]
+    assert _send(bot_client, text="go", conversation_id=conv_id).status_code == 502
+    meta = store.read("bot_chats/index", {})[conv_id]
+    assert "no claude on PATH" in meta["last_error"]
+
+
+def test_her_next_send_clears_the_red_before_the_turn_runs(bot_client, monkeypatch):
+    # Restore the REAL _spawn by hand rather than monkeypatch.undo(): this
+    # monkeypatch instance is the same one bot_client used, so undo() would
+    # also put back the true CLAUDE_BIN and let the test spawn actual claude.
+    real_spawn = observatory._spawn
+
+    def boom(*a, **k):
+        raise OSError("no claude on PATH")
+    monkeypatch.setattr(observatory, "_spawn", boom)
+    conv_id = bot_client.post("/api/observatory/keeper/conversations",
+                              json={"title": "doomed"}).get_json()["id"]
+    _send(bot_client, text="go", conversation_id=conv_id)
+    assert store.read("bot_chats/index", {})[conv_id].get("last_error")
+    monkeypatch.setattr(observatory, "_spawn", real_spawn)   # claude works again
+    _sse_events(_send(bot_client, text="try again", conversation_id=conv_id))
+    assert "last_error" not in _wait_not_running(conv_id)
+
+
 # --- Terrain (GET /api/observatory/terrain) ---------------------------------
 # The file-tree heatmap's data layer: git heat (routes/observatory.py's own
 # `git log` call) merged with bot_chats footprint attribution (scripts/
