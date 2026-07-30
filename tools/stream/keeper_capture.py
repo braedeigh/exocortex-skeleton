@@ -42,6 +42,13 @@ Three things differ from fish:
      (or `stream.record(who="K", ...)`) — carrying just that question, then sets the owner's
      `B` card's `reply_to` to its id. Capture is automatic; the question context is not.
 
+Off the record. The web app's observatory composer has a switch that takes a turn off
+the record. That only silences the SERVER's mint — the model still receives the text, so
+it lands in the transcript and this hook would mint the card the server "skipped",
+undoing the switch. So the server also records the prompt's hash in .keeper/off_record.jsonl,
+and we refuse anything listed there (see _off_record_suppressed). The reconciler honors
+the same file. Nothing consumes an entry, so both doors can refuse the same prompt.
+
 Synthetic messages the harness injects through the same channel (task-notifications,
 system reminders, slash-command echoes) are NOT the operator talking, so they're skipped.
 
@@ -92,6 +99,22 @@ def _ui_captured_path() -> pathlib.Path:
 
 UI_CAPTURE_WINDOW_SEC = 15 * 60
 
+
+# Written by the web app's observatory send route when she puts a turn OFF THE RECORD.
+# Same {ts, sha256-of-the-stripped-prompt} shape as ui_captured.jsonl, opposite meaning:
+# that file says "already minted, don't duplicate", this one says "deliberately not
+# minted, don't restore". Without it, an off-the-record turn still reaches the model, so
+# it lands in the transcript, and this hook (plus the reconciler) dutifully mints the
+# card the server "forgot" — which is exactly how off-the-record turns kept coming back.
+# Entries are NOT consumed on a hit: the reconciler has to be able to refuse the same
+# prompt independently, and whichever door ran first would otherwise eat the other's
+# answer. Age retires them instead.
+def _off_record_path() -> pathlib.Path:
+    return _state_dir() / "off_record.jsonl"
+
+
+OFF_RECORD_WINDOW_SEC = 24 * 60 * 60
+
 # The sentinel the /journalstart command plants in the transcript. Its presence is what
 # arms capture for a session — see journalstart.md.
 SENTINEL = "KEEPER_SESSION_ACTIVE"
@@ -132,6 +155,8 @@ def main() -> int:
     if mode is None:
         return 0
     if _ui_already_captured(prompt):            # the web app minted this send at the server
+        return 0
+    if _off_record_suppressed(prompt):          # she put this turn off the record
         return 0
 
     kind, slug = mode
@@ -348,6 +373,38 @@ def _ui_already_captured(prompt: str) -> bool:
     finally:
         if lock_file is not None:
             lock_file.close()
+
+
+def _off_record_suppressed(prompt: str) -> bool:
+    """True iff she marked this exact prompt off-the-record recently — matched by
+    sha256 of the stripped prompt against `_off_record_path()`, within
+    OFF_RECORD_WINDOW_SEC.
+
+    Read-only, unlike `_ui_already_captured`: nothing is consumed, so the
+    reconciler's independent pass over the same transcript line gets the same
+    answer this one did. The writer prunes by age.
+
+    Fails OPEN (returns False → the prompt mints) if the file can't be read.
+    That's the safe direction even though this gate is about privacy: a hard read
+    error would otherwise report "suppressed" for *every* prompt and silently
+    swallow the whole journal. The missing-file case — no off-record turn yet —
+    is the overwhelmingly common one, and it isn't an error.
+    """
+    try:
+        lines = _off_record_path().read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return False
+    digest = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+    now = time.time()
+    for line in lines:
+        try:
+            entry = json.loads(line)
+        except Exception:
+            continue
+        if (entry.get("sha256") == digest
+                and now - float(entry.get("ts", 0)) < OFF_RECORD_WINDOW_SEC):
+            return True
+    return False
 
 
 def _log_failure(prompt: str, error: str) -> None:

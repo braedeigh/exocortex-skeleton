@@ -43,6 +43,13 @@ _THREAD_RETRY_SUFFIX_RE = re.compile(r'-\d+$')
 # mint and the hook seeing the same prompt on a still-live tmux process; past
 # that it's just dead weight in the file.
 UI_CAPTURED_MAX_AGE_SEC = 3600
+# How long an off_record.jsonl suppression entry stays honored. Much longer than
+# the ui_captured window because it guards two doors with very different
+# clocks: the hook fires within seconds, but the reconciler is a cron tail that
+# only sees the line whenever it next runs -- if cron were paused for an
+# afternoon, a short window would let a suppressed prompt through the moment it
+# resumed. A day is long enough that no plausible outage outlives it.
+OFF_RECORD_MAX_AGE_SEC = 24 * 3600
 # sessions.json and notes_dump.md are USER DATA — they must live in the data
 # layer (DATA_DIR), not next to the code (BUILD_DIR). Putting them in the code
 # dir means every code migration/redeploy orphans or deletes them.
@@ -417,14 +424,48 @@ def _note_ui_capture(typed):
     already succeeded by the time this runs), so any OSError here is
     swallowed rather than surfaced.
     """
+    _note_hash(typed, "ui_captured.jsonl", UI_CAPTURED_MAX_AGE_SEC)
+
+
+def _note_off_record(typed):
+    """Leave a breadcrumb that this exact prompt was sent OFF THE RECORD, so
+    the two fallback capture doors -- the vault's UserPromptSubmit hook and the
+    cron'd transcript reconciler -- refuse to mint it.
+
+    Why this file has to exist: the off-record switch only ever silenced the
+    server's own mint. But the model still receives the text, so it lands in
+    Claude Code's transcript like any other prompt, and both fallback doors read
+    that transcript in a journaling session and mint whatever the pool is
+    missing. They were doing exactly their job -- restoring a card the server
+    "lost" -- which is why off-the-record turns kept reappearing in the journal.
+    A skipped mint and a failed mint look identical from those doors; this file
+    is what tells them apart.
+
+    Unlike the ui_captured breadcrumb, entries here are NOT consumed on a hit:
+    both doors have to be able to refuse the same prompt independently, and
+    whichever ran first would otherwise eat the other one's answer. Age is what
+    retires an entry instead (OFF_RECORD_MAX_AGE_SEC).
+    """
+    _note_hash(typed, "off_record.jsonl", OFF_RECORD_MAX_AGE_SEC)
+
+
+def _note_hash(typed, filename, max_age_sec):
+    """Append {ts, sha256} to a `.keeper/` sidecar, pruning entries older than
+    max_age_sec on the way through. Hashes the STRIPPED string because that's
+    what the readers see (Claude Code strips a prompt before the hook gets it,
+    and the reconciler strips the transcript's copy).
+
+    Best-effort: every caller here is annotating something that already
+    happened, so an OSError is swallowed rather than surfaced.
+    """
     state_dir = _keeper_state_dir()
-    path = state_dir / "ui_captured.jsonl"
-    cutoff = time.time() - UI_CAPTURED_MAX_AGE_SEC
+    path = state_dir / filename
+    cutoff = time.time() - max_age_sec
     entry = {"ts": time.time(), "sha256": hashlib.sha256(typed.strip().encode()).hexdigest()}
     try:
         state_dir.mkdir(parents=True, exist_ok=True)
-        # flock against the hook's consume pass (keeper_capture.py holds the same
-        # lock): both sides read-modify-write this file, and an unlocked
+        # flock against the readers (keeper_capture.py holds the same lock):
+        # ui_captured is read-modify-written on both sides, and an unlocked
         # interleaving can drop an entry (worst case: one duplicate card).
         with open(path.with_suffix(".lock"), "w") as lock_file:
             fcntl.flock(lock_file, fcntl.LOCK_EX)

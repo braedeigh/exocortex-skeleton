@@ -1954,6 +1954,17 @@ def register(app):
         journaled = False
         if record and conv_journals and not text.lstrip().startswith("/"):
             journaled = terminal._capture_journal(text, text)
+        elif conv_journals and not text.lstrip().startswith("/"):
+            # Off the record — and skipping the mint is not enough on its own.
+            # The model still gets the text, so it lands in Claude Code's
+            # transcript, and the two fallback capture doors (the vault's
+            # UserPromptSubmit hook, the cron'd reconciler) read that transcript
+            # in a journaling session and mint anything the pool is missing.
+            # They can't tell "the server chose not to journal this" from "the
+            # server tried and failed", so they were faithfully restoring every
+            # off-the-record turn a minute later. This breadcrumb is what tells
+            # them apart — see terminal._note_off_record.
+            terminal._note_off_record(text)
 
         log_path = _chats_dir() / f"{conv_id}.jsonl"
         with open(log_path, "a", encoding="utf-8") as log:

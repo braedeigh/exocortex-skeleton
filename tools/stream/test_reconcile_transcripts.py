@@ -10,15 +10,18 @@ _lock_path(), and _failure_log_path() are lazy accessors (not plain module-level
 paths) and are patched directly, same pattern as keeper_capture._ui_captured_path()
 in test_keeper_capture.py.
 """
+import hashlib
 import json
 import os
 import sys
 import tempfile
+import time
 import unittest
 from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import keeper_capture         # noqa: E402 — owns the shared off-record gate
 import reconcile_transcripts  # noqa: E402
 import stream                 # noqa: E402
 
@@ -222,6 +225,48 @@ class DedupTests(ReconcilerTestCase):
         # second run over the same (now fully consumed) transcript mints nothing more
         reconcile_transcripts.main()
         self.assertEqual(len(stream.load_all_cards()), 2)
+
+
+class OffRecordTests(ReconcilerTestCase):
+    """A turn she sent off the record is in the transcript and missing from the
+    pool — exactly the shape of a turn the server lost, which is what this whole
+    module exists to repair. The server's off_record.jsonl breadcrumb is the only
+    thing that tells the two apart."""
+
+    def _write_off_record(self, *prompts):
+        path = self.vault / ".keeper" / "off_record.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("".join(
+            json.dumps({"ts": time.time(),
+                        "sha256": hashlib.sha256(p.encode("utf-8")).hexdigest()}) + "\n"
+            for p in prompts
+        ), encoding="utf-8")
+
+    def test_off_record_prompt_is_never_restored(self):
+        reconcile_transcripts.main()   # bootstrap on empty project dirs
+        self._write_off_record("a private line")
+        self._write_transcript("s9.jsonl", [
+            _sentinel_entry("2026-07-14T07:00:00.000Z"),
+            _user("a private line", "2026-07-14T07:01:00.000Z"),
+            _user("an ordinary line", "2026-07-14T07:02:00.000Z"),
+        ])
+        reconcile_transcripts.main()
+        self.assertEqual([c.body for c in stream.load_all_cards()], ["an ordinary line"])
+
+    def test_a_stale_breadcrumb_stops_suppressing(self):
+        reconcile_transcripts.main()
+        path = self.vault / ".keeper" / "off_record.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({
+            "ts": time.time() - keeper_capture.OFF_RECORD_WINDOW_SEC - 1,
+            "sha256": hashlib.sha256(b"a private line").hexdigest(),
+        }) + "\n", encoding="utf-8")
+        self._write_transcript("s10.jsonl", [
+            _sentinel_entry("2026-07-14T07:00:00.000Z"),
+            _user("a private line", "2026-07-14T07:01:00.000Z"),
+        ])
+        reconcile_transcripts.main()
+        self.assertEqual([c.body for c in stream.load_all_cards()], ["a private line"])
 
 
 class SkipRuleTests(ReconcilerTestCase):

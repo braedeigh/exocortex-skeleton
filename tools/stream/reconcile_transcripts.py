@@ -46,6 +46,13 @@ its starting offset, and mints nothing. Backfilling months of old sessions on in
 would flood old days with cards nobody asked for. From that moment on, only new bytes
 count.
 
+OFF THE RECORD. One thing here is deliberately NOT repaired: a turn she sent with the
+observatory composer's off-the-record switch. The model still saw that text, so it's in
+the transcript and the pool is missing it — indistinguishable, from here, from a turn the
+server dropped. The server writes the prompt's hash to `.keeper/off_record.jsonl` when it
+skips the mint on purpose, and this module refuses anything listed there (the check lives
+in keeper_capture, shared with the hook, so the two doors can't drift).
+
 DEDUP. A body-for-body check against the pool (the prompt's local date plus its two
 neighbors, since a message near local midnight can land a card on the adjacent day) is
 the second line of defense — the same words she typed may already be sitting in the
@@ -326,6 +333,14 @@ def _maybe_mint(entry: dict, path: Path, mode) -> None:
     if prompt.startswith("/"):          # slash commands — not a journaled utterance
         return
     if _UPLOAD_PASTE_RE.fullmatch(prompt):
+        return
+    # She put this turn off the record in the observatory composer. The text still
+    # reached the model, so it's sitting right here in the transcript looking exactly
+    # like a prompt the server failed to mint — which is the one case this module must
+    # NOT repair. The server's off_record.jsonl breadcrumb is what distinguishes
+    # "deliberately not journaled" from "lost"; keeper_capture owns the check so the
+    # hook and this tail can't drift apart.
+    if keeper_capture._off_record_suppressed(prompt):
         return
 
     ts_local = _to_local(entry.get("timestamp"))

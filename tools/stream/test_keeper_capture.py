@@ -94,6 +94,53 @@ class UiAlreadyCapturedTestCase(unittest.TestCase):
         self.assertFalse(keeper_capture._ui_already_captured("yeah"))
 
 
+class OffRecordSuppressedTestCase(unittest.TestCase):
+    """The off-the-record gate. Same {ts, sha256} lines as ui_captured, opposite
+    meaning and — critically — no consumption: the reconciler reads this file
+    too, and whichever door ran first would otherwise eat the other's answer."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self._prev = keeper_capture._off_record_path
+        self._path = Path(self._tmp.name) / "off_record.jsonl"
+        keeper_capture._off_record_path = lambda: self._path
+
+    def tearDown(self):
+        keeper_capture._off_record_path = self._prev
+        self._tmp.cleanup()
+
+    def _write(self, *lines):
+        self._path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    def test_matching_entry_suppresses_the_mint(self):
+        self._write(_entry("a private line"))
+        self.assertTrue(keeper_capture._off_record_suppressed("a private line"))
+
+    def test_entry_is_not_consumed(self):
+        self._write(_entry("a private line"))
+        self.assertTrue(keeper_capture._off_record_suppressed("a private line"))
+        # the reconciler asks the same question about the same transcript line
+        self.assertTrue(keeper_capture._off_record_suppressed("a private line"))
+
+    def test_unlisted_prompt_still_mints(self):
+        self._write(_entry("a private line"))
+        self.assertFalse(keeper_capture._off_record_suppressed("an ordinary line"))
+
+    def test_entry_older_than_the_window_stops_suppressing(self):
+        self._write(_entry("a private line",
+                           ts=time.time() - keeper_capture.OFF_RECORD_WINDOW_SEC - 1))
+        self.assertFalse(keeper_capture._off_record_suppressed("a private line"))
+
+    def test_missing_file_fails_open_to_minting(self):
+        # The common case is "she has never gone off the record" — that must not
+        # read as "suppress everything", which would swallow the whole journal.
+        self.assertFalse(keeper_capture._off_record_suppressed("a private line"))
+
+    def test_garbage_lines_are_skipped_not_fatal(self):
+        self._write("not json at all", _entry("a private line"))
+        self.assertTrue(keeper_capture._off_record_suppressed("a private line"))
+
+
 class EntryModeTestCase(unittest.TestCase):
     """_entry_mode: the shared per-entry fence + sentinel parse, reused verbatim
     by reconcile_transcripts.py."""

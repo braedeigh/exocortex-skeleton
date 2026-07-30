@@ -5,13 +5,16 @@ Contracts pinned here:
   owner's own conversation log (her record is the record);
 - capture-first: a journaling bot mints the B card BEFORE claude is spawned;
 - off-the-record (record: false) skips BOTH the journal mint and the log —
-  the log gets only an explicit gap marker (Terra's amendment, 07-23);
+  the log gets only an explicit gap marker (Terra's amendment, 07-23) — and, in
+  a journaling session, leaves a hash in .keeper/off_record.jsonl so the two
+  fallback capture doors don't "restore" the card the server skipped on purpose;
 - the second turn of a conversation resumes claude with the stored session id.
 
 `claude` itself is a stub script (EXOCORTEX_CLAUDE_BIN / observatory.CLAUDE_BIN)
 that reads the prompt from stdin and prints canned NDJSON — the pipe is what's
 under test, not the model.
 """
+import hashlib
 import json
 import stat
 import subprocess
@@ -162,6 +165,38 @@ def test_off_record_skips_journal_and_log(bot_client):
     assert bot_client._mints == []
     log = _conv_log(conv_id)
     assert [e["type"] for e in log] == ["off-record-gap"]
+
+
+def test_off_record_leaves_a_suppression_breadcrumb_for_the_fallback_doors(bot_client):
+    # Skipping the mint isn't enough on its own: the model still gets the text,
+    # so it lands in claude's transcript, and the two fallback capture doors
+    # (the UserPromptSubmit hook, the cron'd reconciler) mint whatever the pool
+    # is missing from a journaling session — which silently undid the switch.
+    # The hash written here is what tells them "skipped on purpose, not lost".
+    conv_id = _journal_conv(bot_client)
+    _sse_events(_send(bot_client, text="a private line", record=False,
+                      conversation_id=conv_id))
+    path = store.CONTENT_DIR / ".keeper" / "off_record.jsonl"
+    entries = [json.loads(l) for l in path.read_text().splitlines()]
+    assert [e["sha256"] for e in entries] == [
+        hashlib.sha256(b"a private line").hexdigest()
+    ]
+
+
+def test_on_record_send_writes_no_suppression_breadcrumb(bot_client):
+    conv_id = _journal_conv(bot_client)
+    _sse_events(_send(bot_client, text="a journal line", conversation_id=conv_id))
+    assert not (store.CONTENT_DIR / ".keeper" / "off_record.jsonl").exists()
+
+
+def test_off_record_in_a_workshop_session_writes_no_breadcrumb(bot_client):
+    # A session that doesn't journal has no fallback door to hold off — the
+    # sidecar would just accumulate hashes nothing ever reads.
+    conv_id = bot_client.post("/api/observatory/keeper/conversations",
+                              json={"title": "scratch"}).get_json()["id"]
+    _sse_events(_send(bot_client, text="workshop aside", record=False,
+                      conversation_id=conv_id))
+    assert not (store.CONTENT_DIR / ".keeper" / "off_record.jsonl").exists()
 
 
 def test_approval_resume_logs_the_command_not_a_blank_gap(bot_client):
