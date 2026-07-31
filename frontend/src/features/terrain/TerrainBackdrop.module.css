@@ -2,10 +2,21 @@
    canvas paints exactly what /terrain paints; this file decides how far back
    in the room it sits.
 
-   Deference: the map is the furniture, the conversation is the content. It
-   holds enough presence to be worth looking at and not one step more. 0.62 is
-   a starting point, not a finding — it's the first number to move if step 1
-   comes back too loud or too faint. */
+   HOW THE WORDS WIN — and why it stopped being a dimming rule. The map used to
+   sit at opacity 0.62, on the theory that a fainter map is an easier one to
+   read over. That treated the wrong variable. Reading is edge detection, and a
+   hard-edged node about the size of a letterform competes with that letterform
+   however faint it is: dimming a sharp dot leaves a sharp dot. So the colour is
+   back at full and the fix is DEPTH OF FIELD — a barely-there blur costs the
+   map none of its heat, none of its red and none of the file-flash, while
+   removing the edges that were competing with the reading. It also reads as
+   distance (a soft thing is a FAR thing), which is the arrangement this
+   backdrop always wanted: the conversation inside the room and the map further
+   back in it, rather than two sharp planes fighting on one surface.
+
+   The two numbers move together by eye — more colour wants more blur.
+
+   Prompt that produced this: "revert the color and blur it barely." */
 
 .backdrop {
   position: absolute;
@@ -24,13 +35,29 @@
   display: block;
   width: 100%;
   height: 100%;
-  opacity: 0.62;
+  /* Full colour. The hot end of the heat ramp and the one-shot flash on a
+     freshly-touched file are the entire "something is happening out there"
+     signal at this distance; they now only have to survive the blur, not a
+     dimmer stacked on top of it. */
+  opacity: 1;
+  /* Barely — just past where node edges stop competing with 16px body text.
+     A blurred point of light blooms instead of blinking, so the file-flash
+     reads as MORE activity here, not less. */
+  filter: blur(2px);
+  /* blur() samples transparency beyond the canvas box, so an unscaled canvas
+     feathers out at the page borders. The wrapper clips, so growing the canvas
+     a few percent pushes that seam outside the box where it can't be seen.
+     Cosmetic only — 3% on wallpaper is invisible. */
+  transform: scale(1.03);
 }
 
-/* A backdrop is exactly the kind of ambient movement reduced-motion is meant
-   to quiet. The map stays — it just recedes further. */
+/* A backdrop is exactly the kind of ambient movement reduced-motion is meant to
+   quiet, and the breath already freezes there (TerrainBackdrop.tsx pins the
+   heat lens at its midpoint). What's left is a still picture, so this only lets
+   it recede one step further — keeping the old rule's proportion rather than
+   its absolute number, now that the baseline is full colour. */
 @media (prefers-reduced-motion: reduce) {
   .canvas {
-    opacity: 0.4;
+    opacity: 0.65;
   }
 }
