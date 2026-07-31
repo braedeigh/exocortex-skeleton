@@ -68,7 +68,9 @@ export function SessionLane({
   sessions,
   terrain,
   opened,
+  emptyNote,
   onOpen,
+  onSetRead,
   onNew,
   onRename,
   onChanged,
@@ -84,7 +86,13 @@ export function SessionLane({
   terrain: TerrainData | undefined;
   /** convId -> last-opened ISO stamp, for the unread accent. */
   opened: Record<string, string>;
+  /** What to say when the lane is empty because a colour filter is ON, rather
+   * than because there's nothing here. "Tap + to start one" would be a lie in
+   * that case — she'd make a session to fill a room that isn't actually empty. */
+  emptyNote?: string;
   onOpen: (convId: string) => void;
+  /** Flip a card's read flag by hand (the dot button on the card). */
+  onSetRead?: (convId: string, read: boolean) => void;
   onNew: (lane: Lane) => void;
   onRename: (session: SessionMeta) => void;
   onChanged?: () => void;
@@ -324,7 +332,7 @@ export function SessionLane({
       {rows.length === 0 ? (
         <div className={styles.idle}>
           <span className={styles.idleDot} aria-hidden="true" />
-          Nothing here yet — tap + to start one.
+          {emptyNote ?? 'Nothing here yet — tap + to start one.'}
         </div>
       ) : (
         <div className={styles.rows}>
@@ -499,6 +507,36 @@ export function SessionLane({
                     </button>
                   ) : (
                     <>
+                      {/* Read / unread, by hand. Opening a session is the only
+                          other way this flag ever moves, which left no way back:
+                          a card she opened, skimmed and meant to return to went
+                          quiet forever. Tapping the dot puts it back to orange —
+                          the roster's own "deal with this later".
+                          [prompt: "an option to unmark things as read
+                          somewhere"] */}
+                      {onSetRead ? (
+                        <button
+                          type="button"
+                          className={styles.readBtn}
+                          aria-label={
+                            status === 'ready'
+                              ? `Mark ${row.title} read`
+                              : `Mark ${row.title} unread`
+                          }
+                          title={status === 'ready' ? 'Mark as read' : 'Mark as unread'}
+                          onClick={() => onSetRead(row.id, status === 'ready')}
+                        >
+                          <span
+                            className={[
+                              styles.readDot,
+                              status === 'ready' ? styles.readDotUnread : '',
+                            ]
+                              .filter(Boolean)
+                              .join(' ')}
+                            aria-hidden="true"
+                          />
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         className={styles.editBtn}

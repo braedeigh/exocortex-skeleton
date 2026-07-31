@@ -718,6 +718,7 @@
    these still get a full hit area — the house rule about × buttons being
    clearly visible and comfortably tappable is not negotiable. */
 .editBtn,
+.readBtn,
 .closeBtn {
   flex: none;
   min-width: var(--tap-target);
@@ -733,9 +734,33 @@
 }
 
 .editBtn:hover,
+.readBtn:hover,
 .closeBtn:hover {
   color: var(--text);
   background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+/* The read/unread toggle wears the state it will PUT the card in, so the ring
+   and the card's left rule agree: filled orange while unread (tap = "I've read
+   this"), a hollow ring once read (tap = "put it back"). A full 40px target
+   around a 14px mark — the mark is small, the button isn't. */
+.readBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.readDot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--text) 40%, transparent);
+  background: transparent;
+}
+
+.readDotUnread {
+  border-color: var(--orange);
+  background: var(--orange);
 }
 
 .closeArmed {

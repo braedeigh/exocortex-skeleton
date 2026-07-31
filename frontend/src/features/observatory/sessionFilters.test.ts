@@ -1,0 +1,92 @@
+import { describe, expect, it } from 'vitest';
+import { applyFilter, filterCounts, matchesFilter } from './sessionFilters';
+import type { SessionMeta } from './api';
+
+const NOW = Date.parse('2026-07-30T12:00:00Z');
+const ago = (ms: number) => new Date(NOW - ms).toISOString();
+const MIN = 60 * 1000;
+
+const session = (id: string, over: Partial<SessionMeta> = {}): SessionMeta => ({
+  id,
+  title: id,
+  last_at: ago(5 * MIN),
+  ...over,
+});
+
+describe('active', () => {
+  it('takes a running session no matter how stale its stamp', () => {
+    const s = session('a', { running: true, last_at: ago(400 * MIN) });
+    expect(matchesFilter(s, undefined, 'active', NOW)).toBe(true);
+  });
+
+  it('takes an idle session used inside the hour and drops one outside it', () => {
+    expect(matchesFilter(session('a', { last_at: ago(59 * MIN) }), undefined, 'active', NOW)).toBe(
+      true,
+    );
+    expect(matchesFilter(session('b', { last_at: ago(61 * MIN) }), undefined, 'active', NOW)).toBe(
+      false,
+    );
+  });
+
+  it('drops a session with no usable stamp', () => {
+    expect(matchesFilter(session('a', { last_at: '' }), undefined, 'active', NOW)).toBe(false);
+  });
+});
+
+describe('unread', () => {
+  it('is unread when activity postdates the last open', () => {
+    const s = session('a', { last_at: ago(5 * MIN) });
+    expect(matchesFilter(s, ago(60 * MIN), 'unread', NOW)).toBe(true);
+    expect(matchesFilter(s, ago(1 * MIN), 'unread', NOW)).toBe(false);
+  });
+
+  it('stays unread while a session is waiting on her, even once opened', () => {
+    const asking = session('a', { awaiting_input: 'which one?' });
+    expect(matchesFilter(asking, ago(1 * MIN), 'unread', NOW)).toBe(true);
+
+    const gated = session('b', {
+      awaiting_approval: { tool: 'Bash', command: 'rm -rf x' },
+    });
+    expect(matchesFilter(gated, ago(1 * MIN), 'unread', NOW)).toBe(true);
+  });
+});
+
+describe('error', () => {
+  it('takes only a session whose last turn failed', () => {
+    expect(matchesFilter(session('a', { last_error: 'exit 1' }), undefined, 'error', NOW)).toBe(
+      true,
+    );
+    expect(matchesFilter(session('b', { last_error: '' }), undefined, 'error', NOW)).toBe(false);
+    expect(matchesFilter(session('c'), undefined, 'error', NOW)).toBe(false);
+  });
+});
+
+describe('counts', () => {
+  // The buckets overlap on purpose — a session that replied two minutes ago is
+  // both active and unread, and both buttons have to say so.
+  it('counts one session under every colour it truly matches', () => {
+    const s = [session('a', { last_at: ago(2 * MIN), last_error: 'boom' })];
+    expect(filterCounts(s, {}, NOW)).toEqual({ active: 1, unread: 1, error: 1 });
+  });
+
+  it('reads the opened map per session id', () => {
+    const s = [session('a'), session('b')];
+    expect(filterCounts(s, { a: ago(1 * MIN) }, NOW).unread).toBe(1);
+  });
+});
+
+describe('applyFilter', () => {
+  it('is the identity with no filter on', () => {
+    const s = [session('a'), session('b')];
+    expect(applyFilter(s, {}, null, NOW)).toBe(s);
+  });
+
+  it('narrows to the chosen colour, keeping the order it was given', () => {
+    const s = [
+      session('a', { last_error: 'boom' }),
+      session('b'),
+      session('c', { last_error: 'bang' }),
+    ];
+    expect(applyFilter(s, {}, 'error', NOW).map((x) => x.id)).toEqual(['a', 'c']);
+  });
+});

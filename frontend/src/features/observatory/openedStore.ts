@@ -3,6 +3,11 @@
  * which conversations she's opened, and when. ObservatoryPage marks a
  * conversation opened on load; RosterPage reads the whole map to compare
  * against each conversation's last_at for the unread dot.
+ *
+ * Opening isn't the only way a card goes read: setConversationRead lets her
+ * say so by hand from the roster, in either direction — including putting a
+ * card BACK to unread, which is the only way to re-raise something she opened
+ * and then didn't deal with.
  */
 
 /** Mark a conversation opened (the roster's unread dot compares this
@@ -24,6 +29,27 @@ export function markConversationOpened(convId: string): string | null {
   } catch {
     // storage disabled — unread dots just stay conservative
     return null;
+  }
+}
+
+/** Set a conversation's read state by hand, from the roster's dot button.
+ *
+ * READ stamps now, exactly like opening it would have. UNREAD *deletes* the
+ * stamp rather than backdating it — an absent entry is already "never opened",
+ * which isUnread treats as unread for anything with activity, so the two ways
+ * of being unread stay one case instead of two. It also means the flag can't
+ * rot: whatever the session does next, the card is unread until she opens it.
+ *
+ * Prompt that produced it: "an option to unmark things as read somewhere". */
+export function setConversationRead(convId: string, read: boolean): void {
+  try {
+    const raw = localStorage.getItem('exo-bot-opened');
+    const map = raw ? (JSON.parse(raw) as Record<string, string>) : {};
+    if (read) map[convId] = new Date().toISOString();
+    else delete map[convId];
+    localStorage.setItem('exo-bot-opened', JSON.stringify(map));
+  } catch {
+    // storage disabled — the tap just doesn't stick
   }
 }
 

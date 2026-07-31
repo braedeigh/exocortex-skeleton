@@ -15,10 +15,151 @@
 
 .header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-3);
   margin-bottom: var(--space-4);
+}
+
+/* Title + sort, grouped left so the whole top-right corner belongs to the
+   colour rail. */
+.headLeft {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  min-width: 0;
+  padding-top: 2px;
+}
+
+/* --- the colour rail (top right) --- */
+/* Three state filters, stacked in her order: purple alive, orange unread, red
+   broken. Each carries its own --hue and every rule below reads from that, so
+   the three buttons are one button drawn three times — a fourth colour would
+   be a class with a --hue and nothing else. */
+.filters {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-2);
+}
+
+.filterBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 128px;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--hue) 45%, var(--border));
+  border-radius: var(--radius-pill);
+  background: var(--card-bg);
+  color: var(--hue);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--dur-2, 200ms) ease, border-color var(--dur-2, 200ms) ease;
+}
+
+.filterHueActive { --hue: var(--accent); }
+.filterHueUnread { --hue: var(--orange); }
+.filterHueError { --hue: var(--red); }
+
+.filterBtn:hover:not(:disabled) {
+  border-color: var(--hue);
+  background: color-mix(in srgb, var(--hue) 10%, var(--card-bg));
+}
+
+/* Switched on: filled, and ringed so it still reads as "on" without relying on
+   the fill alone. */
+.filterOn {
+  border-color: var(--hue);
+  background: color-mix(in srgb, var(--hue) 16%, var(--card-bg));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--hue) 35%, transparent);
+}
+
+/* Nothing behind it. Grey and unclickable rather than gone — a rail that
+   reshuffled as counts hit zero would move the button she was reaching for. */
+.filterEmpty {
+  border-color: var(--border);
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.filterDot {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--hue);
+}
+
+.filterEmpty .filterDot {
+  background: color-mix(in srgb, var(--text) 20%, transparent);
+}
+
+/* The purple dot breathes on the same 2s as a live card's, so the rail and the
+   cards it points at move together. Only while something is actually
+   running — a count of recently-used-but-idle sessions has no pulse in it. */
+.filterHueActive:not(.filterEmpty) .filterDot {
+  animation: filterBreathe 2s ease-in-out infinite;
+}
+
+@keyframes filterBreathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .filterHueActive:not(.filterEmpty) .filterDot {
+    animation: none;
+  }
+}
+
+.filterCount {
+  font-size: var(--font-size-md);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.filterLabel {
+  margin-left: auto;
+  font-weight: 600;
+}
+
+/* Phones: the rail keeps its column (the order is the point) but drops the
+   label, so three pills can't crowd the title off the row. */
+@media (max-width: 480px) {
+  .filterBtn {
+    min-width: 0;
+    padding: 0 var(--space-2);
+  }
+
+  .filterLabel {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+/* Desktop: give the rail room to be a real object in the corner rather than a
+   cramped stack of chips. */
+@media (min-width: 1024px) {
+  .filterBtn {
+    min-width: 152px;
+    font-size: var(--font-size-md);
+  }
+
+  .filterDot {
+    width: 12px;
+    height: 12px;
+  }
 }
 
 .title {
