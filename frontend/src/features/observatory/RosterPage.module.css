@@ -95,9 +95,9 @@
   flex: none;
   width: 48px;
   height: 48px;
-  border: 2px solid color-mix(in srgb, var(--text) 30%, transparent);
+  border: 2px solid var(--text-secondary);
   border-radius: 50%;
-  background: var(--card-bg);
+  background: color-mix(in srgb, var(--text) 7%, transparent);
   color: var(--text);
   font: inherit;
   font-size: var(--font-size-xl);
@@ -125,8 +125,13 @@
   gap: var(--space-2);
 }
 
-/* At rest: a wash of its own colour with a solid outline — present but quiet,
-   so three unpressed buttons read as an offered choice rather than a demand. */
+/* At rest: a THIN wash of its own colour behind a full-strength outline. Only
+   the fill is see-through — the border, the dot and the count stay at full
+   opacity, so the rail reads clearly against whatever is behind it while still
+   letting the page show through. (Fading the whole button with `opacity` was
+   the wrong tool: it took the outline and the number down with the wash.)
+   [prompt: "i also want them more transparent unless selected"; "dots numbers
+   and outlines need to be not transparent on them"] */
 .filterBtn {
   display: flex;
   align-items: center;
@@ -143,7 +148,7 @@
   justify-content: center;
   border: 2px solid var(--hue);
   border-radius: var(--radius-pill);
-  background: color-mix(in srgb, var(--hue) 16%, transparent);
+  background: color-mix(in srgb, var(--hue) 10%, transparent);
   color: var(--hue);
   font: inherit;
   font-size: var(--font-size-sm);
@@ -196,32 +201,6 @@
 
 .filterOn:hover:not(:disabled) {
   background: var(--hue);
-}
-
-/* --- receded until reached for --- */
-/* At rest the whole rail sits back at half strength and lets the roster have
-   the screen; touching or hovering it brings it up solid. Straight out of the
-   notes pill beside it (NotesPill.module.css does the same at 0.45), so the two
-   floating controls behave like one family rather than two.
-   A PRESSED filter is exempt — it isn't a control waiting to be used, it's the
-   answer to "what am I looking at", and that has to read across the room.
-   [prompt: "i also want them more transparent unless selected"] */
-.railNew,
-.filterBtn,
-.railUtil {
-  opacity: 0.5;
-  transition: opacity 150ms ease, background var(--dur-2, 200ms) ease,
-    color var(--dur-2, 200ms) ease, box-shadow var(--dur-2, 200ms) ease;
-}
-
-.rail:hover .railNew,
-.rail:hover .filterBtn,
-.rail:hover .railUtil,
-.rail:focus-within .railNew,
-.rail:focus-within .filterBtn,
-.rail:focus-within .railUtil,
-.filterOn {
-  opacity: 1;
 }
 
 /* Nothing behind it. Grey and unclickable rather than gone — a rail that
@@ -302,10 +281,10 @@
   position: relative;
   min-height: var(--tap-target);
   padding: 0;
-  border: 1px solid color-mix(in srgb, var(--text) 22%, transparent);
+  border: 2px solid var(--text-secondary);
   border-radius: var(--radius-pill);
-  background: color-mix(in srgb, var(--card-bg) 70%, transparent);
-  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+  color: var(--text);
   font: inherit;
   font-size: var(--font-size-md);
   font-weight: 700;
@@ -792,12 +771,9 @@
     width: var(--tap-target);
     min-width: var(--tap-target);
     padding: 0;
-    /* OPAQUE here, unlike the lane's translucent pills: the bar floats over
-       card text rather than empty margin, and a see-through button with a
-       sentence running through it is unreadable. Same solid-square-with-shadow
-       language the notes pill beside it already uses. */
-    background: color-mix(in srgb, var(--hue, transparent) 18%, var(--card-bg));
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
+    /* The fill stays see-through here too — only the shadow is added, to lift
+       the buttons off the card text they float over without solidifying them. */
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
     pointer-events: auto;
   }
 
