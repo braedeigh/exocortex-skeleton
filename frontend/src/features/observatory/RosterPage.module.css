@@ -89,18 +89,22 @@
 
 /* New session. ROUND where the filters are pills, and ink-coloured where they
    are hued — different shape, different colour family, so it can't be read as
-   a fourth state. The outline is a SOFT grey, not near-black: these two carry
-   no state, so drawing them as hard as a lit filter would give them a weight
-   they haven't earned. Solid, just quiet. */
+   a fourth state. Outline and glyph are a LIGHT grey: these two carry no
+   state, so drawing them as hard as a lit filter would give them a weight they
+   haven't earned. Light, but not faint — the house rule is that an icon button
+   must stay clearly visible, and the theme's --border alone disappeared against
+   the page. Solid, just quiet.
+   [prompt: "make the plus sign and the arrow also grey ... a lighter grey as
+   well as the outline"] */
 .railNew {
   align-self: flex-end;
   flex: none;
   width: 48px;
   height: 48px;
-  border: 2px solid var(--text-muted);
+  border: 2px solid color-mix(in srgb, var(--text-muted) 65%, var(--card-bg));
   border-radius: 50%;
-  background: color-mix(in srgb, var(--text) 7%, transparent);
-  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+  color: var(--text-muted);
   font: inherit;
   font-size: var(--font-size-xl);
   font-weight: 700;
@@ -115,17 +119,31 @@
   color: var(--accent);
 }
 
-/* The state filters, stacked in her order: purple running (breathing), purple
+/* The state filters, in her order: purple running (breathing), purple
    active-in-the-last-hour (steady), orange unread, red broken. Each carries its
    own --hue and every rule below reads from that, so they're one button drawn
-   four times — another state would be a class with a --hue and nothing else. */
+   four times — another state would be a class with a --hue and nothing else.
+
+   FOUR RESERVED SLOTS, always. Running and Errors come and go, and when they
+   did it as flex items every appearance shoved Active and Unread along — the
+   two buttons that are ALWAYS there, and so the two she aims at without
+   looking. A grid with a fixed track per state means each button owns its
+   place: an absent one leaves its slot empty instead of collapsing it, and the
+   middle two never move.
+   [prompt: "either side has room for the error and the active session buttons
+   so the middle 2 session buttons never move"] */
 .filters {
-  display: flex;
+  display: grid;
   flex: none;
-  flex-direction: column;
-  align-items: stretch;
+  grid-template-columns: 1fr;
+  grid-template-rows: repeat(4, var(--tap-target));
   gap: var(--space-2);
 }
+
+.filterHueRunning { grid-area: 1 / 1; }
+.filterHueActive { grid-area: 2 / 1; }
+.filterHueUnread { grid-area: 3 / 1; }
+.filterHueError { grid-area: 4 / 1; }
 
 /* At rest: a THIN wash of its own colour behind a full-strength outline. Only
    the fill is see-through — the border, the dot and the count stay at full
@@ -285,10 +303,10 @@
   position: relative;
   min-height: var(--tap-target);
   padding: 0;
-  border: 2px solid var(--text-muted);
+  border: 2px solid color-mix(in srgb, var(--text-muted) 65%, var(--card-bg));
   border-radius: var(--radius-pill);
-  background: color-mix(in srgb, var(--text) 7%, transparent);
-  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+  color: var(--text-muted);
   font: inherit;
   font-size: var(--font-size-md);
   font-weight: 700;
@@ -733,10 +751,14 @@
     /* Clears the pill: its own 16px inset + two 46px squares + 1px borders,
        then a gap. Bottom is nudged so a 40px button centres against the
        pill's 48px, rather than sitting a few pixels low beside it. */
+    /* The band between the two grey anchors on the left and the notes pill on
+       the right. The filter group centres in it, and because every state owns
+       a reserved slot the group's width never changes — so nothing in it ever
+       shifts, whatever is running or broken. */
     right: calc(var(--space-4) + 94px + var(--space-2));
     bottom: calc(var(--space-4) + 4px);
     top: auto;
-    left: var(--space-3);
+    left: calc(var(--space-4) + var(--tap-target) + var(--space-2));
     width: auto;
     margin-top: 0;
     /* Under the pill's 45 so the two can never fight, and well under the
@@ -747,8 +769,8 @@
        wrap-reverse means a sixth button (both come-and-go buttons showing at
        once) wraps to a row ABOVE rather than sliding under the pill or off the
        screen — the row nearest the pill stays put either way. */
-    flex-wrap: wrap-reverse;
-    justify-content: flex-end;
+    flex-wrap: nowrap;
+    justify-content: center;
     align-items: center;
     gap: var(--space-2);
     pointer-events: none;
@@ -756,12 +778,29 @@
 
   /* The bar's own children lay out in a row too, and their column-era spacing
      (a top margin between the groups) becomes horizontal. */
-  .rail > .filters,
-  .rail > .railUtils {
-    flex-direction: row;
-    align-items: center;
+  .rail > .filters {
+    grid-template-rows: 1fr;
+    grid-template-columns: repeat(4, var(--tap-target));
+    gap: var(--space-2);
     margin-top: 0;
-    margin-left: var(--space-2);
+    pointer-events: auto;
+  }
+
+  .rail .filterHueRunning { grid-area: 1 / 1; }
+  .rail .filterHueActive { grid-area: 1 / 2; }
+  .rail .filterHueUnread { grid-area: 1 / 3; }
+  .rail .filterHueError { grid-area: 1 / 4; }
+
+  /* Sort joins the '+' in the bottom-left corner, stacked directly above it —
+     the two grey, stateless controls together. It can't sit on the bar's row:
+     '+' and sort and four reserved slots and the pill do not fit across a
+     390px phone (they leave zero clearance, and break outright at 375). Going
+     upward costs nothing; that space is empty. */
+  .rail > .railUtils {
+    position: fixed;
+    left: var(--space-4);
+    bottom: calc(var(--space-4) + 4px + var(--tap-target) + var(--space-2));
+    margin-top: 0;
     pointer-events: auto;
   }
 
@@ -775,11 +814,14 @@
     width: var(--tap-target);
     min-width: var(--tap-target);
     padding: 0;
-    /* The fill stays see-through here too — only a shadow is added, to lift
-       the buttons off the card text they float over without solidifying them.
-       Selected is excluded because it carries its own lit halo (below); this
-       rule used to overwrite it, so a pressed button on the phone lost the
-       glow the same button has on the desktop. */
+    /* The fill stays see-through — but down here it floats over card TEXT, and
+       a sentence running through a count makes the count unreadable. So the
+       backdrop gets blurred rather than the fill made opaque: the page still
+       shows through in colour and shape, it just stops competing with the
+       number on top of it. Transparency kept, legibility back.
+       The shadow lifts the button off the card underneath. */
+    backdrop-filter: blur(7px) saturate(1.15);
+    -webkit-backdrop-filter: blur(7px) saturate(1.15);
     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
     pointer-events: auto;
   }
