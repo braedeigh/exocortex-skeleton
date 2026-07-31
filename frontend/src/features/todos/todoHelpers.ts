@@ -150,6 +150,21 @@ export function computeFocusCounts(sections: TodoSection[], serverDate: string):
   return { total, none, byFront };
 }
 
+/**
+ * How many live items the ACTIVE chip is showing. '' (All) is the whole list,
+ * '__none__' the untagged ones, any other id that front's own tally.
+ *
+ * The page needs this to tell "this front is empty" apart from "everything is
+ * empty" — reading `counts.total` for that answers the second question while
+ * asking the first, so a filtered-to-nothing front rendered four empty section
+ * headers instead of the empty-state line.
+ */
+export function activeFocusCount(counts: FocusCounts, front: string): number {
+  if (!front) return counts.total;
+  if (front === '__none__') return counts.none;
+  return counts.byFront[front] || 0;
+}
+
 export function collectSnoozed(sections: TodoSection[], serverDate: string): TodoItem[] {
   const index = buildTodoIndex(sections);
   const out: TodoItem[] = [];

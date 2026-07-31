@@ -22,6 +22,7 @@ import { TomorrowCard } from './TomorrowCard';
 import { WaitingCard } from './WaitingCard';
 import {
   LADDER_LABELS,
+  activeFocusCount,
   buildTodoIndex,
   collectSnoozed,
   collectTomorrow,
@@ -308,10 +309,27 @@ export function TodosPage() {
             onOpen={(s) => setStreakId(s.id)}
             onAdd={Array.isArray(data.streaks) ? streakActions.add : undefined}
           />
+          {/* The fronts filter sits HERE, above every to-do surface it
+              governs, and sticks to the top as the page scrolls. It used to
+              render inside the To Do column further down — the filtering
+              already reached Up now, Tomorrow, Snoozed and Waiting, but the
+              control for it sat below all of them, so using it meant scrolling
+              to the bottom of the page to change what the top showed.
+              Deliberately below StreaksRow: counters aren't front-tagged and
+              don't respond to it.
+              (Prompt: "on my dashboard, the fronts are scrollable to filter
+              the entire page's to-dos including the up now page to just that
+              front.") */}
+          {!frosted ? (
+            <FocusChips counts={focusCounts} active={focusFront} fronts={fronts} onChange={setFocusFront} />
+          ) : null}
           {/* The one attention surface: due reminders (formerly the push-
               notification banners — merged 2026-07-20, replacing ReminderCard)
               + overdue/due-today to-dos, with the Tomorrow look-ahead under
-              it. Kept below the greeting per dev note 3c3a4dd3. */}
+              it. Kept below the greeting per dev note 3c3a4dd3.
+              NOTE: `reminders` is passed unfiltered — a ReminderDef carries no
+              `fronts` field, so recurring reminders stay visible under every
+              front. To-dos in this card do follow the filter. */}
           <UpNowCard
             items={upNow}
             reminders={data.reminders || []}
@@ -423,7 +441,6 @@ export function TodosPage() {
             </>
           ) : (
             <>
-              <FocusChips counts={focusCounts} active={focusFront} fronts={fronts} onChange={setFocusFront} />
               <AddBar
                 onAdd={addTodo}
                 onExpand={(pre) => setAddDraft(pre)}
@@ -431,7 +448,11 @@ export function TodosPage() {
                 fronts={fronts}
               />
 
-              {focusFront && focusCounts.total === 0 ? (
+              {/* The ACTIVE chip's count, not the page total — with the page
+                  total this only ever fired when the whole list was empty, so
+                  filtering to a front and clearing it rendered four empty
+                  section headers instead of this line. */}
+              {focusFront && activeFocusCount(focusCounts, focusFront) === 0 ? (
                 <div className={styles.emptyFocus}>Nothing here right now. 🎉</div>
               ) : (
                 ladderSections.map((section, i) => (

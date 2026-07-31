@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  activeFocusCount,
   addDays,
   buildTodoIndex,
   collectSnoozed,
@@ -285,6 +286,26 @@ describe('computeFocusCounts', () => {
     expect(counts.none).toBe(0);
     // Chip counts summing past `total` is intended for multi-front items.
     expect(counts.byFront.connection + counts.byFront.health).toBeGreaterThan(counts.total);
+  });
+});
+
+describe('activeFocusCount', () => {
+  const counts = { total: 9, none: 2, byFront: { job: 4, health: 3 } };
+
+  it('All reports the whole live list', () => {
+    expect(activeFocusCount(counts, '')).toBe(9);
+  });
+  it('a front reports its own tally, not the page total', () => {
+    expect(activeFocusCount(counts, 'job')).toBe(4);
+    expect(activeFocusCount(counts, 'health')).toBe(3);
+  });
+  it('Other reports the untagged items', () => {
+    expect(activeFocusCount(counts, '__none__')).toBe(2);
+  });
+  it('a front with nothing live reports 0 even while the page has items', () => {
+    // The empty-state bug in one line: the page is far from empty, but the
+    // chip in hand is, and that's what the message has to answer to.
+    expect(activeFocusCount(counts, 'learning')).toBe(0);
   });
 });
 
