@@ -230,33 +230,9 @@
   gap: var(--space-3);
 }
 
-.sheetPath {
-  font-size: var(--font-size-md);
-  color: var(--text-secondary);
-  word-break: break-all;
-}
-
 .sheetMeta {
   font-size: var(--font-size-md);
   color: var(--text-muted);
-}
-
-/* "View the code" — the primary action on a tapped file, so it reads as a
-   filled button rather than another list row. */
-.viewCodeBtn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: var(--tap-target, 44px);
-  padding: 0 var(--space-4);
-  border: 1px solid var(--accent);
-  border-radius: var(--radius-lg);
-  background: var(--accent);
-  color: #fff;
-  font-family: inherit;
-  font-size: var(--font-size-base);
-  font-weight: 600;
-  cursor: pointer;
 }
 
 .sessionList {

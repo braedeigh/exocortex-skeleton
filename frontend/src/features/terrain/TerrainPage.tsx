@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { Sheet } from '../../ui';
 import { subscribeTheme } from '../../theme';
+import { openConversationInPane } from '../../shell/paneConversation';
 import { useAtlas } from '../atlas/api';
 import { isUnread, openedMap } from '../observatory/openedStore';
 import { useTerrain, type TerrainData } from './api';
@@ -26,7 +27,7 @@ import { TerrainDials } from './TerrainDials';
 import { TerrainHeatBar } from './TerrainHeatBar';
 import type { AgentPool, AgentSection } from './TerrainAgentBar';
 import { TerrainAgentBar } from './TerrainAgentBar';
-import { FileCodeModal } from './FileCodeModal';
+import { FileCodeWindow } from './FileCodeWindow';
 import {
   readThemeInk,
   TerrainCanvas,
@@ -121,9 +122,12 @@ function usePageVisible(): boolean {
  * beside the colour key it explains. Heat is a continuous half-life in days
  * (7 by default), not the three named lenses it replaced.
  *
- * Tap a file → bottom sheet with its sessions; each session row opens that
- * conversation exactly like the atlas does, or rings its whole footprint on
- * the map. All rendering lives in terrainCanvas.ts; all graph/heat math in
+ * Tap a file → its code, in a frosted window floating over the map
+ * (FileCodeWindow), with what the map knows about the file printed under it:
+ * when it was last touched, and every agent that touched it — each row opens
+ * that conversation exactly like the atlas does, or rings its whole footprint
+ * on the map. Tap an agent orb → a sheet, and its footprint rings at once.
+ * All rendering lives in terrainCanvas.ts; all graph/heat math in
  * terrainGraph.ts (tested).
  */
 const DAY_SECONDS = 86400;
@@ -193,13 +197,12 @@ export function TerrainPage() {
   const [agentWindow, setAgentWindow] = useState<{ from: number; to: number }>({ from: 0, to: 8 });
   const [selected, setSelected] = useState<TerrainNode | null>(null);
   const [footprintSession, setFootprintSession] = useState<string | null>(null);
-  // The file whose code modal is open, if any. Kept separate from `selected`
-  // so closing the code view drops back to the file's session sheet rather
-  // than dismissing everything.
-  const [codeFile, setCodeFile] = useState<{
-    repo: string;
-    path: string;
-  } | null>(null);
+  // The file whose frosted code window is open, if any — the whole node, not
+  // just its coordinates, because the window shows what the MAP knows about
+  // the file (when it was last touched, which agents touched it) alongside
+  // what's in it. Separate from `selected`, which is now only ever an agent
+  // orb: a file tap goes straight to its code rather than through a sheet.
+  const [codeFile, setCodeFile] = useState<TerrainNode | null>(null);
 
   // --- the two dials -----------------------------------------------------
   // How many file nodes to draw. null until the first payload tells us how
@@ -484,15 +487,17 @@ export function TerrainPage() {
     };
   }, []);
 
-  // Tap → sheet. Files open their session list; a session orb highlights
-  // its footprint immediately AND opens its sheet; empty canvas clears both.
-  // (Repo/dir hubs are structure, not destinations — taps pass through.)
+  // Tap. A FILE opens straight into its frosted code window over the map —
+  // one tap, not a sheet asking whether she'd like to see the code she just
+  // pointed at. An agent orb highlights its footprint immediately AND opens
+  // its sheet; empty canvas clears everything. (Repo/dir hubs are structure,
+  // not destinations — taps pass through.)
   useEffect(() => {
     const engine = engineRef.current;
     if (!engine) return;
     engine.onTap = (node) => {
       if (node?.kind === 'file') {
-        setSelected(node);
+        if (node.path) setCodeFile(node);
       } else if (node?.kind === 'session' && node.session) {
         setSelected(node);
         setFootprintSession(node.session.id);
@@ -569,9 +574,23 @@ export function TerrainPage() {
   };
 
   const openSession = (convId: string) => {
-    // Same destination the atlas's cards use (RosterPage.open). Bot comes
-    // from the terrain payload's sessions array when it knows the session,
-    // else the atlas conv→bot map, else 'keeper' (v1 single-engine).
+    // On the desktop split the session opens in the LEFT pane's middle tab —
+    // the one beside Observatory — so the map stays up in the right half and
+    // she can read the conversation next to the footprint it made, instead of
+    // the map being replaced by it. Closing the sheet is part of that: the
+    // point is seeing the terrain again.
+    //
+    // Prompt: "i really want for when i click on an agent on the terrain page,
+    // that opens that session on the left hand page middle tab next to the
+    // observatory rather than the half of the split screen on the right".
+    if (openConversationInPane(convId)) {
+      setSelected(null);
+      return;
+    }
+    // No left pane (mobile, public) — full navigation, the same destination
+    // the atlas's cards use (RosterPage.open). Bot comes from the terrain
+    // payload's sessions array when it knows the session, else the atlas
+    // conv→bot map, else 'keeper' (v1 single-engine).
     const botId = convToBot.get(convId) ?? 'keeper';
     void navigate({
       to: '/observatory/$botId',
@@ -580,7 +599,9 @@ export function TerrainPage() {
     });
   };
 
-  const selectedLast = selected?.file ? fileLastTouch(selected.file) : null;
+  // Files are read in the frosted window now, not the sheet, so this is the
+  // age line the WINDOW prints under the code.
+  const codeFileLast = codeFile?.file ? fileLastTouch(codeFile.file) : null;
 
   return (
     <div className={styles.page}>
@@ -682,7 +703,7 @@ export function TerrainPage() {
           <TerrainKey
             halfLife={halfLife}
             ink={ink}
-            hidden={selected !== null}
+            hidden={selected !== null || codeFile !== null}
             showAgents={shownAgentIds.size > 0}
           />
         ) : null}
@@ -718,26 +739,30 @@ export function TerrainPage() {
             </div>
           </div>
         ) : null}
-        {selected?.file ? (
+      </Sheet>
+
+      {/* Portalled over the canvas — the sim, the zoom transform and the
+          layout are all untouched while it's up, so closing it drops you back
+          onto exactly the map you left. The window carries what the MAP knows
+          about the file under the code: when it was last touched, and which
+          agents touched it, each still able to ring its own footprint. That
+          was a separate sheet standing between her and the code; it reads
+          better as the tail of the file than as a gate in front of it. */}
+      <FileCodeWindow
+        repo={codeFile?.repoId ?? null}
+        path={codeFile?.path ?? null}
+        onClose={() => setCodeFile(null)}
+      >
+        {codeFile?.file ? (
           <div className={styles.sheetBody}>
-            <div className={styles.sheetPath}>{selected.path}</div>
             <div className={styles.sheetMeta}>
-              {selectedLast !== null ? `last touched ${agoPhrase(selectedLast)}` : 'no touches in window'}
+              {codeFileLast !== null ? `last touched ${agoPhrase(codeFileLast)}` : 'no touches in window'}
               {' · '}
-              {selected.file.touches.length} {selected.file.touches.length === 1 ? 'touch' : 'touches'}
+              {codeFile.file.touches.length} {codeFile.file.touches.length === 1 ? 'touch' : 'touches'}
             </div>
-            <button
-              type="button"
-              className={styles.viewCodeBtn}
-              onClick={() => {
-                if (selected.path) setCodeFile({ repo: selected.repoId, path: selected.path });
-              }}
-            >
-              View the code
-            </button>
-            {selected.file.sessions.length > 0 ? (
+            {codeFile.file.sessions.length > 0 ? (
               <div className={styles.sessionList}>
-                {selected.file.sessions.map((s) => (
+                {codeFile.file.sessions.map((s) => (
                   <div key={s.id} className={styles.sessionRow}>
                     <button type="button" className={styles.sessionOpen} onClick={() => openSession(s.id)}>
                       <span className={styles.sessionTitle}>{s.title || s.id}</span>
@@ -758,8 +783,10 @@ export function TerrainPage() {
                       aria-pressed={footprintSession === s.id}
                       title="Show this session's footprint on the map"
                       onClick={() => {
+                        // Ringing a footprint is a statement about the MAP, so
+                        // the window gets out of the way to show it.
                         setFootprintSession((cur) => (cur === s.id ? null : s.id));
-                        setSelected(null);
+                        setCodeFile(null);
                       }}
                     >
                       footprint
@@ -772,16 +799,7 @@ export function TerrainPage() {
             )}
           </div>
         ) : null}
-      </Sheet>
-
-      {/* Portalled over the canvas — the sim, the zoom transform and the
-          layout are all untouched while it's up, so closing it drops you back
-          onto exactly the map you left. */}
-      <FileCodeModal
-        repo={codeFile?.repo ?? null}
-        path={codeFile?.path ?? null}
-        onClose={() => setCodeFile(null)}
-      />
+      </FileCodeWindow>
     </div>
   );
 }

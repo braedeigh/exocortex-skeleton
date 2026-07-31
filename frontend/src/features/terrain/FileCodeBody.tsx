@@ -14,7 +14,9 @@ import styles from './FileCodeBody.module.css';
  * so the honest answer to "what is this" was already written; when a file
  * doesn't say, this says nothing rather than guessing.
  *
- * `fill` is what separates the two frames, and it does two things:
+ * Three frames now wrap it, and two props tell them apart.
+ *
+ * `fill` is PAGE mode, and it does two things:
  *
  *   - The code block grows to take the pane instead of being capped at 55vh
  *     (the modal caps it so a long file can't push the close button off top).
@@ -25,25 +27,34 @@ import styles from './FileCodeBody.module.css';
  *     nothing, so the page clipped instead of scrolling. In the modal the
  *     summary still earns its keep: the point there is to read what a file IS
  *     without reading the file.
+ *
+ * `uncapCode` is WINDOW mode (FileCodeWindow, the frosted pane over the map).
+ * It keeps the summary — same reason the modal does — but drops the code
+ * block's own vertical scroll so the whole file flows into the window's one
+ * scroll region. It also drops the path line, because that frame prints the
+ * path in its header rather than at the top of the body.
  */
 export function FileCodeBody({
   repo,
   path,
   fill = false,
+  uncapCode = false,
 }: {
   repo: string | null;
   path: string | null;
   /** Page mode: let the code block grow instead of capping it at 55vh. */
   fill?: boolean;
+  /** Window mode: no vertical cap or scroll on the code — the frame scrolls. */
+  uncapCode?: boolean;
 }) {
   const { data, isLoading, isError, error } = useTerrainFile(repo, path);
 
   return (
     <div className={[styles.body, fill ? styles.bodyFill : ''].filter(Boolean).join(' ')}>
       {/* The modal's header is only the filename, so the full path goes here.
-          The page has room to put it in its own header, next to the title —
-          so in fill mode this line would just be saying it twice. */}
-      {!fill ? <div className={styles.path}>{path}</div> : null}
+          The page and the frosted window both have room for it in their own
+          headers — in those frames this line would just say it twice. */}
+      {!fill && !uncapCode ? <div className={styles.path}>{path}</div> : null}
 
       {isLoading ? <div className={styles.hint}>Reading the file…</div> : null}
 
@@ -81,7 +92,11 @@ export function FileCodeBody({
       {data?.binary ? <div className={styles.hint}>Binary file — nothing to read here.</div> : null}
 
       {data?.content ? (
-        <pre className={[styles.code, fill ? styles.codeFill : ''].filter(Boolean).join(' ')}>
+        <pre
+          className={[styles.code, fill ? styles.codeFill : '', uncapCode ? styles.codeFlow : '']
+            .filter(Boolean)
+            .join(' ')}
+        >
           <code>{data.content}</code>
         </pre>
       ) : null}

@@ -85,3 +85,19 @@
   min-height: 0;
   max-height: none;
 }
+
+/* Window mode (the frosted pane over the map): the code doesn't scroll
+   vertically at all — it flows at its full height into the window's single
+   scroll region, so one file means one scrollbar. Long LINES still need
+   somewhere to go, and there's no inheriting that, so overflow-x stays.
+   The block also goes transparent: over frosted glass its own tinted panel
+   read as a second, flatter surface floating inside the first. */
+.codeFlow {
+  max-height: none;
+  overflow-x: auto;
+  overflow-y: visible;
+  background: transparent;
+  border-color: transparent;
+  padding-left: 0;
+  padding-right: 0;
+}
