@@ -55,8 +55,16 @@ const BACKDROP_TIER = null;
  *   (white = read, purple = created-or-modified; freshly created files also
  *   fill green). Undefined on a session with no agent
  *   yet, where the backdrop just shows the whole breathing map.
+ * @param revealed true while the Observatory's step-back view is up (see
+ *   useStepBack.ts). The map stops being wallpaper for as long as it's held:
+ *   the blur that keeps it out of her reading lifts, and it captions itself —
+ *   the agent orb wears its session name, the directories it's working inside
+ *   get named, and so do the files it has touched.
  */
-export function TerrainBackdrop({ focusConv }: { focusConv?: string | null } = {}) {
+export function TerrainBackdrop({
+  focusConv,
+  revealed = false,
+}: { focusConv?: string | null; revealed?: boolean } = {}) {
   const [anyRunning, setAnyRunning] = useState(false);
   const [onScreen, setOnScreen] = useState(() =>
     typeof document === 'undefined' ? true : document.visibilityState === 'visible',
@@ -121,6 +129,12 @@ export function TerrainBackdrop({ focusConv }: { focusConv?: string | null } = {
   useEffect(() => {
     engineRef.current?.setFocus(focusConv ?? null);
   }, [focusConv]);
+
+  // Captions follow the step-back view. Same shape as the focus effect above:
+  // it runs after the lifecycle effect, so the engine is there to tell.
+  useEffect(() => {
+    engineRef.current?.setAmbientLabels(revealed);
+  }, [revealed]);
 
   // The breath. One interval, alive only while the page is visible; a
   // reduced-motion preference freezes it at the midpoint rather than removing

@@ -333,6 +333,21 @@ export class TerrainCanvas {
   private focusConv: string | null = null;
   private focusRings: Map<string, FileTouchKind> = new Map();
   /**
+   * The directories the focused agent is working INSIDE — every ancestor of
+   * every file it has touched. Its own tier of caption in the Observatory's
+   * step-back view, and the one that carries the most at a glance: "where is
+   * it" survives being read in a second, where a list of filenames doesn't.
+   * Derived alongside focusRings so it can never disagree with them.
+   */
+  private focusDirIds: Set<string> = new Set();
+  /**
+   * Whether this ambient surface is allowed to caption itself. Off by default
+   * — wallpaper behind a conversation has no business naming things — and
+   * turned on only while the step-back view is up, where the map has stopped
+   * being wallpaper and become the thing she's looking at.
+   */
+  private ambientLabels = false;
+  /**
    * /terrain's ring set: every file the *shown* agents have read or written,
    * ringed all at once without anything being focused or tapped. Same colours
    * the backdrop's focus rings use (purple = written, white = read) and drawn
@@ -535,10 +550,41 @@ export class TerrainCanvas {
     this.requestDraw();
   }
 
+  /** Let an ambient surface caption itself (the Observatory's step-back view).
+   * Pure lighting: no camera move, no sim wake, one repaint when it flips. */
+  setAmbientLabels(on: boolean): void {
+    if (this.ambientLabels === on) return;
+    this.ambientLabels = on;
+    this.requestDraw();
+  }
+
   private recomputeFocusRings(): void {
     this.focusRings = this.focusConv
       ? sessionTouchRings(this.simNodes.map((sn) => sn.node), this.focusConv)
       : new Map();
+    // Walk up from each touched file to collect the directories it sits in.
+    // Ancestors rather than immediate parents: a file at features/terrain/x.ts
+    // means the agent is working in features/ as much as in features/terrain/,
+    // and the collapsed-chain labels the graph builds ("routes/kitchen") read
+    // naturally at either level. Stops climbing the moment it reaches a
+    // directory already collected, so shared ancestors are walked once.
+    const dirs = new Set<string>();
+    if (this.focusRings.size > 0) {
+      const parentOf = new Map<string, string | null>();
+      const kindOf = new Map<string, TerrainNode['kind']>();
+      for (const sn of this.simNodes) {
+        parentOf.set(sn.id, sn.node.parentId);
+        kindOf.set(sn.id, sn.node.kind);
+      }
+      for (const fileId of this.focusRings.keys()) {
+        let p = parentOf.get(fileId) ?? null;
+        while (p !== null && !dirs.has(p)) {
+          if (kindOf.get(p) === 'dir') dirs.add(p);
+          p = parentOf.get(p) ?? null;
+        }
+      }
+    }
+    this.focusDirIds = dirs;
   }
 
   /** The transform that loosely centers the focused orb + its ringed files in
@@ -1113,22 +1159,42 @@ export class TerrainCanvas {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom';
     const k = transform.k;
-    if (this.ambient) return; // wallpaper doesn't caption itself
+    // Wallpaper doesn't caption itself — unless the step-back view has asked
+    // it to, which is the one moment the backdrop is being looked at rather
+    // than read over.
+    const captioned = this.ambient && this.ambientLabels;
+    if (this.ambient && !captioned) return;
     // Which files get named, when an agent is spotlit. Above readable zoom
     // there's room for its whole footprint; below it only the head of the
     // recency list, so pulling back thins the captions to the newest work
     // instead of stacking them into soup. Nothing spotlit → no file labels at
     // all: the eight-hottest labels this replaced looked arbitrary precisely
     // because no gesture had asked for them.
-    const namedFiles =
-      this.footprintLabels.length === 0
+    //
+    // The step-back view asks the same question of a different set: there is
+    // no tap-spotlight behind a conversation, so the named files are the ones
+    // the FOCUSED agent has touched — the same set already wearing rings. Same
+    // zoom rule, same cap, so a dense map can't turn into soup here either.
+    const ambientNamed =
+      this.focusRings.size === 0
+        ? null
+        : k >= LABEL_MIN_K
+          ? new Set(this.focusRings.keys())
+          : new Set([...this.focusRings.keys()].slice(0, FOOTPRINT_LABEL_CAP));
+    const namedFiles = captioned
+      ? ambientNamed
+      : this.footprintLabels.length === 0
         ? null
         : k >= LABEL_MIN_K
           ? this.footprintLabelSet
           : new Set(this.footprintLabels.slice(0, FOOTPRINT_LABEL_CAP));
     for (const n of this.simNodes) {
       if (n.node.kind === 'file' && !(namedFiles !== null && namedFiles.has(n.id))) continue;
-      if (n.node.kind === 'dir' && k < LABEL_MIN_K) continue;
+      // Directories caption themselves at readable zoom on the map proper. In
+      // the step-back view zoom is not hers to set, so the bound is relevance
+      // instead: only the directories the focused agent is actually working
+      // inside get named, however far out the camera happens to be sitting.
+      if (n.node.kind === 'dir' && (captioned ? !this.focusDirIds.has(n.id) : k < LABEL_MIN_K)) continue;
       // Orbs wear their titles by default — an agent's name is its identity,
       // not something to uncover — but the caller can narrow it. /terrain
       // passes the agents active within the hour, because a twelve-agent pool

@@ -13,6 +13,7 @@ import { Reply, StreamingReply } from './replyViews';
 import { useTurnStats } from './useTurnStats';
 import { useWordFlow } from './useWordFlow';
 import { useScrollContract } from './useScrollContract';
+import { useStepBack, useStepBackDismiss } from './useStepBack';
 import { useMessageQueue } from './useMessageQueue';
 import { usePhotoAttach, AttachChips, DropVeil, UploadOverlay } from './photoAttach';
 import { useReattach } from './useReattach';
@@ -181,6 +182,19 @@ export function ObservatoryPage({
     streaming,
     writing,
   });
+
+  // Step back to watch the terrain (useStepBack.ts): pull past the end of the
+  // conversation and it recedes to a strip while the map takes the screen,
+  // clean and captioned. It borrows the contract's bottom-pin rather than
+  // carrying scroll logic of its own — the strip wants exactly what a terminal
+  // wants, the newest line held at the bottom while text prints into it.
+  const pageRef = useRef<HTMLDivElement>(null);
+  const stepBack = useStepBack({
+    scrollRef: scrollContract.scrollRef,
+    pageRef,
+    pinToBottom: scrollContract.pinToBottom,
+  });
+  const stepBackDismiss = useStepBackDismiss(stepBack.exit);
 
   // History load when opening an existing conversation — landing at the
   // latest turn, like reopening a terminal session.
@@ -542,11 +556,22 @@ export function ObservatoryPage({
   }, []);
 
   return (
-    <div className={styles.page}>
+    <div
+      ref={pageRef}
+      className={[styles.page, stepBack.active ? styles.pageStepBack : ''].filter(Boolean).join(' ')}
+    >
       {/* Step 1 of the backdrop: the terrain map behind the conversation.
           The glass, the featured agent and the burning scroll are separate
           steps and land separately — see TerrainBackdrop.tsx. */}
-      <TerrainBackdrop focusConv={convId} />
+      <TerrainBackdrop focusConv={convId} revealed={stepBack.active} />
+
+      {/* The room the conversation gives up when she pulls past its end (see
+          useStepBack.ts + .stepBackRoom). Always mounted at zero height so the
+          transition interpolates instead of popping; it's also the surface
+          that hands the screen back. */}
+      <div className={styles.stepBackRoom} {...stepBackDismiss}>
+        <div className={styles.stepBackHint}>tap to return</div>
+      </div>
 
       <div ref={scrollContract.scrollRef} className={styles.scroll}>
         <div ref={scrollContract.columnRef} className={styles.column}>

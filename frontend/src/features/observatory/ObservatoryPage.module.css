@@ -30,6 +30,76 @@
   overflow-x: hidden;
 }
 
+/* --- Step back: the conversation gives the map the room ------------------- */
+/* The view behind useStepBack.ts. Pull past the end of the conversation and it
+   recedes to a strip at the bottom while the terrain takes the rest, clean and
+   captioned. Nothing is layered or hidden — the conversation is simply given
+   less of the screen, so the map that was always back there becomes the thing
+   in front of her.
+
+   The mechanism is this one flex child. It's always present and always in the
+   layout at zero height, which is what makes the transition an interpolation
+   between two numbers rather than a mount: growing its basis squeezes .scroll
+   (still flex: 1) down to the remainder, and shrinking it back hands the page
+   over. .scroll needs no rule of its own for any of it. */
+.stepBackRoom {
+  flex: 0 0 0%;
+  min-height: 0;
+  position: relative;
+  /* Inert until the view is up: at zero height it has nothing to catch, and
+     catching anything would be catching it from the conversation. */
+  pointer-events: none;
+  /* A large transition, so the long end of the 300-400ms band — this is the
+     whole screen rearranging, and it should read as the room turning over
+     rather than as a panel snapping open. */
+  transition: flex-basis 340ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.pageStepBack .stepBackRoom {
+  flex-basis: 68%;
+  pointer-events: auto;
+}
+
+/* The map is at full strength for as long as the view is held. */
+.pageStepBack {
+  --step-pull: 1;
+}
+
+/* The way out, named. A gesture-entered view needs a visible exit or it's a
+   trap — dragging back down and wheeling back up both work (useStepBackDismiss)
+   but neither announces itself, so this does. Bottom of the room, just above
+   the strip, where her eye already is. */
+.stepBackHint {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: var(--space-3);
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--font-size-md);
+  opacity: 0;
+  transition: opacity 240ms ease 120ms;
+}
+
+.pageStepBack .stepBackHint {
+  opacity: 1;
+}
+
+/* The strip's own ground. A gradient rather than a hard edge, so the
+   conversation surfaces out of the map instead of sitting on it in a box: the
+   newest lines — at the bottom, where they print — get solid page colour to sit
+   on, and the top of the strip dissolves into the terrain. */
+.pageStepBack .scroll {
+  background: linear-gradient(to bottom, transparent 0%, var(--bg) 30%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stepBackRoom,
+  .stepBackHint {
+    transition: none;
+  }
+}
+
 .column {
   max-width: 68ch;
   margin: 0 auto;
