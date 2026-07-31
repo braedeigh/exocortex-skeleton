@@ -253,8 +253,70 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* --- the rail's utilities: sort, mark-all-read --- */
+/* Set apart from the colours above by a wider gap, and drawn in INK rather than
+   a hue. Colour in this rail means state; these are actions, so they don't get
+   to borrow one — the same reason the '+' is colourless. Round in the narrow
+   lane (icon only), a labelled pill in the wide one, so the whole column keeps
+   one alignment.
+   [prompt: sort moved off the header into the rail, plus a mark-all-read that
+   only appears while there's unread to clear] */
+.railUtils {
+  display: flex;
+  flex-direction: column;
+  /* stretch, not flex-end: the utilities take the LANE's width, so they line up
+     flush with the filter pills above them instead of each sizing to its own
+     label. It also stops the armed button changing width when "Mark read"
+     becomes "Sure?" — a control must not move under the thumb about to tap it. */
+  align-items: stretch;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+.railUtil {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  /* Anchors the label while the narrow lane holds it out of flow. */
+  position: relative;
+  min-height: var(--tap-target);
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--text) 22%, transparent);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--card-bg) 70%, transparent);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--font-size-md);
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--dur-2, 200ms) ease, border-color var(--dur-2, 200ms) ease,
+    color var(--dur-2, 200ms) ease;
+}
+
+.railUtil:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Armed: it wears the colour of the thing it's about to clear, so the second
+   tap is unmistakably about the orange. Same arm-then-fire as the cards' Stop
+   and × — not a dialog, because this isn't destructive, just tedious to undo
+   one card at a time. */
+.railUtilArmed {
+  border-color: var(--orange);
+  background: color-mix(in srgb, var(--orange) 18%, transparent);
+  color: var(--orange);
+}
+
+.railUtilIcon {
+  font-size: var(--font-size-lg);
+}
+
 /* Hidden by default and screen-reader-only: the narrow lane has room for a dot
    and a count, nothing more. It comes back below, where the lane is wide. */
+.railUtilLabel,
 .filterLabel {
   position: absolute;
   width: 1px;
@@ -277,7 +339,8 @@
     height: 12px;
   }
 
-  .layoutRoomy .filterLabel {
+  .layoutRoomy .filterLabel,
+  .layoutRoomy .railUtilLabel {
     position: static;
     width: auto;
     height: auto;
@@ -285,6 +348,13 @@
     clip-path: none;
     margin-left: auto;
     font-weight: 700;
+  }
+
+  /* Wide lane: lay out left-to-right like the filter pills. The width comes
+     from the lane itself (align-items: stretch), so nothing is hardcoded. */
+  .layoutRoomy .railUtil {
+    justify-content: flex-start;
+    padding: 0 var(--space-3);
   }
 }
 
