@@ -5,9 +5,13 @@
  *
  * The three colours are the ones the cards already wear (Orchestra.module.css):
  *
- *   purple  ACTIVE  — a turn is running now, or it did anything in the last hour
+ *   purple  RUNNING — a turn is in flight this second (the breathing one)
+ *   purple  ACTIVE  — running, or it did anything in the last hour (steady)
  *   orange  UNREAD  — output she hasn't opened, or a session stopped to ask her
  *   red     ERROR   — the last turn ended in failure / was aborted
+ *
+ * RUNNING nests inside ACTIVE rather than competing with it — same colour, and
+ * the breath is the difference, exactly as the cards already draw it.
  *
  * NOT a partition. A card wears ONE state (broken beats busy beats unread —
  * see SessionLane), but a session can honestly belong to two of these buckets
@@ -31,10 +35,14 @@
 import type { SessionMeta } from './api';
 import { isUnread } from './openedStore';
 
-export type StateFilter = 'active' | 'unread' | 'error';
+export type StateFilter = 'running' | 'active' | 'unread' | 'error';
+
+/** Every button, in the order they stack. Anything that walks the whole set
+ * (the counts, the tests) reads this rather than repeating the list. */
+export const ALL_FILTERS: StateFilter[] = ['running', 'active', 'unread', 'error'];
 
 /** "Last used in the past hour" — her words, and the whole definition of the
- * purple button's idle half. */
+ * purple ACTIVE button's idle half. */
 export const ACTIVE_WINDOW_MS = 60 * 60 * 1000;
 
 export function matchesFilter(
@@ -44,6 +52,16 @@ export function matchesFilter(
   nowMs: number = Date.now(),
 ): boolean {
   switch (filter) {
+    case 'running':
+      // A turn is in flight RIGHT NOW. Already staleness-corrected server-side
+      // (routes/observatory.py), so there's no clock to consult and no window
+      // to argue about — it's the one state that's simply true or not.
+      //
+      // A STRICT SUBSET of 'active' below, deliberately: a session running this
+      // second was also used inside the last hour, so it counts under both.
+      // That's the nesting she asked for — "only those actually active" beside
+      // "active in the past hour" — not two rival definitions.
+      return meta.running === true;
     case 'active': {
       // Running is the server's already-staleness-corrected value, so it wins
       // outright and needs no clock. Otherwise: did it do anything recently?
@@ -99,7 +117,7 @@ export function cardState(
   nowMs: number = Date.now(),
 ): CardState {
   if (matchesFilter(meta, openedAt, 'error', nowMs)) return 'error';
-  if (meta.running === true) return 'running';
+  if (matchesFilter(meta, openedAt, 'running', nowMs)) return 'running';
   if (matchesFilter(meta, openedAt, 'unread', nowMs)) return 'unread';
   // Everything the purple button counts EXCEPT the running half, which already
   // has its own louder state above.
@@ -114,9 +132,9 @@ export function filterCounts(
   opened: Record<string, string>,
   nowMs: number = Date.now(),
 ): Record<StateFilter, number> {
-  const counts: Record<StateFilter, number> = { active: 0, unread: 0, error: 0 };
+  const counts: Record<StateFilter, number> = { running: 0, active: 0, unread: 0, error: 0 };
   for (const s of sessions) {
-    for (const key of ['active', 'unread', 'error'] as StateFilter[]) {
+    for (const key of ALL_FILTERS) {
       if (matchesFilter(s, opened[s.id], key, nowMs)) counts[key] += 1;
     }
   }

@@ -66,7 +66,7 @@ describe('counts', () => {
   // both active and unread, and both buttons have to say so.
   it('counts one session under every colour it truly matches', () => {
     const s = [session('a', { last_at: ago(2 * MIN), last_error: 'boom' })];
-    expect(filterCounts(s, {}, NOW)).toEqual({ active: 1, unread: 1, error: 1 });
+    expect(filterCounts(s, {}, NOW)).toEqual({ running: 0, active: 1, unread: 1, error: 1 });
   });
 
   it('reads the opened map per session id', () => {
@@ -143,5 +143,41 @@ describe('cardState', () => {
     const s = session('a', { last_at: ago(2 * MIN) });
     expect(cardState(s, read('a').a, NOW)).toBe('recent');
     expect(cardState(s, undefined, NOW)).toBe('unread');
+  });
+});
+
+describe('running', () => {
+  it('takes only a session with a turn in flight', () => {
+    expect(matchesFilter(session('a', { running: true }), undefined, 'running', NOW)).toBe(true);
+    expect(matchesFilter(session('b', { last_at: ago(1 * MIN) }), undefined, 'running', NOW)).toBe(
+      false,
+    );
+  });
+
+  it('nests inside active rather than competing with it', () => {
+    // A running session is counted by BOTH purple buttons — that's the whole
+    // shape: "only what's actually running" sits inside "used in the hour".
+    const s = session('a', { running: true, last_at: ago(400 * MIN) });
+    expect(matchesFilter(s, undefined, 'running', NOW)).toBe(true);
+    expect(matchesFilter(s, undefined, 'active', NOW)).toBe(true);
+  });
+
+  it('never counts more than active does', () => {
+    const s = [
+      session('a', { running: true }),
+      session('b', { last_at: ago(5 * MIN) }),
+      session('c', { last_at: ago(300 * MIN) }),
+    ];
+    const c = filterCounts(s, {}, NOW);
+    expect(c.running).toBe(1);
+    expect(c.active).toBe(2);
+    expect(c.running).toBeLessThanOrEqual(c.active);
+  });
+
+  it('drives the same card state as the button', () => {
+    const s = session('a', { running: true });
+    expect(cardState(s, ago(0), NOW)).toBe('running');
+    // ...while the merely-recent one gets the steady rung.
+    expect(cardState(session('b', { last_at: ago(20 * MIN) }), ago(0), NOW)).toBe('recent');
   });
 });

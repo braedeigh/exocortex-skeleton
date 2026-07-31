@@ -59,6 +59,14 @@ const FILTERS: {
   onlyWhenPresent?: boolean;
 }[] = [
   {
+    key: 'running',
+    hue: 'filterHueRunning',
+    label: 'Running',
+    title: 'A turn is in flight right now',
+    emptyNote: 'Nothing is running in this room right now.',
+    onlyWhenPresent: true,
+  },
+  {
     key: 'active',
     hue: 'filterHueActive',
     label: 'Active',
@@ -185,14 +193,19 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
   const counts = filterCounts(ordered, opened);
   const shown = applyFilter(ordered, opened, filters);
 
-  // Red vanishes the moment nothing is broken — so if it was pressed, it has to
-  // let go too, or she'd be left narrowed to a colour with no button left to
-  // switch off.
+  // The come-and-go buttons (Running, Errors) vanish the moment their count
+  // hits zero — so a pressed one has to let go too, or she'd be left narrowed
+  // to a colour with no button left on screen to switch off. Driven off
+  // `onlyWhenPresent` rather than naming a filter, so this can't be forgotten
+  // the next time a button joins them.
+  const vanished = FILTERS.filter((f) => f.onlyWhenPresent && counts[f.key] === 0)
+    .map((f) => f.key)
+    .join(',');
   useEffect(() => {
-    if (counts.error === 0) {
-      setFilters((cur) => (cur.includes('error') ? cur.filter((f) => f !== 'error') : cur));
-    }
-  }, [counts.error]);
+    if (!vanished) return;
+    const gone = vanished.split(',') as StateFilter[];
+    setFilters((cur) => (cur.some((f) => gone.includes(f)) ? cur.filter((f) => !gone.includes(f)) : cur));
+  }, [vanished]);
 
   // The lane is server-resolved (it derives one for every session that predates
   // the field), so this is a straight split, not a guess. An unknown value

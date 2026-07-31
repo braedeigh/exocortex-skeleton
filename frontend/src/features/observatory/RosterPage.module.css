@@ -80,9 +80,9 @@
   }
 }
 
-/* The rail is a column: the '+' on top, then the three filters under it. Its
+/* The rail is a column: the '+' on top, then the state filters under it. Its
    own gap is wider than the one between the filters, so the action and the
-   states read as two groups rather than four buttons in a row. */
+   states read as two groups rather than one undifferentiated pile. */
 .rail > .filters {
   margin-top: var(--space-3);
 }
@@ -113,10 +113,10 @@
   color: var(--accent);
 }
 
-/* Three state filters, stacked in her order: purple alive, orange unread, red
-   broken. Each carries its own --hue and every rule below reads from that, so
-   the three buttons are one button drawn three times — a fourth colour would
-   be a class with a --hue and nothing else. */
+/* The state filters, stacked in her order: purple running (breathing), purple
+   active-in-the-last-hour (steady), orange unread, red broken. Each carries its
+   own --hue and every rule below reads from that, so they're one button drawn
+   four times — another state would be a class with a --hue and nothing else. */
 .filters {
   display: flex;
   flex: none;
@@ -157,6 +157,13 @@
 /* --glow is the hue lifted toward white: the flat palette colours are fine as
    outlines but muddy as halos, especially the burnt orange against the dark
    indigo theme (same trick .cardUnread uses). */
+
+/* RUNNING and ACTIVE share the purple on purpose — they are the same fact at
+   two depths (in flight this second / touched within the hour), and Running is
+   a strict subset of Active. The BREATH is the only thing that separates them,
+   which is exactly how the cards already tell a live card from a warm one. A
+   second hue would have implied a second meaning. */
+.filterHueRunning,
 .filterHueActive {
   --hue: var(--accent);
   --glow: color-mix(in srgb, var(--accent) 70%, white);
@@ -216,10 +223,11 @@
   background: color-mix(in srgb, var(--text) 20%, transparent);
 }
 
-/* The purple dot breathes on the same 2s as a live card's, so the rail and the
-   cards it points at move together. Only while something is actually
-   running — a count of recently-used-but-idle sessions has no pulse in it. */
-.filterHueActive:not(.filterEmpty) .filterDot {
+/* Only RUNNING breathes, on the same 2s as a live card's dot, so the rail and
+   the cards it points at rise and fall together. ACTIVE stays steady: most of
+   what it counts isn't moving, and a pulse over an idle session would be the
+   interface claiming something the data doesn't say. */
+.filterHueRunning .filterDot {
   animation: filterBreathe 2s ease-in-out infinite;
 }
 
@@ -229,7 +237,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .filterHueActive:not(.filterEmpty) .filterDot {
+  .filterHueRunning .filterDot {
     animation: none;
   }
 }
