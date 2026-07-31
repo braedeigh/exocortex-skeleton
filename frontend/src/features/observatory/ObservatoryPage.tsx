@@ -4,7 +4,7 @@ import { autosizeHeight, uploadedPathsMessage } from '../phone/phoneLogic';
 import { TermNotesPanel } from '../../shell/TermNotesPanel';
 import { SchedulePanel } from '../../shell/SchedulePanel';
 import { TerrainBackdrop } from '../terrain/TerrainBackdrop';
-import { createSession, getConversation, journalOutput, stopConversation, streamSend } from './api';
+import { createSession, getConversation, getSessions, journalOutput, stopConversation, streamSend } from './api';
 import { applyEvent, assistantText, lastUserTurnIndex, turnsFromHistory, userTurn, type Turn } from './events';
 import { formatSessionSpend, formatWorkingLine } from './turnStats';
 import { isUnread, markConversationOpened } from './openedStore';
@@ -131,6 +131,10 @@ export function ObservatoryPage({
   // Lifetime spend of this session, preformatted ("18.2k tokens · $4.21"), or
   // null until a turn has finished. Refreshed whenever history reloads.
   const [sessionSpend, setSessionSpend] = useState<string | null>(null);
+  // The roster's cached Haiku one-liner of what this session is working on
+  // (SessionMeta.summary). Seeded on open like its neighbours here, then
+  // refreshed whenever she pulls back to look — see the step-back effect below.
+  const [sessionSummary, setSessionSummary] = useState<string | null>(null);
   // Tap-to-journal: which assistant turn is armed (tap → "✦ put this in the
   // journal" appears → tap that to mint the K card).
   const [journalArmed, setJournalArmed] = useState<number | null>(null);
@@ -215,6 +219,25 @@ export function ObservatoryPage({
   // window widens to cover the scatter for as long as the view is up.
   emberRef.current = stepBack.active;
 
+  // The summary refreshes on the gesture rather than on a timer: it's the one
+  // moment she's actually looking at it, and the server only regenerates the
+  // line about once a minute anyway, so a poll would mostly re-fetch the same
+  // sentence. /api/observatory carries every session's meta WITHOUT its events,
+  // so this costs a roster read rather than a transcript.
+  useEffect(() => {
+    if (!stepBack.active || !convId) return;
+    const ac = new AbortController();
+    getSessions(ac.signal)
+      .then((data) => {
+        const mine = (data.sessions ?? []).find((s) => s.id === convId);
+        if (mine) setSessionSummary(mine.summary ?? null);
+      })
+      // A stale sentence beats an error here — the view is still doing its job
+      // without it, and there's nothing she could act on.
+      .catch(() => {});
+    return () => ac.abort();
+  }, [stepBack.active, convId]);
+
   // History load when opening an existing conversation — landing at the
   // latest turn, like reopening a terminal session.
   useEffect(() => {
@@ -243,6 +266,7 @@ export function ObservatoryPage({
         setSessionJournal(data.meta?.journal === true ? true : data.meta?.journal === false ? false : null);
         setSessionPinned(data.meta?.pinned === true);
         setSessionSpend(data.meta?.tokens ? formatSessionSpend(data.meta.tokens) : null);
+        setSessionSummary(data.meta?.summary ?? null);
         if (data.meta?.title) setRoomTitle(data.meta.title);
         // Draft prefill: a staged first message she hasn't fired yet. Only
         // takes the compose box if it's still empty (never stomp something
@@ -696,6 +720,9 @@ export function ObservatoryPage({
           interpolates instead of popping; it's also the surface that hands the
           screen back. */}
       <div className={styles.stepBackRoom} {...stepBackDismiss}>
+        {sessionSummary ? (
+          <div className={styles.stepBackSummary}>{sessionSummary}</div>
+        ) : null}
         <div className={styles.stepBackHint}>tap to return</div>
       </div>
 

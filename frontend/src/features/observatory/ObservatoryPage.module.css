@@ -65,20 +65,47 @@
   --step-pull: 1;
 }
 
+/* What the agent is actually DOING, in a sentence — the cached Haiku one-liner
+   the roster already keeps (SessionMeta.summary). The captions on the map say
+   where it's working; this is the one thing a captioned map can't show. Sits at
+   the top of the room, directly under the strip, because that's where her eye
+   lands coming off the text.
+
+   Both this and the hint below wear the column's halo. They're the only text on
+   the page sitting over the map at FULL strength with no blur under it, so if
+   anything on this surface needs a clearing of calm ground it's these two. */
+.stepBackSummary,
+.stepBackHint {
+  position: absolute;
+  left: var(--space-4);
+  right: var(--space-4);
+  text-align: center;
+  text-shadow: 0 0 4px var(--bg), 0 0 10px var(--bg), 0 0 20px var(--bg);
+  opacity: 0;
+  transition: opacity 240ms ease 120ms;
+}
+
+.stepBackSummary {
+  top: var(--space-4);
+  max-width: 48ch;
+  margin: 0 auto;
+  color: var(--text-secondary);
+  font-size: var(--font-size-base);
+  line-height: 1.5;
+}
+
 /* The way out, named. A gesture-entered view needs a visible exit or it's a
    trap — dragging back down and wheeling back up both work (useStepBackDismiss)
    but neither announces itself, so this does. Bottom of the room, out of the
    map's middle, just above the composer. */
 .stepBackHint {
-  position: absolute;
-  left: 0;
-  right: 0;
   bottom: var(--space-3);
-  text-align: center;
   color: var(--text-muted);
   font-size: var(--font-size-md);
-  opacity: 0;
-  transition: opacity 240ms ease 120ms;
+}
+
+.pageStepBack .stepBackSummary {
+  opacity: 1;
 }
 
 .pageStepBack .stepBackHint {
@@ -96,6 +123,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .stepBackRoom,
+  .stepBackSummary,
   .stepBackHint {
     transition: none;
   }
