@@ -267,26 +267,33 @@
   margin: 0 0 var(--space-4);
 }
 
+/* The heat, carried by the WORD: --heat runs 1 (just arrived, full ember) to
+   0 (cooled to whatever the theme calls text), and StreamingReply sets it from
+   the word's position inside the frost band. So daytime words cool toward
+   black and night words toward white, because the mix lands on --text.
+
+   This used to be a 2200ms `wordCool` animation per word, started when the
+   word mounted. That clock knew nothing about the page moving, so whenever the
+   stream paused the heat drained out of a word sitting perfectly still — the
+   frost left before the word did. Position can't drift out of step with
+   itself, which is the whole reason it moved off a timer.
+   Prompt: "the frost has to roll with the text scrolling up and out of the
+   way." */
+.emberWord {
+  color: color-mix(in srgb, var(--ember, #ff4d1c) calc(var(--heat, 0) * 100%), var(--text));
+}
+
+/* The fade-in is still time — igniting IS an event in a word's own life, and
+   it's the one thing here that has nothing to do with where the page is.
+   `both` holds a word invisible through its cascade delay (StreamingReply
+   staggers batch-mates, and scatters them in the step-back view). */
 .fadeWord {
-  /* Two animations, one delay (the inline animationDelay applies to both):
-     the fade-in, and a slower cool-down — each word arrives lava-hot and
-     cools to the theme's text color, so daytime words cool toward black and
-     night words toward white (sky-theme.js swaps --text; wordCool has no
-     `to`, so it lands on whatever the theme says). `both` holds a word
-     invisible-and-hot through its cascade delay (StreamingReply staggers
-     batch-mates). */
-  /* The cool-down lingers: ease-in-out holds a word near-ember through the
-     front of its cooling instead of dumping the heat immediately. */
-  animation: wordIn 350ms ease-out both, wordCool 2200ms ease-in-out both;
+  animation: wordIn 350ms ease-out both;
 }
 
 @keyframes wordIn {
   from { opacity: 0; }
   to { opacity: 1; }
-}
-
-@keyframes wordCool {
-  from { color: var(--ember, #ff4d1c); }
 }
 
 @media (prefers-reduced-motion: reduce) {

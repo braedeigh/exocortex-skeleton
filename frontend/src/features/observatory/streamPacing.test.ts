@@ -5,9 +5,12 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  COOL_DISTANCE_CHARS,
   COOL_LINGER_MS,
+  COOL_RELEASE_MS,
   EMBER_LINGER_MS,
   EMBER_SPREAD_MS,
+  HEAT_STEPS,
   PACE_DRAIN_MAX_CPS,
   PACE_DRAIN_MS,
   PACE_HORIZON_MS,
@@ -15,9 +18,12 @@ import {
   PACE_MIN_CPS,
   cooledFrontier,
   emberDelay,
+  frostFrontier,
   paceStep,
   pruneSamples,
+  quantizeHeat,
   tailWords,
+  wordHeat,
 } from './streamPacing';
 
 describe('emberDelay', () => {
@@ -56,9 +62,11 @@ describe('emberDelay', () => {
   });
 
   it('waits out the scatter before a paragraph may settle', () => {
-    // A word can sit unlit for the whole spread, then fade, then cool. Settling
-    // before all three unmounts its span and snaps it straight to ink.
-    expect(EMBER_LINGER_MS).toBeGreaterThan(EMBER_SPREAD_MS + COOL_LINGER_MS - 450);
+    // A word can sit unlit for the whole spread, then fade. Settling before
+    // both unmounts its span and snaps it straight to ink. Cooling isn't in
+    // this chain any more — that's the frost band, and it's measured in
+    // characters, so no duration here has to cover it.
+    expect(EMBER_LINGER_MS).toBeGreaterThan(EMBER_SPREAD_MS + 350);
     expect(EMBER_LINGER_MS).toBeGreaterThan(COOL_LINGER_MS);
   });
 });
@@ -186,5 +194,89 @@ describe('pruneSamples', () => {
   it('leaves an all-hot list alone', () => {
     const samples = [{ t: 99_900, shown: 100 }];
     expect(pruneSamples(samples, 100_000)).toEqual(samples);
+  });
+});
+
+/**
+ * The frost band. The behaviour these lock down is the one that was broken:
+ * heat has to be a function of WHERE the text is, so that a stalled stream
+ * leaves the tail warm instead of draining it in place.
+ */
+describe('frostFrontier', () => {
+  it('trails the shown frontier by the band width while text is arriving', () => {
+    expect(frostFrontier(1000, null, 0)).toBe(1000 - COOL_DISTANCE_CHARS);
+  });
+
+  it('holds still when the stream stalls — this is the bug it exists to fix', () => {
+    // Same shown frontier, ten seconds apart: a timer would have cooled the
+    // whole tail by now. Position hasn't moved, so neither has the frost.
+    expect(frostFrontier(1000, null, 0)).toBe(frostFrontier(1000, null, 10_000));
+  });
+
+  it('advances exactly as far as the text does', () => {
+    const before = frostFrontier(1000, null, 0);
+    expect(frostFrontier(1120, null, 0) - before).toBe(120);
+  });
+
+  it('never goes negative at the start of a reply', () => {
+    expect(frostFrontier(12, null, 0)).toBe(0);
+  });
+
+  it('releases the last of the heat once the turn has drained', () => {
+    const total = 1000;
+    // The instant it drains, the tail is still warm...
+    expect(frostFrontier(total, 5_000, 5_000)).toBe(total - COOL_DISTANCE_CHARS);
+    // ...halfway through the release, half of it has gone...
+    expect(frostFrontier(total, 5_000, 5_000 + COOL_RELEASE_MS / 2)).toBeCloseTo(
+      total - COOL_DISTANCE_CHARS / 2,
+    );
+    // ...and by the end nothing is left warm.
+    expect(frostFrontier(total, 5_000, 5_000 + COOL_RELEASE_MS)).toBe(total);
+  });
+
+  it('clamps the release rather than running past the end', () => {
+    expect(frostFrontier(1000, 0, 60_000)).toBe(1000);
+  });
+});
+
+describe('wordHeat', () => {
+  it('burns full at the leading edge and is out at the trailing one', () => {
+    const frontier = 1000 - COOL_DISTANCE_CHARS;
+    expect(wordHeat(1000, frontier)).toBe(1);
+    expect(wordHeat(frontier, frontier)).toBe(0);
+  });
+
+  it('falls off across the band', () => {
+    const frontier = 0;
+    const near = wordHeat(COOL_DISTANCE_CHARS * 0.25, frontier);
+    const far = wordHeat(COOL_DISTANCE_CHARS * 0.75, frontier);
+    expect(near).toBeLessThan(far);
+    expect(near).toBeGreaterThan(0);
+  });
+
+  it('stays cold behind the frontier — a settled word never reheats', () => {
+    expect(wordHeat(100, 500)).toBe(0);
+  });
+});
+
+describe('quantizeHeat', () => {
+  it('keeps both ends intact', () => {
+    expect(quantizeHeat(0)).toBe(0);
+    expect(quantizeHeat(1)).toBe(1);
+  });
+
+  it('collapses a tick of drift to the same step, so the span is not rewritten', () => {
+    expect(quantizeHeat(0.61)).toBe(quantizeHeat(0.62));
+  });
+
+  it('gives exactly HEAT_STEPS distinct values across the band', () => {
+    const seen = new Set<number>();
+    for (let i = 0; i <= 100; i++) seen.add(quantizeHeat(i / 100));
+    expect(seen.size).toBe(HEAT_STEPS);
+  });
+
+  it('clamps out-of-range input', () => {
+    expect(quantizeHeat(-1)).toBe(0);
+    expect(quantizeHeat(4)).toBe(1);
   });
 });

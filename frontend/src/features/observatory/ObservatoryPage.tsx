@@ -47,6 +47,18 @@ import styles from './ObservatoryPage.module.css';
  * presentational: turns still hold the full wire text; only the shown
  * frontier is paced. Stop dumps the backlog instantly.
  *
+ * STEP BACK (her 07-30 ask, and the second half of a note she wrote on 07-27):
+ * pull past the end of the conversation and it recedes to a strip at the top
+ * of the page while the terrain backdrop takes everything below it, at full
+ * strength and captioned with the agent's name, the directories it's working
+ * inside, and the files it has touched. The map and the words both want the
+ * whole screen; this lets them take turns instead of permanently compromising.
+ * While it's up the scroll contract above is beside the point — she's watching,
+ * not reading — so the page simply pins to the bottom and text prints into the
+ * strip, and the word flow's releases ignite scattered rather than in reading
+ * order, so the block fills in like a fire taking. See useStepBack.ts and
+ * EMBER_SPREAD_MS.
+ *
  * OPEN-AT-UNREAD ANCHOR (07-24): opening a conversation normally lands at
  * the bottom, like reopening a terminal — but if it's carrying activity she
  * hasn't seen since her last visit, that would drop her past the part she
@@ -567,8 +579,8 @@ export function ObservatoryPage({
       ref={pageRef}
       className={[styles.page, stepBack.active ? styles.pageStepBack : ''].filter(Boolean).join(' ')}
     >
-      {/* Step 1 of the backdrop: the terrain map behind the conversation.
-          The glass, the featured agent and the burning scroll are separate
+      {/* The terrain map behind the conversation, and the step-back view that
+          hands it the screen. The glass and the featured agent are separate
           steps and land separately — see TerrainBackdrop.tsx. */}
       <TerrainBackdrop focusConv={convId} revealed={stepBack.active} />
 
@@ -632,6 +644,7 @@ export function ObservatoryPage({
                     t={t}
                     shown={wordFlow.shownChars}
                     cooled={wordFlow.cooledChars}
+                    frost={wordFlow.frostChars}
                     ember={stepBack.active}
                   />
                 );

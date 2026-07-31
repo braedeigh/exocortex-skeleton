@@ -5,6 +5,7 @@ import {
   EMBER_LINGER_MS,
   PACE_TICK_MS,
   cooledFrontier,
+  frostFrontier,
   paceStep,
   pruneSamples,
   type PaceSample,
@@ -16,6 +17,13 @@ import {
  * pacing ticker that releases a streaming reply's text a word at a time
  * (streamPacing.ts owns the arithmetic; this hook owns the interval and the
  * render-driving state).
+ *
+ * It tracks three frontiers into the reply's text, and they mean different
+ * things: `shownChars` is what's on screen at all, `frostChars` is the
+ * trailing edge of the warm band (positional — it moves when text arrives,
+ * not when time passes), and `cooledChars` is what may collapse into parsed
+ * markdown, which needs the frost to have passed AND the fade to have
+ * finished.
  */
 export function useWordFlow(
   turnsRef: MutableRefObject<Turn[]>,
@@ -30,6 +38,7 @@ export function useWordFlow(
   paceIdx: number;
   shownChars: number;
   cooledChars: number;
+  frostChars: number;
   begin: (idx: number) => void;
   flush: () => void;
 } {
@@ -40,11 +49,18 @@ export function useWordFlow(
   const [pacing, setPacing] = useState(false);
   const [paceIdx, setPaceIdx] = useState(-1);
   const [shownChars, setShownChars] = useState(0);
-  // The cooled frontier: everything behind it finished its ember fade and
-  // may settle into markdown (see COOL_LINGER_MS).
+  // The cooled frontier: everything behind it may settle into markdown —
+  // it has both left the frost band AND finished igniting (see below).
   const [cooledChars, setCooledChars] = useState(0);
+  // The frost frontier, in characters: the trailing edge of the warm band.
+  // The tail paints its heat from this (streamPacing.ts's wordHeat).
+  const [frostChars, setFrostChars] = useState(0);
   const paceRef = useRef<PaceState>({ shown: 0, carry: 0 });
   const sampleRef = useRef<PaceSample[]>([]);
+  // When the turn stopped producing text — the moment the frost stops being
+  // positional (nothing left to push it) and releases on a clock instead.
+  // Null while text is still arriving.
+  const drainedAtRef = useRef<number | null>(null);
 
   // The word-flow ticker: each tick advances the shown frontier into the
   // paced turn's text (streamPacing.ts owns the arithmetic). Keeps running
@@ -73,9 +89,20 @@ export function useWordFlow(
         now,
         linger,
       );
-      const cooled = cooledFrontier(sampleRef.current, now, linger);
+      // Nothing more is coming and everything's been released: from here the
+      // frost has no text left to push it, so it sweeps out on a clock.
+      const drained = !writingRef.current && st.shown >= source.length;
+      if (drained && drainedAtRef.current === null) drainedAtRef.current = now;
+      else if (!drained) drainedAtRef.current = null;
+      const frost = frostFrontier(st.shown, drainedAtRef.current, now);
+      setFrostChars(frost);
+      // A word settles into markdown only once BOTH are true: the frost band
+      // has passed over it (position), and it's had long enough to finish
+      // igniting (time). Either alone unmounts a span mid-animation and snaps
+      // it to flat ink — the frost is positional, but lighting up never was.
+      const cooled = Math.min(frost, cooledFrontier(sampleRef.current, now, linger));
       setCooledChars(cooled);
-      if (!writingRef.current && st.shown >= source.length && cooled >= source.length) {
+      if (drained && cooled >= source.length) {
         setPacing(false);
       }
     }, PACE_TICK_MS);
@@ -89,8 +116,10 @@ export function useWordFlow(
     setPaceIdx(idx);
     paceRef.current = { shown: 0, carry: 0 };
     sampleRef.current = [];
+    drainedAtRef.current = null;
     setShownChars(0);
     setCooledChars(0);
+    setFrostChars(0);
     setPacing(true);
   }, []);
 
@@ -98,5 +127,5 @@ export function useWordFlow(
     setPacing(false);
   }, []);
 
-  return { pacing, paceIdx, shownChars, cooledChars, begin, flush };
+  return { pacing, paceIdx, shownChars, cooledChars, frostChars, begin, flush };
 }

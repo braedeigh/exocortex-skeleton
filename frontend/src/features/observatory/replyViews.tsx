@@ -1,7 +1,7 @@
-import { memo, useMemo, useRef } from 'react';
+import { memo, useMemo, useRef, type CSSProperties } from 'react';
 import { mdToHtml } from '../journal/markdown';
 import { assistantText, type Turn } from './events';
-import { EMBER_SPREAD_MS, emberDelay, tailWords } from './streamPacing';
+import { EMBER_SPREAD_MS, emberDelay, quantizeHeat, tailWords, wordHeat } from './streamPacing';
 import styles from './ObservatoryPage.module.css';
 
 /** One assistant reply, memoized: a closed turn's props never change during
@@ -62,21 +62,30 @@ const STAGGER_MAX_MS = 600;
  * (streamPacing.ts): only the first `shown` characters are visible.
  * Completed paragraphs settle into parsed markdown; the live tail renders
  * as word spans keyed by offset, so each word mounts exactly once. A word
- * still cooling renders its letters as individual spans, each fading in a
- * beat after the one before — letter-grain smoothness; once fully cooled
- * (behind the `cooled` frontier) it collapses to plain text, so the number
- * of live animations stays bounded no matter how long the reply gets. The
- * tail shows raw markdown until its paragraph settles — the price of spans
- * that hold still. */
+ * still in the warm band renders its letters as individual spans, each
+ * fading in a beat after the one before — letter-grain smoothness; once
+ * fully cooled (behind the `cooled` frontier) it collapses to plain text, so
+ * the number of live animations stays bounded no matter how long the reply
+ * gets. The tail shows raw markdown until its paragraph settles — the price
+ * of spans that hold still.
+ *
+ * The HEAT is painted per word from `frost`, not animated per word on a
+ * timer. Each word mixes the ember toward the theme's ink by how far it sits
+ * inside the band, so the colour is a function of where the text is rather
+ * than how old it is — which is what makes the warmth travel with the words
+ * as they climb the page instead of draining out from under them. */
 export function StreamingReply({
   t,
   shown,
   cooled,
+  frost,
   ember = false,
 }: {
   t: Turn;
   shown: number;
   cooled: number;
+  /** Trailing edge of the warm band, in characters (useWordFlow's frostChars). */
+  frost: number;
   /** Step-back view: words ignite scattered rather than in reading order, so
    * the block fills in like a fire taking. See EMBER_SPREAD_MS. */
   ember?: boolean;
@@ -130,8 +139,16 @@ export function StreamingReply({
                 return <span key={w.key}>{w.text}</span>;
               }
               const base = delayRef.current.get(w.key) ?? 0;
+              // One heat for the whole word, stepped — letters inside a word
+              // cooling at different rates would read as a gradient across the
+              // word rather than as the band moving over it.
+              const heat = quantizeHeat(wordHeat(w.key + w.text.length, frost));
               return (
-                <span key={w.key}>
+                <span
+                  key={w.key}
+                  className={styles.emberWord}
+                  style={{ '--heat': heat } as CSSProperties}
+                >
                   {[...w.text].map((ch, j) => (
                     <span
                       key={j}

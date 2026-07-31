@@ -73,11 +73,14 @@ export function paceStep(
 }
 
 /** How long a released word stays "hot": cascade delay cap (450ms) + the
- * cool-down animation (2200ms), rounded up. A word may not settle into
- * parsed markdown before this — unmounting its span mid-cool snaps it
- * straight to ink (her 07-23 bug report: a new paragraph bleached the
- * previous one white). */
-export const COOL_LINGER_MS = 2700;
+ * fade itself (350ms), rounded up. A word may not settle into parsed markdown
+ * before this — unmounting its span mid-fade snaps it straight to ink (her
+ * 07-23 bug report: a new paragraph bleached the previous one white).
+ *
+ * This guards IGNITION only. Cooling is no longer on a clock at all — it's the
+ * frost band below, measured in characters — so this no longer has to cover a
+ * 2200ms cool-down, and settling waits on whichever of the two is later. */
+export const COOL_LINGER_MS = 1100;
 
 /**
  * EMBER SCATTER (her ask, for the step-back view): released words don't ignite
@@ -100,12 +103,12 @@ export const COOL_LINGER_MS = 2700;
  */
 export const EMBER_SPREAD_MS = 900;
 
-/** The cooled frontier has to wait out the whole scatter, not just the
- * cascade: a word holding a 900ms ignition delay hasn't started its 350ms fade
- * or its 2200ms cool when a COOL_LINGER_MS-old frontier would already be
- * settling its paragraph into markdown — and settling unmounts the span, which
- * snaps an unlit word straight to ink. */
-export const EMBER_LINGER_MS = EMBER_SPREAD_MS + 350 + 2200;
+/** The ignition floor has to wait out the whole scatter, not just the cascade:
+ * a word holding a 900ms ignition delay hasn't started its 350ms fade when a
+ * COOL_LINGER_MS-old frontier would already be settling its paragraph into
+ * markdown — and settling unmounts the span, which snaps an unlit word
+ * straight to ink. */
+export const EMBER_LINGER_MS = EMBER_SPREAD_MS + 350 + 250;
 
 /**
  * A word's ignition delay in ember mode, from its own offset — deterministic,
@@ -122,6 +125,79 @@ export function emberDelay(key: number, spreadMs = EMBER_SPREAD_MS): number {
   h = Math.imul(h ^ (h >>> 15), 0x735a2d97);
   h = (h ^ (h >>> 15)) >>> 0;
   return h % spreadMs;
+}
+
+// ---- the frost band: heat measured in TEXT, not in time ---------------------
+
+/**
+ * How far behind the release frontier a word stays warm, in CHARACTERS —
+ * about four lines of the 68ch column. The heat is a BAND that rides a fixed
+ * distance behind the leading edge, not a timer each word starts when it
+ * mounts.
+ *
+ * That distinction is the whole point. Cooling used to be a 2200ms CSS
+ * animation off the word's own arrival, which knows nothing about the page
+ * moving: when the stream stalled, a word sat exactly where it landed and
+ * cooled in place — the heat left before the word did. Measured in characters
+ * instead, a stall means nothing arrives, so nothing cools and the tail simply
+ * stays warm until new text pushes it up; a gush cools words at exactly the
+ * rate it shoves them up the page. No duration can do that, because the scroll
+ * speed is set by the stream and changes constantly.
+ *
+ * Characters are also free: the release frontier is already state, so this
+ * costs no DOM measurement and no per-frame layout read.
+ *
+ * Prompt that produced it: "the scroll lags behind the frost sometimes, such
+ * that the frost disappears before the words scroll up — the frost has to roll
+ * with the text scrolling up and out of the way."
+ */
+export const COOL_DISTANCE_CHARS = 280;
+
+/** When the turn ends there's no more text to push the band along, so the
+ * heat left in the tail releases over this instead. The one place the frost
+ * is still allowed a clock — and only because the thing that moves it has
+ * stopped for good. */
+export const COOL_RELEASE_MS = 900;
+
+/**
+ * The frost frontier in characters: everything before it has cooled to ink,
+ * everything after it is still somewhere in the band. Positional while text
+ * is arriving; once the turn has drained, it sweeps forward over
+ * COOL_RELEASE_MS so the last words don't sit warm forever.
+ */
+export function frostFrontier(
+  shown: number,
+  drainedAt: number | null,
+  now: number,
+): number {
+  const base = shown - COOL_DISTANCE_CHARS;
+  if (drainedAt === null) return Math.max(0, base);
+  const p = Math.min(1, Math.max(0, (now - drainedAt) / COOL_RELEASE_MS));
+  return Math.max(0, base + COOL_DISTANCE_CHARS * p);
+}
+
+/**
+ * How hot one word is: 1 at the leading edge, falling to 0 as the band passes
+ * over it. `end` is the word's last character offset. The component turns this
+ * into a colour by mixing the ember toward the theme's ink.
+ */
+export function wordHeat(end: number, frontier: number, distance = COOL_DISTANCE_CHARS): number {
+  if (distance <= 0) return 0;
+  const behind = end - frontier;
+  if (behind <= 0) return 0;
+  return Math.min(1, behind / distance);
+}
+
+/** Heat, quantized to a fixed number of steps. Rendering the raw ratio would
+ * hand every span in the tail a new inline style on every 50ms tick; stepped,
+ * a word's style only changes when it crosses a boundary, so React writes to
+ * the DOM a handful of times over a word's whole life instead of ~40. Six
+ * steps is under the eye's threshold for banding on a fade this short. */
+export const HEAT_STEPS = 6;
+
+export function quantizeHeat(heat: number, steps = HEAT_STEPS): number {
+  const clamped = Math.min(1, Math.max(0, heat));
+  return Math.round(clamped * (steps - 1)) / (steps - 1);
 }
 
 export interface PaceSample {
