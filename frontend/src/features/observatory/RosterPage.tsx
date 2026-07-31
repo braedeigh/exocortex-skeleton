@@ -44,11 +44,11 @@ function sortRoster(sessions: SessionMeta[], dir: RosterSort): SessionMeta[] {
   });
 }
 
-/** The top-right rail, top to bottom, in her order: purple, orange, red. Each
- * is a toggle — tap to narrow both lanes to that colour, tap again to let the
- * whole roster back. `onlyWhenPresent` is what makes red come and go: a red
- * button on a page with nothing broken is a permanent false alarm, so it isn't
- * drawn at all until something actually fails. */
+/** The floating rail, top to bottom, in her order: purple, orange, red. Each is
+ * an independent toggle — any number can be down at once, and what's down is
+ * unioned (see applyFilter). `onlyWhenPresent` is what makes red come and go: a
+ * red button on a page with nothing broken is a permanent false alarm, so it
+ * isn't drawn at all until something actually fails. */
 const FILTERS: {
   key: StateFilter;
   /** The class carrying this button's --hue; every other rule reads from it. */
@@ -109,10 +109,12 @@ const LANES: { lane: Lane; heading: string; blurb: string }[] = [
  * session is ASSIGNED to a lane and stays there; being live became a state its
  * card wears rather than a section it migrates into. One card, one home.
  *
- * THE COLOUR RAIL (top right). Three stacked buttons that filter both rooms at
- * once, in the colours the cards already wear: purple ACTIVE (running, or used
- * in the last hour), orange UNREAD, red ERRORS. Red isn't drawn at all unless
- * something is actually broken. The predicates and the counts live in
+ * THE COLOUR RAIL. Three buttons floating over the page's top-right, filtering
+ * both rooms at once, in the colours the cards already wear: purple ACTIVE
+ * (running, or used in the last hour), orange UNREAD, red ERRORS. Red isn't
+ * drawn at all unless something is actually broken. Any number can be pressed
+ * at once and what's pressed is unioned, so two colours widen the view rather
+ * than narrowing it to their overlap. The predicates and the counts live in
  * sessionFilters.ts so the number on a button and the list behind it can't
  * disagree. Read state is hers to set either way — the dot button on each card
  * (SessionLane) writes it through openedStore's setConversationRead.
@@ -135,10 +137,10 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
   const [failed, setFailed] = useState(false);
 
   const [sortDir, setSortDir] = useState<RosterSort>(readStoredSort);
-  // Which colour of the top-right rail is switched on, or null for the whole
-  // roster. Deliberately NOT persisted: a filter that survived a reload would
-  // hide sessions she'd forgotten she'd hidden.
-  const [filter, setFilter] = useState<StateFilter | null>(null);
+  // Which colours of the floating rail are pressed. Any number at once, empty
+  // for the whole roster. Deliberately NOT persisted: a filter that survived a
+  // reload would hide sessions she'd forgotten she'd hidden.
+  const [filters, setFilters] = useState<StateFilter[]>([]);
   // Bumped when she flips a card's read dot, so the render that reads
   // localStorage runs again immediately instead of waiting for the 5.5s poll.
   const [, bumpOpened] = useState(0);
@@ -179,20 +181,33 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
   // lives. Recomputed every render, which is what keeps the hour window and
   // the unread comparison honest as the poll ticks.
   const counts = filterCounts(ordered, opened);
-  const shown = applyFilter(ordered, opened, filter);
+  const shown = applyFilter(ordered, opened, filters);
 
-  // Red vanishes the moment nothing is broken — so the filter it was driving
-  // has to let go too, or she'd be left staring at two empty lanes with no
-  // button left to switch off.
+  // Red vanishes the moment nothing is broken — so if it was pressed, it has to
+  // let go too, or she'd be left narrowed to a colour with no button left to
+  // switch off.
   useEffect(() => {
-    if (filter === 'error' && counts.error === 0) setFilter(null);
-  }, [filter, counts.error]);
+    if (counts.error === 0) {
+      setFilters((cur) => (cur.includes('error') ? cur.filter((f) => f !== 'error') : cur));
+    }
+  }, [counts.error]);
 
   // The lane is server-resolved (it derives one for every session that predates
   // the field), so this is a straight split, not a guess. An unknown value
   // falls to Orchestra — the gated room, same fail-toward-ask as the backend.
   const byLane = (lane: Lane) =>
     shown.filter((s) => (s.lane === 'personal' ? 'personal' : 'orchestra') === lane);
+
+  // What an empty lane says while the rail is narrowing it — "tap + to start
+  // one" would be a lie there, and she'd make a session to fill a room that
+  // isn't actually empty. One colour gets its own sentence; several get the
+  // generic one, since spelling out every combination reads worse than not.
+  const emptyNote =
+    filters.length === 0
+      ? undefined
+      : filters.length === 1
+        ? FILTERS.find((f) => f.key === filters[0])?.emptyNote
+        : 'Nothing in this room is any of those right now.';
 
   // Her hand on the read flag, from the card's dot. The store is the truth;
   // this just makes the screen agree with it on the same tap.
@@ -263,6 +278,55 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
   return (
     <div className={styles.page}>
       <div className={styles.inner}>
+        {/* The colour rail, FLOATING over the page rather than parked in the
+            header: it's sticky inside a zero-height row, so it takes no space
+            in the flow and rides down the right edge as she scrolls — the
+            counts stay reachable from anywhere in a long roster.
+
+            Stacked, not spread: the order down the column IS the ranking —
+            purple is what's alive, orange is what wants her, red is what's
+            broken and only ever appears when it's true. Any number can be down
+            at once; what's down is unioned. A button with nothing behind it
+            goes grey and unclickable rather than vanishing, so the rail doesn't
+            reshuffle under her thumb.
+            [prompt: "i want them floating on the page rather than fixed at the
+            top ... you can press more than one at a time"] */}
+        <div className={styles.rail}>
+          <div className={styles.filters} role="group" aria-label="Filter sessions by state">
+            {FILTERS.map(({ key, hue, label, title, onlyWhenPresent }) => {
+              const n = counts[key];
+              if (onlyWhenPresent && n === 0) return null;
+              const on = filters.includes(key);
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  className={[
+                    styles.filterBtn,
+                    styles[hue],
+                    on ? styles.filterOn : '',
+                    n === 0 ? styles.filterEmpty : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                  aria-pressed={on}
+                  disabled={n === 0}
+                  title={n === 0 ? `${title} — none right now` : title}
+                  onClick={() =>
+                    setFilters((cur) =>
+                      cur.includes(key) ? cur.filter((f) => f !== key) : [...cur, key],
+                    )
+                  }
+                >
+                  <span className={styles.filterDot} aria-hidden="true" />
+                  <span className={styles.filterCount}>{n}</span>
+                  <span className={styles.filterLabel}>{label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         <div className={styles.header}>
           <div className={styles.headLeft}>
             <h1 className={styles.title}>Observatory</h1>
@@ -280,41 +344,6 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
               {sortDir === 'oldest' ? 'Oldest first ↓' : 'Newest first ↑'}
             </button>
           </div>
-
-          {/* The colour rail. Stacked, not spread: the order down the column IS
-              the ranking — purple is what's alive, orange is what wants her,
-              red is what's broken and only ever appears when it's true. A
-              button with nothing behind it goes grey and unclickable rather
-              than vanishing, so the rail doesn't reshuffle under her thumb. */}
-          <div className={styles.filters} role="group" aria-label="Filter sessions by state">
-            {FILTERS.map(({ key, hue, label, title, onlyWhenPresent }) => {
-              const n = counts[key];
-              if (onlyWhenPresent && n === 0) return null;
-              const on = filter === key;
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  className={[
-                    styles.filterBtn,
-                    styles[hue],
-                    on ? styles.filterOn : '',
-                    n === 0 ? styles.filterEmpty : '',
-                  ]
-                    .filter(Boolean)
-                    .join(' ')}
-                  aria-pressed={on}
-                  disabled={n === 0}
-                  title={n === 0 ? `${title} — none right now` : title}
-                  onClick={() => setFilter(on ? null : key)}
-                >
-                  <span className={styles.filterDot} aria-hidden="true" />
-                  <span className={styles.filterCount}>{n}</span>
-                  <span className={styles.filterLabel}>{label}</span>
-                </button>
-              );
-            })}
-          </div>
         </div>
         {failed ? <div className={styles.pageError}>Couldn&rsquo;t load sessions.</div> : null}
 
@@ -327,7 +356,7 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
             sessions={byLane(lane)}
             terrain={terrain}
             opened={opened}
-            emptyNote={filter ? FILTERS.find((f) => f.key === filter)?.emptyNote : undefined}
+            emptyNote={emptyNote}
             onOpen={open}
             onSetRead={setRead}
             onNew={setNewInLane}

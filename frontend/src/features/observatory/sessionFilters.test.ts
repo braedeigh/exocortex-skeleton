@@ -76,17 +76,30 @@ describe('counts', () => {
 });
 
 describe('applyFilter', () => {
-  it('is the identity with no filter on', () => {
+  it('is the identity with no button down', () => {
     const s = [session('a'), session('b')];
-    expect(applyFilter(s, {}, null, NOW)).toBe(s);
+    expect(applyFilter(s, {}, [], NOW)).toBe(s);
   });
 
   it('narrows to the chosen colour, keeping the order it was given', () => {
     const s = [
       session('a', { last_error: 'boom' }),
-      session('b'),
+      session('b', { last_at: ago(200 * MIN) }),
       session('c', { last_error: 'bang' }),
     ];
-    expect(applyFilter(s, {}, 'error', NOW).map((x) => x.id)).toEqual(['a', 'c']);
+    expect(applyFilter(s, { a: ago(0), b: ago(0), c: ago(0) }, ['error'], NOW).map((x) => x.id)).toEqual([
+      'a',
+      'c',
+    ]);
+  });
+
+  it('unions two colours rather than intersecting them', () => {
+    const opened = { a: ago(0), b: ago(0), c: ago(0) };
+    const s = [
+      session('a', { last_at: ago(2 * MIN) }), // active only
+      session('b', { last_at: ago(200 * MIN), last_error: 'boom' }), // error only
+      session('c', { last_at: ago(200 * MIN) }), // neither
+    ];
+    expect(applyFilter(s, opened, ['active', 'error'], NOW).map((x) => x.id)).toEqual(['a', 'b']);
   });
 });

@@ -22,7 +22,7 @@
  * Prompt that produced it: "buttons on the top right side by color — orange
  * for sessions that are not read, purple at the top for active/running
  * sessions (last used in the past hour), a red one that only appears when
- * there's an error/aborted one".
+ * there's an error/aborted one"; "you can press more than one at a time".
  */
 import type { SessionMeta } from './api';
 import { isUnread } from './openedStore';
@@ -78,14 +78,25 @@ export function filterCounts(
   return counts;
 }
 
-/** Narrow a roster to one bucket. `null` (no filter on) is the identity — the
- * page renders the same list it always did. */
+/** Narrow a roster to the buttons she has pressed. More than one can be down at
+ * a time, and they UNION: purple + orange means "show me what's alive AND what
+ * I haven't read", not the sliver that's both. Intersecting would make the
+ * second tap subtract, which is the opposite of what pressing another colour
+ * looks like it should do — and since the buckets already overlap, most pairs
+ * would land on almost nothing.
+ *
+ * No buttons down is the identity — the page renders the same list it always
+ * did, and returns the very same array so React sees no change.
+ *
+ * Prompt that produced it: "you can press more than one at a time". */
 export function applyFilter(
   sessions: SessionMeta[],
   opened: Record<string, string>,
-  filter: StateFilter | null,
+  filters: StateFilter[],
   nowMs: number = Date.now(),
 ): SessionMeta[] {
-  if (!filter) return sessions;
-  return sessions.filter((s) => matchesFilter(s, opened[s.id], filter, nowMs));
+  if (filters.length === 0) return sessions;
+  return sessions.filter((s) =>
+    filters.some((f) => matchesFilter(s, opened[s.id], f, nowMs)),
+  );
 }

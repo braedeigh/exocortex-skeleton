@@ -19,10 +19,12 @@
   justify-content: space-between;
   gap: var(--space-3);
   margin-bottom: var(--space-4);
+  /* Room kept clear on the right for the floating rail, which takes no space
+     of its own — without this a long title would slide underneath it. */
+  padding-right: 148px;
 }
 
-/* Title + sort, grouped left so the whole top-right corner belongs to the
-   colour rail. */
+/* Title + sort, grouped left so the whole right side belongs to the rail. */
 .headLeft {
   display: flex;
   align-items: center;
@@ -32,7 +34,27 @@
   padding-top: 2px;
 }
 
-/* --- the colour rail (top right) --- */
+/* --- the floating colour rail --- */
+/* A zero-height sticky row: it holds no place in the flow (so the page lays
+   out as if the rail weren't there) and stays pinned near the top of the
+   scrollport as she scrolls, so the buttons hover over the roster instead of
+   scrolling away with the header. pointer-events is off on the row and back on
+   for the buttons, so the empty space either side of them stays tappable —
+   an invisible full-width bar swallowing taps is a bug you can't see. */
+.rail {
+  position: sticky;
+  top: var(--space-3);
+  z-index: 6;
+  height: 0;
+  display: flex;
+  justify-content: flex-end;
+  /* flex-start, not the default stretch — a stretched child of a zero-height
+     row would be squashed to zero itself instead of overflowing at its own
+     natural height. */
+  align-items: flex-start;
+  pointer-events: none;
+}
+
 /* Three state filters, stacked in her order: purple alive, orange unread, red
    broken. Each carries its own --hue and every rule below reads from that, so
    the three buttons are one button drawn three times — a fourth colour would
@@ -43,48 +65,77 @@
   flex-direction: column;
   align-items: stretch;
   gap: var(--space-2);
+  pointer-events: auto;
 }
 
+/* At rest: a wash of its own colour with a solid outline — a coloured pane you
+   can see the page through, so a floating rail doesn't become three opaque
+   blocks parked on top of the roster. The blur keeps the label legible over
+   whatever card happens to be sliding under it. */
 .filterBtn {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  min-width: 128px;
+  min-width: 132px;
   min-height: var(--tap-target);
   padding: 0 var(--space-3);
-  border: 1px solid color-mix(in srgb, var(--hue) 45%, var(--border));
+  border: 2px solid var(--hue);
   border-radius: var(--radius-pill);
-  background: var(--card-bg);
+  background: color-mix(in srgb, var(--hue) 16%, transparent);
+  backdrop-filter: blur(8px) saturate(1.2);
+  -webkit-backdrop-filter: blur(8px) saturate(1.2);
   color: var(--hue);
   font: inherit;
   font-size: var(--font-size-sm);
-  font-weight: 600;
+  font-weight: 700;
   line-height: 1;
   cursor: pointer;
-  transition: background var(--dur-2, 200ms) ease, border-color var(--dur-2, 200ms) ease;
+  transition: background var(--dur-2, 200ms) ease, color var(--dur-2, 200ms) ease,
+    box-shadow var(--dur-2, 200ms) ease;
 }
 
-.filterHueActive { --hue: var(--accent); }
-.filterHueUnread { --hue: var(--orange); }
-.filterHueError { --hue: var(--red); }
+/* --glow is the hue lifted toward white: the flat palette colours are fine as
+   outlines but muddy as halos, especially the burnt orange against the dark
+   indigo theme (same trick .cardUnread uses). */
+.filterHueActive {
+  --hue: var(--accent);
+  --glow: color-mix(in srgb, var(--accent) 70%, white);
+}
+
+.filterHueUnread {
+  --hue: var(--orange);
+  --glow: color-mix(in srgb, var(--orange) 70%, white);
+}
+
+.filterHueError {
+  --hue: var(--red);
+  --glow: color-mix(in srgb, var(--red) 70%, white);
+}
 
 .filterBtn:hover:not(:disabled) {
-  border-color: var(--hue);
-  background: color-mix(in srgb, var(--hue) 10%, var(--card-bg));
+  background: color-mix(in srgb, var(--hue) 28%, transparent);
 }
 
-/* Switched on: filled, and ringed so it still reads as "on" without relying on
-   the fill alone. */
+/* Pressed: solid, and lit. The fill goes all the way to the colour and the
+   label flips to white, so "on" is unmistakable across the three hues at once
+   — several can be down together, and a fill-only difference would read as
+   noise once two of them were half-shaded. */
 .filterOn {
-  border-color: var(--hue);
-  background: color-mix(in srgb, var(--hue) 16%, var(--card-bg));
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--hue) 35%, transparent);
+  background: var(--hue);
+  color: #fff;
+  box-shadow: 0 0 18px color-mix(in srgb, var(--glow) 65%, transparent),
+    0 0 44px color-mix(in srgb, var(--glow) 32%, transparent);
+}
+
+.filterOn:hover:not(:disabled) {
+  background: var(--hue);
 }
 
 /* Nothing behind it. Grey and unclickable rather than gone — a rail that
    reshuffled as counts hit zero would move the button she was reaching for. */
 .filterEmpty {
   border-color: var(--border);
+  background: color-mix(in srgb, var(--text) 6%, transparent);
   color: var(--text-muted);
   cursor: default;
 }
@@ -95,6 +146,10 @@
   flex: none;
   border-radius: 50%;
   background: var(--hue);
+}
+
+.filterOn .filterDot {
+  background: #fff;
 }
 
 .filterEmpty .filterDot {
@@ -127,12 +182,16 @@
 
 .filterLabel {
   margin-left: auto;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 /* Phones: the rail keeps its column (the order is the point) but drops the
-   label, so three pills can't crowd the title off the row. */
+   label, so three floating pills can't cover half the cards they point at. */
 @media (max-width: 480px) {
+  .header {
+    padding-right: 72px;
+  }
+
   .filterBtn {
     min-width: 0;
     padding: 0 var(--space-2);
@@ -148,11 +207,15 @@
   }
 }
 
-/* Desktop: give the rail room to be a real object in the corner rather than a
-   cramped stack of chips. */
+/* Desktop: give the rail room to be a real object floating in the corner
+   rather than a cramped stack of chips. */
 @media (min-width: 1024px) {
+  .header {
+    padding-right: 172px;
+  }
+
   .filterBtn {
-    min-width: 152px;
+    min-width: 156px;
     font-size: var(--font-size-md);
   }
 
