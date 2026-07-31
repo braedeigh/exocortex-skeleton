@@ -158,6 +158,15 @@ const ACTIVE_WINDOW_SECONDS = 3600;
  * moving to the next orb swaps instantly (the pause has already been paid). */
 const HOVER_DELAY_MS = 180;
 
+/** How long a card survives the cursor leaving. This is what makes the card
+ * REACHABLE: there are 16px of bare canvas between an orb and its card
+ * (ORB_GAP), and crossing them reads to the map as "she left" — without a
+ * grace period the card would dismiss itself every single time she set off
+ * towards it. Long enough to cross a gap and a wobble, short enough that a card
+ * she's genuinely walked away from is gone before she notices it lingering.
+ * A pan or zoom skips it entirely (the `hard` flag). */
+const HOVER_LEAVE_MS = 240;
+
 /**
  * How many files per repo to ask the server for, escalating as the Files
  * dial climbs. Tiers rather than the exact count so a drag doesn't fire a
@@ -266,6 +275,10 @@ export function TerrainPage() {
   // it — the anchor for the hovercard. Mouse-only, and the engine drops it the
   // moment the map moves, so this can't be left pointing at nothing.
   const [hover, setHover] = useState<AgentHover | null>(null);
+  // The cursor has travelled off the map and INTO that card — she's reading it,
+  // not passing it. Holds it open against the leave timer and lets it show its
+  // buttons and scroll its text.
+  const [hoverEngaged, setHoverEngaged] = useState(false);
 
   // --- the two dials -----------------------------------------------------
   // How many file nodes to draw. null until the first payload tells us how
@@ -572,24 +585,58 @@ export function TerrainPage() {
     };
   });
 
-  // Hover → the agent hovercard, with a rest-before-you-show delay so sweeping
-  // the cursor across a cluster of orbs doesn't fire a card per orb. Once a
-  // card is up the delay is already paid, so moving between orbs swaps
-  // instantly; leaving an orb hides it at once. Assigned every render (like
-  // onTap above) and closing over refs only, so it never goes stale.
+  // Hover → the agent hovercard. Two delays, in opposite directions, and they
+  // do different jobs:
+  //
+  //  · SHOW is delayed so sweeping the cursor across a cluster of orbs doesn't
+  //    fire a card per orb. Once a card is up the pause has been paid, so
+  //    moving between orbs swaps instantly.
+  //  · HIDE is delayed so the card can be REACHED — leaving the orb starts a
+  //    timer instead of dismissing, and the card cancels it by reporting the
+  //    cursor's arrival (onEngage). Without this, the bare canvas between orb
+  //    and card would dismiss the card every time she went for it.
+  //
+  // `hard` (a pan or zoom) skips the grace entirely: the orb has moved out from
+  // under its own card, so there's nothing left to reach.
+  //
+  // Assigned every render (like onTap above) and closing over refs only, so it
+  // never goes stale.
   const hoverTimerRef = useRef<number | null>(null);
+  const hoverLeaveRef = useRef<number | null>(null);
   const hoverShownRef = useRef(false);
+  const hoverEngagedRef = useRef(false);
+  const clearHoverTimers = () => {
+    if (hoverTimerRef.current !== null) {
+      window.clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+    if (hoverLeaveRef.current !== null) {
+      window.clearTimeout(hoverLeaveRef.current);
+      hoverLeaveRef.current = null;
+    }
+  };
   useEffect(() => {
     const engine = engineRef.current;
     if (!engine) return;
-    engine.onHoverAgent = (next) => {
-      if (hoverTimerRef.current !== null) {
-        window.clearTimeout(hoverTimerRef.current);
-        hoverTimerRef.current = null;
-      }
+    engine.onHoverAgent = (next, hard) => {
+      clearHoverTimers();
       if (next === null) {
-        hoverShownRef.current = false;
-        setHover(null);
+        if (hard) {
+          hoverShownRef.current = false;
+          hoverEngagedRef.current = false;
+          setHoverEngaged(false);
+          setHover(null);
+          return;
+        }
+        // She may be on her way into the card — it gets to say so before this
+        // lands. If she's already in it, there's nothing to time out.
+        if (hoverEngagedRef.current) return;
+        hoverLeaveRef.current = window.setTimeout(() => {
+          hoverLeaveRef.current = null;
+          if (hoverEngagedRef.current) return;
+          hoverShownRef.current = false;
+          setHover(null);
+        }, HOVER_LEAVE_MS);
         return;
       }
       if (hoverShownRef.current) {
@@ -605,12 +652,7 @@ export function TerrainPage() {
   });
 
   // A pending card must not land after the thing it would sit on top of opens.
-  useEffect(
-    () => () => {
-      if (hoverTimerRef.current !== null) window.clearTimeout(hoverTimerRef.current);
-    },
-    [],
-  );
+  useEffect(() => () => clearHoverTimers(), []);
 
   // Live-mode flashes: any file whose newest touch advanced since the
   // previous payload glows for a second — the "watch it work" effect.
@@ -730,6 +772,44 @@ export function TerrainPage() {
     };
   }, [hoverId, rankedAgents, roster.data, hoverPreview.data]);
 
+  // Pin the map's lighting to whichever agent has a card up, for as long as it
+  // is up. The card sits off the canvas, so walking the cursor into it reads to
+  // the engine as leaving the orb — and the footprint she's reading ABOUT would
+  // go dark on the way to reading it. Pinning keeps the two halves of one
+  // gesture lit together. Released when the card goes.
+  useEffect(() => {
+    engineRef.current?.holdHover(hoverId);
+  }, [hoverId]);
+
+  // The pointer arriving in the card / leaving it. Leaving re-arms the same
+  // grace period the map's own leave uses, so a wobble off the card's edge and
+  // back doesn't dismiss it.
+  const engageHover = (engaged: boolean) => {
+    hoverEngagedRef.current = engaged;
+    setHoverEngaged(engaged);
+    if (engaged) {
+      clearHoverTimers();
+      return;
+    }
+    hoverLeaveRef.current = window.setTimeout(() => {
+      hoverLeaveRef.current = null;
+      if (hoverEngagedRef.current) return;
+      hoverShownRef.current = false;
+      setHover(null);
+    }, HOVER_LEAVE_MS);
+  };
+
+  // Opening from the card puts the session in the left pane and takes the card
+  // away: the thing she wanted is now on screen beside the map, and a card
+  // still hanging over the orb would just be in front of it.
+  const dismissHover = () => {
+    clearHoverTimers();
+    hoverEngagedRef.current = false;
+    hoverShownRef.current = false;
+    setHoverEngaged(false);
+    setHover(null);
+  };
+
   return (
     <div className={styles.page}>
       {/* Canvas first and full-bleed: the chrome below floats over it, so the
@@ -847,9 +927,27 @@ export function TerrainPage() {
 
       {/* Rest the cursor on an agent orb and its session card floats up beside
           it — what it's working on, what it last said, what it's waiting for —
-          without her having to tap in and come back out. Portalled and
-          unreachable by the pointer; see AgentHoverCard.tsx. */}
-      <AgentHoverCard hover={hoverBlocked ? null : hover} facts={hoverFacts} />
+          without her having to tap in and come back out. Keep going and the
+          cursor lands IN the card: it holds still, the message scrolls, and its
+          two buttons go live. See AgentHoverCard.tsx. */}
+      <AgentHoverCard
+        hover={hoverBlocked ? null : hover}
+        facts={hoverFacts}
+        engaged={hoverEngaged}
+        onEngage={engageHover}
+        onOpen={() => {
+          if (hoverId) {
+            openSession(hoverId);
+            dismissHover();
+          }
+        }}
+        onFootprint={() => {
+          if (!hoverId) return;
+          setFootprintSession((cur) => (cur === hoverId ? null : hoverId));
+          acknowledge(hoverId);
+        }}
+        footprintOn={footprintSession !== null && footprintSession === hoverId}
+      />
 
       <Sheet open={selected !== null} title={selected?.label} onClose={() => setSelected(null)}>
         {selected?.kind === 'session' && selected.session ? (

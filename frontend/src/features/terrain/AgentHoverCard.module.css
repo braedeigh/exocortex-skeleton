@@ -3,15 +3,25 @@
    Same frost as the file window (FileCodeWindow.module.css), one step heavier:
    this pane is small, sits over the densest part of the map, and carries the
    smallest type on the surface, so it buys a little more opacity for
-   legibility. Nothing in here takes the pointer. */
+   legibility.
+
+   It takes the pointer — you can move into it and click. So it has two states:
+   RESTING (she's on the orb, the card is describing) and ENGAGED (the cursor is
+   inside it, the card is a thing she's using). Everything that changes between
+   them changes in the frame, never in the box: same width, same height, same
+   place. A card that grew or shifted when the cursor arrived would be moving
+   under the hand that reached for it. */
 
 .card {
   position: fixed;
   z-index: 90; /* over the map and its chrome, under the file window (100) */
   width: 320px;
-  max-height: 340px;
+  /* The ceiling, and the only truncation there is now: the card fills to here
+     and the rest scrolls, which is why nothing inside needs a line-clamp any
+     more. Must match CARD_MAX_HEIGHT in agentHoverPlacement.ts — the card is
+     positioned before it exists to be measured. */
+  max-height: 380px;
   overflow: hidden;
-  pointer-events: none;
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
@@ -27,6 +37,17 @@
      microinteraction — long enough to read as arriving, short enough that
      sweeping the map never feels sticky. */
   animation: cardIn 160ms cubic-bezier(0.32, 0.72, 0, 1);
+  /* The wake-up. Border and shadow only — 180ms, eased, the same curve the
+     card arrives on, so the two motions read as one object behaving
+     consistently. */
+  transition:
+    border-color 180ms cubic-bezier(0.32, 0.72, 0, 1),
+    box-shadow 180ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.cardEngaged {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  box-shadow: 0 22px 54px rgb(0 0 0 / 0.34);
 }
 
 /* --- the loud row: only drawn when something is actually waiting ---------- */
@@ -128,7 +149,34 @@
   overflow: hidden;
 }
 
-/* --- the last thing said -------------------------------------------------- */
+/* --- the part that scrolls ------------------------------------------------ */
+
+/* Everything below the name. Resting it's a window with a fade at the bottom
+   saying "there's more"; engaged it's a scroll. `min-height: 0` is what lets a
+   flex child actually overflow instead of stretching its parent. */
+.body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  /* The fade reads as depth; a hard cut reads as damage. It goes away once
+     she's in the card, so the line she's reading at the bottom edge isn't
+     ghosted while she scrolls it. */
+  mask-image: linear-gradient(to bottom, #000 78%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 78%, transparent 100%);
+}
+
+.cardEngaged .body {
+  overflow-y: auto;
+  mask-image: none;
+  -webkit-mask-image: none;
+  /* Thin and tinted rather than the platform default — a system scrollbar in a
+     frosted pane is the one part that would look bolted on. */
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text-muted) 45%, transparent) transparent;
+}
 
 .said {
   margin-top: var(--space-1);
@@ -146,21 +194,79 @@
   margin-bottom: var(--space-1);
 }
 
-/* Darkest grey: the actual words are the point of the card. Clamped to five
-   lines and faded out at the bottom rather than ellipsized — a hard "…" on a
-   paragraph reads as truncation damage; a fade reads as more-below. */
+/* Darkest grey: the actual words are the point of the card. Printed whole — the
+   scroll region above does the cutting now, so what used to be five clamped
+   lines is simply the first screenful of the real thing. */
 .saidText {
   font-size: var(--font-size-md);
   line-height: 1.5;
   color: var(--text);
   white-space: pre-wrap;
-  display: -webkit-box;
-  -webkit-line-clamp: 5;
-  line-clamp: 5;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  mask-image: linear-gradient(to bottom, #000 72%, transparent 100%);
-  -webkit-mask-image: linear-gradient(to bottom, #000 72%, transparent 100%);
+  overflow-wrap: anywhere;
+}
+
+/* --- what she can do from here -------------------------------------------- */
+
+/* Present but recessive while she's only pointing at the orb; solid the moment
+   she's in the card. The affordance has to be visible from the orb (otherwise
+   nobody learns the card can be entered at all) without turning every sweep
+   across the map into a row of demands. */
+.actions {
+  display: flex;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-soft);
+  opacity: 0.55;
+  transition: opacity 180ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.cardEngaged .actions {
+  opacity: 1;
+}
+
+.openBtn,
+.footprintBtn {
+  min-height: 40px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  font-family: inherit;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease;
+}
+
+.openBtn {
+  flex: 1;
+  min-width: 0;
+  padding: 0 var(--space-3);
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.footprintBtn {
+  flex: none;
+  padding: 0 var(--space-3);
+  background: color-mix(in srgb, var(--card-bg) 70%, transparent);
+  color: var(--text-secondary);
+}
+
+.footprintBtnOn {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.cardEngaged .openBtn:hover {
+  background: color-mix(in srgb, var(--accent) 86%, #000);
+}
+
+.cardEngaged .footprintBtn:hover {
+  border-color: var(--accent);
+  color: var(--text);
 }
 
 @keyframes cardIn {
@@ -185,8 +291,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .card {
+  .card,
+  .actions {
     animation: none;
+    transition: none;
   }
 
   .runningDot {

@@ -18,7 +18,7 @@ export const CARD_WIDTH = 320;
  * this — it only draws the parts it has data for — so this is a worst case,
  * which is the right thing to clamp against: it keeps a full card on screen and
  * costs a short one a little extra margin nobody can see. */
-export const CARD_MAX_HEIGHT = 340;
+export const CARD_MAX_HEIGHT = 380;
 /** Gap between the orb's edge and the card: enough to clear the orb's ring and
  * its sonar pulse, so the card never covers the thing being pointed at. */
 export const ORB_GAP = 16;

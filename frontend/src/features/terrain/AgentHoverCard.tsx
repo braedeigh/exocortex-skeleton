@@ -12,17 +12,28 @@ import styles from './AgentHoverCard.module.css';
  *
  * What it prints, top to bottom, is a hierarchy of urgency rather than of
  * source. Anything the session is WAITING on (a question it raised, a command
- * blocked at the gate, a turn that died) goes first and wears colour — a card
- * she can hover past has no business whispering that. Then the title, the
- * housekeeping line the roster card already draws (model · when · spend ·
- * files), the cached one-line summary of what it's working on, and last the
- * actual last thing said in the conversation.
+ * blocked at the gate, a turn that died) goes first and wears colour. Then the
+ * title, the housekeeping line the roster card already draws (model · when ·
+ * spend · files), the cached one-line summary of what it's working on, and last
+ * the actual last thing said in the conversation.
  *
- * It is deliberately UNREACHABLE — `pointer-events: none` all the way through.
- * A hovercard you can move the mouse into has to solve "the cursor left the orb
- * but entered the card", and there's nothing in here to click anyway: tapping
- * the orb already opens the session. So it never takes the pointer, and it can
- * never get stuck open.
+ * IT IS REACHABLE. Keep moving the cursor off the orb and into the card and it
+ * stays put, wakes up, and hands you two things it was only describing before:
+ * the last message becomes scrollable (it's clamped and faded while she's only
+ * passing by), and a footer appears that opens the session or rings its
+ * footprint. That makes this a hovercard, not a tooltip — a preview surface you
+ * travel into, the way GitHub's and Twitter's do. A tooltip must never take the
+ * pointer; a hovercard has to.
+ *
+ * What makes the travel work is split across three files, because each part
+ * belongs to a different owner:
+ *  - the GRACE PERIOD, so crossing the gap between orb and card doesn't dismiss
+ *    it, lives in TerrainPage (it owns the hover state);
+ *  - the LIGHTING PIN, so the map keeps that agent's footprint lit while she's
+ *    over the card and off the canvas, is `holdHover` in terrainCanvas.ts;
+ *  - the geometry is agentHoverPlacement.ts (tested).
+ * `onEngage` is how this file participates: it reports the pointer arriving and
+ * leaving, and the page does the rest.
  *
  * Data comes from three places the app already had — the terrain payload (the
  * orb itself), the roster (SessionMeta: summary, model, spend, what it's
@@ -31,12 +42,11 @@ import styles from './AgentHoverCard.module.css';
  * session with nothing to say shows a small card rather than a scaffold of
  * blanks.
  *
- * Prompt that produced it: "if you scroll up close and hover over an agent, it
- * shows a hovering popup with the last message and the summary and card
- * information."
- *
- * Where it lands beside the orb is pure geometry, and lives (tested) in
- * agentHoverPlacement.ts.
+ * Prompt that produced the reachable version: "i'm wondering if this feature
+ * could be piped over into the hoverable popup that shows when you hover over
+ * an agent. so if you keep going left over the popup it allows you to hover
+ * over it and like, click a button. maybe even scroll down a bit in the
+ * description."
  */
 
 export interface AgentHoverFacts {
@@ -70,9 +80,22 @@ function metaLine(facts: AgentHoverFacts): string {
 export function AgentHoverCard({
   hover,
   facts,
+  engaged,
+  onEngage,
+  onOpen,
+  onFootprint,
+  footprintOn,
 }: {
   hover: AgentHover | null;
   facts: AgentHoverFacts | null;
+  /** The cursor is inside the card — it's being read, not passed. */
+  engaged: boolean;
+  onEngage: (engaged: boolean) => void;
+  /** Open this conversation (the left pane on desktop, see TerrainPage). */
+  onOpen: () => void;
+  /** Ring this agent's whole footprint on the map. */
+  onFootprint: () => void;
+  footprintOn: boolean;
 }) {
   if (!hover || !facts) return null;
 
@@ -92,7 +115,18 @@ export function AgentHoverCard({
   const preview = facts.preview;
 
   return createPortal(
-    <div className={styles.card} style={{ left, top }} aria-hidden="true">
+    <div
+      className={[styles.card, engaged ? styles.cardEngaged : ''].filter(Boolean).join(' ')}
+      style={{ left, top }}
+      onPointerEnter={(e) => {
+        // Touch never gets here (the card is display:none on coarse pointers),
+        // but a stray pen/touch pointer must not latch the card open.
+        if (e.pointerType === 'mouse') onEngage(true);
+      }}
+      onPointerLeave={(e) => {
+        if (e.pointerType === 'mouse') onEngage(false);
+      }}
+    >
       {blocked ? (
         <div className={[styles.flag, styles.flagOrange].join(' ')}>
           <span className={styles.flagLabel}>waiting for approval</span>
@@ -118,23 +152,47 @@ export function AgentHoverCard({
       </div>
       {line ? <div className={styles.meta}>{line}</div> : null}
 
-      {meta?.summary ? <div className={styles.summary}>{meta.summary}</div> : null}
+      {/* Who it is stays pinned above; what it SAID is the part that scrolls,
+          so the card never loses its own name while she's reading down it. */}
+      <div className={styles.body}>
+        {meta?.summary ? <div className={styles.summary}>{meta.summary}</div> : null}
 
-      {preview?.text ? (
-        <div className={styles.said}>
-          <div className={styles.saidLabel}>
-            {preview.role === 'user' ? 'you asked' : 'it said'}
+        {preview?.text ? (
+          <div className={styles.said}>
+            <div className={styles.saidLabel}>
+              {preview.role === 'user' ? 'you asked' : 'it said'}
+            </div>
+            {/* Clamped and faded while she's passing by; un-clamped the moment
+                the cursor arrives, which costs no jump because the card's height
+                is fixed — the text just keeps going into the scroll. */}
+            <div className={styles.saidText}>{preview.text}</div>
           </div>
-          {/* Clamped, with the fade below doing the "there's more" work — an
-              ellipsis on a five-line block reads as damage, a fade reads as
-              depth. */}
-          <div className={styles.saidText}>{preview.text}</div>
-        </div>
-      ) : preview?.private ? (
-        <div className={styles.said}>
-          <div className={styles.saidLabel}>journal — not shown here</div>
-        </div>
-      ) : null}
+        ) : preview?.private ? (
+          <div className={styles.said}>
+            <div className={styles.saidLabel}>journal — not shown here</div>
+          </div>
+        ) : null}
+      </div>
+
+      {/* Quiet until she's actually in the card, then solid. A footer that
+          shouted from across the map would make every sweep feel like a
+          demand. */}
+      <div className={styles.actions}>
+        <button type="button" className={styles.openBtn} onClick={onOpen}>
+          Open session
+        </button>
+        <button
+          type="button"
+          className={[styles.footprintBtn, footprintOn ? styles.footprintBtnOn : '']
+            .filter(Boolean)
+            .join(' ')}
+          aria-pressed={footprintOn}
+          title="Ring this agent's files on the map"
+          onClick={onFootprint}
+        >
+          Footprint
+        </button>
+      </div>
     </div>,
     document.body,
   );
