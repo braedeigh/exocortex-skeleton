@@ -9,7 +9,7 @@ import {
   type SessionMeta,
 } from './api';
 import { openedMap, setConversationRead } from './openedStore';
-import { applyFilter, filterCounts, matchesFilter, type StateFilter } from './sessionFilters';
+import { applyFilter, filterCounts, type StateFilter } from './sessionFilters';
 import { SessionDialog, type SessionDraft } from './SessionDialog';
 import { SessionLane } from './SessionLane';
 import { useTerrain } from '../terrain/api';
@@ -148,8 +148,6 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
   // tapped; with one floating '+' for both rooms, the room is a field in the
   // sheet instead (SessionDialog), so this is just a boolean now.
   const [creating, setCreating] = useState(false);
-  // Mark-all-read is armed by a first tap and fires on the second.
-  const [markArmed, setMarkArmed] = useState(false);
   const [editTarget, setEditTarget] = useState<SessionMeta | null>(null);
 
   const refresh = () => {
@@ -217,24 +215,6 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
   // this just makes the screen agree with it on the same tap.
   const setRead = (convId: string, read: boolean) => {
     setConversationRead(convId, read);
-    bumpOpened((n) => n + 1);
-  };
-
-  // Clear the orange in one tap, across BOTH rooms — the rail stands above the
-  // lanes, so its actions do too.
-  //
-  // It marks exactly what the orange button counts, which means sessions that
-  // STOPPED TO ASK stay orange afterwards, and should: an ask is cleared by
-  // answering it, not by looking away. So the count usually lands at zero and
-  // sometimes doesn't, and that residue is the honest part.
-  //
-  // Arms before it fires (the Stop / × pattern from the cards) rather than
-  // confirming in a dialog — it isn't destructive, but it's tedious to undo one
-  // card at a time.
-  const markAllRead = () => {
-    for (const s of ordered) {
-      if (matchesFilter(s, opened[s.id], 'unread')) setConversationRead(s.id, true);
-    }
     bumpOpened((n) => n + 1);
   };
 
@@ -432,40 +412,9 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
 
           {/* Utilities, under the colours and set apart from them. Ink, not
               hue: colour in this rail means STATE, so an action that isn't a
-              state doesn't get to borrow one. Mark-all-read only exists while
-              there's orange to clear — same rule as the red button, and the
-              same reason: nothing sits in this column being useless. */}
+              state doesn't get to borrow one. Read state stays a per-card
+              thing (the dot on each card) — there's no bulk clear. */}
           <div className={styles.railUtils}>
-            {counts.unread > 0 ? (
-              <button
-                type="button"
-                className={[styles.railUtil, markArmed ? styles.railUtilArmed : '']
-                  .filter(Boolean)
-                  .join(' ')}
-                title={
-                  markArmed
-                    ? 'Tap again to mark everything read'
-                    : `Mark all ${counts.unread} read`
-                }
-                aria-label={markArmed ? 'Confirm mark all read' : 'Mark all read'}
-                onClick={() => {
-                  if (!markArmed) {
-                    setMarkArmed(true);
-                    return;
-                  }
-                  setMarkArmed(false);
-                  markAllRead();
-                }}
-              >
-                <span className={styles.railUtilIcon} aria-hidden="true">
-                  ✓
-                </span>
-                <span className={styles.railUtilLabel}>
-                  {markArmed ? 'Sure?' : 'Mark read'}
-                </span>
-              </button>
-            ) : null}
-
             <button
               type="button"
               className={styles.railUtil}

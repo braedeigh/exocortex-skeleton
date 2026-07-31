@@ -28,23 +28,10 @@
   max-width: 640px;
 }
 
+/* Just the page title — sort lives in the rail with the other roster
+   controls, so nothing else sits on this row. */
 .header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-3);
   margin-bottom: var(--space-4);
-}
-
-/* Title + sort, grouped left — the rail owns its own column now, so nothing in
-   the header has to leave room for it. */
-.headLeft {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--space-3);
-  min-width: 0;
-  padding-top: 2px;
 }
 
 /* --- the colour rail, in its own lane --- */
@@ -259,8 +246,7 @@
    to borrow one — the same reason the '+' is colourless. Round in the narrow
    lane (icon only), a labelled pill in the wide one, so the whole column keeps
    one alignment.
-   [prompt: sort moved off the header into the rail, plus a mark-all-read that
-   only appears while there's unread to clear] */
+   [prompt: sort moved off the header into the rail] */
 .railUtils {
   display: flex;
   flex-direction: column;
@@ -298,16 +284,6 @@
 .railUtil:hover {
   border-color: var(--accent);
   color: var(--accent);
-}
-
-/* Armed: it wears the colour of the thing it's about to clear, so the second
-   tap is unmistakably about the orange. Same arm-then-fire as the cards' Stop
-   and × — not a dialog, because this isn't destructive, just tedious to undo
-   one card at a time. */
-.railUtilArmed {
-  border-color: var(--orange);
-  background: color-mix(in srgb, var(--orange) 18%, transparent);
-  color: var(--orange);
 }
 
 .railUtilIcon {
@@ -641,19 +617,6 @@
   color: var(--text-muted);
 }
 
-/* The creation-time sort toggle — a quiet pill on the My-sessions row. */
-.sortBtn {
-  flex: none;
-  min-height: 36px;
-  padding: 0 var(--space-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  background: var(--card-bg);
-  color: var(--text-secondary);
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  cursor: pointer;
-}
 
 .convList {
   display: flex;
