@@ -76,6 +76,10 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  /* Anchors the label when the phone rules take it out of the flow — an
+     absolutely-positioned child with no positioned parent would hang off
+     whatever ancestor happened to be relative. */
+  position: relative;
   min-width: 132px;
   min-height: var(--tap-target);
   padding: 0 var(--space-3);
