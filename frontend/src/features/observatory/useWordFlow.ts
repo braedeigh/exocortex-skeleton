@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react';
 import { assistantText, type Turn } from './events';
 import {
+  COOL_LINGER_MS,
+  EMBER_LINGER_MS,
   PACE_TICK_MS,
   cooledFrontier,
   paceStep,
@@ -18,6 +20,11 @@ import {
 export function useWordFlow(
   turnsRef: MutableRefObject<Turn[]>,
   writingRef: MutableRefObject<boolean>,
+  /** True while the step-back view is up, where words ignite scattered rather
+   * than in order (EMBER_SPREAD_MS). A ref rather than a value because the page
+   * only learns the answer further down its own hook order — and because the
+   * ticker below reads it between renders anyway, exactly like the two above. */
+  emberRef?: MutableRefObject<boolean>,
 ): {
   pacing: boolean;
   paceIdx: number;
@@ -56,8 +63,17 @@ export function useWordFlow(
       // embers are out — and keep pacing alive past the last word until it
       // finishes cooling (unmounting early snaps it to ink).
       const now = Date.now();
-      sampleRef.current = pruneSamples([...sampleRef.current, { t: now, shown: st.shown }], now);
-      const cooled = cooledFrontier(sampleRef.current, now);
+      // A scattered word waits out its ignition delay before it even begins to
+      // fade, so the frontier has to hang back further in ember mode — settling
+      // a paragraph early unmounts spans that haven't lit yet and snaps them to
+      // ink, the same failure the linger exists to prevent.
+      const linger = emberRef?.current ? EMBER_LINGER_MS : COOL_LINGER_MS;
+      sampleRef.current = pruneSamples(
+        [...sampleRef.current, { t: now, shown: st.shown }],
+        now,
+        linger,
+      );
+      const cooled = cooledFrontier(sampleRef.current, now, linger);
       setCooledChars(cooled);
       if (!writingRef.current && st.shown >= source.length && cooled >= source.length) {
         setPacing(false);

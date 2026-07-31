@@ -175,7 +175,11 @@ export function ObservatoryPage({
   const writingRef = useRef(writing);
   writingRef.current = writing;
 
-  const wordFlow = useWordFlow(turnsRef, writingRef);
+  // Set from stepBack.active further down — the step-back view needs the
+  // scroll contract, which needs the word flow, so the flag can only travel
+  // this direction as a ref.
+  const emberRef = useRef(false);
+  const wordFlow = useWordFlow(turnsRef, writingRef, emberRef);
   const scrollContract = useScrollContract({
     turns,
     shownChars: wordFlow.shownChars,
@@ -195,6 +199,9 @@ export function ObservatoryPage({
     pinToBottom: scrollContract.pinToBottom,
   });
   const stepBackDismiss = useStepBackDismiss(stepBack.exit);
+  // Closes the loop opened at emberRef's declaration: the word flow's cool-down
+  // window widens to cover the scatter for as long as the view is up.
+  emberRef.current = stepBack.active;
 
   // History load when opening an existing conversation — landing at the
   // latest turn, like reopening a terminal session.
@@ -565,14 +572,6 @@ export function ObservatoryPage({
           steps and land separately — see TerrainBackdrop.tsx. */}
       <TerrainBackdrop focusConv={convId} revealed={stepBack.active} />
 
-      {/* The room the conversation gives up when she pulls past its end (see
-          useStepBack.ts + .stepBackRoom). Always mounted at zero height so the
-          transition interpolates instead of popping; it's also the surface
-          that hands the screen back. */}
-      <div className={styles.stepBackRoom} {...stepBackDismiss}>
-        <div className={styles.stepBackHint}>tap to return</div>
-      </div>
-
       <div ref={scrollContract.scrollRef} className={styles.scroll}>
         <div ref={scrollContract.columnRef} className={styles.column}>
           {turns.length === 0 ? (
@@ -633,6 +632,7 @@ export function ObservatoryPage({
                     t={t}
                     shown={wordFlow.shownChars}
                     cooled={wordFlow.cooledChars}
+                    ember={stepBack.active}
                   />
                 );
               }
@@ -674,6 +674,16 @@ export function ObservatoryPage({
             </div>
           ))}
         </div>
+      </div>
+
+      {/* The room the conversation gives up when she pulls past its end (see
+          useStepBack.ts + .stepBackRoom). Below the conversation, so the strip
+          it leaves behind sits at the TOP of the page and the map fills
+          everything under it. Always mounted at zero height, so the transition
+          interpolates instead of popping; it's also the surface that hands the
+          screen back. */}
+      <div className={styles.stepBackRoom} {...stepBackDismiss}>
+        <div className={styles.stepBackHint}>tap to return</div>
       </div>
 
       {/* Roll over — the pinned Keeper's one-tap "close the day, wake a fresh

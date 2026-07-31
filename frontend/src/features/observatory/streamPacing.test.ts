@@ -6,16 +6,62 @@
 import { describe, expect, it } from 'vitest';
 import {
   COOL_LINGER_MS,
+  EMBER_LINGER_MS,
+  EMBER_SPREAD_MS,
   PACE_DRAIN_MAX_CPS,
   PACE_DRAIN_MS,
   PACE_HORIZON_MS,
   PACE_MAX_CPS,
   PACE_MIN_CPS,
   cooledFrontier,
+  emberDelay,
   paceStep,
   pruneSamples,
   tailWords,
 } from './streamPacing';
+
+describe('emberDelay', () => {
+  it('gives the same word the same delay every time', () => {
+    // The whole reason it's a hash and not a random draw: a re-render must not
+    // re-roll a mounted span's delay, or its fade restarts.
+    expect(emberDelay(4210)).toBe(emberDelay(4210));
+  });
+
+  it('stays inside the scatter window', () => {
+    for (let key = 0; key < 500; key++) {
+      const d = emberDelay(key);
+      expect(d).toBeGreaterThanOrEqual(0);
+      expect(d).toBeLessThan(EMBER_SPREAD_MS);
+    }
+  });
+
+  it('scatters neighbouring words instead of ramping them', () => {
+    // Keys are character offsets, so consecutive words sit a few apart. If
+    // near keys produced near delays the effect would read as a slow wipe
+    // rather than embers catching — so adjacent draws must jump around.
+    const deltas: number[] = [];
+    for (let key = 0; key < 200; key += 5) deltas.push(emberDelay(key + 5) - emberDelay(key));
+    const bigJumps = deltas.filter((d) => Math.abs(d) > EMBER_SPREAD_MS / 4).length;
+    expect(bigJumps).toBeGreaterThan(deltas.length / 2);
+  });
+
+  it('spreads across the whole window rather than clustering', () => {
+    const buckets = new Set<number>();
+    for (let key = 0; key < 300; key++) buckets.add(Math.floor(emberDelay(key) / 100));
+    expect(buckets.size).toBeGreaterThanOrEqual(Math.floor(EMBER_SPREAD_MS / 100));
+  });
+
+  it('collapses to zero if the window is closed', () => {
+    expect(emberDelay(77, 0)).toBe(0);
+  });
+
+  it('waits out the scatter before a paragraph may settle', () => {
+    // A word can sit unlit for the whole spread, then fade, then cool. Settling
+    // before all three unmounts its span and snaps it straight to ink.
+    expect(EMBER_LINGER_MS).toBeGreaterThan(EMBER_SPREAD_MS + COOL_LINGER_MS - 450);
+    expect(EMBER_LINGER_MS).toBeGreaterThan(COOL_LINGER_MS);
+  });
+});
 
 describe('paceStep', () => {
   it('does nothing when everything is already shown', () => {

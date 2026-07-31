@@ -1,7 +1,7 @@
 import { memo, useMemo, useRef } from 'react';
 import { mdToHtml } from '../journal/markdown';
 import { assistantText, type Turn } from './events';
-import { tailWords } from './streamPacing';
+import { EMBER_SPREAD_MS, emberDelay, tailWords } from './streamPacing';
 import styles from './ObservatoryPage.module.css';
 
 /** One assistant reply, memoized: a closed turn's props never change during
@@ -68,7 +68,19 @@ const STAGGER_MAX_MS = 600;
  * of live animations stays bounded no matter how long the reply gets. The
  * tail shows raw markdown until its paragraph settles — the price of spans
  * that hold still. */
-export function StreamingReply({ t, shown, cooled }: { t: Turn; shown: number; cooled: number }) {
+export function StreamingReply({
+  t,
+  shown,
+  cooled,
+  ember = false,
+}: {
+  t: Turn;
+  shown: number;
+  cooled: number;
+  /** Step-back view: words ignite scattered rather than in reading order, so
+   * the block fills in like a fire taking. See EMBER_SPREAD_MS. */
+  ember?: boolean;
+}) {
   const full = assistantText(t);
   const visible = full.slice(0, Math.min(shown, full.length));
   // A paragraph settles only once every word in it has finished cooling
@@ -86,14 +98,25 @@ export function StreamingReply({ t, shown, cooled }: { t: Turn; shown: number; c
   // position in its batch, in stagger beats. Frozen in a ref so re-renders
   // can never change a mounted span's animation (a changed delay restarts
   // the fade). Letters within the word step from the base.
+  // In ember mode the base is a scattered draw from the word's own offset
+  // instead of its place in the batch — reading order stops governing ignition
+  // order, which is the whole effect. Still assigned once and frozen, for the
+  // same reason: a changed delay restarts a mounted span's fade.
   const delayRef = useRef(new Map<number, number>());
   let batchLetters = 0;
   for (const w of words) {
     if (!delayRef.current.has(w.key)) {
-      delayRef.current.set(w.key, Math.min(batchLetters * LETTER_STAGGER_MS, STAGGER_MAX_MS));
+      delayRef.current.set(
+        w.key,
+        ember ? emberDelay(w.key) : Math.min(batchLetters * LETTER_STAGGER_MS, STAGGER_MAX_MS),
+      );
       batchLetters += w.text.length;
     }
   }
+  // The cascade cap has to clear the scatter window in ember mode, or every
+  // late-drawn word would be clamped back down to the same instant and the
+  // scatter would flatten into a single flash.
+  const delayCap = ember ? EMBER_SPREAD_MS + STAGGER_MAX_MS : STAGGER_MAX_MS;
   return (
     <div className={styles.reply}>
       <div className={styles.replyBody}>
@@ -114,7 +137,7 @@ export function StreamingReply({ t, shown, cooled }: { t: Turn; shown: number; c
                       key={j}
                       className={styles.fadeWord}
                       style={{
-                        animationDelay: `${Math.min(base + j * LETTER_STAGGER_MS, STAGGER_MAX_MS)}ms`,
+                        animationDelay: `${Math.min(base + j * LETTER_STAGGER_MS, delayCap)}ms`,
                       }}
                     >
                       {ch}

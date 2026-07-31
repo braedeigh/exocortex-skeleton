@@ -32,10 +32,10 @@
 
 /* --- Step back: the conversation gives the map the room ------------------- */
 /* The view behind useStepBack.ts. Pull past the end of the conversation and it
-   recedes to a strip at the bottom while the terrain takes the rest, clean and
-   captioned. Nothing is layered or hidden — the conversation is simply given
-   less of the screen, so the map that was always back there becomes the thing
-   in front of her.
+   recedes to a strip at the TOP of the page while the terrain takes everything
+   below, clean and captioned. Nothing is layered or hidden — the conversation
+   is simply given less of the screen, so the map that was always back there
+   becomes the thing in front of her.
 
    The mechanism is this one flex child. It's always present and always in the
    layout at zero height, which is what makes the transition an interpolation
@@ -67,8 +67,8 @@
 
 /* The way out, named. A gesture-entered view needs a visible exit or it's a
    trap — dragging back down and wheeling back up both work (useStepBackDismiss)
-   but neither announces itself, so this does. Bottom of the room, just above
-   the strip, where her eye already is. */
+   but neither announces itself, so this does. Bottom of the room, out of the
+   map's middle, just above the composer. */
 .stepBackHint {
   position: absolute;
   left: 0;
@@ -86,11 +86,12 @@
 }
 
 /* The strip's own ground. A gradient rather than a hard edge, so the
-   conversation surfaces out of the map instead of sitting on it in a box: the
-   newest lines — at the bottom, where they print — get solid page colour to sit
-   on, and the top of the strip dissolves into the terrain. */
+   conversation dissolves INTO the map instead of sitting on it in a box. The
+   strip is at the top of the page, so the solid page colour is at the top —
+   under the words, which print downward — and it fades out at the bottom edge
+   where it meets the terrain. */
 .pageStepBack .scroll {
-  background: linear-gradient(to bottom, transparent 0%, var(--bg) 30%);
+  background: linear-gradient(to bottom, var(--bg) 62%, transparent 100%);
 }
 
 @media (prefers-reduced-motion: reduce) {

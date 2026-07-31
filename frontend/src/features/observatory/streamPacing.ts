@@ -79,6 +79,51 @@ export function paceStep(
  * previous one white). */
 export const COOL_LINGER_MS = 2700;
 
+/**
+ * EMBER SCATTER (her ask, for the step-back view): released words don't ignite
+ * in reading order — each one waits a random beat inside this window before it
+ * fades up. Because the release frontier keeps moving while they wait, a word
+ * several lines further down can catch before one just above it, and the block
+ * fills in like a fire taking rather than like a line being typed.
+ *
+ * It works because a delayed word is invisible but ALREADY LAID OUT (the fade
+ * runs with fill-mode `both`, so its `from` state holds through the delay), so
+ * nothing reflows when it catches — the sparks land into a page that has
+ * already made room for them.
+ *
+ * Deliberately scoped to the step-back view. Scattered arrival is lovely to
+ * WATCH and hostile to READ, and the two are different moments: when she's
+ * reading, the ember front glides in order (LETTER_STAGGER_MS in replyViews).
+ *
+ * Prompt: "I want the words to like, randomly appear a few lines down if that
+ * makes sense? To give the effect of an ember burning."
+ */
+export const EMBER_SPREAD_MS = 900;
+
+/** The cooled frontier has to wait out the whole scatter, not just the
+ * cascade: a word holding a 900ms ignition delay hasn't started its 350ms fade
+ * or its 2200ms cool when a COOL_LINGER_MS-old frontier would already be
+ * settling its paragraph into markdown — and settling unmounts the span, which
+ * snaps an unlit word straight to ink. */
+export const EMBER_LINGER_MS = EMBER_SPREAD_MS + 350 + 2200;
+
+/**
+ * A word's ignition delay in ember mode, from its own offset — deterministic,
+ * so a span keeps the same delay across every re-render of the tail. A random
+ * draw would be re-rolled on each render and restart the fade it's meant to be
+ * scheduling. Integer avalanche hash (the lowbias32 family) because the keys
+ * are character offsets, i.e. nearly sequential: neighbouring words have to
+ * land far apart in the window or the "scatter" comes out as a slow ramp.
+ */
+export function emberDelay(key: number, spreadMs = EMBER_SPREAD_MS): number {
+  if (spreadMs <= 0) return 0;
+  let h = (key + 0x9e3779b9) | 0;
+  h = Math.imul(h ^ (h >>> 16), 0x21f0aaad);
+  h = Math.imul(h ^ (h >>> 15), 0x735a2d97);
+  h = (h ^ (h >>> 15)) >>> 0;
+  return h % spreadMs;
+}
+
 export interface PaceSample {
   /** Tick timestamp, ms. */
   t: number;
