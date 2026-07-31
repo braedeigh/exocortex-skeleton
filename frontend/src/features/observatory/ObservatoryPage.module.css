@@ -77,6 +77,11 @@
   border-left: 2px solid var(--accent);
   color: var(--text-secondary);
   font-size: var(--font-size-md);
+  /* Moves with .replyBody's weight rather than staying at 400 — see the note
+     there. Both step up together so the epigraph stays quieter than the reply
+     by exactly what it was already quieter by: size, colour and the accent
+     rule. Lifting only the reply would widen that gap instead of holding it. */
+  font-weight: 500;
   line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -99,6 +104,19 @@
 
 .replyBody {
   font-size: var(--font-size-base);
+  /* The other half of winning against the terrain watermark, and the opposite
+     move to the halo: the halo clears ground AROUND the letters, this
+     strengthens the letters themselves. Weight is the right lever rather than
+     size — it costs no layout, reflows nothing, and doesn't shrink the reading
+     column, and hierarchy reaches for size, then weight, then colour, so this
+     is the untouched middle rung.
+     500 and not more because --font-sans resolves to system-ui, which is a
+     real Medium cut on the surfaces this runs on (SF Pro on Apple, Roboto on
+     Android) — a designed weight rather than a synthesized one, which is the
+     whole difference between reading as deliberate and reading as smeared.
+     Inherited by the streaming tail, which sits inside this element.
+     Prompt that produced it: "maybe the lettering could be thicker too?" */
+  font-weight: 500;
   line-height: 1.65;
   /* Long unbreakable tokens (paths in inline code) wrap instead of
      widening the page. */
@@ -146,6 +164,12 @@
 .replyBody :global(code) {
   font-family: 'Berkeley Mono', 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
   font-size: 0.92em;
+  /* Back to 400. The mono stack falls through to faces that ship only Regular
+     and Bold (Menlo, Consolas), where an inherited 500 gets synthesized into a
+     smear rather than snapping to a real cut — and code blocks sit on their own
+     opaque card anyway, so they have no watermark to win against. Same reason
+     they opt out of the halo above. */
+  font-weight: 400;
 }
 
 .replyBody :global(blockquote) {
