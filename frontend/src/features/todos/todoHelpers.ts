@@ -254,7 +254,15 @@ export function gateHides(
 /** The "Up now" strip: overdue + due-today items across the ladder (not
  * snoozed/waiting), soonest due date first. Done items are KEPT and sink to
  * the bottom — checked off, they linger struck-through until the backend's
- * morning sweep archives them (same "it persisted" feel as the ladder). */
+ * morning sweep archives them (same "it persisted" feel as the ladder).
+ *
+ * Within a single due date, items that carry a `due_time` come first in
+ * clock order, and untimed ones follow. That's what lets a day with a shape
+ * — "7am call the locator, then again on my breaks" — read as a sequence
+ * instead of a pile. Untimed items sort after rather than interleaved,
+ * because there's no honest position to give them.
+ * (Prompt: "is there a way to like, have these show up by time?")
+ */
 export function collectUpNow(sections: TodoSection[], serverDate: string): TodoItem[] {
   const index = buildTodoIndex(sections);
   const out: TodoItem[] = [];
@@ -267,7 +275,10 @@ export function collectUpNow(sections: TodoSection[], serverDate: string): TodoI
   }
   return out.sort(
     (a, b) =>
-      Number(!!a.done) - Number(!!b.done) || (a.due_by || '').localeCompare(b.due_by || ''),
+      Number(!!a.done) - Number(!!b.done) ||
+      (a.due_by || '').localeCompare(b.due_by || '') ||
+      Number(!a.due_time) - Number(!b.due_time) ||
+      (a.due_time || '').localeCompare(b.due_time || ''),
   );
 }
 

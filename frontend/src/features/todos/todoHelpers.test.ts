@@ -211,6 +211,46 @@ describe('collectUpNow', () => {
     ];
     expect(collectUpNow(sections, TODAY).map((i) => i.id)).toEqual(['overdue', 'today', 'done']);
   });
+
+  it('orders a due date by clock time, with untimed items after the timed ones', () => {
+    const sections: TodoSection[] = [
+      section('Now', [
+        item({ id: 'untimed', due_by: TODAY }),
+        item({ id: 'afternoon', due_by: TODAY, due_time: '14:30' }),
+        item({ id: 'dawn', due_by: TODAY, due_time: '07:00' }),
+        item({ id: 'noon', due_by: TODAY, due_time: '12:00' }),
+      ]),
+    ];
+    expect(collectUpNow(sections, TODAY).map((i) => i.id)).toEqual([
+      'dawn', 'noon', 'afternoon', 'untimed',
+    ]);
+  });
+
+  it('sorts by due date before time, so an overdue item never sinks below today', () => {
+    // A late-morning item due YESTERDAY still outranks an early one due today:
+    // the day is the stronger claim, the clock only breaks ties within it.
+    const sections: TodoSection[] = [
+      section('Now', [
+        item({ id: 'today-7am', due_by: TODAY, due_time: '07:00' }),
+        item({ id: 'yesterday-11am', due_by: '2026-07-07', due_time: '11:00' }),
+      ]),
+    ];
+    expect(collectUpNow(sections, TODAY).map((i) => i.id)).toEqual([
+      'yesterday-11am', 'today-7am',
+    ]);
+  });
+
+  it('keeps done items at the bottom regardless of their time', () => {
+    const sections: TodoSection[] = [
+      section('Now', [
+        item({ id: 'done-dawn', due_by: TODAY, due_time: '07:00', done: true }),
+        item({ id: 'live-evening', due_by: TODAY, due_time: '20:00' }),
+      ]),
+    ];
+    expect(collectUpNow(sections, TODAY).map((i) => i.id)).toEqual([
+      'live-evening', 'done-dawn',
+    ]);
+  });
 });
 
 describe('collectTomorrow', () => {

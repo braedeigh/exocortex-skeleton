@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Button, Checkbox, Sheet, TapRow } from '../../ui';
 import { companionToPrompt, visibleReminders } from './reminderMath';
-import { fmtAddedDate, isOverdue } from './todoHelpers';
+import { fmtAddedDate, fmtTime, isOverdue } from './todoHelpers';
 import type { ActivityEntry, ReminderDef, TimeOfDay, TodoItem } from './types';
 import styles from './UpNowCard.module.css';
 
@@ -201,8 +201,16 @@ export function UpNowCard({
                   <span className={styles.subCount}>{remaining}</span>
                 </button>
               ) : null}
+              {/* An item with a time says the time — that's the whole point
+                  of setting one, and collectUpNow has already ordered the
+                  list by it. An overdue item keeps saying which day it slipped
+                  from, since that matters more than the clock by then. */}
               <span className={`${styles.due} ${overdue ? styles.overdue : ''}`}>
-                {overdue ? `overdue · ${fmtAddedDate(it.due_by)}` : 'today'}
+                {overdue
+                  ? `overdue · ${fmtAddedDate(it.due_by)}`
+                  : it.due_time
+                    ? fmtTime(it.due_time)
+                    : 'today'}
               </span>
             </div>
             {subs.length && open ? (
