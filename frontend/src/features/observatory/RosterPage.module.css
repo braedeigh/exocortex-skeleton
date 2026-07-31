@@ -198,6 +198,32 @@
   background: var(--hue);
 }
 
+/* --- receded until reached for --- */
+/* At rest the whole rail sits back at half strength and lets the roster have
+   the screen; touching or hovering it brings it up solid. Straight out of the
+   notes pill beside it (NotesPill.module.css does the same at 0.45), so the two
+   floating controls behave like one family rather than two.
+   A PRESSED filter is exempt — it isn't a control waiting to be used, it's the
+   answer to "what am I looking at", and that has to read across the room.
+   [prompt: "i also want them more transparent unless selected"] */
+.railNew,
+.filterBtn,
+.railUtil {
+  opacity: 0.5;
+  transition: opacity 150ms ease, background var(--dur-2, 200ms) ease,
+    color var(--dur-2, 200ms) ease, box-shadow var(--dur-2, 200ms) ease;
+}
+
+.rail:hover .railNew,
+.rail:hover .filterBtn,
+.rail:hover .railUtil,
+.rail:focus-within .railNew,
+.rail:focus-within .filterBtn,
+.rail:focus-within .railUtil,
+.filterOn {
+  opacity: 1;
+}
+
 /* Nothing behind it. Grey and unclickable rather than gone — a rail that
    reshuffled as counts hit zero would move the button she was reaching for. */
 .filterEmpty {
