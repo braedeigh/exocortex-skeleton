@@ -89,16 +89,18 @@
 
 /* New session. ROUND where the filters are pills, and ink-coloured where they
    are hued — different shape, different colour family, so it can't be read as
-   a fourth state. */
+   a fourth state. The outline is a SOFT grey, not near-black: these two carry
+   no state, so drawing them as hard as a lit filter would give them a weight
+   they haven't earned. Solid, just quiet. */
 .railNew {
   align-self: flex-end;
   flex: none;
   width: 48px;
   height: 48px;
-  border: 2px solid var(--text-secondary);
+  border: 2px solid var(--text-muted);
   border-radius: 50%;
   background: color-mix(in srgb, var(--text) 7%, transparent);
-  color: var(--text);
+  color: var(--text-secondary);
   font: inherit;
   font-size: var(--font-size-xl);
   font-weight: 700;
@@ -109,7 +111,7 @@
 
 .railNew:hover {
   border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 16%, var(--card-bg));
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
   color: var(--accent);
 }
 
@@ -283,10 +285,10 @@
   position: relative;
   min-height: var(--tap-target);
   padding: 0;
-  border: 2px solid var(--text-secondary);
+  border: 2px solid var(--text-muted);
   border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--text) 7%, transparent);
-  color: var(--text);
+  color: var(--text-secondary);
   font: inherit;
   font-size: var(--font-size-md);
   font-weight: 700;
@@ -782,8 +784,17 @@
     pointer-events: auto;
   }
 
+  /* The '+' leaves the bar and anchors to the bottom-LEFT corner, mirroring
+     the notes pill on the right. It's the one control here that must never
+     move: the bar grows and shrinks leftward as Running and Errors come and
+     go, which slid the '+' out from under her thumb every time a session
+     started or finished. Fixed to the corner, it's always in the same place.
+     [prompt: "put the + button in a stable position on the left side like the
+     dev todo list is"] */
   .railNew {
-    align-self: center;
+    position: fixed;
+    left: var(--space-4);
+    bottom: calc(var(--space-4) + 4px);
     height: var(--tap-target);
     font-size: var(--font-size-lg);
   }
