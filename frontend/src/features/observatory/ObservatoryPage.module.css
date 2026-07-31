@@ -47,13 +47,19 @@
      colour would be a smudge in half of them and a glow in the rest. At
      var(--bg) it follows the blend and stays invisible — you never see the
      halo, only that the text got easier.
-     Zero offset (an offset would read as a drop shadow) and two small blurs
+     Zero offset (an offset would read as a drop shadow) and three blurs
      stacked rather than one large one, which builds density at the glyph and
-     falls off without leaving a ring. Inherited by every turn in the column,
-     so it covers each message automatically; the exception is below.
+     falls off smoothly without leaving a ring. Widening is done by ADDING an
+     outer stop, not by scaling the inner ones: the same opaque colour spread
+     over a larger radius contributes less per pixel, so each new stop reaches
+     further while landing fainter. 20px is about the limit for a halo — body
+     text here has a ~26px line box, so a wider outer stop would merge with the
+     lines above and below and start reading as a paragraph-shaped bed rather
+     than a clearing around letters. Inherited by every turn in the column, so
+     it covers each message automatically; the exception is below.
      Prompt that produced it: "maybe put a shadow behind the words? like idk
-     what color, gray? something that contrasts?" */
-  text-shadow: 0 0 4px var(--bg), 0 0 10px var(--bg);
+     what color, gray? something that contrasts?" then "increase the width". */
+  text-shadow: 0 0 4px var(--bg), 0 0 10px var(--bg), 0 0 20px var(--bg);
 }
 
 /* The column's padding is the gap; the last block inside it shouldn't add a
