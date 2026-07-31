@@ -719,12 +719,14 @@
   pointer-events: auto;
 }
 
-/* Every button in the bar is exactly one tap target wide. In the lane they
-   sized to their own content, which is fine stacked but here it made the row
-   wider than the space beside the pill. */
-.layoutRoomy .railNew,
-.layoutRoomy .filterBtn,
-.layoutRoomy .railUtil {
+/* Every button in the bar is exactly one tap target wide — in EVERY context.
+   This was scoped to the full-page route back when the docked pane still had a
+   vertical lane; once the pane got the bar too, the sort button was left with
+   no width at all and collapsed to the width of its arrow — a 12px sliver 40px
+   tall. A rule that only half-applies is worse than one that doesn't. */
+.railNew,
+.filterBtn,
+.railUtil {
   width: var(--tap-target);
   min-width: var(--tap-target);
   padding: 0;

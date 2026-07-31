@@ -13,6 +13,9 @@ export interface NotesPanelProps {
   onToggleSort: () => void;
   onClose: () => void;
   onError: (message: string) => void;
+  /** Extra class on the panel — used to move it off the bottom-right corner
+   * when another pane already owns that corner. */
+  className?: string;
 }
 
 const LABEL: Record<NotesPillKind, string> = { dev: 'Dev notes', idea: 'Ideas' };
@@ -30,7 +33,7 @@ const PLACEHOLDER: Record<NotesPillKind, string> = {
  * rebuilt by hand for the same reason.
  */
 export const NotesPanel = forwardRef<HTMLDivElement, NotesPanelProps>(function NotesPanel(
-  { kind, tab, showAllLink, sort, onToggleSort, onClose, onError },
+  { kind, tab, showAllLink, sort, onToggleSort, onClose, onError, className },
   ref,
 ) {
   const { data, isLoading } = useNotesPillList(kind, tab);
@@ -120,7 +123,12 @@ export const NotesPanel = forwardRef<HTMLDivElement, NotesPanelProps>(function N
   }
 
   return (
-    <div className={`${styles.panel} ${expanded ? styles.panelExpanded : ''}`} ref={ref}>
+    <div
+      className={[styles.panel, expanded ? styles.panelExpanded : '', className]
+        .filter(Boolean)
+        .join(' ')}
+      ref={ref}
+    >
       <div className={styles.head}>
         <span className={`${styles.title} ${kind === 'idea' ? styles.titleIdea : ''}`}>{LABEL[kind]}</span>
         {showAllLink ? (

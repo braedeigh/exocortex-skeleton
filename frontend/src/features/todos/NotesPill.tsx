@@ -14,6 +14,11 @@ export interface NotesPillProps {
   /** Extra class on the closed pill — pages with their own bottom furniture
    * (e.g. the thread page's sticky composer) use it to lift the pill clear. */
   className?: string;
+  /** Which bottom corner to sit in. 'left' is for a page rendered inside the
+   * desktop split's left pane, where the right corner already holds the other
+   * pane's pill. Moves the open panel too, so the panel appears where the
+   * button was rather than across the window. */
+  anchor?: 'right' | 'left';
 }
 
 /**
@@ -24,7 +29,14 @@ export interface NotesPillProps {
  * native pages (/todos as 'today', /notes as 'notes') — the legacy iframe
  * tabs still load the original scripts for the pill.
  */
-export function NotesPill({ onError, tab = 'today', showAllLink = true, className }: NotesPillProps) {
+export function NotesPill({
+  onError,
+  tab = 'today',
+  showAllLink = true,
+  className,
+  anchor = 'right',
+}: NotesPillProps) {
+  const anchorClass = anchor === 'left' ? styles.anchorLeft : undefined;
   const [openKind, setOpenKind] = useState<NotesPillKind | null>(null);
   const [sort, setSort] = useState<SortDir>(readStoredSort);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -51,12 +63,16 @@ export function NotesPill({ onError, tab = 'today', showAllLink = true, classNam
         onToggleSort={toggleSort}
         onClose={close}
         onError={onError}
+        className={anchorClass}
       />
     );
   }
 
   return (
-    <div className={[styles.pill, className].filter(Boolean).join(' ')} ref={containerRef}>
+    <div
+      className={[styles.pill, anchorClass, className].filter(Boolean).join(' ')}
+      ref={containerRef}
+    >
       <button
         type="button"
         className={`${styles.sq} ${styles.sqDev}`}
