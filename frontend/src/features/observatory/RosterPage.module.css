@@ -204,10 +204,12 @@
 }
 
 /* Nothing behind it. Grey and unclickable rather than gone — a rail that
-   reshuffled as counts hit zero would move the button she was reaching for. */
+   reshuffled as counts hit zero would move the button she was reaching for.
+   Muted, but the outline and the dot stay SOLID like every other state: only
+   the fill is ever see-through. Colour says "nothing here", never opacity. */
 .filterEmpty {
-  border-color: var(--border);
-  background: color-mix(in srgb, var(--text) 6%, transparent);
+  border-color: var(--text-muted);
+  background: color-mix(in srgb, var(--text) 5%, transparent);
   color: var(--text-muted);
   cursor: default;
 }
@@ -225,7 +227,7 @@
 }
 
 .filterEmpty .filterDot {
-  background: color-mix(in srgb, var(--text) 20%, transparent);
+  background: var(--text-muted);
 }
 
 /* Only RUNNING breathes, on the same 2s as a live card's dot, so the rail and
@@ -771,8 +773,11 @@
     width: var(--tap-target);
     min-width: var(--tap-target);
     padding: 0;
-    /* The fill stays see-through here too — only the shadow is added, to lift
-       the buttons off the card text they float over without solidifying them. */
+    /* The fill stays see-through here too — only a shadow is added, to lift
+       the buttons off the card text they float over without solidifying them.
+       Selected is excluded because it carries its own lit halo (below); this
+       rule used to overwrite it, so a pressed button on the phone lost the
+       glow the same button has on the desktop. */
     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
     pointer-events: auto;
   }
@@ -783,8 +788,12 @@
     font-size: var(--font-size-lg);
   }
 
-  /* Pressed still wins — it sets its own solid fill and glow. */
+  /* Pressed wins outright: solid fill, and BOTH shadows — its own glow plus
+     the bar's lift — so "selected" reads the same here as on the desktop. */
   .filterOn {
     background: var(--hue);
+    box-shadow: 0 0 18px color-mix(in srgb, var(--glow) 65%, transparent),
+      0 0 44px color-mix(in srgb, var(--glow) 32%, transparent),
+      0 4px 14px rgba(0, 0, 0, 0.18);
   }
 }
