@@ -69,17 +69,6 @@
    pane and every pixel the lane takes comes off the cards. Asking the page
    (which knows it's docked) beats guessing from the viewport width, which would
    be measuring the wrong box. */
-@media (min-width: 900px) {
-  .layoutRoomy {
-    gap: var(--space-4);
-    max-width: calc(640px + var(--space-4) + 168px);
-  }
-
-  .layoutRoomy .rail {
-    width: 168px;
-  }
-}
-
 /* The rail is a column: the '+' on top, then the state filters under it. Its
    own gap is wider than the one between the filters, so the action and the
    states read as two groups rather than one undifferentiated pile. */
@@ -335,38 +324,6 @@
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
-}
-
-/* The wide lane: labels back, and the pill lays out left-to-right again. */
-@media (min-width: 900px) {
-  .layoutRoomy .filterBtn {
-    justify-content: flex-start;
-    padding: 0 var(--space-3);
-    font-size: var(--font-size-md);
-  }
-
-  .layoutRoomy .filterDot {
-    width: 12px;
-    height: 12px;
-  }
-
-  .layoutRoomy .filterLabel,
-  .layoutRoomy .railUtilLabel {
-    position: static;
-    width: auto;
-    height: auto;
-    overflow: visible;
-    clip-path: none;
-    margin-left: auto;
-    font-weight: 700;
-  }
-
-  /* Wide lane: lay out left-to-right like the filter pills. The width comes
-     from the lane itself (align-items: stretch), so nothing is hardcoded. */
-  .layoutRoomy .railUtil {
-    justify-content: flex-start;
-    padding: 0 var(--space-3);
-  }
 }
 
 .title {
@@ -724,150 +681,155 @@
   font-weight: 600;
 }
 
-/* --- phone / PWA: the rail leaves the lane and becomes a bottom bar --- */
-/* Beside the roster, a reserved lane cost the cards 56px of width on a phone,
-   which is the one screen that can't spare it. Down here the rail is fixed to
-   the bottom instead, in the row the dev-notes pill already occupies, sitting
-   just to its left — so it takes NO width from the cards at all and the roster
-   goes full-bleed again.
-   Keyed at 768px because that is exactly one pixel below the desktop split's
-   own breakpoint (DESKTOP_QUERY, shell/useMediaQuery.ts): below it there's no
-   docked pane and the pill is really on screen to sit next to; at or above it
-   this page can be the split's left pane, where the pill isn't rendered and a
-   floating bottom bar would hover over the whole app.
+/* --- the rail as a bottom bar, on every full-page width --- */
+/* Beside the roster, a reserved lane cost the cards width — 56px of it on a
+   phone, the one screen that can't spare any. Down here the rail is fixed to
+   the bottom instead, in the row the dev-notes pill already occupies, so it
+   takes no width from the cards at all and the roster runs full-bleed.
+
+   Keyed on .layoutRoomy — the FULL-PAGE route — not on a width. The other case
+   is the desktop split's docked pane, which keeps the side lane above: the pill
+   isn't rendered there to sit beside, and a viewport-fixed bar would escape the
+   pane and hover over the whole app.
+
+   The labels went with the lane. There's no width at which four labelled pills,
+   the '+', the sort and the pill all fit on one line down here, so every button
+   is a dot and a count; the hover title carries the name.
    [prompt: "on PWA can you move all the buttons to the bottom to the left of
-   the dev notes buttons"] */
-@media (max-width: 768px) {
-  .layout {
-    /* No lane to reserve any more — the cards get the whole column back. */
-    max-width: 640px;
-    gap: 0;
-    /* Room to scroll the last card clear of the bar now floating over it. */
-    padding-bottom: calc(var(--space-8) + 56px);
+   the dev notes buttons"; "can you also put the buttons on the bottom for the
+   desktop app too"] */
+.layoutRoomy {
+  /* No lane to reserve any more — the cards get the whole column back. */
+  max-width: 640px;
+  gap: 0;
+  /* Room to scroll the last card clear of the bar now floating over it. */
+  padding-bottom: calc(var(--space-8) + 56px);
+}
+
+.layoutRoomy .rail {
+  position: fixed;
+  /* The band between the '+' on the left and the sort button on the right. The
+     filter group centres in it, and because every state owns a reserved slot
+     the group's width never changes — so nothing in it ever shifts, whatever
+     is running or broken. */
+  right: calc(var(--space-4) + 94px + var(--space-1) + var(--tap-target) + var(--space-1));
+  bottom: calc(var(--space-4) + 4px);
+  top: auto;
+  left: calc(var(--space-3) + var(--tap-target) + var(--space-1));
+  width: auto;
+  margin-top: 0;
+  /* Under the pill's 45 so the two can never fight, and well under the
+     Sheet (100) and Toast (200) overlays. */
+  z-index: 44;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  justify-content: center;
+  align-items: center;
+  gap: var(--space-2);
+  pointer-events: none;
+}
+
+/* The reserved slots, turned sideways. */
+.layoutRoomy .filters {
+  grid-template-rows: 1fr;
+  grid-template-columns: repeat(4, var(--tap-target));
+  /* A tight gap, because on a phone this row is genuinely full: four reserved
+     slots, the '+', the sort and the notes pill come to the whole width of a
+     390px screen with nothing to spare. The buttons are circles with solid
+     outlines, so they still read as separate at this spacing. */
+  gap: var(--space-1);
+  margin-top: 0;
+  pointer-events: auto;
+}
+
+.layoutRoomy .filterHueRunning { grid-area: 1 / 1; }
+.layoutRoomy .filterHueActive { grid-area: 1 / 2; }
+.layoutRoomy .filterHueUnread { grid-area: 1 / 3; }
+.layoutRoomy .filterHueError { grid-area: 1 / 4; }
+
+/* Sort at the right end, immediately left of the notes pill; the '+' anchors
+   the other end of the bottom edge. Both are fixed to a corner, so neither
+   ever moves. */
+.layoutRoomy .railUtils {
+  position: fixed;
+  right: calc(var(--space-4) + 94px + var(--space-1));
+  bottom: calc(var(--space-4) + 4px);
+  margin-top: 0;
+  pointer-events: auto;
+}
+
+/* Every button in the bar is exactly one tap target wide. In the lane they
+   sized to their own content, which is fine stacked but here it made the row
+   wider than the space beside the pill. */
+.layoutRoomy .railNew,
+.layoutRoomy .filterBtn,
+.layoutRoomy .railUtil {
+  width: var(--tap-target);
+  min-width: var(--tap-target);
+  padding: 0;
+  /* The fill stays see-through — but down here it floats over card TEXT, and a
+     sentence running through a count makes the count unreadable. So the
+     backdrop gets blurred rather than the fill made opaque: the page still
+     shows through in colour and shape, it just stops competing with the number
+     on top of it. Transparency kept, legibility back.
+     The shadow lifts the button off the card underneath. */
+  backdrop-filter: blur(7px) saturate(1.15);
+  -webkit-backdrop-filter: blur(7px) saturate(1.15);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  pointer-events: auto;
+}
+
+.layoutRoomy .railNew {
+  position: fixed;
+  left: var(--space-4);
+  bottom: calc(var(--space-4) + 4px);
+  height: var(--tap-target);
+  font-size: var(--font-size-lg);
+}
+
+/* Pressed wins outright: solid fill, and BOTH shadows — its own glow plus the
+   bar's lift — so "selected" reads the same here as it did in the lane. */
+.layoutRoomy .filterOn {
+  background: var(--hue);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--glow) 65%, transparent),
+    0 0 44px color-mix(in srgb, var(--glow) 32%, transparent),
+    0 4px 14px rgba(0, 0, 0, 0.18);
+}
+
+/* Wide screens: keep the six controls together as ONE cluster beside the pill
+   rather than flinging the '+' to the far corner and the filters to the middle
+   of a 1440px screen. Spreading them across that much emptiness reads as three
+   unrelated things; grouped, it reads as one control bar. The corner-anchoring
+   above is a phone answer to a phone problem — no room — and doesn't earn its
+   keep once there's space.
+   Keyed at 769px: the desktop split's own breakpoint, so "wide" here means
+   exactly the widths where this page could also be a pane. */
+@media (min-width: 769px) {
+  .layoutRoomy .rail {
+    left: auto;
+    right: calc(var(--space-4) + 94px + var(--space-2));
+    justify-content: flex-end;
   }
 
-  .rail {
-    position: fixed;
-    /* Clears the pill: its own 16px inset + two 46px squares + 1px borders,
-       then a gap. Bottom is nudged so a 40px button centres against the
-       pill's 48px, rather than sitting a few pixels low beside it. */
-    /* The band between the '+' on the left and the sort button on the right.
-       The filter group centres in it, and because every state owns a reserved
-       slot the group's width never changes — so nothing in it ever shifts,
-       whatever is running or broken. */
-    right: calc(var(--space-4) + 94px + var(--space-1) + var(--tap-target) + var(--space-1));
-    bottom: calc(var(--space-4) + 4px);
-    top: auto;
-    left: calc(var(--space-3) + var(--tap-target) + var(--space-1));
-    width: auto;
-    margin-top: 0;
-    /* Under the pill's 45 so the two can never fight, and well under the
-       Sheet (100) and Toast (200) overlays. */
-    z-index: 44;
-    flex-direction: row;
-    /* Right-aligned so the bar always ENDS beside the pill and grows leftward.
-       wrap-reverse means a sixth button (both come-and-go buttons showing at
-       once) wraps to a row ABOVE rather than sliding under the pill or off the
-       screen — the row nearest the pill stays put either way. */
-    flex-wrap: nowrap;
-    justify-content: center;
-    align-items: center;
+  .layoutRoomy .railNew,
+  .layoutRoomy .railUtils {
+    position: static;
+    left: auto;
+    right: auto;
+    bottom: auto;
+  }
+
+  .layoutRoomy .filters {
     gap: var(--space-2);
-    pointer-events: none;
-  }
-
-  /* The bar's own children lay out in a row too, and their column-era spacing
-     (a top margin between the groups) becomes horizontal. */
-  .rail > .filters {
-    grid-template-rows: 1fr;
-    grid-template-columns: repeat(4, var(--tap-target));
-    /* A tight gap, because this row is genuinely full: four reserved slots,
-       the '+', the sort button and the notes pill come to the full width of a
-       390px phone with nothing to spare. The buttons are circles with solid
-       outlines, so they still read as separate at this spacing. */
-    gap: var(--space-1);
-    margin-top: 0;
-    pointer-events: auto;
-  }
-
-  .rail .filterHueRunning { grid-area: 1 / 1; }
-  .rail .filterHueActive { grid-area: 1 / 2; }
-  .rail .filterHueUnread { grid-area: 1 / 3; }
-  .rail .filterHueError { grid-area: 1 / 4; }
-
-  /* Sort sits at the right end of the row, immediately left of the notes
-     pill — the '+' anchors one end of the bottom edge and these two the
-     other. Both ends are fixed to a corner, so neither ever moves. */
-  .rail > .railUtils {
-    position: fixed;
-    right: calc(var(--space-4) + 94px + var(--space-1));
-    bottom: calc(var(--space-4) + 4px);
-    margin-top: 0;
-    pointer-events: auto;
-  }
-
-  .railNew {
-    left: var(--space-3);
-  }
-
-  /* Every button in the bar is exactly one tap target wide. In the lane they
-     sized to their own content, which is fine stacked but here it made the row
-     wider than the space beside the pill and pushed a button onto a second
-     line. */
-  .railNew,
-  .filterBtn,
-  .railUtil {
-    width: var(--tap-target);
-    min-width: var(--tap-target);
-    padding: 0;
-    /* The fill stays see-through — but down here it floats over card TEXT, and
-       a sentence running through a count makes the count unreadable. So the
-       backdrop gets blurred rather than the fill made opaque: the page still
-       shows through in colour and shape, it just stops competing with the
-       number on top of it. Transparency kept, legibility back.
-       The shadow lifts the button off the card underneath. */
-    backdrop-filter: blur(7px) saturate(1.15);
-    -webkit-backdrop-filter: blur(7px) saturate(1.15);
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
-    pointer-events: auto;
-  }
-
-  /* The '+' leaves the bar and anchors to the bottom-LEFT corner, mirroring
-     the notes pill on the right. It's the one control here that must never
-     move: the bar grows and shrinks leftward as Running and Errors come and
-     go, which slid the '+' out from under her thumb every time a session
-     started or finished. Fixed to the corner, it's always in the same place.
-     [prompt: "put the + button in a stable position on the left side like the
-     dev todo list is"] */
-  .railNew {
-    position: fixed;
-    left: var(--space-4);
-    bottom: calc(var(--space-4) + 4px);
-    height: var(--tap-target);
-    font-size: var(--font-size-lg);
-  }
-
-  /* Pressed wins outright: solid fill, and BOTH shadows — its own glow plus
-     the bar's lift — so "selected" reads the same here as on the desktop. */
-  .filterOn {
-    background: var(--hue);
-    box-shadow: 0 0 18px color-mix(in srgb, var(--glow) 65%, transparent),
-      0 0 44px color-mix(in srgb, var(--glow) 32%, transparent),
-      0 4px 14px rgba(0, 0, 0, 0.18);
   }
 }
 
-/* A 390px phone fits this row exactly, with nothing to spare. Narrower than
-   that and four 40px slots plus the '+', the sort and the pill genuinely do
-   not coexist on one line — so on the smallest screens sort steps up above the
-   '+' instead, and the filters take the width it frees. Tap targets never
-   shrink to make something fit; the layout gives way first. */
 @media (max-width: 384px) {
-  .rail {
+  .layoutRoomy .rail {
     right: calc(var(--space-4) + 94px + var(--space-2));
   }
 
-  .rail > .railUtils {
+  .layoutRoomy .railUtils {
     right: auto;
     left: var(--space-3);
     bottom: calc(var(--space-4) + 4px + var(--tap-target) + var(--space-2));
