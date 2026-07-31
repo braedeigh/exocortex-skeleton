@@ -10,7 +10,8 @@ import {
 } from './api';
 import { resumeAfterDecision } from './resumeAfterDecision';
 import { orchestraRows, type OrchestraRow } from './orchestra';
-import { lastActivityLabel, sessionStatus } from './sessionStatus';
+import { lastActivityLabel } from './sessionStatus';
+import { cardState, matchesFilter, type CardState } from './sessionFilters';
 import { formatSessionSpend } from './turnStats';
 import type { TerrainData } from '../terrain/api';
 import styles from './Orchestra.module.css';
@@ -39,6 +40,28 @@ import styles from './Orchestra.module.css';
  * Terrain is polled ONCE by the page and passed in, not fetched per lane —
  * two lanes must not mean two pollers hitting the same endpoint.
  */
+
+/* The card's whole visual vocabulary, in two tables. cardState says WHICH state
+   (from the same predicates the rail's buttons use); these say what it LOOKS
+   like. Adding a state is a row in each table and a rule in the stylesheet —
+   never another branch buried in the markup.
+
+   'rest' has no card class on purpose: a cold card is the plain card. */
+const CARD_CLASS: Record<CardState, string> = {
+  error: 'cardError',
+  running: 'cardLive',
+  unread: 'cardUnread',
+  recent: 'cardRecent',
+  rest: '',
+};
+
+const DOT_CLASS: Record<CardState, string> = {
+  error: 'errorDot',
+  running: 'liveDot',
+  unread: 'readyDot',
+  recent: 'recentDot',
+  rest: 'restDot',
+};
 
 /** The card's housekeeping line: "opus[1m] · 4m ago · 18.2k tokens · $4.21".
  * Built from whichever parts exist, so a fresh session shows nothing rather
@@ -422,20 +445,18 @@ export function SessionLane({
           {rest.map((row) => {
             const meta = byId.get(row.id);
             if (!meta) return null;
-            const status = sessionStatus(meta, opened[row.id]);
+            // What this card wears, decided by the SAME predicates as the
+            // rail's coloured buttons (sessionFilters.cardState) — so a purple
+            // dot on a card and the purple button's count are the one rule,
+            // written down once. `unread` is pulled out separately because two
+            // other things below key off it, and it must be the orange
+            // button's own definition, not a second one drifting beside it.
+            const state = cardState(meta, opened[row.id]);
+            const unread = matchesFilter(meta, opened[row.id], 'unread');
             return (
               <div
                 key={row.id}
-                // Three states, in strict precedence: broken beats busy beats
-                // unread. A card can honestly be more than one of these at
-                // once (a failed turn is also unread activity), and stacking
-                // their glows would just muddy both — so the most urgent
-                // truth is the one the card wears.
-                className={[
-                  styles.card,
-                  row.error ? styles.cardError : row.running ? styles.cardLive : '',
-                  !row.error && !row.running && status === 'ready' ? styles.cardUnread : '',
-                ]
+                className={[styles.card, CARD_CLASS[state] ? styles[CARD_CLASS[state]] : '']
                   .filter(Boolean)
                   .join(' ')}
               >
@@ -446,17 +467,7 @@ export function SessionLane({
                     onClick={() => onOpen(row.id)}
                     title="Open this session"
                   >
-                    {/* Same precedence the card's glow uses: broken, busy,
-                        unread, resting. */}
-                    {row.error ? (
-                      <span className={styles.errorDot} aria-hidden="true" />
-                    ) : row.running ? (
-                      <span className={styles.liveDot} aria-hidden="true" />
-                    ) : status === 'ready' ? (
-                      <span className={styles.readyDot} aria-hidden="true" />
-                    ) : (
-                      <span className={styles.restDot} aria-hidden="true" />
-                    )}
+                    <span className={styles[DOT_CLASS[state]]} aria-hidden="true" />
                     <span className={styles.title}>{row.title}</span>
                     {meta.pinned ? <span className={styles.badge}>pinned</span> : null}
                     {meta.draft ? <span className={styles.badge}>staged</span> : null}
@@ -505,18 +516,13 @@ export function SessionLane({
                           type="button"
                           className={styles.readBtn}
                           aria-label={
-                            status === 'ready'
-                              ? `Mark ${row.title} read`
-                              : `Mark ${row.title} unread`
+                            unread ? `Mark ${row.title} read` : `Mark ${row.title} unread`
                           }
-                          title={status === 'ready' ? 'Mark as read' : 'Mark as unread'}
-                          onClick={() => onSetRead(row.id, status === 'ready')}
+                          title={unread ? 'Mark as read' : 'Mark as unread'}
+                          onClick={() => onSetRead(row.id, unread)}
                         >
                           <span
-                            className={[
-                              styles.readDot,
-                              status === 'ready' ? styles.readDotUnread : '',
-                            ]
+                            className={[styles.readDot, unread ? styles.readDotUnread : '']
                               .filter(Boolean)
                               .join(' ')}
                             aria-hidden="true"
@@ -568,7 +574,7 @@ export function SessionLane({
                     Everything about what's safe to show here was decided at
                     send time (routes/observatory.py) — the card only picks the
                     moment. */}
-                {(row.running || status === 'ready') && meta.last_prompt ? (
+                {(row.running || unread) && meta.last_prompt ? (
                   <div className={styles.lastPrompt}>{meta.last_prompt}</div>
                 ) : null}
                 {row.summary ? <div className={styles.summary}>{row.summary}</div> : null}

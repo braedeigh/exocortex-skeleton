@@ -16,6 +16,10 @@
  * every bucket it truly matches. Making them exclusive would empty the orange
  * button exactly when it matters most, because purple would have eaten it.
  *
+ * The CARDS read from here too — cardState() below picks which of these three a
+ * card wears, so a colour on the rail and the same colour on a card always mean
+ * the identical thing. That tie is the point: the rule lives in one place.
+ *
  * `openedAt` comes from the same `exo-bot-opened` map as everything else —
  * passed in, never read here, so openedStore.ts stays the only reader.
  *
@@ -60,6 +64,47 @@ export function matchesFilter(
     case 'error':
       return typeof meta.last_error === 'string' && meta.last_error !== '';
   }
+}
+
+/** What a card WEARS. Same three predicates as the buttons, read in precedence
+ * order — so the rail and the cards can never drift apart, and "active in the
+ * last hour" is written down exactly once (change ACTIVE_WINDOW_MS and both the
+ * purple button's count and the purple dots move together).
+ *
+ *   error    red     the last turn failed — broken beats everything
+ *   running  purple  a turn is going right now; the card breathes
+ *   unread   orange  she hasn't read it, or it stopped to ask — her move
+ *   recent   purple  used inside the hour but idle and read — warm, still
+ *   rest     grey    cold
+ *
+ * ONE state per card, because a card can honestly be several of these at once
+ * and stacking their glows would just muddy all of them. The order is by
+ * urgency: what's broken beats what's busy beats what wants her.
+ *
+ * `recent` is the rung that was missing. The purple button counted these and
+ * the card showed them grey — so the rail said "3 active" and the roster looked
+ * dead. Steady purple, not the running card's breath: breath means a turn is
+ * moving RIGHT NOW, and a session that merely ran twenty minutes ago isn't
+ * moving. Two truths, two treatments.
+ *
+ * Prompt that produced it: "make the dots on the cards that are active and
+ * activated by the filter, like active within the last hour, glow purple also
+ * on the cards and tied together procedurally".
+ */
+export type CardState = 'error' | 'running' | 'unread' | 'recent' | 'rest';
+
+export function cardState(
+  meta: SessionMeta,
+  openedAt: string | undefined,
+  nowMs: number = Date.now(),
+): CardState {
+  if (matchesFilter(meta, openedAt, 'error', nowMs)) return 'error';
+  if (meta.running === true) return 'running';
+  if (matchesFilter(meta, openedAt, 'unread', nowMs)) return 'unread';
+  // Everything the purple button counts EXCEPT the running half, which already
+  // has its own louder state above.
+  if (matchesFilter(meta, openedAt, 'active', nowMs)) return 'recent';
+  return 'rest';
 }
 
 /** How many sessions sit under each button — the number on its face, and (for

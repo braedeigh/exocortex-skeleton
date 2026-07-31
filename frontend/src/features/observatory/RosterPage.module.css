@@ -56,7 +56,15 @@
    they don't overlap but are to the right"] */
 .rail {
   position: sticky;
-  top: var(--space-3);
+  /* Sits a good way down rather than jammed against the top edge. Both numbers
+     matter and they're different jobs: margin-top is where it RESTS (level with
+     the first card, not the page title — it belongs to the roster, not the
+     header), and `top` is where it PINS once she scrolls. Sticky measures the
+     top inset to the margin edge, so the two add up — which is what puts the
+     buttons comfortably down the screen in both states.
+     [prompt: "can you move them further down on the page?"] */
+  top: var(--space-5);
+  margin-top: var(--space-6);
   z-index: 6;
   flex: none;
   width: 48px;

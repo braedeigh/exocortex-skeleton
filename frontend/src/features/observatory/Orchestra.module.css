@@ -516,8 +516,21 @@
    left rule, and each has to be listed here: this selector carries two classes
    worth of specificity, so a bare `.cardError` would lose to it and the stripe
    would stay grey while the glow around it went red. */
-.card:not(.cardLive):not(.cardUnread):not(.cardError) {
+.card:not(.cardLive):not(.cardUnread):not(.cardError):not(.cardRecent) {
   border-left-color: var(--border);
+}
+
+/* Touched in the last hour, but idle and read — the rung the roster was
+   missing. The purple Active button counted these while the card sat grey, so
+   the rail said "3 active" over a page that looked dead.
+   Deliberately the QUIETEST of the coloured states: a purple rule and nothing
+   else. No wash, no halo, no breath. Three glowing states would flatten the
+   hierarchy and this is the least urgent of them — it isn't asking for
+   anything, it's just still warm. Loud is reserved for what needs her.
+   [prompt: "make the dots on the cards that are active ... glow purple also on
+   the cards and tied together procedurally"] */
+.cardRecent {
+  border-left-color: color-mix(in srgb, var(--accent) 70%, transparent);
 }
 
 /* Output she hasn't opened yet. Orange, like everything else in this section
@@ -588,6 +601,19 @@
   flex: none;
   border-radius: 50%;
   background: var(--orange);
+}
+
+/* Warm, not working: used inside the last hour but idle and already read. The
+   same purple the rail's Active button wears — and the same purple as .liveDot,
+   because it IS the same fact, just not happening this second. STEADY, where
+   the live dot breathes: breath is reserved for a turn that's actually moving,
+   so the two never blur into each other. */
+.recentDot {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--accent);
 }
 
 .errorDot {

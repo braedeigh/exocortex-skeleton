@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyFilter, filterCounts, matchesFilter } from './sessionFilters';
+import { applyFilter, cardState, filterCounts, matchesFilter } from './sessionFilters';
 import type { SessionMeta } from './api';
 
 const NOW = Date.parse('2026-07-30T12:00:00Z');
@@ -101,5 +101,47 @@ describe('applyFilter', () => {
       session('c', { last_at: ago(200 * MIN) }), // neither
     ];
     expect(applyFilter(s, opened, ['active', 'error'], NOW).map((x) => x.id)).toEqual(['a', 'b']);
+  });
+});
+
+// The whole point of cardState: a card and the rail button of the same colour
+// are answering the same question, so these assertions are also assertions
+// about the buttons.
+describe('cardState', () => {
+  const read = (id: string) => ({ [id]: ago(0) });
+
+  it('gives a recently-used idle session the purple state, not grey', () => {
+    const s = session('a', { last_at: ago(20 * MIN) });
+    expect(cardState(s, ago(0), NOW)).toBe('recent');
+    // ...and that is exactly what the purple button counted it as.
+    expect(matchesFilter(s, ago(0), 'active', NOW)).toBe(true);
+  });
+
+  it('goes grey once it falls out of the hour', () => {
+    expect(cardState(session('a', { last_at: ago(90 * MIN) }), ago(0), NOW)).toBe('rest');
+  });
+
+  it('ranks broken over busy over unread over merely recent', () => {
+    const busyAndBroken = session('a', { running: true, last_error: 'boom' });
+    expect(cardState(busyAndBroken, undefined, NOW)).toBe('error');
+
+    const busyAndUnread = session('b', { running: true, last_at: ago(1 * MIN) });
+    expect(cardState(busyAndUnread, ago(90 * MIN), NOW)).toBe('running');
+
+    // Unread AND inside the hour — orange wins, because it wants something
+    // from her and 'recent' doesn't.
+    const unreadAndRecent = session('c', { last_at: ago(2 * MIN) });
+    expect(cardState(unreadAndRecent, ago(90 * MIN), NOW)).toBe('unread');
+  });
+
+  it('keeps a session that stopped to ask orange even once opened', () => {
+    const asking = session('a', { awaiting_input: 'which one?', last_at: ago(2 * MIN) });
+    expect(cardState(asking, ago(0), NOW)).toBe('unread');
+  });
+
+  it('reads the opened stamp for the session it belongs to', () => {
+    const s = session('a', { last_at: ago(2 * MIN) });
+    expect(cardState(s, read('a').a, NOW)).toBe('recent');
+    expect(cardState(s, undefined, NOW)).toBe('unread');
   });
 });
