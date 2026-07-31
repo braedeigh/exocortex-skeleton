@@ -54,7 +54,13 @@ _PRESENCE_SUPPRESS_SEC = 30
 # visible:false beacon, laptop slept, ...) — pruned on every presence write.
 _PRESENCE_MAX_AGE_SEC = 600
 _BODY_TRUNCATE = 140
+_TITLE_TRUNCATE = 80
 _UA_TRUNCATE = 200
+# Where tapping a notification lands when the caller doesn't say. Agent
+# events (stop/notification) come from a Claude session, so the terminal is
+# the useful place to arrive; callers with somewhere better to go pass their
+# own (a to-do reminder sends you to the to-dos, not to a chat).
+_DEFAULT_URL = "/chat"
 
 
 # --- VAPID keypair + hook secret: plain files, not a store.py collection ----
@@ -191,7 +197,7 @@ def _prune_subs(endpoints):
     return removed
 
 
-def _send_push(sub, title, body_text, pem_path, claims):
+def _send_push(sub, title, body_text, pem_path, claims, url=_DEFAULT_URL):
     """Send one push. Returns (result, detail): result is 'sent', 'prune'
     (the push service says this endpoint is gone — 404/410), or 'failed'
     (anything else, never raises). `detail` is a short human-readable reason
@@ -199,7 +205,7 @@ def _send_push(sub, title, body_text, pem_path, claims):
     arrived can explain itself, since the whole point of this system is that
     nobody is watching the server when it runs."""
     subscription_info = {"endpoint": sub.get("endpoint"), "keys": sub.get("keys") or {}}
-    payload = json.dumps({"title": title, "body": body_text, "url": "/chat"})
+    payload = json.dumps({"title": title, "body": body_text, "url": url})
     # A fresh dict per call: webpush() fills in "aud" (from the endpoint) and
     # "exp" IN PLACE only when they're not already set, so a dict reused
     # across sends would keep the first endpoint's aud on every call after.
@@ -218,7 +224,7 @@ def _send_push(sub, title, body_text, pem_path, claims):
         return "failed", f"{type(e).__name__}: {e}"[:160]
 
 
-def _dispatch(subs, title, body_text, suppress_presence):
+def _dispatch(subs, title, body_text, suppress_presence, url=_DEFAULT_URL):
     """Send `title`/`body_text` to every sub in `subs`, optionally skipping
     ones whose presence entry says they're already looking at the app.
     Returns the {"sent", "suppressed", "pruned", "failed"} counts, plus an
@@ -250,7 +256,7 @@ def _dispatch(subs, title, body_text, suppress_presence):
             if pres and (now - pres.get("visible_at", 0)) <= _PRESENCE_SUPPRESS_SEC:
                 suppressed += 1
                 continue
-        result, detail = _send_push(sub, title, body_text, pem_path, claims)
+        result, detail = _send_push(sub, title, body_text, pem_path, claims, url)
         if result == "sent":
             sent += 1
         elif result == "prune":
@@ -344,15 +350,36 @@ def register(app):
         if session_name in muted:
             return jsonify({"ok": True, "skipped": "muted"})
         event = data.get("event")
+        # The agent events describe a session, so they compose their own title
+        # and are presence-suppressed: if she's already looking at the app,
+        # "the session finished" is something she can see for herself.
+        #
+        # A "reminder" is the opposite on both counts. It brings its own words
+        # (scripts/todo_push_dispatcher.py sends the to-do's text) and its own
+        # destination, and it is NOT presence-suppressed — a time she set is a
+        # commitment she made to herself, and it should arrive whether or not
+        # the app happens to be open. Suppressing it would mean the reminder
+        # goes quiet exactly when she's at the screen anyway.
+        suppress = True
+        url = _DEFAULT_URL
         if event == "stop":
             title = f"✓ {session_name} finished"
         elif event == "notification":
             title = f"⏳ {session_name} needs input"
+        elif event == "reminder":
+            title = (data.get("title") or "").strip()[:_TITLE_TRUNCATE] or "Reminder"
+            suppress = False
+            # Relative in-app paths only — this string becomes the SW's
+            # notificationclick target, and an absolute URL from here would
+            # let a caller aim a tap anywhere.
+            requested = (data.get("url") or "").strip()
+            if requested.startswith("/") and not requested.startswith("//"):
+                url = requested
         else:
             return jsonify({"error": "unknown event"}), 400
         body_text = (data.get("body") or "")[:_BODY_TRUNCATE]
         subs = store.read("push_subscriptions.json", {"subs": []}).get("subs", []) or []
-        counts = _dispatch(subs, title, body_text, suppress_presence=True)
+        counts = _dispatch(subs, title, body_text, suppress_presence=suppress, url=url)
         return jsonify({"ok": True, **counts})
 
     @app.route("/api/push/test", methods=["POST"])
