@@ -279,29 +279,106 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
 
   return (
     <div className={styles.page}>
-      <div className={styles.inner}>
-        {/* The colour rail, FLOATING over the page rather than parked in the
-            header: it's sticky inside a zero-height row, so it takes no space
-            in the flow and rides down the right edge as she scrolls — the
-            counts stay reachable from anywhere in a long roster.
+      {/* Two columns: the roster, and a lane of its own on the right for the
+          rail. .layoutRoomy widens that lane into the empty margin a full-width
+          screen has either side of the 640px roster — it's off in the desktop
+          split's docked pane, where the roster fills the pane and every pixel
+          the lane took would come off the cards. */}
+      <div
+        className={[styles.layout, onOpenConversation ? '' : styles.layoutRoomy]
+          .filter(Boolean)
+          .join(' ')}
+      >
+        <div className={styles.inner}>
+          <div className={styles.header}>
+            <div className={styles.headLeft}>
+              <h1 className={styles.title}>Observatory</h1>
+              <button
+                type="button"
+                className={styles.sortBtn}
+                onClick={toggleSort}
+                title={
+                  sortDir === 'oldest'
+                    ? 'Oldest first — tap for newest first'
+                    : 'Newest first — tap for oldest first'
+                }
+                aria-label="Change session sort order"
+              >
+                {sortDir === 'oldest' ? 'Oldest first ↓' : 'Newest first ↑'}
+              </button>
+            </div>
+          </div>
+          {failed ? <div className={styles.pageError}>Couldn&rsquo;t load sessions.</div> : null}
 
-            Stacked, not spread: the order down the column IS the ranking —
-            purple is what's alive, orange is what wants her, red is what's
-            broken and only ever appears when it's true. Any number can be down
-            at once; what's down is unioned. A button with nothing behind it
-            goes grey and unclickable rather than vanishing, so the rail doesn't
-            reshuffle under her thumb.
-            [prompt: "i want them floating on the page rather than fixed at the
-            top ... you can press more than one at a time"] */}
-        <div className={[styles.rail, onOpenConversation ? '' : styles.railRoomy].filter(Boolean).join(' ')}>
-          {/* New session — round, not a pill, and colourless: the three below it
-              are STATES and this is an ACTION, so it can't be mistaken for a
-              fourth colour. It floats here because the per-lane '+' used to sit
-              in this exact column and the rail landed on top of it. One button
-              for both rooms means the room is now a field in the sheet rather
-              than something the button silently decided.
-              [prompt: "they are also overlaid onto the + button as well. i need
-              the + button to also float with them, maybe on the top"] */}
+          {LANES.map(({ lane, heading, blurb }) => (
+            <SessionLane
+              key={lane}
+              heading={heading}
+              blurb={blurb}
+              sessions={byLane(lane)}
+              terrain={terrain}
+              opened={opened}
+              emptyNote={emptyNote}
+              onOpen={open}
+              onSetRead={setRead}
+              onRename={setEditTarget}
+              onChanged={refresh}
+              onClose={onCloseSession}
+            />
+          ))}
+
+          <div className={styles.laterNote}>
+            System agents (triage, research, crons) —{' '}
+            <span className={styles.laterEm}>coming later</span>
+          </div>
+
+          {/* Seeded to Orchestra — the gated room, the same fail-toward-ask the
+              backend uses for anything it can't place. A session made by accident
+              should be one that stops and asks. */}
+          <SessionDialog
+            open={creating}
+            title="New session"
+            lane="orchestra"
+            modelChoices={modelChoices}
+            onClose={() => setCreating(false)}
+            onSave={onCreate}
+          />
+          {/* The ✎ sheet seeds "Asks first" from `act_gate_set` — her PIN — not
+              from the resolved `act_gate`. Resolved is what the session
+              currently DOES, which for an un-pinned Orchestra session is "asks"
+              by inheritance; seeding from it made the picker read "Always ask",
+              and saving wrote that back as a deliberate choice, so moving a
+              session Orchestra → Personal carried every gate along with it. */}
+          <SessionDialog
+            open={editTarget !== null}
+            title={editTarget ? `Edit ${editTarget.title || editTarget.id}` : 'Edit session'}
+            initial={editTarget?.title ?? ''}
+            initialJournal={editTarget?.journal === true}
+            initialModel={editTarget?.model ?? ''}
+            lane={editTarget?.lane === 'personal' ? 'personal' : 'orchestra'}
+            editable
+            initialActGate={editTarget?.act_gate_set ?? null}
+            modelChoices={modelChoices}
+            onClose={() => setEditTarget(null)}
+            onSave={onEdit}
+          />
+        </div>
+
+        {/* The rail, in its own lane and sticky so it floats alongside as the
+            roster scrolls under it. Stacked, and the order down the column IS
+            the ranking: the '+' to make something, then purple for what's
+            alive, orange for what wants her, red for what's broken — and red
+            only when it's true. Any number of the three can be down at once;
+            what's down is unioned. A button with nothing behind it goes grey
+            and unclickable rather than vanishing, so the rail never reshuffles
+            under her thumb.
+            [prompt: "stacked and put on the side floating next to the cards so
+            that they don't overlap but are to the right"] */}
+        <div className={styles.rail}>
+          {/* New session — round, not a pill, and colourless: the three below
+              it are STATES and this is an ACTION, so it can't be mistaken for a
+              fourth colour. One button for both rooms means the room is a field
+              in the sheet rather than something the button silently decided. */}
           <button
             type="button"
             className={styles.railNew}
@@ -346,79 +423,6 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
             })}
           </div>
         </div>
-
-        <div className={styles.header}>
-          <div className={styles.headLeft}>
-            <h1 className={styles.title}>Observatory</h1>
-            <button
-              type="button"
-              className={styles.sortBtn}
-              onClick={toggleSort}
-              title={
-                sortDir === 'oldest'
-                  ? 'Oldest first — tap for newest first'
-                  : 'Newest first — tap for oldest first'
-              }
-              aria-label="Change session sort order"
-            >
-              {sortDir === 'oldest' ? 'Oldest first ↓' : 'Newest first ↑'}
-            </button>
-          </div>
-        </div>
-        {failed ? <div className={styles.pageError}>Couldn&rsquo;t load sessions.</div> : null}
-
-        {LANES.map(({ lane, heading, blurb }) => (
-          <SessionLane
-            key={lane}
-            heading={heading}
-            blurb={blurb}
-            sessions={byLane(lane)}
-            terrain={terrain}
-            opened={opened}
-            emptyNote={emptyNote}
-            onOpen={open}
-            onSetRead={setRead}
-            onRename={setEditTarget}
-            onChanged={refresh}
-            onClose={onCloseSession}
-          />
-        ))}
-
-        <div className={styles.laterNote}>
-          System agents (triage, research, crons) —{' '}
-          <span className={styles.laterEm}>coming later</span>
-        </div>
-
-        {/* Seeded to Orchestra — the gated room, the same fail-toward-ask the
-            backend uses for anything it can't place. A session made by accident
-            should be one that stops and asks. */}
-        <SessionDialog
-          open={creating}
-          title="New session"
-          lane="orchestra"
-          modelChoices={modelChoices}
-          onClose={() => setCreating(false)}
-          onSave={onCreate}
-        />
-        {/* The ✎ sheet seeds "Asks first" from `act_gate_set` — her PIN — not
-            from the resolved `act_gate`. Resolved is what the session
-            currently DOES, which for an un-pinned Orchestra session is "asks"
-            by inheritance; seeding from it made the picker read "Always ask",
-            and saving wrote that back as a deliberate choice, so moving a
-            session Orchestra → Personal carried every gate along with it. */}
-        <SessionDialog
-          open={editTarget !== null}
-          title={editTarget ? `Edit ${editTarget.title || editTarget.id}` : 'Edit session'}
-          initial={editTarget?.title ?? ''}
-          initialJournal={editTarget?.journal === true}
-          initialModel={editTarget?.model ?? ''}
-          lane={editTarget?.lane === 'personal' ? 'personal' : 'orchestra'}
-          editable
-          initialActGate={editTarget?.act_gate_set ?? null}
-          modelChoices={modelChoices}
-          onClose={() => setEditTarget(null)}
-          onSave={onEdit}
-        />
       </div>
 
       {/* Same floating dev-notes / ideas pill as every other page — only on

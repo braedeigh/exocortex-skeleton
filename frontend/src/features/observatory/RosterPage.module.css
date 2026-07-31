@@ -7,10 +7,25 @@
   background: var(--bg);
 }
 
-.inner {
-  max-width: 640px;
+/* --- two columns: the roster, and a lane of its own for the rail --- */
+/* The rail used to hover ON TOP of the cards, which meant it could cover a
+   card's own right-edge buttons. Now it has a real lane beside them, so the two
+   can never collide: the page is a flex row of [roster] [rail], centred as one
+   block. The vertical padding lives HERE rather than on .inner so both columns
+   start at the same line — the '+' sits level with the title. */
+.layout {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  max-width: calc(640px + var(--space-2) + 48px);
   margin: 0 auto;
   padding: var(--space-4) var(--space-3) var(--space-8);
+}
+
+.inner {
+  flex: 1;
+  min-width: 0;
+  max-width: 640px;
 }
 
 .header {
@@ -19,12 +34,10 @@
   justify-content: space-between;
   gap: var(--space-3);
   margin-bottom: var(--space-4);
-  /* Room kept clear on the right for the floating rail, which takes no space
-     of its own — without this a long title would slide underneath it. */
-  padding-right: 136px;
 }
 
-/* Title + sort, grouped left so the whole right side belongs to the rail. */
+/* Title + sort, grouped left — the rail owns its own column now, so nothing in
+   the header has to leave room for it. */
 .headLeft {
   display: flex;
   align-items: center;
@@ -34,43 +47,41 @@
   padding-top: 2px;
 }
 
-/* --- the floating colour rail --- */
-/* A zero-height sticky row: it holds no place in the flow (so the page lays
-   out as if the rail weren't there) and stays pinned near the top of the
-   scrollport as she scrolls, so the buttons hover over the roster instead of
-   scrolling away with the header. pointer-events is off on the row and back on
-   for the buttons, so the empty space either side of them stays tappable —
-   an invisible full-width bar swallowing taps is a bug you can't see. */
+/* --- the colour rail, in its own lane --- */
+/* Sticky so it still floats alongside as she scrolls: the roster moves under
+   it, the rail stays put. align-items:flex-start on .layout is what makes that
+   possible — a stretched flex item would be as tall as the page and have
+   nowhere to stick to.
+   [prompt: "stacked and put on the side floating next to the cards so that
+   they don't overlap but are to the right"] */
 .rail {
   position: sticky;
   top: var(--space-3);
   z-index: 6;
-  height: 0;
+  flex: none;
+  width: 48px;
   display: flex;
-  /* A column pinned to the right edge: the '+' on top, the filters under it.
-     Children overflow the zero-height box downward at their own natural size,
-     which is the whole trick — the rail occupies no room in the flow. */
   flex-direction: column;
-  align-items: flex-end;
-  justify-content: flex-start;
-  /* Pulled OUT past the cards by exactly the column's own side padding, so the
-     rail stops sharing an edge with them and reads as a separate thing hovering
-     alongside. This much is free everywhere — it's space .inner already owns,
-     so even on a phone it can't push anything sideways. */
-  margin-right: calc(-1 * var(--space-3));
-  pointer-events: none;
+  align-items: stretch;
 }
 
-/* On a full-width screen the 640px column has real empty margin either side, so
-   the rail can sit properly out in it rather than hugging the cards.
-   .railRoomy is set only on the FULL-PAGE route — this same page is also the
-   desktop split's left pane at half the viewport, where the column fills the
-   pane and there's no margin to move into. Asking the page (which knows it's
-   docked) beats guessing from the viewport width, which would be measuring the
-   wrong box. */
+/* On a full-width screen there's real empty margin either side of the 640px
+   roster, so the lane can widen into it and carry its labels — the cards pay
+   nothing for it. A phone has no such margin, so there the lane stays as narrow
+   as a tappable pill and the buttons collapse to a dot and a count.
+   .layoutRoomy is set only on the FULL-PAGE route: this same page is also the
+   desktop split's left pane at half the viewport, where the roster fills the
+   pane and every pixel the lane takes comes off the cards. Asking the page
+   (which knows it's docked) beats guessing from the viewport width, which would
+   be measuring the wrong box. */
 @media (min-width: 900px) {
-  .railRoomy {
-    margin-right: calc(-1 * (var(--space-3) + 40px));
+  .layoutRoomy {
+    gap: var(--space-4);
+    max-width: calc(640px + var(--space-4) + 168px);
+  }
+
+  .layoutRoomy .rail {
+    width: 168px;
   }
 }
 
@@ -83,24 +94,20 @@
 
 /* New session. ROUND where the filters are pills, and ink-coloured where they
    are hued — different shape, different colour family, so it can't be read as
-   a fourth state. It sits in the rail because the per-lane '+' used to live in
-   this exact column and the floating filters landed on top of it. */
+   a fourth state. */
 .railNew {
   align-self: flex-end;
   flex: none;
-  width: var(--tap-target);
-  height: var(--tap-target);
+  width: 48px;
+  height: 48px;
   border: 2px solid color-mix(in srgb, var(--text) 30%, transparent);
   border-radius: 50%;
-  background: color-mix(in srgb, var(--card-bg) 78%, transparent);
-  backdrop-filter: blur(8px) saturate(1.2);
-  -webkit-backdrop-filter: blur(8px) saturate(1.2);
+  background: var(--card-bg);
   color: var(--text);
   font: inherit;
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-xl);
   font-weight: 700;
   line-height: 1;
-  pointer-events: auto;
   cursor: pointer;
   transition: background var(--dur-2, 200ms) ease, border-color var(--dur-2, 200ms) ease;
 }
@@ -109,14 +116,6 @@
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 16%, var(--card-bg));
   color: var(--accent);
-}
-
-@media (min-width: 1024px) {
-  .railNew {
-    width: 48px;
-    height: 48px;
-    font-size: var(--font-size-xl);
-  }
 }
 
 /* Three state filters, stacked in her order: purple alive, orange unread, red
@@ -129,13 +128,10 @@
   flex-direction: column;
   align-items: stretch;
   gap: var(--space-2);
-  pointer-events: auto;
 }
 
-/* At rest: a wash of its own colour with a solid outline — a coloured pane you
-   can see the page through, so a floating rail doesn't become three opaque
-   blocks parked on top of the roster. The blur keeps the label legible over
-   whatever card happens to be sliding under it. */
+/* At rest: a wash of its own colour with a solid outline — present but quiet,
+   so three unpressed buttons read as an offered choice rather than a demand. */
 .filterBtn {
   display: flex;
   align-items: center;
@@ -144,14 +140,15 @@
      absolutely-positioned child with no positioned parent would hang off
      whatever ancestor happened to be relative. */
   position: relative;
-  min-width: 132px;
+  min-width: 0;
   min-height: var(--tap-target);
-  padding: 0 var(--space-3);
+  padding: 0 var(--space-2);
+  /* Centred while collapsed to a dot and a count; the label's own margin
+     pushes everything back to the left edge once there's room for it. */
+  justify-content: center;
   border: 2px solid var(--hue);
   border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--hue) 16%, transparent);
-  backdrop-filter: blur(8px) saturate(1.2);
-  -webkit-backdrop-filter: blur(8px) saturate(1.2);
   color: var(--hue);
   font: inherit;
   font-size: var(--font-size-sm);
@@ -248,48 +245,38 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Hidden by default and screen-reader-only: the narrow lane has room for a dot
+   and a count, nothing more. It comes back below, where the lane is wide. */
 .filterLabel {
-  margin-left: auto;
-  font-weight: 700;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
-/* Phones: the rail keeps its column (the order is the point) but drops the
-   label, so three floating pills can't cover half the cards they point at. */
-@media (max-width: 480px) {
-  .header {
-    padding-right: 60px;
-  }
-
-  .filterBtn {
-    min-width: 0;
-    padding: 0 var(--space-2);
-  }
-
-  .filterLabel {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-  }
-}
-
-/* Desktop: give the rail room to be a real object floating in the corner
-   rather than a cramped stack of chips. */
-@media (min-width: 1024px) {
-  .header {
-    padding-right: 160px;
-  }
-
-  .filterBtn {
-    min-width: 156px;
+/* The wide lane: labels back, and the pill lays out left-to-right again. */
+@media (min-width: 900px) {
+  .layoutRoomy .filterBtn {
+    justify-content: flex-start;
+    padding: 0 var(--space-3);
     font-size: var(--font-size-md);
   }
 
-  .filterDot {
+  .layoutRoomy .filterDot {
     width: 12px;
     height: 12px;
+  }
+
+  .layoutRoomy .filterLabel {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+    margin-left: auto;
+    font-weight: 700;
   }
 }
 
