@@ -119,11 +119,30 @@ export async function disablePush(): Promise<void> {
   window.dispatchEvent(new CustomEvent(PUSH_ENABLED_EVENT));
 }
 
-/** Ask the server to send a test push to every subscribed device. */
+interface TestPushResponse {
+  ok: boolean;
+  sent: number;
+  error?: string;
+}
+
+/**
+ * Ask the server to send a test push to every subscribed device.
+ *
+ * Throws when nothing was actually delivered. The route answers `ok: false`
+ * with a reason for a push the push service REFUSED (a 200 response only
+ * means the server handled the request) — so a rejected send has to be
+ * turned back into an error here, or the UI reports success over a phone
+ * that never buzzed. That exact false "sent" hid a broken VAPID contact
+ * claim until an iPhone was the only subscriber.
+ */
 export async function sendTestPush(): Promise<void> {
+  let res: TestPushResponse;
   try {
-    await api.post('/api/push/test', {});
+    res = await api.post<TestPushResponse>('/api/push/test', {});
   } catch (e) {
     throw describeFailure(e, 'Could not send the test notification.');
+  }
+  if (!res.ok) {
+    throw new Error(res.error || 'The push service rejected the notification.');
   }
 }

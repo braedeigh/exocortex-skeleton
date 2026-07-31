@@ -1,6 +1,7 @@
 """HTTP contract for the web-push routes (routes/push.py): subscribe/
-unsubscribe upsert-by-endpoint, presence suppression, muted sessions, and
-the hook door's secret auth + endpoint pruning on a 410.
+unsubscribe upsert-by-endpoint, presence suppression, muted sessions, the
+hook door's secret auth + endpoint pruning on a 410, and the VAPID contact
+claim every send is signed with.
 
 pywebpush.webpush() is monkeypatched (autouse) so nothing here ever touches
 the network -- VAPID key generation is real (it's pure local crypto), but
@@ -23,6 +24,14 @@ def client(data_dir):
     app.config.update(TESTING=True)
     push_module.register(app)
     return app.test_client()
+
+
+@pytest.fixture(autouse=True)
+def push_contact(monkeypatch):
+    """Every send needs a configured contact for the VAPID `sub` claim, or
+    _dispatch refuses to sign (see test_dispatch_without_contact_*). Set one
+    for the whole module so the other tests exercise delivery, not config."""
+    monkeypatch.setenv("EXOCORTEX_PUSH_CONTACT", "mailto:owner@example.com")
 
 
 @pytest.fixture(autouse=True)
@@ -161,6 +170,64 @@ def test_notify_other_failure_is_counted_not_raised(client, monkeypatch):
     assert len(_read_subs()) == 1   # a generic failure doesn't prune the subscription
 
 
+# --- the VAPID contact claim ------------------------------------------------------
+#
+# Apple rejects a push whose JWT `sub` isn't a reachable mailto:/https: URI
+# with 403 BadJwtToken; Chrome and Firefox never check. So a bad contact is
+# invisible everywhere except iOS, which is exactly how "mailto:owner@localhost"
+# survived in this file until an iPhone became the only subscriber. These
+# tests pin the claim itself, since no delivery test can catch it.
+
+def test_send_is_signed_with_the_configured_contact(client, monkeypatch):
+    seen = {}
+
+    def _capture(subscription_info, data, vapid_private_key, vapid_claims):
+        seen.update(vapid_claims)
+    monkeypatch.setattr(push_module, "webpush", _capture)
+
+    _subscribe(client, "https://push.example.com/1")
+    client.post("/api/push/test")
+    assert seen["sub"] == "mailto:owner@example.com"
+
+
+def test_contact_falls_back_to_the_owner_profile_email(client, monkeypatch):
+    monkeypatch.delenv("EXOCORTEX_PUSH_CONTACT", raising=False)
+    monkeypatch.delenv("EXOCORTEX_OWNER_EMAIL", raising=False)
+    store.write("profile", {"owner_email": "her@example.org"})
+    assert push_module._vapid_claims() == {"sub": "mailto:her@example.org"}
+
+
+@pytest.mark.parametrize("configured,expected", [
+    ("owner@example.com", "mailto:owner@example.com"),      # bare email -> mailto:
+    ("exocortex.example.org", "https://exocortex.example.org"),  # bare host -> https:
+    ("https://exocortex.example.org", "https://exocortex.example.org"),
+    ("mailto:owner@example.com", "mailto:owner@example.com"),
+])
+def test_contact_is_normalized_to_a_uri(monkeypatch, configured, expected):
+    """A scheme-less contact is the easy mistake and draws the same 403 as a
+    bogus one — normalize rather than sign something known-invalid."""
+    monkeypatch.setenv("EXOCORTEX_PUSH_CONTACT", configured)
+    assert push_module._vapid_claims() == {"sub": expected}
+
+
+def test_dispatch_without_contact_refuses_to_send(client, monkeypatch):
+    """No contact configured = every send would 403. Fail all of them with
+    one named reason rather than attempting sends we know are invalid."""
+    monkeypatch.delenv("EXOCORTEX_PUSH_CONTACT", raising=False)
+    monkeypatch.delenv("EXOCORTEX_OWNER_EMAIL", raising=False)
+    store.write("profile", {})
+    sent = []
+    monkeypatch.setattr(push_module, "webpush",
+                        lambda **kw: sent.append(kw))
+
+    _subscribe(client, "https://push.example.com/1")
+    body = client.post("/api/push/test").get_json()
+    assert sent == []                    # nothing was even attempted
+    assert body["ok"] is False
+    assert body["failed"] == 1
+    assert "contact" in body["error"]
+
+
 # --- test endpoint ---------------------------------------------------------------
 
 def test_test_endpoint_ignores_presence(client):
@@ -173,3 +240,29 @@ def test_test_endpoint_ignores_presence(client):
     body = r.get_json()
     assert body["sent"] == 1        # sent despite a fresh presence entry
     assert body["suppressed"] == 0
+
+
+def test_test_endpoint_reports_a_rejected_push_as_not_ok(client, monkeypatch):
+    """The regression that hid the broken contact claim: /test answered
+    {"ok": true, "failed": 1} for a push Apple refused, and the Settings UI
+    read that as "Test notification sent." over a silent phone."""
+    class _Rejected:
+        status_code = 403
+        text = '{"reason":"BadJwtToken"}'
+
+    def _reject(subscription_info, data, vapid_private_key, vapid_claims):
+        raise push_module.WebPushException("rejected", response=_Rejected())
+    monkeypatch.setattr(push_module, "webpush", _reject)
+
+    _subscribe(client, "https://push.example.com/nope")
+    body = client.post("/api/push/test").get_json()
+    assert body["ok"] is False
+    assert body["failed"] == 1
+    assert "403" in body["error"]
+    assert len(_read_subs()) == 1   # a rejection is not a dead endpoint
+
+
+def test_test_endpoint_with_no_subscriptions_is_not_ok(client):
+    body = client.post("/api/push/test").get_json()
+    assert body["ok"] is False
+    assert "subscribed" in body["error"]
