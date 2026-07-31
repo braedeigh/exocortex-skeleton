@@ -114,6 +114,21 @@ def test_fork_stages_a_spinoff_seeded_with_the_write_surface(fork_client):
     assert "clean-context take-over" in brief
 
 
+def test_a_fork_lands_in_the_room_of_the_session_it_takes_over(fork_client):
+    # A take-over has to be rooted where the original was — and the fork route
+    # has to say the room OUT LOUD, because it mints from inside a request,
+    # where there's no sending session for the spinoff to inherit from.
+    skeleton = fork_client._skeleton
+    _seed_running("c3", skeleton)
+    with store.mutate("bot_chats/index", {}) as index:
+        index["c3"]["lane"] = "personal"
+    _write_jsonl("c3", [_edit(skeleton / "routes" / "existing.py")])
+
+    body = fork_client.post("/api/observatory/conversation/c3/fork").get_json()
+    assert body["lane"] == "personal"
+    assert store.read("bot_chats/index", {})[body["conversation_id"]]["lane"] == "personal"
+
+
 def test_fork_400s_a_session_with_no_write_surface(fork_client):
     skeleton = fork_client._skeleton
     _seed_running("c2", skeleton)

@@ -185,5 +185,12 @@ def register(app):
 
     @app.route("/api/spinoff/open", methods=["POST"])
     def spinoff_open():
-        payload, status = open_spinoff((request.json or {}).get("slug", ""))
+        # `lane` is optional and names the room; omitted, the spinoff inherits
+        # the sending session's. Spelled `lane` to match the sibling create
+        # route (/api/observatory/conversations), `room` because that's what
+        # the two of them are called out loud.
+        data = request.json or {}
+        lane = data.get("lane") or data.get("room")
+        payload, status = open_spinoff(data.get("slug", ""),
+                                       lane=(lane or "").strip() or None)
         return jsonify(payload), status

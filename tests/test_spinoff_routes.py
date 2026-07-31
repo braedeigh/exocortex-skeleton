@@ -7,6 +7,10 @@ mint gets a builder-tool config and its kickoff carried on the entry as a
 automatically the moment she opens the session (no manual send). Re-invoking
 against a slug that already has a live (non-archived) conversation is a
 rejoin: the entry is returned untouched, not re-minted or re-drafted.
+
+A mint also lands in a ROOM: the sending session's, read off EXOCORTEX_CONV_ID,
+unless the caller names one. The room decides the child's cwd and (via the
+absent act_gate/guard_docs fields) whether it stops to ask.
 """
 import json
 from pathlib import Path
@@ -15,7 +19,7 @@ import pytest
 from flask import Flask
 
 import store
-from routes import spinoff
+from routes import observatory, spinoff
 
 
 @pytest.fixture
@@ -33,6 +37,11 @@ def spinoff_client(data_dir, monkeypatch):
         launches.append((argv, kw))
         return object()
     monkeypatch.setattr(spinoff.subprocess, "Popen", fake_popen)
+    # The suite can be run FROM an Observatory session, whose env carries a
+    # real EXOCORTEX_CONV_ID — which is exactly the signal room-inheritance
+    # reads. Cleared here so "no sender" tests mean it, and so the room tests
+    # below set the sender themselves.
+    monkeypatch.delenv("EXOCORTEX_CONV_ID", raising=False)
     app = Flask(__name__)
     app.config.update(TESTING=True)
     spinoff.register(app)
@@ -41,9 +50,22 @@ def spinoff_client(data_dir, monkeypatch):
     return client
 
 
-def _post(client, slug):
-    return client.post("/api/spinoff/open", data=json.dumps({"slug": slug}),
+def _post(client, slug, **body):
+    return client.post("/api/spinoff/open",
+                       data=json.dumps({"slug": slug, **body}),
                        content_type="application/json")
+
+
+def _sender(monkeypatch, conv_id="2026-07-30.101010", **entry):
+    """Pretend this call came from an Observatory session — the same way a real
+    /spinoff does: an index entry for the sender, and its id in the turn's
+    environment (observatory._spawn puts it there)."""
+    observatory._chats_dir()
+    with store.mutate("bot_chats/index", {}) as index:
+        index[conv_id] = {"bot": "keeper", "title": "sender",
+                          "started": observatory._now(), **entry}
+    monkeypatch.setenv("EXOCORTEX_CONV_ID", conv_id)
+    return conv_id
 
 
 def _write_brief(spinoff_dir, slug, text="Do the thing.\n"):
@@ -206,3 +228,81 @@ def test_start_false_mints_without_launching(spinoff_client):
     # ...but the entry still carries the fallback, so opening it works.
     entry = _index()[payload["conversation_id"]]
     assert entry["autostart"] is True
+
+
+# --- which room it lands in -------------------------------------------------
+
+def test_a_spinoff_lands_in_the_senders_room(spinoff_client, monkeypatch):
+    # The point of the feature: work handed off from a Personal conversation
+    # keeps happening in Personal — same room, same cwd, same act-or-ask.
+    _sender(monkeypatch, lane="personal")
+    _write_brief(store.SPINOFF_DIR, "stays-personal")
+    body = _post(spinoff_client, "stays-personal").get_json()
+    assert body["lane"] == "personal"
+    entry = _index()[body["conversation_id"]]
+    assert entry["lane"] == "personal"
+    assert entry["cwd"] == observatory._lane_profile("personal")["cwd"]
+
+
+def test_an_orchestra_sender_spins_off_into_orchestra(spinoff_client, monkeypatch):
+    _sender(monkeypatch, lane="orchestra")
+    _write_brief(store.SPINOFF_DIR, "stays-orchestra")
+    body = _post(spinoff_client, "stays-orchestra").get_json()
+    assert body["lane"] == "orchestra"
+    entry = _index()[body["conversation_id"]]
+    assert entry["cwd"] == observatory._lane_profile("orchestra")["cwd"]
+
+
+def test_a_sender_that_predates_lanes_is_placed_by_its_cwd(spinoff_client, monkeypatch):
+    # Inheritance goes through _conv_lane, not a bare field read, so the ~20
+    # sessions with no `lane` of their own still hand down a real room: rooted
+    # anywhere but the app checkout means Personal.
+    _sender(monkeypatch, cwd=str(store.CONTENT_DIR.parent))
+    _write_brief(store.SPINOFF_DIR, "old-sender")
+    body = _post(spinoff_client, "old-sender").get_json()
+    assert body["lane"] == "personal"
+
+
+def test_no_sender_falls_to_the_gated_room(spinoff_client):
+    # A plain terminal or a cron has no EXOCORTEX_CONV_ID to inherit from.
+    # Fail toward ask: unknown lands in Orchestra, never in the ungated room.
+    _write_brief(store.SPINOFF_DIR, "no-sender")
+    body = _post(spinoff_client, "no-sender").get_json()
+    assert body["lane"] == "orchestra"
+    assert _index()[body["conversation_id"]]["lane"] == "orchestra"
+
+
+def test_an_unknown_sender_id_also_falls_to_the_gated_room(spinoff_client, monkeypatch):
+    monkeypatch.setenv("EXOCORTEX_CONV_ID", "2026-01-01.000000")   # not in the index
+    _write_brief(store.SPINOFF_DIR, "ghost-sender")
+    assert _post(spinoff_client, "ghost-sender").get_json()["lane"] == "orchestra"
+
+
+def test_a_named_room_beats_the_senders(spinoff_client, monkeypatch):
+    # "unless otherwise specified" — she can say where it goes.
+    _sender(monkeypatch, lane="personal")
+    _write_brief(store.SPINOFF_DIR, "sent-away")
+    body = _post(spinoff_client, "sent-away", room="orchestra").get_json()
+    assert body["lane"] == "orchestra"
+    assert _index()[body["conversation_id"]]["lane"] == "orchestra"
+
+
+def test_unknown_room_is_refused_without_touching_the_index(spinoff_client):
+    _write_brief(store.SPINOFF_DIR, "bad-room")
+    r = _post(spinoff_client, "bad-room", room="basement")
+    assert r.status_code == 400
+    assert r.get_json() == {"error": "unknown room 'basement'"}
+    assert _index() == {}
+
+
+def test_the_room_drives_the_safety_nets_rather_than_being_pinned(spinoff_client, monkeypatch):
+    # act_gate/guard_docs are deliberately NOT written onto the entry — absent
+    # is what lets the room keep driving them, so moving the card between rooms
+    # actually re-scopes it (same contract as the create route).
+    _sender(monkeypatch, lane="personal")
+    _write_brief(store.SPINOFF_DIR, "unpinned")
+    body = _post(spinoff_client, "unpinned").get_json()
+    entry = _index()[body["conversation_id"]]
+    assert "act_gate" not in entry and "guard_docs" not in entry
+    config = observatory._conv_config(entry)
+    assert config["act_gate"] is False and config["guard_docs"] is False

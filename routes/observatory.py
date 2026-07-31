@@ -2018,7 +2018,12 @@ def register(app):
         # here would put two agents on the same session's files at once, which
         # is the exact thing forking exists to get her out of. She stops this
         # one, then opens the fork.
-        payload, status = open_spinoff(slug, start=False)
+        #
+        # The lane is passed explicitly rather than inherited: a fork is minted
+        # inside a REQUEST, so the ambient sender open_spinoff would otherwise
+        # read is the web worker (nobody), not the session being forked. A
+        # take-over has to land in the same room as the work it takes over.
+        payload, status = open_spinoff(slug, start=False, lane=_conv_lane(meta))
         return jsonify(payload), status
 
     @app.route("/api/observatory/conversation/<conv_id>/approve", methods=["POST"])
