@@ -37,8 +37,10 @@ DEFAULT_SPINOFF_CWD = Path(__file__).resolve().parents[1]
 def open_spinoff(slug):
     """Core shared by the route and scripts/spinoff_open.py (the agents' door).
 
-    Mints (or rejoins) a Observatory conversation for the spinoff, with the
-    kickoff staged as a draft rather than sent — a re-invocation against a
+    Mints (or rejoins) an Observatory conversation for the spinoff. The kickoff
+    rides in `draft` but is marked `autostart`, so the session fires it itself
+    the first time she opens the conversation — the reply's `staged: true` is
+    about the carrier, not about waiting for a send. A re-invocation against a
     spinoff that already has a live (non-archived) conversation is a rejoin,
     not a restart, and leaves that conversation untouched.
     """

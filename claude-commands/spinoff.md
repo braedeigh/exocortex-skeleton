@@ -104,14 +104,25 @@ EXOCORTEX_DATA_DIR=<data dir> ./venv/bin/python3 scripts/spinoff_open.py <slug>
 (Same narrow-door doctrine as `scripts/stage_change.py` — agents shell out to
 the script; the app's own UI uses `POST /api/spinoff/open`, both wrapping the
 same core in `routes/spinoff.py`.) The JSON reply tells you `newly_spawned`
-and `conversation_id`. There is no tmux tab: the endpoint mints a Reading
-Room conversation (config'd as a builder session) with the kickoff STAGED as
-a draft, not sent — it boots straight into the Protocol only once she opens
-the session and hits send. If a live (non-archived) conversation for that
-slug already exists, the endpoint rejoins it instead of minting a new one
-(`newly_spawned: false`) and leaves it untouched.
+and `conversation_id`. There is no tmux tab: the endpoint mints an Observatory
+conversation (config'd as a builder session) that **fires its own kickoff the
+moment she opens it — she does NOT hit send.** If a live (non-archived)
+conversation for that slug already exists, the endpoint rejoins it instead of
+minting a new one (`newly_spawned: false`) and leaves it untouched.
 
-Tell the owner the session(s) are waiting in the Observatory — she needs to
-open the session and hit send herself to fire the kickoff. If
-`newly_spawned` came back false, tell her the spinoff session already exists
-in the room instead. Done — the child takes it from there once she sends.
+**Read the reply's two flags together, because they look contradictory and
+aren't.** `staged: true` and `autostart: true` both come back on a fresh spawn.
+`draft` is only the *carrier* the kickoff text rides in; `autostart` is what
+turns "prefill the compose box and wait" into "send it on open". Autostart
+wins. Do not report `autostart: true` as a bug or a conflict — it is the
+designed behaviour (`routes/spinoff.py`'s module docstring states it outright),
+and the first send consumes both fields, which is why an already-fired session
+shows `autostart`/`draft` as absent in the index.
+
+Tell the owner the session(s) are waiting in the Observatory and will **start
+working by themselves as soon as she opens them** — nothing to send, and no
+chance to skim the kickoff first. That matters for her sequencing: if two
+spinoffs would edit the same files, tell her to open them one at a time rather
+than both at once. If `newly_spawned` came back false, tell her the spinoff
+session already exists in the room instead. Done — the child takes it from
+there the moment she opens it.

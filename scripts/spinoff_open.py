@@ -10,10 +10,12 @@ directly — one validated entry point, loud precise failures.
     spinoff_open.py <slug>
 
 Minting is a pure index write now — no tmux, no long-lived process needed:
-open_spinoff() mints (or rejoins) a Observatory conversation with the
-kickoff staged as a draft, and the session appears in the Observatory the
-moment this returns. Prints one JSON line to stdout; exits non-zero on
-refusal (bad slug, missing brief).
+open_spinoff() mints (or rejoins) an Observatory conversation carrying the
+kickoff, and the session appears in the Observatory the moment this returns.
+The kickoff rides in `draft` but is marked `autostart`, so the session sends
+it ITSELF the first time she opens the conversation — nobody hits send.
+Prints one JSON line to stdout; exits non-zero on refusal (bad slug, missing
+brief).
 """
 import json
 import sys
