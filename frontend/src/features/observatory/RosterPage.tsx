@@ -144,8 +144,10 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
   // Bumped when she flips a card's read dot, so the render that reads
   // localStorage runs again immediately instead of waiting for the 5.5s poll.
   const [, bumpOpened] = useState(0);
-  // Which lane the '+' was tapped in — null when the create sheet is closed.
-  const [newInLane, setNewInLane] = useState<Lane | null>(null);
+  // The create sheet, open or shut. It used to hold WHICH lane's '+' she
+  // tapped; with one floating '+' for both rooms, the room is a field in the
+  // sheet instead (SessionDialog), so this is just a boolean now.
+  const [creating, setCreating] = useState(false);
   const [editTarget, setEditTarget] = useState<SessionMeta | null>(null);
 
   const refresh = () => {
@@ -241,7 +243,7 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
   const onCreate = (draft: SessionDraft) => {
     createSession(draft.name, draft.journal, draft.model, draft.lane)
       .then(({ id }) => {
-        setNewInLane(null);
+        setCreating(false);
         // An explicit asks-first choice is a second call: creation takes the
         // lane's default, and only a deliberate override gets written.
         if (draft.actGate !== null) {
@@ -292,6 +294,24 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
             [prompt: "i want them floating on the page rather than fixed at the
             top ... you can press more than one at a time"] */}
         <div className={styles.rail}>
+          {/* New session — round, not a pill, and colourless: the three below it
+              are STATES and this is an ACTION, so it can't be mistaken for a
+              fourth colour. It floats here because the per-lane '+' used to sit
+              in this exact column and the rail landed on top of it. One button
+              for both rooms means the room is now a field in the sheet rather
+              than something the button silently decided.
+              [prompt: "they are also overlaid onto the + button as well. i need
+              the + button to also float with them, maybe on the top"] */}
+          <button
+            type="button"
+            className={styles.railNew}
+            onClick={() => setCreating(true)}
+            title="New session"
+            aria-label="New session"
+          >
+            +
+          </button>
+
           <div className={styles.filters} role="group" aria-label="Filter sessions by state">
             {FILTERS.map(({ key, hue, label, title, onlyWhenPresent }) => {
               const n = counts[key];
@@ -350,7 +370,6 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
         {LANES.map(({ lane, heading, blurb }) => (
           <SessionLane
             key={lane}
-            lane={lane}
             heading={heading}
             blurb={blurb}
             sessions={byLane(lane)}
@@ -359,7 +378,6 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
             emptyNote={emptyNote}
             onOpen={open}
             onSetRead={setRead}
-            onNew={setNewInLane}
             onRename={setEditTarget}
             onChanged={refresh}
             onClose={onCloseSession}
@@ -371,12 +389,15 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
           <span className={styles.laterEm}>coming later</span>
         </div>
 
+        {/* Seeded to Orchestra — the gated room, the same fail-toward-ask the
+            backend uses for anything it can't place. A session made by accident
+            should be one that stops and asks. */}
         <SessionDialog
-          open={newInLane !== null}
-          title={newInLane === 'personal' ? 'New personal session' : 'New orchestra session'}
-          lane={newInLane ?? 'orchestra'}
+          open={creating}
+          title="New session"
+          lane="orchestra"
           modelChoices={modelChoices}
-          onClose={() => setNewInLane(null)}
+          onClose={() => setCreating(false)}
           onSave={onCreate}
         />
         {/* The ✎ sheet seeds "Asks first" from `act_gate_set` — her PIN — not

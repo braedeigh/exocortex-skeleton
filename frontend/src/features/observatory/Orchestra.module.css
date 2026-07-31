@@ -14,32 +14,6 @@
   margin: 0 0 var(--space-1);
 }
 
-/* The per-lane '+'. Pushed to the far edge by margin-left:auto so the heading
-   and its tally stay grouped together on the left. A full tap target, and the
-   only *additive* control in the section — it reads as an affordance, not a
-   decoration. */
-.newInLane {
-  margin-left: auto;
-  flex: none;
-  min-width: var(--tap-target);
-  min-height: var(--tap-target);
-  padding: 0 var(--space-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  background: transparent;
-  color: var(--accent);
-  font: inherit;
-  font-size: var(--font-size-lg);
-  font-weight: 600;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.newInLane:hover {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-}
-
 /* One line saying what the room IS. The lanes differ in whether a session
    stops and asks — invisible unless it's written down, and a permission model
    she can't see is one she can't trust. */

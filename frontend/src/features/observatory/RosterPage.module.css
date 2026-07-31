@@ -47,12 +47,58 @@
   z-index: 6;
   height: 0;
   display: flex;
-  justify-content: flex-end;
-  /* flex-start, not the default stretch — a stretched child of a zero-height
-     row would be squashed to zero itself instead of overflowing at its own
-     natural height. */
-  align-items: flex-start;
+  /* A column pinned to the right edge: the '+' on top, the filters under it.
+     Children overflow the zero-height box downward at their own natural size,
+     which is the whole trick — the rail occupies no room in the flow. */
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: flex-start;
   pointer-events: none;
+}
+
+/* The rail is a column: the '+' on top, then the three filters under it. Its
+   own gap is wider than the one between the filters, so the action and the
+   states read as two groups rather than four buttons in a row. */
+.rail > .filters {
+  margin-top: var(--space-3);
+}
+
+/* New session. ROUND where the filters are pills, and ink-coloured where they
+   are hued — different shape, different colour family, so it can't be read as
+   a fourth state. It sits in the rail because the per-lane '+' used to live in
+   this exact column and the floating filters landed on top of it. */
+.railNew {
+  align-self: flex-end;
+  flex: none;
+  width: var(--tap-target);
+  height: var(--tap-target);
+  border: 2px solid color-mix(in srgb, var(--text) 30%, transparent);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--card-bg) 78%, transparent);
+  backdrop-filter: blur(8px) saturate(1.2);
+  -webkit-backdrop-filter: blur(8px) saturate(1.2);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  line-height: 1;
+  pointer-events: auto;
+  cursor: pointer;
+  transition: background var(--dur-2, 200ms) ease, border-color var(--dur-2, 200ms) ease;
+}
+
+.railNew:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, var(--card-bg));
+  color: var(--accent);
+}
+
+@media (min-width: 1024px) {
+  .railNew {
+    width: 48px;
+    height: 48px;
+    font-size: var(--font-size-xl);
+  }
 }
 
 /* Three state filters, stacked in her order: purple alive, orange unread, red

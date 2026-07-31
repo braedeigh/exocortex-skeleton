@@ -6,7 +6,6 @@ import {
   forkConversation,
   stopConversation,
   streamSend,
-  type Lane,
   type SessionMeta,
 } from './api';
 import { resumeAfterDecision } from './resumeAfterDecision';
@@ -62,7 +61,6 @@ function cardMeta(meta: SessionMeta): string {
 }
 
 export function SessionLane({
-  lane,
   heading,
   blurb,
   sessions,
@@ -71,12 +69,10 @@ export function SessionLane({
   emptyNote,
   onOpen,
   onSetRead,
-  onNew,
   onRename,
   onChanged,
   onClose,
 }: {
-  lane: Lane;
   heading: string;
   /** One line under the heading saying what this room IS — the lanes differ in
    * whether they stop and ask, which is invisible unless it's written down. */
@@ -93,7 +89,6 @@ export function SessionLane({
   onOpen: (convId: string) => void;
   /** Flip a card's read flag by hand (the dot button on the card). */
   onSetRead?: (convId: string, read: boolean) => void;
-  onNew: (lane: Lane) => void;
   onRename: (session: SessionMeta) => void;
   onChanged?: () => void;
   onClose: (convId: string) => void;
@@ -317,22 +312,13 @@ export function SessionLane({
         ) : running > 0 ? (
           <span className={styles.count}>{running} running</span>
         ) : null}
-        <button
-          type="button"
-          className={styles.newInLane}
-          onClick={() => onNew(lane)}
-          title={`New ${heading} session`}
-          aria-label={`New ${heading} session`}
-        >
-          +
-        </button>
       </div>
       <p className={styles.blurb}>{blurb}</p>
 
       {rows.length === 0 ? (
         <div className={styles.idle}>
           <span className={styles.idleDot} aria-hidden="true" />
-          {emptyNote ?? 'Nothing here yet — tap + to start one.'}
+          {emptyNote ?? 'Nothing here yet — tap + at the top right to start one.'}
         </div>
       ) : (
         <div className={styles.rows}>

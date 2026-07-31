@@ -35,11 +35,12 @@ const LANE_BLURB: Record<Lane, string> = {
  * Sheet for create/edit — name, model, lane, the asks-first override, and the
  * diary switch.
  *
- * On CREATE the lane is fixed by which '+' she tapped (shown, not editable —
- * the lane sets `cwd`, which can never change afterwards, so offering to
- * change it here would be offering something the backend can't honour). On
- * EDIT it becomes a real picker, because moving rooms only re-scopes the
- * safety nets.
+ * The room is a real picker in BOTH modes, but it doesn't mean the same thing
+ * in each, so the blurb under it changes. On CREATE it's the live choice (there
+ * used to be a '+' per lane that made it implicitly; now one floating '+' makes
+ * it explicit) and it fixes `cwd` — where the session runs — permanently. On
+ * EDIT it only re-scopes the safety nets from the next turn on; `cwd` is
+ * already set and the backend can't move it.
  *
  * Journal defaults OFF: the diary is the pinned Keeper session's door. Model
  * defaults to '' = inherit the CLI default.
@@ -120,31 +121,23 @@ export function SessionDialog({
           onKeyDown={onKeyDown}
         />
 
-        {editable ? (
-          <label className={styles.dialogField}>
-            Room
-            <select
-              className={styles.dialogSelect}
-              value={pickedLane}
-              onChange={(e) => setPickedLane(e.target.value as Lane)}
-            >
-              <option value="orchestra">Orchestra</option>
-              <option value="personal">Personal</option>
-            </select>
-            <span className={styles.dialogFieldDesc}>
-              {LANE_BLURB[pickedLane]} Moving rooms changes that from the next
-              turn on — it does not move where the session runs, which is fixed
-              when it&rsquo;s created.
-            </span>
-          </label>
-        ) : (
-          <div className={styles.dialogField}>
-            <span className={styles.dialogFieldDesc}>
-              <strong>{pickedLane === 'orchestra' ? 'Orchestra' : 'Personal'}</strong>{' '}
-              — {LANE_BLURB[pickedLane]}
-            </span>
-          </div>
-        )}
+        <label className={styles.dialogField}>
+          Room
+          <select
+            className={styles.dialogSelect}
+            value={pickedLane}
+            onChange={(e) => setPickedLane(e.target.value as Lane)}
+          >
+            <option value="orchestra">Orchestra</option>
+            <option value="personal">Personal</option>
+          </select>
+          <span className={styles.dialogFieldDesc}>
+            {LANE_BLURB[pickedLane]}{' '}
+            {editable
+              ? 'Moving rooms changes that from the next turn on — it does not move where the session runs, which is fixed when it’s created.'
+              : 'This also fixes where the session runs, for good — that part can’t be changed later.'}
+          </span>
+        </label>
 
         {modelChoices.length > 0 && (
           <label className={styles.dialogField}>
