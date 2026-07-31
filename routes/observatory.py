@@ -1896,7 +1896,7 @@ def register(app):
     def bot_conv_fork(conv_id):
         """Fork-the-work: stage a fresh take-over spinoff seeded with what this
         session is writing/creating right now. Reads the live footprint, writes
-        a BRIEF, and mints a staged spinoff (open_spinoff — never auto-run). A
+        a BRIEF, and mints a spinoff with start=False so it does NOT auto-run. A
         session with no write surface yet gets a 400 (nothing to fork). Import
         of open_spinoff is lazy: routes.spinoff imports THIS module, so a
         top-level import here would be circular."""
@@ -1914,7 +1914,11 @@ def register(app):
         brief_path.write_text(_fork_brief_md(meta.get("title") or conv_id, surface),
                               encoding="utf-8")
         from routes.spinoff import open_spinoff
-        payload, status = open_spinoff(slug)
+        # start=False: a fork is a TAKE-OVER, not a parallel run. Launching it
+        # here would put two agents on the same session's files at once, which
+        # is the exact thing forking exists to get her out of. She stops this
+        # one, then opens the fork.
+        payload, status = open_spinoff(slug, start=False)
         return jsonify(payload), status
 
     @app.route("/api/observatory/conversation/<conv_id>/approve", methods=["POST"])
