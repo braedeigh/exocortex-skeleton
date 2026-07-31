@@ -696,3 +696,93 @@
   font-size: var(--font-size-md);
   font-weight: 600;
 }
+
+/* --- phone / PWA: the rail leaves the lane and becomes a bottom bar --- */
+/* Beside the roster, a reserved lane cost the cards 56px of width on a phone,
+   which is the one screen that can't spare it. Down here the rail is fixed to
+   the bottom instead, in the row the dev-notes pill already occupies, sitting
+   just to its left — so it takes NO width from the cards at all and the roster
+   goes full-bleed again.
+   Keyed at 768px because that is exactly one pixel below the desktop split's
+   own breakpoint (DESKTOP_QUERY, shell/useMediaQuery.ts): below it there's no
+   docked pane and the pill is really on screen to sit next to; at or above it
+   this page can be the split's left pane, where the pill isn't rendered and a
+   floating bottom bar would hover over the whole app.
+   [prompt: "on PWA can you move all the buttons to the bottom to the left of
+   the dev notes buttons"] */
+@media (max-width: 768px) {
+  .layout {
+    /* No lane to reserve any more — the cards get the whole column back. */
+    max-width: 640px;
+    gap: 0;
+    /* Room to scroll the last card clear of the bar now floating over it. */
+    padding-bottom: calc(var(--space-8) + 56px);
+  }
+
+  .rail {
+    position: fixed;
+    /* Clears the pill: its own 16px inset + two 46px squares + 1px borders,
+       then a gap. Bottom is nudged so a 40px button centres against the
+       pill's 48px, rather than sitting a few pixels low beside it. */
+    right: calc(var(--space-4) + 94px + var(--space-2));
+    bottom: calc(var(--space-4) + 4px);
+    top: auto;
+    left: var(--space-3);
+    width: auto;
+    margin-top: 0;
+    /* Under the pill's 45 so the two can never fight, and well under the
+       Sheet (100) and Toast (200) overlays. */
+    z-index: 44;
+    flex-direction: row;
+    /* Right-aligned so the bar always ENDS beside the pill and grows leftward.
+       wrap-reverse means a sixth button (both come-and-go buttons showing at
+       once) wraps to a row ABOVE rather than sliding under the pill or off the
+       screen — the row nearest the pill stays put either way. */
+    flex-wrap: wrap-reverse;
+    justify-content: flex-end;
+    align-items: center;
+    gap: var(--space-2);
+    pointer-events: none;
+  }
+
+  /* The bar's own children lay out in a row too, and their column-era spacing
+     (a top margin between the groups) becomes horizontal. */
+  .rail > .filters,
+  .rail > .railUtils {
+    flex-direction: row;
+    align-items: center;
+    margin-top: 0;
+    margin-left: var(--space-2);
+    pointer-events: auto;
+  }
+
+  /* Every button in the bar is exactly one tap target wide. In the lane they
+     sized to their own content, which is fine stacked but here it made the row
+     wider than the space beside the pill and pushed a button onto a second
+     line. */
+  .railNew,
+  .filterBtn,
+  .railUtil {
+    width: var(--tap-target);
+    min-width: var(--tap-target);
+    padding: 0;
+    /* OPAQUE here, unlike the lane's translucent pills: the bar floats over
+       card text rather than empty margin, and a see-through button with a
+       sentence running through it is unreadable. Same solid-square-with-shadow
+       language the notes pill beside it already uses. */
+    background: color-mix(in srgb, var(--hue, transparent) 18%, var(--card-bg));
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
+    pointer-events: auto;
+  }
+
+  .railNew {
+    align-self: center;
+    height: var(--tap-target);
+    font-size: var(--font-size-lg);
+  }
+
+  /* Pressed still wins — it sets its own solid fill and glow. */
+  .filterOn {
+    background: var(--hue);
+  }
+}
