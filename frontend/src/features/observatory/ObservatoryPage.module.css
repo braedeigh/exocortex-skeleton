@@ -38,6 +38,22 @@
      on a 3x phone that reads as a hole. The composer brings its own top
      border and padding, so a small gap here is enough separation. */
   padding: var(--space-4) var(--space-3) var(--space-3);
+  /* A clearing of calm ground around every letter, so the terrain watermark
+     behind the conversation (TerrainBackdrop) never has to be dimmed for the
+     words to win. Not a shadow — nothing here is meant to read as depth. It's
+     a halo, and the colour that reads as calm ground is the page's own
+     background, which is why this is var(--bg) and not a fixed grey: the sky
+     theme runs seven palettes from near-black to near-white, so any literal
+     colour would be a smudge in half of them and a glow in the rest. At
+     var(--bg) it follows the blend and stays invisible — you never see the
+     halo, only that the text got easier.
+     Zero offset (an offset would read as a drop shadow) and two small blurs
+     stacked rather than one large one, which builds density at the glyph and
+     falls off without leaving a ring. Inherited by every turn in the column,
+     so it covers each message automatically; the exception is below.
+     Prompt that produced it: "maybe put a shadow behind the words? like idk
+     what color, gray? something that contrasts?" */
+  text-shadow: 0 0 4px var(--bg), 0 0 10px var(--bg);
 }
 
 /* The column's padding is the gap; the last block inside it shouldn't add a
@@ -115,6 +131,10 @@
   background: var(--card-bg);
   border: 1px solid var(--border-soft);
   font-size: var(--font-size-md);
+  /* A code block already sits on its own opaque card, so it has no watermark
+     to win against — inheriting the column's halo would only soften mono
+     glyphs that are meant to stay crisp. */
+  text-shadow: none;
 }
 
 .replyBody :global(code) {
