@@ -9,16 +9,6 @@
  * squares were already 46px and are left as-is.
  */
 
-/* Anchor to the LEFT edge instead of the right. For a page rendered inside the
-   desktop split's left pane: the viewport's bottom-right corner belongs to
-   whatever the other pane is showing, which has its own pill there. Anchoring
-   left keeps the two apart and keeps this one over the pane it belongs to.
-   Applies to the closed pill and the open panel alike — they share the corner,
-   so they have to share the override. */
-.anchorLeft {
-  right: auto;
-  left: var(--space-4);
-}
 
 .pill {
   position: fixed;
@@ -404,4 +394,16 @@
   font-size: var(--font-size-sm);
   font-weight: 600;
   cursor: pointer;
+}
+
+/* Sit in the bottom-right corner of the desktop split's LEFT PANE rather than
+   the viewport's. For a page rendered inside that pane: the viewport's own
+   bottom-right belongs to whatever the other pane is showing, which has a pill
+   of its own sitting exactly there.
+   The pane is a plain flex:0 0 50% box — it sets no containing block for a
+   fixed element — so its inner edge is simply 50vw, and inset from that.
+   Applies to the closed pill and the open panel alike: they share the corner,
+   so they have to share the override. */
+.anchorSplitPane {
+  right: calc(50vw + var(--space-4));
 }

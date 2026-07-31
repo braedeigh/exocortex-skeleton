@@ -453,15 +453,16 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
       {/* The same floating dev-notes / ideas pill every other page has — now
           in the docked pane too, since that's where this page is most often
           read and the notes are about the page in front of her.
-          Anchored LEFT when docked: the viewport's bottom-right corner belongs
-          to whatever the other pane is showing, which has its own pill sitting
-          there. Left keeps the two apart and keeps this one over its own pane.
-          [prompt: "i also want the dev notes button on this page too"] */}
+          Docked, it tucks into the PANE's bottom-right corner rather than the
+          viewport's — that one already holds the other pane's pill, and a
+          second there would land on top of it.
+          [prompt: "i also want the dev notes button on this page too"; "put the
+          dev notes on the right corner and the other buttons on the left"] */}
       <ToastStack toasts={toasts} onDismiss={dismiss} />
       <NotesPill
         tab="observatory"
         onError={push}
-        anchor={onOpenConversation ? 'left' : 'right'}
+        anchor={onOpenConversation ? 'splitPane' : 'viewport'}
       />
     </div>
   );

@@ -38,13 +38,17 @@
    of the pane's own scrollport instead, which is what "along the bottom" means
    in here. It's also the last child in the column, so at the end of the scroll
    it simply sits after the final card rather than covering it.
+   It sits on the pane's LEFT, with the notes pill in the pane's right corner —
+   the two ends of the pane's bottom edge, rather than stacked at one end.
    The full-page route overrides this to `fixed` further down, where the bar
-   has to line up with the notes pill on the viewport's edge. */
+   has to line up with the notes pill on the viewport's edge.
+   [prompt: "put the dev notes on the right corner and the other buttons on the
+   left"] */
 .rail {
   position: sticky;
   bottom: var(--space-2);
   z-index: 44;
-  align-self: flex-end;
+  align-self: flex-start;
   margin-top: var(--space-4);
   display: flex;
   flex-direction: row;

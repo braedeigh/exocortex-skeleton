@@ -14,11 +14,12 @@ export interface NotesPillProps {
   /** Extra class on the closed pill — pages with their own bottom furniture
    * (e.g. the thread page's sticky composer) use it to lift the pill clear. */
   className?: string;
-  /** Which bottom corner to sit in. 'left' is for a page rendered inside the
-   * desktop split's left pane, where the right corner already holds the other
-   * pane's pill. Moves the open panel too, so the panel appears where the
-   * button was rather than across the window. */
-  anchor?: 'right' | 'left';
+  /** Which bottom-right corner to sit in. 'splitPane' is for a page rendered
+   * inside the desktop split's left pane, where the VIEWPORT's corner already
+   * holds the other pane's pill; it tucks into the pane's own corner instead.
+   * Moves the open panel too, so the panel appears where the button is rather
+   * than across the window. */
+  anchor?: 'viewport' | 'splitPane';
 }
 
 /**
@@ -34,9 +35,9 @@ export function NotesPill({
   tab = 'today',
   showAllLink = true,
   className,
-  anchor = 'right',
+  anchor = 'viewport',
 }: NotesPillProps) {
-  const anchorClass = anchor === 'left' ? styles.anchorLeft : undefined;
+  const anchorClass = anchor === 'splitPane' ? styles.anchorSplitPane : undefined;
   const [openKind, setOpenKind] = useState<NotesPillKind | null>(null);
   const [sort, setSort] = useState<SortDir>(readStoredSort);
   const containerRef = useRef<HTMLDivElement>(null);
