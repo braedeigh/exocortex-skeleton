@@ -9,6 +9,7 @@
  * handful of named bots. GET /api/observatory's `bots` key is legacy and
  * unused here; `sessions` is the flat roster.
  */
+import { useQuery } from '@tanstack/react-query';
 import { api } from '../../api/client';
 
 /** Cached facts about the nightly rollover job, updated after each run
@@ -145,6 +146,50 @@ export function getConversation(
   signal?: AbortSignal,
 ): Promise<{ id: string; meta: SessionMeta; events: unknown[] }> {
   return api.get(`/api/observatory/conversation/${encodeURIComponent(id)}`, signal);
+}
+
+/** The last thing said in a session — the agent's newest reply, or her ask if
+ * that's the newest thing in the log. Its own tiny endpoint rather than a slice
+ * of getConversation, because the server reads only the tail of the transcript
+ * to answer it (routes/observatory.py: _conversation_last_said). */
+export interface SessionPreview {
+  id: string;
+  /** Who said it. null = the session has never spoken, or won't say. */
+  role: 'assistant' | 'user' | null;
+  text: string;
+  /** The reply was longer than the card's cap and got cut. */
+  truncated: boolean;
+  /** A journaling session — withheld on purpose, not missing. */
+  private?: boolean;
+}
+
+/** Roster query, for surfaces that want the session cards' own facts (summary,
+ * model, spend, what it's waiting on) without RosterPage's polling loop. Terrain
+ * uses it for the agent hovercard. Idle-slow by default; the caller passes
+ * `live` while something is actually running. */
+export function useSessionRoster(live = false) {
+  return useQuery({
+    queryKey: ['observatory-roster'] as const,
+    queryFn: async ({ signal }) => getSessions(signal),
+    staleTime: live ? 4_000 : 30_000,
+    refetchInterval: live ? 5_000 : false,
+  });
+}
+
+/** One session's last line, fetched only while she's actually pointing at it.
+ * Cached per session so re-hovering the same orb is instant, and short-stale so
+ * a live agent's card catches up as it talks. */
+export function useSessionPreview(convId: string | null) {
+  return useQuery({
+    queryKey: ['session-preview', convId] as const,
+    queryFn: async ({ signal }) =>
+      api.get<SessionPreview>(
+        `/api/observatory/conversation/${encodeURIComponent(convId!)}/preview`,
+        signal,
+      ),
+    enabled: convId !== null,
+    staleTime: 10_000,
+  });
 }
 
 /** Create a session ahead of its first message — the roster's '+ New

@@ -293,7 +293,7 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
             reshuffle under her thumb.
             [prompt: "i want them floating on the page rather than fixed at the
             top ... you can press more than one at a time"] */}
-        <div className={styles.rail}>
+        <div className={[styles.rail, onOpenConversation ? '' : styles.railRoomy].filter(Boolean).join(' ')}>
           {/* New session — round, not a pill, and colourless: the three below it
               are STATES and this is an ACTION, so it can't be mistaken for a
               fourth colour. It floats here because the per-lane '+' used to sit

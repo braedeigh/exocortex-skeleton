@@ -21,7 +21,7 @@
   margin-bottom: var(--space-4);
   /* Room kept clear on the right for the floating rail, which takes no space
      of its own — without this a long title would slide underneath it. */
-  padding-right: 148px;
+  padding-right: 136px;
 }
 
 /* Title + sort, grouped left so the whole right side belongs to the rail. */
@@ -53,7 +53,25 @@
   flex-direction: column;
   align-items: flex-end;
   justify-content: flex-start;
+  /* Pulled OUT past the cards by exactly the column's own side padding, so the
+     rail stops sharing an edge with them and reads as a separate thing hovering
+     alongside. This much is free everywhere — it's space .inner already owns,
+     so even on a phone it can't push anything sideways. */
+  margin-right: calc(-1 * var(--space-3));
   pointer-events: none;
+}
+
+/* On a full-width screen the 640px column has real empty margin either side, so
+   the rail can sit properly out in it rather than hugging the cards.
+   .railRoomy is set only on the FULL-PAGE route — this same page is also the
+   desktop split's left pane at half the viewport, where the column fills the
+   pane and there's no margin to move into. Asking the page (which knows it's
+   docked) beats guessing from the viewport width, which would be measuring the
+   wrong box. */
+@media (min-width: 900px) {
+  .railRoomy {
+    margin-right: calc(-1 * (var(--space-3) + 40px));
+  }
 }
 
 /* The rail is a column: the '+' on top, then the three filters under it. Its
@@ -239,7 +257,7 @@
    label, so three floating pills can't cover half the cards they point at. */
 @media (max-width: 480px) {
   .header {
-    padding-right: 72px;
+    padding-right: 60px;
   }
 
   .filterBtn {
@@ -261,7 +279,7 @@
    rather than a cramped stack of chips. */
 @media (min-width: 1024px) {
   .header {
-    padding-right: 172px;
+    padding-right: 160px;
   }
 
   .filterBtn {
