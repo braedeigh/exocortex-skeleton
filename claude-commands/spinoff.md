@@ -101,6 +101,24 @@ EXOCORTEX_DATA_DIR=<data dir> ./venv/bin/python3 scripts/spinoff_open.py <slug>
 (The env var matters: without it the script resolves the repo's default
 `data/` instead of the instance's real data dir, and won't find your brief.)
 
+**The room comes along by itself — don't name one unless they did.** A spinoff
+lands in the room THIS conversation is in: spun off from a Personal session it's
+Personal, from an Orchestra session it's Orchestra. That's inherited from your
+own session id, so the plain command above is the right one almost always. Two
+cases where you say it outright, with `--room personal` / `--room orchestra`:
+
+- **They specified.** "put it in personal", "that one should be orchestra."
+- **You're not in a room at all** — a terminal session, not an Observatory one.
+  Then there's nothing to inherit and it falls to `orchestra`, the room that
+  stops and asks. If the work is really vault-side or hers-in-real-time, pass
+  `--room personal`; otherwise let it default.
+
+The room isn't cosmetic: it sets where the child is rooted (Orchestra = the app
+checkout, Personal = the parent of both repos, where it sees code and vault as
+peers) and whether it stops to ask before irreversible work (Orchestra asks,
+Personal acts). The reply's `lane` is the room it actually landed in — tell her
+which room each session went to when you report back.
+
 (Same narrow-door doctrine as `scripts/stage_change.py` — agents shell out to
 the script; the app's own UI uses `POST /api/spinoff/open`, both wrapping the
 same core in `routes/spinoff.py`.) The JSON reply tells you `newly_spawned`
