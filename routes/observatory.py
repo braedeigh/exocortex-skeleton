@@ -1366,6 +1366,79 @@ def _fork_brief_md(title, surface):
     return "\n".join(lines)
 
 
+# --- the hovercard's last line of conversation -------------------------------
+# Hover an agent orb on /terrain and the card wants the last thing actually SAID
+# in that session. The whole transcript is the wrong thing to ship for that — a
+# long session's jsonl runs to megabytes — so this reads only the tail of the
+# file and walks it backwards until it finds speech.
+#
+# Prompt that produced it: "if you scroll up close and hover over an agent, it
+# shows a hovering popup with the last message and the summary and card
+# information".
+
+# How much of the tail to read. Generous on purpose: the last *speech* can sit
+# behind a long run of tool events, and 256KB is still one cheap seek.
+_PREVIEW_TAIL_BYTES = 262_144
+# What the card can actually hold before it stops being a hovercard.
+_PREVIEW_CHARS = 700
+
+
+def _message_prose(message):
+    """The prose out of one claude message. `content` is either a string or a
+    list of blocks, of which only the text ones carry words — a message that was
+    nothing but tool calls comes back empty, which is what lets the caller keep
+    walking back to the last thing that was really said."""
+    if not isinstance(message, dict):
+        return ""
+    content = message.get("content")
+    if isinstance(content, str):
+        return content.strip()
+    if not isinstance(content, list):
+        return ""
+    parts = [b.get("text") for b in content
+             if isinstance(b, dict) and b.get("type") == "text"
+             and isinstance(b.get("text"), str) and b.get("text").strip()]
+    return "\n\n".join(parts).strip()
+
+
+def _conversation_last_said(path):
+    """The last thing SAID in a conversation — the agent's newest reply, or her
+    ask when that's the newest thing in the log. Returns (role, text), or
+    (None, "") for a session that hasn't spoken yet.
+
+    Reads at most the last `_PREVIEW_TAIL_BYTES` and walks those lines in
+    reverse, so a megabyte-long session costs the same as a fresh one. The seek
+    lands mid-line, so the first (torn) line is dropped."""
+    try:
+        size = path.stat().st_size
+        with open(path, "rb") as fh:
+            if size > _PREVIEW_TAIL_BYTES:
+                fh.seek(size - _PREVIEW_TAIL_BYTES)
+                fh.readline()
+            lines = fh.read().decode("utf-8", "replace").splitlines()
+    except OSError:
+        return None, ""
+    for line in reversed(lines):
+        try:
+            ev = json.loads(line)
+        except ValueError:
+            continue   # a torn line (crash mid-append) shouldn't hide the rest
+        if not isinstance(ev, dict):
+            continue
+        if ev.get("type") == "assistant":
+            text = _message_prose(ev.get("message"))
+            if text:
+                return "assistant", text
+        elif ev.get("type") == "user":
+            # {"type": "user", "text": ...} is HER, typed. A user event carrying
+            # a `message` instead is claude echoing a tool result back to itself
+            # — machinery, not speech, so it never becomes the card's line.
+            text = ev.get("text")
+            if isinstance(text, str) and text.strip():
+                return "user", text.strip()
+    return None, ""
+
+
 def register(app):
     # The /api/bots/* rules below are kept as aliases of the canonical
     # /api/observatory/* paths purely for cached PWA clients (old service-
@@ -1871,6 +1944,33 @@ def register(app):
         if tokens:
             meta = dict(meta, tokens=tokens)
         return jsonify({"id": conv_id, "meta": meta, "events": events})
+
+    @app.route("/api/observatory/conversation/<conv_id>/preview")
+    def bot_conv_preview(conv_id):
+        """The last thing said in a session, and nothing else — what /terrain's
+        agent hovercard prints under the summary. Deliberately NOT the
+        conversation route with a limit: this one never loads the whole log (see
+        _conversation_last_said), because it fires on a mouse hover.
+
+        A JOURNALING session returns empty. That's the same line the roster card
+        already draws around `last_prompt`: her diary is not something the map
+        should be able to quote at a passing cursor. The card still shows that
+        session's title, status and summary — only the raw line is withheld."""
+        if not _CONV_ID_RE.match(conv_id):
+            return jsonify({"error": "invalid conversation id"}), 400
+        meta = store.read("bot_chats/index", {}).get(conv_id)
+        if not isinstance(meta, dict):
+            return jsonify({"error": "not found"}), 404
+        empty = {"id": conv_id, "role": None, "text": "", "truncated": False}
+        if meta.get("journal"):
+            return jsonify(dict(empty, private=True))
+        path = _chats_dir() / f"{conv_id}.jsonl"
+        if not path.is_file():
+            return jsonify(empty)   # minted, never sent into — a real empty
+        role, text = _conversation_last_said(path)
+        return jsonify({"id": conv_id, "role": role,
+                        "text": text[:_PREVIEW_CHARS],
+                        "truncated": len(text) > _PREVIEW_CHARS})
 
     @app.route("/api/observatory/conversation/<conv_id>/stop", methods=["POST"])
     @app.route("/api/bots/conversation/<conv_id>/stop", methods=["POST"])

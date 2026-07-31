@@ -32,6 +32,20 @@
  * agent's footprint and its files caption themselves. Hover stands down while
  * a tap-spotlight is up, so the two never argue over the same pixels.
  *
+ * Hover also reports OUT, through `onHoverAgent`: the conversation id plus
+ * where its orb is sitting on screen right now, which is what /terrain hangs
+ * its agent hovercard off (AgentHoverCard.tsx). The report is throttled to
+ * actual movement of the orb, not of the cursor, so sitting still over one orb
+ * costs nothing; a pan or zoom drops the hover outright — reported with the
+ * `hard` flag, meaning "this one gets no grace period" — because the card would
+ * otherwise be left pointing at where the orb used to be.
+ *
+ * The card is reachable now (you can move the cursor into it and click), which
+ * the lighting has to survive: crossing the gap from orb to card takes the
+ * cursor off the canvas, and the map would un-dim mid-journey. `holdHover`
+ * pins the lighting to one agent for as long as its card is up, so the
+ * footprint stays lit under the card she's reading it from.
+ *
  * Prompt that produced the hover layer: "if you hover over an agent on
  * terrain, the other rings and lines become grayed out from the other agents
  * to focus on what is showing there."
@@ -117,6 +131,17 @@ export interface ThemeInk {
   dark: boolean;
 }
 
+/** An agent orb under the cursor, located on screen. `x`/`y` are the orb's
+ * CENTRE in client coordinates and `r` its drawn radius there, so the card can
+ * clear the orb rather than sit on top of the thing being pointed at. */
+export interface AgentHover {
+  /** Conversation id — the same id the roster and the terrain payload use. */
+  id: string;
+  x: number;
+  y: number;
+  r: number;
+}
+
 interface SimNode extends SimulationNodeDatum {
   id: string;
   node: TerrainNode;
@@ -170,8 +195,10 @@ function mixHex(a: string, b: string, t: number): string {
 /** Piecewise-linear heat lookup across the 5 ramp steps. t=0 IS the black
  * end — "old = black" is the owner's mental model, so cold files never fade
  * into the surface; the coldest step itself is chosen per mode (near-black
- * ink on light, just-above-surface on dark). */
-function heatColor(t: number, ramp: readonly string[]): string {
+ * ink on light, just-above-surface on dark). Exported so the heat slider can
+ * paint the identical ramp along its own track — one lookup, so the control
+ * and the map can never drift apart. */
+export function heatColor(t: number, ramp: readonly string[]): string {
   if (t <= 0) return ramp[0];
   if (t >= 1) return ramp[ramp.length - 1];
   const u = t * (ramp.length - 1);
@@ -392,8 +419,20 @@ export class TerrainCanvas {
    * even if a louder agent also wrote it.
    */
   private hoverRings: Map<string, FileTouchKind> = new Map();
+  /** The last hover reported to `onHoverAgent`, so a cursor resting on one orb
+   * doesn't fire a report (and a React render) per pointermove. */
+  private hoverReport: AgentHover | null = null;
+  /** An agent whose lighting is pinned on regardless of where the cursor is —
+   * set while its hovercard is up. See holdHover. */
+  private heldHover: string | null = null;
 
   onTap: ((node: TerrainNode | null) => void) | null = null;
+  /**
+   * Where the hovered agent's orb is on screen, in client coordinates — the
+   * anchor /terrain hangs its hovercard from. null the moment the cursor
+   * leaves the orb, or the map moves under it.
+   */
+  onHoverAgent: ((hover: AgentHover | null, hard?: boolean) => void) | null = null;
 
   constructor(canvas: HTMLCanvasElement, theme: ThemeInk, opts?: { ambient?: boolean }) {
     this.canvas = canvas;
@@ -410,6 +449,14 @@ export class TerrainCanvas {
       .clickDistance(8) // pans suppress the click; taps still land
       .on('zoom', (event: { transform: ZoomTransform }) => {
         this.transform = event.transform;
+        // The map just moved out from under the cursor. A wheel-zoom fires no
+        // pointermove, so nothing else would correct a hovercard still hanging
+        // where the orb used to be — drop the hover and let her point again.
+        if (this.hoverAgent !== null || this.hoverReport !== null || this.heldHover !== null) {
+          this.holdHover(null);
+          this.setHoverAgent(null);
+          this.reportHover(null, true);
+        }
         this.requestDraw(); // repaint only — pan/zoom never wakes the sim
       });
     // An ambient canvas binds neither: every gesture over the Observatory
@@ -887,17 +934,66 @@ export class TerrainCanvas {
     // open their sheet as well — even though only orbs drive the hover dim.
     this.canvas.style.cursor = hit || this.nodeAt(ev)?.node.kind === 'file' ? 'pointer' : '';
     this.setHoverAgent(hit?.node.session?.id ?? null);
+    this.reportHover(hit);
   };
 
   private handlePointerLeave = (ev: PointerEvent): void => {
     if (ev.pointerType !== 'mouse') return;
     this.canvas.style.cursor = '';
     this.setHoverAgent(null);
+    this.reportHover(null);
   };
 
+  /**
+   * Tell the page where the hovered orb is, if that answer has changed. Called
+   * on every pointermove, so the guard matters: an unchanged report is dropped
+   * here rather than turned into a React render, and a cursor parked on one orb
+   * therefore costs nothing at all.
+   */
+  private reportHover(hit: SimNode | null, hard = false): void {
+    const id = hit?.node.session?.id ?? null;
+    if (id === null || hit === null) {
+      if (this.hoverReport === null && !hard) return;
+      this.hoverReport = null;
+      this.onHoverAgent?.(null, hard);
+      return;
+    }
+    const rect = this.canvas.getBoundingClientRect();
+    const [sx, sy] = this.transform.apply([hit.x ?? 0, hit.y ?? 0]);
+    const next: AgentHover = {
+      id,
+      x: rect.left + sx,
+      y: rect.top + sy,
+      r: hit.radius * this.transform.k,
+    };
+    const prev = this.hoverReport;
+    // Sub-pixel drift (the sim still cooling under a still cursor) isn't news.
+    if (prev && prev.id === id && Math.abs(prev.x - next.x) < 2 && Math.abs(prev.y - next.y) < 2) {
+      return;
+    }
+    this.hoverReport = next;
+    this.onHoverAgent?.(next);
+  }
+
+  /**
+   * Pin the hover lighting to one agent (or release it with null). /terrain
+   * holds it for exactly as long as that agent's hovercard is on screen: the
+   * card sits off the canvas, so travelling into it takes the cursor off the
+   * orb, and without the pin the map would un-dim the moment she set off
+   * towards the thing she's reading. Pointing at a DIFFERENT orb still wins —
+   * a real hover outranks the pin, and the page re-pins to the new one.
+   */
+  holdHover(id: string | null): void {
+    this.heldHover = id;
+    this.setHoverAgent(id);
+  }
+
+  /** Null means "the cursor is on nothing" — which only actually clears the
+   * lighting when no card is holding it open (see holdHover). */
   private setHoverAgent(id: string | null): void {
-    if (this.hoverAgent === id) return;
-    this.hoverAgent = id;
+    const next = id ?? this.heldHover;
+    if (this.hoverAgent === next) return;
+    this.hoverAgent = next;
     this.recomputeHoverRings();
     this.requestDraw();
   }

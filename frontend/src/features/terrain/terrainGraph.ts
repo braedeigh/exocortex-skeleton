@@ -64,9 +64,66 @@ export function heatKeyTicks(halfLife: number): [string, string, string] {
   return ['now', formatAge(halfLife / 4), `${formatAge(halfLife)}+`];
 }
 
+/**
+ * The colour ramp laid along the heat slider's own track, so the control and
+ * the legend are one object.
+ *
+ * The trick is that the track's axis can be read two ways at once. As a
+ * *control* it's the half-life you're setting; as a *scale* it's an age axis —
+ * position x is "a file touched x days ago", and the colour there is exactly
+ * what such a file wears on the map right now. So the bar answers "how far
+ * back does the map remember" by showing it rather than naming it, and it
+ * restates itself live as you drag: pull the handle right and the whole ramp
+ * brightens, because a longer half-life is literally a map that keeps older
+ * work lit.
+ *
+ * Returns sample points, not colours — the ramp itself lives with the canvas
+ * that paints it (heatColor in terrainCanvas.ts), and this stays pure maths.
+ * `pct` is the position along the track and `t` the 0..1 heat at it, using the
+ * same 2^-(age/half_life) decay every node on the map uses.
+ *
+ * Sampled rather than two-stop because the track is LOGARITHMIC in days while
+ * the decay is exponential in days: a straight CSS gradient between the ends
+ * would draw a curve the map doesn't have. Twenty-four stops is past the point
+ * where the eye can find the seams.
+ *
+ * Prompt that produced it: "i want the heat map to also be superimposed onto
+ * the heat map bar."
+ */
+export function heatTrackStops(
+  halfLifeDays: number,
+  minDays: number = HEAT_DAYS_MIN,
+  maxDays: number = HEAT_DAYS_MAX,
+  samples = 24,
+): { pct: number; t: number }[] {
+  const ratio = maxDays / minDays;
+  return Array.from({ length: samples }, (_, i) => {
+    const p = samples > 1 ? i / (samples - 1) : 0; // a lone sample is the near end, not 0/0
+
+    const days = minDays * ratio ** p;
+    return {
+      pct: p * 100,
+      t: halfLifeDays > 0 ? 2 ** (-days / halfLifeDays) : 0,
+    };
+  });
+}
+
 /** Share of the breath cycle spent inhaling — 4 seconds of a 10-second
  * breath, leaving 6 for the exhale. */
 export const BREATH_INHALE_FRACTION = 0.4;
+
+/** One full breath. Her pick: slow and deep, not a human 5s rhythm.
+ *
+ * Lives here rather than in either surface that uses it, because BOTH breathe
+ * now — the Observatory backdrop and /terrain's Dynamic heat preset — and two
+ * copies of this number is two rhythms that can silently drift apart. It's one
+ * breath; the map just has two windows onto it. */
+export const BREATH_PERIOD_MS = 10_000;
+
+/** How often a breathing surface repaints — ~7fps. The glow moves slowly
+ * enough that more frames buy nothing, and this is ambient motion that has no
+ * business costing more than it must. */
+export const BREATH_TICK_MS = 150;
 
 /**
  * The backdrop's breath: a half-life that swells from `day` out to `month`

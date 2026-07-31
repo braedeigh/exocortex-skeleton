@@ -4,6 +4,7 @@ import {
   buildTerrainGraph,
   formatAge,
   heatKeyTicks,
+  heatTrackStops,
   computeFileHeat,
   fileCreatedWithin,
   CREATED_FRESH_WINDOW_SECONDS,
@@ -848,6 +849,46 @@ describe('formatAge / heatKeyTicks (the colour key, derived from the half-life)'
 
   it('never reports a zero age — the shortest label is a minute, not "0m"', () => {
     expect(formatAge(5)).toBe('1m');
+  });
+});
+
+describe('heatTrackStops (the ramp painted along the heat slider)', () => {
+  it('spans the track end to end so the gradient has no gap at either edge', () => {
+    const stops = heatTrackStops(7);
+    expect(stops[0].pct).toBe(0);
+    expect(stops[stops.length - 1].pct).toBe(100);
+  });
+
+  it('reads as an age axis: the handle always lands on half-brightness', () => {
+    // The handle sits at the half-life, and one half-life old is t=0.5 by
+    // definition — so the colour under the thumb is the ramp's midpoint at
+    // every setting. That invariant is what makes the bar legible while it
+    // moves: the gradient slides past a fixed reference.
+    for (const days of [1, 7, 30]) {
+      const at = heatTrackStops(days, days, days, 1)[0];
+      expect(at.t).toBeCloseTo(0.5, 10);
+    }
+  });
+
+  it('cools monotonically left to right — near days hot, month-old cold', () => {
+    const stops = heatTrackStops(7);
+    for (let i = 1; i < stops.length; i += 1) {
+      expect(stops[i].t).toBeLessThan(stops[i - 1].t);
+    }
+    expect(stops[0].t).toBeGreaterThan(0.9); // one day old under a week's memory
+    expect(stops[stops.length - 1].t).toBeLessThan(0.1); // a month old, all but out
+  });
+
+  it('brightens the whole ramp as the half-life grows — a longer memory, shown', () => {
+    const short = heatTrackStops(1);
+    const long = heatTrackStops(30);
+    for (let i = 0; i < short.length; i += 1) {
+      expect(long[i].t).toBeGreaterThan(short[i].t);
+    }
+  });
+
+  it('goes fully cold rather than dividing by zero on a zero half-life', () => {
+    expect(heatTrackStops(0).every((s) => s.t === 0)).toBe(true);
   });
 });
 

@@ -1,9 +1,16 @@
-/* TerrainHeatBar — the heat half-life slider at the bottom of the map
-   (TerrainHeatBar.tsx). Same visual language as TerrainDials: no background of
-   its own, every text bit carrying --ink-halo so it reads over whatever the
-   terrain puts behind it, a 40px grab strip around a 6px line, and a 28px
-   thumb. What's new here is the per-day tick ruler under the track and the
-   three preset buttons beneath it. */
+/* TerrainHeatBar — the heat half-life slider (TerrainHeatBar.tsx), now the TOP
+   block of the map's bottom-left stack with the agent bar under it. Same visual
+   language as TerrainDials: no background of its own, every text bit carrying
+   --ink-halo so it reads over whatever the terrain puts behind it, a 40px grab
+   strip and a 28px thumb.
+
+   Two things depart from the dials on purpose. The track carries the map's own
+   colour ramp (--heat-ramp, computed per render in the component) instead of a
+   neutral line — the control doubles as the legend — and it's 10px rather than
+   6px, because a 6px line is a hairline to grab but a *sliver* to read colour
+   from, and this one now has to do both. The per-day ruler is etched over the
+   ramp in white rather than drawn in --text, since --text on a red gradient is
+   mud in either theme. */
 
 .bar {
   display: flex;
@@ -35,10 +42,30 @@
   min-height: 40px;
 }
 
+/* --- the ramp -----------------------------------------------------------
+
+   The map's own colour ramp, hot at the near end and cold at the month end,
+   handed in as an inline background because it's recomputed for the current
+   half-life on every render. Its own element rather than a background on the
+   input's track pseudo-element, so the thumb still draws over it and over the
+   ruler. Inert to pointers — the slider above owns every gesture here. */
+.ramp {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 10px;
+  transform: translateY(-50%);
+  border-radius: var(--radius-pill);
+  /* A hairline ring so the cold end can't dissolve into a dark map behind it. */
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--text) 18%, transparent);
+  pointer-events: none;
+}
+
 /* --- the per-day ruler --------------------------------------------------
 
-   Sits behind the input, centred on the 6px line. Ticks crowd toward the long
-   end because the track is logarithmic; that crowding is the point, so they're
+   Etched over the ramp, under the thumb. Ticks crowd toward the long end
+   because the track is logarithmic; that crowding is the point, so they're
    drawn at full density rather than thinned. Inert to pointers so the ruler
    can never eat a drag meant for the slider. */
 .ticks {
@@ -46,26 +73,28 @@
   left: 0;
   right: 0;
   top: 50%;
-  height: 14px;
+  height: 16px;
   transform: translateY(-50%);
   pointer-events: none;
 }
 
+/* Kept inside the 10px ramp and kept faint — the gradient is the message here
+   and the ruler is an annotation on it, not a competing pattern. */
 .tick {
   position: absolute;
   top: 50%;
   width: 1px;
-  height: 8px;
+  height: 6px;
   transform: translate(-50%, -50%);
-  background: color-mix(in srgb, var(--text) 30%, transparent);
+  background: rgba(255, 255, 255, 0.22);
 }
 
-/* The three preset days (1 / 7 / 30) stand taller and brighter, so the
-   anchors the buttons jump to stay findable in the ruler. */
+/* The three preset days (1 / 7 / 30) stand brighter and tall enough to break
+   the ramp's edges, so the anchors the buttons jump to stay findable. */
 .tickAnchor {
-  height: 14px;
+  height: 16px;
   width: 2px;
-  background: color-mix(in srgb, var(--text) 55%, transparent);
+  background: rgba(255, 255, 255, 0.65);
 }
 
 /* --- the slider itself (mirrors TerrainDials .range) --- */
@@ -85,18 +114,16 @@
   touch-action: pan-y;
 }
 
-/* Transparent track: the ruler above is the visible line here, so a second
-   filled bar over it would only muddy the ticks. */
+/* Transparent track: .ramp behind it is the visible line here. Still declared
+   at 10px so the thumb's negative margin has the right height to centre on. */
 .range::-webkit-slider-runnable-track {
-  height: 6px;
-  border-radius: var(--radius-pill);
-  background: color-mix(in srgb, var(--text) 14%, transparent);
+  height: 10px;
+  background: transparent;
 }
 
 .range::-moz-range-track {
-  height: 6px;
-  border-radius: var(--radius-pill);
-  background: color-mix(in srgb, var(--text) 14%, transparent);
+  height: 10px;
+  background: transparent;
 }
 
 .range::-webkit-slider-thumb {
@@ -104,7 +131,7 @@
   appearance: none;
   width: 28px;
   height: 28px;
-  margin-top: -11px;
+  margin-top: -9px; /* (10px track - 28px thumb) / 2 — recentre on the taller ramp */
   border-radius: 50%;
   background: var(--accent);
   border: 2px solid var(--card-bg);
@@ -128,13 +155,16 @@
 
 /* --- presets ------------------------------------------------------------
 
-   Aligned under the track (not the label) so they read as belonging to the
-   slider above them, the same way TerrainDials tucks its readout. */
+   ABOVE the track now, and still indented to the track's own column rather
+   than the label's, so they read as belonging to the slider they move. The
+   negative margin pulls the two into one object instead of two stacked rows —
+   they're one control, and the gap was reading as a divider. */
 .presets {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--space-1);
-  margin-top: -6px;
+  margin-bottom: -6px;
   margin-left: calc(3.25rem + var(--space-2));
 }
 
@@ -158,6 +188,61 @@
   border-color: var(--accent);
   color: var(--text);
   background: color-mix(in srgb, var(--accent) 18%, var(--card-bg));
+}
+
+/* --- Dynamic, lit ------------------------------------------------------
+
+   The button breathes on the same 10s clock as the half-life it just handed
+   to the breath, so the control performs the mode instead of only naming it.
+
+   Three things it deliberately copies from breathHalfLife() rather than
+   inventing: the 10s period, the 4-in / 6-out split (the swell owns the first
+   40% of the timeline, the settle the remaining 60%), and easing at both
+   turns — a linear glow arrives at the top with velocity and reads as a
+   blink. The one thing it does NOT copy is the log interpolation; that's
+   there so the map's *memory* feels even, and opacity is already perceptually
+   flat enough that the eye doesn't need it.
+
+   It's a glow on a pseudo-element with only `opacity` animating — the pill's
+   own background never changes, so nothing here can touch layout or repaint
+   the text. */
+.presetBreathing {
+  position: relative;
+  isolation: isolate;
+}
+
+.presetBreathing::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  z-index: -1;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  opacity: 0.14;
+  animation: presetBreath 10s infinite;
+}
+
+@keyframes presetBreath {
+  0% {
+    opacity: 0.14;
+    animation-timing-function: ease-in-out;
+  }
+  40% {
+    opacity: 0.5;
+    animation-timing-function: ease-in-out;
+  }
+  100% {
+    opacity: 0.14;
+  }
+}
+
+/* Held at the swell's midpoint rather than switched off — the lit state still
+   has to look distinctly lit when the motion is gone. */
+@media (prefers-reduced-motion: reduce) {
+  .presetBreathing::after {
+    animation: none;
+    opacity: 0.32;
+  }
 }
 
 .readout {

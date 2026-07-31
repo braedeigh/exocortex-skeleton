@@ -1,28 +1,40 @@
 import { useEffect, useRef, useState } from 'react';
 import { subscribeTheme } from '../../theme';
 import { useTerrain, type TerrainData } from './api';
-import { breathHalfLife, buildTerrainGraph, changedFileIds } from './terrainGraph';
+import {
+  breathHalfLife,
+  buildTerrainGraph,
+  changedFileIds,
+  BREATH_PERIOD_MS,
+  BREATH_TICK_MS,
+} from './terrainGraph';
 import { readThemeInk, TerrainCanvas } from './terrainCanvas';
 import styles from './TerrainBackdrop.module.css';
 
 /**
  * TerrainBackdrop — the terrain map as wallpaper behind the Observatory.
  *
- * STEP 1 of the backdrop build (2026-07-24), and deliberately only step 1:
- * the map, dimmed, behind the conversation. No glass, no featured agent, no
- * burning scroll — those land as separate steps so each one can be looked at
- * on its own. An earlier attempt shipped all of them at once and there was no
- * way to tell which layer was the one failing.
+ * Built in steps from 2026-07-24, one at a time on purpose — an earlier
+ * attempt shipped every layer at once and there was no way to tell which one
+ * was failing. Landed so far: the map behind the conversation, and the
+ * step-back view that hands it the screen (see `revealed` below). Still not
+ * built: the glass, and the featured agent.
  *
  * It's the same engine /terrain uses, at the same 350-file tier (her call:
- * the map should look like the map), running in the engine's `ambient` mode:
- * no gestures, no labels. Dimming is CSS opacity on the canvas rather than a
- * draw-time alpha, so the paint code stays identical on both surfaces.
+ * the map should look like the map), running in the engine's `ambient` mode —
+ * no gestures, and no labels unless the step-back view asks for them.
  *
- * What survives the dimming and is meant to: the heat ramp's hot end, and the
- * one-shot flash on every file whose newest touch advanced between two
- * payloads. That flash is the whole "something is happening out there" signal
- * at this distance.
+ * HOW THE WORDS WIN, since it isn't by dimming. The canvas used to sit at 0.62
+ * opacity; it's at full colour now and carries a 2px blur instead. Reading is
+ * edge detection, so a hard-edged node the size of a letterform competes with
+ * that letterform however faint it is — the blur removes the competition
+ * rather than the map, and reads as distance while it's at it. The heat ramp's
+ * hot end and the one-shot flash on every file whose newest touch advanced
+ * between two payloads therefore survive intact, which matters: that flash is
+ * the whole "something is happening out there" signal at this distance, and a
+ * blurred point of light blooms rather than blinks. Details in
+ * TerrainBackdrop.module.css; the words carry a halo of their own in
+ * ObservatoryPage.module.css.
  *
  * THE BREATH (her 07-24 ask): the heat lens isn't fixed — it swells from a
  * one-day half-life out to a one-month one and back, once every ~10s. Because
@@ -38,11 +50,8 @@ import styles from './TerrainBackdrop.module.css';
  * interpolation scheme it replaced.
  */
 
-/** One full breath. Her pick: slow and deep, not a human 5s rhythm. */
-const BREATH_PERIOD_MS = 10_000;
-/** ~7fps. The glow moves slowly enough that more frames buy nothing, and this
- * is a background effect that has no business costing more than it must. */
-const BREATH_TICK_MS = 150;
+/* The breath's period and repaint rate are shared with /terrain's Dynamic heat
+   preset — see BREATH_PERIOD_MS / BREATH_TICK_MS in terrainGraph.ts. */
 /** "As many dots as possible" (her 07-25 ask) — the room map is meant to be a
  * dense field, not the old 350 sample, and the focus camera frames the agent's
  * cluster within it. null = every file the payload will give. Dial back to a

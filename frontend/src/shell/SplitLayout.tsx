@@ -4,6 +4,7 @@ import { FakeTerminal } from './FakeTerminal';
 import { KeeperPane } from './KeeperPane';
 import { useSessions } from './useSessions';
 import { useChatSurfaceObservatory, setChatSurfaceObservatory } from './chatSurface';
+import { registerPaneConversationTarget } from './paneConversation';
 import { useMediaQuery, DESKTOP_QUERY } from './useMediaQuery';
 import styles from './SplitLayout.module.css';
 
@@ -54,6 +55,13 @@ import styles from './SplitLayout.module.css';
  * seen there. The terminal has stopped being a place she goes and become a
  * place things arrive.
  *
+ * The room arrives at the same way: a page in the RIGHT half can hand this
+ * pane a conversation to open (paneConversation.ts — the terrain map's agent
+ * orbs do), which flips to the room, selects the middle tab, and passes the id
+ * down to KeeperPane. The right half keeps whatever it was showing, so tapping
+ * an agent on the map reads its session BESIDE the map rather than replacing
+ * it.
+ *
  * The terminal and the room both stay mounted once visited and toggle by CSS
  * — same reasoning as TerminalFrames: remounting drops ttyd's websocket, and
  * it would also throw away a reply the Keeper is mid-stream on.
@@ -103,6 +111,9 @@ export function SplitLayout({ children }: { children: ReactNode }) {
   // "Observatory" tells her nothing the first tab doesn't; the session's name
   // tells her which room the switch would put her back into.
   const [roomTitle, setRoomTitle] = useState<string | null>(null);
+  // A conversation pushed at this pane from the right half (the terrain map).
+  // null = nothing pushed, so KeeperPane keeps resolving its own default.
+  const [pushedConv, setPushedConv] = useState<string | null>(null);
   // Mount-on-first-visit, then keep mounted (see header) — starts with
   // whichever surface the flag opens on.
   const [visited, setVisited] = useState<ReadonlySet<'keeper' | 'terminal'>>(
@@ -185,6 +196,20 @@ export function SplitLayout({ children }: { children: ReactNode }) {
     window.addEventListener('exo:set-session', onSetSession);
     return () => window.removeEventListener('exo:set-session', onSetSession);
   }, [terminalEnabled, setActive]);
+
+  // "Open this conversation here" from the right half. Only claimed while the
+  // authed desktop pane actually exists — on mobile and in public mode nothing
+  // registers, so the caller learns it has to navigate instead. Surfacing it
+  // takes all three moves: the room instead of the terminal, the middle tab
+  // instead of the roster, and the id itself down to KeeperPane.
+  useEffect(() => {
+    if (!terminalEnabled) return;
+    return registerPaneConversationTarget((convId) => {
+      setPushedConv(convId);
+      setRoster(false);
+      setChatSurfaceObservatory(true);
+    });
+  }, [terminalEnabled]);
 
   if (!isDesktop) {
     // Mobile: no split — content fills, exactly as before.
@@ -271,7 +296,12 @@ export function SplitLayout({ children }: { children: ReactNode }) {
             ) : null}
             {visited.has('keeper') ? (
               <div className={keeperPane ? styles.paneSlot : styles.paneSlotHidden}>
-                <KeeperPane roster={roster} onOpenRoom={openRoom} onRoomTitle={setRoomTitle} />
+                <KeeperPane
+                  roster={roster}
+                  onOpenRoom={openRoom}
+                  onRoomTitle={setRoomTitle}
+                  pushedConv={pushedConv}
+                />
               </div>
             ) : null}
           </div>

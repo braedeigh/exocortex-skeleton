@@ -6,6 +6,16 @@ config'd as a builder session and starts it working. The brief travels by FILE,
 never typed/shell-interpolated anywhere — only the fixed, short kickoff sentence
 below is ever staged.
 
+A spinoff lands in the ROOM ITS SENDER IS STANDING IN — a /spinoff run from a
+Personal-room session mints a Personal child, from Orchestra an Orchestra one —
+unless the caller names a room outright. The room isn't decoration: it picks the
+child's cwd and whether it stops to ask before irreversible work (_lane_profile
+in routes/observatory.py), so a spinoff off a conversation about the vault used
+to land rooted in the app checkout, gated, in a different room from the work it
+came out of. The sender is identified by EXOCORTEX_CONV_ID, which observatory.py
+puts in every turn's environment; see _inherit_lane for what happens when
+there's no sender to read.
+
 A spun-off session STARTS WORKING IMMEDIATELY — she doesn't have to open it, or
 even be at the machine. A turn is hosted by a detached thread in whichever
 process took the send, so it needs a process that outlives this call; the
@@ -27,16 +37,34 @@ from pathlib import Path
 from flask import jsonify, request
 
 import store
-from routes.observatory import _BUILDER_TOOLS, _chats_dir, _new_conv_id, _now
+from routes.observatory import (_BUILDER_TOOLS, _DEFAULT_LANE, _LANES,
+                                _chats_dir, _conv_lane, _lane_profile,
+                                _new_conv_id, _now)
 
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,38}$")
 
-# The skeleton checkout root (this file lives in routes/, so its parent's
-# parent is the checkout) — override via env for a non-standard layout.
-DEFAULT_SPINOFF_CWD = Path(__file__).resolve().parents[1]
+
+def _inherit_lane(index):
+    """Which room a spinoff lands in when nobody named one: the SENDER'S room.
+
+    Every Observatory turn runs with its own conversation id in
+    EXOCORTEX_CONV_ID (routes/observatory.py's _spawn), and a /spinoff shells
+    out from inside such a turn — so the child can be handed the room the
+    parent is standing in by looking the parent up in the same index we're
+    already holding.
+
+    A sender we can't place — no env var at all (a plain terminal, cron, a
+    test), an id that isn't in the index — falls to ORCHESTRA, the gated room,
+    on the same fail-toward-ask principle as _conv_lane: an unknown sender
+    guessed into Personal would silently hand a session more autonomy than
+    anyone granted it.
+    """
+    sender = os.environ.get("EXOCORTEX_CONV_ID")
+    entry = index.get(sender) if sender else None
+    return _conv_lane(entry) if isinstance(entry, dict) else _DEFAULT_LANE
 
 
-def open_spinoff(slug, start=True):
+def open_spinoff(slug, start=True, lane=None):
     """Core shared by the route and scripts/spinoff_open.py (the agents' door).
 
     Mints (or rejoins) an Observatory conversation for the spinoff and, by
@@ -47,6 +75,12 @@ def open_spinoff(slug, start=True):
     live (non-archived) conversation is a rejoin, not a restart, and leaves
     that conversation untouched — including not re-firing it.
 
+    `lane` names the room outright ("personal"/"orchestra"); left None it's
+    inherited from the sending session (_inherit_lane). The room supplies cwd
+    and the safety-net defaults via _lane_profile; act_gate/guard_docs are
+    deliberately NOT written onto the entry, same as the create route, so the
+    room keeps driving them and moving the card between rooms re-scopes it.
+
     `start=False` mints WITHOUT launching, for callers whose fork must not run
     beside the thing it forked from: the observatory's fork-the-work route
     hands her a take-over session on purpose, to be opened after she stops the
@@ -55,6 +89,8 @@ def open_spinoff(slug, start=True):
     """
     if not SLUG_RE.match(slug or ""):
         return {"error": "bad slug"}, 400
+    if lane is not None and lane not in _LANES:
+        return {"error": f"unknown room {lane!r}"}, 400
 
     brief = store.SPINOFF_DIR / slug / "BRIEF.md"
     if not brief.exists():
@@ -69,17 +105,24 @@ def open_spinoff(slug, start=True):
             None)
         if existing:
             return {"ok": True, "conversation_id": existing,
-                    "newly_spawned": False, "brief": str(brief)}, 200
+                    "newly_spawned": False, "lane": _conv_lane(index[existing]),
+                    "brief": str(brief)}, 200
 
-        cwd = Path(os.environ.get("EXOCORTEX_SPINOFF_CWD", DEFAULT_SPINOFF_CWD))
+        # The room decides where the child is rooted — the app checkout for
+        # Orchestra, the parent of both repos for Personal — and cwd is the one
+        # thing a session can never change afterwards, which is why it's settled
+        # here at birth rather than left to be inferred later.
+        room = lane or _inherit_lane(index)
+        profile = _lane_profile(room)
         kickoff = (f"Read {brief} and follow its Protocol section exactly — "
                    "it defines this session's job.")
         conv_id = _new_conv_id(index)
         index[conv_id] = {
             "bot": "keeper", "spinoff_slug": slug, "title": f"spin: {slug}",
             "started": _now(), "last_at": _now(), "claude_session_id": None,
-            "cost_usd": 0.0, "journal": False, "cwd": str(cwd),
-            "allowed_tools": list(_BUILDER_TOOLS), "draft": kickoff,
+            "cost_usd": 0.0, "journal": False, "lane": room,
+            "cwd": profile["cwd"],
+            "allowed_tools": list(profile["allowed_tools"]), "draft": kickoff,
             "autostart": True,
         }
 
@@ -91,6 +134,7 @@ def open_spinoff(slug, start=True):
         "ok": True,
         "conversation_id": conv_id,
         "newly_spawned": True,
+        "lane": room,
         "started": started,
         "staged": True,
         "autostart": True,

@@ -4,13 +4,18 @@ import { Sheet } from '../../ui';
 import { subscribeTheme } from '../../theme';
 import { openConversationInPane } from '../../shell/paneConversation';
 import { useAtlas } from '../atlas/api';
+import { useSessionPreview, useSessionRoster } from '../observatory/api';
 import { isUnread, openedMap } from '../observatory/openedStore';
 import { useTerrain, type TerrainData } from './api';
 import type { FileTouchKind, TerrainNode } from './terrainGraph';
 import {
   agentTouchRings,
+  breathHalfLife,
+  BREATH_INHALE_FRACTION,
   buildTerrainGraph,
   changedFileIds,
+  BREATH_PERIOD_MS,
+  BREATH_TICK_MS,
   fileLastTouch,
   filterTerrainData,
   relativeAge,
@@ -28,11 +33,13 @@ import { TerrainHeatBar } from './TerrainHeatBar';
 import type { AgentPool, AgentSection } from './TerrainAgentBar';
 import { TerrainAgentBar } from './TerrainAgentBar';
 import { FileCodeWindow } from './FileCodeWindow';
+import { AgentHoverCard } from './AgentHoverCard';
 import {
   readThemeInk,
   TerrainCanvas,
   HEAT_RAMP_DARK,
   HEAT_RAMP_LIGHT,
+  type AgentHover,
   type ThemeInk,
 } from './terrainCanvas';
 import styles from './TerrainPage.module.css';
@@ -117,16 +124,25 @@ function usePageVisible(): boolean {
  * code / Vault), files glowing ember by recency.
  *
  * The chrome splits by what it governs. TOP: how much map to draw — the repo
- * chips (which territories) and the Files / Dates dials. BOTTOM: how it's
- * lit and who's on it — the agent bar and the Heat bar, the latter sitting
- * beside the colour key it explains. Heat is a continuous half-life in days
- * (7 by default), not the three named lenses it replaced.
+ * chips (which territories) and the Files / Dates dials. BOTTOM: how it's lit
+ * and who's on it — the Heat bar over the agent bar, since lighting is the
+ * outer question and the roster reads as nested under it. Heat is a continuous
+ * half-life in days (7 by default), not the three named lenses it replaced,
+ * and its Dynamic preset hands that half-life to the Observatory backdrop's
+ * breath so the whole map remembers further back and forgets again on a ten
+ * second cycle.
  *
  * Tap a file → its code, in a frosted window floating over the map
  * (FileCodeWindow), with what the map knows about the file printed under it:
  * when it was last touched, and every agent that touched it — each row opens
  * that conversation exactly like the atlas does, or rings its whole footprint
  * on the map. Tap an agent orb → a sheet, and its footprint rings at once.
+ *
+ * HOVER an agent orb (mouse only) and its session card floats up beside it —
+ * summary, last thing said, what it's waiting on (AgentHoverCard). That needs
+ * facts the terrain payload doesn't carry, so this page also reads the
+ * Observatory roster and, per hover, one small last-line fetch.
+ *
  * All rendering lives in terrainCanvas.ts; all graph/heat math in
  * terrainGraph.ts (tested).
  */
@@ -136,6 +152,11 @@ const DAY_SECONDS = 86400;
  * agent quiet for 61 minutes drops out — but a live map wants a short memory,
  * and the Open pool is right there for the wider view. */
 const ACTIVE_WINDOW_SECONDS = 3600;
+
+/** How long the cursor has to rest on an orb before its hovercard appears.
+ * Sweeping across a cluster of agents shouldn't strobe cards; once one IS up,
+ * moving to the next orb swaps instantly (the pause has already been paid). */
+const HOVER_DELAY_MS = 180;
 
 /**
  * How many files per repo to ask the server for, escalating as the Files
@@ -180,12 +201,50 @@ export function TerrainPage() {
   // (new contract). The cached atlas fetch stays as the fallback map for
   // sessions the array doesn't know.
   const atlas = useAtlas();
+  // The session cards' own facts (summary, model, spend, what each is waiting
+  // on), for the agent hovercard. Same roster the Observatory draws from —
+  // fetched here rather than derived, because none of it is in the terrain
+  // payload, and it rides the same live gate so a resting map doesn't poll.
+  const roster = useSessionRoster(anyRunning && pageVisible);
 
   // The heat half-life, in whole days — what the bottom Heat bar sets. A
   // number, not one of three named lenses: the heat math has always taken a
   // raw half-life (HeatSpan), so the chips were only ever presets on this.
   const [heatDays, setHeatDays] = useState(7);
-  const halfLife = heatDays * DAY_SECONDS;
+  // Dynamic mode: the half-life stops being a setting and rides the same
+  // breath the Observatory backdrop runs on — a day out to a month and back
+  // every ten seconds. `breathDays` is the live value while it's on; heatDays
+  // keeps whatever she last chose, so leaving the mode lands back there.
+  const [breathing, setBreathing] = useState(false);
+  const [breathDays, setBreathDays] = useState(7);
+  const liveHeatDays = breathing ? breathDays : heatDays;
+  const halfLife = liveHeatDays * DAY_SECONDS;
+  // Any deliberate touch of the slider or a fixed preset ends the breath —
+  // one value, one owner, so the two can never be arguing over it.
+  const pickHeatDays = (days: number) => {
+    setBreathing(false);
+    setHeatDays(days);
+  };
+  useEffect(() => {
+    if (!breathing || !pageVisible) return;
+    // Reduced motion pins it at the swell's top rather than dropping the mode:
+    // "remember a month back" is still a legible lens standing still.
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      setBreathDays(breathHalfLife(BREATH_PERIOD_MS * BREATH_INHALE_FRACTION) / DAY_SECONDS);
+      return;
+    }
+    const started = performance.now();
+    const tick = () =>
+      setBreathDays(breathHalfLife(performance.now() - started, BREATH_PERIOD_MS) / DAY_SECONDS);
+    tick();
+    const timer = window.setInterval(tick, BREATH_TICK_MS);
+    return () => window.clearInterval(timer);
+    // Rebuilding the graph ~7x/s is well inside what this page already does —
+    // dragging any dial rebuilds it on every input event, i.e. far faster.
+    // The node SET is unchanged each tick, so setGraph takes its in-place path
+    // and the force layout never re-warms: the map holds still, only the glow
+    // moves.
+  }, [breathing, pageVisible]);
   const [hiddenRepos, setHiddenRepos] = useState<ReadonlySet<string>>(new Set());
   // The bottom agent control, in two independent parts: the pool button picks
   // WHICH agents are eligible (Active = worked in the last hour / Open = not
@@ -203,6 +262,10 @@ export function TerrainPage() {
   // what's in it. Separate from `selected`, which is now only ever an agent
   // orb: a file tap goes straight to its code rather than through a sheet.
   const [codeFile, setCodeFile] = useState<TerrainNode | null>(null);
+  // The agent orb under the cursor, once it's rested there long enough to mean
+  // it — the anchor for the hovercard. Mouse-only, and the engine drops it the
+  // moment the map moves, so this can't be left pointing at nothing.
+  const [hover, setHover] = useState<AgentHover | null>(null);
 
   // --- the two dials -----------------------------------------------------
   // How many file nodes to draw. null until the first payload tells us how
@@ -509,6 +572,46 @@ export function TerrainPage() {
     };
   });
 
+  // Hover → the agent hovercard, with a rest-before-you-show delay so sweeping
+  // the cursor across a cluster of orbs doesn't fire a card per orb. Once a
+  // card is up the delay is already paid, so moving between orbs swaps
+  // instantly; leaving an orb hides it at once. Assigned every render (like
+  // onTap above) and closing over refs only, so it never goes stale.
+  const hoverTimerRef = useRef<number | null>(null);
+  const hoverShownRef = useRef(false);
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    engine.onHoverAgent = (next) => {
+      if (hoverTimerRef.current !== null) {
+        window.clearTimeout(hoverTimerRef.current);
+        hoverTimerRef.current = null;
+      }
+      if (next === null) {
+        hoverShownRef.current = false;
+        setHover(null);
+        return;
+      }
+      if (hoverShownRef.current) {
+        setHover(next);
+        return;
+      }
+      hoverTimerRef.current = window.setTimeout(() => {
+        hoverTimerRef.current = null;
+        hoverShownRef.current = true;
+        setHover(next);
+      }, HOVER_DELAY_MS);
+    };
+  });
+
+  // A pending card must not land after the thing it would sit on top of opens.
+  useEffect(
+    () => () => {
+      if (hoverTimerRef.current !== null) window.clearTimeout(hoverTimerRef.current);
+    },
+    [],
+  );
+
   // Live-mode flashes: any file whose newest touch advanced since the
   // previous payload glows for a second — the "watch it work" effect.
   const prevDataRef = useRef<TerrainData | null>(null);
@@ -603,6 +706,30 @@ export function TerrainPage() {
   // age line the WINDOW prints under the code.
   const codeFileLast = codeFile?.file ? fileLastTouch(codeFile.file) : null;
 
+  // --- the agent hovercard ------------------------------------------------
+  // An overlay is up, so the cursor isn't over the map any more — a card left
+  // hanging beside it would be pointing at an orb she can't see.
+  const hoverBlocked = codeFile !== null || selected !== null;
+  const hoverId = hoverBlocked ? null : (hover?.id ?? null);
+  // Fires only while she's actually pointing at one — cached per session, so
+  // coming back to the same orb is instant.
+  const hoverPreview = useSessionPreview(hoverId);
+  const hoverFacts = useMemo(() => {
+    if (hoverId === null) return null;
+    const agent = rankedAgents.find((a) => a.id === hoverId);
+    const meta = roster.data?.sessions.find((s) => s.id === hoverId);
+    if (!agent && !meta) return null;
+    return {
+      title: agent?.title || meta?.title || hoverId,
+      // The roster is the authority on running-ness (it's the flag the server
+      // staleness-corrects); the map's own copy is the fallback.
+      running: meta?.running ?? agent?.running ?? false,
+      files: agent?.files ?? 0,
+      meta,
+      preview: hoverPreview.data,
+    };
+  }, [hoverId, rankedAgents, roster.data, hoverPreview.data]);
+
   return (
     <div className={styles.page}>
       {/* Canvas first and full-bleed: the chrome below floats over it, so the
@@ -674,6 +801,17 @@ export function TerrainPage() {
           bottom-right corner and which the Heat bar directly drives. */}
       <div className={styles.chromeBottom}>
         <div className={styles.bottomControls}>
+          {/* Heat sits on top of the stack, presets first: how the map is LIT
+              is the outer question, and who's on it reads as nested under it.
+              The bar paints the ramp along its own track, so this block is
+              also the colour key for everything below it. */}
+          <TerrainHeatBar
+            days={liveHeatDays}
+            onDays={pickHeatDays}
+            dark={ink?.dark}
+            breathing={breathing}
+            onBreathe={() => setBreathing((v) => !v)}
+          />
           {/* The agent control: Active button, a window that slides past agents
               over the ranked roster, and a popup list to spotlight one. */}
           <TerrainAgentBar
@@ -693,8 +831,6 @@ export function TerrainPage() {
               if (id) acknowledge(id); // tapping its row in the list counts too
             }}
           />
-          {/* The heat lens, sitting next to the colour key it controls. */}
-          <TerrainHeatBar days={heatDays} onDays={setHeatDays} />
         </div>
         {/* The key holds the bottom-right corner. As a layout sibling it
             reserves its own width, which is what lets the controls beside it
@@ -708,6 +844,12 @@ export function TerrainPage() {
           />
         ) : null}
       </div>
+
+      {/* Rest the cursor on an agent orb and its session card floats up beside
+          it — what it's working on, what it last said, what it's waiting for —
+          without her having to tap in and come back out. Portalled and
+          unreachable by the pointer; see AgentHoverCard.tsx. */}
+      <AgentHoverCard hover={hoverBlocked ? null : hover} facts={hoverFacts} />
 
       <Sheet open={selected !== null} title={selected?.label} onClose={() => setSelected(null)}>
         {selected?.kind === 'session' && selected.session ? (

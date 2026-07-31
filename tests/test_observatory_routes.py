@@ -628,6 +628,97 @@ def test_roster_carries_cached_summaries(bot_client, monkeypatch):
     assert conv["summary"] == "Working on the thing."
 
 
+# --- the hovercard's preview -------------------------------------------------
+# GET .../preview answers "what did this session last SAY", for the terrain map's
+# agent hovercard. The contracts that matter: it finds speech past a tail of tool
+# machinery, it never quotes a journaling session, and it reads only the tail of
+# the log (so hovering an agent can't cost a megabyte).
+
+
+def _seed_transcript(conv_id, lines, journal=False):
+    """An index entry plus a hand-written jsonl — a conversation with a known
+    log, without going through a send. (Named apart from the gate tests'
+    `_seed_conv` further down: same file, one namespace.)"""
+    (store.DATA_DIR / "bot_chats").mkdir(parents=True, exist_ok=True)
+    with store.mutate("bot_chats/index", {}) as index:
+        index[conv_id] = {"title": "T", "journal": journal,
+                          "started": "x", "last_at": "x"}
+    path = store.DATA_DIR / "bot_chats" / f"{conv_id}.jsonl"
+    path.write_text("".join(json.dumps(l) + "\n" for l in lines))
+    return path
+
+
+def _assistant(text):
+    return {"type": "assistant",
+            "message": {"role": "assistant", "content": [{"type": "text", "text": text}]}}
+
+
+def test_preview_returns_the_last_thing_the_agent_said(bot_client):
+    _seed_transcript("conv-said", [
+        {"type": "user", "text": "first ask"},
+        _assistant("an older reply"),
+        {"type": "user", "text": "second ask"},
+        _assistant("the newest reply"),
+    ])
+    body = bot_client.get("/api/observatory/conversation/conv-said/preview").get_json()
+    assert body["role"] == "assistant"
+    assert body["text"] == "the newest reply"
+    assert body["truncated"] is False
+
+
+def test_preview_looks_past_tool_machinery_to_find_speech(bot_client):
+    # A turn usually ENDS in tool traffic: a result event, and claude echoing
+    # tool output back to itself as {"type": "user", "message": ...}. None of
+    # that is speech, and a naive "last event" read would show the wrong thing
+    # (or nothing) on every card of a working agent.
+    _seed_transcript("conv-tools", [
+        {"type": "user", "text": "go"},
+        _assistant("here's what I did"),
+        {"type": "assistant", "message": {"role": "assistant",
+                                          "content": [{"type": "tool_use", "name": "Edit"}]}},
+        {"type": "user", "message": {"role": "user", "content": "tool result"}},
+        {"type": "result", "subtype": "success"},
+    ])
+    body = bot_client.get("/api/observatory/conversation/conv-tools/preview").get_json()
+    assert (body["role"], body["text"]) == ("assistant", "here's what I did")
+
+
+def test_preview_falls_back_to_her_ask_when_nothing_has_answered_yet(bot_client):
+    _seed_transcript("conv-fresh", [{"type": "user", "text": "just sent this"}])
+    body = bot_client.get("/api/observatory/conversation/conv-fresh/preview").get_json()
+    assert (body["role"], body["text"]) == ("user", "just sent this")
+
+
+def test_preview_withholds_a_journaling_session(bot_client):
+    _seed_transcript("conv-diary", [_assistant("something from the diary")], journal=True)
+    body = bot_client.get("/api/observatory/conversation/conv-diary/preview").get_json()
+    assert body["private"] is True
+    assert body["text"] == ""
+    assert body["role"] is None
+
+
+def test_preview_truncates_and_says_so(bot_client):
+    _seed_transcript("conv-long", [_assistant("x" * 5000)])
+    body = bot_client.get("/api/observatory/conversation/conv-long/preview").get_json()
+    assert body["truncated"] is True
+    assert len(body["text"]) == observatory._PREVIEW_CHARS
+
+
+def test_preview_reads_only_the_tail_of_a_huge_log(bot_client):
+    # The point of the endpoint. Pad well past the tail window with old replies,
+    # then confirm it still answers with the newest one — i.e. it seeked rather
+    # than read the file, and the seek landed mid-line without breaking parsing.
+    filler = [_assistant("old " + "y" * 2000) for _ in range(300)]
+    path = _seed_transcript("conv-huge", filler + [_assistant("the newest reply")])
+    assert path.stat().st_size > observatory._PREVIEW_TAIL_BYTES
+    body = bot_client.get("/api/observatory/conversation/conv-huge/preview").get_json()
+    assert body["text"] == "the newest reply"
+
+
+def test_preview_404s_an_unknown_session(bot_client):
+    assert bot_client.get("/api/observatory/conversation/nope-1/preview").status_code == 404
+
+
 def test_resume_happens_in_the_conversations_own_cwd(bot_client, tmp_path, monkeypatch):
     # Claude sessions are per-directory: an imported conversation carries the
     # cwd it was born in, and every spawn for it must run there — not in the

@@ -74,9 +74,13 @@
   padding: var(--space-2) var(--space-3) calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
 }
 
-/* The agent bar and the Heat bar, stacked. min-width: 0 so this column is
-   what yields when the row gets tight — the key is a fixed little panel and
-   can't usefully shrink, while a slider can. */
+/* The Heat bar and the agent bar, stacked in that order — heat on top (its
+   preset buttons crowning the whole stack), agents on the floor. Lighting is
+   the outer question and the roster reads as nested under it; the heat track
+   also carries the colour ramp now, so the top of this column is the key for
+   everything under it. min-width: 0 so this column is what yields when the row
+   gets tight — the key is a fixed little panel and can't usefully shrink,
+   while a slider can. */
 .bottomControls {
   flex: 1 1 auto;
   min-width: 0;
