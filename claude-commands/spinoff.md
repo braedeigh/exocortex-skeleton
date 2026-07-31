@@ -121,26 +121,30 @@ which room each session went to when you report back.
 
 (Same narrow-door doctrine as `scripts/stage_change.py` — agents shell out to
 the script; the app's own UI uses `POST /api/spinoff/open`, both wrapping the
-same core in `routes/spinoff.py`.) The JSON reply tells you `newly_spawned`
-and `conversation_id`. There is no tmux tab: the endpoint mints an Observatory
-conversation (config'd as a builder session) that **fires its own kickoff the
-moment she opens it — she does NOT hit send.** If a live (non-archived)
-conversation for that slug already exists, the endpoint rejoins it instead of
-minting a new one (`newly_spawned: false`) and leaves it untouched.
+same core in `routes/spinoff.py`.) The JSON reply tells you `newly_spawned`,
+`conversation_id`, `lane` and `started`. There is no tmux tab: the endpoint
+mints an Observatory conversation (config'd as a builder session) and hands the
+kickoff to a detached `scripts/spinoff_runner.py`, which posts it through the
+real send route. **`started: true` means the session is already working** — she
+doesn't have to open it, doesn't have to be at the machine, and gets no chance
+to skim the kickoff first. If a live (non-archived) conversation for that slug
+already exists, the endpoint rejoins it instead of minting a new one
+(`newly_spawned: false`), leaves it untouched, and does NOT re-fire it — a
+rejoin reply carries no `started` at all.
 
-**Read the reply's two flags together, because they look contradictory and
-aren't.** `staged: true` and `autostart: true` both come back on a fresh spawn.
-`draft` is only the *carrier* the kickoff text rides in; `autostart` is what
-turns "prefill the compose box and wait" into "send it on open". Autostart
-wins. Do not report `autostart: true` as a bug or a conflict — it is the
-designed behaviour (`routes/spinoff.py`'s module docstring states it outright),
-and the first send consumes both fields, which is why an already-fired session
-shows `autostart`/`draft` as absent in the index.
+**`staged`/`autostart` on the reply are the FALLBACK, not the mechanism.** Both
+come back true on a fresh spawn, and they describe the kickoff still sitting on
+the entry as `draft` in case the runner never started (a bad interpreter path, a
+box under memory pressure) — then opening the session fires it the old way. Do
+not report them as a bug or a conflict, and do not read them as "it's waiting
+for her". They can't double-fire: whichever send lands first pops both fields,
+and a second send into a running conversation is refused with a 409. A
+`started: false` is the one case where she really does have to open it.
 
-Tell the owner the session(s) are waiting in the Observatory and will **start
-working by themselves as soon as she opens them** — nothing to send, and no
-chance to skim the kickoff first. That matters for her sequencing: if two
-spinoffs would edit the same files, tell her to open them one at a time rather
-than both at once. If `newly_spawned` came back false, tell her the spinoff
-session already exists in the room instead. Done — the child takes it from
-there the moment she opens it.
+Tell the owner the session(s) are **running now**, which room each went to
+(`lane`), and what each is working on. Her sequencing decision is therefore
+YOURS, made before you spawn, not hers made at the door: if two spinoffs would
+edit the same files they must not be spawned together — propose combining them
+into one session, or spawn the first and hold the second until it ships. If
+`newly_spawned` came back false, tell her the spinoff session already exists in
+the room and was left alone. Done — the child is already taking it from there.
