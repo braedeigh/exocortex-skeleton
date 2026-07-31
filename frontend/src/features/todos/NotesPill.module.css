@@ -396,14 +396,29 @@
   cursor: pointer;
 }
 
-/* Sit in the bottom-right corner of the desktop split's LEFT PANE rather than
-   the viewport's. For a page rendered inside that pane: the viewport's own
+/* Sit in the bottom-right corner of the PANE this page is rendered in, rather
+   than the viewport's. For a page inside the desktop split: the viewport's own
    bottom-right belongs to whatever the other pane is showing, which has a pill
    of its own sitting exactly there.
-   The pane is a plain flex:0 0 50% box — it sets no containing block for a
-   fixed element — so its inner edge is simply 50vw, and inset from that.
+
+   STICKY, not fixed — and that's the whole point. Fixed would need the pane's
+   inner edge expressed in viewport units, and it isn't 50vw: a 44px rail sits
+   to the left of the pane, so the edge is really 50vw + 19px, and any change
+   to that rail would silently drift the pill. Sticky is measured by the pane's
+   own scroll box, so it lands in the corner whatever the split is doing.
+
+   It's the last thing in the scroll container, so it adds its own height at the
+   end of the list rather than covering the final card.
    Applies to the closed pill and the open panel alike: they share the corner,
    so they have to share the override. */
 .anchorSplitPane {
-  right: calc(50vw + var(--space-4));
+  position: sticky;
+  right: auto;
+  left: auto;
+  top: auto;
+  bottom: var(--space-4);
+  margin-left: auto;
+  margin-right: var(--space-4);
+  width: fit-content;
+  max-width: calc(100% - var(--space-4) * 2);
 }
