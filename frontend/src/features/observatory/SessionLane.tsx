@@ -10,9 +10,8 @@ import {
 } from './api';
 import { resumeAfterDecision } from './resumeAfterDecision';
 import { orchestraRows, type OrchestraRow } from './orchestra';
-import { lastActivityLabel } from './sessionStatus';
+import { cardMetaLine } from './sessionStatus';
 import { cardState, matchesFilter, type CardState } from './sessionFilters';
-import { formatSessionSpend } from './turnStats';
 import type { TerrainData } from '../terrain/api';
 import styles from './Orchestra.module.css';
 
@@ -62,26 +61,6 @@ const DOT_CLASS: Record<CardState, string> = {
   recent: 'recentDot',
   rest: 'restDot',
 };
-
-/** The card's housekeeping line: "opus[1m] · 4m ago · 18.2k tokens · $4.21".
- * Built from whichever parts exist, so a fresh session shows nothing rather
- * than a row of blanks and separators. Recomputed per render, which is what
- * keeps the "4m ago" honest as the roster polls.
- *
- * The model leads it. `model_effective` is the resolved answer — the session's
- * own pin if it has one, otherwise the CLI default the server looked up — so
- * this reads as "what it runs on" and not "what she happened to override",
- * which for most sessions would be nothing at all.
- * [prompt: "show what model is running from a session"] */
-function cardMeta(meta: SessionMeta): string {
-  return [
-    meta.model_effective ?? null,
-    lastActivityLabel(meta.last_at),
-    meta.tokens ? formatSessionSpend(meta.tokens) : null,
-  ]
-    .filter(Boolean)
-    .join(' · ');
-}
 
 export function SessionLane({
   heading,
@@ -578,13 +557,14 @@ export function SessionLane({
                   <div className={styles.lastPrompt}>{meta.last_prompt}</div>
                 ) : null}
                 {row.summary ? <div className={styles.summary}>{row.summary}</div> : null}
-                {/* One quiet line of housekeeping: when it last did anything
-                    (last_at moves on both her send and the turn's finish), and
-                    what it has spent. Either half can be missing — a session
-                    with no finished turn has no spend, a never-run one has no
-                    stamp — so they're joined only where both exist and the
-                    line disappears entirely when neither does. */}
-                {cardMeta(meta) ? <div className={styles.cardMeta}>{cardMeta(meta)}</div> : null}
+                {/* One quiet line of housekeeping — model, when it last did
+                    anything, what it has spent. Shared with the terrain map's
+                    hovercard (sessionStatus.cardMetaLine) so the same session
+                    reads identically in both places.
+                    [prompt: "show what model is running from a session"] */}
+                {cardMetaLine(meta) ? (
+                  <div className={styles.cardMeta}>{cardMetaLine(meta)}</div>
+                ) : null}
                 {/* Why it's red. Without the message the glow only says
                     "something broke", which sends her into the session to find
                     out what — the whole point of the card is to answer that

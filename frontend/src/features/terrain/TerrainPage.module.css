@@ -168,6 +168,32 @@
   text-shadow: none;
 }
 
+/* Page tools (dev notes, prompt timer) — held at the right edge by an auto
+   margin, so they stay in their own corner however many repo chips the payload
+   brings. They're the only things up here that don't govern the map, and the
+   gap earns its keep by saying so.
+
+   They wear the page's own glass pill rather than the terminal's .toolBtn,
+   which is hard-coded twilight-indigo and deliberately never theme-swapped —
+   correct against a terminal, wrong floating on a map that shows through
+   everything. Same control, spoken in this surface's language. */
+.pageTools {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-left: auto;
+}
+
+/* Square rather than a lozenge: a lone glyph in a pill-shaped button reads as
+   a word that failed to load. 40px keeps the house tap target, and the glyph
+   steps up to --font-size-lg because an emoji at label size is a smudge. */
+.iconChip {
+  width: 40px;
+  padding: 0;
+  font-size: var(--font-size-lg);
+  line-height: 1;
+}
+
 /* Repo legend chips: visible = solid card, hidden = hollow + muted. */
 .repoChip {
   color: var(--text);

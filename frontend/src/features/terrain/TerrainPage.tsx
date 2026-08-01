@@ -2,10 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { Sheet } from '../../ui';
 import { subscribeTheme } from '../../theme';
+import { TermNotesPanel } from '../../shell/TermNotesPanel';
+import { SchedulePanel } from '../../shell/SchedulePanel';
 import { openConversationInPane } from '../../shell/paneConversation';
 import { useAtlas } from '../atlas/api';
 import { useSessionPreview, useSessionRoster } from '../observatory/api';
 import { isUnread, openedMap } from '../observatory/openedStore';
+import { cardState, type CardState } from '../observatory/sessionFilters';
 import { useTerrain, type TerrainData } from './api';
 import type { FileTouchKind, TerrainNode } from './terrainGraph';
 import {
@@ -260,6 +263,26 @@ export function TerrainPage() {
   // archived / All) and optionally narrows to one section, while `agentWindow`
   // is a band over that pool ranked most-recent-first — [from, to) by index.
   // Active by default: the map opens on what's happening, not on history.
+  // The terminal's floating sidekicks, ported the same way the Observatory
+  // ported them: 📝 dev notes and the ⏰ prompt timer, the same shared panels
+  // off the same stores. The map is where she notices what needs doing, so it
+  // wants the same two doors every other working surface has.
+  const [panel, setPanel] = useState<'notes' | 'schedule' | null>(null);
+  const [schedSessions, setSchedSessions] = useState<string[]>([]);
+  const notesBtnRef = useRef<HTMLButtonElement>(null);
+  const schedBtnRef = useRef<HTMLButtonElement>(null);
+  const togglePanel = (name: 'notes' | 'schedule') => {
+    // The timer schedules prompts into tmux sessions (the dispatcher's
+    // delivery lane) — fetch their names once, on first open.
+    if (name === 'schedule' && schedSessions.length === 0) {
+      fetch('/api/sessions')
+        .then((r) => r.json())
+        .then((d) => setSchedSessions(Array.isArray(d.sessions) ? d.sessions : []))
+        .catch(() => {});
+    }
+    setPanel((p) => (p === name ? null : name));
+  };
+
   const [pool, setPool] = useState<AgentPool>('active');
   const [section, setSection] = useState<AgentSection>('');
   const [agentWindow, setAgentWindow] = useState<{ from: number; to: number }>({ from: 0, to: 8 });
@@ -761,12 +784,19 @@ export function TerrainPage() {
     const agent = rankedAgents.find((a) => a.id === hoverId);
     const meta = roster.data?.sessions.find((s) => s.id === hoverId);
     if (!agent && !meta) return null;
+    // The dot's state comes from the ROSTER's own predicate, not a second rule
+    // invented here — that's what makes a colour mean the same thing on the map
+    // as it does on the Observatory. Only when the roster has never heard of
+    // this session (archived since the map drew it) does the map's own
+    // running flag stand in.
+    const state: CardState = meta
+      ? cardState(meta, openedMap()[hoverId])
+      : agent?.running
+        ? 'running'
+        : 'rest';
     return {
       title: agent?.title || meta?.title || hoverId,
-      // The roster is the authority on running-ness (it's the flag the server
-      // staleness-corrects); the map's own copy is the fallback.
-      running: meta?.running ?? agent?.running ?? false,
-      files: agent?.files ?? 0,
+      state,
       meta,
       preview: hoverPreview.data,
     };
@@ -858,6 +888,34 @@ export function TerrainPage() {
               dates · clear ×
             </button>
           ) : null}
+          {/* Page tools, pushed to the right edge and away from the map's own
+              controls: these act on the WORK, not on the map, so grouping them
+              with the territory chips would say they filter something. The two
+              shared panels hang from here (they anchor top-right by design). */}
+          <div className={styles.pageTools}>
+            <button
+              ref={notesBtnRef}
+              type="button"
+              className={[styles.chip, styles.iconChip].join(' ')}
+              title="Dev notes"
+              aria-label="Dev notes"
+              aria-expanded={panel === 'notes'}
+              onClick={() => togglePanel('notes')}
+            >
+              &#128221;
+            </button>
+            <button
+              ref={schedBtnRef}
+              type="button"
+              className={[styles.chip, styles.iconChip].join(' ')}
+              title="Schedule a prompt"
+              aria-label="Schedule a prompt"
+              aria-expanded={panel === 'schedule'}
+              onClick={() => togglePanel('schedule')}
+            >
+              &#9200;
+            </button>
+          </div>
         </div>
 
         {data ? (
@@ -925,11 +983,12 @@ export function TerrainPage() {
         ) : null}
       </div>
 
-      {/* Rest the cursor on an agent orb and its session card floats up beside
-          it — what it's working on, what it last said, what it's waiting for —
-          without her having to tap in and come back out. Keep going and the
-          cursor lands IN the card: it holds still, the message scrolls, and its
-          two buttons go live. See AgentHoverCard.tsx. */}
+      {/* Rest the cursor on an agent orb and the Observatory's own card for that
+          session floats up beside it — its dot, what she asked, what it's
+          working on, what it last said — without her having to tap in and come
+          back out. Keep going and the cursor lands IN the card: it holds still,
+          the body scrolls down to the reply, and Open goes solid.
+          See AgentHoverCard.tsx. */}
       <AgentHoverCard
         hover={hoverBlocked ? null : hover}
         facts={hoverFacts}
@@ -941,12 +1000,18 @@ export function TerrainPage() {
             dismissHover();
           }
         }}
-        onFootprint={() => {
-          if (!hoverId) return;
-          setFootprintSession((cur) => (cur === hoverId ? null : hoverId));
-          acknowledge(hoverId);
-        }}
-        footprintOn={footprintSession !== null && footprintSession === hoverId}
+      />
+
+      {/* Notes + timer panels. They position themselves top-right against the
+          nearest positioned ancestor (.page), landing just under their trigger
+          buttons in the top bar, and close themselves on Escape / a pointer
+          down anywhere else — including on the canvas. */}
+      <TermNotesPanel open={panel === 'notes'} onClose={() => setPanel(null)} triggerRef={notesBtnRef} />
+      <SchedulePanel
+        open={panel === 'schedule'}
+        onClose={() => setPanel(null)}
+        triggerRef={schedBtnRef}
+        sessionNames={schedSessions}
       />
 
       <Sheet open={selected !== null} title={selected?.label} onClose={() => setSelected(null)}>

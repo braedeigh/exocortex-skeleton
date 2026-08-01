@@ -50,6 +50,20 @@
   box-shadow: 0 22px 54px rgb(0 0 0 / 0.34);
 }
 
+/* ONE THING GIVES, AND IT'S THE BODY. A flex child shrinks by default, so a
+   card taller than its max-height squashed every row at once rather than
+   scrolling: the meta line came out sliced through the middle of its own
+   letters and the summary was crushed out of existence above the fold. These
+   rows are fixed-height content — they either fit or the card is wrong — so
+   they opt out of shrinking entirely and `.body` absorbs the whole overflow,
+   which is what makes it the scroll region it was always meant to be. */
+.flag,
+.head,
+.meta,
+.actions {
+  flex: none;
+}
+
 /* --- the loud row: only drawn when something is actually waiting ---------- */
 
 .flag {
@@ -116,16 +130,62 @@
   white-space: nowrap;
 }
 
-/* The same breath the roster's busy dot uses — one signal, one motion, so a
-   working session looks like a working session everywhere in the app. */
-.runningDot {
+/* THE ROSTER'S FIVE DOTS, in the roster's colours (Orchestra.module.css). Same
+   fact, same colour, wherever she's looking — that's the whole reason the state
+   is computed by the roster's own predicate rather than re-decided here.
+
+   Only .dotRunning breathes. Breath means a turn is moving RIGHT NOW; a session
+   that merely ran twenty minutes ago is .dotRecent, the same violet held
+   steady. Two truths, two treatments. */
+.dot,
+.dotError,
+.dotRunning,
+.dotUnread,
+.dotRecent,
+.dotRest {
   flex: none;
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  background: var(--accent);
   align-self: center;
+}
+
+.dotError {
+  background: var(--red);
+}
+
+.dotRunning {
+  background: var(--accent);
   animation: breathe 2.4s ease-in-out infinite;
+}
+
+.dotUnread {
+  background: var(--orange);
+}
+
+.dotRecent {
+  background: var(--accent);
+}
+
+.dotRest {
+  background: color-mix(in srgb, var(--text) 20%, transparent);
+}
+
+/* pinned / staged — the roster's badges, at the roster's weight. Tiny by
+   necessity, so they lean on the label treatment (uppercase, tracked) rather
+   than on going below the 12px floor. */
+.badge {
+  flex: none;
+  align-self: center;
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
 }
 
 .meta {
@@ -178,20 +238,40 @@
   scrollbar-color: color-mix(in srgb, var(--text-muted) 45%, transparent) transparent;
 }
 
-.said {
+/* One turn of the conversation — her ask, or its reply. Same block twice, so
+   the two read as two halves of one exchange rather than two features. The rule
+   above each one separates it from what came before without drawing a box. */
+.turn {
   margin-top: var(--space-1);
   padding-top: var(--space-3);
   border-top: 1px solid var(--border-soft);
   min-width: 0;
 }
 
-.saidLabel {
+.turnLabel {
   font-size: var(--font-size-sm);
   font-weight: 600;
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
   color: var(--text-muted);
   margin-bottom: var(--space-1);
+}
+
+/* HER words. Second grey and clamped to four lines: this is the thing she
+   already knows — it's her own message, there to say WHICH conversation this is,
+   not to be re-read. Keeping it short is what leaves the reply the room to be
+   the thing she scrolls for. */
+.askedText {
+  font-size: var(--font-size-md);
+  line-height: 1.5;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 /* Darkest grey: the actual words are the point of the card. Printed whole — the
@@ -224,49 +304,26 @@
   opacity: 1;
 }
 
-.openBtn,
-.footprintBtn {
+/* The only control on the card. Full width because it's the only one — nothing
+   to sit beside, and an action that spans the card can't be mis-aimed. */
+.openBtn {
+  flex: 1;
+  min-width: 0;
   min-height: 40px;
+  padding: 0 var(--space-3);
   border-radius: var(--radius-lg);
-  border: 1px solid var(--border);
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
   font-family: inherit;
   font-size: var(--font-size-md);
   font-weight: 600;
   cursor: pointer;
-  transition:
-    background-color 150ms ease,
-    border-color 150ms ease;
-}
-
-.openBtn {
-  flex: 1;
-  min-width: 0;
-  padding: 0 var(--space-3);
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-}
-
-.footprintBtn {
-  flex: none;
-  padding: 0 var(--space-3);
-  background: color-mix(in srgb, var(--card-bg) 70%, transparent);
-  color: var(--text-secondary);
-}
-
-.footprintBtnOn {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
+  transition: background-color 150ms ease;
 }
 
 .cardEngaged .openBtn:hover {
   background: color-mix(in srgb, var(--accent) 86%, #000);
-}
-
-.cardEngaged .footprintBtn:hover {
-  border-color: var(--accent);
-  color: var(--text);
 }
 
 @keyframes cardIn {
