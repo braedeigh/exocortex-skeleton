@@ -27,7 +27,7 @@ from routes import (
     entities, threads, person, shell, cards, archivals, research,
     research_search, research_sources, research_import, research_text,
     annotations, spa, fronts, wiki, travel, profile, usage, streaks, spinoff,
-    observatory, automations, push,
+    observatory, automations, push, claude_auth,
 )
 from routes.shell import VALID_TABS
 
@@ -1146,6 +1146,7 @@ wiki.register(app)
 travel.register(app)
 usage.register(app)
 push.register(app)
+claude_auth.register(app)
 
 # --- Startup ---
 # Seed the journaling engine (stream.py + friends) into a fresh CONTENT_DIR — see

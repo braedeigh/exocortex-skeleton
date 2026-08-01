@@ -1,0 +1,166 @@
+/* Claude login section — re-auth the box from the phone. Touch-first: every
+ * control clears the tap target, and the authorization link is deliberately
+ * button-sized because it's the step that has to work one-handed. */
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.headRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.runway {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* Under a week, or already dead. */
+.urgent {
+  color: #c0392b;
+  font-weight: 600;
+}
+
+.dim {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.primaryBtn {
+  min-height: var(--tap-target);
+  padding: 0 var(--space-4);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--text);
+  color: var(--bg);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.cancelBtn {
+  min-height: var(--tap-target);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.primaryBtn:disabled,
+.cancelBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.waiting {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.step {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.stepNum {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin-top: 9px;
+  border-radius: 50%;
+  background: var(--border);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* The one control that must never be fiddly — sized like a primary button,
+ * not like a text link, because it's tapped on a phone mid-flow. */
+.authLink {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-sm);
+  background: var(--accent, var(--text));
+  color: var(--bg);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  text-align: center;
+}
+
+.codeRow {
+  flex: 1;
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.input {
+  flex: 1;
+  min-width: 180px;
+  box-sizing: border-box;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+}
+
+.input:focus {
+  border-color: var(--text-muted);
+}
+
+.msg {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.msgError {
+  color: #c0392b;
+}
+
+.msgSuccess {
+  color: #2a9e3c;
+}

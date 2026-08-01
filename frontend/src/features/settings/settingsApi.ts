@@ -40,6 +40,41 @@ export function fetchProfile(): Promise<ProfileResponse> {
   return api.get('/api/profile');
 }
 
+/** Where the box's Claude Code re-login stands (routes/claude_auth.py).
+ *
+ * `state` walks idle -> starting -> awaiting_code -> done. `url` is only set
+ * at awaiting_code and is the OAuth link she has to open in a real browser.
+ * `days_left` is runway on the CURRENT token and is reported at every state —
+ * it comes from the credentials file, not from the flow. */
+export interface ClaudeAuthStatus {
+  state: 'idle' | 'starting' | 'awaiting_code' | 'done';
+  url: string | null;
+  expires_at: string | null;
+  days_left: number | null;
+}
+
+/** GET /api/claude-auth/status — read-only, safe to poll. */
+export function fetchClaudeAuth(): Promise<ClaudeAuthStatus> {
+  return api.get('/api/claude-auth/status');
+}
+
+/** POST /api/claude-auth/start — spawns the login pane. Returns immediately;
+ * the URL shows up on a later status poll. */
+export function startClaudeAuth(): Promise<{ ok: boolean }> {
+  return api.post('/api/claude-auth/start', {});
+}
+
+/** POST /api/claude-auth/code — 400 when the code doesn't take (the pane
+ * stays alive so she can retype), 409 when no login is running. */
+export function submitClaudeAuthCode(code: string): Promise<ClaudeAuthStatus> {
+  return api.post('/api/claude-auth/code', { code });
+}
+
+/** POST /api/claude-auth/cancel — drops the pane. */
+export function cancelClaudeAuth(): Promise<{ ok: boolean }> {
+  return api.post('/api/claude-auth/cancel', {});
+}
+
 /** PUT /api/profile (routes/profile.py) — partial object merges; a key set
  * to "" clears it back to inherited (env/default). 400 {"error"} on invalid
  * values (e.g. malformed email), surfaced via ApiError.message. */

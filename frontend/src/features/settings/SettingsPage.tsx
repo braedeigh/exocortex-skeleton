@@ -16,6 +16,7 @@ import {
 import { USAGE_HEAT_EVENT, USAGE_HEAT_STORAGE_KEY } from '../../ui/usageHeat';
 import { chatSurfaceIsObservatory, setChatSurfaceObservatory } from '../../shell/chatSurface';
 import { AccountSection } from './AccountSection';
+import { ClaudeAuthSection } from './ClaudeAuthSection';
 import { ColorField } from './ColorField';
 import { DevNotesSection } from './DevNotesSection';
 import { NotificationsSection } from './NotificationsSection';
@@ -424,6 +425,11 @@ export function SettingsPage() {
         <section className={styles.section}>
           <h2 className={styles.heading}>Notifications</h2>
           <NotificationsSection />
+        </section>
+
+        <section className={styles.section}>
+          <h2 className={styles.heading}>Claude login</h2>
+          <ClaudeAuthSection />
         </section>
 
         <section className={styles.section}>
