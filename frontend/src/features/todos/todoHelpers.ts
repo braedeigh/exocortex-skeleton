@@ -78,13 +78,34 @@ export function focusMatch(item: TodoItem, front: string): boolean {
 }
 
 /**
- * Quick-adds inherit the active focus filter, so a new item lands in the
- * view being looked at instead of vanishing behind it. "All" ('') and
- * "Other" ('__none__') stamp nothing, and explicit fronts win.
+ * The page's filter, which holds a SELECTION of fronts rather than one. An
+ * empty selection is "All" and matches everything; otherwise an item shows if
+ * it sits on ANY selected front — union, not intersection, so picking job and
+ * health asks for both piles rather than their overlap. '__none__' rides along
+ * in the selection like any other chip and matches the untagged.
+ *
+ * focusMatch above stays single-front on purpose: the editor page's filter and
+ * the front rooms each genuinely look at one front, and shouldn't have to pass
+ * a list to say so.
  */
-export function withFocusFront(payload: AddTodoPayload, focusFront: string): AddTodoPayload {
-  if (!focusFront || focusFront === '__none__' || payload.fronts?.length) return payload;
-  return { ...payload, fronts: [focusFront] };
+export function focusMatchAny(item: TodoItem, selected: string[]): boolean {
+  if (!selected.length) return true;
+  return selected.some((front) => focusMatch(item, front));
+}
+
+/**
+ * Quick-adds inherit the whole active selection, so a new item lands in the
+ * view being looked at instead of vanishing behind it — with two fronts
+ * selected it gets both, which the data has always allowed (items carry a
+ * fronts LIST, not one front). "Other" isn't a front and never gets stamped;
+ * an empty selection ("All") stamps nothing; explicit fronts win.
+ * (Prompt: "any new to-do gets whatever is selected. multi front is possible.")
+ */
+export function withFocusFront(payload: AddTodoPayload, selected: string[]): AddTodoPayload {
+  if (payload.fronts?.length) return payload;
+  const fronts = selected.filter((f) => f && f !== '__none__');
+  if (!fronts.length) return payload;
+  return { ...payload, fronts };
 }
 
 export function fmtTime(hhmm: string | null | undefined): string {
@@ -130,39 +151,52 @@ export interface FocusCounts {
   byFront: Record<string, number>;
 }
 
-export function computeFocusCounts(sections: TodoSection[], serverDate: string): FocusCounts {
+/** Everything the chip counts can see: alive, not snoozed, not waiting, not
+ * in Done. Shared by the two counters below so the number on a chip and the
+ * number behind the empty state can never disagree about what "live" means. */
+export function liveFocusItems(sections: TodoSection[], serverDate: string): TodoItem[] {
   const index = buildTodoIndex(sections);
-  const byFront: Record<string, number> = {};
-  let total = 0;
-  let none = 0;
+  const out: TodoItem[] = [];
   for (const section of sections) {
     if (isDoneSection(section.name)) continue;
     for (const item of section.items) {
-      if (item.done) continue;
-      if (isSnoozed(item, serverDate)) continue;
-      if (isWaiting(item, serverDate, index)) continue;
-      total++;
-      const fronts = itemFronts(item);
-      if (fronts.length) for (const f of fronts) byFront[f] = (byFront[f] || 0) + 1;
-      else none++;
+      if (item.done || isSnoozed(item, serverDate) || isWaiting(item, serverDate, index)) continue;
+      out.push(item);
     }
+  }
+  return out;
+}
+
+export function computeFocusCounts(sections: TodoSection[], serverDate: string): FocusCounts {
+  const byFront: Record<string, number> = {};
+  let total = 0;
+  let none = 0;
+  for (const item of liveFocusItems(sections, serverDate)) {
+    total++;
+    const fronts = itemFronts(item);
+    if (fronts.length) for (const f of fronts) byFront[f] = (byFront[f] || 0) + 1;
+    else none++;
   }
   return { total, none, byFront };
 }
 
 /**
- * How many live items the ACTIVE chip is showing. '' (All) is the whole list,
- * '__none__' the untagged ones, any other id that front's own tally.
+ * How many live items the current SELECTION is showing — the union, with each
+ * item counted once however many of the selected fronts it happens to sit on
+ * (which is why this walks the items instead of summing the per-front chip
+ * counts: those double-count a multi-front item on purpose).
  *
- * The page needs this to tell "this front is empty" apart from "everything is
- * empty" — reading `counts.total` for that answers the second question while
- * asking the first, so a filtered-to-nothing front rendered four empty section
- * headers instead of the empty-state line.
+ * The page needs it to tell "this selection is empty" apart from "everything
+ * is empty" — reading the page total for that answers the second question
+ * while asking the first, so a filtered-to-nothing front rendered four empty
+ * section headers instead of the empty-state line.
  */
-export function activeFocusCount(counts: FocusCounts, front: string): number {
-  if (!front) return counts.total;
-  if (front === '__none__') return counts.none;
-  return counts.byFront[front] || 0;
+export function selectedFocusCount(
+  sections: TodoSection[],
+  serverDate: string,
+  selected: string[],
+): number {
+  return liveFocusItems(sections, serverDate).filter((it) => focusMatchAny(it, selected)).length;
 }
 
 export function collectSnoozed(sections: TodoSection[], serverDate: string): TodoItem[] {
@@ -199,7 +233,7 @@ export function collectWaiting(sections: TodoSection[], serverDate: string): Wai
 export function visibleSectionItems(
   section: TodoSection,
   serverDate: string,
-  front: string,
+  selected: string[],
   index: Map<string, TodoItem>,
   includeHidden = false,
 ): TodoItem[] {
@@ -207,7 +241,7 @@ export function visibleSectionItems(
   // inline (their pull-out cards hide) so every section shows its full count.
   return section.items.filter(
     (item) =>
-      focusMatch(item, front) &&
+      focusMatchAny(item, selected) &&
       (includeHidden || (!isSnoozed(item, serverDate) && !isWaiting(item, serverDate, index))),
   );
 }

@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  activeFocusCount,
   addDays,
   buildTodoIndex,
   collectSnoozed,
@@ -9,6 +8,8 @@ import {
   collectUpNow,
   computeFocusCounts,
   focusMatch,
+  focusMatchAny,
+  selectedFocusCount,
   fmtAddedDate,
   gateHides,
   inWindow,
@@ -79,22 +80,48 @@ describe('focusMatch', () => {
   });
 });
 
+describe('focusMatchAny', () => {
+  it('an empty selection is All and matches everything', () => {
+    expect(focusMatchAny(item({ fronts: ['job'] }), [])).toBe(true);
+    expect(focusMatchAny(item({ fronts: [] }), [])).toBe(true);
+  });
+  it('several fronts is a UNION, not an intersection', () => {
+    const sel = ['job', 'health'];
+    expect(focusMatchAny(item({ fronts: ['job'] }), sel)).toBe(true);
+    expect(focusMatchAny(item({ fronts: ['health'] }), sel)).toBe(true);
+    // On both — shows once, not twice, and certainly not only-if-both.
+    expect(focusMatchAny(item({ fronts: ['job', 'health'] }), sel)).toBe(true);
+    expect(focusMatchAny(item({ fronts: ['hobbies'] }), sel)).toBe(false);
+  });
+  it('Other rides along in the selection and matches the untagged', () => {
+    expect(focusMatchAny(item({ fronts: [] }), ['job', '__none__'])).toBe(true);
+    expect(focusMatchAny(item({ fronts: ['job'] }), ['job', '__none__'])).toBe(true);
+    expect(focusMatchAny(item({ fronts: ['health'] }), ['job', '__none__'])).toBe(false);
+  });
+});
+
 describe('withFocusFront', () => {
-  it('stamps the active focus front onto an add payload as a one-item list', () => {
-    expect(withFocusFront({ item: 'call Yan', section: 'Now' }, 'job')).toEqual({
+  it('stamps the whole selection onto an add payload', () => {
+    expect(withFocusFront({ item: 'call Yan', section: 'Now' }, ['job'])).toEqual({
       item: 'call Yan',
       section: 'Now',
       fronts: ['job'],
     });
+    expect(withFocusFront({ item: 'run group', section: 'Now' }, ['connection', 'health'])).toEqual({
+      item: 'run group',
+      section: 'Now',
+      fronts: ['connection', 'health'],
+    });
   });
-  it('stamps nothing on All or Other', () => {
+  it('stamps nothing on All, and drops Other from a mixed selection', () => {
     const payload = { item: 'call Yan', section: 'Now' };
-    expect(withFocusFront(payload, '')).toBe(payload);
-    expect(withFocusFront(payload, '__none__')).toBe(payload);
+    expect(withFocusFront(payload, [])).toBe(payload);
+    expect(withFocusFront(payload, ['__none__'])).toBe(payload);
+    expect(withFocusFront(payload, ['job', '__none__'])).toEqual({ ...payload, fronts: ['job'] });
   });
   it('never overrides explicit fronts', () => {
     const payload = { item: 'call Yan', section: 'Now', fronts: ['health'] };
-    expect(withFocusFront(payload, 'job')).toBe(payload);
+    expect(withFocusFront(payload, ['job'])).toBe(payload);
   });
 });
 
@@ -329,23 +356,38 @@ describe('computeFocusCounts', () => {
   });
 });
 
-describe('activeFocusCount', () => {
-  const counts = { total: 9, none: 2, byFront: { job: 4, health: 3 } };
+describe('selectedFocusCount', () => {
+  const sections: TodoSection[] = [
+    section('Now', [
+      item({ id: '1', fronts: ['job'] }),
+      item({ id: '2', fronts: ['connection', 'health'] }),
+      item({ id: '3', fronts: ['health'] }),
+      item({ id: '4' }),
+      item({ id: '5', fronts: ['job'], done: true }),
+      item({ id: '6', fronts: ['job'], snoozed_until: '2026-07-09' }),
+    ]),
+    section('Done', [item({ id: '7', fronts: ['job'], done: true })]),
+  ];
 
-  it('All reports the whole live list', () => {
-    expect(activeFocusCount(counts, '')).toBe(9);
+  it('an empty selection counts the whole live list', () => {
+    expect(selectedFocusCount(sections, TODAY, [])).toBe(4);
   });
-  it('a front reports its own tally, not the page total', () => {
-    expect(activeFocusCount(counts, 'job')).toBe(4);
-    expect(activeFocusCount(counts, 'health')).toBe(3);
+  it('one front counts its own, ignoring done, snoozed and the Done section', () => {
+    expect(selectedFocusCount(sections, TODAY, ['job'])).toBe(1);
   });
-  it('Other reports the untagged items', () => {
-    expect(activeFocusCount(counts, '__none__')).toBe(2);
+  it('counts an item sitting on two selected fronts ONCE', () => {
+    // Item 2 is on both; the per-chip counts double it on purpose, the union
+    // must not. health(2) + connection(1) = 3 chips-worth, 2 actual items.
+    expect(selectedFocusCount(sections, TODAY, ['health', 'connection'])).toBe(2);
   });
-  it('a front with nothing live reports 0 even while the page has items', () => {
+  it('Other counts the untagged, and combines with a front', () => {
+    expect(selectedFocusCount(sections, TODAY, ['__none__'])).toBe(1);
+    expect(selectedFocusCount(sections, TODAY, ['job', '__none__'])).toBe(2);
+  });
+  it('a selection with nothing live reports 0 even while the page has items', () => {
     // The empty-state bug in one line: the page is far from empty, but the
-    // chip in hand is, and that's what the message has to answer to.
-    expect(activeFocusCount(counts, 'learning')).toBe(0);
+    // chips in hand are, and that's what the message has to answer to.
+    expect(selectedFocusCount(sections, TODAY, ['learning'])).toBe(0);
   });
 });
 

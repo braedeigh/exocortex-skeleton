@@ -81,6 +81,14 @@
   -webkit-tap-highlight-color: transparent;
 }
 
+/* "All" while a selection is live. Not disabled and not hidden — just quieter,
+   so the accent belongs to the fronts actually filtering. Colour does the work
+   rather than size, so nothing moves as the selection changes. */
+.chip.dimmed {
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+
 .chip.active {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 16%, transparent);

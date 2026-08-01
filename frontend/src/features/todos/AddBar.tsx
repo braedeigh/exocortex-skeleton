@@ -11,9 +11,21 @@ export interface AddBarProps {
   /** Opens the full TodoFormSheet (add mode), preset with whatever's
    * currently typed/picked here — the "⤢" expand button next to Add. */
   onExpand: (prefill: { text: string; section: string; due_by?: string }) => void;
-  /** Active focus filter — the page stamps it onto the add, so show it. */
-  focusFront?: string;
+  /** The selected fronts — the page stamps all of them onto the add, so the
+   * placeholder names them. Empty (All) promises nothing. */
+  focusFronts?: string[];
   fronts: Front[];
+}
+
+/** What the placeholder promises the new item will be tagged with. "Other"
+ * isn't a front and never gets stamped, so it's dropped. Long selections cut
+ * to two plus a "+N", matching how a to-do row shows its own front chips —
+ * a placeholder that wraps to three lines helps nobody. */
+function stampPreview(fronts: Front[], selected: string[]): string {
+  const real = selected.filter((f) => f !== '__none__');
+  if (!real.length) return '';
+  const shown = real.slice(0, 2).map((f) => frontLabel(fronts, f)).join(' · ');
+  return real.length > 2 ? `${shown} +${real.length - 2}` : shown;
 }
 
 /**
@@ -22,7 +34,8 @@ export interface AddBarProps {
  * focused or has text in it, rather than sitting there permanently (dev note
  * 3621915a). Collapses back once it's blurred with nothing typed.
  */
-export function AddBar({ onAdd, onExpand, focusFront, fronts }: AddBarProps) {
+export function AddBar({ onAdd, onExpand, focusFronts, fronts }: AddBarProps) {
+  const stamp = stampPreview(fronts, focusFronts ?? []);
   const [text, setText] = useState('');
   const [section, setSection] = useState<string>('Now');
   const [showDue, setShowDue] = useState(false);
@@ -82,11 +95,7 @@ export function AddBar({ onAdd, onExpand, focusFront, fronts }: AddBarProps) {
         <input
           className={styles.input}
           type="text"
-          placeholder={
-            focusFront && focusFront !== '__none__'
-              ? `Add a to-do… → ${frontLabel(fronts, focusFront)}`
-              : 'Add a to-do…'
-          }
+          placeholder={stamp ? `Add a to-do… → ${stamp}` : 'Add a to-do…'}
           value={text}
           onChange={(e) => setText(e.target.value)}
           onFocus={() => setFocused(true)}

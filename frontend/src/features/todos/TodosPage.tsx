@@ -22,14 +22,14 @@ import { TomorrowCard } from './TomorrowCard';
 import { WaitingCard } from './WaitingCard';
 import {
   LADDER_LABELS,
-  activeFocusCount,
+  focusMatchAny,
+  selectedFocusCount,
   buildTodoIndex,
   collectSnoozed,
   collectTomorrow,
   collectUpNow,
   collectWaiting,
   computeFocusCounts,
-  focusMatch,
   gateHides,
   visibleSectionItems,
   withFocusFront,
@@ -63,17 +63,29 @@ function isPublicMode(): boolean {
   return typeof window !== 'undefined' && window.VIEW_MODE === 'public';
 }
 
-function readStoredFocus(): string {
+/**
+ * The saved selection. It's a JSON list now that several fronts can be on at
+ * once, but the key held a BARE FRONT ID for as long as the filter was
+ * single-select — so anything that doesn't parse as a list is read as that one
+ * front and wrapped, and whoever had a filter saved keeps it.
+ */
+function readStoredFocus(): string[] {
   try {
-    return localStorage.getItem(FOCUS_STORAGE_KEY) || '';
+    const raw = localStorage.getItem(FOCUS_STORAGE_KEY);
+    if (!raw) return [];
+    if (raw.startsWith('[')) {
+      const parsed: unknown = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed.filter((f): f is string => typeof f === 'string' && !!f) : [];
+    }
+    return [raw];
   } catch {
-    return '';
+    return [];
   }
 }
 
-function writeStoredFocus(front: string) {
+function writeStoredFocus(selected: string[]) {
   try {
-    localStorage.setItem(FOCUS_STORAGE_KEY, front);
+    localStorage.setItem(FOCUS_STORAGE_KEY, JSON.stringify(selected));
   } catch {
     // localStorage unavailable — focus just won't persist across visits
   }
@@ -108,7 +120,7 @@ export function TodosPage() {
   const symptomActions = useSymptomActions(push);
   const isPublic = isPublicMode();
 
-  const [focusFront, setFocusFrontState] = useState(readStoredFocus);
+  const [focusFronts, setFocusFrontsState] = useState<string[]>(readStoredFocus);
   // Desktop breathing room: collapse the habits column so To Do spans the
   // whole pane. Never offered to public visitors — habits are their view.
   const [habitsHidden, setHabitsHiddenState] = useState(readStoredHabitsHidden);
@@ -130,20 +142,21 @@ export function TodosPage() {
     // One-shot: consume the param so back/refresh don't re-open the sheet.
     void navigate({ to: '/todos', search: {}, replace: true });
   }, [streakParam, data, navigate]);
-  // ?front=<id> — the Fronts overview's deep link. Adopts the front as the
-  // active focus chip (setFocusFront persists it, so it survives the nav) and
-  // then consumes the param, same one-shot shape as ?streak= above. Clears
+  // ?front=<id> — the Fronts overview's deep link. REPLACES the selection with
+  // that one front rather than adding to it: one tile was tapped, so one front
+  // is what was asked for. setFocusFronts persists it, so it survives the nav.
+  // Then it consumes the param, same one-shot shape as ?streak= above, clearing
   // only `front` so it doesn't stomp a ?streak= arriving in the same URL.
   const frontParam = useSearch({ from: '/todos', select: (s: { front?: string }) => s.front });
   useEffect(() => {
     if (!frontParam) return;
-    setFocusFront(frontParam);
+    setFocusFronts([frontParam]);
     void navigate({
       to: '/todos',
       search: (prev: { streak?: string; front?: string }) => ({ ...prev, front: undefined }),
       replace: true,
     });
-    // One-shot on the param itself; setFocusFront is a stable local closure.
+    // One-shot on the param itself; setFocusFronts is a stable local closure.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [frontParam, navigate]);
   // Staged prefill for the "+ add" flow — set by a section header's "+ add"
@@ -155,9 +168,17 @@ export function TodosPage() {
   // old page's single `selectedTime` global (core.js getTime()).
   const [manualSegment, setManualSegment] = useState<TimeSegment | null>(null);
 
-  function setFocusFront(front: string) {
-    setFocusFrontState(front);
-    writeStoredFocus(front);
+  function setFocusFronts(next: string[]) {
+    setFocusFrontsState(next);
+    writeStoredFocus(next);
+  }
+
+  /** Flip one chip. Order is kept as tapped, so the strip's mount-scroll
+   * anchors on the front she reached for first. */
+  function toggleFocusFront(front: string) {
+    setFocusFronts(
+      focusFronts.includes(front) ? focusFronts.filter((f) => f !== front) : [...focusFronts, front],
+    );
   }
 
   function setHabitsHidden(hidden: boolean) {
@@ -165,10 +186,12 @@ export function TodosPage() {
     writeStoredHabitsHidden(hidden);
   }
 
-  // Both add paths (quick-add bar, per-section "+ add" sheet) stamp the
-  // active focus front so the new item stays visible under the filter.
+  // Both add paths (quick-add bar, per-section "+ add" sheet) stamp the whole
+  // active selection, so the new item stays visible under the filter — and
+  // lands on several fronts when several are selected, which the item shape
+  // has always allowed.
   function addTodo(payload: AddTodoPayload) {
-    todoActions.add(withFocusFront(payload, focusFront));
+    todoActions.add(withFocusFront(payload, focusFronts));
   }
 
   const frosted = data ? isFrosted(data.todos) : false;
@@ -188,13 +211,13 @@ export function TodosPage() {
   );
   const snoozedAll = useMemo(() => collectSnoozed(sections, serverDate), [sections, serverDate]);
   const snoozed = useMemo(
-    () => snoozedAll.filter((it) => focusMatch(it, focusFront)),
-    [snoozedAll, focusFront],
+    () => snoozedAll.filter((it) => focusMatchAny(it, focusFronts)),
+    [snoozedAll, focusFronts],
   );
   const waitingAll = useMemo(() => collectWaiting(sections, serverDate), [sections, serverDate]);
   const waiting = useMemo(
-    () => waitingAll.filter((w) => focusMatch(w.item, focusFront)),
-    [waitingAll, focusFront],
+    () => waitingAll.filter((w) => focusMatchAny(w.item, focusFronts)),
+    [waitingAll, focusFronts],
   );
   const focusCounts = useMemo(() => computeFocusCounts(sections, serverDate), [sections, serverDate]);
 
@@ -209,7 +232,7 @@ export function TodosPage() {
     const shown = new Map<string, TodoItem[]>();
     const notNow: NotNowEntry[] = [];
     for (const s of ladderSections) {
-      const base = visibleSectionItems(s, serverDate, focusFront, todoIndex, showAll);
+      const base = visibleSectionItems(s, serverDate, focusFronts, todoIndex, showAll);
       if (!gateRules) {
         shown.set(s.name, base);
         continue;
@@ -222,16 +245,16 @@ export function TodosPage() {
       shown.set(s.name, keep);
     }
     return { shown, notNow };
-  }, [ladderSections, serverDate, focusFront, todoIndex, gateRules, hhmm, showAll]);
+  }, [ladderSections, serverDate, focusFronts, todoIndex, gateRules, hhmm, showAll]);
 
   const upNow = useMemo(
-    () => collectUpNow(sections, serverDate).filter((it) => focusMatch(it, focusFront)),
-    [sections, serverDate, focusFront],
+    () => collectUpNow(sections, serverDate).filter((it) => focusMatchAny(it, focusFronts)),
+    [sections, serverDate, focusFronts],
   );
 
   const tomorrowItems = useMemo(
-    () => collectTomorrow(sections, serverDate).filter((it) => focusMatch(it, focusFront)),
-    [sections, serverDate, focusFront],
+    () => collectTomorrow(sections, serverDate).filter((it) => focusMatchAny(it, focusFronts)),
+    [sections, serverDate, focusFronts],
   );
 
   const currentSection = useMemo(() => {
@@ -256,14 +279,15 @@ export function TodosPage() {
 
   // TodoFormSheet's `currentSection`/`prefill` for whichever flow is active
   // (edit wins when both happen to be set, matching `mode` below). The
-  // active focus front rides along as a prefilled (deselectable) chip, the
-  // same set withFocusFront would stamp onto the AddBar's own quick path.
+  // selected fronts ride along as prefilled (deselectable) chips — the same
+  // set withFocusFront would stamp onto the AddBar's own quick path.
   const formCurrentSection = currentSection ?? addDraft?.section ?? null;
+  const prefillFronts = focusFronts.filter((f) => f !== '__none__');
   const formPrefill = addDraft
     ? {
         text: addDraft.text,
         dueBy: addDraft.due_by,
-        fronts: focusFront && focusFront !== '__none__' ? [focusFront] : undefined,
+        fronts: prefillFronts.length ? prefillFronts : undefined,
       }
     : undefined;
 
@@ -321,7 +345,13 @@ export function TodosPage() {
               the entire page's to-dos including the up now page to just that
               front.") */}
           {!frosted ? (
-            <FocusChips counts={focusCounts} active={focusFront} fronts={fronts} onChange={setFocusFront} />
+            <FocusChips
+              counts={focusCounts}
+              selected={focusFronts}
+              fronts={fronts}
+              onToggle={toggleFocusFront}
+              onClear={() => setFocusFronts([])}
+            />
           ) : null}
           {/* The one attention surface: due reminders (formerly the push-
               notification banners — merged 2026-07-20, replacing ReminderCard)
@@ -444,15 +474,15 @@ export function TodosPage() {
               <AddBar
                 onAdd={addTodo}
                 onExpand={(pre) => setAddDraft(pre)}
-                focusFront={focusFront}
+                focusFronts={focusFronts}
                 fronts={fronts}
               />
 
-              {/* The ACTIVE chip's count, not the page total — with the page
+              {/* The SELECTION's own count, not the page total — with the page
                   total this only ever fired when the whole list was empty, so
                   filtering to a front and clearing it rendered four empty
                   section headers instead of this line. */}
-              {focusFront && activeFocusCount(focusCounts, focusFront) === 0 ? (
+              {focusFronts.length > 0 && selectedFocusCount(sections, serverDate, focusFronts) === 0 ? (
                 <div className={styles.emptyFocus}>Nothing here right now. 🎉</div>
               ) : (
                 ladderSections.map((section, i) => (
@@ -471,7 +501,7 @@ export function TodosPage() {
                     serverDate={serverDate}
                     fronts={fronts}
                     defaultOpen={section.name === 'Now'}
-                    focusFront={focusFront}
+                    focusFronts={focusFronts}
                     onToggle={todoActions.toggle}
                     onOpenDetail={setSelected}
                     onSubtaskToggle={todoActions.subtaskToggle}

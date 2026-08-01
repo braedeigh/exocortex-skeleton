@@ -27,7 +27,7 @@ export interface TodoSectionProps {
    * the value itself) auto-opens this section when it still has something
    * in it, so filtering a front surfaces its cards instead of leaving
    * them collapsed (dev note 685eb5fa). */
-  focusFront?: string;
+  focusFronts?: string[];
   onToggle: (id: string) => void;
   onOpenDetail: (item: TodoItem) => void;
   onSubtaskToggle: (parentId: string, subId: string) => void;
@@ -56,7 +56,7 @@ export function TodoSection({
   defaultOpen = false,
   countMode = 'remaining',
   totalCount,
-  focusFront,
+  focusFronts,
   onToggle,
   onOpenDetail,
   onSubtaskToggle,
@@ -80,18 +80,21 @@ export function TodoSection({
   itemsRef.current = items;
   const cleanupRef = useRef<(() => void) | null>(null);
 
-  // Auto-open on a filter change (not on mount — the persisted focusFront
+  // Auto-open on a filter change (not on mount — the persisted selection
   // shouldn't force every non-empty section open on first load, only an
-  // actual tap on a focus chip should).
+  // actual tap on a focus chip should). Keyed on the joined ids so a new
+  // array of the same fronts, which React makes on every render, doesn't
+  // count as a change.
+  const focusKey = (focusFronts || []).join(',');
   const mountedRef = useRef(false);
   useEffect(() => {
     if (!mountedRef.current) {
       mountedRef.current = true;
       return;
     }
-    if (focusFront && itemsRef.current.length > 0) setOpen(true);
+    if (focusKey && itemsRef.current.length > 0) setOpen(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusFront]);
+  }, [focusKey]);
 
   // Register once — the getters below always read the latest refs, so other
   // sections can query this one's rows/items mid-drag without re-registering
