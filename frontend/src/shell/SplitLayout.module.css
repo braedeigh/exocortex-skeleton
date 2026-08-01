@@ -21,6 +21,23 @@
   isolation: isolate;
 }
 
+/* Authed desktop only — the half that has a back of its own.
+   This one line is what makes the two-finger swipe land on the correct side of
+   the split: `contain` lets scrolling inside the pane work normally but refuses
+   to chain the leftover horizontal overscroll OUT to the viewport, which is the
+   thing the browser turns into its swipe-back. So the gesture stops here and
+   usePaneSwipeBack.ts reads it, while the very same swipe over the right half
+   never reaches this rule and stays an ordinary browser back. Nothing has to
+   track which half the cursor is over — the browser already routes a scroll
+   gesture by what's under it.
+   Not on .left itself, because a public visitor's intro pane has no history to
+   walk and should keep the browser's own gesture. .left is already
+   overflow:hidden above, i.e. a scroll container, which is what this needs to
+   take effect. */
+.leftGestured {
+  overscroll-behavior-x: contain;
+}
+
 /* Authed desktop only: the switcher + the two stacked surfaces (terminal,
    Keeper) that live inside .left. Public visitors' FakeTerminal is still a
    direct child of .left, untouched by any of this. */
@@ -39,6 +56,45 @@
   flex-shrink: 0;
   background: #1a1a2e;
   border-bottom: 1px solid rgba(124, 92, 191, 0.25);
+}
+
+/* The three tabs, wrapped so the ‹ beside them isn't inside the tablist — it
+   moves within the room rather than choosing a surface. */
+.paneTabs {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+
+/* The pane's own back. Same height and quiet colour as a tab so it reads as
+   part of the strip, but narrow and unlabelled — it's a direction, not a
+   destination. Stays in the layout when there's nowhere to go (see the note in
+   SplitLayout.tsx) and just dims, so the tabs never shift under her. */
+.paneBack {
+  flex: 0 0 auto;
+  width: 40px;
+  min-height: 40px;
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  color: #9ca3af;
+  font-family: inherit;
+  /* The glyph is a chevron, so it needs the size to read at all — this is the
+     visible-icon-button rule, not body text. */
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.15s, background-color 0.15s;
+}
+
+.paneBack:hover:not(:disabled) {
+  background: #23233d;
+  color: #e5e7eb;
+}
+
+.paneBack:disabled {
+  color: #4b5563;
+  cursor: default;
 }
 
 .paneTab {

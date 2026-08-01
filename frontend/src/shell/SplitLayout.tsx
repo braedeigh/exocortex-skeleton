@@ -5,6 +5,8 @@ import { KeeperPane } from './KeeperPane';
 import { useSessions } from './useSessions';
 import { useChatSurfaceObservatory, setChatSurfaceObservatory } from './chatSurface';
 import { registerPaneConversationTarget } from './paneConversation';
+import { useLeftPaneHistory } from './paneHistory';
+import { usePaneSwipeBack } from './usePaneSwipeBack';
 import { useMediaQuery, DESKTOP_QUERY } from './useMediaQuery';
 import styles from './SplitLayout.module.css';
 
@@ -46,8 +48,22 @@ import styles from './SplitLayout.module.css';
  * Terminal-vs-room writes the SAME localStorage flag the mobile Chat tab
  * reads (chatSurface.ts) rather than inventing a second knob, so "which
  * surface is my chat" stays one answer per device, settable from Settings or
- * from the pane itself. Which observatory *view* is showing is pane-local
- * state — it's a place in the room, not a preference.
+ * from the pane itself. Where she is INSIDE the observatory is a different
+ * kind of thing — a place, not a preference — and it lives in a location
+ * stack (paneHistory.ts) that this component owns and hands down.
+ *
+ * THE PANE GOES BACK (07-31). Because that stack remembers, the pane has a
+ * back: the ‹ at the left of the switcher, and a two-finger swipe-right
+ * anywhere over this half (usePaneSwipeBack.ts). The swipe works by the pane
+ * refusing to chain its horizontal overscroll out to the browser — see
+ * .leftGestured in the stylesheet — so the same gesture over the RIGHT half is
+ * still an ordinary browser back, and nothing has to track which half the
+ * cursor is over. The tabs alone could never do this: they get you between the
+ * roster and the room, but not back to the conversation you were reading two
+ * before this one.
+ *
+ * With nothing left to go back to, the swipe falls through to the browser's
+ * back rather than dying silently — the gesture always means something.
  *
  * The switcher isn't the only thing that writes that flag: a feature pushing
  * a session at the terminal (see the exo:set-session effect below) flips it
@@ -57,10 +73,11 @@ import styles from './SplitLayout.module.css';
  *
  * The room arrives at the same way: a page in the RIGHT half can hand this
  * pane a conversation to open (paneConversation.ts — the terrain map's agent
- * orbs do), which flips to the room, selects the middle tab, and passes the id
- * down to KeeperPane. The right half keeps whatever it was showing, so tapping
- * an agent on the map reads its session BESIDE the map rather than replacing
- * it.
+ * orbs do), which reveals the room and pushes that conversation as the pane's
+ * new location. The right half keeps whatever it was showing, so tapping an
+ * agent on the map reads its session BESIDE the map rather than replacing it —
+ * and because it's a pushed location, the back above returns her to whatever
+ * she was reading before the map interrupted.
  *
  * The terminal and the room both stay mounted once visited and toggle by CSS
  * — same reasoning as TerminalFrames: remounting drops ttyd's websocket, and
@@ -100,20 +117,17 @@ export function SplitLayout({ children }: { children: ReactNode }) {
   // state: it IS the chat-surface flag (see the header comment), so flipping
   // it in Settings moves this pane and vice versa.
   const keeperPane = useChatSurfaceObservatory();
-  // Which view of the room is up: the roster or the open conversation. Opens
-  // on the roster (her 07-27 ask) — the pane lands on the Observatory in
-  // general, not straight into the Keeper conversation.
-  const [roster, setRoster] = useState(true);
-  const openRoom = useCallback(() => setRoster(false), []);
+  // Where the pane is inside the observatory, and everywhere it's been
+  // (paneHistory.ts). Opens on the roster (her 07-27 ask) — the pane lands on
+  // the Observatory in general, not straight into the Keeper conversation.
+  const { here, push, back, canGoBack, canGoBackRef } = useLeftPaneHistory(terminalEnabled);
+  const roster = here.roster;
   // The open conversation's own title, reported up by the room (KeeperPane ->
   // ObservatoryPage). null until it resolves, and again for the moment between
   // conversations. It's what the second tab is LABELLED — a tab that just says
   // "Observatory" tells her nothing the first tab doesn't; the session's name
   // tells her which room the switch would put her back into.
   const [roomTitle, setRoomTitle] = useState<string | null>(null);
-  // A conversation pushed at this pane from the right half (the terrain map).
-  // null = nothing pushed, so KeeperPane keeps resolving its own default.
-  const [pushedConv, setPushedConv] = useState<string | null>(null);
   // Mount-on-first-visit, then keep mounted (see header) — starts with
   // whichever surface the flag opens on.
   const [visited, setVisited] = useState<ReadonlySet<'keeper' | 'terminal'>>(
@@ -129,6 +143,24 @@ export function SplitLayout({ children }: { children: ReactNode }) {
   // too (the value just never gets consulted in their render path below).
   const [collapsed, setCollapsedState] = useState(readCollapsed);
   const containerRef = useRef<HTMLDivElement>(null);
+  const leftRef = useRef<HTMLDivElement>(null);
+
+  // The pane's back, shared by the ‹ and the swipe. Reads the ref rather than
+  // `canGoBack` because the swipe's DOM listener is bound once and would
+  // otherwise close over whatever the flag was at bind time.
+  const goBack = useCallback(() => {
+    if (canGoBackRef.current) back();
+    // Nothing left in this half — let the gesture mean what it always meant.
+    else window.history.back();
+  }, [back, canGoBackRef]);
+
+  usePaneSwipeBack({ ref: leftRef, enabled: terminalEnabled, onBack: goBack });
+
+  // Every "open this conversation" inside the room is one move now — a roster
+  // card, a fresh compose's first send, a rollover. The location carries both
+  // "that session" and "not the roster", so where the request came from stopped
+  // mattering.
+  const openConversation = useCallback((id: string) => push({ roster: false, conv: id }), [push]);
 
   const setCollapsed = useCallback((value: boolean) => {
     setCollapsedState(value);
@@ -200,16 +232,16 @@ export function SplitLayout({ children }: { children: ReactNode }) {
   // "Open this conversation here" from the right half. Only claimed while the
   // authed desktop pane actually exists — on mobile and in public mode nothing
   // registers, so the caller learns it has to navigate instead. Surfacing it
-  // takes all three moves: the room instead of the terminal, the middle tab
-  // instead of the roster, and the id itself down to KeeperPane.
+  // takes two moves now: push the conversation as the pane's location (which
+  // is both "that session" and "not the roster" in one value), and reveal the
+  // room rather than the terminal.
   useEffect(() => {
     if (!terminalEnabled) return;
     return registerPaneConversationTarget((convId) => {
-      setPushedConv(convId);
-      setRoster(false);
+      push({ roster: false, conv: convId });
       setChatSurfaceObservatory(true);
     });
-  }, [terminalEnabled]);
+  }, [terminalEnabled, push]);
 
   if (!isDesktop) {
     // Mobile: no split — content fills, exactly as before.
@@ -242,52 +274,76 @@ export function SplitLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className={[styles.container, dragging ? styles.dragging : ''].filter(Boolean).join(' ')} ref={containerRef}>
-      <div className={styles.left} style={{ flexBasis: `${width}%` }}>
+      <div
+        className={[styles.left, terminalEnabled ? styles.leftGestured : ''].filter(Boolean).join(' ')}
+        style={{ flexBasis: `${width}%` }}
+        ref={leftRef}
+      >
         {isPublic ? (
           <FakeTerminal onCollapse={() => setCollapsed(true)} />
         ) : (
           <div className={styles.paneStack}>
-            <div className={styles.paneSwitch} role="tablist" aria-label="Left pane">
+            <div className={styles.paneSwitch}>
+              {/* Always rendered, dimmed when there's nowhere to go — a control
+                  that appears and disappears would shove the three tabs
+                  sideways every time she opened a second conversation. Outside
+                  the tablist below because it isn't one of the tabs: it moves
+                  within the room rather than choosing a surface — which is also
+                  why it's dead while the Terminal is up: the history it walks
+                  is the observatory's, and stepping through it behind a
+                  terminal would move something she can't see. */}
               <button
                 type="button"
-                role="tab"
-                aria-selected={keeperPane && roster}
-                className={[styles.paneTab, keeperPane && roster ? styles.paneTabActive : '']
-                  .filter(Boolean)
-                  .join(' ')}
-                title="Every observatory session"
-                onClick={() => {
-                  setRoster(true);
-                  setChatSurfaceObservatory(true);
-                }}
+                className={styles.paneBack}
+                disabled={!keeperPane || !canGoBack}
+                title={keeperPane && canGoBack ? 'Back in this pane' : 'Nothing to go back to'}
+                aria-label="Back in this pane"
+                onClick={back}
               >
-                Observatory
+                &#8249;
               </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={keeperPane && !roster}
-                className={[styles.paneTab, keeperPane && !roster ? styles.paneTabActive : '']
-                  .filter(Boolean)
-                  .join(' ')}
-                title={roomTitle ?? 'The open conversation'}
-                onClick={() => {
-                  setRoster(false);
-                  setChatSurfaceObservatory(true);
-                }}
-              >
-                {roomTitle ?? 'Session'}
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={!keeperPane}
-                className={[styles.paneTab, !keeperPane ? styles.paneTabActive : ''].filter(Boolean).join(' ')}
-                title="The tmux terminal"
-                onClick={() => setChatSurfaceObservatory(false)}
-              >
-                Terminal
-              </button>
+              <div className={styles.paneTabs} role="tablist" aria-label="Left pane">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={keeperPane && roster}
+                  className={[styles.paneTab, keeperPane && roster ? styles.paneTabActive : '']
+                    .filter(Boolean)
+                    .join(' ')}
+                  title="Every observatory session"
+                  onClick={() => {
+                    push({ roster: true });
+                    setChatSurfaceObservatory(true);
+                  }}
+                >
+                  Observatory
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={keeperPane && !roster}
+                  className={[styles.paneTab, keeperPane && !roster ? styles.paneTabActive : '']
+                    .filter(Boolean)
+                    .join(' ')}
+                  title={roomTitle ?? 'The open conversation'}
+                  onClick={() => {
+                    push({ roster: false });
+                    setChatSurfaceObservatory(true);
+                  }}
+                >
+                  {roomTitle ?? 'Session'}
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={!keeperPane}
+                  className={[styles.paneTab, !keeperPane ? styles.paneTabActive : ''].filter(Boolean).join(' ')}
+                  title="The tmux terminal"
+                  onClick={() => setChatSurfaceObservatory(false)}
+                >
+                  Terminal
+                </button>
+              </div>
             </div>
             {visited.has('terminal') ? (
               <div className={keeperPane ? styles.paneSlotHidden : styles.paneSlot}>
@@ -298,9 +354,9 @@ export function SplitLayout({ children }: { children: ReactNode }) {
               <div className={keeperPane ? styles.paneSlot : styles.paneSlotHidden}>
                 <KeeperPane
                   roster={roster}
-                  onOpenRoom={openRoom}
+                  conv={here.conv}
+                  onOpenConversation={openConversation}
                   onRoomTitle={setRoomTitle}
-                  pushedConv={pushedConv}
                 />
               </div>
             ) : null}
