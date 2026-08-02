@@ -18,10 +18,11 @@ must never contend for its lock. Going through `store.mutate("bot_chats/
 gists", ...)` gets that for free: store keys its flock by file path, so
 gists.json gets its own `gists.json.lock`, untouched by anything index-side.
 
-Idempotent + quiet on no-op — safe to cron. A conversation whose index entry
-has "running": true is skipped (its transcript is a moving target); a
-conversation already in gists.json is skipped unless --all or --conv forces
-it.
+Idempotent + quiet on no-op — safe to cron. A conversation with a turn
+genuinely in flight is skipped (its transcript is a moving target), judged by
+whether its log is still being written to rather than by the `running` flag,
+which strands easily — see _is_live. A conversation already in gists.json is
+skipped unless --all or --conv forces it.
 
 Usage:
     scripts/sort_bot_chats.py                 # sort every unsorted, non-running conv
@@ -34,6 +35,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -56,6 +58,11 @@ CLAUDE_TIMEOUT_SEC = 120
 MAX_TRANSCRIPT_CHARS = 6000
 
 BY = f"sort_bot_chats:{SORT_MODEL}"
+
+# How long a conversation log can sit untouched before a `running` flag on it
+# is treated as a corpse. See _is_live for why this is measured off the log
+# rather than off the flag.
+LIVE_LOG_IDLE_SEC = 900
 
 _PROMPT_PREAMBLE = """You are sorting a chat session transcript into a filing system.
 
@@ -90,6 +97,33 @@ Respond with ONLY the JSON object."""
 
 def _chats_dir():
     return store.DATA_DIR / "bot_chats"
+
+
+def _is_live(conv_id, entry):
+    """Is a turn genuinely running right now, or is the flag a leftover?
+
+    A `running` flag outlives its turn easily: the event relay lives in a
+    THREAD inside a gunicorn worker, so a worker recycle (--max-requests) or a
+    service restart strands the flag set forever. The roster clears a stale one
+    at read time, but ARCHIVED sessions never reach that path — so nothing in
+    the system ever corrects them, and this script skipped them on every run.
+    Four sessions had carried a stale flag for 5-9 days by 2026-08-02 and were
+    permanently unsortable: invisible on the roster AND never gisted.
+
+    Liveness is read off the conversation LOG'S MTIME, not the flag and not
+    `last_at`. A live turn streams events into its jsonl continuously, while
+    `last_at` only moves at send and at turn end — so a long build turn would
+    look idle mid-flight and get sorted on a half-written transcript.
+
+    A missing/unreadable log reads as not-live, matching what the script
+    already does with conversations that have no log to excerpt."""
+    if not entry.get("running"):
+        return False
+    try:
+        idle = time.time() - (_chats_dir() / f"{conv_id}.jsonl").stat().st_mtime
+    except OSError:
+        return False
+    return idle < LIVE_LOG_IDLE_SEC
 
 
 def _load_vocab():
@@ -257,7 +291,7 @@ def main(argv=None):
         entry = index.get(conv_id)
         if not isinstance(entry, dict):
             continue
-        if entry.get("running"):
+        if _is_live(conv_id, entry):
             print(f"  {conv_id}: running — skipped")
             continue
         # A session started from a front's room carries an EXPLICIT `front` on
