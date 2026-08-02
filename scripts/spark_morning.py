@@ -17,6 +17,13 @@ is already sitting in bot_chats/<conv>.jsonl, ready to open.
 archived (leaves the roster; its log stays — her record is the record) before
 today's is created, so the list shows one current Spark, not a pile.
 
+The kill is GUARDED, though (her rule): a prior Spark survives if she actually
+talked to it AND has touched it within the last 24 hours. So an orientation she
+never opened gets cleared as before, and a session she was working in yesterday
+afternoon is still on the roster this morning — it only ages out once it's gone
+a full day untouched. See _was_used for why "did she talk to it" can't be read
+off the index entry.
+
 Cwd is the SKELETON checkout, not the vault: Spark builds the app, so it should
 boot skeleton/CLAUDE.md and act on the code. The turn runs with a full tool set
 so Spark can actually do the work (and spin things off) once she picks a task;
@@ -33,9 +40,10 @@ Needs the venv python (imports the app's observatory route module). Marks the
 conversation with origin="spark_morning" so tomorrow's run can find and archive
 exactly its own prior sessions and never touch a hand-made one.
 """
+import json
 import queue
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -117,18 +125,84 @@ def _log(msg):
     print(f"{datetime.now():%Y-%m-%d %H:%M:%S} {msg}", flush=True)
 
 
+KEEP_WINDOW_HOURS = 24
+
+
+def _was_used(conv_id):
+    """Did she actually say anything to this Spark, or is it just the 5 AM
+    orientation nobody opened?
+
+    Counts her messages in the conversation log, and the shape matters: the
+    log's `user` events are NOT all hers. Claude Code relays tool RESULTS as
+    `user` events too, so a session she never touched can still show dozens of
+    them (2026-08-01 had 42 `user` events and exactly one message from her).
+    Hers are the ones the send path stamps with a `ts` and real text; tool
+    results arrive with neither.
+
+    The seeded kickoff is itself one such message, so "used" means MORE than
+    one. Unreadable/missing log → treat as used, so a bad read can never be
+    the reason a session she was working in disappears.
+
+    `last_prompt` on the index entry looks like the obvious signal and is the
+    wrong one — it's gated on _card_prompt/journal in the send path, so it sat
+    empty on sessions with real conversations in them."""
+    path = rr._chats_dir() / f"{conv_id}.jsonl"
+    try:
+        mine = 0
+        with open(path, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    event = json.loads(line)
+                except ValueError:
+                    continue
+                if (isinstance(event, dict) and event.get("type") == "user"
+                        and event.get("ts") and str(event.get("text") or "").strip()):
+                    mine += 1
+                    if mine > 1:
+                        return True
+        return False
+    except OSError:
+        return True
+
+
+def _is_fresh(meta):
+    """Has she touched it inside the keep window? An unparseable/missing
+    `last_at` counts as fresh — same bias as _was_used, never delete on a
+    reading failure."""
+    stamp = meta.get("last_at") or meta.get("started")
+    if not stamp:
+        return True
+    try:
+        seen = datetime.fromisoformat(str(stamp))
+    except ValueError:
+        return True
+    return (datetime.now() - seen) < timedelta(hours=KEEP_WINDOW_HOURS)
+
+
 def _archive_prior():
-    """Archive every still-open conversation this ritual made before — 'kill'
-    half of kill+respawn. Only touches entries we stamped with our ORIGIN."""
-    killed = 0
+    """Archive the conversations this ritual made before — the 'kill' half of
+    kill+respawn. Only ever touches entries we stamped with our ORIGIN, and
+    only ones she's finished with: a prior Spark is SPARED when she both
+    talked to it and touched it within KEEP_WINDOW_HOURS."""
+    killed = kept = 0
     with store.mutate("bot_chats/index", {}) as index:
-        for meta in index.values():
-            if isinstance(meta, dict) and meta.get("origin") == ORIGIN \
-                    and not meta.get("archived"):
-                meta["archived"] = rr._now()
-                killed += 1
+        for conv_id, meta in index.items():
+            if not isinstance(meta, dict) or meta.get("origin") != ORIGIN \
+                    or meta.get("archived"):
+                continue
+            if _was_used(conv_id) and _is_fresh(meta):
+                kept += 1
+                _log(f"keeping {conv_id} — in use within {KEEP_WINDOW_HOURS}h")
+                continue
+            meta["archived"] = rr._now()
+            killed += 1
     if killed:
         _log(f"archived {killed} prior spark-morning session(s)")
+    if kept:
+        _log(f"kept {kept} prior spark-morning session(s) still in use")
 
 
 def _create_conv():
@@ -156,7 +230,6 @@ def _run_orientation(conv_id):
     bot = dict(rr._bot("keeper") or {}, allowed_tools=SPARK_TOOLS)
     log_path = rr._chats_dir() / f"{conv_id}.jsonl"
     with open(log_path, "a", encoding="utf-8") as log:
-        import json
         log.write(json.dumps({"type": "user", "text": KICKOFF,
                               "ts": rr._now(), "journaled": False}) + "\n")
     proc, stderr_f = rr._spawn(bot, KICKOFF, None, cwd_override=SKELETON_CWD)
