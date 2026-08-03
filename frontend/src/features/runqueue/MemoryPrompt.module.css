@@ -1,0 +1,110 @@
+/* The "not enough room" prompt: a memory bar and a choice.
+   Tap targets are 44px — this appears when she's already mildly thwarted, so
+   it's the wrong moment to make her aim. */
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 4px 2px 2px;
+}
+
+.reason {
+  font-size: 15px;
+  line-height: 1.45;
+  color: var(--text);
+  margin: 0;
+}
+
+.bar {
+  display: flex;
+  width: 100%;
+  height: 22px;
+  border-radius: 11px;
+  overflow: hidden;
+  background: var(--surface-2, rgba(128, 128, 128, 0.15));
+}
+
+.used {
+  background: var(--accent, #7c6bb0);
+}
+
+/* The floor the dispatcher never spends. Hatched rather than solid so it reads
+   as "spoken for" instead of "in use" — it's empty memory being held back. */
+.reserved {
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(128, 128, 128, 0.45),
+    rgba(128, 128, 128, 0.45) 4px,
+    rgba(128, 128, 128, 0.2) 4px,
+    rgba(128, 128, 128, 0.2) 8px
+  );
+}
+
+.free {
+  background: transparent;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--text-dim, #7b7b8a);
+}
+
+.legendItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  flex: none;
+}
+
+.summary {
+  font-size: 13px;
+  color: var(--text-dim, #7b7b8a);
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.action {
+  min-height: 44px;
+  border-radius: 10px;
+  border: 1px solid var(--border, rgba(128, 128, 128, 0.3));
+  background: var(--surface, transparent);
+  color: var(--text);
+  font-size: 15px;
+  cursor: pointer;
+  padding: 0 14px;
+}
+
+.action:hover {
+  background: var(--surface-2, rgba(128, 128, 128, 0.12));
+}
+
+.primary {
+  background: var(--accent, #7c6bb0);
+  border-color: var(--accent, #7c6bb0);
+  color: #fff;
+}
+
+.primary:hover {
+  filter: brightness(1.08);
+  background: var(--accent, #7c6bb0);
+}
+
+.action:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
