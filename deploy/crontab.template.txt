@@ -24,6 +24,9 @@
 */2 * * * * EXOCORTEX_DATA_DIR=<VAULT_DIR>/data <SKELETON_DIR>/venv/bin/python3 <SKELETON_DIR>/scripts/research_dispatcher.py >> <VAULT_DIR>/scripts/research_dispatcher.log 2>&1
 # Research doctor: weekly integrity check; findings surface as a [doctor] dev note on the research tab
 0 4 * * 0 EXOCORTEX_DATA_DIR=<VAULT_DIR>/data <SKELETON_DIR>/venv/bin/python3 <SKELETON_DIR>/scripts/research_doctor.py --devnote >> <VAULT_DIR>/scripts/research_doctor.log 2>&1
+# Night crew: fixes green-lit dev notes overnight, one throwaway worktree + branch per note; nothing merges without the owner.
+# Midnight on purpose — three hours clear of the 3 AM keeper rollover so a long night can't crowd the morning jobs (see scripts/nightcrew_run.py).
+0 0 * * * EXOCORTEX_DATA_DIR=<VAULT_DIR>/data <SKELETON_DIR>/venv/bin/python3 <SKELETON_DIR>/scripts/nightcrew_run.py >> <VAULT_DIR>/scripts/nightcrew.log 2>&1
 # Journal capture safety net: mint any keeper-session prompts the hook/server missed, from the Claude transcripts.
 # PLUG-IN(RECONCILE_SCRIPT): reconcile_transcripts.py is vault-side content tooling, not part of this migration batch. See docs/SETUP-FULL.md for the project-level reconciler cron pattern used by this repo's own INSTALL.md.
 * * * * * /usr/bin/python3 <VAULT_DIR>/tulku/_system/reconcile_transcripts.py >> <VAULT_DIR>/scripts/reconciler.log 2>&1

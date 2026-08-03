@@ -49,6 +49,10 @@ def _restore_note(data, load, save):
     if not tab or not nid or not text:
         return None, (jsonify({"error": "tab and note {id, text} required"}), 400)
     clean = {"id": nid, "text": text, "created": str(note.get("created") or "")}
+    # The night-crew green-light survives an undo — rebuilding the note without
+    # it would silently unqueue work she'd already lit (routes/nightcrew.py).
+    if note.get("night") is True:
+        clean["night"] = True
     d = load()
     notes = d.setdefault("tabs", {}).setdefault(tab, [])
     if not any(n.get("id") == nid for n in notes):

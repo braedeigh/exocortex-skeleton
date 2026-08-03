@@ -422,3 +422,19 @@
   width: fit-content;
   max-width: calc(100% - var(--space-4) * 2);
 }
+
+/* Night crew: a lit note is queued for tonight. Off is the row's normal muted
+   act colour; on takes the accent so a glance down the list counts the money
+   she's committed. Dev notes only — an idea isn't work. */
+.actNightOn {
+  color: var(--accent);
+}
+
+/* Only appears when she lights a note the gate refuses. Quiet: it's a
+   correction, not an error — she's allowed to tap wrong. */
+.gateNote {
+  margin-top: var(--space-1);
+  font-size: var(--font-size-sm);
+  line-height: 1.4;
+  color: var(--text-muted);
+}

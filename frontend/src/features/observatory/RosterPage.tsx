@@ -12,6 +12,7 @@ import { openedMap, setConversationRead } from './openedStore';
 import { applyFilter, filterCounts, type StateFilter } from './sessionFilters';
 import { SessionDialog, type SessionDraft } from './SessionDialog';
 import { SessionLane } from './SessionLane';
+import { NightCrewLane, type NightRun } from './NightCrewLane';
 import { useTerrain } from '../terrain/api';
 import { NotesPill } from '../todos/NotesPill';
 import { useToasts } from '../journal/useJournalData';
@@ -89,6 +90,13 @@ const FILTERS: {
     onlyWhenPresent: true,
   },
 ];
+
+/** What GET /api/nightcrew hands back (routes/nightcrew.py). */
+interface NightState {
+  runs: NightRun[];
+  queue: { id: string; tab: string; text: string }[];
+  spend: { night_usd: number };
+}
 
 const LANES: { lane: Lane; heading: string; blurb: string }[] = [
   {
@@ -177,6 +185,43 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // The night crew's state. Fetched once on mount and after a dismiss, NOT on
+  // the 5.5s poll: nothing in this room changes while she's looking at it —
+  // the crew ran hours ago and nothing merges without her — so polling it
+  // would be a request per tick to watch a stack that cannot move.
+  const [night, setNight] = useState<NightState | null>(null);
+  const loadNight = () => {
+    fetch('/api/nightcrew')
+      .then((r) => (r.ok ? r.json() : null))
+      .then(setNight)
+      .catch(() => setNight(null));
+  };
+  useEffect(loadNight, []);
+
+  const dismissNightRun = (id: string) => {
+    // Optimistic: the card leaves on the tap. A dismiss that can't fail in any
+    // way she'd care about shouldn't make her wait for a round-trip.
+    setNight((prev) =>
+      prev
+        ? { ...prev, runs: prev.runs.map((r) => (r.id === id ? { ...r, dismissed: true } : r)) }
+        : prev,
+    );
+    fetch(`/api/nightcrew/runs/${id}/dismiss`, { method: 'POST' }).catch(loadNight);
+  };
+
+  /** Merge is NOT optimistic — it writes to her real branch and can legitimately
+   * refuse (dirty tree, conflict), so the card waits for the server and shows
+   * whatever it says. Resolves to an error string, or null when it landed. */
+  const mergeNightRun = (id: string): Promise<string | null> =>
+    fetch(`/api/nightcrew/runs/${id}/merge`, { method: 'POST' })
+      .then((r) => r.json().then((body) => ({ ok: r.ok, body })))
+      .then(({ ok, body }) => {
+        if (!ok || !body?.ok) return body?.error || "Couldn't merge.";
+        loadNight();
+        return null;
+      })
+      .catch(() => "Couldn't reach the server.");
 
   // ONE terrain poll for the whole page, passed down to both lanes — two
   // sections must not mean two pollers on the same endpoint. Live only while
@@ -326,6 +371,17 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
               onClose={onCloseSession}
             />
           ))}
+
+          {/* The third room. Not a lane of sessions — a stack of finished
+              attempts waiting for a verdict, so it renders itself rather than
+              going through SessionLane. */}
+          <NightCrewLane
+            runs={night?.runs ?? []}
+            queued={night?.queue?.length ?? 0}
+            spendUsd={night?.spend?.night_usd ?? 0}
+            onDismiss={dismissNightRun}
+            onMerge={mergeNightRun}
+          />
 
           <div className={styles.laterNote}>
             System agents (triage, research, crons) —{' '}

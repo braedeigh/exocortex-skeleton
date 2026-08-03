@@ -17,6 +17,8 @@ export interface NotesPillNote {
   id: string;
   text: string;
   created: string;
+  /** Green-lit for the night crew (routes/nightcrew.py) — seeds the moon. */
+  night?: boolean;
 }
 
 function notesQueryKey(kind: NotesPillKind, tab: string) {

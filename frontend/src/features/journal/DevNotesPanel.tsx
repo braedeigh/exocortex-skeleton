@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, IconButton, Sheet } from '../../ui';
 import { useDevNoteMutations, useJournalDevNotes } from './useJournalData';
+import { useGreenlight } from '../nightcrew/useGreenlight';
 import styles from './DevNotesPanel.module.css';
 
 export interface DevNotesPanelProps {
@@ -15,6 +16,14 @@ export interface DevNotesPanelProps {
  * listener that mistook a re-render for an outside click) — since this
  * panel's open state lives entirely in JournalPage and mutations only ever
  * invalidate the notes query, that class of bug can't happen here.
+ *
+ * THE MOON BUTTON green-lights a note for the night crew (POST
+ * /api/nightcrew/notes/<id>/greenlight). It sits inline on the row rather than
+ * behind a separate triage page on purpose: a triage page is a threshold, and
+ * thresholds don't get crossed at 11 PM when she's tired. The tap is allowed
+ * to be WRONG — tools/nightcrew/triage.py is the net under it, and when the
+ * net catches one the row says so immediately instead of failing silently
+ * overnight.
  */
 export function DevNotesPanel({ open, onClose, onError }: DevNotesPanelProps) {
   const { data } = useJournalDevNotes();
@@ -24,6 +33,7 @@ export function DevNotesPanel({ open, onClose, onError }: DevNotesPanelProps) {
   const [editDraft, setEditDraft] = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const confirmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const night = useGreenlight(onError);
 
   useEffect(() => {
     if (!open) {
@@ -106,7 +116,17 @@ export function DevNotesPanel({ open, onClose, onError }: DevNotesPanelProps) {
               <div className={styles.itemBody}>
                 <div className={styles.itemText}>{n.text}</div>
                 <div className={styles.itemDate}>{n.created}</div>
+                {night.reasonFor(n.id) ? (
+                  <div className={styles.gateNote}>Night crew won&rsquo;t take this — {night.reasonFor(n.id)}</div>
+                ) : null}
               </div>
+              <IconButton
+                aria-label={night.isOn(n.id, n.night === true) ? 'Remove from tonight' : 'Send to the night crew'}
+                onClick={() => night.toggle(n.id, !night.isOn(n.id, n.night === true))}
+                data-track="dev-note-night"
+              >
+                <span className={night.isOn(n.id, n.night === true) ? styles.nightOn : styles.nightOff}>☾</span>
+              </IconButton>
               <IconButton aria-label="Edit note" onClick={() => startEdit(n.id, n.text)} data-track="dev-note-edit">
                 &#9998;
               </IconButton>

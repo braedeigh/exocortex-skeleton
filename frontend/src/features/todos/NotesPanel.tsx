@@ -3,6 +3,7 @@ import type { KeyboardEvent } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useNotesPillList, useNotesPillMutations, type NotesPillKind } from './useNotesPill';
 import { formatNoteAge, isLongNote, sortNotesByCreated } from './noteHelpers';
+import { useGreenlight } from '../nightcrew/useGreenlight';
 import styles from './NotesPill.module.css';
 
 export interface NotesPanelProps {
@@ -43,6 +44,8 @@ export const NotesPanel = forwardRef<HTMLDivElement, NotesPanelProps>(function N
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  // The moon on each row — only meaningful for dev notes; ideas aren't work.
+  const night = useGreenlight(onError);
   // Maximize + per-note tap-to-expand. Both live here (not lifted to
   // NotesPill) because this component is mounted fresh each time the panel
   // opens — see the class doc above — so they self-reset on close for free.
@@ -212,8 +215,22 @@ export const NotesPanel = forwardRef<HTMLDivElement, NotesPanelProps>(function N
                     <div className={styles.text}>{n.text}</div>
                   )}
                   {n.created ? <div className={styles.date}>{formatNoteAge(n.created)}</div> : null}
+                  {night.reasonFor(n.id) ? (
+                    <div className={styles.gateNote}>Night crew won&rsquo;t take this — {night.reasonFor(n.id)}</div>
+                  ) : null}
                 </div>
                 <div className={styles.acts}>
+                  {kind === 'dev' ? (
+                    <button
+                      type="button"
+                      className={`${styles.act} ${night.isOn(n.id, n.night === true) ? styles.actNightOn : ''}`}
+                      title={night.isOn(n.id, n.night === true) ? 'Remove from tonight' : 'Send to the night crew'}
+                      aria-label={night.isOn(n.id, n.night === true) ? 'Remove from tonight' : 'Send to the night crew'}
+                      onClick={() => night.toggle(n.id, !night.isOn(n.id, n.night === true))}
+                    >
+                      &#9790;
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     className={`${styles.act} ${styles.actX} ${confirmDeleteId === n.id ? styles.actSure : ''}`}

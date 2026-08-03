@@ -1,0 +1,336 @@
+/* Night crew — the Observatory's third room.
+
+   The other lanes are quiet-until-active. This one inverts it: nothing here is
+   ever live, everything is finished and holding for a verdict. So there is no
+   breathing, no pulse, no motion that suggests work in progress — the room is
+   still on purpose, and the only hierarchy is ready vs couldn't.
+
+   Shares the roster's tokens (--space-N, --radius-lg, --font-size-*) so it
+   reads as one surface with the two lanes above it. */
+
+.lane {
+  margin-bottom: var(--space-6);
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-1);
+}
+
+.heading {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* The one number allowed in the heading — the count of cards that want
+   something from her. Everything else is muted. */
+.readyCount {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--accent);
+}
+
+/* Cost lives at the far right, present but quiet: it must never be a surprise
+   at the end of a month, and it must never be the first thing she reads. */
+.spend {
+  margin-left: auto;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.blurb {
+  margin: 0 0 var(--space-3);
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+/* --- the empty room ------------------------------------------------------- */
+
+.idle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-1);
+  color: var(--text-muted);
+  font-size: var(--font-size-md);
+}
+
+.idleDot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text) 22%, transparent);
+}
+
+/* --- the stack ------------------------------------------------------------ */
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.card {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+}
+
+/* Ready is the only state that earns colour — it's the only one asking her for
+   a decision. Failed and parked are information, and information that shouts
+   trains her to stop reading it. */
+.cardReady {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-left-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 4%, var(--card-bg));
+}
+
+.cardFailed {
+  border-left-color: color-mix(in srgb, var(--text) 30%, transparent);
+}
+
+.cardParked {
+  border-left-color: color-mix(in srgb, var(--text) 18%, transparent);
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+}
+
+.dotReady { background: var(--accent); }
+.dotFailed { background: color-mix(in srgb, var(--text) 42%, transparent); }
+.dotParked { background: color-mix(in srgb, var(--text) 24%, transparent); }
+
+.status {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.tab {
+  margin-left: auto;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+/* Her own words, at reading size — she recognises the note before she
+   recognises anything we'd write about it, so this is the card's real title. */
+.noteText {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-md);
+  line-height: 1.45;
+  color: var(--text);
+}
+
+/* --- before / after: the thing she actually reads ------------------------- */
+
+.shots {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.shot {
+  margin: 0;
+}
+
+.shot img {
+  display: block;
+  width: 100%;
+  border-radius: var(--radius-md, 8px);
+  border: 1px solid var(--border);
+}
+
+.shot figcaption {
+  margin-top: var(--space-1);
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* One plain sentence about what beat it. Without this a failed card is a shrug
+   she has to go investigate, which costs more attention than the fix saved. */
+.reason {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md, 8px);
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+/* --- the diff, folded away ------------------------------------------------ */
+
+/* 40px tall per the house rules, and the summary line IS the label — a
+   disclosure that doesn't say what it's hiding just costs a curious tap. */
+.diffToggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 40px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-md, 8px);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.diffToggle:hover {
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+  color: var(--text-secondary);
+}
+
+/* Transform only, eased — the one bit of motion in the room, and it confirms
+   a tap rather than decorating one. */
+.chevron {
+  display: inline-block;
+  transition: transform 180ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.chevron[data-open] {
+  transform: rotate(90deg);
+}
+
+.tail {
+  margin: var(--space-2) 0 var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius-md, 8px);
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+
+/* --- actions -------------------------------------------------------------- */
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.merge,
+.dismiss {
+  min-height: 40px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-md, 8px);
+  font-size: var(--font-size-md);
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 160ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.merge {
+  border: 0;
+  background: var(--accent);
+  color: var(--bg);
+  font-weight: 600;
+}
+
+.merge:hover {
+  background: color-mix(in srgb, var(--accent) 85%, var(--text));
+}
+
+.dismiss {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.dismiss:hover {
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+.cost {
+  margin-left: auto;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Phones: the before/after pair stacks rather than shrinking to two unreadable
+   thumbnails — the screenshots are the whole point of the card. */
+@media (max-width: 560px) {
+  .shots {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* --- merged: the card's retirement state ---------------------------------- */
+/* Once she's taken it, the card stops asking for anything, so it goes quieter
+   than any other state rather than louder — a finished thing shouldn't keep
+   competing for her eye on the way to being cleared. */
+
+.cardMerged {
+  border-left-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  opacity: 0.7;
+}
+
+.dotMerged { background: color-mix(in srgb, var(--accent) 50%, transparent); }
+
+.merged {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--accent);
+}
+
+/* The second tap. Same size and position as Merge so nothing shifts under her
+   thumb — only the wording and the warmth change. */
+.mergeConfirm {
+  min-height: 40px;
+  padding: 0 var(--space-4);
+  border: 0;
+  border-radius: var(--radius-md, 8px);
+  background: var(--orange, #d97706);
+  color: var(--bg);
+  font-size: var(--font-size-md);
+  font-family: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.merge:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* Why it couldn't merge, in her words. Sits above the buttons so she reads the
+   reason before she reaches for the tap again. */
+.mergeError {
+  margin: 0 0 var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md, 8px);
+  background: color-mix(in srgb, var(--orange, #d97706) 10%, transparent);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  color: var(--text-secondary);
+}

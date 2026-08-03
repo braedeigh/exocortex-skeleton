@@ -79,3 +79,29 @@
   justify-content: flex-end;
   margin-top: var(--space-2);
 }
+
+/* --- night crew green-light ------------------------------------------------
+   The moon marks a note as tonight's work. Off is the resting state and stays
+   muted; on takes the accent, because a lit note is a small commitment of
+   money and she should be able to see at a glance how many she's made. */
+
+.nightOff {
+  color: var(--text-muted);
+  font-size: 18px;
+  line-height: 1;
+}
+
+.nightOn {
+  color: var(--accent);
+  font-size: 18px;
+  line-height: 1;
+}
+
+/* Shown only when she lights a note the gate won't take. Quiet — it's a
+   correction, not an error, and she's allowed to tap wrong. */
+.gateNote {
+  margin-top: var(--space-1);
+  font-size: var(--font-size-sm);
+  line-height: 1.4;
+  color: var(--text-muted);
+}

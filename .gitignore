@@ -28,3 +28,8 @@ target/
 CLAUDE.local.md
 node_modules/
 .venv/
+
+# Night crew's transient Playwright helper (tools/nightcrew/shots.py) — written
+# into a worktree's frontend/ during screenshots, unlinked in a finally; the
+# ignore is belt-and-braces so a crashed run can't leave a dirty tree.
+.nightcrew-shot.cjs
