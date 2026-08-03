@@ -239,7 +239,7 @@ def _run_turn_sync(bot_id_dict, text, conv_id, resume_sid, cwd):
         log.write(json.dumps({"type": "user", "text": text,
                               "ts": rr._now(), "journaled": False}) + "\n")
     proc, stderr_f = rr._spawn(bot_id_dict, text, resume_sid, cwd_override=cwd)
-    rr._run_turn(proc, stderr_f, conv_id, log_path, True, resume_sid, queue.Queue())
+    rr._run_turn(proc, stderr_f, conv_id, log_path, resume_sid, queue.Queue())
     return log_path
 
 

@@ -536,7 +536,7 @@ def _thread_tag_for_session(sess):
     return None
 
 
-def _capture_journal(body, typed, tags=None, who="B"):
+def _capture_journal(body, typed, tags=None, who="B", session=None, reply_to=None):
     """Mint a card for one journal turn, at the server, before the text is
     ever typed into tmux -- capture must not depend on a terminal process
     staying alive to see it (the whole reason this exists: the hook's
@@ -550,6 +550,18 @@ def _capture_journal(body, typed, tags=None, who="B"):
     keeper_capture.py/reconcile_transcripts.py's thread-mode minting, at the
     server door instead of the hook/reconciler ones.
 
+    `session` stamps the card with the observatory conversation it was pulled
+    out of, and `reply_to` hangs it under another card. Both are for the
+    highlight-a-span door in observatory.py: the quote card carries the session,
+    and her annotation is a B card replying to the quote.
+
+    RETURNS THE MINTED CARD ID (a truthy string) or None -- the highlight door
+    needs the id to hang her annotation off the quote card. Truthiness is the
+    same as the old True/False, so `if not _capture_journal(...)` still reads
+    correctly -- but ANY CALLER THAT PASSES THE RESULT ON must wrap it in
+    bool(): the terminal send route and the observatory send route both put a
+    `journaled` field on the wire, and that contract is a yes/no, not an id.
+
     Only records the ui_captured dedup hash on SUCCESS. If the mint failed
     here, a live hook minting the same text later is the fallback we want --
     marking it "already captured" would make that fallback dedup itself away.
@@ -557,22 +569,31 @@ def _capture_journal(body, typed, tags=None, who="B"):
     args = ["record", "--who", who]
     if tags:
         args += ["--tags", tags]
+    if session:
+        args += ["--session", session]
+    if reply_to:
+        args += ["--reply-to", reply_to]
     try:
         result = _run_stream(*args, stdin=body)
     except subprocess.TimeoutExpired as e:
         _log_capture_failure(body, repr(e))
-        return False
+        return None
     except Exception as e:
         _log_capture_failure(body, repr(e))
-        return False
+        return None
     if result.returncode != 0:
         _log_capture_failure(body, (result.stderr or "").strip() or "stream.py record failed")
-        return False
+        return None
     if who == "B":
         # The hook-dedup hash is keyed to her typed prompts; a keeper card
         # has no hook fallback to dedup against.
         _note_ui_capture(typed)
-    return True
+    # stream.py echoes the new id as its last stdout line -- same contract
+    # routes/cards.py reads. A mint that somehow printed nothing still counts
+    # as captured, so fall back to a truthy sentinel rather than reporting
+    # failure for a card that exists.
+    lines = [ln.strip() for ln in (result.stdout or "").splitlines() if ln.strip()]
+    return lines[-1] if lines else "?"
 
 
 def _pending_accumulate(sess, typed_now, body_now):
@@ -669,7 +690,11 @@ def register(app):
                     # an empty body is nothing to mint.
                     if full_body.strip() and not full_typed.lstrip().startswith("/"):
                         tag = _thread_tag_for_session(sess) if is_thread else None
-                        journaled = _capture_journal(full_body, full_typed, tags=tag)
+                        # bool(), because _capture_journal answers with the card
+                        # id it minted (the highlight door needs it) and this
+                        # value goes out over the wire as `journaled` — a
+                        # yes/no, not an id.
+                        journaled = bool(_capture_journal(full_body, full_typed, tags=tag))
 
             last_lines = _tmux(f"capture-pane -t {sess} -p -S -15").stdout.strip()
             if any(p.lower() in last_lines.lower() for p in _PROMPT_PATTERNS):
@@ -698,7 +723,7 @@ def register(app):
                 pending_typed, pending_body = _pending_pop(sess)
                 if pending_body.strip() and not pending_typed.lstrip().startswith("/"):
                     tag = _thread_tag_for_session(sess) if is_thread else None
-                    journaled = _capture_journal(pending_body, pending_typed, tags=tag)
+                    journaled = bool(_capture_journal(pending_body, pending_typed, tags=tag))
             _tmux(f"send-keys -t {sess} {key}")
             return jsonify({"ok": True, "journaled": journaled})
         return jsonify({"ok": True})

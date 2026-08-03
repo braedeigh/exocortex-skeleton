@@ -211,6 +211,18 @@ export function journalOutput(convId: string, text: string): Promise<{ ok: true 
   return api.post(`/api/observatory/conversation/${encodeURIComponent(convId)}/journal-output`, { text });
 }
 
+/** Put one highlighted SPAN into the journal — the precise sibling of
+ * journalOutput, which takes a whole reply. `who` is the voice that said the
+ * quoted words ('K' a reply, 'B' her own message); an optional `note` mints as
+ * her own card replying to the quote. `turn`/`start`/`end` are the anchor the
+ * mark comes back lit on (see highlightMarks.ts). Returns the minted card id. */
+export function journalHighlight(
+  convId: string,
+  h: { who: 'B' | 'K'; quote: string; note: string; turn: number; start: number; end: number },
+): Promise<{ ok: true; card: string; note_card: string | null }> {
+  return api.post(`/api/observatory/conversation/${encodeURIComponent(convId)}/journal-highlight`, h);
+}
+
 /** Close (archive) a session — it leaves the roster; its log stays. The
  * pinned Keeper session refuses (400). */
 export function closeConversation(id: string): Promise<{ ok: true }> {
@@ -309,12 +321,20 @@ export function isTurnBusy(err: unknown): boolean {
 }
 
 export interface SendOptions {
+  /** False = off the record, which now means one thing only: this turn is not
+   * minted into the journal. It still lands in the conversation log and reads
+   * back in the chat like anything else she said. */
   record: boolean;
   /** Set only on the resume send fired right after she taps Approve/Deny on a
    * gated command. It rides along so the server logs a visible "✓ Approved:
    * <command>" marker in the transcript instead of a blank off-record gap —
    * the command still never enters her journal. */
   decision?: { kind: 'approve' | 'deny'; command: string };
+  /** Text the app is saying on her behalf, not something she typed (the red
+   * card's resume nudge). This is the only send that still leaves a blank gap
+   * in the transcript — putting the app's words in her mouth would be worse
+   * than the hole. */
+  operator?: boolean;
   signal?: AbortSignal;
 }
 
@@ -339,7 +359,12 @@ export async function streamSend(
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     signal: opts.signal,
-    body: JSON.stringify({ text, record: opts.record, decision: opts.decision }),
+    body: JSON.stringify({
+      text,
+      record: opts.record,
+      decision: opts.decision,
+      operator: opts.operator,
+    }),
   });
   if (!res.ok || !res.body) {
     const data = (await res.json().catch(() => ({}))) as { error?: string };

@@ -1,8 +1,27 @@
-import { memo, useMemo, useRef, type CSSProperties } from 'react';
+import { memo, useLayoutEffect, useMemo, useRef, type CSSProperties, type RefObject } from 'react';
 import { mdToHtml } from '../journal/markdown';
-import { assistantText, type Turn } from './events';
+import { assistantText, type Highlight, type Turn } from './events';
+import { paintMarks, resolveAll } from './highlightMarks';
 import { EMBER_SPREAD_MS, emberDelay, quantizeHeat, tailWords, wordHeat } from './streamPacing';
 import styles from './ObservatoryPage.module.css';
+
+/** Re-light saved highlights inside a rendered block. Runs after layout so the
+ * markdown is on the page to walk, and re-runs whenever the text or the
+ * highlight list changes — the marks are painted into the DOM rather than
+ * rendered by React, so React replacing the innerHTML wipes them and this is
+ * what puts them back. Offsets are measured against `textContent`, which is
+ * exactly what they were counted in when she made the selection. */
+function useHighlightMarks(
+  ref: RefObject<HTMLElement | null>,
+  highlights: Highlight[] | undefined,
+  dep: string,
+) {
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    paintMarks(el, highlights?.length ? resolveAll(el.textContent ?? '', highlights) : [], styles.journalMark);
+  }, [ref, highlights, dep]);
+}
 
 /** One assistant reply, memoized: a closed turn's props never change during
  * streaming, so it skips both the re-render and the markdown re-parse (the
@@ -14,6 +33,7 @@ export const Reply = memo(function Reply({
   open,
   tool,
   journaled,
+  highlights,
   armed,
   onBodyTap,
   onJournalTap,
@@ -24,6 +44,7 @@ export const Reply = memo(function Reply({
   open: boolean;
   tool: string | null;
   journaled: boolean;
+  highlights?: Highlight[];
   armed: boolean;
   onBodyTap: (i: number) => void;
   onJournalTap: (i: number) => void;
@@ -32,11 +53,19 @@ export const Reply = memo(function Reply({
     () => mdToHtml(buffer ? (text ? `${text}\n\n${buffer}` : buffer) : text),
     [text, buffer],
   );
+  const bodyRef = useRef<HTMLDivElement>(null);
+  useHighlightMarks(bodyRef, highlights, html);
   return (
     <div className={styles.reply}>
-      {/* Tap a finished reply to arm the journal pill; tap again to disarm. */}
+      {/* Tap a finished reply to arm the journal pill; tap again to disarm.
+          `data-turn`/`data-who` are how the page's one selection listener works
+          out which turn a highlight landed in, and in whose voice — see
+          ObservatoryPage's selection effect. */}
       <div
+        ref={bodyRef}
         className={styles.replyBody}
+        data-turn={index}
+        data-who="K"
         onClick={() => onBodyTap(index)}
         dangerouslySetInnerHTML={{ __html: html }}
       />
@@ -50,6 +79,46 @@ export const Reply = memo(function Reply({
     </div>
   );
 });
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"]/g, (c) => (
+    c === '&' ? '&amp;' : c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&quot;'
+  ));
+}
+
+/** Her own message — the epigraph above a reply. Its own component now because
+ * highlights have to be painted into it, and painting means splitting text
+ * nodes. React can't be the one holding that text: it tracks the node it
+ * rendered, so a mark that splits the node leaves React's reference pointing at
+ * a fragment, and the next update writes the whole message back into it. So the
+ * text goes in through innerHTML (escaped — it's raw text she typed, and a
+ * message containing `<b>` has to read as `<b>`), which React replaces
+ * wholesale and never reaches inside. Same arrangement the rendered markdown in
+ * `Reply` already has, which is why marks are safe there. */
+export function UserMessage({
+  index,
+  text,
+  offRecord,
+  highlights,
+}: {
+  index: number;
+  text: string;
+  offRecord: boolean;
+  highlights?: Highlight[];
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const html = useMemo(() => escapeHtml(text), [text]);
+  useHighlightMarks(ref, highlights, html);
+  return (
+    <div
+      ref={ref}
+      data-turn={index}
+      data-who="B"
+      className={[styles.userMsg, offRecord ? styles.userOffRecord : ''].filter(Boolean).join(' ')}
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
+}
 
 /** Within one tick's release-batch, successive LETTERS start their fades
  * this far apart — the ember front glides through words instead of hopping

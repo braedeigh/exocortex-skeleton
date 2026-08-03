@@ -160,6 +160,16 @@ class Card:
     kind: str = "line"            # "line" | "context" | "ref"
     refs: List[str] = field(default_factory=list)  # ref targets: "YYYY-MM-DD" or a
                                                      # vault-relative path, e.g. "people/x.md"
+    # Where this card was pulled FROM: an observatory conversation id, when the
+    # card was minted by highlighting a span of that conversation rather than by
+    # the ordinary capture path. Provenance only — nothing selects on it (that's
+    # what tags are for), it just lets the journal offer a way back to the room
+    # the words were said in. Optional everywhere: a card without one is a card
+    # nobody pulled, which is most of them.
+    #
+    # Prompt: "I want to be able to annotate it and I want it to track which
+    # session it came from."
+    session: Optional[str] = None
     body: str = ""
 
 
@@ -210,8 +220,12 @@ def parse_card_text(text: str) -> Card:
         if required not in fields_:
             raise StreamError(f"card missing required field {required!r}")
     reply_to = None if fields_["reply_to"] == "null" else fields_["reply_to"]
-    # `refs` is optional on parse (older cards predate it) — defaults to [].
+    # `refs` and `session` are optional on parse (older cards predate them) —
+    # they default to [] and None. Same forward-compatibility shape both times:
+    # absent means "this card was written before the field existed", which reads
+    # identically to "this card doesn't have one".
     refs = _parse_refs(fields_["refs"]) if "refs" in fields_ else []
+    session = fields_.get("session", "null")
     return Card(
         id=fields_["id"],
         who=fields_["who"],
@@ -220,6 +234,7 @@ def parse_card_text(text: str) -> Card:
         tags=_parse_tags(fields_["tags"]),
         kind=fields_["kind"],
         refs=refs,
+        session=None if session in ("null", "") else session,
         body=body.rstrip("\n"),
     )
 
@@ -239,6 +254,7 @@ def render_card_text(card: Card) -> str:
         f"tags: [{', '.join(card.tags)}]",
         f"kind: {card.kind}",
         f"refs: [{', '.join(card.refs)}]",
+        f"session: {card.session if card.session is not None else 'null'}",
         "---",
     ])
     # Exactly one trailing newline, regardless of how many the body carries.
@@ -375,6 +391,7 @@ def record(
     ts: Optional[datetime] = None,
     kind: str = "line",
     refs: Optional[List[str]] = None,
+    session: Optional[str] = None,
 ) -> str:
     who = (who or "").upper()
     if who not in VALID_WHO:
@@ -401,6 +418,7 @@ def record(
             tags=list(tags or []),
             kind=kind,
             refs=list(refs or []),
+            session=session or None,
             body=body,
         )
         write_card(card)
@@ -1083,6 +1101,7 @@ def _cmd_record(args: argparse.Namespace) -> int:
             ts=ts_dt,
             kind=args.kind,
             refs=refs,
+            session=args.session,
         )
     except StreamError as e:
         print(f"error: {e}", file=sys.stderr)
@@ -1170,6 +1189,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     rec.add_argument("--tags", default=None, help="comma-separated tags, e.g. a,b,c")
     rec.add_argument("--ts", default=None, help="'YYYY-MM-DD HH:MM:SS' (default: now)")
     rec.add_argument("--kind", default="line", choices=VALID_KIND)
+    rec.add_argument(
+        "--session", default=None,
+        help="observatory conversation id this card was pulled out of (provenance)")
     rec.add_argument(
         "--refs", default=None,
         help="comma-separated reference targets (only meaningful for --kind ref), "

@@ -353,6 +353,178 @@
   animation: pillIn 150ms ease-out;
 }
 
+/* --- Highlight-to-journal ------------------------------------------------- */
+/* The finer grain of the same gesture: select any words in the room — hers or
+   the keeper's — and a ✦ pill floats up to keep them, with a note if she wants
+   one. Same ✦, same pill shape and same accent as .journalBtn above, because
+   it's one gesture family at two grains, not two systems.
+   Prompt: "if I highlight something a little tap comes up for me to put that in
+   my journal whether it be keeper output or my output." */
+
+.highlightPill {
+  position: fixed;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-pill);
+  /* Reads over body text rather than a card, so it carries more of the accent
+     than .journalBtn does and a shadow to lift it off the words underneath. */
+  background: color-mix(in srgb, var(--accent) 14%, var(--card-bg));
+  color: var(--accent);
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--shadow-card);
+  backdrop-filter: blur(8px);
+  animation: pillIn 150ms ease-out;
+}
+
+/* The lit span, in the transcript and once kept. A wash and a soft underline
+   rather than a highlighter block: this sits inside running prose she still has
+   to read, so it marks the words without taking them over. */
+.journalMark {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: inherit;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.highlightOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  backdrop-filter: blur(3px);
+  animation: highlightVeilIn 200ms ease-out;
+}
+
+.highlightSheet {
+  width: 100%;
+  max-width: 560px;
+  padding: var(--space-5);
+  padding-bottom: max(var(--space-5), env(safe-area-inset-bottom));
+  border: 1px solid var(--border);
+  /* Bottom sheet on the phone: square where it meets the edge of the screen,
+     rounded where it rises off it. */
+  border-bottom: none;
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  background: var(--card-bg);
+  box-shadow: var(--shadow-card);
+  animation: highlightSheetIn 320ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Off the phone it stops being a sheet and becomes a card, centred — a strip
+   pinned to the bottom edge of a wide window reads as a notification bar. */
+@media (min-width: 640px) {
+  .highlightOverlay {
+    align-items: center;
+  }
+  .highlightSheet {
+    border-bottom: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+  }
+}
+
+/* The words she took. Quiet — she just read them; this is confirmation, not the
+   subject of the sheet. Long selections scroll rather than pushing the note box
+   and the buttons off the screen. */
+.highlightQuote {
+  max-height: 8.5em;
+  overflow-y: auto;
+  margin-bottom: var(--space-4);
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--accent);
+  color: var(--text-secondary);
+  font-size: var(--font-size-md);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.highlightNote {
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: var(--font-size-md);
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.highlightNote:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.highlightError {
+  margin-top: var(--space-2);
+  color: var(--accent);
+  font-size: var(--font-size-sm);
+}
+
+.highlightBtns {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.highlightCancel,
+.highlightKeep {
+  min-height: var(--tap-target);
+  padding: 0 var(--space-5);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.highlightCancel {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.highlightKeep {
+  border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--card-bg));
+  color: var(--accent);
+}
+
+.highlightCancel:disabled,
+.highlightKeep:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+@keyframes highlightVeilIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes highlightSheetIn {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .highlightPill,
+  .highlightOverlay,
+  .highlightSheet {
+    animation: none;
+  }
+}
+
 /* --- Presence: still writing… -------------------------------------------- */
 
 .writing {

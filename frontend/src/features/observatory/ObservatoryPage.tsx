@@ -4,12 +4,14 @@ import { autosizeHeight, uploadedPathsMessage } from '../phone/phoneLogic';
 import { TermNotesPanel } from '../../shell/TermNotesPanel';
 import { SchedulePanel } from '../../shell/SchedulePanel';
 import { TerrainBackdrop } from '../terrain/TerrainBackdrop';
-import { createSession, getConversation, getSessions, journalOutput, stopConversation, streamSend } from './api';
+import { createSession, getConversation, getSessions, journalHighlight, journalOutput, stopConversation, streamSend } from './api';
 import { applyEvent, assistantText, lastUserTurnIndex, turnsFromHistory, userTurn, type Turn } from './events';
+import { HighlightPill, HighlightSheet, PILL_HEIGHT, PILL_WIDTH } from './JournalHighlight';
+import { selectionAnchorPoint, selectionOffsets } from './highlightMarks';
 import { formatSessionSpend, formatWorkingLine } from './turnStats';
 import { isUnread, markConversationOpened } from './openedStore';
 import { useOpenSessionHeartbeat } from './useOpenSessions';
-import { Reply, StreamingReply } from './replyViews';
+import { Reply, StreamingReply, UserMessage } from './replyViews';
 import { useTurnStats } from './useTurnStats';
 import { useWordFlow } from './useWordFlow';
 import { useScrollContract } from './useScrollContract';
@@ -19,6 +21,20 @@ import { usePhotoAttach, AttachChips, DropVeil, UploadOverlay } from './photoAtt
 import { useReattach } from './useReattach';
 import { useKeeperRollover } from './useKeeperRollover';
 import styles from './ObservatoryPage.module.css';
+
+/** A live text selection inside the transcript, ready to become a journal card:
+ * which turn it landed in, whose voice said it, the character range within that
+ * turn's rendered text, the selected text itself, and viewport coordinates for
+ * the ✦ pill. */
+interface PendingHighlight {
+  turn: number;
+  who: 'B' | 'K';
+  start: number;
+  end: number;
+  quote: string;
+  left: number;
+  top: number;
+}
 
 /**
  * The observatory (bot-surface-design §5, Sunflower spec 07-23): not a
@@ -138,6 +154,23 @@ export function ObservatoryPage({
   // Tap-to-journal: which assistant turn is armed (tap → "✦ put this in the
   // journal" appears → tap that to mint the K card).
   const [journalArmed, setJournalArmed] = useState<number | null>(null);
+  // Highlight-to-journal, the finer grain of the same gesture: the live text
+  // selection (which turn, whose voice, the character range, and where to float
+  // the ✦ pill), then the sheet it opens.
+  const [pending, setPending] = useState<PendingHighlight | null>(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [highlightSaving, setHighlightSaving] = useState(false);
+  const [highlightError, setHighlightError] = useState<string | null>(null);
+  // The save runs from a stable callback, so it reads the selection through a
+  // ref — same arrangement as turnsRef/convRef above.
+  const pendingRef = useRef<PendingHighlight | null>(null);
+  pendingRef.current = pending;
+  // The selection listener has to know the sheet is up: once it is, the
+  // selection has done its job and every later click (into the note box, onto
+  // Keep) collapses it — without this guard that collapse would read as "she
+  // deselected" and close the sheet out from under her.
+  const sheetOpenRef = useRef(false);
+  sheetOpenRef.current = sheetOpen;
   // The stop button aborts this fetch AND calls the stop endpoint — the
   // server no longer kills claude just because the stream reader went away
   // (that's the whole PWA-close fix; only /stop kills a turn).
@@ -580,8 +613,104 @@ export function ObservatoryPage({
   const tapReply = useCallback((i: number) => {
     const t = turnsRef.current[i];
     if (!t || t.open || t.journaled || !convRef.current) return;
+    // Finishing a text selection also fires this click. Two journal offers at
+    // once — the whole-reply button and the ✦ pill — is a muddle, and the
+    // narrower one is obviously what she meant, so the selection wins.
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed && sel.toString().trim()) return;
     setJournalArmed((a) => (a === i ? null : i));
   }, []);
+
+  // --- Highlight a span into the journal -----------------------------------
+  // One listener for the whole transcript rather than a handler per turn: what
+  // she selects is a range, and a range doesn't belong to a component. The
+  // `[data-turn]` element it lands inside is what says which turn it was and in
+  // whose voice, and it's also the element the offsets are counted against — so
+  // the same lookup answers both questions.
+  useEffect(() => {
+    function onSelectionEnd() {
+      // A beat, so the browser has finished settling the selection (and, on
+      // touch, finished its own long-press adjustment) before it's measured.
+      window.setTimeout(() => {
+        if (sheetOpenRef.current) return;
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
+          setPending(null);
+          return;
+        }
+        const node = sel.getRangeAt(0).commonAncestorContainer;
+        const el = (node.nodeType === 1 ? (node as Element) : node.parentElement)?.closest('[data-turn]');
+        const host = el as HTMLElement | null;
+        const who = host?.dataset.who;
+        if (!host || (who !== 'B' && who !== 'K')) {
+          setPending(null);
+          return;
+        }
+        const anchor = selectionOffsets(host);
+        const at = selectionAnchorPoint(PILL_WIDTH, PILL_HEIGHT);
+        if (!anchor || !at) {
+          setPending(null);
+          return;
+        }
+        setPending({ turn: Number(host.dataset.turn), who, ...anchor, ...at });
+      }, 10);
+    }
+    // The pill is positioned in viewport coordinates, so it has to be re-aimed
+    // when the text moves under it — otherwise reading a little further down
+    // before deciding to keep something leaves the pill stranded mid-air.
+    function onScroll() {
+      if (!pendingRef.current || sheetOpenRef.current) return;
+      const at = selectionAnchorPoint(PILL_WIDTH, PILL_HEIGHT);
+      if (at) setPending((p) => (p ? { ...p, ...at } : p));
+    }
+    document.addEventListener('mouseup', onSelectionEnd);
+    document.addEventListener('touchend', onSelectionEnd);
+    document.addEventListener('scroll', onScroll, true);
+    return () => {
+      document.removeEventListener('mouseup', onSelectionEnd);
+      document.removeEventListener('touchend', onSelectionEnd);
+      document.removeEventListener('scroll', onScroll, true);
+    };
+  }, []);
+
+  const saveHighlight = useCallback(
+    async (note: string) => {
+      const conv = convRef.current;
+      const p = pendingRef.current;
+      if (!conv || !p) return;
+      setHighlightSaving(true);
+      setHighlightError(null);
+      try {
+        const res = await journalHighlight(conv, {
+          who: p.who,
+          quote: p.quote,
+          note,
+          turn: p.turn,
+          start: p.start,
+          end: p.end,
+        });
+        const t = turnsRef.current[p.turn];
+        if (t) {
+          // A NEW array, not a push: Reply is memoized on its props, and a
+          // mutated-in-place array is the same reference, so the mark would
+          // never get painted until something else forced a render.
+          t.highlights = [
+            ...(t.highlights ?? []),
+            { start: p.start, end: p.end, quote: p.quote, card: res.card },
+          ];
+          setTurns([...turnsRef.current]);
+        }
+        window.getSelection()?.removeAllRanges();
+        setSheetOpen(false);
+        setPending(null);
+      } catch {
+        setHighlightError('Could not put that in the journal.');
+      } finally {
+        setHighlightSaving(false);
+      }
+    },
+    [],
+  );
 
   const journalReply = useCallback(async (i: number) => {
     const conv = convRef.current;
@@ -619,15 +748,13 @@ export function ObservatoryPage({
             turns.map((t, i) => {
               if (t.role === 'user') {
                 return (
-                  <div
+                  <UserMessage
                     key={i}
-                    data-turn={i}
-                    className={[styles.userMsg, t.offRecord ? styles.userOffRecord : '']
-                      .filter(Boolean)
-                      .join(' ')}
-                  >
-                    {t.text}
-                  </div>
+                    index={i}
+                    text={t.text}
+                    offRecord={t.offRecord}
+                    highlights={t.highlights}
+                  />
                 );
               }
               if (t.role === 'gap') {
@@ -682,6 +809,7 @@ export function ObservatoryPage({
                   open={t.open}
                   tool={t.tool}
                   journaled={t.journaled}
+                  highlights={t.highlights}
                   armed={journalArmed === i}
                   onBodyTap={tapReply}
                   onJournalTap={journalReply}
@@ -794,9 +922,13 @@ export function ObservatoryPage({
 
       <div className={[styles.composer, offRecord ? styles.composerOff : ''].filter(Boolean).join(' ')}>
         {sendError ? <div className={styles.sendError}>{sendError}</div> : null}
+        {/* The note has to match the machinery exactly (Terra, 07-23). It used
+            to say "not kept", and that was the whole complaint: the turn really
+            did vanish from her own chat. Now off the record stops at the
+            journal, and the note says so. */}
         {offRecord ? (
           <div className={styles.offNote}>
-            off the record — not journaled, not kept (Claude&rsquo;s transcript still sees this)
+            off the record — stays in this chat, never goes in the journal
           </div>
         ) : null}
         <AttachChips attached={photo.attached} onRemove={photo.remove} />
@@ -917,6 +1049,37 @@ export function ObservatoryPage({
 
       <DropVeil active={photo.dragging} />
       <UploadOverlay upload={photo.upload} />
+
+      {/* The ✦ pill rides the selection; the sheet takes over from it. Both sit
+          outside the scroll container so the pill's fixed position isn't
+          measured against a scrolled parent. */}
+      {pending && !sheetOpen ? (
+        <HighlightPill
+          left={pending.left}
+          top={pending.top}
+          onTap={() => {
+            setHighlightError(null);
+            // Set the ref by hand as well as the state: the mouseup that
+            // follows this mousedown runs its check on a 10ms timer, which can
+            // beat React's re-render, and the check reads the ref.
+            sheetOpenRef.current = true;
+            setSheetOpen(true);
+          }}
+        />
+      ) : null}
+      {pending && sheetOpen ? (
+        <HighlightSheet
+          quote={pending.quote}
+          saving={highlightSaving}
+          error={highlightError}
+          onSave={(note) => void saveHighlight(note)}
+          onCancel={() => {
+            setSheetOpen(false);
+            setPending(null);
+            window.getSelection()?.removeAllRanges();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

@@ -22,9 +22,15 @@ Guarantees carried over from the terminal send door (routes/terminal.py):
   BEFORE the model is called, so a failed model call can never lose a
   journal line. The journal gate is conversation-only now: `entry["journal"]
   is True`, full stop — no bot-level factor.
-- off-the-record turns (record: false) skip BOTH the journal mint and the
-  chat-log append — the log gets only an explicit gap marker. The surface
-  must never promise more privacy than the machinery gives (Terra, 07-23).
+- off-the-record turns (record: false) skip the journal mint — and nothing
+  else. They still appear in her own chat log, flagged `off_record: true`, so
+  scrolling back through a conversation shows what she actually said instead
+  of a row of anonymous holes. "Off the record" means "not in the diary", not
+  "erased from the chat"; the only sends that still leave a bare gap marker
+  are the app's own operator cues (`operator: true` — the red card's "Resume
+  session?"), which she never typed. The surface must never promise more
+  privacy than the machinery gives (Terra, 07-23), so the composer's own note
+  says the same thing.
 
 Headless mode authenticates exactly like interactive Claude Code (the owner's
 subscription login, or an API key on a fresh install) — no separate billing.
@@ -56,6 +62,10 @@ CLAUDE_BIN = os.environ.get("EXOCORTEX_CLAUDE_BIN", "claude")
 
 _BOT_ID_RE = re.compile(r"^[a-z0-9-]{1,30}$")
 _CONV_ID_RE = re.compile(r"^[A-Za-z0-9.\-]{1,60}$")
+# A journal card id, same shape routes/cards.py validates — the highlight door
+# hangs her annotation off the quote card by id, so it checks the parent is a
+# real one before asking stream.py to resolve it.
+_CARD_ID_RE = re.compile(r"^\d{4}-\d{2}-\d{2}\.\d{4}[bk]\d*$")
 
 # LEGACY fallback only: the ~20 existing keeper conversations predate
 # per-conversation config and have no `allowed_tools` field of their own —
@@ -513,12 +523,17 @@ def _stderr_tail(stderr_f):
         return ""
 
 
-def _run_turn(proc, stderr_f, conv_id, log_path, record, resume_sid, live_q):
+def _run_turn(proc, stderr_f, conv_id, log_path, resume_sid, live_q):
     """Own one turn end-to-end, detached from any HTTP connection: relay
     events to the live viewer queue, keep the jsonl log, and persist the
     resume id the moment it exists — so a turn interrupted by anything
     (closed PWA, dropped proxy, worker recycle) is still resumable and its
-    finished text is still in the record."""
+    finished text is still in the record.
+
+    Every reply is logged, including the reply to an off-the-record turn.
+    Journaling is decided at the send door, not here; dropping the reply too
+    meant an off-record aside (or an approve-and-resume) tore a hole in the
+    chat that swallowed the answer as well as the question."""
     session_id = resume_sid
     sid_saved = False
     cost = None
@@ -555,7 +570,7 @@ def _run_turn(proc, stderr_f, conv_id, log_path, record, resume_sid, live_q):
                         cost = event["total_cost_usd"]
                 # Token deltas (stream_event) are transport, not record — the
                 # assistant message events they build carry the same text.
-                if record and event.get("type") != "stream_event":
+                if event.get("type") != "stream_event":
                     log.write(json.dumps(event) + "\n")
                     log.flush()   # the log is what a re-attaching client reads
                 live_q.put(event)
@@ -573,8 +588,7 @@ def _run_turn(proc, stderr_f, conv_id, log_path, record, resume_sid, live_q):
                 err = _stderr_tail(stderr_f)
                 turn_error = err or f"claude exited {proc.returncode}"
                 ev = {"type": "error", "error": turn_error}
-                if record:
-                    log.write(json.dumps(ev) + "\n")
+                log.write(json.dumps(ev) + "\n")
                 live_q.put(ev)
     finally:
         _running_procs.pop(conv_id, None)
@@ -1900,12 +1914,81 @@ def register(app):
             return jsonify({"error": "empty text"}), 400
         if not isinstance(store.read("bot_chats/index", {}).get(conv_id), dict):
             return jsonify({"error": "not found"}), 404
-        if not terminal._capture_journal(text, text, who="K"):
+        if not terminal._capture_journal(text, text, who="K", session=conv_id):
             return jsonify({"error": "journal mint failed"}), 502
         with open(_chats_dir() / f"{conv_id}.jsonl", "a", encoding="utf-8") as log:
             log.write(json.dumps({"type": "journal-mark", "text": text,
                                   "ts": _now()}) + "\n")
         return jsonify({"ok": True})
+
+    @app.route("/api/observatory/conversation/<conv_id>/journal-highlight", methods=["POST"])
+    def bot_journal_highlight(conv_id):
+        """Put a HIGHLIGHTED SPAN into the journal — the fine-grained sibling of
+        journal-output above, which takes a whole reply. She selects text in the
+        room (hers or the keeper's), a pill comes up, and the span lands in the
+        journal with an optional note attached.
+
+        TWO CARDS, not one. The quote mints in the voice that said it (`who`:
+        K for a reply, B for her own message); her note, when she wrote one,
+        mints as a B card REPLYING to the quote. One card holding both would
+        have to pick a single `who`, and a K card carrying her words is a lie
+        about who spoke — the card pool's one invariant. The journal already
+        renders a reply with its parent's snippet in the margin
+        (routes/cards.py `_reply_context`), so the pair reads as what it was.
+
+        Both cards carry `session: <conv_id>` so the journal can offer a way
+        back to the room the words were said in.
+
+        A `journal-highlight` event goes into the session log so the mark comes
+        back lit on reload — same durability trick as journal-mark, and the same
+        reason: the log is the one source both sides read. `turn`/`start`/`end`
+        are the client's anchor (turn index, then character offsets into that
+        turn's rendered text); the server stores them verbatim without
+        interpreting them, and `quote` is what makes a drifted anchor
+        recoverable by eye.
+
+        Prompt: "if I highlight something a little tap comes up for me to put
+        that in my journal whether it be keeper output or my output, and I want
+        to be able to annotate it and I want it to track which session it came
+        from."
+        """
+        if not _CONV_ID_RE.match(conv_id):
+            return jsonify({"error": "invalid conversation id"}), 400
+        data = request.json or {}
+        quote = (data.get("quote") or "").strip()
+        note = (data.get("note") or "").strip()
+        who = data.get("who")
+        if not quote:
+            return jsonify({"error": "empty quote"}), 400
+        if who not in ("B", "K"):
+            return jsonify({"error": "who must be B or K"}), 400
+        turn = data.get("turn")
+        start = data.get("start")
+        end = data.get("end")
+        if not all(isinstance(v, int) for v in (turn, start, end)):
+            return jsonify({"error": "turn, start and end must be integers"}), 400
+        if not isinstance(store.read("bot_chats/index", {}).get(conv_id), dict):
+            return jsonify({"error": "not found"}), 404
+
+        quote_card = terminal._capture_journal(quote, quote, who=who, session=conv_id)
+        if not quote_card:
+            return jsonify({"error": "journal mint failed"}), 502
+        # The note is a bonus, never a gate: if the annotation card fails to
+        # mint, the quote is already safely in the journal and saying so beats
+        # rolling back the thing that worked. `_CARD_ID_RE` guards the parent
+        # link because _capture_journal falls back to a "?" sentinel when
+        # stream.py mints but echoes nothing.
+        note_card = None
+        if note and _CARD_ID_RE.match(quote_card):
+            note_card = terminal._capture_journal(
+                note, note, who="B", session=conv_id, reply_to=quote_card)
+        with open(_chats_dir() / f"{conv_id}.jsonl", "a", encoding="utf-8") as log:
+            log.write(json.dumps({
+                "type": "journal-highlight", "turn": turn, "start": start,
+                "end": end, "quote": quote, "note": note,
+                "card": quote_card, "ts": _now(),
+            }) + "\n")
+        return jsonify({"ok": True, "card": quote_card, "note_card": note_card})
 
     @app.route("/api/observatory/conversation/<conv_id>")
     @app.route("/api/bots/conversation/<conv_id>")
@@ -2057,7 +2140,11 @@ def register(app):
         # command — {kind, command}. Logged as a visible decision line so the
         # transcript names WHICH command she acted on (see the log-write below).
         decision = data.get("decision")
-        return _send_to_conversation(conv_id, text, record, decision=decision)
+        # True only for text the UI fired on her behalf (the red card's resume
+        # cue) — see _send_to_conversation.
+        operator = data.get("operator") is True
+        return _send_to_conversation(conv_id, text, record, decision=decision,
+                                     operator=operator)
 
     @app.route("/api/observatory/<bot_id>/send", methods=["POST"])
     @app.route("/api/bots/<bot_id>/send", methods=["POST"])
@@ -2079,10 +2166,12 @@ def register(app):
         if conv_req is not None and not _CONV_ID_RE.match(str(conv_req)):
             return jsonify({"error": "invalid conversation id"}), 400
         decision = data.get("decision")
+        operator = data.get("operator") is True
         return _send_to_conversation(conv_req, text, record, legacy_bot=bot,
-                                     decision=decision)
+                                     decision=decision, operator=operator)
 
-    def _send_to_conversation(conv_id_req, text, record, legacy_bot=None, decision=None):
+    def _send_to_conversation(conv_id_req, text, record, legacy_bot=None, decision=None,
+                              operator=False):
         """Shared machinery behind both send routes above: one-turn-at-a-time
         gating, capture-first journaling, jsonl logging, the detached
         _run_turn thread, and the SSE relay.
@@ -2090,7 +2179,11 @@ def register(app):
         `legacy_bot` is set only by the legacy per-bot route: it supplies the
         bot id/cwd used ONLY when minting a brand-new entry the old way (no
         conv_id given, or a conv_id that doesn't exist yet). Once an entry
-        exists, its own config always wins — legacy_bot never overrides it."""
+        exists, its own config always wins — legacy_bot never overrides it.
+
+        `record` decides ONE thing: whether this turn goes in the journal.
+        `operator` marks text she didn't type — a cue the UI fired for her —
+        and is the only thing that keeps a turn out of her chat log."""
         if conv_id_req is not None and not _CONV_ID_RE.match(str(conv_id_req)):
             return jsonify({"error": "invalid conversation id"}), 400
 
@@ -2126,6 +2219,14 @@ def register(app):
             entry["last_at"] = _now()
             entry["running"] = True
             entry.pop("stop_requested", None)
+            # Talking to an archived session brings it back. The roster hides
+            # archived entries, so without this a resurrected conversation
+            # would run INVISIBLY — off the list while burning tokens. Sending
+            # IS the un-archive; there's deliberately no separate restore
+            # action to find. (Her ask: "I need a feature to open old chats" —
+            # /atlas already shows archived sessions and navigates into them,
+            # so the only missing half was making them live again on contact.)
+            entry.pop("archived", None)
             # A staged kickoff (from /spinoff or a saved draft) is consumed
             # by the first send that fires it. `autostart` (set by /spinoff so
             # the Observatory auto-fires the kickoff on open) is cleared on the
@@ -2194,7 +2295,9 @@ def register(app):
         # not journal content — same rule as terminal_send().
         journaled = False
         if record and conv_journals and not text.lstrip().startswith("/"):
-            journaled = terminal._capture_journal(text, text)
+            # bool(), not the card id it returns: this goes into the session log
+            # and the SSE conv event as a yes/no.
+            journaled = bool(terminal._capture_journal(text, text))
         elif conv_journals and not text.lstrip().startswith("/"):
             # Off the record — and skipping the mint is not enough on its own.
             # The model still gets the text, so it lands in Claude Code's
@@ -2209,10 +2312,8 @@ def register(app):
 
         log_path = _chats_dir() / f"{conv_id}.jsonl"
         with open(log_path, "a", encoding="utf-8") as log:
-            if record:
-                log.write(json.dumps({"type": "user", "text": text, "ts": _now(),
-                                      "journaled": journaled}) + "\n")
-            elif isinstance(decision, dict) and decision.get("kind") in ("approve", "deny"):
+            if not record and isinstance(decision, dict) \
+                    and decision.get("kind") in ("approve", "deny"):
                 # She tapped Approve/Deny on a gated command. The resume send
                 # stays off the record (never journaled), but instead of a blank
                 # "off the record" gap we log WHICH command she acted on, so the
@@ -2222,8 +2323,26 @@ def register(app):
                                       "decision": decision["kind"],
                                       "command": str(decision.get("command") or ""),
                                       "ts": _now()}) + "\n")
-            else:
+            elif not record and operator:
+                # Text the app said on her behalf — the red card's "Resume
+                # session?" nudge. Showing it would put words in her mouth in
+                # her own transcript, so this one still leaves a gap marker.
                 log.write(json.dumps({"type": "off-record-gap", "ts": _now()}) + "\n")
+            else:
+                # Everything SHE typed lands here, on the record or off it.
+                # Off the record keeps it out of the journal; it was also
+                # dropping it from this log, so scrolling back through a
+                # conversation showed "— off the record —" where her words had
+                # been and she couldn't tell what she'd asked. `off_record`
+                # rides along so the chat can dim it and so the summary
+                # surfaces (roster card, gists) still skip it.
+                # [prompt: "anything I say off the record shouldn't be hidden
+                #  from the chat"]
+                line = {"type": "user", "text": text, "ts": _now(),
+                        "journaled": journaled}
+                if not record:
+                    line["off_record"] = True
+                log.write(json.dumps(line) + "\n")
 
         try:
             proc, stderr_f = _spawn(config, text, resume_sid, cwd_override=config.get("cwd"))
@@ -2244,7 +2363,7 @@ def register(app):
         _running_procs[conv_id] = proc
         threading.Thread(
             target=_run_turn,
-            args=(proc, stderr_f, conv_id, log_path, record, resume_sid, live_q),
+            args=(proc, stderr_f, conv_id, log_path, resume_sid, live_q),
             daemon=True,
         ).start()
 

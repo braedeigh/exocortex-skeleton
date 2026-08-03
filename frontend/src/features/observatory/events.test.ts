@@ -67,6 +67,16 @@ describe('applyEvent', () => {
     expect(turns[0].role).toBe('user');
   });
 
+  it('replays an off-record message as hers, dashed — not as a hole', () => {
+    // The live send already showed it; a reload used to drop back to a bare
+    // gap, so scrolling back she couldn't see what she'd said.
+    const turns: Turn[] = [];
+    applyEvent(turns, { type: 'user', text: 'a private aside', off_record: true });
+    applyEvent(turns, { type: 'user', text: 'and this one counts' });
+    expect(turns.map((t) => t.text)).toEqual(['a private aside', 'and this one counts']);
+    expect(turns.map((t) => t.offRecord)).toEqual([true, false]);
+  });
+
   it('renders gaps and errors as their own turns', () => {
     const turns: Turn[] = [];
     applyEvent(turns, { type: 'off-record-gap', ts: 'x' });

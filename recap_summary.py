@@ -252,7 +252,13 @@ def build_bot_dialogue(lines):
     """Dialogue builder for the observatory's own bot_chats/<conv>.jsonl
     (routes/observatory.py): user turns are {"type":"user","text":...}, assistant
     turns wrap an API-shaped message. Result/gap/system events are plumbing,
-    not conversation -- skipped."""
+    not conversation -- skipped.
+
+    A turn she sent off the record ({"off_record": true}) is skipped too. It
+    lives in her chat log now so the conversation reads back whole, but the
+    things built from this dialogue are summaries shown OUTSIDE the chat --
+    the roster card's blurb, the fronts gists -- and off the record has to
+    mean it doesn't surface there."""
     turns = []
     for line in lines:
         line = line.strip()
@@ -265,6 +271,8 @@ def build_bot_dialogue(lines):
         if not isinstance(obj, dict):
             continue
         if obj.get("type") == "user":
+            if obj.get("off_record"):
+                continue
             text = (obj.get("text") or "").strip()
             if text:
                 turns.append(f"User: {_truncate(text)}")

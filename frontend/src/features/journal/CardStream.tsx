@@ -36,6 +36,10 @@ export interface CardStreamProps {
   counterNames?: ReadonlyMap<string, string>;
   /** Passed through to entry cards' counter chips. */
   onOpenCounter?: (tag: string) => void;
+  /** Session titles by conversation id, for the "pulled from this room" chip. */
+  sessionNames?: ReadonlyMap<string, string>;
+  /** Passed through to entry cards' session chips. */
+  onOpenSession?: (convId: string) => void;
   /** Day counters retired on this day — woven as ⏹ rows, todo-marker style. */
   retirements?: StreakRetirement[];
   addSaving: boolean;
@@ -160,6 +164,8 @@ export function CardStream({
   onOpenThread,
   counterNames,
   onOpenCounter,
+  sessionNames,
+  onOpenSession,
   retirements = [],
   addSaving,
   onComposeSave,
@@ -225,6 +231,8 @@ export function CardStream({
         onOpenThread={onOpenThread}
         counterNames={counterNames}
         onOpenCounter={onOpenCounter}
+        sessionNames={sessionNames}
+        onOpenSession={onOpenSession}
       />
     );
   }

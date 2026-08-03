@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { ToastStack } from '../../ui';
+import { openConversationInPane } from '../../shell/paneConversation';
 import { BlobEditor } from './BlobEditor';
 import { CalendarOverlay } from './CalendarOverlay';
 import type { CalendarMonth } from './calendarMath';
@@ -136,6 +137,27 @@ export function JournalPage() {
     if (!c) return;
     if (c.status === 'active') void navigateTo({ to: '/todos', search: { streak: c.slug } });
     else void navigateTo({ to: '/map' });
+  }
+  // Session titles by conversation id — the "✦ ⟨session⟩" chip on a card she
+  // highlighted out of a conversation (routes/cards.py _session_titles).
+  const sessionInfo = dayQuery.data?.cards.sessions;
+  const sessionNames = useMemo(
+    () => new Map(Object.entries(sessionInfo ?? {})),
+    [sessionInfo],
+  );
+  /** Session chip tap → the room those words were said in. On the desktop
+   * split that means the left pane, which keeps the journal on screen beside
+   * it; everywhere else (phone, no pane mounted) it's the routed observatory
+   * page — same fallback every other caller of openConversationInPane takes. */
+  function openSession(convId: string) {
+    if (openConversationInPane(convId)) return;
+    // 'keeper' is the single engine every routed session lives under today —
+    // the same default TerrainPage falls back to when it can't resolve a bot.
+    void navigateTo({
+      to: '/observatory/$botId',
+      params: { botId: 'keeper' },
+      search: { conv: convId },
+    });
   }
   const journalDates = useMemo(() => new Set(datesQuery.data?.dates ?? []), [datesQuery.data]);
 
@@ -408,6 +430,8 @@ export function JournalPage() {
                 onOpenThread={(slug) => void navigateTo({ to: '/threads/$slug', params: { slug } })}
                 counterNames={counterNames}
                 onOpenCounter={openCounter}
+                sessionNames={sessionNames}
+                onOpenSession={openSession}
                 retirements={dayQuery.data?.cards.retirements ?? []}
                 addSaving={addCard.isPending}
                 onComposeSave={async (body) => {

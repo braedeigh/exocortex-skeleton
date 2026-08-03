@@ -235,6 +235,18 @@ def test_build_bot_dialogue_reads_the_bot_chat_log_format():
     assert dialogue == "User: hi keeper\nAssistant: hello there"
 
 
+def test_build_bot_dialogue_skips_off_record_turns():
+    # An off-the-record turn is kept in her chat log now (so the conversation
+    # reads back whole), but everything built from this dialogue is a summary
+    # shown OUTSIDE the chat — the roster card blurb, the fronts gists. Off
+    # the record has to mean it doesn't surface there.
+    lines = [
+        json.dumps({"type": "user", "text": "on the record"}),
+        json.dumps({"type": "user", "text": "a private aside", "off_record": True}),
+    ]
+    assert recap_summary.build_bot_dialogue(lines) == "User: on the record"
+
+
 def test_bot_dialogue_flows_through_get_summary(tmp_path, monkeypatch, inline_spawn):
     fake = fake_claude("Chatting with the keeper.")
     monkeypatch.setattr(recap_summary, "_run_claude", fake)

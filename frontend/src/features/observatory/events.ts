@@ -7,18 +7,30 @@
  * can't drift apart.
  *
  * Event shapes handled (everything else is ignored on purpose):
- * - {type:'user', text}                        her message (history only —
+ * - {type:'user', text, off_record?}           her message (history only —
  *                                              the live sender pushes it
- *                                              locally via userTurn())
+ *                                              locally via userTurn()).
+ *                                              off_record: said with the
+ *                                              journal paused — shown here
+ *                                              like anything else she said,
+ *                                              just dashed
  * - {type:'decision', decision, command}       a gated command she approved or
  *                                              denied — shown with the command
- * - {type:'off-record-gap'}                    deliberate hole in the record
+ * - {type:'off-record-gap'}                    a cue the app fired for her (a
+ *                                              red card's resume nudge), plus
+ *                                              every off-record turn logged
+ *                                              before her words started being
+ *                                              kept — still rendered as a hole
  * - {type:'stream_event', event}               token deltas / tool activity
  * - {type:'assistant', message}                authoritative message text
  * - {type:'user', message}                     claude's tool-result echo — not
  *                                              her; ignored
  * - {type:'result'} / {type:'done'}            turn closes
  * - {type:'error', error}                      surfaced as its own turn
+ * - {type:'journal-mark', text}                a whole reply she tapped into
+ *                                              the journal — matched by text
+ * - {type:'journal-highlight', turn,start,end} a span she highlighted into the
+ *                                              journal — matched by turn index
  */
 
 export interface Turn {
@@ -30,7 +42,8 @@ export interface Turn {
   buffer: string;
   /** assistant only: still streaming. */
   open: boolean;
-  /** user only: sent off the record (rendered dashed, never persisted). */
+  /** user only: sent with the journal paused — kept in the chat log and
+   * rendered dashed, but never minted into the journal. */
   offRecord: boolean;
   /** assistant only: current tool activity label ("reading files…"). */
   tool: string | null;
@@ -38,6 +51,19 @@ export interface Turn {
   journaled: boolean;
   /** decision only: which way she called the gated command. */
   decision?: 'approve' | 'deny';
+  /** Spans of this turn she highlighted into the journal. Offsets are into the
+   * turn's RENDERED text (what `textContent` reads), not its markdown source —
+   * the selection that made them was a DOM selection, and re-lighting them is a
+   * DOM walk (highlightMarks.ts). `quote` is what recovers the span when the
+   * offsets drift; `card` is the journal card it minted. */
+  highlights?: Highlight[];
+}
+
+export interface Highlight {
+  start: number;
+  end: number;
+  quote: string;
+  card: string;
 }
 
 function turn(role: Turn['role'], text = ''): Turn {
@@ -98,7 +124,9 @@ export function applyEvent(turns: Turn[], raw: unknown): Turn[] {
   switch (e.type) {
     case 'user': {
       if (typeof e.text === 'string') {
-        turns.push(userTurn(e.text, false));
+        // History replay carries the off-record flag through, so a reload
+        // shows the same dashed message the live send put on screen.
+        turns.push(userTurn(e.text, e.off_record === true));
       }
       // {type:'user', message} is claude echoing a tool result — ignored
       return turns;
@@ -173,6 +201,30 @@ export function applyEvent(turns: Turn[], raw: unknown): Turn[] {
           }
         }
       }
+      return turns;
+    }
+    case 'journal-highlight': {
+      // A span she highlighted into the journal. Addressed by TURN INDEX, not
+      // by text: history replays the same events in the same order, so the
+      // index the client anchored on is the index it rebuilds to. A mark whose
+      // turn has since gone (a log edited by hand) is dropped rather than
+      // guessed at — a highlight lit on the wrong words would be worse than a
+      // highlight that isn't lit.
+      const i = e.turn;
+      const start = e.start;
+      const end = e.end;
+      if (typeof i !== 'number' || typeof start !== 'number' || typeof end !== 'number') return turns;
+      const t = turns[i];
+      if (!t) return turns;
+      t.highlights = [
+        ...(t.highlights ?? []),
+        {
+          start,
+          end,
+          quote: typeof e.quote === 'string' ? e.quote : '',
+          card: typeof e.card === 'string' ? e.card : '',
+        },
+      ];
       return turns;
     }
     default:

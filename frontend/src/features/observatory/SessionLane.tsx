@@ -135,8 +135,10 @@ export function SessionLane({
   const RESUME_CUE =
     'That turn ended in an error. Check what state things are actually in before continuing.';
 
-  // Tap "Resume session?" on a red card. Off the record: this is operator
-  // control, not something she said — the same class as a slash command.
+  // Tap "Resume session?" on a red card. Off the record AND operator: this is
+  // control the app speaks on her behalf, not something she said — the same
+  // class as a slash command. `operator` is what keeps the cue itself out of
+  // the transcript (a plain off-record send is hers, and hers is kept now).
   // Routed through resumeAfterDecision because the conversation may still be
   // winding down, and a 409 there means "not yet", not "no".
   //
@@ -145,7 +147,9 @@ export function SessionLane({
   // cleared card back. One source of truth for the flag, which is the server.
   const doResume = (id: string) => {
     setResuming((r) => ({ ...r, [id]: 'sending' }));
-    resumeAfterDecision(() => streamSend(id, RESUME_CUE, { record: false }, () => {}))
+    resumeAfterDecision(() =>
+      streamSend(id, RESUME_CUE, { record: false, operator: true }, () => {}),
+    )
       .then(() => {
         setResuming((r) => {
           const next = { ...r };

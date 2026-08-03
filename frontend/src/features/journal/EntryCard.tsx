@@ -29,6 +29,11 @@ export interface EntryCardProps {
   counterNames?: ReadonlyMap<string, string>;
   /** Tapped on a counter chip — jumps to the counter's home. */
   onOpenCounter?: (tag: string) => void;
+  /** Session titles keyed by conversation id — a card highlighted out of a
+   * conversation earns a chip back to the room it was said in. */
+  sessionNames?: ReadonlyMap<string, string>;
+  /** Tapped on a session chip — opens that conversation. */
+  onOpenSession?: (convId: string) => void;
 }
 
 /** "8:46 AM" from "YYYY-MM-DD HH:MM:SS" — string ops only, no Date/timezone games. */
@@ -70,6 +75,8 @@ export function EntryCard({
   onOpenThread,
   counterNames,
   onOpenCounter,
+  sessionNames,
+  onOpenSession,
 }: EntryCardProps) {
   const [draft, setDraft] = useState(card.body);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -130,6 +137,20 @@ export function EntryCard({
               &#x23F1; {counterNames!.get(t)}
             </button>
           ))}
+        {/* Where this card was pulled from — a span she highlighted in a
+            conversation carries the room it was said in, and the chip opens it
+            back up. Same shape as its thread and counter siblings; the ✦ is the
+            same mark the highlight gesture uses in the observatory. */}
+        {card.session && sessionNames?.has(card.session) ? (
+          <button
+            type="button"
+            className={styles.threadChip}
+            onClick={() => onOpenSession?.(card.session!)}
+            data-track="card-session-chip"
+          >
+            &#10022; {sessionNames.get(card.session)}
+          </button>
+        ) : null}
         <span className={styles.spacer} />
         {!editing ? (
           <IconButton aria-label="Edit entry" onClick={() => onEdit(card.id)} data-track="card-edit">

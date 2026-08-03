@@ -68,6 +68,9 @@ def _card_dict(meta, body, fallback_id=None):
     refs = meta.get("refs", [])
     if not isinstance(refs, list):
         refs = [refs] if refs else []
+    session = meta.get("session")
+    if session in (None, "null", ""):
+        session = None
     return {
         "id": meta.get("id") or fallback_id,
         "who": meta.get("who", ""),
@@ -76,6 +79,9 @@ def _card_dict(meta, body, fallback_id=None):
         "tags": tags,
         "kind": meta.get("kind", ""),
         "refs": refs,
+        # The observatory conversation this card was highlighted out of, when
+        # it came from there. Most cards have none.
+        "session": session,
         "body": body.strip("\n"),
     }
 
@@ -184,6 +190,28 @@ def _insert_ts(date, position, day_cards, now=None):
     return ts.strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _session_titles(day_cards):
+    """Conversation id -> title, for just the sessions this day's cards were
+    highlighted out of. The journal wears these as a "from ⟨title⟩" chip that
+    opens the room back up, so a pulled quote never loses where it was said.
+
+    Titles come from the observatory's own index; a session that's since been
+    deleted resolves to nothing and the card simply shows no chip — provenance
+    is a courtesy, not something worth failing a day's render over."""
+    ids = {c["session"] for c in day_cards if c.get("session")}
+    if not ids:
+        return {}
+    index = store.read("bot_chats/index", {})
+    if not isinstance(index, dict):
+        return {}
+    out = {}
+    for cid in ids:
+        meta = index.get(cid)
+        if isinstance(meta, dict):
+            out[cid] = meta.get("title") or cid
+    return out
+
+
 def _counter_tags():
     """Day-counter tag -> chip info, the counter sibling of the journal's
     thread-name map: a card tagged `counter-<slug>` (a counter's note cell,
@@ -216,6 +244,9 @@ def register(app):
             "editable": date >= CARDS_CUTOVER,
             "cards": day_cards,
             "counters": _counter_tags(),
+            # Titles for the sessions this day's cards were pulled out of —
+            # what the "from ⟨…⟩" chip says.
+            "sessions": _session_titles(day_cards),
             # Day counters retired on this day — the web view weaves these ⏹
             # rows between entries, same as the rendered markdown does.
             "retirements": retirements_for(date),

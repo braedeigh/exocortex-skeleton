@@ -80,6 +80,49 @@ class RecordRoundTripTests(StreamTestCase):
         self.assertNotEqual(result.returncode, 0)
 
 
+class SessionProvenanceTests(StreamTestCase):
+    """`session` is the conversation a card was highlighted out of. It has to
+    survive a write/read round trip, stay absent by default, and — the part that
+    matters for the ~1200 cards already on disk — parse fine on cards written
+    before the field existed."""
+
+    def test_session_round_trips(self):
+        cid = stream.record(
+            who="K", body="something the keeper said", session="2026-08-01.143012",
+        )
+        self.assertEqual(stream.read_card(cid).session, "2026-08-01.143012")
+
+    def test_session_defaults_to_none(self):
+        cid = stream.record(who="B", body="an ordinary captured line")
+        self.assertIsNone(stream.read_card(cid).session)
+
+    def test_card_written_before_the_field_existed_still_parses(self):
+        card = stream.parse_card_text(
+            "---\n"
+            "id: 2026-07-06.0843b\n"
+            "who: B\n"
+            "ts: 2026-07-06 08:43:12\n"
+            "reply_to: null\n"
+            "tags: []\n"
+            "kind: line\n"
+            "---\n"
+            "an old card, no refs and no session\n"
+        )
+        self.assertIsNone(card.session)
+        self.assertEqual(card.refs, [])
+
+    def test_cli_passes_session_through(self):
+        result = subprocess.run(
+            [sys.executable, STREAM_PY, "record", "--who", "K",
+             "--session", "2026-08-01.143012"],
+            input="pulled from a room", capture_output=True, text=True,
+            env=dict(os.environ),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        cid = result.stdout.strip().splitlines()[-1]
+        self.assertEqual(stream.read_card(cid).session, "2026-08-01.143012")
+
+
 class IdCollisionTests(StreamTestCase):
     def test_same_minute_same_speaker_gets_counter(self):
         ts = datetime(2026, 7, 6, 8, 43, 0)

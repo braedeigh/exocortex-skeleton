@@ -236,7 +236,7 @@ def _run_orientation(conv_id):
     # Synchronous: a cron one-shot has nothing to detach to. _run_turn drains
     # its own events into a throwaway queue and persists session id/cost/running
     # to the index when the turn ends.
-    rr._run_turn(proc, stderr_f, conv_id, log_path, True, None, queue.Queue())
+    rr._run_turn(proc, stderr_f, conv_id, log_path, None, queue.Queue())
 
 
 def main():

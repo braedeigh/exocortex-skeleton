@@ -40,6 +40,14 @@ export interface Card {
    * responses — only the day GET enriches.
    */
   reply_context?: { id: string; date: string; snippet: string } | null;
+  /**
+   * The observatory conversation this card was highlighted out of (stream.py's
+   * `session` frontmatter field), or null/absent for the vast majority of cards
+   * — the ones that came in through ordinary capture. Its title comes back
+   * separately in `CardsResponse.sessions`, and together they're the "from
+   * ⟨session⟩" chip that opens the room back up.
+   */
+  session?: string | null;
 }
 
 export interface CardsResponse {
@@ -53,6 +61,12 @@ export interface CardsResponse {
    * active, the Life Map's Retired card once retired.
    */
   counters?: Record<string, { label: string; slug: string; status: 'active' | 'retired' }>;
+  /**
+   * Conversation id -> title, for the sessions this day's cards were
+   * highlighted out of (routes/cards.py _session_titles). A card whose session
+   * has since been deleted simply isn't in here and shows no chip.
+   */
+  sessions?: Record<string, string>;
   /**
    * Day counters retired on this day (routes/streaks.py retirements_for) —
    * the web weave of the rendered markdown's "⏹ retired day count" lines.
@@ -283,6 +297,8 @@ export interface DevNote {
   id: string;
   text: string;
   created: string;
+  /** Green-lit for the night crew (routes/nightcrew.py) — seeds the moon. */
+  night?: boolean;
 }
 
 export interface DevNotesResponse {

@@ -4,10 +4,13 @@ Contracts pinned here:
 - a send relays the claude stream-json events as SSE AND appends them to the
   owner's own conversation log (her record is the record);
 - capture-first: a journaling bot mints the B card BEFORE claude is spawned;
-- off-the-record (record: false) skips BOTH the journal mint and the log —
-  the log gets only an explicit gap marker (Terra's amendment, 07-23) — and, in
-  a journaling session, leaves a hash in .keeper/off_record.jsonl so the two
-  fallback capture doors don't "restore" the card the server skipped on purpose;
+- off-the-record (record: false) skips the journal mint and NOTHING else: her
+  words and the reply still go in her own chat log, flagged off_record, because
+  a hole she can't read back was never the point (Terra's amendment, 07-23,
+  amended again). Only an `operator: true` send — a cue the app fires on her
+  behalf — still leaves a bare gap marker. In a journaling session an off-record
+  turn also leaves a hash in .keeper/off_record.jsonl so the two fallback
+  capture doors don't "restore" the card the server skipped on purpose;
 - the second turn of a conversation resumes claude with the stored session id.
 
 `claude` itself is a stub script (EXOCORTEX_CLAUDE_BIN / observatory.CLAUDE_BIN)
@@ -58,16 +61,28 @@ def bot_client(data_dir, tmp_path, monkeypatch):
     # kick off a real background Haiku call.
     monkeypatch.setattr(recap_summary, "_spawn", lambda fn: None)
 
+    # The journal mint is recorded, not run. `mints` keeps the (who, body) pairs
+    # most tests assert on; `mint_calls` keeps the full kwargs for the ones that
+    # care about provenance (session) or the parent link (reply_to). The fake
+    # returns a card id rather than True because the highlight door hangs her
+    # annotation off the quote card by id — a bool would lose that.
     mints = []
-    monkeypatch.setattr(terminal, "_capture_journal",
-                        lambda body, typed, tags=None, who="B":
-                        mints.append((who, body)) or True)
+    mint_calls = []
+
+    def _fake_mint(body, typed, tags=None, who="B", session=None, reply_to=None):
+        mints.append((who, body))
+        mint_calls.append({"who": who, "body": body, "tags": tags,
+                           "session": session, "reply_to": reply_to})
+        return f"2026-08-01.120{len(mint_calls)}{who.lower()}"
+
+    monkeypatch.setattr(terminal, "_capture_journal", _fake_mint)
 
     app = Flask(__name__)
     app.config.update(TESTING=True)
     observatory.register(app)
     client = app.test_client()
     client._mints = mints
+    client._mint_calls = mint_calls
     client._argv_log = argv_log
     before = set(threading.enumerate())
     yield client
@@ -158,7 +173,7 @@ def test_fresh_sessions_do_not_journal_by_default(bot_client):
     assert bot_client._mints == []
 
 
-def test_off_record_skips_journal_and_log(bot_client):
+def test_off_record_skips_the_journal_but_stays_in_her_chat(bot_client):
     conv_id = _journal_conv(bot_client)
     resp = _send(bot_client, text="when did i last...", record=False,
                  conversation_id=conv_id)
@@ -166,10 +181,36 @@ def test_off_record_skips_journal_and_log(bot_client):
     conv_id = events[0]["conversation_id"]
     # streams to the screen normally...
     assert any(e["type"] == "assistant" for e in events)
-    # ...but mints nothing and persists nothing except the deliberate gap
+    # ...mints nothing...
+    assert bot_client._mints == []
+    # ...but the conversation reads back whole: her line, flagged, and the
+    # reply to it. Dropping both is what left her scrolling past holes.
+    log = _conv_log(conv_id)
+    assert log[0]["type"] == "user" and log[0]["text"] == "when did i last..."
+    assert log[0]["off_record"] is True
+    assert log[0]["journaled"] is False
+    assert [e["type"] for e in log[1:]] == ["system", "assistant", "result"]
+
+
+def test_on_record_send_carries_no_off_record_flag(bot_client):
+    conv_id = _journal_conv(bot_client)
+    resp = _send(bot_client, text="a journal line", conversation_id=conv_id)
+    conv_id = _sse_events(resp)[0]["conversation_id"]
+    assert "off_record" not in _conv_log(conv_id)[0]
+
+
+def test_an_operator_cue_still_leaves_a_bare_gap(bot_client):
+    # The red card's "Resume session?" nudge is the app talking, not her —
+    # showing it would put words in her mouth in her own transcript.
+    conv_id = _journal_conv(bot_client)
+    resp = _send(bot_client, text="That turn ended in an error.", record=False,
+                 operator=True, conversation_id=conv_id)
+    conv_id = _sse_events(resp)[0]["conversation_id"]
     assert bot_client._mints == []
     log = _conv_log(conv_id)
-    assert [e["type"] for e in log] == ["off-record-gap"]
+    assert log[0]["type"] == "off-record-gap"
+    # the reply to it is still kept — only the cue is hidden
+    assert [e["type"] for e in log[1:]] == ["system", "assistant", "result"]
 
 
 def test_off_record_leaves_a_suppression_breadcrumb_for_the_fallback_doors(bot_client):
@@ -216,9 +257,11 @@ def test_approval_resume_logs_the_command_not_a_blank_gap(bot_client):
     conv_id = _sse_events(resp)[0]["conversation_id"]
     assert bot_client._mints == []  # still never journaled
     log = _conv_log(conv_id)
-    assert [e["type"] for e in log] == ["decision"]
+    assert log[0]["type"] == "decision"
     assert log[0]["decision"] == "approve"
     assert log[0]["command"] == "git commit -m hi"
+    # and what the agent did once she approved is in the transcript too
+    assert [e["type"] for e in log[1:]] == ["system", "assistant", "result"]
 
 
 def test_slash_commands_do_not_journal(bot_client):
@@ -356,6 +399,24 @@ def test_roster_orders_by_creation_not_activity(bot_client):
     convs = bot_client.get("/api/observatory").get_json()["bots"][0]["conversations"]
     ids = [c["id"] for c in convs]
     assert ids.index(newer) < ids.index(older)
+
+
+def test_sending_into_an_archived_session_brings_it_back(bot_client):
+    # Her ask: "I need a feature to open old chats." /atlas already lists
+    # archived sessions and navigates into them, so the missing half was
+    # making one live again — talking to it IS the un-archive, with no
+    # separate restore action to hunt for.
+    conv_id = _sse_events(_send(bot_client, text="first turn"))[0]["conversation_id"]
+    with store.mutate("bot_chats/index", {}) as index:
+        index[conv_id]["archived"] = "2026-08-02T05:00:01"
+    roster = bot_client.get("/api/observatory").get_json()["sessions"]
+    assert not any(c["id"] == conv_id for c in roster)
+
+    _sse_events(_send(bot_client, text="you awake?", conversation_id=conv_id))
+
+    assert "archived" not in store.read("bot_chats/index", {})[conv_id]
+    roster = bot_client.get("/api/observatory").get_json()["sessions"]
+    assert any(c["id"] == conv_id for c in roster)
 
 
 def test_roster_clears_a_running_flag_orphaned_by_a_dead_worker(bot_client):
@@ -526,6 +587,75 @@ def test_tap_journal_validates_conv_and_text(bot_client):
     assert bot_client.post(f"/api/observatory/conversation/{conv_id}/journal-output",
                            json={"text": "  "}).status_code == 400
     assert bot_client._mints == []
+
+
+def _highlight(client, conv_id, **body):
+    body.setdefault("who", "K")
+    body.setdefault("quote", "echo: hello")
+    body.setdefault("turn", 1)
+    body.setdefault("start", 0)
+    body.setdefault("end", 11)
+    return client.post(
+        f"/api/observatory/conversation/{conv_id}/journal-highlight", json=body)
+
+
+def test_highlight_mints_the_quote_in_the_voice_that_said_it(bot_client):
+    conv_id = _sse_events(_send(bot_client, text="hello"))[0]["conversation_id"]
+    assert _highlight(bot_client, conv_id).status_code == 200
+    # One card, the keeper's voice, stamped with the room it came out of.
+    assert bot_client._mint_calls == [
+        {"who": "K", "body": "echo: hello", "tags": None,
+         "session": conv_id, "reply_to": None},
+    ]
+
+
+def test_highlight_of_her_own_message_mints_a_b_card(bot_client):
+    conv_id = _sse_events(_send(bot_client, text="hello"))[0]["conversation_id"]
+    _highlight(bot_client, conv_id, who="B", quote="hello", turn=0)
+    assert bot_client._mint_calls[-1]["who"] == "B"
+
+
+def test_a_note_becomes_her_own_card_replying_to_the_quote(bot_client):
+    conv_id = _sse_events(_send(bot_client, text="hello"))[0]["conversation_id"]
+    resp = _highlight(bot_client, conv_id, note="this is the bit that matters")
+    body = resp.get_json()
+    quote_call, note_call = bot_client._mint_calls
+    # The quote keeps the keeper's voice; the note is hers and hangs under it.
+    assert quote_call["who"] == "K" and quote_call["reply_to"] is None
+    assert note_call["who"] == "B"
+    assert note_call["body"] == "this is the bit that matters"
+    assert note_call["reply_to"] == body["card"]
+    # Both carry the session, so either card can lead back to the room.
+    assert note_call["session"] == conv_id
+
+
+def test_highlight_without_a_note_mints_only_the_quote(bot_client):
+    conv_id = _sse_events(_send(bot_client, text="hello"))[0]["conversation_id"]
+    _highlight(bot_client, conv_id, note="   ")
+    assert len(bot_client._mint_calls) == 1
+
+
+def test_highlight_anchor_lands_in_the_log_so_the_mark_survives_reload(bot_client):
+    conv_id = _sse_events(_send(bot_client, text="hello"))[0]["conversation_id"]
+    resp = _highlight(bot_client, conv_id, turn=3, start=5, end=9, quote="o: h")
+    mark = _conv_log(conv_id)[-1]
+    assert mark["type"] == "journal-highlight"
+    assert (mark["turn"], mark["start"], mark["end"]) == (3, 5, 9)
+    assert mark["quote"] == "o: h"
+    # The logged card id is the one the client got back — that pairing is what
+    # lets a re-lit mark link through to the journal card it made.
+    assert mark["card"] == resp.get_json()["card"]
+
+
+def test_highlight_validates_its_inputs(bot_client):
+    conv_id = _sse_events(_send(bot_client, text="hello"))[0]["conversation_id"]
+    # Unknown conversation.
+    assert _highlight(bot_client, "2020-01-01.000000").status_code == 404
+    # Empty quote, unknown speaker, and a non-integer anchor are all refusals.
+    assert _highlight(bot_client, conv_id, quote="   ").status_code == 400
+    assert _highlight(bot_client, conv_id, who="X").status_code == 400
+    assert _highlight(bot_client, conv_id, start="0").status_code == 400
+    assert bot_client._mint_calls == []
 
 
 def test_close_hides_the_session_but_deletes_nothing(bot_client):
