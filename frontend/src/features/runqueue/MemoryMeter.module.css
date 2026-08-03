@@ -1,0 +1,125 @@
+/* MemoryMeter.module.css — the hairline under the Observatory title.
+   A heartbeat, not a dashboard: 3px of line, no numbers, and colour only when
+   something's actually wrong. Teal (--ongoing) because that's already what
+   system capacity means here (the research HealthPill established it). */
+
+/* The tappable strip. The LINE is 3px; the target around it is a full tap
+   target, so the house rule holds without the line getting fat. */
+.strip {
+  display: block;
+  width: 100%;
+  padding: var(--space-2) 0;
+  min-height: var(--tap-target, 40px);
+  border: 0;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.track {
+  position: relative;
+  width: 100%;
+  height: 3px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--text-muted) 22%, transparent);
+  overflow: visible;
+}
+
+/* How full the box is. Transform-driven, not width — it's the property that
+   stays smooth on her phone. */
+.fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 2px;
+  transform-origin: left center;
+  background: var(--ongoing);
+  transition: transform 320ms cubic-bezier(0.32, 0.72, 0, 1), background-color 320ms ease;
+}
+
+/* The floor — memory kept back for the site. A mark, not a segment: at 3px
+   three segments are mud, so the reserve is where the fill shouldn't reach
+   rather than a band of its own. */
+.tick {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 1px;
+  background: color-mix(in srgb, var(--text-muted) 55%, transparent);
+}
+
+/* Tones. Calm is the resting state and says nothing; the rest earn their
+   colour by being true. */
+.calm .fill {
+  background: var(--ongoing);
+}
+
+.tight .fill {
+  background: var(--morning);
+}
+
+.critical .fill {
+  background: var(--danger, #c0554d);
+}
+
+.paused .fill {
+  background: color-mix(in srgb, var(--text-muted) 60%, transparent);
+}
+
+/* The line under a quiet box sits back; anything else steps forward. Opacity
+   is the whole mechanism — no size change, so the header never reflows. */
+.calm .track {
+  opacity: 0.55;
+}
+
+.strip:hover .track {
+  opacity: 1;
+}
+
+/* The word only appears when there's something to say. On a calm box this
+   row doesn't render at all. */
+.note {
+  margin-top: var(--space-1);
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.noteLoud {
+  color: var(--text-secondary);
+}
+
+/* --- the expansion: numbers are allowed HERE, because she opened it --- */
+
+.detail {
+  margin-top: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card-bg);
+}
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  min-height: 28px;
+  align-items: center;
+}
+
+.rowKey {
+  color: var(--text-muted);
+}
+
+.rowVal {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fill {
+    transition: none;
+  }
+}
