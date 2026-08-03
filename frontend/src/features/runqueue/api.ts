@@ -73,17 +73,47 @@ export type SessionMemory = Record<string, number>;
  * roster's own poll on purpose — the server already rounds to the nearest
  * 10MB, and a faster refresh would only add twitch, not information.
  */
-export function useSessionMemory() {
+export function useSessionMemory(live = false) {
   return useQuery({
     queryKey: ['runqueue', 'session-memory'],
     queryFn: async (): Promise<SessionMemory> => {
       const body = await api.get<{ sessions: SessionMemory }>('/api/runqueue/session-memory');
       return body.sessions ?? {};
     },
-    refetchInterval: 6000,
-    // A failed read means "we don't know", which renders as no chip at all —
-    // never a stale number sitting on a card claiming to be live.
+    // TWO CLOCKS, ONE MOMENT. The roster learns a session started on its own
+    // 5.5s poll; this number arrives on a different one, and nothing links
+    // them — so a just-started card sat there saying "starting…" with no
+    // figure beside it for the best part of ten seconds. While anything is
+    // actually running this tightens up to catch the start; idle, it stays
+    // slow, because a page of resting cards has nothing to learn.
+    refetchInterval: live ? 2500 : 8000,
+    // A failed read means "we don't know", which renders as no number —
+    // never a stale one sitting on a card claiming to be live.
     retry: false,
-    staleTime: 4000,
+    staleTime: live ? 1200 : 4000,
+  });
+}
+
+/** Conversations sitting in the run queue — admitted nowhere yet, no process,
+ * so `useSessionMemory` correctly knows nothing about them. Its own tiny
+ * derived set rather than a field on the roster, for the same reason the
+ * memory map is its own endpoint: the queue and the session list are different
+ * files answering different questions.
+ *
+ * Only polled while she's looking at a roster; the dispatcher moves runs on
+ * its own clock, so this is a "has my turn started yet" question and a few
+ * seconds of lag costs nothing. */
+export function useQueuedConvIds() {
+  return useQuery({
+    queryKey: ['runqueue', 'queued-convs'],
+    queryFn: async (): Promise<Set<string>> => {
+      const body = await api.get<{ queued?: { conv_id?: string | null }[] }>('/api/runqueue');
+      return new Set(
+        (body.queued ?? []).map((r) => r.conv_id).filter((id): id is string => Boolean(id)),
+      );
+    },
+    refetchInterval: 5000,
+    retry: false,
+    staleTime: 3000,
   });
 }

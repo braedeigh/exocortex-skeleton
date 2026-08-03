@@ -87,6 +87,37 @@
   white-space: nowrap;
 }
 
+/* Running, but the figure hasn't arrived. Dimmer than a real number and evenly
+   spaced, so it reads as "coming" rather than as a value — the ring beside it
+   is already carrying the fact that a turn is moving. */
+.innerBooting {
+  color: color-mix(in srgb, var(--ongoing) 65%, transparent);
+  letter-spacing: 0.12em;
+}
+
+/* WAITING FOR ROOM. Purple because purple is the alive family on this page and
+   a queued turn is one rung down it — about to be alive. Explicitly NOT orange:
+   orange here means "wants you", and this wants nothing from her, it's waiting
+   on the machine. Hollow and perfectly still against the running chip's filled,
+   travelling ring — same family, life removed. A word rather than a glyph, so
+   it's readable at a glance and clears the 12px floor. */
+.queued {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  margin-left: var(--space-2);
+  padding: 1px 7px;
+  border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent);
+  border-radius: 999px;
+  background: none;
+  color: color-mix(in srgb, var(--accent) 85%, var(--text));
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  line-height: 1.5;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
 /* Motion is the first thing to go. The ring stays — brighter, so it still
    reads as live — it just stops travelling. */
 @media (prefers-reduced-motion: reduce) {

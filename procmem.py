@@ -34,7 +34,13 @@ TAG = b"EXOCORTEX_CONV_ID="
 # The roster polls every few seconds, from more than one client and more than
 # one gunicorn worker. Walking /proc is cheap but not free, so a result is
 # reused for a moment rather than recomputed per request.
-_CACHE_TTL_SEC = 3.0
+#
+# Kept BELOW the client's fastest poll (2.5s while something is running, see
+# useSessionMemory). At 3s the two clocks beat against each other and a client
+# asking every 2.5s could be handed the same stale answer twice in a row, which
+# is most visible exactly where it hurts — the first seconds of a turn, when
+# the card is waiting to learn it has started.
+_CACHE_TTL_SEC = 1.5
 _cache = {"at": 0.0, "value": {}}
 
 

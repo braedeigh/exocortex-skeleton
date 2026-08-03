@@ -110,6 +110,10 @@ def test_no_proc_at_all_yields_nothing_rather_than_raising(monkeypatch):
 
 
 def test_the_scan_is_cached_between_rapid_polls(tmp_path, monkeypatch):
+    # Offsets are RELATIVE to the TTL, not wall-clock numbers: the constant is
+    # tuned against the client's poll (see useSessionMemory) and has moved once
+    # already, which broke this test purely for pinning 3s by hand.
+    ttl = procmem._CACHE_TTL_SEC
     monkeypatch.setattr(procmem, "PROC", str(tmp_path))
     _proc(tmp_path, {101: ("conv-a", 1024 * 100, 0)})
     calls = []
@@ -118,11 +122,11 @@ def test_the_scan_is_cached_between_rapid_polls(tmp_path, monkeypatch):
     monkeypatch.setattr(procmem, "scan", lambda: (calls.append(1), real_scan())[1])
 
     procmem.session_memory(now=1000.0)
-    procmem.session_memory(now=1001.0)
-    procmem.session_memory(now=1002.0)
+    procmem.session_memory(now=1000.0 + ttl / 3)
+    procmem.session_memory(now=1000.0 + ttl / 2)
     assert len(calls) == 1, "three polls inside the TTL should walk /proc once"
 
-    procmem.session_memory(now=1010.0)
+    procmem.session_memory(now=1000.0 + ttl + 0.01)
     assert len(calls) == 2, "past the TTL it re-reads"
 
 
