@@ -2288,7 +2288,20 @@ def register(app):
                     # itself) has no one reading the HTTP response, so without
                     # this the failure would be invisible on the roster.
                     entry["last_error"] = msg
-            return jsonify({"error": msg}), 503
+            # The refusal carries the numbers behind it, so the client can draw
+            # the memory bar and offer to QUEUE this turn instead of just
+            # showing a dead-end toast. Queueing goes through
+            # /api/runqueue/enqueue (routes/run_queue.py); the run dispatcher
+            # starts it when a slot opens. Import is local because run_queue
+            # imports the dispatcher, and this module is imported by cron
+            # scripts that shouldn't pull that chain in at module load.
+            body = {"error": msg, "can_queue": True}
+            try:
+                from routes import run_queue
+                body["headroom"] = run_queue.headroom()
+            except Exception:
+                pass   # the refusal still stands without its numbers
+            return jsonify(body), 503
 
         # Capture BEFORE the model runs (Slice-1 guarantee, same door the
         # terminal chat session uses). Slash commands are operator control,

@@ -27,7 +27,7 @@ from routes import (
     entities, threads, person, shell, cards, archivals, research,
     research_search, research_sources, research_import, research_text,
     annotations, spa, fronts, wiki, travel, profile, usage, streaks, spinoff,
-    observatory, automations, nightcrew, push, claude_auth,
+    observatory, automations, nightcrew, push, claude_auth, run_queue,
 )
 from routes.shell import VALID_TABS
 
@@ -1123,6 +1123,10 @@ if features.enabled("observatory"):
     # observatory off, that door must not answer either.
     nightcrew.register(app)
 automations.register(app)
+# The run queue's endpoints are read-mostly and answer for every background
+# crew, not just the observatory — so they register unconditionally, outside the
+# observatory gate above.
+run_queue.register(app)
 
 
 @app.route("/api/features")
