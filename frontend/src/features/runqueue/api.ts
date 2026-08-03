@@ -7,6 +7,7 @@
  * drained by scripts/run_dispatcher.py on a cron tick — nothing here starts
  * anything.
  */
+import { useQuery } from '@tanstack/react-query';
 import { api } from '../../api/client';
 import type { Headroom } from './memoryPrompt';
 
@@ -58,4 +59,31 @@ export function getRunQueue(signal?: AbortSignal): Promise<RunQueue> {
  */
 export function enqueueConversation(convId: string, text: string): Promise<{ ok: boolean }> {
   return api.post<{ ok: boolean }>('/api/runqueue/enqueue', { conv_id: convId, text });
+}
+
+/** Megabytes held right now, keyed by conversation id. A session that isn't
+ * running simply isn't in the map. */
+export type SessionMemory = Record<string, number>;
+
+/**
+ * Live per-session memory, shared by every card on the page.
+ *
+ * One query key means react-query dedupes it: a roster of twelve cards makes
+ * ONE request every few seconds, not twelve. The interval is slower than the
+ * roster's own poll on purpose — the server already rounds to the nearest
+ * 10MB, and a faster refresh would only add twitch, not information.
+ */
+export function useSessionMemory() {
+  return useQuery({
+    queryKey: ['runqueue', 'session-memory'],
+    queryFn: async (): Promise<SessionMemory> => {
+      const body = await api.get<{ sessions: SessionMemory }>('/api/runqueue/session-memory');
+      return body.sessions ?? {};
+    },
+    refetchInterval: 6000,
+    // A failed read means "we don't know", which renders as no chip at all —
+    // never a stale number sitting on a card claiming to be live.
+    retry: false,
+    staleTime: 4000,
+  });
 }

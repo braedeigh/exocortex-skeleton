@@ -1,0 +1,97 @@
+/* SessionMemoryChip.module.css — what one session is holding, beside its name.
+
+   Teal (--ongoing) is deliberate and shared: the hairline under the Observatory
+   title uses it for the whole box, this uses it for one session. Same colour,
+   same meaning, two scales. It can't be confused with the roster's state
+   colours either — purple is "alive", orange "wants you", red "broken" —
+   because memory is a quantity, not a state.
+
+   THE RING SPINS BECAUSE IT'S TRUE. Every turn is its own `claude -p` process
+   that exits when the reply ends, so a session only HAS memory while a turn is
+   actually in flight. The chip's existence already means "working right now";
+   the travelling arc says the same thing in motion instead of making her infer
+   it. When the turn ends the process goes and the chip goes with it.
+
+   [prompt: "put it directly to the right of the name of the session, and i want
+   the outline to have a brighter color that spins around it like a loading
+   circle"] */
+
+/* The ring is the border: a 1.5px frame with the spinning arc inside it, and
+   the label sitting on top in a solid pill that masks the middle. Two nested
+   elements rather than a mask-composite trick — this renders identically in
+   every browser, and she lives in an iOS PWA. */
+.ring {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  padding: 1.5px;
+  border-radius: 999px;
+  overflow: hidden;
+  /* The resting frame the arc travels over, so the ring never looks broken
+     between passes. */
+  background: color-mix(in srgb, var(--ongoing) 30%, transparent);
+  /* Sits beside the session name; .title is flex:1 and ellipsises, so this
+     keeps its own width and the name gives way to it rather than the reverse. */
+  margin-left: var(--space-2);
+  vertical-align: middle;
+}
+
+/* The travelling arc. A conic gradient on a square big enough that rotating it
+   always covers the pill's corners, spun with TRANSFORM — the GPU property —
+   so it stays smooth on a phone rather than repainting the gradient each
+   frame. */
+.ring::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 260%;
+  aspect-ratio: 1;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    transparent 250deg,
+    color-mix(in srgb, var(--ongoing), white 45%) 320deg,
+    color-mix(in srgb, var(--ongoing), white 60%) 350deg,
+    transparent 360deg
+  );
+  animation: chipSpin 2.6s linear infinite;
+}
+
+@keyframes chipSpin {
+  from {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+  to {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+
+/* The solid pill over the middle — this is what turns the spinning square into
+   a spinning OUTLINE. */
+.inner {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--card-bg);
+  color: var(--ongoing);
+  /* Peer of the card's other small text, and the house floor is 12px. */
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+/* Motion is the first thing to go. The ring stays — brighter, so it still
+   reads as live — it just stops travelling. */
+@media (prefers-reduced-motion: reduce) {
+  .ring::before {
+    animation: none;
+    background: color-mix(in srgb, var(--ongoing), white 30%);
+  }
+}

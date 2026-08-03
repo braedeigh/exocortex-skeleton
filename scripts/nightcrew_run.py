@@ -379,7 +379,11 @@ def run_agent(note, worktree, branch):
         fh.write(json.dumps({"type": "user", "text": brief,
                              "ts": now(), "journaled": False}) + "\n")
 
-    bot = dict(rr._bot("keeper") or {}, allowed_tools=TOOLS)
+    # conv_id rides along so the spawned process carries EXOCORTEX_CONV_ID in
+    # its environment. Without it, procmem.py can't attribute this turn's
+    # memory to the card it's sitting behind — and a card silently showing
+    # nothing reads as "using no memory", which is a lie.
+    bot = dict(rr._bot("keeper") or {}, allowed_tools=TOOLS, conv_id=conv_id)
     proc, stderr_f = rr._spawn(bot, brief, None, cwd_override=str(worktree))
     rr._run_turn(proc, stderr_f, conv_id, log_path, None, queue.Queue())
 

@@ -98,6 +98,25 @@ def test_the_queue_reports_the_lane_order_so_a_client_need_not_hardcode_it(qclie
     assert qclient.get("/api/runqueue").get_json()["lanes"] == list(rd.LANES)
 
 
+# --- per-session memory -------------------------------------------------------
+
+def test_session_memory_reports_what_each_live_session_holds(qclient, monkeypatch):
+    from routes import run_queue as rq
+
+    monkeypatch.setattr(rq.procmem, "session_memory", lambda: {"conv-a": 290, "conv-b": 240})
+    body = qclient.get("/api/runqueue/session-memory").get_json()
+    assert body["sessions"] == {"conv-a": 290, "conv-b": 240}
+
+
+def test_session_memory_is_empty_rather_than_failing_without_proc(qclient, monkeypatch):
+    from routes import run_queue as rq
+
+    monkeypatch.setattr(rq.procmem, "session_memory", dict)
+    r = qclient.get("/api/runqueue/session-memory")
+    assert r.status_code == 200
+    assert r.get_json()["sessions"] == {}
+
+
 # --- enqueue ------------------------------------------------------------------
 
 def test_queueing_a_conversation_adds_it_in_her_lane(qclient):

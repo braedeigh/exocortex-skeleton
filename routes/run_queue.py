@@ -25,6 +25,7 @@ from datetime import datetime
 
 from flask import request, jsonify
 
+import procmem
 import store
 from scripts import run_dispatcher as rd
 
@@ -132,6 +133,19 @@ def register(app):
             "lanes": list(rd.LANES),
             "headroom": headroom(),
         })
+
+    @app.route("/api/runqueue/session-memory")
+    def runqueue_session_memory():
+        """What each live session is holding right now, in MB, keyed by
+        conversation id.
+
+        Deliberately its OWN endpoint rather than a field on the roster: the
+        roster is a store read and this is a /proc walk, and keeping them apart
+        means a slow or unreadable /proc can never delay her session list. A
+        session that isn't running simply isn't in the map, so the client shows
+        nothing for it — absent beats a stale number.
+        """
+        return jsonify({"sessions": procmem.session_memory()})
 
     @app.route("/api/runqueue/enqueue", methods=["POST"])
     def runqueue_enqueue():
