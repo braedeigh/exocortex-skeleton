@@ -12,11 +12,13 @@ import { resumeAfterDecision } from './resumeAfterDecision';
 import { orchestraRows, type OrchestraRow } from './orchestra';
 import { cardMetaLine } from './sessionStatus';
 import { cardState, matchesFilter, type CardState } from './sessionFilters';
+import { LaneHead, useLaneOpen } from './LaneHead';
+import { SessionMemoryChip } from '../runqueue/SessionMemoryChip';
 import type { TerrainData } from '../terrain/api';
 import styles from './Orchestra.module.css';
 
 /**
- * SessionLane — one of the Observatory's two rooms, and the only place a
+ * SessionLane — one of the Observatory's three rooms, and the only place a
  * session card is drawn.
  *
  * WHY THIS EXISTS (her 07-27 call). The page used to render every session
@@ -36,8 +38,25 @@ import styles from './Orchestra.module.css';
  * the top with the ask in her face — a request she has to walk past can't be a
  * whisper, or the queue becomes a graveyard (Terra).
  *
+ * COLLAPSIBLE (her 08-03 ask). Three rooms of cards is a long page on a phone,
+ * so each one shuts to its title line and remembers that. The census stays on
+ * the HEADER, so a shut room still reports what's running and what's waiting —
+ * see LaneHead.tsx, which owns that whole contract.
+ *
+ * PAST SESSIONS SIT UNDER THEIR OWN ROOM (her 08-03 ask, corrected: "be able
+ * to see past sessions like, within a certain room underneath that room").
+ * A room shows what's OPEN in it; the line beneath it is the way back through
+ * everything that room has ever held, scoped to that room. It's a door, not a
+ * drawer — it goes to /observatory/archive?lane=… where the whole record can
+ * be scrolled and searched, because that's a reading surface and this is a
+ * standing-and-scanning one.
+ *
+ * The scoping is the point of putting it here rather than once at the bottom
+ * of the page: leaving Coding is a different question from leaving Personal,
+ * and a single global archive makes her re-narrow by hand every time.
+ *
  * Terrain is polled ONCE by the page and passed in, not fetched per lane —
- * two lanes must not mean two pollers hitting the same endpoint.
+ * three lanes must not mean three pollers hitting the same endpoint.
  */
 
 /* The card's whole visual vocabulary, in two tables. cardState says WHICH state
@@ -63,8 +82,10 @@ const DOT_CLASS: Record<CardState, string> = {
 };
 
 export function SessionLane({
+  laneKey,
   heading,
   blurb,
+  keeper = false,
   sessions,
   terrain,
   opened,
@@ -75,7 +96,15 @@ export function SessionLane({
   onChanged,
   onClose,
 }: {
+  /** Which room this is — the key its open/shut state is remembered under, so
+   * collapsing Coding doesn't also collapse Personal. */
+  laneKey: string;
   heading: string;
+  /** The Keeper's slot: one pinned session standing above the rooms, with no
+   * title line and no collapse. Her 08-03 ask — the door to her day shouldn't
+   * be something she can shut by accident, or something she has to remember
+   * which room she filed it in. */
+  keeper?: boolean;
   /** One line under the heading saying what this room IS — the lanes differ in
    * whether they stop and ask, which is invisible unless it's written down. */
   blurb: string;
@@ -96,6 +125,12 @@ export function SessionLane({
   onClose: (convId: string) => void;
 }) {
   const navigate = useNavigate();
+  // The Keeper's slot is never shut — it has no chevron to shut it with. The
+  // hook still runs (hooks can't be conditional) and its answer is simply
+  // overruled, so a stale stored '0' can't hide the one card that must not
+  // hide.
+  const [laneOpen, toggleOpen] = useLaneOpen(laneKey);
+  const open = keeper || laneOpen;
   const rows = orchestraRows(sessions, terrain);
   const byId = new Map(sessions.map((s) => [s.id, s]));
 
@@ -254,6 +289,47 @@ export function SessionLane({
 
   const needing = approvals.length + waiting.length;
   const running = rest.filter((r) => r.running).length;
+  // Drives the memory poll's cadence: quick while a turn is moving so a start
+  // is caught in a couple of seconds, slow when the room is at rest.
+  const anyRunning = rows.some((r) => r.running);
+
+  // The title line, built once because BOTH the open and the shut room render
+  // it — shut, it's the entire section. One number in the heading and it's the
+  // one that asks something of her, which is why the plain size only appears
+  // once the room is closed: open, the cards say how many there are just by
+  // being there; closed, the size is the only thing left to say.
+  // The Keeper has no title line at all: it isn't a room, it's one card, and a
+  // heading over a single card is a label telling her what she's already
+  // looking at. The teal ring and the 🌙 badge on the card do that work.
+  const head = keeper ? null : (
+    <LaneHead heading={heading} open={open} onToggle={toggleOpen} wanting={needing > 0}>
+      {needing > 0 ? (
+        <span className={styles.waitCount}>
+          {needing} need{needing === 1 ? 's' : ''} you
+        </span>
+      ) : running > 0 ? (
+        <span className={styles.count}>{running} running</span>
+      ) : !open && rows.length > 0 ? (
+        <span className={styles.restCount}>
+          {rows.length} {rows.length === 1 ? 'session' : 'sessions'}
+        </span>
+      ) : null}
+    </LaneHead>
+  );
+
+  // Shut: the header IS the room. Everything the census promised is already on
+  // that line, so nothing that wants her can hide behind the collapse.
+  if (!open) {
+    return (
+      <section className={styles.orchestra} aria-label={heading}>
+        {head}
+      </section>
+    );
+  }
+
+  const sectionClass = [styles.orchestra, keeper ? styles.keeperRoom : '']
+    .filter(Boolean)
+    .join(' ');
 
   // The edited files are a drawer, shut by default: a card standing at rest
   // says HOW MANY files it touched, not which. Six of them used to sit open on
@@ -308,18 +384,9 @@ export function SessionLane({
   };
 
   return (
-    <section className={styles.orchestra} aria-label={heading}>
-      <div className={styles.head}>
-        <h2 className={styles.heading}>{heading}</h2>
-        {needing > 0 ? (
-          <span className={styles.waitCount}>
-            {needing} need{needing === 1 ? 's' : ''} you
-          </span>
-        ) : running > 0 ? (
-          <span className={styles.count}>{running} running</span>
-        ) : null}
-      </div>
-      <p className={styles.blurb}>{blurb}</p>
+    <section className={sectionClass} aria-label={heading}>
+      {head}
+      {keeper ? null : <p className={styles.blurb}>{blurb}</p>}
 
       {rows.length === 0 ? (
         <div className={styles.idle}>
@@ -439,7 +506,16 @@ export function SessionLane({
             return (
               <div
                 key={row.id}
-                className={[styles.card, CARD_CLASS[state] ? styles[CARD_CLASS[state]] : '']
+                className={[
+                  styles.card,
+                  CARD_CLASS[state] ? styles[CARD_CLASS[state]] : '',
+                  // HUE IS STATE; the Keeper's teal is a RING, not a hue —
+                  // see .cardKeeper. Layering them is the whole point: the
+                  // Keeper is still allowed to be unread, running or broken,
+                  // and it has to be able to say so in the same colours as
+                  // everything else.
+                  meta.pinned ? styles.cardKeeper : '',
+                ]
                   .filter(Boolean)
                   .join(' ')}
               >
@@ -452,7 +528,21 @@ export function SessionLane({
                   >
                     <span className={styles[DOT_CLASS[state]]} aria-hidden="true" />
                     <span className={styles.title}>{row.title}</span>
-                    {meta.pinned ? <span className={styles.badge}>pinned</span> : null}
+                    {/* What this session is holding, right beside its name —
+                        or that it's waiting for room, or that it's just
+                        started and the figure hasn't landed. One slot, three
+                        mutually exclusive states; see SessionMemoryChip.
+                        `running` comes from the roster, which knows a turn
+                        started seconds before the /proc walk does. */}
+                    <SessionMemoryChip convId={row.id} running={row.running} live={anyRunning} />
+                    {/* "pinned" described the mechanism; this names the thing.
+                        The moon is the Keeper's mark already — it's the glyph
+                        on Roll over, the control that closes her day. */}
+                    {meta.pinned ? (
+                      <span className={styles.keeperBadge}>
+                        <span aria-hidden="true">&#x1F319;</span> Keeper
+                      </span>
+                    ) : null}
                     {meta.draft ? <span className={styles.badge}>staged</span> : null}
                     {row.running ? (
                       <span className={styles.fileCount}>
@@ -485,64 +575,69 @@ export function SessionLane({
                     >
                       {stopArmed === row.id ? 'Sure?' : 'Stop'}
                     </button>
-                  ) : (
-                    <>
-                      {/* Read / unread, by hand. Opening a session is the only
-                          other way this flag ever moves, which left no way back:
-                          a card she opened, skimmed and meant to return to went
-                          quiet forever. Tapping the dot puts it back to orange —
-                          the roster's own "deal with this later".
-                          [prompt: "an option to unmark things as read
-                          somewhere"] */}
-                      {onSetRead ? (
-                        <button
-                          type="button"
-                          className={styles.readBtn}
-                          aria-label={
-                            unread ? `Mark ${row.title} read` : `Mark ${row.title} unread`
-                          }
-                          title={unread ? 'Mark as read' : 'Mark as unread'}
-                          onClick={() => onSetRead(row.id, unread)}
-                        >
-                          <span
-                            className={[styles.readDot, unread ? styles.readDotUnread : '']
-                              .filter(Boolean)
-                              .join(' ')}
-                            aria-hidden="true"
-                          />
-                        </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        className={styles.editBtn}
-                        aria-label={`Rename ${row.title}`}
-                        title="Session settings"
-                        onClick={() => onRename(meta)}
-                      >
-                        ✎
-                      </button>
-                      {!meta.pinned ? (
-                        <button
-                          type="button"
-                          className={[styles.closeBtn, closeArmed === row.id ? styles.closeArmed : '']
-                            .filter(Boolean)
-                            .join(' ')}
-                          aria-label={`Close ${row.title}`}
-                          title="Close session"
-                          onClick={() => {
-                            if (closeArmed !== row.id) {
-                              setCloseArmed(row.id);
-                              return;
-                            }
-                            setCloseArmed(null);
-                            onClose(row.id);
-                          }}
-                        >
-                          {closeArmed === row.id ? 'Sure?' : '×'}
-                        </button>
-                      ) : null}
-                    </>
-                  )}
+                  ) : null}
+                  {/* Read / unread, by hand. Opening a session is the only
+                      other way this flag ever moves, which left no way back:
+                      a card she opened, skimmed and meant to return to went
+                      quiet forever. Tapping the dot puts it back to orange —
+                      the roster's own "deal with this later".
+                      [prompt: "an option to unmark things as read somewhere"] */}
+                  {!row.running && onSetRead ? (
+                    <button
+                      type="button"
+                      className={styles.readBtn}
+                      aria-label={unread ? `Mark ${row.title} read` : `Mark ${row.title} unread`}
+                      title={unread ? 'Mark as read' : 'Mark as unread'}
+                      onClick={() => onSetRead(row.id, unread)}
+                    >
+                      <span
+                        className={[styles.readDot, unread ? styles.readDotUnread : '']
+                          .filter(Boolean)
+                          .join(' ')}
+                        aria-hidden="true"
+                      />
+                    </button>
+                  ) : null}
+                  {/* SETTINGS IS ALWAYS REACHABLE, running or not. It used to
+                      be the other arm of the Stop conditional, so a session
+                      that was working — which includes the whole of its first
+                      boot — had no ✎ at all, and the Room picker lives behind
+                      it. That was a layout accident, not a rule: the settings
+                      route has no running guard and config is resolved per
+                      turn, so a room change simply takes effect on the NEXT
+                      turn and deliberately never moves where the session runs.
+                      [prompt: "when a session is 'booting' or starting its
+                      first run ... it also does not allow me to change the
+                      location of the session"] */}
+                  <button
+                    type="button"
+                    className={styles.editBtn}
+                    aria-label={`Rename ${row.title}`}
+                    title="Session settings"
+                    onClick={() => onRename(meta)}
+                  >
+                    ✎
+                  </button>
+                  {!row.running && !meta.pinned ? (
+                    <button
+                      type="button"
+                      className={[styles.closeBtn, closeArmed === row.id ? styles.closeArmed : '']
+                        .filter(Boolean)
+                        .join(' ')}
+                      aria-label={`Close ${row.title}`}
+                      title="Close session"
+                      onClick={() => {
+                        if (closeArmed !== row.id) {
+                          setCloseArmed(row.id);
+                          return;
+                        }
+                        setCloseArmed(null);
+                        onClose(row.id);
+                      }}
+                    >
+                      {closeArmed === row.id ? 'Sure?' : '×'}
+                    </button>
+                  ) : null}
                 </div>
 
                 {/* What it's working on, then which files. The summary was
@@ -634,6 +729,24 @@ export function SessionLane({
             );
           })}
         </div>
+      )}
+
+      {/* The way back through this room. Under the cards, inside the collapse —
+          it belongs to the room, so it goes when the room shuts.
+          Not offered in the Keeper slot: that's one standing session, and
+          "past Keepers" are rolled-over days that live in Personal's record.
+          [prompt: "be able to see past sessions like, within a certain room
+          underneath that room ... not within each chat session"] */}
+      {keeper ? null : (
+        <button
+          type="button"
+          className={styles.pastLink}
+          onClick={() =>
+            void navigate({ to: '/observatory/archive', search: { lane: laneKey } })
+          }
+        >
+          Past sessions in {heading} →
+        </button>
       )}
     </section>
   );

@@ -1,22 +1,22 @@
 import { createFileRoute, redirect } from '@tanstack/react-router';
-import { AtlasPage } from '../features/atlas/AtlasPage';
-import { useDeactivateFrames } from '../shell/useIframeView';
 
 /**
- * /atlas — a visualizer of every observatory session sorted into its home
- * (the exocortex front's five domain shelves, the other 11 life fronts,
- * Unsorted). Auth-only, same guard as /observatory: it surfaces session
- * content, so public visitors bounce to '/'.
+ * /atlas — GONE, redirected to /observatory/archive.
+ *
+ * The atlas was a shelf map of every session filed under a life front and a
+ * domain. It was correct and she never opened it, because it was a page you
+ * had to remember to go to — her words, 08-03: "i never use atlas so i'm
+ * imagining we port it over into the observatory." So the archive moved into
+ * the room she already stands in, one tap off the bottom of every session,
+ * and gained the search it never had.
+ *
+ * The route stays as a redirect rather than being deleted: it's bookmarked,
+ * it's in cached service workers, and a 404 would just look broken. The
+ * front/domain labels survived the move as chips on each row; only the
+ * hierarchy — the part that actually failed — was dropped.
  */
 export const Route = createFileRoute('/atlas')({
   beforeLoad: () => {
-    if (typeof window === 'undefined') return;
-    if (window.VIEW_MODE === 'public') throw redirect({ to: '/' });
+    throw redirect({ to: '/observatory/archive' });
   },
-  component: AtlasRoute,
 });
-
-function AtlasRoute() {
-  useDeactivateFrames();
-  return <AtlasPage />;
-}

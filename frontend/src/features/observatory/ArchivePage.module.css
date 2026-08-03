@@ -1,0 +1,327 @@
+/* ArchivePage — the Observatory's record of everything already said.
+
+   Quiet on purpose. This is a reading surface, not a control panel: the rows
+   carry words, so the chrome around them gets out of the way (deference — the
+   interface recedes so her content can live). The only saturated thing on the
+   page is the mark on a matched word, because that's the one thing she came
+   here to find. */
+
+/* THIS is the pane's scroll container — body{overflow:hidden} in this app and
+   only pages scroll, same as TodosPage/MediaPage/ResearchPage. It matters more
+   here than on most pages: the right half of the desktop split (.right in
+   SplitLayout.module.css) is a flex column with no overflow of its own, so a
+   page that doesn't declare itself the scroller simply runs off the bottom of
+   the pane with no way to reach the rest — which is exactly what a long
+   archive did. `flex: 1` is what gives it the pane's height to scroll within;
+   without it there's nothing to overflow. */
+.page {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--space-4) var(--space-3);
+  /* Room at the end so the last row clears the floating pills. */
+  padding-bottom: calc(var(--space-8) + 64px);
+}
+
+.inner {
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.back {
+  min-height: var(--tap-target);
+  padding: 0 var(--space-2) 0 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--font-size-base);
+  cursor: pointer;
+}
+
+.back:hover {
+  color: var(--accent);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-size-xl);
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* Which room this record belongs to, on the title rather than buried in a
+   chip — she arrived from one room's door and the page should say which.
+   Muted, so "Past sessions" stays the heading and the room is its qualifier. */
+.titleScope {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+/* Switch rooms without going back to the roster. Chips, not a select: there
+   are four and they're all worth seeing at once. */
+.scopeRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.scopeChip {
+  min-height: var(--tap-target);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 180ms ease, color 180ms ease;
+}
+
+.scopeChip:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  color: var(--text);
+}
+
+.scopeChipOn {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* The way out of an empty scoped search. It's a RESULT, not a hint — she gets
+   a count and a tap, rather than a dead end that reads as "it isn't in the
+   record". */
+.widen {
+  display: block;
+  width: 100%;
+  min-height: var(--tap-target);
+  margin-top: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
+  border-radius: var(--radius-lg);
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  text-align: left;
+  cursor: pointer;
+}
+
+.widen:hover {
+  color: var(--accent);
+}
+
+/* Sticky: the page's whole job is scrolling a long way, and the box has to
+   stay in reach the entire time. */
+.searchBar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0 var(--space-3);
+  background: var(--bg);
+}
+
+.search {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-size-base);
+}
+
+.search:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+}
+
+/* House rule: a × is never faint and never small. */
+.clear {
+  flex: none;
+  min-width: var(--tap-target);
+  min-height: var(--tap-target);
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: none;
+  color: var(--text-secondary);
+  font-size: var(--font-size-lg);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.clear:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.hint {
+  padding: var(--space-4) var(--space-1);
+  color: var(--text-muted);
+  font-size: var(--font-size-base);
+}
+
+.month {
+  margin-bottom: var(--space-5);
+}
+
+/* The month is a marker in the scroll, not a heading competing with the rows —
+   hierarchy out of colour and weight, so it stays fully legible without
+   shrinking below what the house rules allow.
+
+   It parks directly under the sticky search bar rather than at the top of the
+   scrollport, so the two never overlap. The offset is that bar's real height,
+   written as its parts (its own padding plus the input's tap target) so it
+   stays correct if any of them change — a hardcoded number here would come
+   apart the first time the box got taller. */
+.monthLabel {
+  position: sticky;
+  top: calc(var(--tap-target) + var(--space-2) + var(--space-3));
+  margin: 0 0 var(--space-2);
+  padding: var(--space-1) 0;
+  background: var(--bg);
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* The whole row opens the session — one big target, not a link buried in text. */
+.row {
+  display: block;
+  width: 100%;
+  margin-bottom: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 180ms ease;
+}
+
+.row:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+.rowTop {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  min-height: 28px;
+}
+
+.rowTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.rowDate {
+  flex: none;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.gist {
+  margin-top: 2px;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.chip {
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+}
+
+/* A journalled session's words are her diary. The chip isn't a warning — it's
+   so she's never surprised about which surface a line she's reading came off. */
+.chipJournal {
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in srgb, var(--ongoing) 40%, transparent);
+  background: color-mix(in srgb, var(--ongoing) 12%, transparent);
+  color: var(--ongoing);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+/* --- a match, in context ------------------------------------------------- */
+
+.snippet {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--border);
+}
+
+/* Who said it. Two characters of context that change the meaning of the line
+   entirely — finding her own words back is a different thing from finding the
+   answer she was given. */
+.who {
+  flex: none;
+  width: 2.2em;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.snippetText {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+/* The one saturated thing on the page — it's what she came for. Accent wash
+   rather than the browser's default yellow, which belongs to no palette here
+   and reads as a foreign object on both themes. */
+.mark {
+  padding: 0 2px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  color: var(--text);
+  font-weight: 600;
+}

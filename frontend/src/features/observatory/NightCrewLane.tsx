@@ -1,13 +1,15 @@
 import { useState } from 'react';
+import { LaneHead, useLaneOpen } from './LaneHead';
 import styles from './NightCrew.module.css';
 
 /**
- * NightCrewLane — the Observatory's third room, and the only place last
+ * NightCrewLane — the Observatory's last room, and the only place last
  * night's work is answered.
  *
- * WHY IT'S ITS OWN ROOM. The other two lanes are defined by whether she's
- * watching: Personal just acts because she's there; Orchestra stops to ask
- * before anything irreversible. The night crew can do neither — she's asleep,
+ * WHY IT'S ITS OWN ROOM. The session lanes are defined by whether she's
+ * watching: Personal and Coding just act because she's there; Orchestra stops
+ * to ask before anything irreversible. The night crew can do neither — she's
+ * asleep,
  * so it can't ask, and an agent that can't ask must be structurally unable to
  * do the thing worth asking about. Every attempt happens in a throwaway
  * worktree on its own branch: nothing merges, nothing restarts the service,
@@ -187,18 +189,30 @@ export function NightCrewLane({
 }) {
   const live = runs.filter((r) => !r.dismissed);
   const ready = live.filter((r) => r.status === 'ready').length;
+  const [open, toggleOpen] = useLaneOpen('nightcrew');
+
+  // Collapses like every other room on the page (LaneHead.tsx), and for the
+  // same reason its siblings do: the census rides the HEADER, so a shut Night
+  // crew still says how many attempts are waiting on a verdict and what last
+  // night cost. Nothing that wants her is behind the fold.
+  const head = (
+    <LaneHead heading="Night crew" open={open} onToggle={toggleOpen} wanting={ready > 0}>
+      {/* Only ever one number in the heading, and it's the one that asks
+          something of her. Cost sits muted on the right — present so it can
+          never surprise her at the end of a month, quiet so it isn't the
+          first thing she reads at 6 AM. */}
+      {ready > 0 && <span className={styles.readyCount}>{ready} ready</span>}
+      <span className={styles.spend}>${spendUsd.toFixed(2)} last night</span>
+    </LaneHead>
+  );
+
+  if (!open) {
+    return <section className={styles.lane}>{head}</section>;
+  }
 
   return (
     <section className={styles.lane}>
-      <div className={styles.head}>
-        <h2 className={styles.heading}>Night crew</h2>
-        {/* Only ever one number in the heading, and it's the one that asks
-            something of her. Cost sits muted on the right — present so it can
-            never surprise her at the end of a month, quiet so it isn't the
-            first thing she reads at 6 AM. */}
-        {ready > 0 && <span className={styles.readyCount}>{ready} ready</span>}
-        <span className={styles.spend}>${spendUsd.toFixed(2)} last night</span>
-      </div>
+      {head}
       <p className={styles.blurb}>
         Work done while you slept. It fixes one green-lit note per branch in a
         throwaway worktree, runs the tests, and stops — nothing merges without

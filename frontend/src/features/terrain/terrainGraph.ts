@@ -318,7 +318,7 @@ export interface OrbSession {
   /** Not archived. Only the payload's top-level sessions array knows this, so
    * an orb built purely from file attribution reads as closed. */
   open: boolean;
-  /** 'personal' | 'orchestra', or '' when the payload doesn't say. */
+  /** 'personal' | 'coding' | 'orchestra', or '' when the payload doesn't say. */
   lane: string;
   /** Unix seconds of the session's last activity, best-effort. */
   last: number | null;

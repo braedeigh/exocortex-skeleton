@@ -7,28 +7,19 @@
   margin-bottom: var(--space-6);
 }
 
-.head {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-3);
-  margin: 0 0 var(--space-1);
-}
+/* The title line itself lives in LaneHead.module.css now — every room on the
+   page wears the same one, because the heading became the collapse control.
+   What stays here is what this room chooses to REPORT on that line. */
 
-/* One line saying what the room IS. The lanes differ in whether a session
-   stops and asks — invisible unless it's written down, and a permission model
-   she can't see is one she can't trust. */
+/* One line saying what the room IS. The lanes differ in where they stand and
+   in whether a session stops and asks — invisible unless it's written down,
+   and a permission model she can't see is one she can't trust. Hidden while
+   the room is collapsed: it explains, and a shut room isn't explaining. */
 .blurb {
   margin: 0 0 var(--space-3);
   color: var(--text-muted);
   font-size: var(--font-size-sm);
   line-height: 1.5;
-}
-
-.heading {
-  margin: 0;
-  font-size: var(--font-size-lg);
-  font-weight: 600;
-  color: var(--text);
 }
 
 /* A soft live tally beside the heading — the one place the count lives. */
@@ -46,6 +37,16 @@
   font-weight: 700;
   letter-spacing: 0.02em;
   color: var(--orange);
+}
+
+/* The size of a SHUT room with nothing going on. Quietest of the three tallies
+   on purpose — it isn't news, it's just so a closed room doesn't read as an
+   empty one. Muted grey rather than a smaller size: hierarchy out of colour,
+   so it stays as legible as everything else on the line. */
+.restCount {
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--text-muted);
 }
 
 /* --- idle: the quiet state --- */
@@ -710,6 +711,79 @@
   border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--text) 10%, transparent);
   color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+/* The way back through one room's record, sitting under its cards. Quiet ink
+   and no fill: the cards above it are what's ALIVE, and the archive must not
+   outshout them. It's still a full tap target, because it's a real
+   destination, not an afterthought. */
+.pastLink {
+  display: block;
+  width: 100%;
+  min-height: var(--tap-target);
+  margin-top: var(--space-3);
+  padding: var(--space-2) var(--space-1);
+  border: 0;
+  border-top: 1px dashed var(--border);
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: color 180ms ease;
+}
+
+.pastLink:hover {
+  color: var(--accent);
+}
+
+/* --- the Keeper: the one card that isn't in a room ------------------------ */
+/* HUE IS STATE, MATERIAL IS IDENTITY. The four colours on this page are spoken
+   for — purple running, purple-faded recent, orange unread, red broken — and
+   the Keeper can be any of them, so a fifth hue on the left rule would have to
+   fight the state it's sitting on and one of them would lose. So identity gets
+   a property nothing else on the card touches: an OUTLINE, held a couple of
+   pixels off the card so it reads as a mount rather than a border. The left
+   rule keeps saying state, the ring keeps saying Keeper, and both are true at
+   once.
+
+   The teal is --ongoing (#3a9e8c), already in her palette and already meaning
+   in-progress across the app — the furthest hue on it from purple/orange/red,
+   so it can't be misread as a state, and the one word that describes the
+   Keeper exactly: the session that never ends, only rolls over.
+
+   [prompt: "i also want the keeper card to be a different color. not sure what
+   color. some signifier. and i want it to always be at the top, outside of any
+   collapsible areas."] */
+.cardKeeper {
+  outline: 1px solid color-mix(in srgb, var(--ongoing) 55%, transparent);
+  outline-offset: 3px;
+}
+
+/* Its slot: above every room, with real air under it so it reads as standing
+   apart rather than as the first card of Personal. The outline needs the room
+   too — it hangs 3px outside the card. */
+.keeperRoom {
+  margin-bottom: var(--space-6);
+  padding-top: var(--space-1);
+}
+
+/* The mark itself. Teal like the ring, so the two read as one object, and a
+   word rather than a bare glyph — the house rule about icons never standing
+   alone applies to what a thing IS as much as to what a button DOES. */
+.keeperBadge {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in srgb, var(--ongoing) 40%, transparent);
+  background: color-mix(in srgb, var(--ongoing) 12%, transparent);
+  color: var(--ongoing);
   font-size: var(--font-size-sm);
   font-weight: 600;
 }

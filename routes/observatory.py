@@ -143,7 +143,7 @@ def _cli_default_model():
     return model if isinstance(model, str) and model.strip() else None
 
 
-# --- Lanes: the Observatory's two rooms ------------------------------------
+# --- Lanes: the Observatory's three rooms ----------------------------------
 # A session BELONGS to a lane; it is not filtered into one. Before this, the
 # live "Orchestra" section was a derived view (running or awaiting) over the
 # same roster "My sessions" already rendered — so a working session was one
@@ -153,22 +153,40 @@ def _cli_default_model():
 # became a STATE the card wears (breathing dot, ticking files, Stop), not a
 # section it migrates to. Her call, 07-27.
 #
-# The lane does NOT gate tools — both lanes carry the full builder toolkit
-# (her call: "it should be able to do honestly anything"). What it gates is
-# whether the session STOPS AND ASKS:
+# The lane does NOT gate tools — every lane carries the full builder toolkit
+# (her call: "it should be able to do honestly anything"). What it decides is
+# WHERE the session stands and whether it STOPS AND ASKS — two independent
+# switches, which is exactly why there are three rooms and not two:
 #
-#   orchestra — work happening while she isn't watching. act_gate + doc-guard
-#               ON: irreversible/out-of-lane actions raise an orange card and
-#               wait, because nobody is there to catch them.
-#   personal  — her, talking, in real time. Both OFF: she IS the check, and
+#   personal  — her, talking, in real time, about her life. Rooted at the
+#               parent of both repos, the one place a session sees the app
+#               code and the vault as peers. Gates OFF: she IS the check, and
 #               making it ask is pure friction ("instead of worry about it
-#               orchestrating"). Rooted at the parent of both repos, the one
-#               place a session sees the app code and the vault as peers.
+#               orchestrating").
+#   coding    — her, building, in real time. Same gates-off as Personal (she's
+#               still watching) but rooted in the APP CHECKOUT, so a build
+#               session stands where the code is instead of one level up
+#               beside the vault. That root is the point of the room: from the
+#               shared root a build session can drift into the vault and leave
+#               app code there, which the root CLAUDE.md calls a bug outright.
+#   orchestra — work happening while she isn't watching. Rooted in the app
+#               checkout too, but act_gate + doc-guard ON: irreversible /
+#               out-of-lane actions raise an orange card and wait, because
+#               nobody is there to catch them.
+#
+# So: Personal and Coding differ by GROUND, Coding and Orchestra by GATE. The
+# split of the old Personal room into Personal + Coding is her 08-03 call —
+# "separation of sessions that are personal and those that are coding".
 #
 # Per-session overrides (`act_gate` / `guard_docs` written explicitly) still
 # win over the lane default — see _conv_config.
-_LANES = ("orchestra", "personal")
+_LANES = ("orchestra", "personal", "coding")
 _DEFAULT_LANE = "orchestra"
+
+# The rooms she watches — no act-gate, no doc-guard, because she's sitting
+# right there. Named once so a fourth room can't quietly inherit autonomy by
+# being spelled into a condition somewhere; anything not on this list asks.
+_WATCHED_LANES = ("personal", "coding")
 
 
 def _root_dir():
@@ -190,14 +208,15 @@ def _lane_profile(lane):
     """The config a lane hands a session at BIRTH. cwd is the piece that can
     never change afterwards (Claude Code stores conversations per directory —
     `--resume` from elsewhere fails), which is why the lane is chosen up front
-    rather than inferred later."""
-    if lane == "personal":
-        return {"cwd": _root_dir(),
-                "allowed_tools": list(_BUILDER_TOOLS),
-                "act_gate": False, "guard_docs": False}
-    return {"cwd": str(store.BUILD_DIR),
+    rather than inferred later.
+
+    Two switches, three rooms: Personal stands at the shared root, Coding and
+    Orchestra stand in the app checkout; Personal and Coding just act, only
+    Orchestra asks."""
+    watched = lane in _WATCHED_LANES
+    return {"cwd": _root_dir() if lane == "personal" else str(store.BUILD_DIR),
             "allowed_tools": list(_BUILDER_TOOLS),
-            "act_gate": True, "guard_docs": True}
+            "act_gate": not watched, "guard_docs": not watched}
 
 
 def _conv_lane(entry):
@@ -206,6 +225,11 @@ def _conv_lane(entry):
     somewhere OTHER than the app checkout (the vault, the shared root) is
     Personal. That matches how the two kinds were actually created — builder
     sessions got store.BUILD_DIR, the ~20 legacy Keeper ones got the vault.
+
+    Nothing derives to CODING, and that's deliberate: Coding shares its ground
+    with Orchestra, so a cwd can't tell the two apart, and guessing wrong
+    would hand an unwatched session Coding's ungated autonomy. A session only
+    lands there because she put it there — the ✎ picker, or a fresh create.
 
     An entry we can't place — no cwd, or a path that won't resolve — derives
     to ORCHESTRA, the gated lane. The lane now carries act_gate/guard_docs
@@ -1453,6 +1477,77 @@ def _conversation_last_said(path):
     return None, ""
 
 
+# --- Searching the archive -------------------------------------------------
+# Every conversation is one NDJSON file (bot_chats/<conv>.jsonl) of raw Claude
+# Code stream events, so "search everything I've ever said" is a walk over
+# those files — no index, no schema, nothing to keep in step with the record.
+# That's deliberate: an index is a second copy of the truth that can drift, and
+# at this scale (tens to low hundreds of transcripts) the walk is milliseconds.
+# When it stops being milliseconds, THAT is when an index earns its place.
+#
+# The response says how many transcripts it actually read, so a slow day is
+# visible rather than silently partial.
+_SEARCH_MIN_QUERY = 2          # one letter matches everything; not a search
+_SEARCH_HITS_PER_SESSION = 3   # enough to recognise the conversation, not read it
+_SEARCH_SNIPPET_PAD = 100      # characters either side of the match
+_SEARCH_MAX_SESSIONS = 80      # newest-first; anything past this is reported
+
+
+def _speech(path):
+    """Every human-meaningful line in a transcript, oldest first, as
+    (turn_index, who, text).
+
+    Only SPEECH — her typed messages and the agent's prose replies. Tool calls,
+    tool results and the usage records are machinery: they'd match a query for
+    a filename thousands of times and bury the one moment she actually meant.
+    `{"type": "user", "text": ...}` is her, typed; a user event carrying a
+    `message` instead is claude echoing a tool result back to itself, which is
+    exactly the machinery being excluded (same distinction _conversation_last_
+    said draws).
+
+    A torn line (a crash mid-append) is skipped rather than allowed to hide the
+    rest of the file."""
+    out = []
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                try:
+                    ev = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(ev, dict):
+                    continue
+                if ev.get("type") == "assistant":
+                    text = _message_prose(ev.get("message"))
+                    if text:
+                        out.append((len(out), "K", text))
+                elif ev.get("type") == "user":
+                    text = ev.get("text")
+                    if isinstance(text, str) and text.strip():
+                        out.append((len(out), "B", text.strip()))
+    except OSError:
+        return []
+    return out
+
+
+def _snippet(text, needle, pad=_SEARCH_SNIPPET_PAD):
+    """The match with room to breathe either side, and where the match sits
+    inside what's returned — the client needs the offset to mark the words, and
+    recomputing it there would mean re-implementing this trimming in two
+    languages. Collapses whitespace first so a snippet out of a code block
+    doesn't arrive as a column of newlines."""
+    flat = " ".join(text.split())
+    at = flat.lower().find(needle)
+    if at < 0:
+        return None
+    start = max(0, at - pad)
+    end = min(len(flat), at + len(needle) + pad)
+    body = flat[start:end]
+    return {"text": ("…" if start > 0 else "") + body + ("…" if end < len(flat) else ""),
+            "at": (at - start) + (1 if start > 0 else 0),
+            "len": len(needle)}
+
+
 def register(app):
     # The /api/bots/* rules below are kept as aliases of the canonical
     # /api/observatory/* paths purely for cached PWA clients (old service-
@@ -1541,6 +1636,84 @@ def register(app):
         return jsonify({"sessions": sessions, "bots": bots,
                         "model_choices": list(_MODEL_CHOICES)})
 
+    @app.route("/api/observatory/search")
+    def observatory_search():
+        """Search everything ever said, across every session, archived included.
+
+        `?q=` is a plain case-insensitive substring — not a query language. She
+        is looking for a thing she remembers saying, and every operator syntax
+        ever shipped is a thing to get wrong at the moment she's already
+        struggling to remember the words.
+
+        Returns one entry per session that matches, newest first, each with up
+        to _SEARCH_HITS_PER_SESSION snippets and the offset of the match inside
+        each — enough to recognise the conversation from the results, not
+        enough to read it there. Reading is what opening the session is for.
+
+        JOURNALLED SESSIONS ARE INCLUDED, unlike the terrain hovercard's
+        preview, which withholds them. Different act: the hovercard quotes her
+        diary at a passing cursor, this answers a question she deliberately
+        typed into her own archive. Excluding them would silently fail exactly
+        the search she most wants — the Keeper session is journalled, and it's
+        where most of what she'd go looking for was said. Each hit says whether
+        it came from a journalled session so the client can mark it.
+
+        Prompt that produced it: "i'm also wanting a way to see past sessions
+        and the contents of them ... navigate to another page where i can
+        scroll around and search inside of it and see stuff."
+        """
+        q = (request.args.get("q") or "").strip()
+        if len(q) < _SEARCH_MIN_QUERY:
+            return jsonify({"query": q, "results": [], "scanned": 0, "truncated": False})
+        needle = q.lower()
+        index = store.read("bot_chats/index", {})
+        chats = _chats_dir()
+        # Newest first, so a capped scan drops the oldest rather than an
+        # arbitrary slice of the directory.
+        entries = sorted(
+            ((cid, meta) for cid, meta in index.items() if isinstance(meta, dict)),
+            key=lambda kv: kv[1].get("last_at") or kv[1].get("started") or "",
+            reverse=True)
+        truncated = len(entries) > _SEARCH_MAX_SESSIONS
+        entries = entries[:_SEARCH_MAX_SESSIONS]
+
+        results = []
+        scanned = 0
+        for cid, meta in entries:
+            path = chats / f"{cid}.jsonl"
+            if not path.is_file():
+                continue
+            scanned += 1
+            # The title is worth matching too: "the housing one" is a real way
+            # to look for a conversation, and it may never say "housing" inside.
+            title = meta.get("title") or ""
+            hits = []
+            for turn, who, text in _speech(path):
+                if needle not in text.lower():
+                    continue
+                snip = _snippet(text, needle)
+                if snip:
+                    hits.append(dict(snip, turn=turn, who=who))
+                if len(hits) >= _SEARCH_HITS_PER_SESSION:
+                    break
+            title_hit = needle in title.lower()
+            if not hits and not title_hit:
+                continue
+            results.append({
+                "id": cid,
+                "title": title or cid,
+                "title_hit": title_hit,
+                "lane": _conv_lane(meta),
+                "journal": meta.get("journal") is True,
+                "archived": bool(meta.get("archived")),
+                "pinned": bool(meta.get("pinned")),
+                "started": meta.get("started"),
+                "last_at": meta.get("last_at"),
+                "hits": hits,
+            })
+        return jsonify({"query": q, "results": results,
+                        "scanned": scanned, "truncated": truncated})
+
     @app.route("/api/observatory/atlas")
     def observatory_atlas():
         """The sorter's map: life fronts + exocortex sub-domains (the
@@ -1583,6 +1756,11 @@ def register(app):
                 "front": g.get("front"),
                 "domain": g.get("domain"),
                 "bot": meta.get("bot"),
+                # Which room it lived in. The archive is read inside the
+                # Observatory now, where the room is how she thinks about a
+                # session — so a past one has to be able to say which it was.
+                "lane": _conv_lane(meta),
+                "journal": meta.get("journal") is True,
                 "started": meta.get("started"),
                 "last_at": meta.get("last_at"),
                 "archived": bool(meta.get("archived")),
@@ -1746,8 +1924,9 @@ def register(app):
 
         The lane picks cwd and the two safety-net defaults (see _lane_profile):
         `orchestra` roots in the app checkout and asks before irreversible
-        work; `personal` roots at the parent of both repos and just acts. Both
-        carry the full builder toolkit — the lane gates asking, not ability.
+        work; `coding` roots in the app checkout and just acts; `personal`
+        roots at the parent of both repos and just acts. All three carry the
+        full builder toolkit — the lane gates asking, not ability.
 
         `act_gate`/`guard_docs` are deliberately NOT written here: leaving them
         absent is what lets the lane keep driving them, so moving a session

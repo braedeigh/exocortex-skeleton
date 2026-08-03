@@ -12,19 +12,10 @@
   margin-bottom: var(--space-6);
 }
 
-.head {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-3);
-  margin: 0 0 var(--space-1);
-}
-
-.heading {
-  margin: 0;
-  font-size: var(--font-size-lg);
-  font-weight: 600;
-  color: var(--text);
-}
+/* The title line itself lives in LaneHead.module.css — shared with the session
+   lanes, because the heading became the collapse control and that gesture has
+   to be identical in every room. What stays here is what THIS room reports on
+   that line. */
 
 /* The one number allowed in the heading — the count of cards that want
    something from her. Everything else is muted. */

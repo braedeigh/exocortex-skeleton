@@ -39,12 +39,32 @@ export interface PendingApproval {
   command: string;
 }
 
-/** The Observatory's two rooms. A session BELONGS to one — this is assigned at
- * creation, not derived from whether it happens to be running. Both lanes carry
- * the same full toolkit; the lane decides whether the session stops and ASKS:
- * `orchestra` works while she isn't watching (gated, raises orange cards),
- * `personal` is her talking in real time (ungated — she's the check). */
-export type Lane = 'orchestra' | 'personal';
+/** The Observatory's three rooms. A session BELONGS to one — this is assigned
+ * at creation, not derived from whether it happens to be running. Every lane
+ * carries the same full toolkit; what the lane decides is WHERE the session
+ * stands and whether it stops and ASKS:
+ *
+ *   personal   her, talking about her life — rooted where both repos meet,
+ *              ungated (she's the check)
+ *   coding     her, building — rooted in the app checkout, also ungated
+ *   orchestra  work while she isn't watching — app checkout, gated, raises
+ *              orange approval cards
+ *
+ * Personal and Coding differ by GROUND; Coding and Orchestra by GATE. */
+export type Lane = 'orchestra' | 'personal' | 'coding';
+
+/** Every room the client knows, in the order the roster stacks them: the two
+ * she's present for, then the one running underneath. Anything that walks the
+ * set (the roster's sections, the dialog's picker) reads this rather than
+ * repeating the list. */
+export const ALL_LANES: Lane[] = ['personal', 'coding', 'orchestra'];
+
+/** Narrow whatever the server said into a room this client can draw. An
+ * unknown value falls to Orchestra — the gated room, the same fail-toward-ask
+ * the backend uses for anything it can't place. */
+export function toLane(value: string | undefined): Lane {
+  return (ALL_LANES as string[]).includes(value ?? '') ? (value as Lane) : 'orchestra';
+}
 
 export interface SessionMeta {
   id: string;
@@ -72,6 +92,11 @@ export interface SessionMeta {
   journal?: boolean;
   /** Pinned sessions sort first (the Keeper session lives at the top). */
   pinned?: boolean;
+  /** When it was closed. Archived sessions are off the roster but reachable
+   * from the archive — and SENDING into one reopens it (routes/observatory.py
+   * pops the flag on send, deliberately: talking to an old chat is the whole
+   * un-archive gesture). The composer says so, so that isn't a surprise. */
+  archived?: string;
   /** Cached Haiku one-liner of what the session is working on. */
   summary?: string;
   /** Her last real ask, one line, stamped at send time. Shown on the card only
@@ -192,6 +217,81 @@ export function useSessionPreview(convId: string | null) {
   });
 }
 
+/** One past session on the archive's listing. `gist`/`tags`/`front`/`domain`
+ * are written by scripts/sort_bot_chats.py after the fact — a session it hasn't
+ * sorted yet simply has none, which is why nothing here is required. */
+export interface ArchivedSession {
+  id: string;
+  title: string;
+  /** What actually happened in there, in one cached line. The most useful
+   * field on the row: a title says what she meant to do, a gist says what it
+   * turned into. */
+  gist?: string;
+  tags?: string[];
+  front?: string | null;
+  domain?: string | null;
+  lane?: Lane;
+  journal?: boolean;
+  started?: string;
+  last_at?: string;
+  archived?: boolean;
+  pinned?: boolean;
+}
+
+/** Every session ever, archived included — the librarian's view, as opposed to
+ * `/api/observatory`, which is only what's open. Still served by the endpoint
+ * that was built for the old /atlas map; the shelves it was shaped for are
+ * gone, the list it returns is exactly what the archive needs. */
+export function useArchiveList() {
+  return useQuery({
+    queryKey: ['observatory-archive'] as const,
+    queryFn: async ({ signal }) =>
+      api.get<{ sessions: ArchivedSession[] }>('/api/observatory/atlas', signal),
+    // A record of the past changes when a session ends, not second to second.
+    staleTime: 60_000,
+  });
+}
+
+/** One match inside a transcript: where the words sit in the snippet (`at`,
+ * `len`) so the client can mark them without re-finding the query in trimmed,
+ * ellipsised text. `turn` is its index among that session's spoken lines. */
+export interface SearchHit {
+  text: string;
+  at: number;
+  len: number;
+  turn: number;
+  who: 'B' | 'K';
+}
+
+export interface SearchResult {
+  id: string;
+  title: string;
+  /** The query matched the session's NAME, not (only) its contents. */
+  title_hit: boolean;
+  lane: Lane;
+  journal: boolean;
+  archived: boolean;
+  pinned: boolean;
+  started?: string;
+  last_at?: string;
+  hits: SearchHit[];
+}
+
+export interface SearchResponse {
+  query: string;
+  results: SearchResult[];
+  /** How many transcripts were actually read — so a partial scan is visible
+   * rather than silently passing for "everything". */
+  scanned: number;
+  truncated: boolean;
+}
+
+/** Search every session's transcript, archived included. Plain substring, no
+ * query language — see the route's docstring for why. */
+export function searchSessions(q: string, signal?: AbortSignal): Promise<SearchResponse> {
+  return api.get(`/api/observatory/search?q=${encodeURIComponent(q)}`, signal);
+}
+
 /** Create a session ahead of its first message — the roster's '+ New
  * session', and the observatory's own blank-compose first send (the old
  * create-implicitly-on-send flow is gone; the client drives it explicitly
@@ -308,16 +408,32 @@ export function getKeeperRolloverStatus(signal?: AbortSignal): Promise<KeeperRol
 export class SendError extends Error {
   status: number;
 
-  constructor(message: string, status: number) {
+  /** Present on a 503 memory refusal: what the server saw when it said no, so
+   * the prompt can draw the bar instead of showing a dead-end toast. */
+  headroom?: unknown;
+
+  /** True when the refusal is one this turn could be QUEUED past. */
+  canQueue?: boolean;
+
+  constructor(message: string, status: number, extra?: { headroom?: unknown; canQueue?: boolean }) {
     super(message);
     this.name = 'SendError';
     this.status = status;
+    this.headroom = extra?.headroom;
+    this.canQueue = extra?.canQueue;
   }
 }
 
 /** True for the one refusal that just means "not yet" — see SendError. */
 export function isTurnBusy(err: unknown): boolean {
   return err instanceof SendError && err.status === 409;
+}
+
+/** True when the send was refused for want of memory. Distinct from a real
+ * failure: nothing is broken, the box is just full, and the turn can be queued
+ * rather than lost. */
+export function isOutOfMemory(err: unknown): boolean {
+  return err instanceof SendError && err.status === 503 && err.canQueue === true;
 }
 
 export interface SendOptions {
@@ -367,8 +483,15 @@ export async function streamSend(
     }),
   });
   if (!res.ok || !res.body) {
-    const data = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new SendError(data.error || `send failed (${res.status})`, res.status);
+    const data = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      headroom?: unknown;
+      can_queue?: boolean;
+    };
+    throw new SendError(data.error || `send failed (${res.status})`, res.status, {
+      headroom: data.headroom,
+      canQueue: data.can_queue,
+    });
   }
 
   let convIdOut: string | undefined = convId;

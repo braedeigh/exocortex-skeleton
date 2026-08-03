@@ -1,0 +1,73 @@
+/* LaneHead — the shared title line for every room on the Observatory
+   (Personal, Coding, Orchestra, Night crew). One header, one chevron idiom, so
+   collapsing feels identical wherever she does it.
+
+   The census that sits beside the heading is styled by each room in its own
+   module (Orchestra's .waitCount / .count, Night crew's .readyCount / .spend) —
+   this file owns the LINE and the CONTROL, not what the room chooses to report
+   on it. */
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-1);
+}
+
+/* The heading IS the button. A chevron beside a title would be a second small
+   target for one action, and this is the control she'll reach for most on a
+   phone — so it gets the full title block and a proper 40px of height. */
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--tap-target);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Same chevron as the file drawer on the cards and the collapsible cards on
+   Body: a small triangle that rotates a quarter turn and takes the accent when
+   open, so "there is more behind this" reads one way across the whole app.
+   Only `transform` and `color` move — nothing here touches layout. */
+.arrow {
+  flex: none;
+  display: inline-block;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  transition: transform 180ms ease, color 180ms ease;
+}
+
+.arrowOpen {
+  color: var(--accent);
+  transform: rotate(90deg);
+}
+
+.toggle:hover .arrow {
+  color: var(--accent);
+}
+
+.heading {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* A room with something waiting on her warms its chevron even while it's shut,
+   so a collapsed room that wants her still reads as wanting her from across
+   the page. The census beside it carries the actual number. */
+.headWanting .arrow {
+  color: var(--orange);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .arrow {
+    transition: none;
+  }
+}

@@ -1,6 +1,6 @@
 import { useEffect, useState, type KeyboardEvent } from 'react';
 import { Sheet } from '../../ui';
-import type { Lane } from './api';
+import { ALL_LANES, type Lane } from './api';
 import styles from './RosterPage.module.css';
 
 /** Display names for the model aliases the server offers. Anything not
@@ -26,9 +26,20 @@ export interface SessionDraft {
   actGate: boolean | null;
 }
 
+const LANE_LABEL: Record<Lane, string> = {
+  personal: 'Personal',
+  coding: 'Coding',
+  orchestra: 'Orchestra',
+};
+
+/** Each room in one line: where it stands, then whether it asks. Those are the
+ * two switches the lane actually flips, and Personal/Coding differ only on the
+ * first — so the blurb has to say both or the picker looks like it has a
+ * duplicate. */
 const LANE_BLURB: Record<Lane, string> = {
+  personal: 'Rooted where both repos meet, so it can reach your vault. Just acts — you’re the one watching.',
+  coding: 'Rooted in the app code, where the build happens. Just acts — you’re the one watching.',
   orchestra: 'Rooted in the app code. Stops and asks before anything irreversible.',
-  personal: 'Rooted where both repos meet. Just acts — you’re the one watching.',
 };
 
 /**
@@ -128,8 +139,11 @@ export function SessionDialog({
             value={pickedLane}
             onChange={(e) => setPickedLane(e.target.value as Lane)}
           >
-            <option value="orchestra">Orchestra</option>
-            <option value="personal">Personal</option>
+            {ALL_LANES.map((l) => (
+              <option key={l} value={l}>
+                {LANE_LABEL[l]}
+              </option>
+            ))}
           </select>
           <span className={styles.dialogFieldDesc}>
             {LANE_BLURB[pickedLane]}{' '}
@@ -178,7 +192,7 @@ export function SessionDialog({
           <span className={styles.dialogFieldDesc}>
             Whether it stops and raises an orange card before something
             irreversible. Orchestra asks because nobody&rsquo;s watching;
-            Personal doesn&rsquo;t because you are.
+            Personal and Coding don&rsquo;t, because you are.
           </span>
         </label>
 

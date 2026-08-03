@@ -75,7 +75,7 @@ def open_spinoff(slug, start=True, lane=None):
     live (non-archived) conversation is a rejoin, not a restart, and leaves
     that conversation untouched — including not re-firing it.
 
-    `lane` names the room outright ("personal"/"orchestra"); left None it's
+    `lane` names the room outright ("personal"/"coding"/"orchestra"); left None it's
     inherited from the sending session (_inherit_lane). The room supplies cwd
     and the safety-net defaults via _lane_profile; act_gate/guard_docs are
     deliberately NOT written onto the entry, same as the create route, so the
@@ -109,9 +109,9 @@ def open_spinoff(slug, start=True, lane=None):
                     "brief": str(brief)}, 200
 
         # The room decides where the child is rooted — the app checkout for
-        # Orchestra, the parent of both repos for Personal — and cwd is the one
-        # thing a session can never change afterwards, which is why it's settled
-        # here at birth rather than left to be inferred later.
+        # Orchestra and Coding, the parent of both repos for Personal — and cwd
+        # is the one thing a session can never change afterwards, which is why
+        # it's settled here at birth rather than left to be inferred later.
         room = lane or _inherit_lane(index)
         profile = _lane_profile(room)
         kickoff = (f"Read {brief} and follow its Protocol section exactly — "

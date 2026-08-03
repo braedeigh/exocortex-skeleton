@@ -1726,10 +1726,11 @@ def test_a_hand_reply_dismisses_an_unresolved_card(bot_client):
     assert observatory._read_approvals(cid).get("pending") is None
 
 
-# --- lanes: the Observatory's two rooms (07-27) -----------------------------
+# --- lanes: the Observatory's three rooms (07-27, split 08-03) --------------
 # A session BELONGS to a lane now instead of being filtered into one. The lane
-# does NOT gate tools (both carry the full builder kit) — it gates whether the
-# session stops and asks, and it fixes the cwd that can never change later.
+# does NOT gate tools (all three carry the full builder kit) — it decides WHERE
+# the session stands and whether it stops and asks. Personal and Coding differ
+# by ground, Coding and Orchestra by gate; cwd can never change later.
 
 
 def test_create_defaults_to_the_orchestra_lane(bot_client):
@@ -1756,6 +1757,110 @@ def test_personal_lane_roots_at_the_shared_parent_and_does_not_ask(bot_client):
     assert config["act_gate"] is False and config["guard_docs"] is False
     # Same toolkit as Orchestra: the lane gates asking, not ability.
     assert entry["allowed_tools"] == list(observatory._BUILDER_TOOLS)
+
+
+def test_coding_lane_stands_in_the_app_checkout_and_does_not_ask(bot_client):
+    # The whole reason Coding is its own room rather than a label on Personal:
+    # it shares Personal's "she's watching, so just act" but NOT its ground. A
+    # build session rooted at the shared parent can wander into the vault and
+    # leave app code there, which the root CLAUDE.md calls a bug outright.
+    conv_id = bot_client.post("/api/observatory/conversations",
+                              json={"title": "building", "lane": "coding"}).get_json()["id"]
+    entry = store.read("bot_chats/index", {})[conv_id]
+    assert entry["lane"] == "coding"
+    assert entry["cwd"] == str(store.BUILD_DIR)          # Orchestra's ground…
+    config = observatory._conv_config(entry)
+    assert config["act_gate"] is False and config["guard_docs"] is False  # …Personal's gates
+    # Unwritten, like every lane: that's what lets a later move re-scope it.
+    assert "act_gate" not in entry and "guard_docs" not in entry
+    assert entry["allowed_tools"] == list(observatory._BUILDER_TOOLS)
+
+
+def test_nothing_derives_into_coding(bot_client):
+    # Coding and Orchestra stand on the same ground, so a cwd cannot tell them
+    # apart — and guessing Coding would hand an unwatched session ungated
+    # autonomy. A session only lands there because she put it there.
+    assert observatory._conv_lane({"cwd": str(store.BUILD_DIR)}) == "orchestra"
+    assert observatory._conv_lane({"cwd": str(store.BUILD_DIR),
+                                   "lane": "coding"}) == "coding"
+
+
+# --- searching the archive (08-03) -----------------------------------------
+# "a way to see past sessions and the contents of them ... search inside of it".
+# One walk over the transcripts; no index to drift from the record.
+
+
+def _seed_speech(conv_id, lines, **meta):
+    """A conversation with a real jsonl behind it. `lines` is (who, text) —
+    'B' becomes her typed user event, 'K' an assistant message. (Distinct from
+    the preview tests' _seed_transcript above, which writes raw events.)"""
+    chats = store.DATA_DIR / "bot_chats"
+    chats.mkdir(parents=True, exist_ok=True)
+    with open(chats / f"{conv_id}.jsonl", "w", encoding="utf-8") as fh:
+        for who, text in lines:
+            if who == "B":
+                fh.write(json.dumps({"type": "user", "text": text}) + "\n")
+            else:
+                fh.write(json.dumps({"type": "assistant", "message": {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": text}]}}) + "\n")
+    with store.mutate("bot_chats/index", {}) as index:
+        index[conv_id] = dict({"title": conv_id, "last_at": "2026-08-01T00:00:00"}, **meta)
+
+
+def test_search_finds_words_in_a_transcript_with_a_snippet(bot_client):
+    _seed_speech("conv-a", [("B", "what should I do about the balcony door"),
+                                ("K", "Seal it before winter.")])
+    data = bot_client.get("/api/observatory/search?q=balcony").get_json()
+    hit = data["results"][0]["hits"][0]
+    assert data["results"][0]["id"] == "conv-a"
+    assert hit["who"] == "B"
+    # The client marks the words using the offset rather than re-finding the
+    # query in trimmed, ellipsised text — so the offset has to be right.
+    assert hit["text"][hit["at"]:hit["at"] + hit["len"]].lower() == "balcony"
+
+
+def test_search_ignores_tool_machinery_and_only_reads_speech(bot_client):
+    # A user event carrying `message` is claude echoing a tool result to
+    # itself. Matching it would bury the one moment she actually meant under
+    # every file the agent happened to touch.
+    chats = store.DATA_DIR / "bot_chats"
+    chats.mkdir(parents=True, exist_ok=True)
+    (chats / "conv-tool.jsonl").write_text(json.dumps({
+        "type": "user", "message": {"role": "user", "content": [
+            {"type": "text", "text": "balcony.py"}]}}) + "\n")
+    with store.mutate("bot_chats/index", {}) as index:
+        index["conv-tool"] = {"title": "tooling", "last_at": "2026-08-01T00:00:00"}
+    assert bot_client.get("/api/observatory/search?q=balcony").get_json()["results"] == []
+
+
+def test_search_covers_archived_and_journalled_sessions(bot_client):
+    # The archive's whole job is the sessions the roster hides, and the Keeper
+    # (journalled) is where most of what she'd go looking for was said.
+    _seed_speech("conv-old", [("B", "the mattress arrives thursday")],
+                     archived="2026-07-01T00:00:00")
+    _seed_speech("conv-diary", [("B", "the mattress finally came")], journal=True)
+    found = {r["id"]: r for r in
+             bot_client.get("/api/observatory/search?q=mattress").get_json()["results"]}
+    assert set(found) == {"conv-old", "conv-diary"}
+    # Flagged, not withheld — the client marks a diary hit so she's never
+    # surprised which surface a line came off.
+    assert found["conv-diary"]["journal"] is True
+    assert found["conv-old"]["archived"] is True
+
+
+def test_search_matches_a_session_by_name_alone(bot_client):
+    # "the housing one" is a real way to look for a conversation, and it may
+    # never say the word inside.
+    _seed_speech("conv-h", [("B", "ok")], title="housing search")
+    result = bot_client.get("/api/observatory/search?q=housing").get_json()["results"][0]
+    assert result["title_hit"] is True and result["hits"] == []
+
+
+def test_search_needs_more_than_one_character(bot_client):
+    _seed_speech("conv-a", [("B", "anything at all")])
+    data = bot_client.get("/api/observatory/search?q=a").get_json()
+    assert data["results"] == [] and data["scanned"] == 0
 
 
 def test_root_dir_is_the_parent_the_two_repos_share(tmp_path, monkeypatch):

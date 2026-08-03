@@ -37,8 +37,10 @@ import styles from './TerrainAgentBar.module.css';
 
 /** Which agents are eligible at all. */
 export type AgentPool = 'active' | 'open' | 'all';
-/** Which room they live in. '' = no filter. */
-export type AgentSection = '' | 'personal' | 'orchestra';
+/** Which room they live in. '' = no filter. Mirrors the Observatory's lanes
+ * (observatory/api.ts) — a room missing here would make its sessions
+ * unreachable from this bar, so the two lists move together. */
+export type AgentSection = '' | 'personal' | 'coding' | 'orchestra';
 
 export const POOL_LABELS: Record<AgentPool, string> = {
   active: 'Active',
@@ -55,11 +57,12 @@ const POOL_HINTS: Record<AgentPool, string> = {
 export const SECTION_LABELS: Record<AgentSection, string> = {
   '': 'All',
   personal: 'Personal',
+  coding: 'Coding',
   orchestra: 'Orchestra',
 };
 
 const POOLS: readonly AgentPool[] = ['active', 'open', 'all'];
-const SECTIONS: readonly AgentSection[] = ['', 'personal', 'orchestra'];
+const SECTIONS: readonly AgentSection[] = ['', 'personal', 'coding', 'orchestra'];
 
 export interface AgentEntry {
   id: string;
@@ -69,7 +72,7 @@ export interface AgentEntry {
   active: boolean;
   /** Not archived. */
   open: boolean;
-  /** 'personal' | 'orchestra' | ''. */
+  /** 'personal' | 'coding' | 'orchestra' | ''. */
   lane: string;
   files: number;
   last: number | null;

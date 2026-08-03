@@ -606,6 +606,7 @@
   font-style: italic;
 }
 
+
 .error {
   margin: var(--space-4) 0;
   padding: var(--space-3);
@@ -734,6 +735,16 @@
   max-width: 68ch;
   margin: 0 auto var(--space-2);
   color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+/* Reached from the archive and closed. Warmer ink than .offNote — it's telling
+   her a send has a consequence — but no border, no fill, no icon: it's a fact
+   about the next tap, not an alarm about the current one. */
+.archivedNote {
+  max-width: 68ch;
+  margin: 0 auto var(--space-2);
+  color: var(--orange);
   font-size: var(--font-size-sm);
 }
 

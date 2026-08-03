@@ -4,7 +4,11 @@ import { autosizeHeight, uploadedPathsMessage } from '../phone/phoneLogic';
 import { TermNotesPanel } from '../../shell/TermNotesPanel';
 import { SchedulePanel } from '../../shell/SchedulePanel';
 import { TerrainBackdrop } from '../terrain/TerrainBackdrop';
-import { createSession, getConversation, getSessions, journalHighlight, journalOutput, stopConversation, streamSend } from './api';
+import { createSession, getConversation, getSessions, isOutOfMemory, journalHighlight, journalOutput, stopConversation, streamSend } from './api';
+import { MemoryPrompt } from '../runqueue/MemoryPrompt';
+import { enqueueConversation, fetchHeadroom } from '../runqueue/api';
+import { shouldPrompt } from '../runqueue/memoryPrompt';
+import type { Headroom } from '../runqueue/memoryPrompt';
 import { applyEvent, assistantText, lastUserTurnIndex, turnsFromHistory, userTurn, type Turn } from './events';
 import { HighlightPill, HighlightSheet, PILL_HEIGHT, PILL_WIDTH } from './JournalHighlight';
 import { selectionAnchorPoint, selectionOffsets } from './highlightMarks';
@@ -131,12 +135,29 @@ export function ObservatoryPage({
   const [histLoaded, setHistLoaded] = useState(false);
   const [offRecord, setOffRecord] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  // The "not enough room" prompt. `pending` is the message she was trying to
+  // send, held here so Cancel gives it back and Queue can hand it over — a
+  // refusal must never eat what she typed. `bypass` is set by "Start anyway"
+  // so the retry doesn't ask the same question twice.
+  const [memPrompt, setMemPrompt] = useState<{
+    headroom: Headroom | null;
+    serverRefused: boolean;
+    pending: { text: string; offRecord: boolean };
+  } | null>(null);
+  const bypassHeadroomRef = useRef(false);
   // The terminal's floating sidekicks, ported: 📝 dev notes and the ⏰
   // prompt timer (the same shared panels the terminal pane uses).
   const [panel, setPanel] = useState<'notes' | 'schedule' | null>(null);
   const [schedSessions, setSchedSessions] = useState<string[]>([]);
   const notesBtnRef = useRef<HTMLButtonElement>(null);
   const schedBtnRef = useRef<HTMLButtonElement>(null);
+  // Closed, and reached from the archive. The composer says so BEFORE she
+  // types: sending into an archived session is what reopens it (the server
+  // pops the flag on send — deliberate, it's the whole un-archive gesture),
+  // and now that the archive is one tap from every transcript she'll be
+  // landing in old sessions to READ far more often than to revive one.
+  // Cleared on send, so the note never outlives the thing it warned about.
+  const [sessionArchived, setSessionArchived] = useState(false);
   // Explicit journal state of this session (null until meta loads). Nothing
   // announces it in the composer — she knows which sessions are journaled; it
   // only gates the off-the-record toggle, which exists in journaled sessions.
@@ -298,6 +319,7 @@ export function ObservatoryPage({
         setTurns(loadedTurns);
         setSessionJournal(data.meta?.journal === true ? true : data.meta?.journal === false ? false : null);
         setSessionPinned(data.meta?.pinned === true);
+        setSessionArchived(Boolean(data.meta?.archived));
         setSessionSpend(data.meta?.tokens ? formatSessionSpend(data.meta.tokens) : null);
         setSessionSummary(data.meta?.summary ?? null);
         if (data.meta?.title) setRoomTitle(data.meta.title);
@@ -386,9 +408,27 @@ export function ObservatoryPage({
   const sendMessage = useCallback(
     async (text: string, sendOffRecord: boolean) => {
       if (busyRef.current) return;
+
+      // Ask BEFORE anything moves. The box holds about three sessions at once,
+      // and the server only hard-refuses at its own floor — so without this the
+      // fourth session either starts and squeezes the site, or dies on a 503
+      // after her message has already been drawn into the transcript. Checked
+      // first, while cancelling still costs nothing. A headroom call that fails
+      // returns null and sends exactly as before.
+      if (!bypassHeadroomRef.current) {
+        const headroom = await fetchHeadroom();
+        if (shouldPrompt(headroom)) {
+          setMemPrompt({ headroom, serverRefused: false, pending: { text, offRecord: sendOffRecord } });
+          return;
+        }
+      }
+      bypassHeadroomRef.current = false;
+
       busyRef.current = true;
       setSendError(null);
 
+      // This send IS the un-archive (server-side), so the note goes with it.
+      setSessionArchived(false);
       const next = [...turnsRef.current, userTurn(text, sendOffRecord)];
       setTurns(next);
       setStreaming(true);
@@ -460,6 +500,18 @@ export function ObservatoryPage({
           // Otherwise: the page went away (another route, closed app). The
           // turn keeps writing server-side; whoever opens this conversation
           // next re-attaches to it. Nothing to do here.
+        } else if (isOutOfMemory(e)) {
+          // Refused for want of memory — nothing is broken and nothing is
+          // running, so this must NOT fall through to reattach (there'd be no
+          // turn to find). Take her message back out of the transcript and
+          // offer the same choice the proactive check offers, minus "start
+          // anyway": the server has already said no to that.
+          setTurns(turnsRef.current.filter((t, i) => !(i === next.length - 1 && t.role === 'user')));
+          setMemPrompt({
+            headroom: ((e as { headroom?: Headroom }).headroom ?? null) as Headroom | null,
+            serverRefused: true,
+            pending: { text, offRecord: sendOffRecord },
+          });
         } else if (convRef.current) {
           // The turn is known server-side and keeps writing without us
           // (closed PWA, dropped proxy) — don't unsay her message; go find
@@ -922,6 +974,15 @@ export function ObservatoryPage({
 
       <div className={[styles.composer, offRecord ? styles.composerOff : ''].filter(Boolean).join(' ')}>
         {sendError ? <div className={styles.sendError}>{sendError}</div> : null}
+        {/* Same rule as the off-the-record note below: say exactly what the
+            machinery does. Reading a closed session is free; sending reopens
+            it and starts spending — she should know that before she types,
+            not after. */}
+        {sessionArchived ? (
+          <div className={styles.archivedNote}>
+            this session is closed — sending will reopen it
+          </div>
+        ) : null}
         {/* The note has to match the machinery exactly (Terra, 07-23). It used
             to say "not kept", and that was the whole complaint: the turn really
             did vanish from her own chat. Now off the record stops at the
@@ -1080,6 +1141,50 @@ export function ObservatoryPage({
           }}
         />
       ) : null}
+      <MemoryPrompt
+        open={memPrompt !== null}
+        headroom={memPrompt?.headroom ?? null}
+        serverRefused={memPrompt?.serverRefused ?? false}
+        onStartAnyway={() => {
+          const p = memPrompt?.pending;
+          setMemPrompt(null);
+          if (!p) return;
+          bypassHeadroomRef.current = true;
+          void sendMessage(p.text, p.offRecord);
+        }}
+        onQueue={async () => {
+          const p = memPrompt?.pending;
+          if (!p) return;
+          try {
+            // A brand-new compose has no session yet, so queueing has to mint
+            // one first — otherwise there'd be nothing for the dispatcher to
+            // send into when a slot opens.
+            let conv = convRef.current;
+            if (!conv) {
+              const created = await createSession(p.text.slice(0, 40), false);
+              conv = created.id;
+              convRef.current = conv;
+            }
+            await enqueueConversation(conv, p.text);
+            setMemPrompt(null);
+            setSendError('Queued — it starts when there’s room.');
+          } catch (err) {
+            setSendError(err instanceof Error ? err.message : 'Could not queue that.');
+          }
+        }}
+        onClose={() => {
+          // Give her words back. A refusal that silently eats the message is
+          // the one outcome this prompt exists to prevent.
+          const p = memPrompt?.pending;
+          setMemPrompt(null);
+          const el = inputRef.current;
+          if (p && el && !el.value) {
+            el.value = p.text;
+            el.style.height = 'auto';
+            el.style.height = `${autosizeHeight(el.scrollHeight, 132)}px`;
+          }
+        }}
+      />
     </div>
   );
 }

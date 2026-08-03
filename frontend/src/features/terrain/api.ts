@@ -59,7 +59,7 @@ export interface TerrainLiveSession {
    * the browser-local heartbeat the agent bar used to call "active".
    * Optional: payloads built before this field existed simply don't say. */
   open?: boolean;
-  /** 'personal' | 'orchestra' — which room the session lives in, derived
+  /** 'personal' | 'coding' | 'orchestra' — which room the session lives in, derived
    * server-side for entries predating the field. Drives the agent bar's
    * section filter. */
   lane?: string;

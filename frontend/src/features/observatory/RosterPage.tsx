@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import {
+  ALL_LANES,
   closeConversation,
   createSession,
   getSessions,
+  toLane,
   updateConversation,
   type Lane,
   type SessionMeta,
@@ -13,6 +15,7 @@ import { applyFilter, filterCounts, type StateFilter } from './sessionFilters';
 import { SessionDialog, type SessionDraft } from './SessionDialog';
 import { SessionLane } from './SessionLane';
 import { NightCrewLane, type NightRun } from './NightCrewLane';
+import { MemoryMeter } from '../runqueue/MemoryMeter';
 import { useTerrain } from '../terrain/api';
 import { NotesPill } from '../todos/NotesPill';
 import { useToasts } from '../journal/useJournalData';
@@ -31,9 +34,15 @@ function readStoredSort(): RosterSort {
   return localStorage.getItem(SORT_KEY) === 'newest' ? 'newest' : 'oldest';
 }
 
-/** Pinned (the Keeper) always on top; everything else by `started`, in the
- * chosen direction. `started` back-fills to last_at for legacy entries. Stable
- * because it keys on a fixed timestamp — the poll can't reshuffle it. */
+/** Everything by `started`, in the chosen direction. `started` back-fills to
+ * last_at for legacy entries. Stable because it keys on a fixed timestamp —
+ * the poll can't reshuffle it.
+ *
+ * Pinned still sorts to the front, though the Keeper is lifted clean out of
+ * the rooms below and never reaches a lane. The rule stays because it's what
+ * makes the hoist safe if there's ever more than one pinned session: they'd
+ * arrive in the Keeper slot in a fixed order rather than whatever order the
+ * roster payload happened to have. */
 function sortRoster(sessions: SessionMeta[], dir: RosterSort): SessionMeta[] {
   const sign = dir === 'oldest' ? 1 : -1;
   return [...sessions].sort((a, b) => {
@@ -98,32 +107,61 @@ interface NightState {
   spend: { night_usd: number };
 }
 
-const LANES: { lane: Lane; heading: string; blurb: string }[] = [
-  {
-    lane: 'personal',
+/** The rooms, in the order they stack. Reads ALL_LANES for the order so the
+ * page and the create dialog can't drift into offering different sets. */
+const LANE_COPY: Record<Lane, { heading: string; blurb: string }> = {
+  personal: {
     heading: 'Personal',
     blurb:
-      'You, talking, in real time. Rooted where both repos meet, so it can reach everything — and it just acts, because you’re the one watching.',
+      'You, talking, in real time — your life, not the build. Rooted where both repos meet, so it can reach everything, and it just acts, because you’re the one watching.',
   },
-  {
-    lane: 'orchestra',
+  coding: {
+    heading: 'Coding',
+    blurb:
+      'You, building, in real time. Rooted in the app code so it stands where the work is — and it just acts, same as Personal, because you’re still here.',
+  },
+  orchestra: {
     heading: 'Orchestra',
     blurb:
       'Work happening while you’re not. Rooted in the app code, and it stops to ask before anything irreversible.',
   },
-];
+};
 
 /**
  * /observatory — the Sessions page. A session is a SPACE, not a persona: she
  * summons whichever voices she wants inside it with slash commands (/spark,
  * /terra, /journalstart), exactly like a tmux session.
  *
- * TWO ROOMS (her 07-27 call). The page used to render every session twice —
+ * ROOMS (her 07-27 call). The page used to render every session twice —
  * once in "My sessions" (the full roster) and again in "Orchestra" (a
  * `running || awaiting` filter over that same list). Same card, two places,
  * two visual languages, and no way to say where anything belonged. Now a
  * session is ASSIGNED to a lane and stays there; being live became a state its
  * card wears rather than a section it migrates into. One card, one home.
+ *
+ * THREE OF THEM (her 08-03 call — "separation of sessions that are personal
+ * and those that are coding"). The old Personal room held both her life and
+ * her build, which are the same in one respect (she's watching, so nothing
+ * needs to stop and ask) and different in the one that matters day to day:
+ * where the session STANDS. Personal is rooted at the parent of both repos
+ * because a conversation about her life may need the vault; Coding is rooted
+ * in the app checkout, because a build session that stands one level up can
+ * drift into the vault and leave app code there. So the split is a real
+ * boundary, not a label — see _lane_profile in routes/observatory.py.
+ *
+ * COLLAPSIBLE (same ask). Every room on this page shuts to its title line and
+ * remembers it, Night crew included. The census stays on the header, so a shut
+ * room can't hide something that wants her — LaneHead.tsx owns that rule.
+ *
+ * THE KEEPER STANDS OUTSIDE ALL OF IT (her 08-03 ask). The one pinned session
+ * is hoisted above the rooms into a slot of its own: no lane, no heading, no
+ * chevron, and exempt from the rail's colour filters. It's the door to her
+ * day, and every mechanism on this page that can make a card harder to reach —
+ * being filed in a room, that room being shut, a filter narrowing it away —
+ * is a mechanism that could put the door behind something. Its card wears a
+ * teal ring and a 🌙 Keeper mark rather than a colour, because the colours here
+ * all mean STATE and the Keeper still has to be able to say it's unread (see
+ * .cardKeeper in Orchestra.module.css).
  *
  * THE COLOUR RAIL. Three buttons floating over the page's top-right, filtering
  * both rooms at once, in the colours the cards already wear: purple ACTIVE
@@ -135,9 +173,10 @@ const LANES: { lane: Lane; heading: string; blurb: string }[] = [
  * disagree. Read state is hers to set either way — the dot button on each card
  * (SessionLane) writes it through openedStore's setConversationRead.
  *
- * Personal sits above Orchestra because it's the one she reaches for — the
- * Orchestra is what's running underneath, not the first thing in her face
- * (same instinct as the 07-27 ordering call, applied to the new split).
+ * The order down the page is the two rooms she's PRESENT for (Personal, then
+ * Coding), then the two that run underneath her (Orchestra, Night crew) — the
+ * things she's doing above the things being done for her, which is the same
+ * instinct as the 07-27 ordering call applied to a wider set.
  *
  * DOCKED MODE (07-25): also the Sessions view of the desktop split's left
  * pane (shell/KeeperPane.tsx). `onOpenConversation` is the seam — opening a
@@ -252,11 +291,22 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
     setFilters((cur) => (cur.some((f) => gone.includes(f)) ? cur.filter((f) => !gone.includes(f)) : cur));
   }, [vanished]);
 
+  // The Keeper stands OUTSIDE the rooms (her 08-03 ask): one pinned session at
+  // the top of the page, in no lane, with no chevron over it. It's the door to
+  // her day — it shouldn't be something she can shut by accident, or something
+  // she has to remember which room she filed it in.
+  //
+  // Read off `ordered`, not `shown`: the rail's colours narrow the ROSTER, the
+  // work she's triaging, and the Keeper isn't that. Filtering to Unread and
+  // watching the door to her day disappear would break the "always at the top"
+  // promise the moment she used a filter.
+  const keeper = ordered.filter((s) => s.pinned);
   // The lane is server-resolved (it derives one for every session that predates
   // the field), so this is a straight split, not a guess. An unknown value
-  // falls to Orchestra — the gated room, same fail-toward-ask as the backend.
+  // falls to Orchestra — the gated room, same fail-toward-ask as the backend
+  // (see toLane). Pinned is excluded so the Keeper isn't drawn twice.
   const byLane = (lane: Lane) =>
-    shown.filter((s) => (s.lane === 'personal' ? 'personal' : 'orchestra') === lane);
+    shown.filter((s) => !s.pinned && toLane(s.lane) === lane);
 
   // What an empty lane says while the rail is narrowing it — "tap + to start
   // one" would be a lie there, and she'd make a session to fill a room that
@@ -350,16 +400,40 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
         <div className={styles.inner}>
           {/* Just the title now — sort moved into the rail, so every control
               that acts on the roster lives in one column instead of two. */}
+          {/* The title, and under it a hairline saying how full the box is.
+              It sits in the HEADER rather than among the cards on purpose: it's
+              the state of the room you just walked into, said once at the
+              threshold, not a widget competing with her sessions. Quiet teal
+              while there's room; it only speaks when things tighten. */}
           <div className={styles.header}>
             <h1 className={styles.title}>Observatory</h1>
+            <MemoryMeter />
           </div>
           {failed ? <div className={styles.pageError}>Couldn&rsquo;t load sessions.</div> : null}
 
-          {LANES.map(({ lane, heading, blurb }) => (
+          {keeper.length > 0 ? (
+            <SessionLane
+              keeper
+              laneKey="keeper"
+              heading="Keeper"
+              blurb=""
+              sessions={keeper}
+              terrain={terrain}
+              opened={opened}
+              onOpen={open}
+              onSetRead={setRead}
+              onRename={setEditTarget}
+              onChanged={refresh}
+              onClose={onCloseSession}
+            />
+          ) : null}
+
+          {ALL_LANES.map((lane) => (
             <SessionLane
               key={lane}
-              heading={heading}
-              blurb={blurb}
+              laneKey={lane}
+              heading={LANE_COPY[lane].heading}
+              blurb={LANE_COPY[lane].blurb}
               sessions={byLane(lane)}
               terrain={terrain}
               opened={opened}
@@ -411,7 +485,7 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
             initial={editTarget?.title ?? ''}
             initialJournal={editTarget?.journal === true}
             initialModel={editTarget?.model ?? ''}
-            lane={editTarget?.lane === 'personal' ? 'personal' : 'orchestra'}
+            lane={toLane(editTarget?.lane)}
             editable
             initialActGate={editTarget?.act_gate_set ?? null}
             modelChoices={modelChoices}
