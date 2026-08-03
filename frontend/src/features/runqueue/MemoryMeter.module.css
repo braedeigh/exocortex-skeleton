@@ -78,16 +78,44 @@
   opacity: 1;
 }
 
-/* The word only appears when there's something to say. On a calm box this
-   row doesn't render at all. */
+/* The description, always present. Two weights inside one line — the
+   measurement reads first, what it means for her next tap sits behind it.
+   Hierarchy by COLOUR, not size, so neither half drops below the readable
+   floor. */
 .note {
-  margin-top: var(--space-1);
+  margin-top: var(--space-2);
   font-size: var(--font-size-sm);
+  line-height: 1.4;
   color: var(--text-muted);
 }
 
-.noteLoud {
+.noteUsage {
   color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.noteDot {
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+
+.noteMeaning {
+  color: var(--text-muted);
+}
+
+/* Off calm, the meaning half is the part that changed — so it takes the
+   weight, and the tone's colour, rather than the whole line shouting. */
+.noteLoud .noteMeaning {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.tight .noteMeaning {
+  color: var(--morning);
+}
+
+.critical .noteMeaning {
+  color: var(--danger, #c0554d);
 }
 
 /* --- the expansion: numbers are allowed HERE, because she opened it --- */

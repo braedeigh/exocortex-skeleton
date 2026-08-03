@@ -17,7 +17,7 @@
 import { useEffect, useState } from 'react';
 import { fetchHeadroom } from './api';
 import type { Headroom } from './memoryPrompt';
-import { meterState, meterWantsAttention } from './meterState';
+import { meterDescription, meterState, meterWantsAttention } from './meterState';
 import styles from './MemoryMeter.module.css';
 
 /** How often the line refreshes. Slow on purpose: this is ambient, and a
@@ -49,6 +49,7 @@ export function MemoryMeter() {
   if (!state) return null;
 
   const loud = meterWantsAttention(state);
+  const desc = meterDescription(headroom);
 
   return (
     <div>
@@ -67,8 +68,22 @@ export function MemoryMeter() {
           />
           <div className={styles.tick} style={{ left: `${state.tickPct}%` }} />
         </div>
-        {loud && (
-          <div className={`${styles.note} ${styles.noteLoud}`}>{state.label}</div>
+        {/* The description sits under the line ALWAYS, not only when things
+            tighten — she asked to be able to read the memory at a glance
+            rather than infer it from a bar. Two weights, not two sizes:
+            the measurement in secondary ink, what it means for her next tap in
+            muted. Colour is the hierarchy lever, so nothing has to shrink
+            below the readable floor.
+            [prompt: "i want a description of the memory usage to go up there
+            though, not just the line"] */}
+        {desc && (
+          <div className={`${styles.note} ${loud ? styles.noteLoud : ''}`}>
+            <span className={styles.noteUsage}>{desc.usage}</span>
+            <span className={styles.noteDot} aria-hidden="true">
+              {' · '}
+            </span>
+            <span className={styles.noteMeaning}>{desc.meaning}</span>
+          </div>
         )}
       </button>
 

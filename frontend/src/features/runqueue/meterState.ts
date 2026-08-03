@@ -71,8 +71,62 @@ function meterLabel(h: Headroom, tone: MeterTone): string {
   }
 }
 
-/** True when the meter is worth her attention. A calm box says nothing; the
- * line just sits there being quiet, which is the point. */
+/** True when the meter has crossed out of calm and its text should step
+ * forward. The description shows either way — this only decides its weight. */
 export function meterWantsAttention(state: MeterState | null): boolean {
   return !!state && state.tone !== 'calm';
+}
+
+/** MB as the size she'd say out loud. 2065 -> "2.0 GB". Under a gig stays in
+ * MB, because "0.6 GB" is a worse way to say 600MB. */
+export function humanSize(mb: number): string {
+  if (mb < 1024) return `${Math.round(mb)} MB`;
+  return `${(mb / 1024).toFixed(1)} GB`;
+}
+
+/**
+ * How many more sessions actually fit — the thing the number is FOR. Bounded
+ * by both walls: the memory left above the floor, and the concurrency cap.
+ * Whichever runs out first is the honest answer.
+ */
+export function roomForMore(h: Headroom): number {
+  const spare = (h.available_mb ?? 0) - h.floor_mb;
+  const byMemory = Math.floor(spare / h.per_run_mb);
+  const byCap = h.cap - h.running;
+  return Math.max(0, Math.min(byMemory, byCap));
+}
+
+/**
+ * The line under the hairline, in two parts so they can carry different
+ * weights — colour is the hierarchy lever here, not size, so nothing has to
+ * shrink below the readable floor.
+ *
+ *   usage   "2.0 GB free of 3.8 GB"   — the measurement
+ *   meaning "room for 2 more"         — what it means for her next tap
+ *
+ * The second half is the one that actually answers the question she's asking
+ * when she glances up there, which is never "how many bytes" but "can I start
+ * another one".
+ */
+export function meterDescription(
+  h: Headroom | null | undefined,
+): { usage: string; meaning: string } | null {
+  if (!h || h.available_mb === null || !h.total_mb) return null;
+
+  const usage = `${humanSize(h.available_mb)} free of ${humanSize(h.total_mb)}`;
+
+  const parts: string[] = [];
+  if (h.running > 0) {
+    parts.push(h.running === 1 ? '1 running' : `${h.running} running`);
+  }
+  if (h.queued > 0) parts.push(`${h.queued} waiting`);
+
+  if (h.paused_until) {
+    parts.push('queue paused');
+  } else {
+    const room = roomForMore(h);
+    parts.push(room === 0 ? 'no room for another' : `room for ${room} more`);
+  }
+
+  return { usage, meaning: parts.join(' · ') };
 }
