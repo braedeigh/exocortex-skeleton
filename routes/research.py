@@ -596,14 +596,19 @@ def register(app):
 
     @app.route("/api/research/health")
     def research_health():
-        """How many worker slots are free right now — reuses the dispatcher's
-        own admission math (scripts/research_dispatcher.py's read_meminfo_mb
-        / compute_slots / constants) and terminal.py's live-worker count
-        (rw-* tmux sessions), never duplicating either. Off-Linux or an
+        """How many worker slots are free right now — reuses the RUN
+        dispatcher's admission math (scripts/run_dispatcher.py's
+        read_meminfo_mb / compute_slots / constants) and terminal.py's
+        live-worker count (rw-* tmux sessions), never duplicating either.
+
+        These numbers are shared with every other background crew now, not
+        research's own: the pill answers "can anything start", which is the
+        honest question, since a night build eating 900MB is exactly as much a
+        reason a worker can't start as another worker would be. Off-Linux or an
         unreadable /proc/meminfo degrades to `available_mb: null` with slots
         computed as if room exists, rather than 500ing."""
         from routes.terminal import _live_workers
-        from scripts import research_dispatcher as dispatcher
+        from scripts import run_dispatcher as dispatcher
 
         live_count = len(_live_workers())
         try:
@@ -612,15 +617,17 @@ def register(app):
             avail_mb = None
 
         if avail_mb is None:
-            slots = max(dispatcher.MAX_CONCURRENT - live_count, 0)
+            slots = max(dispatcher.CAP - live_count, 0)
         else:
             slots = max(dispatcher.compute_slots(avail_mb, live_count), 0)
 
+        # Response keys are unchanged on purpose — the teal heartbeat pill in
+        # the frontend reads these names.
         return jsonify({
             "available_mb": avail_mb,
             "floor_mb": dispatcher.FLOOR_MB,
-            "per_worker_mb": dispatcher.PER_WORKER_MB,
-            "max_concurrent": dispatcher.MAX_CONCURRENT,
+            "per_worker_mb": dispatcher.MEM_CLASSES["agent"],
+            "max_concurrent": dispatcher.CAP,
             "live_workers": live_count,
             "slots": slots,
         })

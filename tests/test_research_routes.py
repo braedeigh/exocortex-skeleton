@@ -780,10 +780,15 @@ def test_entry_add_empty_context_ids_omits_key(client):
 
 @pytest.fixture
 def stub_health(monkeypatch):
-    """Monkeypatch the dispatcher's meminfo reader and terminal's live-worker
-    count so the endpoint is deterministic and never shells out to tmux or
-    reads the real /proc/meminfo."""
-    from scripts import research_dispatcher as dispatcher
+    """Monkeypatch the run dispatcher's meminfo reader and terminal's
+    live-worker count so the endpoint is deterministic and never shells out to
+    tmux or reads the real /proc/meminfo.
+
+    The pill's numbers come from the SHARED admission controller now
+    (scripts/run_dispatcher.py), not research's own — every background crew
+    competes for the same memory, so research-only figures would have been
+    telling her a comfortable lie."""
+    from scripts import run_dispatcher as dispatcher
     from routes import terminal
 
     state = {"avail_mb": 2000, "live": []}
