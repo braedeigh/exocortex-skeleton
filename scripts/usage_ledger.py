@@ -47,7 +47,16 @@ import store  # noqa: E402
 from scripts import claude_transcripts  # noqa: E402
 
 LEDGER = "token_usage.json"
-_LEDGER_DEFAULT = {"entries": [], "days": {}}
+
+
+def _ledger_default():
+    """A FRESH default per call — never a shared module-level dict. When the
+    ledger file doesn't exist yet, store.mutate hands the default object
+    itself to the caller to fill in; a module-level default's inner list
+    would silently accumulate every entry ever appended to a missing file
+    and leak them into later reads (found 2026-08-04 by the backfill's
+    tests; a shallow dict() copy shares the inner list)."""
+    return {"entries": [], "days": {}}
 
 CLAUDE_BIN = os.environ.get("EXOCORTEX_CLAUDE_BIN", "claude")
 
@@ -315,7 +324,7 @@ def entry_for(run, receipt_data):
 def append_entry(entry):
     """Add one receipt to the ledger. One mutate, appended — the ledger is
     append-only; the rollup below never edits entries, only reads them."""
-    with store.mutate(LEDGER, dict(_LEDGER_DEFAULT)) as data:
+    with store.mutate(LEDGER, _ledger_default()) as data:
         data.setdefault("entries", []).append(entry)
 
 
@@ -381,7 +390,7 @@ def write_days(folded, today):
     eligible = sorted(d for d in folded if d < today)
     written, skipped = [], []
     if eligible:
-        with store.mutate(LEDGER, dict(_LEDGER_DEFAULT)) as data:
+        with store.mutate(LEDGER, _ledger_default()) as data:
             days = data.setdefault("days", {})
             for d in eligible:
                 if d in days:
@@ -395,7 +404,7 @@ def write_days(folded, today):
 def rollup(today=None):
     """Fold the ledger's entries into per-day totals. Safe to run hourly."""
     today = today or datetime.now().strftime("%Y-%m-%d")
-    data = store.read(LEDGER, dict(_LEDGER_DEFAULT))
+    data = store.read(LEDGER, _ledger_default())
     entries = data.get("entries", []) if isinstance(data, dict) else []
     written, skipped = write_days(fold_entries(entries), today)
     return written, skipped
