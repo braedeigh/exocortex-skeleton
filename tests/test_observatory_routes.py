@@ -19,6 +19,7 @@ under test, not the model.
 """
 import hashlib
 import json
+import pathlib
 import stat
 import subprocess
 import threading
@@ -2179,3 +2180,59 @@ def test_create_without_a_front_writes_no_front_fields(bot_client):
     entry = store.read("bot_chats/index", {})[body["id"]]
     assert "front" not in entry
     assert "system_prompt_file" not in entry
+
+
+# --- worktree sessions (worktrees.py) ---------------------------------------
+# An Orchestra session works in its own copy of the checkout. Three things in
+# this module reason about WHERE a session stands, and all three quietly did
+# the wrong thing for a copy: the doc-guard matched no files, the fork/Terrain
+# parser saw writes that belonged to no repo, and a removed copy turned into a
+# turn that failed like a model error.
+
+def test_the_doc_guard_follows_a_session_into_its_worktree(tmp_path, monkeypatch):
+    """The globs are absolute, so without the session's own root the guard
+    reads as ON while protecting nothing — an unattended session could rewrite
+    CLAUDE.md in its copy and carry it home on the branch."""
+    wt_root = tmp_path / "worktrees"
+    session = wt_root / "some-task"
+    session.mkdir(parents=True)
+    monkeypatch.setattr(observatory.worktrees, "WORKTREE_ROOT", wt_root)
+
+    globs = observatory._protected_doc_globs(str(session))
+
+    assert str(session / "CLAUDE.md") in globs
+    assert f"{session / 'claude-commands'}/**" in globs
+    # and the two fixed roots are still covered
+    assert str(pathlib.Path(store.BUILD_DIR) / "CLAUDE.md") in globs
+
+
+def test_the_doc_guard_ignores_a_cwd_that_is_not_a_worktree(tmp_path, monkeypatch):
+    """Only a worktree earns a third root. Any other cwd must not be able to
+    inject globs — the guard is bound to the session type, not to wherever a
+    caller happens to point."""
+    monkeypatch.setattr(observatory.worktrees, "WORKTREE_ROOT", tmp_path / "worktrees")
+
+    globs = observatory._protected_doc_globs(str(tmp_path / "elsewhere"))
+
+    assert not any(str(tmp_path / "elsewhere") in g for g in globs)
+
+
+def test_a_worktree_sessions_files_still_belong_to_the_repo(tmp_path, monkeypatch, data_dir):
+    """Terrain and ▶ fork match files by comparing absolute paths to the repo
+    roots. A worktree sits under neither, so without the mapping the session
+    looks like it has written nothing: off the map, and fork refuses."""
+    wt_root = tmp_path / "worktrees"
+    session = wt_root / "some-task"
+    session.mkdir(parents=True)
+    monkeypatch.setattr(observatory.worktrees, "WORKTREE_ROOT", wt_root)
+    conv_id = "2026-08-04.120000"
+    meta = {"cwd": str(session), "started": "2026-08-04T12:00:00"}
+    monkeypatch.setattr(
+        observatory, "harvest_conversation",
+        lambda *a, **kw: {str(session / "routes" / "spinoff.py"): {"writes": 2}})
+    (data_dir / "bot_chats").mkdir(parents=True, exist_ok=True)
+    (data_dir / "bot_chats" / f"{conv_id}.jsonl").write_text("{}\n")
+
+    surface = observatory._fork_work_surface(conv_id, meta)
+
+    assert surface == [("App code", [("routes/spinoff.py", False)])]

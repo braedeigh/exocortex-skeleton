@@ -164,10 +164,10 @@ def test_a_worktree_file_reads_back_as_the_real_repo(repo):
     assert mapped == str(repo / "routes" / "spinoff.py")
 
 
-def test_paths_outside_a_worktree_pass_through_untouched(repo):
+def test_paths_outside_a_worktree_pass_through_untouched(repo, tmp_path):
     """Callers pipe every path through this, so a non-worktree path must come
     back exactly as it went in."""
-    for outside in (repo / "routes" / "spinoff.py", "/opt/exocortex/personal/data/x.json"):
+    for outside in (repo / "routes" / "spinoff.py", tmp_path / "vault" / "data" / "x.json"):
         assert worktrees.as_skeleton_path(outside) == str(outside)
 
 

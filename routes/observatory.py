@@ -52,6 +52,7 @@ import threading
 
 import recap_summary
 import store
+import worktrees
 from routes import terminal
 from routes.kitchen.shared import _mem_available_mb, MIN_SPAWN_MB
 from scripts.extract_footprints import harvest_conversation
@@ -281,12 +282,21 @@ _PROTECTED_DOC_DIRS = ("content-scaffold", "claude-commands")
 _PROTECTED_DOC_FILES = ("CLAUDE.md", "docs/BEDROCK.md")
 
 
-def _protected_doc_globs():
+def _protected_doc_globs(cwd=None):
     """Absolute path globs the guard denies writes to, resolved from store dirs
     (never hardcoded — the vault is instance-specific). Both the skeleton
     checkout (store.BUILD_DIR) and the vault root (store.CONTENT_DIR's parent —
-    the same root _default_bots()/_terrain_repos() use) contribute."""
-    roots = (Path(store.BUILD_DIR), Path(store.CONTENT_DIR).parent)
+    the same root _default_bots()/_terrain_repos() use) contribute.
+
+    The session's OWN cwd counts as a third root when it's a worktree
+    (worktrees.py). These globs are ABSOLUTE, so the copy's CLAUDE.md and
+    claude-commands/ sit at paths neither fixed root matches: the guard would
+    read as on and protect nothing, and an unattended session could rewrite the
+    doctrine files in its copy and carry them home on its branch. The guard has
+    to follow the session to wherever it's standing."""
+    roots = [Path(store.BUILD_DIR), Path(store.CONTENT_DIR).parent]
+    if cwd and worktrees.worktree_root_for(cwd):
+        roots.append(Path(cwd))
     globs = set()
     for root in roots:
         for d in _PROTECTED_DOC_DIRS:
@@ -296,12 +306,13 @@ def _protected_doc_globs():
     return sorted(globs)
 
 
-def _guard_settings_json():
+def _guard_settings_json(cwd=None):
     """The `--settings` payload: a `permissions.deny` rule for every
     (write-tool × protected-glob) pair. Absolute paths carry the leading `//`
     Claude Code uses for filesystem-absolute rules (matches the existing
-    agents/mailclaude/clerk settings)."""
-    deny = [f"{tool}(/{glob})" for glob in _protected_doc_globs()
+    agents/mailclaude/clerk settings). `cwd` is the session's ground, so a
+    worktree session's own copy of the docs is covered too."""
+    deny = [f"{tool}(/{glob})" for glob in _protected_doc_globs(cwd)
             for tool in _GUARD_WRITE_TOOLS]
     return json.dumps({"permissions": {"deny": deny}})
 
@@ -333,7 +344,7 @@ def _session_settings(config, tools):
     opt-out. A read-only legacy session triggers neither → {} → no --settings."""
     settings = {}
     if config.get("guard_docs", True) and any(t in _GUARD_WRITE_TOOLS for t in tools):
-        settings.update(json.loads(_guard_settings_json()))
+        settings.update(json.loads(_guard_settings_json(config.get("cwd"))))
     if config.get("act_gate", True) and "Bash" in tools:
         settings["hooks"] = {"PreToolUse": [{
             "matcher": "Bash|Task|mcp__.*",
@@ -931,6 +942,12 @@ def _fork_work_surface(conv_id, meta):
             continue
         if int(counts.get("writes") or 0) + int(counts.get("creates") or 0) <= 0:
             continue   # a pure read — not part of the work surface
+        # A worktree session writes to its own copy of the checkout, which is
+        # under neither repo root — so without this every file falls through
+        # and the session looks like it has written nothing at all: it vanishes
+        # off Terrain and ▶ fork refuses with "isn't writing any files yet".
+        # The copy IS the repo, so it's read as the repo.
+        abspath = worktrees.as_skeleton_path(abspath)
         for repo in repos:
             try:
                 rel = os.path.relpath(abspath, repo["root"])
@@ -1422,6 +1439,15 @@ def register(app):
             if not _kill_local_proc(conv_id) and entry.get("running"):
                 entry["stop_requested"] = _now()
             entry["archived"] = _now()
+            reap = entry.get("worktree")
+        # Outside the lock (git is slow, every send wants this lock). Closing is
+        # the ONE moment a worktree can be removed safely: it's the session's
+        # cwd, and a conversation can only ever be resumed from the directory it
+        # was born in — so while the session is open, deleting the copy would
+        # silently make it unresumable forever. The BRANCH survives; that's
+        # where the work is until it's merged.
+        if reap:
+            worktrees.remove(reap)
         return jsonify({"ok": True})
 
     @app.route("/api/observatory/conversations", methods=["POST"])
@@ -1987,6 +2013,24 @@ def register(app):
             except Exception:
                 pass   # the refusal still stands without its numbers
             return jsonify(body), 503
+
+        # A session whose GROUND has gone. Only a worktree session can hit this
+        # (worktrees.py) — its cwd is a directory that can be removed, unlike
+        # the two fixed checkouts. It matters because _spawn's fallback for a
+        # missing cwd is to spawn with cwd=None, and `--resume` then looks for
+        # the session under gunicorn's own directory, doesn't find it, and the
+        # turn fails with something that reads like a model error. Said plainly
+        # instead: the work isn't lost, it's on the branch.
+        wt = entry.get("worktree") if isinstance(entry, dict) else None
+        if wt and not os.path.isdir(wt):
+            msg = ("this session's worktree is gone, so it can't be resumed — "
+                   f"its work is on branch {entry.get('branch') or 'agent/…'}")
+            with store.mutate("bot_chats/index", {}) as index:
+                stale = index.get(conv_id)
+                if isinstance(stale, dict):
+                    stale["running"] = False
+                    stale["last_error"] = msg
+            return jsonify({"error": msg, "branch": entry.get("branch")}), 409
 
         # Capture BEFORE the model runs (Slice-1 guarantee, same door the
         # terminal chat session uses). Slash commands are operator control,
