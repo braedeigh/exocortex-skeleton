@@ -2,8 +2,37 @@
 """spark_morning.py — the 5 AM build-orientation ritual.
 
 Every morning: kill yesterday's Spark session and respawn a fresh one in the
-observatory, already oriented on the build so the owner walks up to a ranked
-take instead of a blank prompt.
+observatory, already oriented on the build so the owner walks up to a
+structural read instead of a blank prompt.
+
+WHAT THE TURN DOES (the KICKOFF string below is the whole spec). A cheap fire
+check over the two backlogs + git, then it picks UP TO THREE items that look
+structurally alarming and sends read-only subagents to verify each one against
+the actual code — a locator that finds which files are implicated, then an
+analyzer that reads only that narrowed set. She gets a verdict per item
+(still real / stale / partly done) with file:line refs, rather than a
+restatement of notes she already wrote. "Up to" is deliberate: a fixed quota
+of three makes a quiet morning invent a third fire.
+
+THE PHASE ORDER IS LOAD-BEARING: it picks BEFORE it reads the findings
+registry. Knowing what it flagged yesterday would bias what it flags today, so
+history gets reconciled after the choice and never before it. A repeat that
+surfaces on its own is real signal and gets worked again — it just reuses the
+prior investigation instead of restarting it. Same discipline as
+nightcrew_run.py ignoring what an agent claims and running the tests itself:
+measure independently, reconcile second.
+
+THE REGISTRY IS WRITTEN BY THIS SCRIPT, NOT BY THE TURN. The 5 AM session is
+act-gated (no explicit lane + a cwd inside the app checkout derives to
+orchestra, because nobody is watching it), so it cannot run python to record
+anything. Instead the turn drops structured JSON at INBOX_PATH with the Write
+tool, and this script — ungated, plain cron — validates it and folds it into
+spark_findings.json. The agent proposes; trusted code owns the record. The
+inbox is cleared before the turn starts, so a run that writes nothing can
+never re-merge yesterday's findings.
+
+Staleness is REPORTED here and never acted on: deleting a note the code has
+outrun is the beetles' job, and they ask first.
 
 A "Spark session" is just a native observatory conversation (it shows up in
 the flat Sessions list next to `chat`/`dev2`, no bot label) whose first turn is
@@ -98,27 +127,102 @@ def _record_status(status, conv_id=None, cost=None):
         if cost is not None:
             entry["last_cost_usd"] = cost
 
-# Full tool set for the turn — Spark builds, it doesn't just read. (On this
-# box --allowedTools doesn't restrict in -p, but naming them keeps the turn
+# Full tool set for the turn — Spark builds, it doesn't just read. `Task` is
+# what lets the parent fan out to the read-only locator/analyzer subagents
+# instead of dragging forty files into its own context. (On this box
+# --allowedTools doesn't restrict in -p, but naming them keeps the turn
 # correct regardless of that quirk.)
-SPARK_TOOLS = ["Read", "Grep", "Glob", "Edit", "Write", "Bash",
+SPARK_TOOLS = ["Read", "Grep", "Glob", "Edit", "Write", "Bash", "Task",
                "WebFetch", "WebSearch", "TodoWrite"]
+
+# Where the turn drops its machine-readable findings for this script to merge.
+# A plain path, not a store collection: the turn is act-gated and writes it
+# with the Write tool, so it can't go through store.py. Resolved through a
+# function rather than a module constant so it follows store.DATA_DIR wherever
+# that points — the KICKOFF below still bakes the literal path in, because the
+# agent needs somewhere concrete to write.
+INBOX_NAME = "spark_morning_inbox.json"
+REGISTRY = "spark_findings.json"
+
+
+def _inbox_path():
+    return store.DATA_DIR / INBOX_NAME
+
+
+def _dev_todo_path():
+    """The build queue, resolved rather than hardcoded.
+
+    It sits in the VAULT on this install — it was moved out of the shared repo
+    because it carries personal context — but a fresh skeleton checkout may
+    still ship its own, so prefer the vault copy and fall back to the checkout.
+    This mattered: the prompt named `<skeleton>/dev_todo.md` for two and a half
+    weeks after the file moved, so the ritual read one backlog while its own
+    instructions claimed two, and nothing anywhere said so."""
+    vault = Path(store.CONTENT_DIR).parent / "dev_todo.md"
+    return vault if vault.exists() else Path(SKELETON_CWD) / "dev_todo.md"
 
 KICKOFF = """/spark
 
-Good morning. Orient me on the build so I can pick what to work on today.
+Good morning. Structural read on the build — not a restatement of my notes,
+but what is actually broken, verified against the code.
 
-Read the per-page dev notes in {data}/dev_notes.json across ALL tabs, the build
-queue in {skel}/dev_todo.md, and the recent history
-(`git -C {skel} log --oneline -25`). Then give me a prioritized take: the top
-handful of things worth doing today and WHY, each with a one-line reason.
+FIVE PHASES, IN ORDER. Do not skip ahead. Phase 3 must not influence phase 2.
 
-Rank by, in order: does it block Rodeo (Oct 15, multi-user + privacy toggle);
-does it help today vs. someday; impact (data-loss/broken > annoyance > polish);
-effort (quick win vs. project). Call out anything that's on fire.
+PHASE 1 — FIRE CHECK (cheap; you do this yourself, no subagents)
+Read:
+  - {todo} — the big structural write-ups; fires usually live here
+  - {data}/dev_notes.json — ~180 per-page notes across all tabs; the pool
+  - `git -C {skel} log --oneline -25` and `git -C {skel} status --short`
+Do NOT open code files yourself in this phase, and do NOT read the findings
+registry yet.
 
-This is orientation ONLY — don't edit code or spawn anything yet. When I pick
-something, we'll spin it off together.""".format(data=store.DATA_DIR, skel=SKELETON_CWD)
+PHASE 2 — PICK, BLIND
+Pick UP TO THREE items that are the most alarming STRUCTURALLY. Fewer is
+correct and expected: if only one clears the bar, return one and say so out
+loud. Never promote a minor item just to fill a slot.
+Structural means it (a) touches a seam that multiple features ride on,
+(b) risks data loss or silent inconsistency, or (c) blocks other queued work.
+Backend-leaning, but the backend/frontend seam counts — data capture
+especially. Pure UI polish is not structural however annoying it is.
+
+PHASE 3 — ONLY NOW, read the registry at {registry}
+For each pick already chosen: if it appears there, note `first_seen` and
+`times_seen`; if it carries a `conv_id`, that is a prior investigation — have
+the analyzer VERIFY AND EXTEND it rather than restart from zero.
+You read this after choosing on purpose. Knowing what you flagged before would
+bias what you flag now, and a repeat that surfaced independently is real
+signal — it gets worked again, not skipped.
+
+PHASE 4 — DIG (read-only subagents, one pass per pick)
+For each pick, in this order:
+  LOCATOR (Task): find WHICH files the item implicates. ls/grep/glob only —
+    do not read file bodies. Return a short file list, one line each on why.
+  ANALYZER (Task): read ONLY that file list. Return the verdict below.
+You do not open code files yourself. Subagents are READ-ONLY and never edit.
+
+PHASE 5 — REPORT, then record
+Per pick, in this shape:
+  - the item verbatim, with its id / source
+  - VERDICT (required): still real / stale / partly done
+  - what is actually true in the code now, with file:line refs
+  - blast radius if I touch it
+  - effort: quick win / session / project
+  - the one decision only I can make
+  - if a repeat: "still open since <first_seen>, seen N times" + prior conv id
+Then write the machine record to {inbox} using the Write tool, as JSON:
+  {{"findings": [{{"key": ..., "label": ..., "source": ...,
+                  "verdict": ..., "summary": ...}}]}}
+`key` is a stable slug — "devnote:<id>" for a dev note, "devtodo:<short-slug>"
+for a dev_todo.md item. Write the file even if you picked nothing (empty list).
+
+Staleness is REPORTED here and never acted on — the beetles do the deleting
+and they ask first. Do not edit or delete any note.
+
+This is orientation ONLY: don't edit code, and spawn nothing beyond the
+read-only subagents above. When I pick something, we'll spin it off together.
+""".format(data=store.DATA_DIR, skel=SKELETON_CWD, todo=_dev_todo_path(),
+           registry=store.DATA_DIR / REGISTRY,
+           inbox=store.DATA_DIR / INBOX_NAME)
 
 
 def _log(msg):
@@ -239,6 +343,83 @@ def _run_orientation(conv_id):
     rr._run_turn(proc, stderr_f, conv_id, log_path, None, queue.Queue())
 
 
+# A defensive ceiling, not a product rule: the prompt asks for at most three.
+# Anything past this is a confused turn, and the registry shouldn't inherit it.
+MAX_FINDINGS = 20
+
+
+def _clear_inbox():
+    """Wipe the drop point before the turn runs. Without this, a turn that
+    writes nothing — crashed, refused, ran out of window — would leave
+    yesterday's file in place and the merge would bank it as today's work."""
+    try:
+        _inbox_path().unlink()
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        _log(f"WARN: could not clear inbox: {e}")
+
+
+def _read_inbox():
+    """Whatever the turn wrote, read defensively. Every malformed shape is
+    dropped and logged rather than raised: a bad findings file must never cost
+    her the orientation that's already sitting in the session log."""
+    try:
+        raw = json.loads(_inbox_path().read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        _log("no findings file written by the turn")
+        return []
+    except (OSError, ValueError) as e:
+        _log(f"WARN: unreadable findings file: {type(e).__name__}: {e}")
+        return []
+    items = raw.get("findings") if isinstance(raw, dict) else None
+    if not isinstance(items, list):
+        _log("WARN: findings file carries no findings[] list")
+        return []
+    clean = []
+    for item in items[:MAX_FINDINGS]:
+        if not isinstance(item, dict):
+            continue
+        key = str(item.get("key") or "").strip()
+        if not key:            # keyless rows can't be deduped, so they're noise
+            continue
+        clean.append({"key": key,
+                      "label": str(item.get("label") or "").strip(),
+                      "source": str(item.get("source") or "").strip(),
+                      "verdict": str(item.get("verdict") or "").strip(),
+                      "summary": str(item.get("summary") or "").strip()})
+    return clean
+
+
+def _merge_findings(conv_id):
+    """Fold the turn's findings into the durable registry, keyed by slug.
+
+    Upsert, never blind-append: a repeat keeps its original `first_seen` and
+    bumps `times_seen`, which is exactly the "still open since Aug 3, seen 4
+    times" line tomorrow's run reads back in phase 3. `conv_id` always points
+    at the MOST RECENT session that investigated the item — that's the one
+    worth reopening, and talking to it un-archives it."""
+    found = _read_inbox()
+    if not found:
+        return 0
+    today = datetime.now().strftime("%Y-%m-%d")
+    with store.mutate(REGISTRY, {"findings": []}) as data:
+        rows = data.setdefault("findings", [])
+        by_key = {r.get("key"): r for r in rows if isinstance(r, dict)}
+        for item in found:
+            row = by_key.get(item["key"])
+            if row is None:
+                row = {"key": item["key"], "first_seen": today, "times_seen": 0}
+                rows.append(row)
+                by_key[item["key"]] = row
+            row.update({k: v for k, v in item.items() if k != "key"})
+            row["last_seen"] = today
+            row["times_seen"] = int(row.get("times_seen") or 0) + 1
+            row["conv_id"] = conv_id
+    _log(f"recorded {len(found)} finding(s) to {REGISTRY}")
+    return len(found)
+
+
 def main():
     if not store.DATA_DIR.exists():
         _log(f"ERROR: DATA_DIR {store.DATA_DIR} missing — is EXOCORTEX_DATA_DIR set?")
@@ -250,7 +431,9 @@ def main():
         _archive_prior()
         conv_id = _create_conv()
         _log(f"spawned spark session {conv_id} (cwd={SKELETON_CWD})")
+        _clear_inbox()
         _run_orientation(conv_id)
+        _merge_findings(conv_id)
         entry = store.read("bot_chats/index", {}).get(conv_id, {})
         _log(f"orientation done: session={entry.get('claude_session_id')} "
              f"cost=${entry.get('cost_usd')}")

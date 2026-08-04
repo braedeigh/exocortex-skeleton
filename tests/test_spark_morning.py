@@ -1,10 +1,12 @@
-"""The 5 AM Spark ritual's archive guard.
+"""The 5 AM Spark ritual — its archive guard, and its findings registry.
 
-`scripts/spark_morning.py` clears yesterday's Spark session off the roster
-before spawning today's. These tests pin the GUARD on that clearing: a prior
-Spark survives only if she actually talked to it AND touched it inside the keep
-window. Everything else — the untouched 5 AM orientation, the session that went
-quiet two days ago — still gets archived.
+TWO CONCERNS, two halves of this file.
+
+1. THE ARCHIVE GUARD. `scripts/spark_morning.py` clears yesterday's Spark
+session off the roster before spawning today's. These tests pin the GUARD on
+that clearing: a prior Spark survives only if she actually talked to it AND
+touched it inside the keep window. Everything else — the untouched 5 AM
+orientation, the session that went quiet two days ago — still gets archived.
 
 The load-bearing case is `test_tool_results_do_not_count_as_her_messages`. The
 conversation log records tool RESULTS as `user` events too, so a naive count
@@ -13,9 +15,23 @@ reads a session she never opened as busy. That regression is the whole reason
 
 Prompt this came from: "Skip it if I haven't used it at all since it was
 generated or in the last 24 hours ... but otherwise keep it."
+
+2. THE FINDINGS REGISTRY. The morning turn is act-gated, so it can't record
+anything itself — it drops JSON at the inbox path with the Write tool and this
+script merges it. These tests pin the merge's two jobs: an item seen again
+keeps its ORIGINAL `first_seen` while bumping `times_seen` (that's the "still
+open since Aug 3, seen 4 times" line the next run reads back), and every
+malformed shape the agent could emit degrades to "recorded nothing" instead of
+raising — a bad findings file must never cost her the orientation already
+sitting in the session log.
+
+Prompt this came from: "dig through my dev notes and then pick the most
+important structural ones ... maybe top 3", plus her rule that the run must not
+read its own history before choosing, so as not to bias what it picks.
 """
 import json
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -117,3 +133,109 @@ def test_missing_log_is_treated_as_used(data_dir):
     """Fail safe: a log we can't read must never be the reason a session she
     was working in disappears."""
     assert sm._was_used("2026-08-01.050002") is True
+
+
+# --- The findings registry -------------------------------------------------
+
+def _inbox(payload):
+    """Write the drop file exactly as the turn's Write tool would. Takes a raw
+    object, not a findings list, so the malformed cases can hand it junk."""
+    path = store.DATA_DIR / sm.INBOX_NAME
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+def _rows():
+    return store.read(sm.REGISTRY, {"findings": []})["findings"]
+
+
+def test_a_new_finding_lands_with_its_conversation(data_dir):
+    """The plain case: one pick, recorded with the session that dug it up so
+    she can reopen that conversation instead of re-running the research."""
+    _inbox({"findings": [{"key": "devnote:0836838d", "label": "swipe gesture",
+                          "source": "dev_notes:global", "verdict": "stale",
+                          "summary": "shipped in 1b26b90"}]})
+    assert sm._merge_findings("2026-08-04.050001") == 1
+    row, = _rows()
+    assert row["key"] == "devnote:0836838d"
+    assert row["verdict"] == "stale"
+    assert row["times_seen"] == 1
+    assert row["conv_id"] == "2026-08-04.050001"
+    assert row["first_seen"] == row["last_seen"]
+
+
+def test_a_repeat_keeps_first_seen_and_bumps_the_count(data_dir):
+    """The whole point of the registry. A second sighting must not reset the
+    clock — `first_seen` is what makes "still open since ..." true, and
+    `conv_id` moves to the newest session because that's the one to reopen."""
+    store.write(sm.REGISTRY, {"findings": [
+        {"key": "devtodo:capture-gap", "label": "capture gap",
+         "first_seen": "2026-08-03", "last_seen": "2026-08-03",
+         "times_seen": 1, "conv_id": "2026-08-03.050001"}]})
+    _inbox({"findings": [{"key": "devtodo:capture-gap", "label": "capture gap",
+                          "verdict": "still real", "summary": "card still gone"}]})
+    sm._merge_findings("2026-08-04.050001")
+    row, = _rows()
+    assert row["first_seen"] == "2026-08-03"       # original, not today
+    assert row["times_seen"] == 2
+    assert row["conv_id"] == "2026-08-04.050001"   # newest investigation
+    assert row["verdict"] == "still real"
+
+
+def test_a_turn_that_wrote_nothing_records_nothing(data_dir):
+    """A crashed or refused turn leaves no inbox. That's a no-op, not a
+    crash — the orientation in the session log is still hers to read."""
+    assert sm._merge_findings("2026-08-04.050001") == 0
+    assert _rows() == []
+
+
+@pytest.mark.parametrize("junk", [
+    {"findings": "not a list"},
+    {"no_findings_key": []},
+    ["a bare list, not an object"],
+    {"findings": [{"label": "keyless rows can't dedupe"}]},
+    {"findings": [None, 7, "nope"]},
+])
+def test_malformed_findings_degrade_to_nothing(data_dir, junk):
+    """Every shape a confused turn could emit drops quietly. The agent is an
+    untrusted writer here; this script owns the record."""
+    _inbox(junk)
+    assert sm._merge_findings("2026-08-04.050001") == 0
+    assert _rows() == []
+
+
+def test_findings_past_the_ceiling_are_dropped(data_dir):
+    """The prompt asks for at most three. A turn returning hundreds is
+    confused, and the registry shouldn't inherit the confusion."""
+    _inbox({"findings": [{"key": f"devnote:{i}"} for i in range(sm.MAX_FINDINGS + 25)]})
+    assert sm._merge_findings("2026-08-04.050001") == sm.MAX_FINDINGS
+
+
+def test_the_build_queue_resolves_to_the_vault_copy(data_dir, monkeypatch, tmp_path):
+    """Regression. The prompt hardcoded `<skeleton>/dev_todo.md`, the file moved
+    into the vault, and for two and a half weeks the ritual read one backlog
+    while telling itself it read two — silently, because a prompt naming a
+    missing path just gets a failed read the model shrugs off."""
+    vault = tmp_path / "vault"
+    (vault / "tulku").mkdir(parents=True)
+    (vault / "dev_todo.md").write_text("queue", encoding="utf-8")
+    monkeypatch.setattr(store, "CONTENT_DIR", vault / "tulku")
+    assert sm._dev_todo_path() == vault / "dev_todo.md"
+
+
+def test_build_queue_falls_back_to_the_checkout(data_dir, monkeypatch, tmp_path):
+    """A fresh install with no vault copy still gets a usable path rather than
+    a path into a directory that isn't there."""
+    (tmp_path / "tulku").mkdir()
+    monkeypatch.setattr(store, "CONTENT_DIR", tmp_path / "tulku")
+    assert sm._dev_todo_path() == Path(sm.SKELETON_CWD) / "dev_todo.md"
+
+
+def test_clearing_the_inbox_stops_yesterdays_findings_being_rebanked(data_dir):
+    """Why _clear_inbox runs BEFORE the turn: otherwise a turn that writes
+    nothing today would have yesterday's file merged as today's work, and
+    times_seen would climb on a morning nobody looked."""
+    _inbox({"findings": [{"key": "devnote:stale-run"}]})
+    sm._clear_inbox()
+    assert not (store.DATA_DIR / sm.INBOX_NAME).exists()
+    assert sm._merge_findings("2026-08-04.050001") == 0
