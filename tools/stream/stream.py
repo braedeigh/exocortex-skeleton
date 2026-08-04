@@ -56,10 +56,11 @@ THE VERBS. `record` (the primitive: stdin body + flags -> mint a card, re-render
 day + month, echo the id), `render` (rebuild `--day`, `--view NAME`, or `--all` from
 the pool), `tag` / `untag` (edit a card's tags, re-render what depends on them),
 `edit` (replace a card's body from stdin, re-render its day + month + any manifest
-selecting its tags — echoes the id), `delete` (remove a card from the pool outright,
-re-render what's left — and clean up a day/month view that just lost its last card,
-since render never touches a zero-card day/month on its own), `validate` (structural
-checks on the whole pool + a drift check against every derived file).
+selecting its tags — echoes the id), `delete` (write the card to the append-only
+deletion log, THEN remove it from the pool, re-render what's left — and clean up a
+day/month view that just lost its last card, since render never touches a zero-card
+day/month on its own), `validate` (structural checks on the whole pool + a drift
+check against every derived file).
 
 Stdlib only. No network. No randomness. Same pool in, same bytes out, always.
 """
@@ -124,6 +125,13 @@ def daily_dir() -> Path:
 
 def card_path(cid: str) -> Path:
     return pool_dir() / f"{cid}.md"
+
+
+def deleted_log_path() -> Path:
+    """Append-only record of every card the `delete` verb has removed. Beside the
+    pool, never inside it — same rule the pool lock follows, so `load_all_cards()`'s
+    *.md glob can't ever pick it up."""
+    return pool_dir().parent / "deleted_cards.jsonl"
 
 
 def day_legend() -> str:
@@ -500,11 +508,64 @@ def edit_card(cid: str, body: str) -> Card:
 # delete — remove a card from the pool outright. render_day/render_month_index never
 # touch a zero-card day/month (they return None instead), so a delete that empties one
 # has to clean up the now-stale view itself, or it lingers forever.
+#
+# EVERY CUT LEAVES A CAST. Deleting used to unlink the file and leave nothing behind —
+# no record of what went, when, or who asked for it. That made two completely different
+# events look identical from the outside: a card the owner deliberately removed, and a
+# turn the capture path silently lost. A twelve-minute hole in the pool could not be
+# told apart from an ordinary deletion, because there was nothing to tell it apart
+# WITH. So delete now writes the whole card — body verbatim — as one JSON line in
+# `_system/data/deleted_cards.jsonl` before it unlinks anything.
+#
+# The cast is written FIRST, and a failure to write it ABORTS the delete. That ordering
+# is the point, not an accident: a cut that leaves no cast is exactly the failure this
+# exists to prevent, so refusing to cut is the correct outcome. The ordering we chose
+# can only ever fail by refusing a deletion, which is cheap and obvious. The reverse
+# ordering fails by removing a card with no record, which is the thing we're fixing.
+# (A log line stranded by a later unlink error is possible and harmless — the id is
+# still sitting in the pool, so the contradiction is self-evident.)
+#
+# Consequence, not a promise: because the body is kept, a deletion is now recoverable
+# by hand from the log. Nothing reads this file back yet — no un-delete verb exists.
+#
+# Prompt: "build a delete log" — so a missing card can be told apart from a deleted one
+# without archaeology.
 # --------------------------------------------------------------------------------
 
-def delete_card(cid: str) -> None:
+def _log_deletion(card: Card, by: str) -> None:
+    """Append one JSON line for a card that is about to be unlinked.
+
+    One `open(..., "a")` and one `write()` of a line ending in "\\n": on Linux an
+    O_APPEND write this small lands atomically, so two deleters running at once
+    interleave whole lines instead of shredding each other's. No lock is taken, and
+    that's deliberate — `delete_card` doesn't hold `pool_lock` either, and grabbing one
+    here would change the engine's concurrency shape for a sidecar that doesn't need
+    it."""
+    entry = {
+        "deleted_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "by": by,
+        "id": card.id,
+        "who": card.who,
+        "ts": card.ts,
+        "kind": card.kind,
+        "reply_to": card.reply_to,
+        "tags": card.tags,
+        "refs": card.refs,
+        "session": card.session,
+        "body": card.body,
+    }
+    path = deleted_log_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def delete_card(cid: str, by: str = "unknown") -> None:
     _check_cid_safe(cid)
     card = read_card(cid)
+    # Cast before cut. If this raises, the card is still in the pool — which is the
+    # outcome we want over a silent removal.
+    _log_deletion(card, by)
     card_path(cid).unlink()
 
     day = card.ts[:10]
@@ -1158,8 +1219,12 @@ def _cmd_edit(args: argparse.Namespace) -> int:
 
 
 def _cmd_delete(args: argparse.Namespace) -> int:
+    # Who asked. Explicit --by wins; STREAM_DELETE_BY lets a calling process (the
+    # cards route, a cricket) name itself once in its environment instead of
+    # threading a flag through every shell-out. "cli" means a person at a prompt.
+    by = args.by or os.environ.get("STREAM_DELETE_BY") or "cli"
     try:
-        delete_card(args.id)
+        delete_card(args.id, by=by)
     except StreamError as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
@@ -1221,6 +1286,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     delp = sub.add_parser("delete", help="remove a card from the pool, re-render what's left")
     delp.add_argument("id")
+    delp.add_argument("--by", help="who is asking (recorded in the deletion log)")
     delp.set_defaults(func=_cmd_delete)
 
     val = sub.add_parser("validate", help="check pool integrity and drift against derived files")

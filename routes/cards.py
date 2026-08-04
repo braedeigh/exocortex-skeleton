@@ -319,8 +319,12 @@ def register(app):
         cid = (data.get("id") or "").strip()
         if not CARD_ID_RE.match(cid):
             return jsonify({"error": "invalid card id"}), 400
+        # Name the door in the deletion log. Without this every removal made through
+        # the app records itself as "cli", which is the one thing the log exists to
+        # disambiguate — a card the owner deleted here should not look like a card
+        # some script removed.
         try:
-            result = _run_stream("delete", cid)
+            result = _run_stream("delete", cid, "--by", "cards-route")
         except subprocess.TimeoutExpired:
             return jsonify({"error": "timed out deleting card"}), 400
         if result.returncode != 0:
