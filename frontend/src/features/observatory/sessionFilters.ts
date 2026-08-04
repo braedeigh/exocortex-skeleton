@@ -3,7 +3,7 @@
  * top-right rail, as pure predicates so the counts and the filtering can't
  * disagree.
  *
- * The three colours are the ones the cards already wear (Orchestra.module.css):
+ * The three colours are the ones the cards already wear (SessionLane.module.css):
  *
  *   purple  RUNNING — a turn is in flight this second (the breathing one)
  *   purple  ACTIVE  — running, or it did anything in the last hour (steady)
@@ -25,7 +25,7 @@
  * the identical thing. That tie is the point: the rule lives in one place.
  *
  * `openedAt` comes from the same `exo-bot-opened` map as everything else —
- * passed in, never read here, so openedStore.ts stays the only reader.
+ * passed in, never read here, so readReceipts.ts stays the only reader.
  *
  * Prompt that produced it: "buttons on the top right side by color — orange
  * for sessions that are not read, purple at the top for active/running
@@ -33,7 +33,7 @@
  * there's an error/aborted one"; "you can press more than one at a time".
  */
 import type { SessionMeta } from './api';
-import { isUnread } from './openedStore';
+import { isUnread } from './readReceipts';
 
 export type StateFilter = 'running' | 'active' | 'unread' | 'error';
 

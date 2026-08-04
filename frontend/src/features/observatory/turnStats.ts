@@ -12,7 +12,7 @@
  *   estimate snaps to the real number when its usage arrives, and finished
  *   messages are banked across tool round-trips on message_start;
  * - thought: wall time accumulated while thinking deltas are arriving
- *   (gaps over _THINKING_GAP_MS don't count — that's tool time, not thought).
+ *   (gaps over THINKING_GAP_MS don't count — that's tool time, not thought).
  */
 
 export interface TurnStats {
@@ -51,8 +51,8 @@ export const WORKING_WORDS = [
   'Tinkering',
 ];
 
-const _THINKING_GAP_MS = 3000;
-const _CHARS_PER_TOKEN = 4;
+const THINKING_GAP_MS = 3000;
+const CHARS_PER_TOKEN = 4;
 
 export function startTurnStats(now: number, word?: string): TurnStats {
   return {
@@ -74,7 +74,7 @@ interface StreamEventShape {
 }
 
 function liveTokens(s: TurnStats): number {
-  return s.liveUsage ?? Math.round(s.liveChars / _CHARS_PER_TOKEN);
+  return s.liveUsage ?? Math.round(s.liveChars / CHARS_PER_TOKEN);
 }
 
 /** Fold one raw SSE event into the stats. Returns a new object (safe to hand
@@ -101,7 +101,7 @@ export function applyStatsEvent(
     const chunk = d?.type === 'text_delta' ? d.text : d?.type === 'thinking_delta' ? d.thinking : undefined;
     if (typeof chunk === 'string') next.liveChars += chunk.length;
     if (d?.type === 'thinking_delta') {
-      if (next.lastThinkingAt !== null && now - next.lastThinkingAt < _THINKING_GAP_MS) {
+      if (next.lastThinkingAt !== null && now - next.lastThinkingAt < THINKING_GAP_MS) {
         next.thinkingMs += now - next.lastThinkingAt;
       }
       next.lastThinkingAt = now;

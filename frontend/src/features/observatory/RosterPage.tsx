@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import {
   ALL_LANES,
+  LANE_LABEL,
   closeConversation,
   createSession,
   getSessions,
@@ -10,7 +11,8 @@ import {
   type Lane,
   type SessionMeta,
 } from './api';
-import { openedMap, setConversationRead } from './openedStore';
+import { sessionLocation } from './sessionLocation';
+import { openedMap, setConversationRead } from './readReceipts';
 import { applyFilter, filterCounts, type StateFilter } from './sessionFilters';
 import { SessionDialog, type SessionDraft } from './SessionDialog';
 import { SessionLane } from './SessionLane';
@@ -107,24 +109,17 @@ interface NightState {
   spend: { night_usd: number };
 }
 
-/** The rooms, in the order they stack. Reads ALL_LANES for the order so the
- * page and the create dialog can't drift into offering different sets. */
-const LANE_COPY: Record<Lane, { heading: string; blurb: string }> = {
-  personal: {
-    heading: 'Personal',
-    blurb:
-      'You, talking, in real time — your life, not the build. Rooted where both repos meet, so it can reach everything, and it just acts, because you’re the one watching.',
-  },
-  coding: {
-    heading: 'Coding',
-    blurb:
-      'You, building, in real time. Rooted in the app code so it stands where the work is — and it just acts, same as Personal, because you’re still here.',
-  },
-  orchestra: {
-    heading: 'Orchestra',
-    blurb:
-      'Work happening while you’re not. Rooted in the app code, and it stops to ask before anything irreversible.',
-  },
+/** Each room's fuller introduction, in the page's own voice — headings come
+ * from LANE_LABEL (api.ts), the shared single source, and the walk order from
+ * ALL_LANES, so this page and the create dialog can't drift into offering
+ * different sets. */
+const LANE_INTRO: Record<Lane, string> = {
+  personal:
+    'You, talking, in real time — your life, not the build. Rooted where both repos meet, so it can reach everything, and it just acts, because you’re the one watching.',
+  coding:
+    'You, building, in real time. Rooted in the app code so it stands where the work is — and it just acts, same as Personal, because you’re still here.',
+  orchestra:
+    'Work happening while you’re not. Rooted in the app code, and it stops to ask before anything irreversible.',
 };
 
 /**
@@ -161,7 +156,7 @@ const LANE_COPY: Record<Lane, { heading: string; blurb: string }> = {
  * is a mechanism that could put the door behind something. Its card wears a
  * teal ring and a 🌙 Keeper mark rather than a colour, because the colours here
  * all mean STATE and the Keeper still has to be able to say it's unread (see
- * .cardKeeper in Orchestra.module.css).
+ * .cardKeeper in SessionLane.module.css).
  *
  * THE COLOUR RAIL. Three buttons floating over the page's top-right, filtering
  * both rooms at once, in the colours the cards already wear: purple ACTIVE
@@ -171,7 +166,7 @@ const LANE_COPY: Record<Lane, { heading: string; blurb: string }> = {
  * than narrowing it to their overlap. The predicates and the counts live in
  * sessionFilters.ts so the number on a button and the list behind it can't
  * disagree. Read state is hers to set either way — the dot button on each card
- * (SessionLane) writes it through openedStore's setConversationRead.
+ * (SessionLane) writes it through readReceipts' setConversationRead.
  *
  * The order down the page is the two rooms she's PRESENT for (Personal, then
  * Coding), then the two that run underneath her (Orchestra, Night crew) — the
@@ -334,18 +329,12 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
     });
   };
 
-  // The room page's route still carries a `$botId` URL segment (bots-
-  // surface-design's file layout, un-nested via observatory_.$botId.tsx) —
-  // but with the persona concept dissolved server-side there's no real bot
-  // id to put there anymore. Minimal routing change: keep the route, fill
-  // that segment with a fixed placeholder; the conversation id (the only
-  // identity that still means anything) travels in `?conv=`.
   const open = (convId: string) => {
     if (onOpenConversation) {
       onOpenConversation(convId);
       return;
     }
-    void navigate({ to: '/observatory/$botId', params: { botId: 'session' }, search: { conv: convId } });
+    void navigate(sessionLocation(convId));
   };
 
   const onCreate = (draft: SessionDraft) => {
@@ -432,8 +421,8 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
             <SessionLane
               key={lane}
               laneKey={lane}
-              heading={LANE_COPY[lane].heading}
-              blurb={LANE_COPY[lane].blurb}
+              heading={LANE_LABEL[lane]}
+              blurb={LANE_INTRO[lane]}
               sessions={byLane(lane)}
               terrain={terrain}
               opened={opened}

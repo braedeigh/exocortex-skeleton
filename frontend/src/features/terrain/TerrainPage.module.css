@@ -1,7 +1,6 @@
-/* TerrainPage — a full-bleed canvas map with a chip bar above it. Page
-   chrome mirrors AtlasPage.module.css; chips follow the touch-first rules
-   (≥40px tall, ≥12px text). The canvas owns pan/zoom, so the page itself
-   never scrolls — the map IS the page. */
+/* TerrainPage — a full-bleed canvas map with a chip bar above it. Chips
+   follow the touch-first rules (≥40px tall, ≥12px text). The canvas owns
+   pan/zoom, so the page itself never scrolls — the map IS the page. */
 
 .page {
   position: relative;   /* both chrome bars below anchor to this */

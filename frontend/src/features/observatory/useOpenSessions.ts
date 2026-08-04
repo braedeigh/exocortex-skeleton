@@ -1,5 +1,5 @@
 /**
- * useOpenSessions.ts — the React side of openSessionsStore: one hook the
+ * useOpenSessions.ts — the React side of presence.ts: one hook the
  * observatory calls to HEARTBEAT its open conversation, one the terrain page
  * calls to READ the live set of open sessions. Pure presence math lives in the
  * store; these just drive it on timers and re-render on change.
@@ -10,7 +10,7 @@ import {
   markSessionOpen,
   openSessionIds,
   subscribeOpenSessions,
-} from './openSessionsStore';
+} from './presence';
 
 /** Well under OPEN_SESSION_TTL_MS, so a still-mounted observatory never lapses
  * out of "open" between beats. */

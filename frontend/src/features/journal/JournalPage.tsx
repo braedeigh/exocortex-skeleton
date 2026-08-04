@@ -3,6 +3,7 @@ import type { MouseEvent } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { ToastStack } from '../../ui';
 import { openConversationInPane } from '../../shell/paneConversation';
+import { sessionLocation } from '../observatory/sessionLocation';
 import { BlobEditor } from './BlobEditor';
 import { CalendarOverlay } from './CalendarOverlay';
 import type { CalendarMonth } from './calendarMath';
@@ -151,13 +152,7 @@ export function JournalPage() {
    * page — same fallback every other caller of openConversationInPane takes. */
   function openSession(convId: string) {
     if (openConversationInPane(convId)) return;
-    // 'keeper' is the single engine every routed session lives under today —
-    // the same default TerrainPage falls back to when it can't resolve a bot.
-    void navigateTo({
-      to: '/observatory/$botId',
-      params: { botId: 'keeper' },
-      search: { conv: convId },
-    });
+    void navigateTo(sessionLocation(convId));
   }
   const journalDates = useMemo(() => new Set(datesQuery.data?.dates ?? []), [datesQuery.data]);
 

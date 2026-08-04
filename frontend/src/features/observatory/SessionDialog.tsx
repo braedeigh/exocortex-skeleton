@@ -1,6 +1,6 @@
 import { useEffect, useState, type KeyboardEvent } from 'react';
 import { Sheet } from '../../ui';
-import { ALL_LANES, type Lane } from './api';
+import { ALL_LANES, LANE_BLURB, LANE_LABEL, type Lane } from './api';
 import styles from './RosterPage.module.css';
 
 /** Display names for the model aliases the server offers. Anything not
@@ -25,22 +25,6 @@ export interface SessionDraft {
   lane: Lane;
   actGate: boolean | null;
 }
-
-const LANE_LABEL: Record<Lane, string> = {
-  personal: 'Personal',
-  coding: 'Coding',
-  orchestra: 'Orchestra',
-};
-
-/** Each room in one line: where it stands, then whether it asks. Those are the
- * two switches the lane actually flips, and Personal/Coding differ only on the
- * first — so the blurb has to say both or the picker looks like it has a
- * duplicate. */
-const LANE_BLURB: Record<Lane, string> = {
-  personal: 'Rooted where both repos meet, so it can reach your vault. Just acts — you’re the one watching.',
-  coding: 'Rooted in the app code, where the build happens. Just acts — you’re the one watching.',
-  orchestra: 'Rooted in the app code. Stops and asks before anything irreversible.',
-};
 
 /**
  * Sheet for create/edit — name, model, lane, the asks-first override, and the

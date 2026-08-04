@@ -1,7 +1,8 @@
-/* Orchestra — the Observatory's live section. Quiet-until-active (Sunflower):
-   still and calm when idle, the live rows the only thing that breathes. Shares
-   the roster's card language and the app's motion tokens so it reads as one
-   surface with My Sessions below it. */
+/* SessionLane — the card language every room on the roster shares (Personal,
+   Coding, Orchestra, and the hoisted Keeper slot all render through
+   SessionLane.tsx). Quiet-until-active (Sunflower): still and calm when idle,
+   the live rows the only thing that breathes. (Named Orchestra.module.css
+   until 08-03, after a section the 07-27 rework abolished.) */
 
 .orchestra {
   margin-bottom: var(--space-6);

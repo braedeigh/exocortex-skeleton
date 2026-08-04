@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
+import { sessionLocation } from '../observatory/sessionLocation';
 import { getAutomations, toggleAutomation, type ScheduledRun } from './api';
 import styles from './AutomationsPage.module.css';
 
@@ -59,7 +60,7 @@ export function AutomationsPage() {
   };
 
   const openSession = (convId: string) => {
-    void navigate({ to: '/observatory/$botId', params: { botId: 'keeper' }, search: { conv: convId } });
+    void navigate(sessionLocation(convId));
   };
 
   return (

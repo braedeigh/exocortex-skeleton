@@ -72,7 +72,8 @@ const MORE_PAGES: ReadonlyArray<{ key: string; label: string; to: string }> = [
   { key: 'fronts', label: 'Fronts', to: '/fronts' },
   { key: 'observatory', label: 'Observatory', to: '/observatory' },
   { key: 'terrain', label: 'Terrain', to: '/terrain' },
-  { key: 'atlas', label: 'Atlas', to: '/atlas' },
+  // Atlas is gone from the menu: /atlas is now a bare redirect to the
+  // Observatory's archive, which has its own doors from every room.
   { key: 'personality', label: 'Personality', to: '/personality' },
   { key: 'scratchpad', label: 'Scratchpad', to: '/scratchpad' },
   { key: 'vscode', label: 'VS Code', to: '/vscode' },

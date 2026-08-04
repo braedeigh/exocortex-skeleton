@@ -1,3 +1,12 @@
+/**
+ * events.test.ts — pins the transcript reducer's core promises: streamed
+ * deltas accumulate into an open turn and the authoritative message
+ * supersedes them WITHOUT shifting earlier text (offsets into a turn must be
+ * prefix-stable, or the word-flow's spans remount mid-read), and the same
+ * reducer produces the same turns whether it's fed the live SSE stream or the
+ * history jsonl — the one-vocabulary rule that keeps replay and live from
+ * drifting.
+ */
 import { describe, expect, it } from 'vitest';
 import { applyEvent, assistantText, lastUserTurnIndex, turnsFromHistory, userTurn, type Turn } from './events';
 

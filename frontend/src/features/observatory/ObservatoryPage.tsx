@@ -1,19 +1,20 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { autosizeHeight, uploadedPathsMessage } from '../phone/phoneLogic';
+import { uploadedPathsMessage } from '../phone/phoneLogic';
 import { TermNotesPanel } from '../../shell/TermNotesPanel';
 import { SchedulePanel } from '../../shell/SchedulePanel';
 import { TerrainBackdrop } from '../terrain/TerrainBackdrop';
-import { createSession, getConversation, getSessions, isOutOfMemory, journalHighlight, journalOutput, stopConversation, streamSend } from './api';
+import { createSession, getConversation, getSessions, isOutOfMemory, journalOutput, stopConversation, streamSend } from './api';
 import { MemoryPrompt } from '../runqueue/MemoryPrompt';
 import { enqueueConversation, fetchHeadroom } from '../runqueue/api';
 import { shouldPrompt } from '../runqueue/memoryPrompt';
 import type { Headroom } from '../runqueue/memoryPrompt';
 import { applyEvent, assistantText, lastUserTurnIndex, turnsFromHistory, userTurn, type Turn } from './events';
-import { HighlightPill, HighlightSheet, PILL_HEIGHT, PILL_WIDTH } from './JournalHighlight';
-import { selectionAnchorPoint, selectionOffsets } from './highlightMarks';
+import { HighlightPill, HighlightSheet } from './JournalHighlight';
+import { useJournalHighlight } from './useJournalHighlight';
+import { useComposerBox } from './useComposerBox';
 import { formatSessionSpend, formatWorkingLine } from './turnStats';
-import { isUnread, markConversationOpened } from './openedStore';
+import { isUnread, markConversationOpened } from './readReceipts';
 import { useOpenSessionHeartbeat } from './useOpenSessions';
 import { Reply, StreamingReply, UserMessage } from './replyViews';
 import { useTurnStats } from './useTurnStats';
@@ -25,20 +26,6 @@ import { usePhotoAttach, AttachChips, DropVeil, UploadOverlay } from './photoAtt
 import { useReattach } from './useReattach';
 import { useKeeperRollover } from './useKeeperRollover';
 import styles from './ObservatoryPage.module.css';
-
-/** A live text selection inside the transcript, ready to become a journal card:
- * which turn it landed in, whose voice said it, the character range within that
- * turn's rendered text, the selected text itself, and viewport coordinates for
- * the ✦ pill. */
-interface PendingHighlight {
-  turn: number;
-  who: 'B' | 'K';
-  start: number;
-  end: number;
-  quote: string;
-  left: number;
-  top: number;
-}
 
 /**
  * The observatory (bot-surface-design §5, Sunflower spec 07-23): not a
@@ -111,7 +98,7 @@ export function ObservatoryPage({
   const navigate = useNavigate();
   // Presence heartbeat: while this room is open and visible, stamp its
   // conversation "open" so the terrain page's agent bar can show it as active
-  // (openSessionsStore.ts). Keyed on convId, so the docked pane re-stamps when
+  // (presence.ts). Keyed on convId, so the docked pane re-stamps when
   // it swaps conversations; a no-op until a convId exists (brand-new room).
   useOpenSessionHeartbeat(convId);
   // Sessions dissolved the "bot" persona (07-24) — there's no roster of named
@@ -175,23 +162,6 @@ export function ObservatoryPage({
   // Tap-to-journal: which assistant turn is armed (tap → "✦ put this in the
   // journal" appears → tap that to mint the K card).
   const [journalArmed, setJournalArmed] = useState<number | null>(null);
-  // Highlight-to-journal, the finer grain of the same gesture: the live text
-  // selection (which turn, whose voice, the character range, and where to float
-  // the ✦ pill), then the sheet it opens.
-  const [pending, setPending] = useState<PendingHighlight | null>(null);
-  const [sheetOpen, setSheetOpen] = useState(false);
-  const [highlightSaving, setHighlightSaving] = useState(false);
-  const [highlightError, setHighlightError] = useState<string | null>(null);
-  // The save runs from a stable callback, so it reads the selection through a
-  // ref — same arrangement as turnsRef/convRef above.
-  const pendingRef = useRef<PendingHighlight | null>(null);
-  pendingRef.current = pending;
-  // The selection listener has to know the sheet is up: once it is, the
-  // selection has done its job and every later click (into the note box, onto
-  // Keep) collapses it — without this guard that collapse would read as "she
-  // deselected" and close the sheet out from under her.
-  const sheetOpenRef = useRef(false);
-  sheetOpenRef.current = sheetOpen;
   // The stop button aborts this fetch AND calls the stop endpoint — the
   // server no longer kills claude just because the stream reader went away
   // (that's the whole PWA-close fix; only /stop kills a turn).
@@ -223,12 +193,20 @@ export function ObservatoryPage({
     [],
   );
 
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  // The compose textarea's ref + the helpers that write into it (autosize,
+  // draft prefill, failed-send restore) — see useComposerBox.ts.
+  const composerBox = useComposerBox();
+  const inputRef = composerBox.inputRef;
   const turnsRef = useRef<Turn[]>(turns);
   turnsRef.current = turns;
   // The conversation this page is writing into (set by the first send's
   // 'conv' frame for fresh conversations).
   const convRef = useRef<string | undefined>(convId);
+
+  // Highlight-to-journal, the finer grain of the tap-to-journal gesture: the
+  // selection listener, the ✦ pill's target, and the sheet lifecycle all live
+  // in useJournalHighlight.ts — this page just renders pill + sheet from it.
+  const highlight = useJournalHighlight({ convRef, turnsRef, onTurns: setTurns });
 
   const turnStats = useTurnStats(streaming);
 
@@ -338,12 +316,7 @@ export function ObservatoryPage({
             // that send, so it never re-fires.
             setPendingAutostart(data.meta.draft);
           } else {
-            const el = inputRef.current;
-            if (el && !el.value.trim()) {
-              el.value = data.meta.draft;
-              el.style.height = 'auto';
-              el.style.height = `${autosizeHeight(el.scrollHeight, 132)}px`;
-            }
+            composerBox.fillIfEmpty(data.meta.draft);
           }
         }
         // Capture the stamp BEFORE it's overwritten — this open's own
@@ -520,12 +493,7 @@ export function ObservatoryPage({
         } else {
           // Never reached the server: restore so nothing is eaten (photo
           // refs are text lines now, so they come back with the message).
-          const el = inputRef.current;
-          if (el) {
-            el.value = el.value ? `${text}\n${el.value}` : text;
-            el.style.height = 'auto';
-            el.style.height = `${autosizeHeight(el.scrollHeight, 132)}px`;
-          }
+          composerBox.restore(text);
           setSendError(e instanceof Error ? e.message : 'Send failed — message restored.');
           setTurns(turnsRef.current.filter((t, i) => !(i === next.length - 1 && t.role === 'user')));
         }
@@ -572,16 +540,14 @@ export function ObservatoryPage({
   }, [pendingAutostart, canFire, sendMessage]);
 
   const send = () => {
-    const el = inputRef.current;
-    const typed = el?.value.trim() ?? '';
+    const typed = inputRef.current?.value.trim() ?? '';
     // Photos may go alone (refs are a message), but empty-empty is nothing.
-    if (!el || (!typed && photo.attached.length === 0)) return;
+    if (!typed && photo.attached.length === 0) return;
+    composerBox.take();
     const paths = photo.drain();
     const text = paths.length
       ? uploadedPathsMessage(paths) + (typed ? `\n${typed}` : '')
       : typed;
-    el.value = '';
-    el.style.height = 'auto';
     if (writing) {
       // A turn is still going — queue this one to fire the moment it ends
       // (the Claude Code gesture). Each queued message keeps the record
@@ -672,97 +638,6 @@ export function ObservatoryPage({
     if (sel && !sel.isCollapsed && sel.toString().trim()) return;
     setJournalArmed((a) => (a === i ? null : i));
   }, []);
-
-  // --- Highlight a span into the journal -----------------------------------
-  // One listener for the whole transcript rather than a handler per turn: what
-  // she selects is a range, and a range doesn't belong to a component. The
-  // `[data-turn]` element it lands inside is what says which turn it was and in
-  // whose voice, and it's also the element the offsets are counted against — so
-  // the same lookup answers both questions.
-  useEffect(() => {
-    function onSelectionEnd() {
-      // A beat, so the browser has finished settling the selection (and, on
-      // touch, finished its own long-press adjustment) before it's measured.
-      window.setTimeout(() => {
-        if (sheetOpenRef.current) return;
-        const sel = window.getSelection();
-        if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
-          setPending(null);
-          return;
-        }
-        const node = sel.getRangeAt(0).commonAncestorContainer;
-        const el = (node.nodeType === 1 ? (node as Element) : node.parentElement)?.closest('[data-turn]');
-        const host = el as HTMLElement | null;
-        const who = host?.dataset.who;
-        if (!host || (who !== 'B' && who !== 'K')) {
-          setPending(null);
-          return;
-        }
-        const anchor = selectionOffsets(host);
-        const at = selectionAnchorPoint(PILL_WIDTH, PILL_HEIGHT);
-        if (!anchor || !at) {
-          setPending(null);
-          return;
-        }
-        setPending({ turn: Number(host.dataset.turn), who, ...anchor, ...at });
-      }, 10);
-    }
-    // The pill is positioned in viewport coordinates, so it has to be re-aimed
-    // when the text moves under it — otherwise reading a little further down
-    // before deciding to keep something leaves the pill stranded mid-air.
-    function onScroll() {
-      if (!pendingRef.current || sheetOpenRef.current) return;
-      const at = selectionAnchorPoint(PILL_WIDTH, PILL_HEIGHT);
-      if (at) setPending((p) => (p ? { ...p, ...at } : p));
-    }
-    document.addEventListener('mouseup', onSelectionEnd);
-    document.addEventListener('touchend', onSelectionEnd);
-    document.addEventListener('scroll', onScroll, true);
-    return () => {
-      document.removeEventListener('mouseup', onSelectionEnd);
-      document.removeEventListener('touchend', onSelectionEnd);
-      document.removeEventListener('scroll', onScroll, true);
-    };
-  }, []);
-
-  const saveHighlight = useCallback(
-    async (note: string) => {
-      const conv = convRef.current;
-      const p = pendingRef.current;
-      if (!conv || !p) return;
-      setHighlightSaving(true);
-      setHighlightError(null);
-      try {
-        const res = await journalHighlight(conv, {
-          who: p.who,
-          quote: p.quote,
-          note,
-          turn: p.turn,
-          start: p.start,
-          end: p.end,
-        });
-        const t = turnsRef.current[p.turn];
-        if (t) {
-          // A NEW array, not a push: Reply is memoized on its props, and a
-          // mutated-in-place array is the same reference, so the mark would
-          // never get painted until something else forced a render.
-          t.highlights = [
-            ...(t.highlights ?? []),
-            { start: p.start, end: p.end, quote: p.quote, card: res.card },
-          ];
-          setTurns([...turnsRef.current]);
-        }
-        window.getSelection()?.removeAllRanges();
-        setSheetOpen(false);
-        setPending(null);
-      } catch {
-        setHighlightError('Could not put that in the journal.');
-      } finally {
-        setHighlightSaving(false);
-      }
-    },
-    [],
-  );
 
   const journalReply = useCallback(async (i: number) => {
     const conv = convRef.current;
@@ -1084,11 +959,7 @@ export function ObservatoryPage({
             autoCapitalize="sentences"
             spellCheck
             onKeyDown={onComposerKeyDown}
-            onInput={(e) => {
-              const t = e.currentTarget;
-              t.style.height = 'auto';
-              t.style.height = `${autosizeHeight(t.scrollHeight, 132)}px`;
-            }}
+            onInput={composerBox.autosize}
           />
           {/* Never disabled while writing — a send mid-turn queues (the
               queued rows above the composer). */}
@@ -1114,31 +985,20 @@ export function ObservatoryPage({
       {/* The ✦ pill rides the selection; the sheet takes over from it. Both sit
           outside the scroll container so the pill's fixed position isn't
           measured against a scrolled parent. */}
-      {pending && !sheetOpen ? (
+      {highlight.pending && !highlight.sheetOpen ? (
         <HighlightPill
-          left={pending.left}
-          top={pending.top}
-          onTap={() => {
-            setHighlightError(null);
-            // Set the ref by hand as well as the state: the mouseup that
-            // follows this mousedown runs its check on a 10ms timer, which can
-            // beat React's re-render, and the check reads the ref.
-            sheetOpenRef.current = true;
-            setSheetOpen(true);
-          }}
+          left={highlight.pending.left}
+          top={highlight.pending.top}
+          onTap={highlight.openSheet}
         />
       ) : null}
-      {pending && sheetOpen ? (
+      {highlight.pending && highlight.sheetOpen ? (
         <HighlightSheet
-          quote={pending.quote}
-          saving={highlightSaving}
-          error={highlightError}
-          onSave={(note) => void saveHighlight(note)}
-          onCancel={() => {
-            setSheetOpen(false);
-            setPending(null);
-            window.getSelection()?.removeAllRanges();
-          }}
+          quote={highlight.pending.quote}
+          saving={highlight.saving}
+          error={highlight.error}
+          onSave={(note) => void highlight.save(note)}
+          onCancel={highlight.cancel}
         />
       ) : null}
       <MemoryPrompt
@@ -1177,12 +1037,7 @@ export function ObservatoryPage({
           // the one outcome this prompt exists to prevent.
           const p = memPrompt?.pending;
           setMemPrompt(null);
-          const el = inputRef.current;
-          if (p && el && !el.value) {
-            el.value = p.text;
-            el.style.height = 'auto';
-            el.style.height = `${autosizeHeight(el.scrollHeight, 132)}px`;
-          }
+          if (p) composerBox.fillIfEmpty(p.text);
         }}
       />
     </div>

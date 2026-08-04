@@ -1,3 +1,10 @@
+/**
+ * sessionFilters.test.ts — pins the colour rail's predicates (running /
+ * active-within-the-hour / unread / error), that pressed filters UNION rather
+ * than intersect, and that the counts on the buttons come from the same
+ * predicates as the lists behind them — the "number and list can't disagree"
+ * rule the rail was built on.
+ */
 import { describe, expect, it } from 'vitest';
 import { applyFilter, cardState, filterCounts, matchesFilter } from './sessionFilters';
 import type { SessionMeta } from './api';

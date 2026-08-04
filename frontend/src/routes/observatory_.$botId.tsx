@@ -5,17 +5,17 @@ import { getSessions } from '../features/observatory/api';
 import { useDeactivateFrames } from '../shell/useIframeView';
 
 /**
- * A observatory conversation (bot-surface-design §5A). `?conv=<id>` opens an
+ * An observatory conversation (bot-surface-design §5A). `?conv=<id>` opens an
  * existing conversation; without it the page starts a fresh one (and swaps
- * the id into the URL after the first send). `?conv=latest` (the Chat tab's
- * link when Settings points it here) resolves to the pinned Keeper session —
- * or, failing that, whatever sorted first — or a fresh one if there are none
- * at all. The `$botId` URL segment is a routing leftover from the bot-per-
- * persona era (07-24 dissolved it server-side into session-carried config);
- * it's kept only so old bookmarks and the still-hardcoded Chat-tab link
- * (shell/TopTabs.tsx navigates to `/observatory/keeper`) keep routing here
- * without a crash — nothing downstream reads its value. The `observatory_.`
- * filename un-nests from /observatory, same trick as threads_.$slug.tsx.
+ * the id into the URL after the first send). `?conv=latest` resolves to the
+ * pinned Keeper session — or, failing that, whatever sorted first — or a
+ * fresh one if there are none at all. The `$botId` URL segment is a routing
+ * leftover from the bot-per-persona era (07-24 dissolved it server-side into
+ * session-carried config): nothing downstream reads its value, every live
+ * caller fills it with the fixed placeholder 'session', and it's kept only
+ * so old bookmarks and cached PWA clients keep routing here without a crash.
+ * The `observatory_.` filename un-nests from /observatory, same trick as
+ * threads_.$slug.tsx.
  */
 export const Route = createFileRoute('/observatory_/$botId')({
   validateSearch: (search: Record<string, unknown>): { conv?: string } =>

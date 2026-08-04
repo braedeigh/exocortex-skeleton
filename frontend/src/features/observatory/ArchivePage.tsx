@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import {
   ALL_LANES,
+  LANE_LABEL,
   searchSessions,
   toLane,
   useArchiveList,
@@ -10,6 +11,7 @@ import {
   type SearchHit,
   type SearchResult,
 } from './api';
+import { sessionLocation } from './sessionLocation';
 import styles from './ArchivePage.module.css';
 
 /**
@@ -52,12 +54,6 @@ import styles from './ArchivePage.module.css';
  * /api/observatory/search (the transcripts). Tapping anything opens that
  * session through the same navigation the roster uses.
  */
-
-const LANE_LABEL: Record<Lane, string> = {
-  personal: 'Personal',
-  coding: 'Coding',
-  orchestra: 'Orchestra',
-};
 
 /** Long enough that she's stopped typing a word, short enough that it still
  * feels like it's keeping up. The scan is server-side over every transcript,
@@ -173,11 +169,7 @@ export function ArchivePage({ lane }: { lane?: string }) {
   }, [listing, scope]);
 
   const open = (convId: string) => {
-    void navigate({
-      to: '/observatory/$botId',
-      params: { botId: 'session' },
-      search: { conv: convId },
-    });
+    void navigate(sessionLocation(convId));
   };
 
   const searchingMode = query.length >= 2;

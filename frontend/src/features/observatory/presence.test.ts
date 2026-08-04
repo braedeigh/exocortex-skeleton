@@ -1,5 +1,12 @@
+/**
+ * presence.test.ts — pins the one pure contract in presence.ts: a session is
+ * "open" while its last heartbeat is within the TTL (inclusive), a stale or
+ * unparseable stamp silently ages out, and the clock is injected so none of
+ * this depends on when the test runs. (Was openSessionsStore.test.ts until
+ * the 08-03 rename.)
+ */
 import { describe, expect, it } from 'vitest';
-import { freshOpenIds } from './openSessionsStore';
+import { freshOpenIds } from './presence';
 
 const NOW = Date.parse('2026-07-26T12:00:00Z');
 const iso = (msAgo: number) => new Date(NOW - msAgo).toISOString();

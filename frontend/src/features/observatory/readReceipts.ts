@@ -1,13 +1,19 @@
 /**
- * openedStore.ts — single owner of the 'exo-bot-opened' localStorage map:
- * which conversations she's opened, and when. ObservatoryPage marks a
- * conversation opened on load; RosterPage reads the whole map to compare
- * against each conversation's last_at for the unread dot.
+ * readReceipts.ts — single owner of the 'exo-bot-opened' localStorage map:
+ * which conversations she's opened, and when. The read-receipt ledger behind
+ * every unread dot. ObservatoryPage marks a conversation opened on load;
+ * RosterPage reads the whole map to compare against each conversation's
+ * last_at. (Live "which sessions are open right now" is presence.ts — a
+ * different question with a different clock.)
  *
  * Opening isn't the only way a card goes read: setConversationRead lets her
  * say so by hand from the roster, in either direction — including putting a
  * card BACK to unread, which is the only way to re-raise something she opened
  * and then didn't deal with.
+ *
+ * (This file was openedStore.ts until 08-03 — renamed because it and the
+ * presence store differed by two characters while meaning opposite things.
+ * The localStorage key is untouched: her existing read state carries over.)
  */
 
 /** Mark a conversation opened (the roster's unread dot compares this
@@ -18,8 +24,7 @@
 export function markConversationOpened(convId: string): string | null {
   try {
     // 'exo-bot-opened' predates the observatory rename (07-24) — the
-    // persona concept ("bot") stays, so this on-disk/localStorage name is
-    // deliberately unchanged.
+    // localStorage name is deliberately frozen so read state survives.
     const raw = localStorage.getItem('exo-bot-opened');
     const map = raw ? (JSON.parse(raw) as Record<string, string>) : {};
     const prev = map[convId] ?? null;
@@ -68,9 +73,6 @@ export function isUnread(lastAt: unknown, openedAt: string | null | undefined): 
 
 export function openedMap(): Record<string, string> {
   try {
-    // 'exo-bot-opened' predates the observatory rename (07-24) — the
-    // persona concept ("bot") stays, so this on-disk/localStorage name is
-    // deliberately unchanged.
     const raw = localStorage.getItem('exo-bot-opened');
     return raw ? (JSON.parse(raw) as Record<string, string>) : {};
   } catch {

@@ -1,3 +1,9 @@
+/**
+ * sessionStatus.test.ts — pins the card's "Xm ago" stamp: largest unit that
+ * still says something, the server's zoneless local stamps and UTC-with-Z
+ * stamps landing on one clock, clock skew clamped to "just now" instead of a
+ * negative age, and no stamp at all yielding no line rather than a fake one.
+ */
 import { describe, expect, it } from 'vitest';
 import { lastActivityLabel } from './sessionStatus';
 

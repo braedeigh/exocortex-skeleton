@@ -15,6 +15,7 @@
  */
 import { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
+import { sessionLocation } from '../../observatory/sessionLocation';
 import { useFrontBrief, useFrontSessions, useStartFrontSession, type FrontSession } from './useFrontSessions';
 import styles from './SessionsPanel.module.css';
 
@@ -53,7 +54,10 @@ export function SessionsPanel({ frontId, frontName }: { frontId: string; frontNa
   const brief = useFrontBrief(frontId, showBrief);
 
   function open(id: string) {
-    void navigate({ to: '/observatory/$botId', params: { botId: id } });
+    // sessionLocation is the one place that knows the observatory URL shape —
+    // spelling it by hand here once put the id in a dead URL segment and
+    // opened a blank compose instead of the session.
+    void navigate(sessionLocation(id));
   }
 
   const sessions = data?.sessions ?? [];

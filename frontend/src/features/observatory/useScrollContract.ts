@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
-import { PARK_BOTTOM_PX, parkStep, shouldArm } from './parkedReading';
+import { isAtBottom, parkStep, shouldArm } from './parkedReading';
 import type { Turn } from './events';
 
 /**
@@ -178,7 +178,9 @@ export function useScrollContract(args: {
     // Arriving at the bottom starts the parked-reading dwell clock. Never
     // cleared here: content growing below her isn't her leaving (growth
     // fires no scroll event anyway) — only her hand clears it (disarmPark).
-    if (fromBottom < PARK_BOTTOM_PX && atBottomSinceRef.current === null) {
+    // isAtBottom is parkedReading's own (tested) definition of "at the
+    // bottom", so the dwell clock and the flip logic can't drift apart.
+    if (isAtBottom(el) && atBottomSinceRef.current === null) {
       atBottomSinceRef.current = Date.now();
     }
   }, []);

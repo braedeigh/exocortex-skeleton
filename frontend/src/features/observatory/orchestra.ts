@@ -1,7 +1,9 @@
 /**
- * orchestra.ts — the pure marriage behind the Observatory's live "Orchestra"
- * section. Two signals that already exist in the app get combined here, with
- * NO new backend plumbing:
+ * orchestra.ts — the pure marriage behind every room's session cards. (The
+ * name is a fossil: this fed a live "Orchestra" section until the 07-27
+ * rework made Orchestra one room of three — orchestraRows now feeds
+ * SessionLane in ALL of them, the Keeper slot included.) Two signals that
+ * already exist in the app get combined here, with NO new backend plumbing:
  *
  *   - WHICH sessions are running now  ← the roster (GET /api/observatory,
  *     already `_effective_running`-corrected server-side).

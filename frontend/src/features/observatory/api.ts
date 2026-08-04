@@ -11,6 +11,7 @@
  */
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../api/client';
+import { parseSseChunk } from './sseFrames';
 
 /** Cached facts about the nightly rollover job, updated after each run
  * (on-demand or the cron original) — surfaced so the on-demand trigger can
@@ -65,6 +66,26 @@ export const ALL_LANES: Lane[] = ['personal', 'coding', 'orchestra'];
 export function toLane(value: string | undefined): Lane {
   return (ALL_LANES as string[]).includes(value ?? '') ? (value as Lane) : 'orchestra';
 }
+
+/** The rooms' display names — one copy, here beside ALL_LANES, so the roster
+ * headings, the dialog's picker and the archive's chips can't drift into
+ * spelling the same room differently. */
+export const LANE_LABEL: Record<Lane, string> = {
+  personal: 'Personal',
+  coding: 'Coding',
+  orchestra: 'Orchestra',
+};
+
+/** Each room in one line: where it stands, then whether it asks. Those are the
+ * two switches the lane actually flips, and Personal/Coding differ only on the
+ * first — so the blurb has to say both or a picker looks like it has a
+ * duplicate. (RosterPage's fuller room introductions are its own prose — this
+ * is the one-liner surfaces share.) */
+export const LANE_BLURB: Record<Lane, string> = {
+  personal: 'Rooted where both repos meet, so it can reach your vault. Just acts — you’re the one watching.',
+  coding: 'Rooted in the app code, where the build happens. Just acts — you’re the one watching.',
+  orchestra: 'Rooted in the app code. Stops and asks before anything irreversible.',
+};
 
 export interface SessionMeta {
   id: string;
@@ -497,23 +518,14 @@ export async function streamSend(
   let convIdOut: string | undefined = convId;
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
+  // Frame-cutting is pure and tested on its own — see sseFrames.ts.
   let pending = '';
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
-    pending += decoder.decode(value, { stream: true });
-    // SSE frames are blank-line separated; keep the trailing partial frame.
-    const frames = pending.split('\n\n');
-    pending = frames.pop() ?? '';
-    for (const frame of frames) {
-      const line = frame.trim();
-      if (!line.startsWith('data: ')) continue;
-      let event: Record<string, unknown>;
-      try {
-        event = JSON.parse(line.slice('data: '.length)) as Record<string, unknown>;
-      } catch {
-        continue; // torn frame — the next one resyncs us
-      }
+    const { events, rest } = parseSseChunk(pending + decoder.decode(value, { stream: true }));
+    pending = rest;
+    for (const event of events) {
       if (event.type === 'conv' && typeof event.conversation_id === 'string') {
         convIdOut = event.conversation_id;
       }

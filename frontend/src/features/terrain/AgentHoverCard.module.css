@@ -130,7 +130,7 @@
   white-space: nowrap;
 }
 
-/* THE ROSTER'S FIVE DOTS, in the roster's colours (Orchestra.module.css). Same
+/* THE ROSTER'S FIVE DOTS, in the roster's colours (SessionLane.module.css). Same
    fact, same colour, wherever she's looking — that's the whole reason the state
    is computed by the roster's own predicate rather than re-decided here.
 

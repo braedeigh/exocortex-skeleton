@@ -1,7 +1,7 @@
 /**
- * openSessionsStore.ts — a LIVE presence registry of which conversations are
- * currently open in the observatory, distinct from openedStore.ts (which is a
- * historical "when did I last open this" map behind the unread dot).
+ * presence.ts — a LIVE registry of which conversations are open in the
+ * observatory RIGHT NOW, distinct from readReceipts.ts (the historical
+ * "when did I last open this" map behind the unread dot).
  *
  * Why it exists: the terrain page's agent bar wants to show "active agents" =
  * the sessions she actually has open right now — but the observatory is
@@ -18,6 +18,10 @@
  *
  * localStorage (not memory) so it crosses the route change to /terrain and
  * crosses tabs; the pure `freshOpenIds` is what the tests pin.
+ *
+ * (This file was openSessionsStore.ts until 08-03 — renamed because it and
+ * the read-receipt store differed by two characters while meaning opposite
+ * things. The localStorage key is untouched.)
  */
 
 const STORAGE_KEY = 'exo-open-sessions';

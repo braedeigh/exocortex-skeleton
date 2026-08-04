@@ -5,10 +5,10 @@ import { subscribeTheme } from '../../theme';
 import { TermNotesPanel } from '../../shell/TermNotesPanel';
 import { SchedulePanel } from '../../shell/SchedulePanel';
 import { openConversationInPane } from '../../shell/paneConversation';
-import { useAtlas } from '../atlas/api';
 import { useSessionPreview, useSessionRoster } from '../observatory/api';
-import { isUnread, openedMap } from '../observatory/openedStore';
+import { isUnread, openedMap } from '../observatory/readReceipts';
 import { cardState, type CardState } from '../observatory/sessionFilters';
+import { sessionLocation } from '../observatory/sessionLocation';
 import { useTerrain, type TerrainData } from './api';
 import type { FileTouchKind, TerrainNode } from './terrainGraph';
 import {
@@ -138,8 +138,8 @@ function usePageVisible(): boolean {
  * Tap a file → its code, in a frosted window floating over the map
  * (FileCodeWindow), with what the map knows about the file printed under it:
  * when it was last touched, and every agent that touched it — each row opens
- * that conversation exactly like the atlas does, or rings its whole footprint
- * on the map. Tap an agent orb → a sheet, and its footprint rings at once.
+ * that conversation in the Observatory, or rings its whole footprint on the
+ * map. Tap an agent orb → a sheet, and its footprint rings at once.
  *
  * HOVER an agent orb (mouse only) and its session card floats up beside it —
  * summary, last thing said, what it's waiting on (AgentHoverCard). That needs
@@ -209,10 +209,6 @@ export function TerrainPage() {
   useEffect(() => {
     if (data) setAnyRunning((data.sessions ?? []).some((s) => s.running));
   }, [data]);
-  // File-level sessions carry no bot id; the top-level sessions array does
-  // (new contract). The cached atlas fetch stays as the fallback map for
-  // sessions the array doesn't know.
-  const atlas = useAtlas();
   // The session cards' own facts (summary, model, spend, what each is waiting
   // on), for the agent hovercard. Same roster the Observatory draws from —
   // fetched here rather than derived, because none of it is in the terrain
@@ -491,7 +487,7 @@ export function TerrainPage() {
   /**
    * Agents that have done something since she last opened them — the same
    * comparison behind the session roster's orange "ready" dot, reused verbatim
-   * (openedStore.isUnread against each session's last_at) so the map and the
+   * (readReceipts.isUnread against each session's last_at) so the map and the
    * list can't drift about who's waiting on her.
    */
   const unreadAgents = useMemo(() => {
@@ -504,7 +500,7 @@ export function TerrainPage() {
   /**
    * Who's still pinging: waiting, minus the ones she's tapped on this visit
    * ("until i click it"). Acknowledgement is deliberately LOCAL to the page
-   * and not written back to openedStore — tapping an orb to look at it isn't
+   * and not written back to readReceipts — tapping an orb to look at it isn't
    * the same as reading the conversation, so the roster keeps its orange dot
    * until she actually opens it. The map just stops waving at her about an
    * agent she's already turned to.
@@ -539,14 +535,6 @@ export function TerrainPage() {
     [visible, ringSessionIds],
   );
 
-  const convToBot = useMemo(() => {
-    const map = new Map<string, string>();
-    // Atlas first (fallback layer), then the terrain payload's own sessions
-    // array on top — the terrain contract is authoritative where it knows.
-    for (const s of atlas.data?.sessions ?? []) map.set(s.id, s.bot);
-    for (const s of data?.sessions ?? []) if (s.bot) map.set(s.id, s.bot);
-    return map;
-  }, [atlas.data, data?.sessions]);
 
   // "Nothing here" is now a statement about the chosen dials, not just the
   // payload — narrowing to a quiet week should say so rather than look broken.
@@ -755,16 +743,9 @@ export function TerrainPage() {
       setSelected(null);
       return;
     }
-    // No left pane (mobile, public) — full navigation, the same destination
-    // the atlas's cards use (RosterPage.open). Bot comes from the terrain
-    // payload's sessions array when it knows the session, else the atlas
-    // conv→bot map, else 'keeper' (v1 single-engine).
-    const botId = convToBot.get(convId) ?? 'keeper';
-    void navigate({
-      to: '/observatory/$botId',
-      params: { botId },
-      search: { conv: convId },
-    });
+    // No left pane (mobile, public) — full navigation, same destination as
+    // RosterPage.open.
+    void navigate(sessionLocation(convId));
   };
 
   // Files are read in the frosted window now, not the sheet, so this is the

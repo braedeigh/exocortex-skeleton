@@ -1,3 +1,10 @@
+/**
+ * orchestra.test.ts — pins the roster×terrain inversion behind every room's
+ * cards: the roster is the sole authority on which sessions exist and their
+ * order, terrain only decorates them with files, pure reads never count as
+ * "writing", and a session terrain doesn't know still gets a row (with an
+ * empty file list) rather than vanishing.
+ */
 import { describe, expect, it } from 'vitest';
 import { orchestraRows } from './orchestra';
 import type { SessionMeta } from './api';
