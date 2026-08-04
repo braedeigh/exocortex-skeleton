@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from '@tanstack/react-router';
+import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
 import { Sheet } from '../../ui';
 import { subscribeTheme } from '../../theme';
 import { TermNotesPanel } from '../../shell/TermNotesPanel';
@@ -263,6 +263,13 @@ export function TerrainPage() {
   // ported them: 📝 dev notes and the ⏰ prompt timer, the same shared panels
   // off the same stores. The map is where she notices what needs doing, so it
   // wants the same two doors every other working surface has.
+  // Whether the attention ranking (the /terrain/usage child route) is showing.
+  // Read off the router rather than held here, so the lit chip, the browser's
+  // back button and a pasted link can never disagree about it.
+  const usageOpen = useRouterState({
+    select: (s) => s.location.pathname.startsWith('/terrain/usage'),
+  });
+
   const [panel, setPanel] = useState<'notes' | 'schedule' | null>(null);
   const [schedSessions, setSchedSessions] = useState<string[]>([]);
   const notesBtnRef = useRef<HTMLButtonElement>(null);
@@ -896,6 +903,22 @@ export function TerrainPage() {
             >
               &#9200;
             </button>
+            {/* 📊 is a LINK, not a panel toggle: the attention ranking is a
+                child route rendered through this page's <Outlet/> below, so it
+                gets a URL, a back button, and a lit state that follows the
+                route rather than a piece of local state. Tapping it while it's
+                open goes back to the bare map. */}
+            <Link
+              to={usageOpen ? '/terrain' : '/terrain/usage'}
+              className={[styles.chip, styles.iconChip, usageOpen ? styles.chipActive : '']
+                .filter(Boolean)
+                .join(' ')}
+              title="Where you actually go"
+              aria-label="Where you actually go"
+              aria-current={usageOpen ? 'page' : undefined}
+            >
+              &#128202;
+            </Link>
           </div>
         </div>
 
@@ -994,6 +1017,10 @@ export function TerrainPage() {
         triggerRef={schedBtnRef}
         sessionNames={schedSessions}
       />
+      {/* Child routes render here — today just /terrain/usage, which draws
+          itself inset so the map stays visible around its edges. Empty on
+          /terrain itself, so the bare map costs nothing. */}
+      <Outlet />
 
       <Sheet open={selected !== null} title={selected?.label} onClose={() => setSelected(null)}>
         {selected?.kind === 'session' && selected.session ? (
