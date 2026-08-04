@@ -27,7 +27,7 @@ from routes import (
     entities, threads, person, shell, cards, archivals, research,
     research_search, research_sources, research_import, research_text,
     annotations, spa, fronts, wiki, travel, profile, usage, streaks, spinoff,
-    observatory, automations, nightcrew, push, claude_auth, run_queue,
+    observatory, terrain, automations, nightcrew, push, claude_auth, run_queue,
 )
 from routes.shell import VALID_TABS
 
@@ -1118,6 +1118,10 @@ if features.enabled("observatory"):
     # The observatory spawns headless `claude -p` processes as the app user;
     # the flag lets a deployment keep that surface off. Stock installs: on.
     observatory.register(app)
+    # Terrain (the file-tree heatmap, split into routes/terrain.py) rides the
+    # same flag: it maps the observatory's sessions onto the repos, and its
+    # /terrain/file door reads checkout files over HTTP — off means off.
+    terrain.register(app)
     # The night crew rides the same flag: its UI lives inside the observatory,
     # and its merge endpoint runs git against the live checkout — with the
     # observatory off, that door must not answer either.

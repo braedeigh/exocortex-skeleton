@@ -30,6 +30,11 @@ from flask import Flask
 import recap_summary
 import store
 from routes import observatory, terminal
+# The heatmap's own module (split out of observatory 08-03) — its cache,
+# constants and git reader live there now; the repo ROOTS (_terrain_repos)
+# and running-ness stay on observatory and terrain reads them dynamically,
+# so those keep being monkeypatched where they live.
+from routes import terrain
 
 
 STUB = """#!/usr/bin/env python3
@@ -1068,10 +1073,10 @@ def terrain_client(data_dir, monkeypatch):
     """Isolated data dir (no real footprints/gists/index) + a fresh terrain
     cache — the module-level cache must not survive across tests. It's keyed
     by resolved file cap now (one slot per distinct ?limit=)."""
-    monkeypatch.setattr(observatory, "_terrain_cache", {})
+    monkeypatch.setattr(terrain, "_terrain_cache", {})
     app = Flask(__name__)
     app.config.update(TESTING=True)
-    observatory.register(app)
+    terrain.register(app)
     return app.test_client()
 
 
@@ -1085,7 +1090,7 @@ def _set_terrain_repos(monkeypatch, skeleton_root, vault_root):
 def _age_terrain_cache(seconds):
     """Backdate every cache slot — the cache is keyed by file cap now, so
     tests can't reach into a single well-known entry."""
-    for slot in observatory._terrain_cache.values():
+    for slot in terrain._terrain_cache.values():
         slot["computed_at"] -= seconds
 
 
@@ -1267,7 +1272,7 @@ def test_open_session_joins_the_roster_with_no_footprint_and_nothing_running(
 
 def test_terrain_caches_the_payload_for_the_ttl(terrain_client, tmp_path, monkeypatch):
     calls = []
-    monkeypatch.setattr(observatory, "_terrain_git_touches",
+    monkeypatch.setattr(terrain, "_terrain_git_touches",
                         lambda root, window_days: calls.append(root) or {})
     _set_terrain_repos(monkeypatch, tmp_path / "a", tmp_path / "b")
 
@@ -1275,14 +1280,14 @@ def test_terrain_caches_the_payload_for_the_ttl(terrain_client, tmp_path, monkey
     terrain_client.get("/api/observatory/terrain")
     assert len(calls) == 2   # one _build_terrain() call touches 2 repos
 
-    _age_terrain_cache(observatory._TERRAIN_CACHE_TTL_SEC + 1)
+    _age_terrain_cache(terrain._TERRAIN_CACHE_TTL_SEC + 1)
     terrain_client.get("/api/observatory/terrain")
     assert len(calls) == 4   # cache expired -> _build_terrain() ran again
 
 
 def test_terrain_ttl_shortens_while_a_session_is_running(terrain_client, tmp_path, monkeypatch):
     calls = []
-    monkeypatch.setattr(observatory, "_terrain_git_touches",
+    monkeypatch.setattr(terrain, "_terrain_git_touches",
                         lambda root, window_days: calls.append(root) or {})
     _set_terrain_repos(monkeypatch, tmp_path / "a", tmp_path / "b")
     (store.DATA_DIR / "bot_chats").mkdir(parents=True, exist_ok=True)
@@ -1294,12 +1299,12 @@ def test_terrain_ttl_shortens_while_a_session_is_running(terrain_client, tmp_pat
     assert len(calls) == 2
     # An age the default 300s TTL would call fresh — but with a session
     # running, the live TTL (~5s) has already expired it.
-    _age_terrain_cache(observatory._TERRAIN_LIVE_TTL_SEC + 1)
+    _age_terrain_cache(terrain._TERRAIN_LIVE_TTL_SEC + 1)
     terrain_client.get("/api/observatory/terrain")
     assert len(calls) == 4
     # Once nothing is running, the same age is fresh again under 300s.
     store.write("bot_chats/index", {"conv-live": {"title": "Live", "running": False}})
-    _age_terrain_cache(observatory._TERRAIN_LIVE_TTL_SEC + 1)
+    _age_terrain_cache(terrain._TERRAIN_LIVE_TTL_SEC + 1)
     terrain_client.get("/api/observatory/terrain")
     assert len(calls) == 4   # served from cache
 
@@ -1340,18 +1345,18 @@ def test_limit_zero_means_every_file(terrain_client, tmp_path, monkeypatch):
 def test_junk_limit_falls_back_to_the_default_instead_of_erroring(terrain_client, tmp_path, monkeypatch):
     _set_terrain_repos(monkeypatch, tmp_path / "a", tmp_path / "b")
     data = terrain_client.get("/api/observatory/terrain?limit=drop%20table").get_json()
-    assert data["file_cap"] == observatory._TERRAIN_FILE_CAP
+    assert data["file_cap"] == terrain._TERRAIN_FILE_CAP
 
 
 def test_limit_is_bounded_so_one_request_cannot_ask_for_everything(terrain_client, tmp_path, monkeypatch):
     _set_terrain_repos(monkeypatch, tmp_path / "a", tmp_path / "b")
     data = terrain_client.get("/api/observatory/terrain?limit=99999999").get_json()
-    assert data["file_cap"] == observatory._TERRAIN_FILE_CAP_MAX
+    assert data["file_cap"] == terrain._TERRAIN_FILE_CAP_MAX
 
 
 def test_each_limit_gets_its_own_cache_slot(terrain_client, tmp_path, monkeypatch):
     calls = []
-    monkeypatch.setattr(observatory, "_terrain_git_touches",
+    monkeypatch.setattr(terrain, "_terrain_git_touches",
                         lambda root, window_days: calls.append(root) or {})
     _set_terrain_repos(monkeypatch, tmp_path / "a", tmp_path / "b")
 
@@ -1364,9 +1369,9 @@ def test_each_limit_gets_its_own_cache_slot(terrain_client, tmp_path, monkeypatc
 
 def test_cache_slots_are_bounded(terrain_client, tmp_path, monkeypatch):
     _set_terrain_repos(monkeypatch, tmp_path / "a", tmp_path / "b")
-    for limit in range(1, observatory._TERRAIN_CACHE_SLOTS + 5):
+    for limit in range(1, terrain._TERRAIN_CACHE_SLOTS + 5):
         terrain_client.get(f"/api/observatory/terrain?limit={limit}")
-    assert len(observatory._terrain_cache) <= observatory._TERRAIN_CACHE_SLOTS
+    assert len(terrain._terrain_cache) <= terrain._TERRAIN_CACHE_SLOTS
 
 
 # --- Terrain: the code modal (GET /api/observatory/terrain/file) ------------
@@ -1451,7 +1456,7 @@ def test_terrain_file_flags_binary_without_returning_it(terrain_client, tmp_path
 
 def test_terrain_file_truncates_on_whole_lines(terrain_client, tmp_path, monkeypatch):
     skeleton = _make_git_repo(tmp_path / "skeleton")
-    monkeypatch.setattr(observatory, "_TERRAIN_FILE_READ_MAX", 50)
+    monkeypatch.setattr(terrain, "_TERRAIN_FILE_READ_MAX", 50)
     (skeleton / "big.txt").write_text("".join(f"line {i}\n" for i in range(50)))
     _set_terrain_repos(monkeypatch, skeleton, tmp_path / "vault")
 
