@@ -7,13 +7,19 @@ UI hits POST /api/spinoff/open instead. Both wrap routes.spinoff.open_spinoff.
 Same narrow-door doctrine as stage_change.py: agents never write session state
 directly — one validated entry point, loud precise failures.
 
-    spinoff_open.py <slug> [--room personal|orchestra]
+    spinoff_open.py <slug> [--room personal|coding|orchestra] [--no-worktree]
 
-Minting is a pure index write now — no tmux, no long-lived process needed:
-open_spinoff() mints (or rejoins) an Observatory conversation carrying the
-kickoff, and the session appears in the Observatory the moment this returns.
-The kickoff rides in `draft` but is marked `autostart`, so the session sends
-it ITSELF the first time she opens the conversation — nobody hits send.
+No tmux, no long-lived process needed: open_spinoff() mints (or rejoins) an
+Observatory conversation carrying the kickoff, and the session appears in the
+Observatory the moment this returns. The kickoff rides in `draft` but is marked
+`autostart`, so the session sends it ITSELF the first time she opens the
+conversation — nobody hits send.
+
+An Orchestra spinoff also gets its own git worktree to work in, so it can't
+edit the same files as anything else that's running; the reply carries the
+`worktree` path and the `branch` its work will land on. `--no-worktree` keeps
+it in the shared checkout — for the rare task that has to see itself in the
+running site, and knowing it can then collide with whatever else is live.
 
 Without --room the spinoff lands in the room the CALLING session is in, read
 off EXOCORTEX_CONV_ID; --room (or --lane, the code's word for the same thing)
@@ -30,21 +36,25 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from routes.spinoff import open_spinoff  # noqa: E402
 
 
-USAGE = "usage: spinoff_open.py <slug> [--room personal|orchestra]"
+USAGE = ("usage: spinoff_open.py <slug> [--room personal|coding|orchestra] "
+         "[--no-worktree]")
 
 
 def main():
-    # Hand-parsed rather than argparse: two forms, and a refusal here has to
-    # print the same one-JSON-line shape as open_spinoff's, not argparse's
-    # stderr essay — the caller is an agent reading stdout.
+    # Hand-parsed rather than argparse: a couple of forms, and a refusal here
+    # has to print the same one-JSON-line shape as open_spinoff's, not
+    # argparse's stderr essay — the caller is an agent reading stdout.
     args = sys.argv[1:]
-    room = None
+    room, worktree = None, None
+    if "--no-worktree" in args:
+        args = [a for a in args if a != "--no-worktree"]
+        worktree = False
     if len(args) == 3 and args[1] in ("--room", "--lane"):
         args, room = args[:1], args[2]
     if len(args) != 1:
         print(json.dumps({"error": USAGE}))
         return 2
-    payload, status = open_spinoff(args[0], lane=room)
+    payload, status = open_spinoff(args[0], lane=room, worktree=worktree)
     print(json.dumps(payload))
     return 0 if status == 200 else 1
 

@@ -29,3 +29,6 @@ dev-dist
 *.njsproj
 *.sln
 *.sw?
+
+# per-worktree vite cache (see cacheDir in vite.config.ts)
+.vite-cache

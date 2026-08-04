@@ -5,6 +5,14 @@ import { VitePWA } from 'vite-plugin-pwa';
 
 // https://vite.dev/config/
 export default defineConfig({
+  // Vite's default cache dir is node_modules/.vite — and an unattended
+  // session's worktree (worktrees.py) gets node_modules as a SYMLINK to the
+  // main checkout's, so every worktree would share one cache and two builds
+  // running at once would corrupt each other's optimized deps. The night crew
+  // never hit this because it runs one job at a time; parallel sessions are
+  // the entire point here. Project-root-relative, so each worktree gets its
+  // own automatically.
+  cacheDir: '.vite-cache',
   plugins: [
     // must run before @vitejs/plugin-react — generates src/routeTree.gen.ts
     // from the file-based routes in src/routes/.

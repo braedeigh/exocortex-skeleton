@@ -20,7 +20,12 @@ release/
 # Python
 __pycache__/
 *.pyc
+# Both spellings on purpose. A trailing slash matches DIRECTORIES only, and an
+# unattended session's worktree (worktrees.py) gets its venv as a SYMLINK to the
+# main checkout's — which git sees as a file, so `venv/` alone would leave it
+# untracked-but-visible and one `git add -A` away from being committed.
 venv/
+venv
 .pytest_cache/
 
 # Rust (tools/)

@@ -16,6 +16,15 @@ came out of. The sender is identified by EXOCORTEX_CONV_ID, which observatory.py
 puts in every turn's environment; see _inherit_lane for what happens when
 there's no sender to read.
 
+An ORCHESTRA spinoff also gets its OWN COPY of the app checkout — a git
+worktree on its own `agent/<slug>` branch, minted here and used as its cwd for
+life (worktrees.py). That room is the unwatched one, and two unwatched agents
+editing one folder is how sessions have twice committed each other's
+half-written files. Coding and Personal do NOT get one: those are her own
+hands, and they need the real checkout because that's what gunicorn serves and
+what she refreshes. The trade an Orchestra session makes is that it cannot see
+its change in a browser — its proof is a test run.
+
 A spun-off session STARTS WORKING IMMEDIATELY — she doesn't have to open it, or
 even be at the machine. A turn is hosted by a detached thread in whichever
 process took the send, so it needs a process that outlives this call; the
@@ -37,6 +46,7 @@ from pathlib import Path
 from flask import jsonify, request
 
 import store
+import worktrees
 from routes.observatory import (_BUILDER_TOOLS, _DEFAULT_LANE, _LANES,
                                 _chats_dir, _conv_lane, _lane_profile,
                                 _new_conv_id, _now)
@@ -64,7 +74,14 @@ def _inherit_lane(index):
     return _conv_lane(entry) if isinstance(entry, dict) else _DEFAULT_LANE
 
 
-def open_spinoff(slug, start=True, lane=None):
+def _live_conv_for(index, slug):
+    """The spinoff's existing, non-archived conversation — or None."""
+    return next((cid for cid, entry in index.items()
+                 if isinstance(entry, dict) and entry.get("spinoff_slug") == slug
+                 and not entry.get("archived")), None)
+
+
+def open_spinoff(slug, start=True, lane=None, worktree=None):
     """Core shared by the route and scripts/spinoff_open.py (the agents' door).
 
     Mints (or rejoins) an Observatory conversation for the spinoff and, by
@@ -86,6 +103,11 @@ def open_spinoff(slug, start=True, lane=None):
     hands her a take-over session on purpose, to be opened after she stops the
     original, because two agents editing one session's files is the failure it
     exists to avoid.
+
+    `worktree=False` opts out of the private copy of the repo an ORCHESTRA
+    spinoff otherwise gets (see worktrees.py). Only Orchestra gets one at all:
+    Coding and Personal are her own hands, and they need the real checkout
+    because that's the one gunicorn serves and the one she refreshes.
     """
     if not SLUG_RE.match(slug or ""):
         return {"error": "bad slug"}, 400
@@ -97,34 +119,68 @@ def open_spinoff(slug, start=True, lane=None):
         return {"error": f"no brief at {brief}"}, 400
 
     _chats_dir()   # the index (and its .lock) lives inside it
-    with store.mutate("bot_chats/index", {}) as index:
-        existing = next(
-            (cid for cid, entry in index.items()
-             if isinstance(entry, dict) and entry.get("spinoff_slug") == slug
-             and not entry.get("archived")),
-            None)
-        if existing:
-            return {"ok": True, "conversation_id": existing,
-                    "newly_spawned": False, "lane": _conv_lane(index[existing]),
-                    "brief": str(brief)}, 200
 
-        # The room decides where the child is rooted — the app checkout for
-        # Orchestra and Coding, the parent of both repos for Personal — and cwd
-        # is the one thing a session can never change afterwards, which is why
-        # it's settled here at birth rather than left to be inferred later.
-        room = lane or _inherit_lane(index)
-        profile = _lane_profile(room)
-        kickoff = (f"Read {brief} and follow its Protocol section exactly — "
-                   "it defines this session's job.")
-        conv_id = _new_conv_id(index)
-        index[conv_id] = {
-            "bot": "keeper", "spinoff_slug": slug, "title": f"spin: {slug}",
-            "started": _now(), "last_at": _now(), "claude_session_id": None,
-            "cost_usd": 0.0, "journal": False, "lane": room,
-            "cwd": profile["cwd"],
-            "allowed_tools": list(profile["allowed_tools"]), "draft": kickoff,
-            "autostart": True,
-        }
+    # Read first, WITHOUT the lock, only to decide the room and to skip minting
+    # for an obvious rejoin. Cutting a worktree copies the tree and takes about
+    # a second; the index lock is taken by every send in the app, so holding it
+    # across that would stall live turns. The authoritative check is the locked
+    # one below — this read can be stale and it costs nothing when it is.
+    snapshot = store.read("bot_chats/index", {})
+    if _live_conv_for(snapshot, slug):
+        cid = _live_conv_for(snapshot, slug)
+        return {"ok": True, "conversation_id": cid, "newly_spawned": False,
+                "lane": _conv_lane(snapshot[cid]), "brief": str(brief)}, 200
+
+    # The room decides where the child is rooted — the app checkout for Coding,
+    # the parent of both repos for Personal, its OWN copy of the checkout for
+    # Orchestra — and cwd is the one thing a session can never change
+    # afterwards, which is why it's settled here at birth.
+    room = lane or _inherit_lane(snapshot)
+    profile = _lane_profile(room)
+    cwd, wt_path, branch, wt_error = profile["cwd"], None, None, None
+    if room == "orchestra" and worktree is not False:
+        try:
+            wt_path, branch = worktrees.mint(slug)
+            cwd = str(wt_path)
+        except (worktrees.WorktreeError, OSError, subprocess.SubprocessError) as e:
+            # A spinoff that couldn't get its own copy still runs, in the shared
+            # checkout — the same "degraded is still usable" call _launch_runner
+            # makes. But it is NOT silent: the flag rides on the entry so the
+            # card can say so, because the whole point of the copy is that
+            # nobody has to remember which sessions are sharing a tree.
+            wt_error = f"{type(e).__name__}: {e}"
+
+    kickoff = (f"Read {brief} and follow its Protocol section exactly — "
+               "it defines this session's job.")
+
+    raced = None
+    with store.mutate("bot_chats/index", {}) as index:
+        raced = _live_conv_for(index, slug)
+        if not raced:
+            conv_id = _new_conv_id(index)
+            index[conv_id] = {
+                "bot": "keeper", "spinoff_slug": slug, "title": f"spin: {slug}",
+                "started": _now(), "last_at": _now(), "claude_session_id": None,
+                "cost_usd": 0.0, "journal": False, "lane": room,
+                "cwd": cwd,
+                "allowed_tools": list(profile["allowed_tools"]), "draft": kickoff,
+                "autostart": True,
+            }
+            if wt_path:
+                index[conv_id]["worktree"] = str(wt_path)
+                index[conv_id]["branch"] = branch
+            if wt_error:
+                index[conv_id]["worktree_failed"] = wt_error
+
+    # Somebody else minted this slug while we were cutting the copy. Theirs
+    # wins (it's the one in the index); ours is an orphan directory nothing
+    # points at, so it goes back — outside the lock, like every git call here.
+    if raced:
+        if wt_path:
+            worktrees.remove(wt_path)
+        return {"ok": True, "conversation_id": raced, "newly_spawned": False,
+                "lane": _conv_lane(store.read("bot_chats/index", {})[raced]),
+                "brief": str(brief)}, 200
 
     # Outside the index lock — launching a runner that immediately posts a send
     # (which takes that same lock) while still holding it would deadlock.
@@ -139,6 +195,9 @@ def open_spinoff(slug, start=True, lane=None):
         "staged": True,
         "autostart": True,
         "brief": str(brief),
+        "worktree": str(wt_path) if wt_path else None,
+        "branch": branch,
+        "worktree_failed": wt_error,
     }, 200
 
 
@@ -191,6 +250,10 @@ def register(app):
         # the two of them are called out loud.
         data = request.json or {}
         lane = data.get("lane") or data.get("room")
-        payload, status = open_spinoff(data.get("slug", ""),
-                                       lane=(lane or "").strip() or None)
+        # `worktree: false` keeps an Orchestra spinoff in the shared checkout.
+        # Absent means yes — the protection has to be the default, or it's only
+        # there when somebody remembers to ask for it.
+        payload, status = open_spinoff(
+            data.get("slug", ""), lane=(lane or "").strip() or None,
+            worktree=False if data.get("worktree") is False else None)
         return jsonify(payload), status
