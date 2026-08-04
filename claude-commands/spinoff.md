@@ -79,12 +79,46 @@ their system — you build WITH their input, never around it. In order:
    CLAUDE.md conventions (tests for behavior, restart/build steps, commit
    when the thing ships). Keep teaching as you go when something surprising
    turns up.
-Another session may be working in this same checkout — commit early, name your
-commits, and never discard changes you didn't make.
+7. **Report.** As your LAST act, write `<data dir>/spinoffs/<slug>/REPORT.md`
+   — the teaching document described below. Not a changelog: the owner
+   doesn't read code, and this is how they find out what now exists in their
+   app. Write it even if you parked or failed; especially then.
+An Orchestra session works in its OWN copy of the checkout (a git worktree, see
+worktrees.py) on branch `agent/<slug>-<date>`, so it can't collide with anything
+else running — but it also can't see its change in the running site, and its
+work reaches the app only when the owner merges that branch. Commit to it early
+and name your commits.
 
 ## Result
-<Leave empty. Fill in when the work ships: what landed, commits, what's left.>
+<Leave empty. One line at the end — outcome plus a pointer to REPORT.md, which
+is where the real account goes.>
 ```
+
+### The REPORT.md the child writes back
+
+`/spinoff` hands work OUT as a brief; this is the same handoff coming home.
+Tell the child to write these sections, in this order:
+
+- **What I built** — plain English, at the register `CLAUDE.md` sets for the
+  in-file layer: readable by someone who doesn't live deep in code.
+- **How it fits** — which existing seams it plugs into, which files and
+  functions, and *why there* rather than somewhere else.
+- **What it could affect** — blast radius. What else reads this data, what
+  calls this function, what breaks if it's wrong. This is the section the
+  owner most needs and the one an agent is likeliest to skimp: it means
+  looking *outward* from the change rather than admiring it.
+- **What I chose against** — the forks it hit and how it ruled, so the owner
+  doesn't inherit decisions without knowing they were decisions.
+- **What I'm unsure about** — named, so uncertainty has somewhere to go other
+  than being smoothed over.
+
+**Tell it not to claim its work passes.** The report exists to TEACH, and it is
+the most persuasive thing an agent can produce about code the owner can't check
+— a beautiful explanation of broken code reads exactly like a good outcome. The
+numbers (commits, files, diffstat) are read from git by `worktrees.evidence()`
+and served beside the prose by `GET /api/observatory/conversation/<id>/report`,
+deliberately kept apart from the agent's telling. Same doctrine as the night
+crew's "this script runs the tests, not the agent."
 
 ## 3. Spawn — confirm, then stage the session
 

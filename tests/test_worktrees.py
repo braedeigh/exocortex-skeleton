@@ -187,3 +187,39 @@ def test_slug_validation_matches_the_spinoff_door(slug, ok):
     """A slug becomes a directory name and a branch name, so this module
     re-checks it rather than trusting the caller to have done so."""
     assert worktrees.is_valid_slug(slug) is ok
+
+
+# --- evidence: the half that isn't the agent's word for it -------------------
+
+def test_evidence_reads_the_branch_from_git_not_from_the_agent(repo):
+    path, branch = worktrees.mint("reporting")
+    (path / "feature.py").write_text("x = 1\n")
+    _git(path, "add", "-A")
+    _git(path, "commit", "-qm", "add a feature")
+
+    ev = worktrees.evidence(path, branch)
+
+    assert ev["branch"] == branch
+    assert len(ev["commits"]) == 1
+    assert "add a feature" in ev["commits"][0]
+    assert ev["files"] == ["feature.py"]
+    assert "1 file changed" in ev["diff_stat"]
+    assert ev["uncommitted"] == []
+
+
+def test_evidence_surfaces_work_that_never_reached_the_branch(repo):
+    """The gap between what the session did and what a merge would get."""
+    path, branch = worktrees.mint("half-done")
+    (path / "scratch.py").write_text("unfinished\n")
+
+    ev = worktrees.evidence(path, branch)
+
+    assert ev["commits"] == []
+    assert any("scratch.py" in line for line in ev["uncommitted"])
+
+
+def test_evidence_on_a_removed_worktree_says_so_rather_than_crashing(repo):
+    path, branch = worktrees.mint("swept")
+    worktrees.remove(path)
+
+    assert worktrees.evidence(path, branch) == {"branch": branch, "gone": True}

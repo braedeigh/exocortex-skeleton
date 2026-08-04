@@ -213,6 +213,38 @@ def as_skeleton_path(path):
         return str(path)
 
 
+# --- evidence -----------------------------------------------------------
+# The report a session writes about its own work is PROSE, and prose is the
+# most persuasive thing an agent can produce about code the reader can't check.
+# Everything safe in this system rests on the same rule — the night crew states
+# it outright: "DO NOT claim your work passes. This script runs the tests, and
+# its output is the only evidence that counts." So the numbers come from here,
+# from git, and the surface keeps them visibly apart from the agent's telling.
+#
+# What this DOESN'T carry yet is a test result: running the gates belongs with
+# the merge tap, which isn't built. So today this answers "what changed", not
+# "does it work".
+
+def evidence(worktree, branch, base="main"):
+    """Facts about a session's branch, read from git. Never from the agent."""
+    wt = Path(worktree)
+    if not wt.is_dir():
+        return {"branch": branch, "gone": True}
+    log = _git("log", "--oneline", f"{base}..{branch}", cwd=wt).stdout.strip()
+    stat = _git("diff", "--shortstat", f"{base}...{branch}", cwd=wt).stdout.strip()
+    names = _git("diff", "--name-only", f"{base}...{branch}", cwd=wt).stdout.strip()
+    uncommitted = _git("status", "--porcelain", cwd=wt).stdout.strip()
+    return {
+        "branch": branch,
+        "commits": [ln for ln in log.splitlines() if ln],
+        "diff_stat": stat,
+        "files": [ln for ln in names.splitlines() if ln],
+        # Work sitting in the tree but not on the branch is the gap between
+        # what the session did and what a merge would actually get.
+        "uncommitted": [ln for ln in uncommitted.splitlines() if ln],
+    }
+
+
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,38}$")
 
 
