@@ -2225,6 +2225,11 @@ def test_a_worktree_sessions_files_still_belong_to_the_repo(tmp_path, monkeypatc
     session = wt_root / "some-task"
     session.mkdir(parents=True)
     monkeypatch.setattr(observatory.worktrees, "WORKTREE_ROOT", wt_root)
+    # conftest points SKELETON at a non-repo so no test can cut a real
+    # worktree. This one is about the mapping landing back in the app code,
+    # so it needs the real root.
+    monkeypatch.setattr(observatory.worktrees, "SKELETON",
+                        pathlib.Path(store.BUILD_DIR))
     conv_id = "2026-08-04.120000"
     meta = {"cwd": str(session), "started": "2026-08-04T12:00:00"}
     monkeypatch.setattr(

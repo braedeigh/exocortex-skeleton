@@ -7,6 +7,7 @@ other. Route tests build a *minimal* Flask app that registers only the blueprint
 under test, which keeps them fast and free of server.py's startup/auth machinery.
 """
 import os
+import pathlib
 import tempfile
 
 import pytest
@@ -75,6 +76,24 @@ if _FIRST_PASS:
             raise RuntimeError(
                 f"test isolation broken: store.{_name} = {_root} is outside the test "
                 f"root {_TEST_ROOT}. Refusing to run against real storage.")
+
+
+# QUARANTINE THE REPO ITSELF, not just the data dir.
+#
+# worktrees.py cuts real git worktrees and real branches off the real checkout.
+# A route test that reaches open_spinoff() (fork-the-work does) will therefore
+# CREATE THEM — silently, and with the suite still green, because a stray
+# worktree breaks nothing a test asserts. That happened: a full-suite run left
+# six worktrees and six agent/ branches in the live repo.
+#
+# Same reasoning as the data-dir quarantine above, and the same shape: point the
+# roots at the throwaway tree for the whole process. A test that genuinely wants
+# real git behaviour (tests/test_worktrees.py) builds its own repo in tmp_path
+# and monkeypatches these itself, which still works — this is only the floor.
+import worktrees  # noqa: E402
+
+worktrees.WORKTREE_ROOT = pathlib.Path(_TEST_ROOT) / "worktrees"
+worktrees.SKELETON = pathlib.Path(_TEST_ROOT) / "not-a-repo"
 
 
 @pytest.fixture

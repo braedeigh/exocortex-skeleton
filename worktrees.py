@@ -51,7 +51,29 @@ from pathlib import Path
 
 import store
 
-SKELETON = Path(store.BUILD_DIR)
+def _main_checkout():
+    """The REAL checkout, even when this code is running from a copy of it.
+
+    store.BUILD_DIR is "the directory this file is in", which inside a worktree
+    is the worktree — so deriving from it would root a child worktree under its
+    parent and nest copies inside copies (`worktrees/worktrees/...`), with the
+    shared symlinks resolved from a copy rather than the original. Git already
+    knows the answer: every worktree's COMMON git dir is the main checkout's
+    .git, whichever copy you ask from. Falls back to BUILD_DIR when git can't
+    answer (no git, not a repo) — a fresh install or a tarball deploy."""
+    try:
+        r = subprocess.run(
+            ["git", "-C", str(store.BUILD_DIR), "rev-parse",
+             "--path-format=absolute", "--git-common-dir"],
+            capture_output=True, text=True, timeout=10)
+        if r.returncode == 0 and r.stdout.strip():
+            return Path(r.stdout.strip()).parent
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return Path(store.BUILD_DIR)
+
+
+SKELETON = _main_checkout()
 
 # Worktrees live beside the two repos, not inside either — a checkout nested in
 # the checkout it copies shows up as a giant untracked directory in the parent.
