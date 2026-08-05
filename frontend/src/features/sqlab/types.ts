@@ -35,3 +35,20 @@ export interface SqlResult {
   /** EXPLAIN QUERY PLAN steps: 'SCAN habits' vs 'SEARCH habits USING INDEX …'. */
   plan: string[];
 }
+
+/** One JSON-blob collection: a `docs` row, sized and classified. */
+export interface Collection {
+  name: string;
+  /** log | registry | keyed | config | scalar | unreadable */
+  kind: string;
+  records: number;
+  bytes: number;
+  updated_at: string;
+}
+
+/** One typed table — real columns rather than a blob. */
+export interface TypedTable {
+  name: string;
+  kind: 'table';
+  records: number;
+}

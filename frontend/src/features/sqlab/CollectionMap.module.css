@@ -1,0 +1,205 @@
+/* Collection map. Bars sit on one baseline per group; the accent is spent only
+ * on typed tables (emphasis), and everything else is de-emphasis grey.
+ *
+ * The accent is var(--accent) — the theme engine's own, not a hardcoded hex.
+ * This theme blends palettes continuously (theme/resolve.ts) rather than
+ * flipping a dark class, so a fixed light/dark pair would drift away from the
+ * real surface as the day moves. The default #7c5cbf was validated against
+ * both this theme's surfaces (postDawn #f8f6f2, twilight #1e1830): inside the
+ * lightness band and >= 3:1 contrast on each. */
+
+.map {
+  padding-bottom: var(--space-6);
+}
+
+/* --- summary stat row --- */
+
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
+  background: var(--card-bg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.statValue {
+  font-size: var(--font-size-2xl);
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.statOf {
+  font-size: var(--font-size-lg);
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.statLabel {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+/* --- legend: identity is never colour alone, so the glyphs are here too --- */
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+  padding: 0 var(--space-1);
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.swatch,
+.swatchAccent {
+  width: 14px;
+  height: 10px;
+  border-radius: 3px;
+  display: inline-block;
+}
+
+.swatch {
+  background: var(--text-muted);
+}
+
+.swatchAccent {
+  background: var(--accent);
+}
+
+/* --- groups --- */
+
+.group {
+  margin-bottom: var(--space-5);
+}
+
+.groupHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-2);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-soft);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.scaleNote {
+  font-size: var(--font-size-sm);
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+/* --- one collection --- */
+
+.row {
+  display: grid;
+  grid-template-columns: 20px minmax(120px, 190px) 1fr 64px 72px;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--tap-target, 40px);
+  padding: 0 var(--space-1);
+}
+
+.row:hover {
+  background: var(--card-bg);
+  border-radius: var(--radius-sm);
+}
+
+.glyph {
+  color: var(--text-muted);
+  font-size: var(--font-size-base);
+  text-align: center;
+  cursor: help;
+}
+
+.name {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--font-size-sm);
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.track {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 14px;
+  min-width: 0;
+}
+
+/* 4px rounded data-end, anchored flat to the baseline at the left. */
+.fill,
+.fillAccent {
+  height: 14px;
+  border-radius: 0 4px 4px 0;
+  min-width: 2px;
+}
+
+.fill {
+  background: var(--text-muted);
+  opacity: 0.55;
+}
+
+.fillAccent {
+  background: var(--accent);
+}
+
+.emptyMark {
+  padding-left: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.count {
+  text-align: right;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.age,
+.ageCold {
+  text-align: right;
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.age {
+  color: var(--text-muted);
+}
+
+/* Cold is stated in words as well as colour — never colour alone. */
+.ageCold {
+  color: var(--orange);
+}
+
+.footnote {
+  margin: var(--space-4) 0 0;
+  padding: 0 var(--space-1);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  color: var(--text-muted);
+}

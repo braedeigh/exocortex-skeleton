@@ -19,12 +19,24 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { ApiError } from '../../api/client';
-import { getSchema, rebuildHabits, runQuery } from './api';
+import { getCollections, getSchema, rebuildHabits, runQuery } from './api';
+import { CollectionMap } from './CollectionMap';
 import { EXAMPLES } from './examples';
-import type { SqlCell, SqlResult, SqlTable } from './types';
+import type { Collection, SqlCell, SqlResult, SqlTable, TypedTable } from './types';
 import styles from './SqlLabPage.module.css';
 
 const STORAGE_KEY = 'sqlab_query';
+const VIEW_KEY = 'sqlab_view';
+
+type View = 'map' | 'console';
+
+function readStoredView(): View {
+  try {
+    return localStorage.getItem(VIEW_KEY) === 'console' ? 'console' : 'map';
+  } catch {
+    return 'map';
+  }
+}
 
 function readStoredQuery(): string {
   try {
@@ -42,7 +54,10 @@ function renderCell(cell: SqlCell) {
 }
 
 export function SqlLabPage() {
+  const [view, setView] = useState<View>(readStoredView);
   const [tables, setTables] = useState<SqlTable[]>([]);
+  const [blobs, setBlobs] = useState<Collection[]>([]);
+  const [typed, setTyped] = useState<TypedTable[]>([]);
   const [openTable, setOpenTable] = useState<string | null>('habits');
   const [sql, setSql] = useState(readStoredQuery);
   const [result, setResult] = useState<SqlResult | null>(null);
@@ -54,9 +69,26 @@ export function SqlLabPage() {
     getSchema()
       .then((d) => setTables(d.tables))
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Could not load schema'));
+    getCollections()
+      .then((d) => {
+        setBlobs(d.blobs);
+        setTyped(d.typed);
+      })
+      .catch((e: unknown) =>
+        setError(e instanceof Error ? e.message : 'Could not load collections'),
+      );
   }, []);
 
   useEffect(loadSchema, [loadSchema]);
+
+  const pickView = useCallback((next: View) => {
+    setView(next);
+    try {
+      localStorage.setItem(VIEW_KEY, next);
+    } catch {
+      // private mode — the view still switched, just won't be remembered
+    }
+  }, []);
 
   const run = useCallback(async () => {
     setBusy(true);
@@ -105,11 +137,32 @@ export function SqlLabPage() {
     <div className={styles.page}>
       <div className={styles.header}>
         <h2 className={styles.title}>SQL</h2>
+        <div className={styles.viewSwitch}>
+          <button
+            type="button"
+            className={view === 'map' ? styles.viewBtnOn : styles.viewBtn}
+            onClick={() => pickView('map')}
+          >
+            Map
+          </button>
+          <button
+            type="button"
+            className={view === 'console' ? styles.viewBtnOn : styles.viewBtn}
+            onClick={() => pickView('console')}
+          >
+            Console
+          </button>
+        </div>
         <button type="button" className={styles.rebuildBtn} onClick={() => void rebuild()} disabled={busy}>
           ↻ Rebuild habit tables
         </button>
       </div>
 
+      {note && <div className={styles.note}>{note}</div>}
+
+      {view === 'map' && <CollectionMap blobs={blobs} typed={typed} />}
+
+      {view === 'console' && (
       <div className={styles.layout}>
         <aside className={styles.schema}>
           <div className={styles.schemaHead}>Tables</div>
@@ -181,7 +234,6 @@ export function SqlLabPage() {
             <span className={styles.hint}>⌘/Ctrl + Enter · read-only, writes are refused</span>
           </div>
 
-          {note && <div className={styles.note}>{note}</div>}
           {error && <div className={styles.error}>{error}</div>}
 
           {result && (
@@ -233,6 +285,7 @@ export function SqlLabPage() {
           )}
         </section>
       </div>
+      )}
     </div>
   );
 }

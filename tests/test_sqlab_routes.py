@@ -121,3 +121,40 @@ def test_rebuild_endpoint_reruns_the_derivation(client):
     r = client.post("/api/sql/rebuild")
     assert r.status_code == 200 and r.get_json()["ok"] is True
     assert store.read("habits_log") == {"2026-06-10": {"morning|Kefir": True}}
+
+
+# --- the collection map -------------------------------------------------------
+
+def test_collections_unwraps_single_key_envelopes(client):
+    """{"recipes": [...]} is N recipes, not 1 thing — counting the top level
+    would report "1 record" for nearly every collection."""
+    store.write("recipes", {"recipes": [{"id": "a"}, {"id": "b"}, {"id": "c"}]})
+    blobs = {b["name"]: b for b in client.get("/api/sql/collections").get_json()["blobs"]}
+    assert blobs["recipes"]["records"] == 3
+    assert blobs["recipes"]["kind"] == "registry"
+
+
+def test_collections_classifies_a_date_keyed_log(client):
+    blobs = {b["name"]: b for b in client.get("/api/sql/collections").get_json()["blobs"]}
+    assert blobs["habits_log"]["kind"] == "log"
+
+
+def test_collections_classifies_a_small_settings_map(client):
+    store.write("theme_settings", {"enabled": True, "mode": "auto"})
+    blobs = {b["name"]: b for b in client.get("/api/sql/collections").get_json()["blobs"]}
+    assert blobs["theme_settings"]["kind"] == "config"
+
+
+def test_collections_reports_typed_tables_separately(client):
+    """Blobs and tables must not share one axis — their scales differ by an
+    order of magnitude."""
+    body = client.get("/api/sql/collections").get_json()
+    assert {t["name"] for t in body["typed"]} == {"habits", "habit_aliases", "habit_entries"}
+    assert all(t["kind"] == "table" for t in body["typed"])
+    assert "habits" not in {b["name"] for b in body["blobs"]}
+
+
+def test_collections_carries_size_and_recency(client):
+    blobs = {b["name"]: b for b in client.get("/api/sql/collections").get_json()["blobs"]}
+    assert blobs["habits_log"]["bytes"] > 0
+    assert blobs["habits_log"]["updated_at"]

@@ -1,10 +1,13 @@
 """SQL lab — a read-only window onto exo.db, for learning by poking at it.
 
-Three endpoints:
+Four endpoints:
 
   GET  /api/sql/schema  — every table, its columns, and its row count. This is
-                          what the console's sidebar draws, and the seed of the
-                          "shape of my data" view.
+                          what the console's sidebar draws.
+  GET  /api/sql/collections
+                        — the map view's data: every blob collection sized and
+                          classified (how many records, what shape, when last
+                          written), plus the typed tables alongside.
   POST /api/sql/query   — run ONE read-only statement and get columns + rows
                           back, along with the query plan and how long it took.
   POST /api/sql/rebuild — re-derive the habit tables from habits_log
@@ -40,6 +43,8 @@ Prompt that produced this file: "Wire the typed tables up so I can mess with
 them and understand them — a read-only SQL console over the database, with the
 schema listed and the query plan shown."
 """
+import json
+import re
 import sqlite3
 import time
 
@@ -50,6 +55,12 @@ import store
 
 MAX_ROWS = 500
 TIMEOUT_SECONDS = 5.0
+
+# The three tables that are real columns rather than a JSON blob. Listed rather
+# than sniffed so the map can say "3 of 53" without guessing what counts.
+TYPED_TABLES = ("habits", "habit_aliases", "habit_entries")
+
+_DATE_KEY = re.compile(r"^\d{4}-\d{2}-\d{2}")
 
 # Everything else is rejected before it reaches SQLite. WITH is here so CTEs and
 # window-function queries work — those are most of what's worth learning.
@@ -79,6 +90,50 @@ def _guard(sql):
     if sep and tail.strip() and sqlite3.complete_statement(head + ";"):
         return "One statement at a time."
     return None
+
+
+def _unwrap(value):
+    """Peel single-key envelopes: {"recipes": [...]} is 10 recipes, not 1 thing.
+
+    Almost every collection wraps its payload in one named key, so counting the
+    top level would report "1 record" for nearly all 50 of them and make the map
+    say nothing at all.
+
+    Stops at a date key. A log with exactly one day recorded — a fresh install,
+    or the first day of a new collection — is a one-key dict too, and peeling it
+    would report that log as whatever its single day happens to contain.
+    """
+    while isinstance(value, dict) and len(value) == 1:
+        key = next(iter(value))
+        if _DATE_KEY.match(str(key)):
+            break
+        inner = value[key]
+        if not isinstance(inner, (list, dict)):
+            break
+        value = inner
+    return value
+
+
+def _classify(payload):
+    """(kind, record count) for an unwrapped payload.
+
+    The kinds are the three real shapes in this database, and they behave
+    differently enough to be worth telling apart at a glance:
+
+      log      — keyed by date, one entry per day, grows forever
+      registry — a list of records you add to and edit
+      config   — a small settings map that stays about this size
+      keyed    — a dict keyed by name/page: a registry with lookup built in
+    """
+    if isinstance(payload, list):
+        return "registry", len(payload)
+    if isinstance(payload, dict):
+        count = len(payload)
+        dated = sum(1 for k in payload if _DATE_KEY.match(str(k)))
+        if count and dated > count * 0.6:
+            return "log", count
+        return ("config" if count <= 8 else "keyed"), count
+    return "scalar", 0
 
 
 def _deadline_handler(deadline):
@@ -118,6 +173,44 @@ def register(app):
                 out.append({"name": name, "columns": cols, "rows": count,
                             "indexes": indexes})
             return jsonify({"tables": out})
+        finally:
+            conn.close()
+
+    @app.route("/api/sql/collections")
+    def sql_collections():
+        """Every collection, sized and classified — the map view's data.
+
+        Blob collections and typed tables are returned SEPARATELY rather than in
+        one sorted list, because their record counts live on different scales
+        (a blob tops out around 120 records; habit_entries is in the thousands)
+        and one shared axis would flatten every blob into an invisible sliver.
+        Two charts, two scales — never one axis pretending to serve both.
+        """
+        conn = _read_only_conn()
+        try:
+            blobs = []
+            for name, text, updated in conn.execute(
+                "SELECT name, data, updated_at FROM docs ORDER BY name"
+            ):
+                try:
+                    payload = _unwrap(json.loads(text))
+                except ValueError:
+                    kind, records = "unreadable", 0
+                else:
+                    kind, records = _classify(payload)
+                blobs.append({
+                    "name": name, "kind": kind, "records": records,
+                    "bytes": len(text), "updated_at": updated,
+                })
+
+            typed = []
+            for name in TYPED_TABLES:
+                row = conn.execute(f'SELECT COUNT(*) FROM "{name}"').fetchone()
+                typed.append({"name": name, "kind": "table", "records": row[0]})
+            return jsonify({"blobs": blobs, "typed": typed})
+        except sqlite3.OperationalError as e:
+            # The typed tables don't exist until the v3 migration has run.
+            return jsonify({"error": str(e)}), 500
         finally:
             conn.close()
 
