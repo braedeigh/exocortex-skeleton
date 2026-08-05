@@ -36,7 +36,16 @@ def _git(repo, *args):
 
 
 @pytest.fixture
-def repo(tmp_path, monkeypatch):
+def go_live_calls(monkeypatch):
+    """Stub the go-live thread with a recorder — a unit test must never run a
+    real npm build or signal a real gunicorn master."""
+    calls = []
+    monkeypatch.setattr(nightcrew, "_start_go_live", calls.append)
+    return calls
+
+
+@pytest.fixture
+def repo(tmp_path, monkeypatch, go_live_calls):
     """A tiny real repo: main, plus an agent/n1 branch one commit ahead."""
     r = tmp_path / "repo"
     r.mkdir()
@@ -196,6 +205,106 @@ def test_conflicting_merge_aborts_with_nothing_changed(client, repo):
     assert res.status_code == 409
     assert (repo / "b.txt").read_text() == "hers\n"
     assert not (repo / ".git" / "MERGE_HEAD").exists()
+
+
+def test_merge_records_the_commit_and_kicks_go_live(client, repo, go_live_calls):
+    """The sha is what /revert undoes later, and go-live is what makes
+    "approve" actually mean approve — losing either reopens the 6 AM
+    merged-but-not-live gap."""
+    _seed_run()
+    body = client.post("/api/nightcrew/runs/r1/merge").get_json()
+    assert body["ok"] is True
+    run = store.read("night_runs.json", {})["runs"][0]
+    head = _git(repo, "rev-parse", "HEAD").stdout.strip()
+    assert run["merge_commit"] == head
+    assert go_live_calls == ["r1"]
+
+
+# --- the revert door --------------------------------------------------------
+
+def _merged(client, repo):
+    """Merge the seeded run for real and hand back its stored record."""
+    _seed_run()
+    assert client.post("/api/nightcrew/runs/r1/merge").get_json()["ok"] is True
+    return store.read("night_runs.json", {})["runs"][0]
+
+
+def test_revert_undoes_the_merge_and_goes_live(client, repo, go_live_calls):
+    _merged(client, repo)
+    body = client.post("/api/nightcrew/runs/r1/revert").get_json()
+    assert body["ok"] is True
+    assert not (repo / "b.txt").exists(), "the merge's file is gone from main"
+    run = store.read("night_runs.json", {})["runs"][0]
+    assert run["status"] == "reverted"
+    assert go_live_calls == ["r1", "r1"], "both the merge and the revert go live"
+
+
+def test_revert_keeps_the_branch_for_another_look(client, repo):
+    _merged(client, repo)
+    client.post("/api/nightcrew/runs/r1/revert")
+    assert _git(repo, "rev-parse", "--verify", "agent/n1").returncode == 0
+
+
+def test_revert_refuses_a_run_that_is_not_merged(client, repo):
+    _seed_run()   # still ready
+    assert client.post("/api/nightcrew/runs/r1/revert").status_code == 409
+
+
+def test_revert_refuses_a_run_without_a_recorded_commit(client, repo):
+    """Old merged records predate the sha — reverting them by guesswork is
+    exactly the sure-footedness this door must not fake."""
+    _seed_run(status="merged")
+    res = client.post("/api/nightcrew/runs/r1/revert")
+    assert res.status_code == 409
+    assert "predates" in res.get_json()["error"]
+
+
+def test_revert_refuses_a_dirty_tree(client, repo):
+    _merged(client, repo)
+    (repo / "a.txt").write_text("her uncommitted edit\n")
+    res = client.post("/api/nightcrew/runs/r1/revert")
+    assert res.status_code == 409
+    assert "uncommitted" in res.get_json()["error"]
+    assert (repo / "b.txt").exists(), "nothing was reverted"
+
+
+def test_conflicting_revert_aborts_with_nothing_changed(client, repo):
+    """Her own commit on top of the merged file makes the revert a
+    conversation — the door must abort and leave the tree exactly as-is."""
+    _merged(client, repo)
+    (repo / "b.txt").write_text("her edit on top of the crew's fix\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-m", "her follow-up")
+    res = client.post("/api/nightcrew/runs/r1/revert")
+    assert res.status_code == 409
+    assert (repo / "b.txt").read_text() == "her edit on top of the crew's fix\n"
+    assert not (repo / ".git" / "REVERT_HEAD").exists()
+    assert store.read("night_runs.json", {})["runs"][0]["status"] == "merged"
+
+
+# --- go-live itself ----------------------------------------------------------
+
+def test_go_live_build_failure_lands_on_the_card_as_stuck(data_dir, monkeypatch):
+    store.write("night_runs.json", {"runs": [{"id": "r1", "status": "merged"}]})
+    monkeypatch.setattr(nightcrew.subprocess, "run",
+                        lambda *a, **k: subprocess.CompletedProcess(
+                            a, 1, stdout="", stderr="vite: boom"))
+    nightcrew._go_live("r1")
+    live = store.read("night_runs.json", {})["runs"][0]["live"]
+    assert live.startswith("stuck")
+    assert "boom" in live
+
+
+def test_go_live_success_reloads_and_marks_live(data_dir, monkeypatch):
+    store.write("night_runs.json", {"runs": [{"id": "r1", "status": "merged"}]})
+    monkeypatch.setattr(nightcrew.subprocess, "run",
+                        lambda *a, **k: subprocess.CompletedProcess(a, 0, stdout="ok", stderr=""))
+    signals = []
+    monkeypatch.setattr(nightcrew.os, "getppid", lambda: 4242)
+    monkeypatch.setattr(nightcrew.os, "kill", lambda pid, sig: signals.append((pid, sig)))
+    nightcrew._go_live("r1")
+    assert signals == [(4242, nightcrew.signal.SIGHUP)]
+    assert store.read("night_runs.json", {})["runs"][0]["live"] == "live"
 
 
 # --- the shot route's whitelist ---------------------------------------------

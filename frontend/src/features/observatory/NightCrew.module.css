@@ -275,6 +275,44 @@
   background: color-mix(in srgb, var(--text) 6%, transparent);
 }
 
+/* The regret tap on a merged card. Outline like .dismiss but warm-toned —
+   it undoes real landed work, so it shouldn't look casual — with the same
+   two-tap arm/fire shape as merge. */
+.revert,
+.revertConfirm {
+  min-height: 40px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-md, 8px);
+  font-size: var(--font-size-md);
+  font-family: inherit;
+  cursor: pointer;
+  border: 1px solid var(--danger, #c05b4d);
+  background: transparent;
+  color: var(--danger, #c05b4d);
+  transition: background 160ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.revertConfirm {
+  background: var(--danger, #c05b4d);
+  color: var(--bg);
+  font-weight: 600;
+}
+
+/* Go-live progress under a merged/reverted card: quiet while building,
+   green-lit once the running site actually is the merged code. */
+.liveBusy {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.liveOk {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--ok, #4a9);
+}
+
 /* The door to the worker's own session — same quiet outline shape as
    .dismiss (night sessions live behind their cards, not in the room lanes),
    accent text so it reads as a link, ~40px tall per the touch rules. */

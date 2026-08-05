@@ -244,18 +244,24 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
     fetch(`/api/nightcrew/runs/${id}/dismiss`, { method: 'POST' }).catch(loadNight);
   };
 
-  /** Merge is NOT optimistic — it writes to her real branch and can legitimately
-   * refuse (dirty tree, conflict), so the card waits for the server and shows
-   * whatever it says. Resolves to an error string, or null when it landed. */
-  const mergeNightRun = (id: string): Promise<string | null> =>
-    fetch(`/api/nightcrew/runs/${id}/merge`, { method: 'POST' })
+  /** Merge/revert are NOT optimistic — they write to her real branch and can
+   * legitimately refuse (dirty tree, conflict), so the card waits for the
+   * server and shows whatever it says. Resolves to an error string, or null
+   * when it landed. Success also goes live in the background (~30s build +
+   * reload), so a couple of delayed refreshes catch the card's go-live line
+   * flipping to "live" without her mashing reload. */
+  const nightAction = (id: string, verb: 'merge' | 'revert'): Promise<string | null> =>
+    fetch(`/api/nightcrew/runs/${id}/${verb}`, { method: 'POST' })
       .then((r) => r.json().then((body) => ({ ok: r.ok, body })))
       .then(({ ok, body }) => {
-        if (!ok || !body?.ok) return body?.error || "Couldn't merge.";
+        if (!ok || !body?.ok) return body?.error || `Couldn't ${verb}.`;
         loadNight();
+        [8000, 35000, 70000].forEach((ms) => setTimeout(loadNight, ms));
         return null;
       })
       .catch(() => "Couldn't reach the server.");
+  const mergeNightRun = (id: string) => nightAction(id, 'merge');
+  const revertNightRun = (id: string) => nightAction(id, 'revert');
 
   // ONE terrain poll for the whole page, passed down to both lanes — two
   // sections must not mean two pollers on the same endpoint. Live only while
@@ -447,6 +453,7 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
             spendUsd={night?.spend?.night_usd ?? 0}
             onDismiss={dismissNightRun}
             onMerge={mergeNightRun}
+            onRevert={revertNightRun}
             onOpenSession={open}
           />
 

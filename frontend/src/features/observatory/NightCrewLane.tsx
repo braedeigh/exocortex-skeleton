@@ -40,8 +40,15 @@ export interface NightRun {
   note_id: string;
   tab: string;
   note_text: string;
-  status: 'ready' | 'failed' | 'parked' | 'merged';
+  status: 'ready' | 'failed' | 'parked' | 'merged' | 'reverted';
   branch?: string;
+  /** The merge commit's sha — recorded at merge time; its presence is what
+   * offers the Revert tap (older merges without it can't be undone here). */
+  merge_commit?: string;
+  /** Go-live progress, verbatim from the server: "going live — building…",
+   * "live", or "stuck: …". A merge or revert isn't running code until this
+   * says live. */
+  live?: string;
   diff_stat?: string;
   test_tail?: string;
   shot_before?: string;
@@ -70,17 +77,20 @@ const STATUS: Record<NightRun['status'], { cls: string; dot: string; label: stri
   failed: { cls: 'cardFailed', dot: 'dotFailed', label: "couldn't" },
   parked: { cls: 'cardParked', dot: 'dotParked', label: 'parked' },
   merged: { cls: 'cardMerged', dot: 'dotMerged', label: 'merged' },
+  reverted: { cls: 'cardParked', dot: 'dotParked', label: 'reverted' },
 };
 
 function Card({
   run,
   onDismiss,
   onMerge,
+  onRevert,
   onOpenSession,
 }: {
   run: NightRun;
   onDismiss: (id: string) => void;
   onMerge: (id: string) => Promise<string | null>;
+  onRevert: (id: string) => Promise<string | null>;
   onOpenSession: (convId: string) => void;
 }) {
   const [showDiff, setShowDiff] = useState(false);
@@ -89,6 +99,10 @@ function Card({
   const [confirming, setConfirming] = useState(false);
   const [merging, setMerging] = useState(false);
   const [mergeError, setMergeError] = useState<string | null>(null);
+  // Revert gets its own two-tap state — sharing merge's would let one
+  // armed button fire the other.
+  const [revertConfirming, setRevertConfirming] = useState(false);
+  const [reverting, setReverting] = useState(false);
   const s = STATUS[run.status];
   const hasShots = Boolean(run.shot_before && run.shot_after);
 
@@ -103,6 +117,19 @@ function Card({
     onMerge(run.id)
       .then(setMergeError)
       .finally(() => setMerging(false));
+  }
+
+  function revert() {
+    if (!revertConfirming) {
+      setRevertConfirming(true);
+      setTimeout(() => setRevertConfirming(false), 3000);
+      return;
+    }
+    setRevertConfirming(false);
+    setReverting(true);
+    onRevert(run.id)
+      .then(setMergeError)
+      .finally(() => setReverting(false));
   }
 
   return (
@@ -160,6 +187,14 @@ function Card({
           "you have uncommitted changes" is actionable, a conflict dump is not. */}
       {mergeError && <p className={styles.mergeError}>{mergeError}</p>}
 
+      {/* Go-live progress, verbatim from the server — "merged" without this
+          saying "live" means the site is still running the old build. */}
+      {(run.status === 'merged' || run.status === 'reverted') && run.live && (
+        <p className={run.live === 'live' ? styles.liveOk : styles.liveBusy}>
+          {run.live === 'live' ? '● live' : run.live}
+        </p>
+      )}
+
       <footer className={styles.actions}>
         {run.status === 'ready' && (
           <button
@@ -172,6 +207,19 @@ function Card({
           </button>
         )}
         {run.status === 'merged' && <span className={styles.merged}>merged</span>}
+        {/* The regret tap — only for merges that recorded their commit.
+            Undoes exactly that merge and goes live again; the branch
+            survives for another look. */}
+        {run.status === 'merged' && run.merge_commit && (
+          <button
+            type="button"
+            className={revertConfirming ? styles.revertConfirm : styles.revert}
+            disabled={reverting}
+            onClick={revert}
+          >
+            {reverting ? 'Reverting…' : revertConfirming ? 'Undo for real?' : 'Revert'}
+          </button>
+        )}
         {/* The worker's own session, from the card — night sessions live
             HERE, not in the room lanes. Replying in it folds into the note. */}
         {run.conv_id && (
@@ -204,6 +252,7 @@ export function NightCrewLane({
   spendUsd,
   onDismiss,
   onMerge,
+  onRevert,
   onOpenSession,
 }: {
   runs: NightRun[];
@@ -213,6 +262,8 @@ export function NightCrewLane({
   onDismiss: (id: string) => void;
   /** Resolves to an error message to show on the card, or null on success. */
   onMerge: (id: string) => Promise<string | null>;
+  /** Same contract as onMerge, for the regret tap on merged cards. */
+  onRevert: (id: string) => Promise<string | null>;
   /** Opens a worker's session (RosterPage's regular session door). */
   onOpenSession: (convId: string) => void;
 }) {
@@ -261,7 +312,7 @@ export function NightCrewLane({
         <div className={styles.rows}>
           {live.map((run) => (
             <Card key={run.id} run={run} onDismiss={onDismiss} onMerge={onMerge}
-              onOpenSession={onOpenSession} />
+              onRevert={onRevert} onOpenSession={onOpenSession} />
           ))}
         </div>
       )}

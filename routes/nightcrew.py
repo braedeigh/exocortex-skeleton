@@ -4,7 +4,10 @@ Plain English: overnight, agents pick up dev notes she has green-lit, fix each
 one in a throwaway git worktree on its own branch, run the tests, and stop.
 Nothing merges and nothing touches the live checkout. In the morning this
 endpoint hands the Observatory's third lane one card per attempt, so the whole
-night is a short stack of finished things waiting for a yes or a no.
+night is a short stack of finished things waiting for a yes or a no. A yes
+(merge) goes live by itself — frontend build + a sudo-free gunicorn reload —
+and a merged card grows a revert tap that undoes exactly that merge and goes
+live again, so trying a change on the real site is a safe way to review it.
 
 Two files back it, both in the vault:
   - dev_notes.json  — her notes; `night: true` is the green light (lock 1).
@@ -25,8 +28,11 @@ Prompt that produced this: "automate the easy tasks and make like a checklist
 of things it has done for me so I can go see what it did ... these fixes run at
 night."
 """
+import os
 import re
+import signal
 import subprocess
+import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -40,6 +46,58 @@ SKELETON = Path(__file__).resolve().parents[1]
 # The verdicts a finished attempt can carry. `ready` is the only one that
 # offers a merge; the other two are informational and cost her a tap to clear.
 TERMINAL = ("ready", "failed", "parked")
+
+
+def _set_live(run_id, value):
+    """One line of go-live status on the run record ("building the
+    frontend…", "live", "stuck: …") — the card reads it verbatim."""
+    with store.mutate("night_runs.json", {"runs": []}) as data:
+        for r in data.get("runs", []) or []:
+            if isinstance(r, dict) and r.get("id") == run_id:
+                r["live"] = value
+
+
+def _go_live(run_id):
+    """Make the checkout that just changed (merge or revert) BE the running
+    site: rebuild the frontend, then signal gunicorn's master to reload.
+
+    Why this is sudo-free: the frontend is static files served from
+    frontend/dist/, so a rebuild is live on the next refresh — and the
+    service template runs gunicorn WITHOUT --preload, so a SIGHUP to the
+    master (this worker's parent process) gracefully re-imports the Python
+    code into fresh workers. No systemctl, no root. The healthcheck timer
+    (deploy/exocortex-healthcheck.*) is the net under the reload.
+
+    Runs in a background thread (_start_go_live): the build takes ~30s and
+    the merge response shouldn't hang on it. Progress lands on the run
+    record via _set_live, which the card shows verbatim.
+    """
+    build = subprocess.run(["npm", "run", "build"],
+                           cwd=str(SKELETON / "frontend"),
+                           capture_output=True, text=True, timeout=900)
+    if build.returncode != 0:
+        tail = ((build.stdout or "") + (build.stderr or "")).strip().splitlines()[-3:]
+        _set_live(run_id, "stuck: the frontend build failed — the change is "
+                          "merged but the site still runs the old build. "
+                          + " / ".join(tail))
+        return
+    try:
+        # This worker's parent IS the gunicorn master. PID 1 would mean
+        # there's no master over us (a dev run) — nothing to reload.
+        ppid = os.getppid()
+        if ppid > 1:
+            os.kill(ppid, signal.SIGHUP)
+    except OSError as e:
+        _set_live(run_id, f"stuck: built, but the reload signal failed ({e}) "
+                          "— restart the service to finish going live")
+        return
+    _set_live(run_id, "live")
+
+
+def _start_go_live(run_id):
+    """The thread wrapper tests stub out — nothing else belongs here."""
+    _set_live(run_id, "going live — building the frontend…")
+    threading.Thread(target=_go_live, args=(run_id,), daemon=True).start()
 
 
 def _now():
@@ -156,9 +214,14 @@ def register(app):
             merging under it would tangle her changes with the crew's and
             she'd have no clean way to tell them apart.
 
-        It does NOT restart the service or rebuild the frontend — that stays
-        her deliberate act, so a merge can never change what's running under
-        her without her knowing.
+        A merge that lands GOES LIVE by itself (_start_go_live: frontend
+        build + gunicorn reload). It used to stop at "merged locally" and
+        leave rebuild/restart as her manual act — which quietly meant
+        "merged" wasn't "live" until she remembered, the one gap guaranteed
+        to confuse at 6 AM. Approve now means approve. The merge commit's
+        sha is recorded so /revert can undo exactly this change later.
+        [prompt: "if I approve it … that merges to the production server" /
+        "Build the things worth doing"]
         """
         run = next((r for r in _runs() if r.get("id") == run_id), None)
         if run is None:
@@ -194,14 +257,81 @@ def register(app):
                             "error": "wouldn't merge cleanly — aborted, nothing changed",
                             "detail": (merged.stdout or merged.stderr).strip()[:400]}), 409
 
+        sha = subprocess.run(["git", "-C", str(SKELETON), "rev-parse", "HEAD"],
+                             capture_output=True, text=True).stdout.strip()
         with store.mutate("night_runs.json", {"runs": []}) as data:
             for r in data.get("runs", []) or []:
                 if isinstance(r, dict) and r.get("id") == run_id:
                     r["status"] = "merged"
                     r["merged_at"] = _now()
+                    if sha:
+                        r["merge_commit"] = sha
+        _start_go_live(run_id)
         return jsonify({"ok": True, "branch": branch,
-                        "note": "merged locally — rebuild the frontend and restart "
-                                "the service when you're ready for it to go live"})
+                        "note": "merged — going live now (frontend build + "
+                                "reload); give it ~30 seconds"})
+
+    @app.route("/api/nightcrew/runs/<run_id>/revert", methods=["POST"])
+    def nightcrew_revert(run_id):
+        """The regret tap — undo of one merged run, and the thing that makes
+        "merge it and just use production" a safe way to review: she's the
+        only user, so trying a change live costs nothing once backing out is
+        one tap. Same refusal discipline as the merge door:
+
+          - only a `merged` run that recorded its merge commit (older records
+            without one don't offer the button — reverting by guesswork is
+            exactly the kind of sure-footedness this door must not fake)
+          - a dirty tree blocks it, a conflicted revert aborts with nothing
+            changed — resolving either is a conversation, not a tap.
+
+        A revert that lands goes live the same way a merge does. The branch
+        itself is untouched — the work survives for another look; only its
+        landing on main is undone.
+        [prompt: "a Revert button on merged cards" / "Build the things
+        worth doing"]
+        """
+        run = next((r for r in _runs() if r.get("id") == run_id), None)
+        if run is None:
+            return jsonify({"ok": False, "error": "no such run"}), 404
+        if run.get("status") != "merged":
+            return jsonify({"ok": False,
+                            "error": f"only a merged run can revert (this one is "
+                                     f"{run.get('status')})"}), 409
+        sha = run.get("merge_commit")
+        if not sha:
+            return jsonify({"ok": False,
+                            "error": "this run predates revert support — its merge "
+                                     "commit wasn't recorded, so undo it by hand"}), 409
+
+        dirty = subprocess.run(["git", "-C", str(SKELETON), "status", "--porcelain",
+                                "--untracked-files=no"],
+                               capture_output=True, text=True).stdout.strip()
+        if dirty:
+            return jsonify({"ok": False,
+                            "error": "you have uncommitted changes — commit or stash "
+                                     "them first so the undo stays separable"}), 409
+
+        # -m 1 names the mainline parent: "undo what the merge brought in,
+        # keep everything that was already on main".
+        reverted = subprocess.run(
+            ["git", "-C", str(SKELETON), "revert", "--no-edit", "-m", "1", sha],
+            capture_output=True, text=True)
+        if reverted.returncode != 0:
+            subprocess.run(["git", "-C", str(SKELETON), "revert", "--abort"],
+                           capture_output=True)
+            return jsonify({"ok": False,
+                            "error": "wouldn't revert cleanly — aborted, nothing changed",
+                            "detail": (reverted.stdout or reverted.stderr).strip()[:400]}), 409
+
+        with store.mutate("night_runs.json", {"runs": []}) as data:
+            for r in data.get("runs", []) or []:
+                if isinstance(r, dict) and r.get("id") == run_id:
+                    r["status"] = "reverted"
+                    r["reverted_at"] = _now()
+        _start_go_live(run_id)
+        return jsonify({"ok": True,
+                        "note": "reverted — going live now; the branch is still "
+                                "there if you want another look"})
 
     @app.route("/api/nightcrew/runs/<run_id>/dismiss", methods=["POST"])
     def nightcrew_dismiss(run_id):
