@@ -134,6 +134,34 @@ def looks_throttled(error):
     return any(m in low for m in LIMIT_MARKERS)
 
 
+def last_assistant_text(log_path):
+    """The worker's final message, pulled from the conversation log.
+
+    The log holds Claude Code's raw stream-json events: an assistant event
+    nests its words at message.content[].text — there is NO top-level "text"
+    on assistant events (only on the user events this script writes itself).
+    Reading the wrong level is how the question loop's first night lost every
+    question the workers asked (2026-08-05): the script saw empty finals,
+    found no QUESTIONS: block, and filed honest work as "made no changes"."""
+    last = ""
+    try:
+        for line in log_path.read_text(encoding="utf-8").splitlines():
+            ev = json.loads(line)
+            if ev.get("type") != "assistant":
+                continue
+            if ev.get("text"):  # tolerate a flattened event, should one appear
+                last = ev["text"]
+                continue
+            msg = ev.get("message") or {}
+            parts = [b.get("text", "") for b in (msg.get("content") or [])
+                     if isinstance(b, dict) and b.get("type") == "text"]
+            if any(parts):
+                last = "\n".join(p for p in parts if p)
+    except Exception:
+        pass
+    return last
+
+
 def parse_questions(last):
     """The worker's QUESTIONS: block from its final message, or "".
 
@@ -450,15 +478,8 @@ def run_agent(note, worktree, branch):
     rr._run_turn(proc, stderr_f, conv_id, log_path, None, queue.Queue())
 
     entry = store.read("bot_chats/index", {}).get(conv_id, {})
-    last = ""
-    try:
-        for line in log_path.read_text(encoding="utf-8").splitlines():
-            ev = json.loads(line)
-            if ev.get("type") == "assistant" and ev.get("text"):
-                last = ev["text"]
-    except Exception:
-        pass
-    return conv_id, entry.get("cost_usd") or 0.0, last, entry.get("last_error")
+    return (conv_id, entry.get("cost_usd") or 0.0,
+            last_assistant_text(log_path), entry.get("last_error"))
 
 
 # --- records ----------------------------------------------------------------
