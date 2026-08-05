@@ -77,6 +77,10 @@ const MORE_PAGES: ReadonlyArray<{ key: string; label: string; to: string }> = [
   { key: 'personality', label: 'Personality', to: '/personality' },
   { key: 'scratchpad', label: 'Scratchpad', to: '/scratchpad' },
   { key: 'vscode', label: 'VS Code', to: '/vscode' },
+  // The database's own page — the collection map plus a read-only query
+  // console. Sits with the other tool pages rather than in MORE_VIEWS, which
+  // is an explicit allowlist of the *content* browsers (files/notes/research).
+  { key: 'sql', label: 'SQL', to: '/sql' },
 ];
 
 // Journal/Settings sit in row 1 (the dash bar); Files and the /notes browser
