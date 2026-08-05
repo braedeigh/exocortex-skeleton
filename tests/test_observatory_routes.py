@@ -1311,6 +1311,23 @@ def test_terrain_ttl_shortens_while_a_session_is_running(terrain_client, tmp_pat
     assert len(calls) == 4   # served from cache
 
 
+# --- Terrain: the Growth room's series (GET .../terrain/growth) ---------------
+
+def test_growth_serves_per_repo_daily_series(terrain_client, tmp_path, monkeypatch):
+    skeleton = _make_git_repo(tmp_path / "skeleton")
+    _commit_file(skeleton, "app.py", "line\n")
+    _set_terrain_repos(monkeypatch, skeleton, tmp_path / "not-a-repo")
+
+    data = terrain_client.get("/api/observatory/terrain/growth").get_json()
+    assert [r["id"] for r in data["repos"]] == ["skeleton", "vault"]
+    skel = data["repos"][0]
+    assert len(skel["days"]) == 1
+    day = skel["days"][0]
+    assert day["commits"] == 1 and day["born"] == 1 and day["added"] == 1
+    # A root that isn't a repo degrades to an empty curve, never a 500.
+    assert data["repos"][1]["days"] == []
+
+
 # --- Terrain: the Files slider (?limit=) -------------------------------------
 # The client's Files slider is the only thing that sets the hottest-N-per-repo
 # cut; "All" is ?limit=0. files_total always reports the uncapped truth so the

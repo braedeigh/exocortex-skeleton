@@ -235,6 +235,27 @@ def test_sync_sessions_is_a_full_rederive(data_dir, tmp_path):
     assert _rows("SELECT COUNT(*) FROM session_files")[0][0] == 0
 
 
+def test_growth_series_counts_days_deltas_not_totals(data_dir, tmp_path):
+    repo = _make_repo(tmp_path / "repo")
+    _commit(repo, "a.py", "one\ntwo\n", date="2026-06-01T10:00:00")
+    _commit(repo, "b.py", "x\n", date="2026-06-03T10:00:00")
+    (repo / "a.py").unlink()
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "remove",
+         env={"GIT_AUTHOR_DATE": "2026-06-03T11:00:00",
+              "GIT_COMMITTER_DATE": "2026-06-03T11:00:00"})
+    codestore.rebuild(_repos(repo))
+
+    series = codestore.growth_series("skeleton")
+    assert [d["date"] for d in series] == ["2026-06-01", "2026-06-03"]
+    day1, day3 = series
+    assert day1 == {"date": "2026-06-01", "commits": 1, "added": 2,
+                    "removed": 0, "born": 1, "died": 0}
+    # Two commits that day: b.py born (+1 line), a.py dying (-2 lines).
+    assert day3["commits"] == 2 and day3["born"] == 1 and day3["died"] == 1
+    assert day3["added"] == 1 and day3["removed"] == 2
+
+
 def test_update_and_rebuild_agree(data_dir, tmp_path):
     """The incremental road and the full re-walk must land on the same state —
     if they can drift, the fast path is quietly lying."""

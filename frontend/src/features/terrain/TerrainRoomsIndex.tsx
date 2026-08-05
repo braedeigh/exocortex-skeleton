@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactElement } from 'react';
 import { Link } from '@tanstack/react-router';
 import { getCollections } from '../sqlab/api';
+import { compact, monthLabel, type GrowthData } from './growthMath';
 import { formatDwell, rankPlaces, type UsageRecord } from './usageRanking';
 import styles from './TerrainRoomsIndex.module.css';
 
@@ -45,6 +46,19 @@ function AttentionMotif() {
   );
 }
 
+/** A rising curve with its end-dot — the growth room's charts, in miniature. */
+function GrowthMotif() {
+  return (
+    <svg viewBox="0 0 64 40" width="64" height="40" aria-hidden="true">
+      <g fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M2 36 L18 31 L34 23 L50 13 L60 7" strokeWidth="3" opacity="0.9" />
+        <path d="M2 37 L22 35 L42 31 L60 27" strokeWidth="3" opacity="0.4" />
+      </g>
+      <circle cx="60" cy="7" r="4" fill="currentColor" opacity="0.9" />
+    </svg>
+  );
+}
+
 /** A table of cells — rows and columns, the database's shape. */
 function DataMotif() {
   return (
@@ -76,6 +90,13 @@ const ROOMS: ReadonlyArray<{
     name: 'Attention',
     line: 'The same system, ranked by where your time actually goes.',
     motif: AttentionMotif,
+  },
+  {
+    key: 'growth',
+    to: '/terrain/growth',
+    name: 'Growth',
+    line: 'The codebase and the vault along time, accumulating.',
+    motif: GrowthMotif,
   },
   {
     key: 'sql',
@@ -113,6 +134,21 @@ export function TerrainRoomsIndex({ open, onClose }: { open: boolean; onClose: (
           setFacts((f) => ({
             ...f,
             usage: `${places.length} places · ${formatDwell(total)} this week`,
+          }));
+        }
+      })
+      .catch(() => {});
+    fetch('/api/observatory/terrain/growth', { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((growth: GrowthData) => {
+        if (!alive) return;
+        const days = growth.repos.flatMap((repo) => repo.days);
+        const commits = days.reduce((sum, d) => sum + d.commits, 0);
+        const first = days.map((d) => d.date).sort()[0];
+        if (commits > 0 && first) {
+          setFacts((f) => ({
+            ...f,
+            growth: `${compact(commits)} commits since ${monthLabel(first.slice(0, 7))}`,
           }));
         }
       })

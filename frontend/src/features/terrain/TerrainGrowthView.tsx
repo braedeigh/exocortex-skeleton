@@ -1,0 +1,452 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from '@tanstack/react-router';
+import { readThemeInk } from './terrainCanvas';
+import {
+  compact,
+  cumulative,
+  monthLabel,
+  monthTicks,
+  monthlyRollup,
+  nearestTime,
+  niceTicks,
+  shortDate,
+  sumSince,
+  valueAt,
+  windowPoints,
+  type GrowthData,
+  type SeriesPoint,
+} from './growthMath';
+import styles from './TerrainGrowthView.module.css';
+
+/**
+ * TerrainGrowthView — "how it's grown", one of the terrain's rooms.
+ *
+ * The map shows the system in SPACE and the attention room ranks it by where
+ * she goes; this room is the same organism along TIME — the codebase and the
+ * vault as two curves that only ever accumulate. Reads
+ * GET /api/observatory/terrain/growth (per-day deltas from the code-history
+ * tables, codestore.growth_series) and integrates them client-side, because
+ * the date window decides what "so far" means (growthMath.windowPoints).
+ *
+ * The drawing follows the dataviz method, decided before any code:
+ *
+ * - **The job is trend-over-time with two series that ARE the subject** (app
+ *   code vs personal vault), so: multi-line charts, categorical colour.
+ * - **Two measures, two charts, never a dual axis.** Files and lines live on
+ *   scales three orders apart; one shared frame would flatten whichever loses.
+ * - **The pair is validated, not eyeballed** — the skill's palette script
+ *   passed indigo #6a7acc / amber #d4880a on the light surface and #6a7acc /
+ *   #c8820c on the dark (CVD ΔE ≥ 25 on every pair). The amber's light-mode
+ *   contrast warning is relieved the way the rules require: a legend, direct
+ *   end labels, and the monthly table below carry identity and value without
+ *   colour.
+ * - **Marks per spec:** 2px round-capped lines, ≥8px end dots ringed in the
+ *   surface colour, hairline solid gridlines, y-axis always anchored at zero —
+ *   a growth curve read against a clipped baseline is the classic chart lie.
+ * - **The hover layer is part of the chart:** a crosshair that snaps to the
+ *   nearest recorded day, one tooltip listing BOTH series (value leads, name
+ *   follows, line-key strokes) — and nothing gates on it, because the table
+ *   view holds every number reachable by tap.
+ *
+ * Prompt that produced this file: "I want it to be able to let me build more
+ * UI like terrain and make visualizations of my entire codebase/file system
+ * as it grows."
+ */
+
+const WINDOWS: readonly { days: number | null; label: string }[] = [
+  { days: 90, label: '90 days' },
+  { days: 365, label: '1 year' },
+  { days: null, label: 'All' },
+];
+
+/** Series colours per theme mode — the validated pairs (see the docblock).
+ * The indigo is the theme's own `evening` accent; the amber is `morning`,
+ * darkened one step in dark mode to sit inside the validator's band. */
+const HUES = {
+  light: { skeleton: '#6a7acc', vault: '#d4880a' },
+  dark: { skeleton: '#6a7acc', vault: '#c8820c' },
+} as const;
+
+interface ChartSeries {
+  id: string;
+  label: string;
+  color: string;
+  points: SeriesPoint[]; // full-history cumulative; windowed inside the chart
+}
+
+export function TerrainGrowthView() {
+  const [data, setData] = useState<GrowthData | null>(null);
+  const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [days, setDays] = useState<number | null>(null); // All — growth is the long story
+  const dark = useMemo(() => readThemeInk().dark, []);
+  const hues = dark ? HUES.dark : HUES.light;
+
+  useEffect(() => {
+    let alive = true;
+    fetch('/api/observatory/terrain/growth', { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((d: GrowthData) => {
+        if (!alive) return;
+        setData(d);
+        setState('ready');
+      })
+      .catch(() => {
+        if (alive) setState('error');
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const nowSec = Date.now() / 1000;
+  const from = days === null ? null : nowSec - days * 86400;
+
+  // One cumulative integration per repo per measure, over ALL history — the
+  // window only slices afterwards, so flipping presets never re-integrates.
+  const fileSeries: ChartSeries[] = useMemo(
+    () =>
+      (data?.repos ?? []).map((r) => ({
+        id: r.id,
+        label: r.name,
+        color: hues[r.id as keyof typeof hues] ?? hues.skeleton,
+        points: cumulative(r.days, (d) => d.born - d.died),
+      })),
+    [data, hues],
+  );
+  const lineSeries: ChartSeries[] = useMemo(
+    () =>
+      (data?.repos ?? []).map((r) => ({
+        id: r.id,
+        label: r.name,
+        color: hues[r.id as keyof typeof hues] ?? hues.skeleton,
+        points: cumulative(r.days, (d) => d.added - d.removed),
+      })),
+    [data, hues],
+  );
+
+  // The stat row describes the same slice the charts do — filters scope
+  // everything, so the numbers always agree.
+  const allDays = useMemo(() => (data?.repos ?? []).flatMap((r) => r.days), [data]);
+  const commits = sumSince(allDays, from, (d) => d.commits);
+  const filesNet = sumSince(allDays, from, (d) => d.born - d.died);
+  const linesNet = sumSince(allDays, from, (d) => d.added - d.removed);
+  const windowed = from !== null;
+
+  const months = useMemo(() => {
+    const byRepo = (data?.repos ?? []).map((r) => ({
+      name: r.name,
+      rows: monthlyRollup(r.days),
+    }));
+    return byRepo.filter((r) => r.rows.length > 0);
+  }, [data]);
+
+  return (
+    <section className={styles.view} aria-label="How it's grown">
+      <header className={styles.head}>
+        <div className={styles.heading}>
+          <h2 className={styles.title}>How it&rsquo;s grown</h2>
+          <p className={styles.sub}>The same system along time — code and vault, accumulating.</p>
+        </div>
+        <Link to="/terrain/map" className={styles.back} aria-label="Back to the terrain map">
+          ← Terrain
+        </Link>
+      </header>
+
+      <div className={styles.windows} role="group" aria-label="Time window">
+        {WINDOWS.map((w) => (
+          <button
+            key={w.label}
+            type="button"
+            className={[styles.window, days === w.days ? styles.windowOn : '']
+              .filter(Boolean)
+              .join(' ')}
+            aria-pressed={days === w.days}
+            onClick={() => setDays(w.days)}
+          >
+            {w.label}
+          </button>
+        ))}
+      </div>
+
+      {state === 'loading' ? <p className={styles.note}>Reading the history…</p> : null}
+      {state === 'error' ? <p className={styles.note}>Couldn&rsquo;t read the code history.</p> : null}
+
+      {state === 'ready' && data ? (
+        <div className={styles.body}>
+          {/* The KPI row: value + what it counts. Signed when a window is on,
+              because then they're net change, not standing totals. */}
+          <div className={styles.stats}>
+            <Stat value={compact(commits)} label={windowed ? 'commits' : 'commits, all time'} />
+            <Stat
+              value={windowed && filesNet >= 0 ? `+${compact(filesNet)}` : compact(filesNet)}
+              label={windowed ? 'files, net' : 'files alive'}
+            />
+            <Stat
+              value={windowed && linesNet >= 0 ? `+${compact(linesNet)}` : compact(linesNet)}
+              label={windowed ? 'lines, net' : 'lines of code'}
+            />
+          </div>
+
+          <Legend series={fileSeries} />
+
+          <figure className={styles.figure}>
+            <figcaption className={styles.caption}>Files, over time</figcaption>
+            <LineChart series={fileSeries} from={from} dark={dark} ariaLabel="Files over time" />
+          </figure>
+
+          <figure className={styles.figure}>
+            <figcaption className={styles.caption}>Lines of code, over time</figcaption>
+            <LineChart series={lineSeries} from={from} dark={dark} ariaLabel="Lines of code over time" />
+          </figure>
+
+          {/* Every number the curves show, reachable without a hover — and the
+              honest fine print about what git can't count. */}
+          <details className={styles.tableFold}>
+            <summary className={styles.tableSummary}>As a table, by month</summary>
+            {months.map((repo) => (
+              <div key={repo.name} className={styles.tableBlock}>
+                <h3 className={styles.tableRepo}>{repo.name}</h3>
+                <table className={styles.table}>
+                  <thead>
+                    <tr>
+                      <th scope="col">Month</th>
+                      <th scope="col" className={styles.tNum}>
+                        commits
+                      </th>
+                      <th scope="col" className={styles.tNum}>
+                        files ±
+                      </th>
+                      <th scope="col" className={styles.tNum}>
+                        lines ±
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {repo.rows.map((row) => (
+                      <tr key={row.month}>
+                        <td>{monthLabel(row.month)}</td>
+                        <td className={styles.tNum}>{row.commits.toLocaleString('en-US')}</td>
+                        <td className={styles.tNum}>{signed(row.files)}</td>
+                        <td className={styles.tNum}>{signed(row.lines)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+            <p className={styles.fine}>
+              Line counts are what git can count — binary files and merge commits carry none.
+            </p>
+          </details>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function signed(n: number): string {
+  return n > 0 ? `+${n.toLocaleString('en-US')}` : n.toLocaleString('en-US');
+}
+
+function Stat({ value, label }: { value: string; label: string }) {
+  return (
+    <div className={styles.stat}>
+      <span className={styles.statValue}>{value}</span>
+      <span className={styles.statLabel}>{label}</span>
+    </div>
+  );
+}
+
+/** The identity key both charts share — line-keys (short strokes), because the
+ * marks are lines; a filled box would mirror a mark these charts don't have. */
+function Legend({ series }: { series: ChartSeries[] }) {
+  return (
+    <div className={styles.legend} aria-hidden="true">
+      {series.map((s) => (
+        <span key={s.id} className={styles.legendItem}>
+          <span className={styles.legendKey} style={{ background: s.color }} />
+          {s.label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+const CHART_HEIGHT = 220;
+const M = { top: 10, right: 84, bottom: 24, left: 6 };
+
+interface Hover {
+  t: number;
+  x: number;
+}
+
+function LineChart({
+  series,
+  from,
+  dark,
+  ariaLabel,
+}: {
+  series: ChartSeries[];
+  from: number | null;
+  dark: boolean;
+  ariaLabel: string;
+}) {
+  // The chart renders at real pixel size (measured, not viewBox-stretched) so
+  // hairlines stay hairlines and text never distorts.
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => setWidth(entries[0]?.contentRect.width ?? 0));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const [hover, setHover] = useState<Hover | null>(null);
+
+  const windowed = useMemo(
+    () => series.map((s) => ({ ...s, points: windowPoints(s.points, from) })),
+    [series, from],
+  );
+
+  const allPoints = windowed.flatMap((s) => s.points);
+  const plotW = Math.max(0, width - M.left - M.right);
+  const plotH = CHART_HEIGHT - M.top - M.bottom;
+
+  if (width === 0 || allPoints.length === 0) {
+    return (
+      <div ref={wrapRef} className={styles.chartWrap}>
+        {width > 0 ? <p className={styles.note}>Nothing in this window.</p> : null}
+      </div>
+    );
+  }
+
+  const t0 = from ?? Math.min(...allPoints.map((p) => p.t));
+  const t1 = Math.max(...allPoints.map((p) => p.t));
+  const vMax = Math.max(...allPoints.map((p) => p.v), 1);
+  const ticks = niceTicks(vMax);
+  const vTop = ticks[ticks.length - 1];
+
+  const x = (t: number) => M.left + (t1 > t0 ? ((t - t0) / (t1 - t0)) * plotW : plotW / 2);
+  const y = (v: number) => M.top + plotH - (v / vTop) * plotH;
+
+  const path = (pts: SeriesPoint[]) =>
+    pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join(' ');
+
+  // Direct end labels: the value at each line's end. When the two ends run
+  // close, nudge them apart symmetrically — stacked labels detached from
+  // their lines read as noise, so the nudge is small and the legend carries
+  // whatever it costs.
+  const ends = windowed
+    .filter((s) => s.points.length > 0)
+    .map((s) => {
+      const last = s.points[s.points.length - 1];
+      return { s, last, ly: y(last.v) };
+    });
+  if (ends.length === 2 && Math.abs(ends[0].ly - ends[1].ly) < 16) {
+    const [a, b] = ends[0].ly <= ends[1].ly ? [ends[0], ends[1]] : [ends[1], ends[0]];
+    const mid = (a.ly + b.ly) / 2;
+    a.ly = mid - 8;
+    b.ly = mid + 8;
+  }
+
+  const xTicks = monthTicks(t0, t1);
+  const surface = 'var(--bg)';
+  const gridStroke = dark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.12)';
+
+  const onMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const px = e.clientX - rect.left;
+    const t = t0 + ((px - M.left) / Math.max(1, plotW)) * (t1 - t0);
+    const snapped = nearestTime(
+      windowed.map((s) => s.points.map((p) => p.t)),
+      Math.max(t0, Math.min(t1, t)),
+    );
+    if (snapped !== null) setHover({ t: snapped, x: x(snapped) });
+  };
+
+  const hoverRows = hover
+    ? windowed
+        .map((s) => ({ s, v: valueAt(s.points, hover.t) }))
+        .filter((r): r is { s: ChartSeries; v: number } => r.v !== null)
+    : [];
+
+  return (
+    <div ref={wrapRef} className={styles.chartWrap}>
+      <svg
+        width={width}
+        height={CHART_HEIGHT}
+        role="img"
+        aria-label={ariaLabel}
+        onPointerMove={onMove}
+        onPointerLeave={() => setHover(null)}
+      >
+        {/* Gridlines: hairline, solid, recessive — with their values riding
+            just above, so the axis costs no left margin. */}
+        {ticks.map((v) => (
+          <g key={v}>
+            <line x1={M.left} x2={M.left + plotW} y1={y(v)} y2={y(v)} stroke={gridStroke} strokeWidth={1} />
+            {v > 0 ? (
+              <text x={M.left} y={y(v) - 4} className={styles.tickText}>
+                {compact(v)}
+              </text>
+            ) : null}
+          </g>
+        ))}
+        {xTicks.map((tk) => (
+          <text key={tk.t} x={x(tk.t)} y={CHART_HEIGHT - 6} textAnchor="middle" className={styles.tickText}>
+            {tk.label}
+          </text>
+        ))}
+
+        {hover ? (
+          <line x1={hover.x} x2={hover.x} y1={M.top} y2={M.top + plotH} className={styles.crosshair} />
+        ) : null}
+
+        {windowed.map((s) =>
+          s.points.length > 0 ? (
+            <path
+              key={s.id}
+              d={path(s.points)}
+              fill="none"
+              stroke={s.color}
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          ) : null,
+        )}
+
+        {/* End dots ringed in the surface colour, and the value at the end —
+            text in ink, identity from the dot beside it, never coloured text. */}
+        {ends.map(({ s, last, ly }) => (
+          <g key={s.id}>
+            <circle cx={x(last.t)} cy={y(last.v)} r={4} fill={s.color} stroke={surface} strokeWidth={2} />
+            <text x={x(last.t) + 10} y={ly + 4} className={styles.endText}>
+              {compact(last.v)}
+            </text>
+          </g>
+        ))}
+      </svg>
+
+      {hover && hoverRows.length > 0 ? (
+        <div
+          className={styles.tooltip}
+          style={{
+            left: Math.min(Math.max(hover.x, 70), Math.max(70, width - 90)),
+          }}
+        >
+          <div className={styles.tooltipDate}>{shortDate(hover.t)}</div>
+          {hoverRows.map(({ s, v }) => (
+            <div key={s.id} className={styles.tooltipRow}>
+              <span className={styles.legendKey} style={{ background: s.color }} />
+              <span className={styles.tooltipValue}>{compact(v)}</span>
+              <span className={styles.tooltipName}>{s.label}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}

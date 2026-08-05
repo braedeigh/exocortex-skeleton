@@ -490,6 +490,25 @@ def register(app):
         _terrain_cache[file_cap] = {"payload": payload, "computed_at": now}
         return jsonify(payload)
 
+    @app.route("/api/observatory/terrain/growth")
+    def observatory_terrain_growth():
+        """The Growth room's data: per repo, per day, what happened — commits,
+        lines added/removed, files born/died (codestore.growth_series). Raw
+        daily deltas; the client integrates them into curves, because the date
+        window decides what "so far" means. Tables are topped up first, same
+        as the map's own payload, so the curve ends at HEAD."""
+        _terrain_refresh_history()
+        repos_out = []
+        for repo in observatory._terrain_repos():
+            try:
+                series = codestore.growth_series(repo["id"])
+            except Exception:
+                series = []   # derived data — an empty curve, never a 500
+            repos_out.append({"id": repo["id"], "name": repo["name"],
+                              "days": series})
+        return jsonify({"generated_at": datetime.now().isoformat(timespec="seconds"),
+                        "repos": repos_out})
+
     @app.route("/api/observatory/terrain/file")
     def observatory_terrain_file():
         """One file's own text, for the map's tap-a-node code modal.

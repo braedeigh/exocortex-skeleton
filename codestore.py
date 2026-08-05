@@ -499,6 +499,57 @@ def touches(repo_id):
     return out
 
 
+def growth_series(repo_id):
+    """One repo's history as per-day counters, date-ascending — the data under
+    the Growth room's charts: [{date, commits, added, removed, born, died}].
+
+    Deltas, not running totals: the client owns the cumulative sum because the
+    chart's date window changes what "so far" means. Days nothing happened are
+    simply absent.
+
+    An honest limit: born/died come from files.first_seen / files.deleted_at,
+    and a file deleted then re-created keeps ONE row (the resurrection rule in
+    _file_row), so its earlier death and rebirth aren't counted — the curve
+    smooths over resurrection churn. Commits and line counts are exact.
+
+    Prompt that produced it: "I want to build more UI like terrain and make
+    visualizations of my entire codebase/file system as it grows."
+    """
+    conn = sqlstore.open_db()
+    try:
+        days = {}
+
+        def _day(d):
+            return days.setdefault(d, {"date": d, "commits": 0, "added": 0,
+                                       "removed": 0, "born": 0, "died": 0})
+
+        # COUNT(DISTINCT sha): the LEFT JOIN fans a commit out to one row per
+        # file, and a merge commit with no file rows must still count as one.
+        for d, commits, added, removed in conn.execute(
+            "SELECT date(c.authored_at), COUNT(DISTINCT c.sha),"
+            "       SUM(COALESCE(cf.added, 0)), SUM(COALESCE(cf.removed, 0))"
+            " FROM commits c LEFT JOIN commit_files cf ON cf.sha = c.sha"
+            " WHERE c.repo = ? GROUP BY 1", (repo_id,),
+        ):
+            entry = _day(d)
+            entry["commits"] = commits
+            entry["added"] = added or 0
+            entry["removed"] = removed or 0
+        for d, n in conn.execute(
+            "SELECT date(first_seen), COUNT(*) FROM files"
+            " WHERE repo = ? AND first_seen IS NOT NULL GROUP BY 1", (repo_id,),
+        ):
+            _day(d)["born"] = n
+        for d, n in conn.execute(
+            "SELECT date(deleted_at), COUNT(*) FROM files"
+            " WHERE repo = ? AND deleted_at IS NOT NULL GROUP BY 1", (repo_id,),
+        ):
+            _day(d)["died"] = n
+        return [days[d] for d in sorted(days)]
+    finally:
+        conn.close()
+
+
 def _count(table):
     conn = sqlstore.open_db()
     try:
