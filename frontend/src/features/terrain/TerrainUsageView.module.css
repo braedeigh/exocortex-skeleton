@@ -1,43 +1,36 @@
-/* TerrainUsageView — the attention ranking as a page inside the Terrain page
+/* TerrainUsageView — the attention ranking as one of the terrain's rooms
    (TerrainUsageView.tsx).
 
-   The inset is the design. It sits below Terrain's top chrome and stops short
-   of all four edges, so the map stays visible AROUND it — you haven't left the
-   terrain, you've opened a room in it. A full-bleed takeover would have been a
-   different page wearing Terrain's URL; the visible margin is what makes the
-   nesting legible without a word of explanation.
+   A whole page, worn honestly: full-bleed, opaque on the theme's own page
+   background, no border, no shadow, no rounding. It used to be an inset glass
+   panel floating over the live map — everything about that costume (the
+   margin, the float, the frost) is the grammar of a modal, and the owner asked
+   these rooms to stop being modals. The map isn't behind this any more; it
+   unmounted when you walked in.
 
-   Glass rather than solid, same as the colour key: the map showing faintly
-   through says the same thing the margin does. Opaque enough that a ranked list
-   of small numbers stays readable over whatever the map puts behind it —
-   legibility wins where the two pull against each other. */
+   The entrance is the page's whole gesture: a short horizontal slide
+   (~320ms, eased, transform/opacity only) — "you went somewhere" — where the
+   map's own overlays lift and fade in place. Same easing family as the rest
+   of the surface, different direction of travel, so what kind of thing is
+   arriving reads before it lands. */
 
 .view {
-  position: absolute;
-  /* Clears Terrain's floating top chrome; the map shows in the gap. */
-  top: calc(var(--space-3) + 52px);
-  left: var(--space-3);
-  right: var(--space-3);
-  bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
-  z-index: 8;
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  padding: var(--space-3);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius-lg);
-  background: color-mix(in srgb, var(--card-bg) 94%, transparent);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.32);
-  pointer-events: auto;
+  padding: var(--space-4) var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+  background: var(--bg);
   overflow: hidden;
-  animation: viewIn 260ms cubic-bezier(0.2, 0.8, 0.3, 1) both;
+  animation: pageIn 320ms cubic-bezier(0.2, 0.8, 0.3, 1) both;
 }
 
 /* Opacity and transform only — nothing here touches layout. */
-@keyframes viewIn {
+@keyframes pageIn {
   from {
     opacity: 0;
-    transform: translateY(6px);
+    transform: translateX(28px);
   }
   to {
     opacity: 1;
@@ -239,13 +232,11 @@
 /* --- narrow ------------------------------------------------------------
 
    Five columns don't survive a phone. The row folds to two lines — name and
-   dwell up top, bar and the two secondary counts beneath — and the frame's
-   margins tighten so the list keeps the width it has. */
+   dwell up top, bar and the two secondary counts beneath — and the page's
+   padding tightens so the list keeps the width it has. */
 @media (max-width: 560px) {
   .view {
-    left: var(--space-1);
-    right: var(--space-1);
-    padding: var(--space-2);
+    padding: var(--space-2) var(--space-2) calc(var(--space-2) + env(safe-area-inset-bottom, 0px));
   }
 
   .columns {

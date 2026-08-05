@@ -550,9 +550,10 @@ export function TopTabs() {
         </button>
         {/* Terrain holds this slot instead of Research (her call — it's the
             surface she actually works from now). Research kept its route and
-            moved into the More menu. startsWith, not equality: /terrain has a
-            child route (/terrain/usage), and the tab should stay lit while
-            she's in that room. */}
+            moved into the More menu. startsWith, not equality: the terrain is
+            several full pages sharing the /terrain prefix (/terrain/map, where
+            /terrain lands, plus the rooms /terrain/usage and /terrain/sql),
+            and the tab stays lit in every one of them. */}
         <button
           type="button"
           className={joinClass(

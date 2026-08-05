@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
+import { useNavigate } from '@tanstack/react-router';
 import { Sheet } from '../../ui';
 import { subscribeTheme } from '../../theme';
 import { TermNotesPanel } from '../../shell/TermNotesPanel';
@@ -37,6 +37,7 @@ import type { AgentPool, AgentSection } from './TerrainAgentBar';
 import { TerrainAgentBar } from './TerrainAgentBar';
 import { FileCodeWindow } from './FileCodeWindow';
 import { AgentHoverCard } from './AgentHoverCard';
+import { TerrainRoomsIndex } from './TerrainRoomsIndex';
 import {
   readThemeInk,
   TerrainCanvas,
@@ -122,9 +123,15 @@ function usePageVisible(): boolean {
 }
 
 /**
- * /terrain — "where is being worked on": every file the observatory's
+ * /terrain/map — "where is being worked on": every file the observatory's
  * sessions touched in the window, as a force-directed tree per repo (App
- * code / Vault), files glowing ember by recency.
+ * code / Vault), files glowing ember by recency. This is where /terrain
+ * lands, and the terrain's other rooms (/terrain/usage, /terrain/sql) are
+ * reached from here through the Rooms door in the top bar: the map blurs and
+ * an index of opaque cards rises, each one a whole page you go to
+ * (TerrainRoomsIndex). The rule the whole surface follows now: a LENS floats
+ * over the map (the file code window, the agent hovercard — re-readings of
+ * what's on it), a PAGE is somewhere you leave it for.
  *
  * The chrome splits by what it governs. TOP: how much map to draw — the repo
  * chips (which territories) and the Files / Dates dials. BOTTOM: how it's lit
@@ -263,16 +270,11 @@ export function TerrainPage() {
   // ported them: 📝 dev notes and the ⏰ prompt timer, the same shared panels
   // off the same stores. The map is where she notices what needs doing, so it
   // wants the same two doors every other working surface has.
-  // Whether the attention ranking (the /terrain/usage child route) is showing.
-  // Read off the router rather than held here, so the lit chip, the browser's
-  // back button and a pasted link can never disagree about it.
-  const usageOpen = useRouterState({
-    select: (s) => s.location.pathname.startsWith('/terrain/usage'),
-  });
-  // Same again for the database room (/terrain/sql).
-  const sqlOpen = useRouterState({
-    select: (s) => s.location.pathname.startsWith('/terrain/sql'),
-  });
+  // Whether the rooms index — the blurred-map hallway of cards — is up. Local
+  // state, not a route: it's a moment of choosing, not a place, so the back
+  // button never has to step through it. The rooms themselves are full pages
+  // (/terrain/usage, /terrain/sql) that unmount this map entirely.
+  const [roomsOpen, setRoomsOpen] = useState(false);
 
   const [panel, setPanel] = useState<'notes' | 'schedule' | null>(null);
   const [schedSessions, setSchedSessions] = useState<string[]>([]);
@@ -907,34 +909,24 @@ export function TerrainPage() {
             >
               &#9200;
             </button>
-            {/* 📊 is a LINK, not a panel toggle: the attention ranking is a
-                child route rendered through this page's <Outlet/> below, so it
-                gets a URL, a back button, and a lit state that follows the
-                route rather than a piece of local state. Tapping it while it's
-                open goes back to the bare map. */}
-            <Link
-              to={usageOpen ? '/terrain' : '/terrain/usage'}
-              className={[styles.chip, styles.roomChip, usageOpen ? styles.chipActive : '']
+            {/* The one door to every other room. It replaced a chip per room
+                (📊 Attention, 🗄️ Data): at two rooms a row of labelled chips
+                was already long, and more rooms are coming — so the doors
+                moved into the rooms index, and the toolbar keeps a single
+                labelled button however many rooms exist. Tapping it blurs the
+                map and raises a card per room (TerrainRoomsIndex). */}
+            <button
+              type="button"
+              className={[styles.chip, styles.roomChip, roomsOpen ? styles.chipActive : '']
                 .filter(Boolean)
                 .join(' ')}
-              title="Where you actually go"
-              aria-current={usageOpen ? 'page' : undefined}
+              title="Rooms"
+              aria-label="Rooms"
+              aria-expanded={roomsOpen}
+              onClick={() => setRoomsOpen((v) => !v)}
             >
-              <span aria-hidden="true">&#128202;</span> Attention
-            </Link>
-            {/* The database room, same shape as the one above. Both carry a
-                WORD as well as the glyph: two unlabelled emoji side by side is
-                a guessing game, and these are rooms rather than toggles. */}
-            <Link
-              to={sqlOpen ? '/terrain' : '/terrain/sql'}
-              className={[styles.chip, styles.roomChip, sqlOpen ? styles.chipActive : '']
-                .filter(Boolean)
-                .join(' ')}
-              title="What it's stored"
-              aria-current={sqlOpen ? 'page' : undefined}
-            >
-              <span aria-hidden="true">&#128451;</span> Data
-            </Link>
+              <span aria-hidden="true">&#128682;</span> Rooms
+            </button>
           </div>
         </div>
 
@@ -1033,10 +1025,10 @@ export function TerrainPage() {
         triggerRef={schedBtnRef}
         sessionNames={schedSessions}
       />
-      {/* Child routes render here — /terrain/usage and /terrain/sql, each
-          drawing itself inset so the map stays visible around its edges. Empty
-          on /terrain itself, so the bare map costs nothing. */}
-      <Outlet />
+      {/* The hallway: map blurs, one opaque card per room, tap a card to go.
+          Rendered above all the floating chrome (its backdrop covers the whole
+          page), closed by Esc, the blur itself, or the Rooms button again. */}
+      <TerrainRoomsIndex open={roomsOpen} onClose={() => setRoomsOpen(false)} />
 
       <Sheet open={selected !== null} title={selected?.label} onClose={() => setSelected(null)}>
         {selected?.kind === 'session' && selected.session ? (

@@ -9,19 +9,18 @@ import {
 import styles from './TerrainUsageView.module.css';
 
 /**
- * TerrainUsageView — "where you actually go", as a page inside the Terrain page.
+ * TerrainUsageView — "where you actually go", one of the terrain's rooms.
  *
  * Terrain draws the system as a body in SPACE: which files are hot, which agents
  * are working where. This is the same body ranked by ATTENTION — which rooms you
- * spend yourself in. Same organism, different axis, so it belongs inside Terrain
+ * spend yourself in. Same organism, different axis, so it lives under /terrain
  * rather than on Settings.
  *
- * It's a child route (/terrain/usage, see routes/terrain.usage.tsx) rendered
- * through Terrain's own <Outlet/>, deliberately inset so the map still shows
- * around all four edges. That inset is the whole idea: you have not left the
- * terrain, you have opened a room inside it. Being a route rather than a panel
- * also means it's linkable and the back button works — a reading you can send
- * someone or return to, not a popup that evaporates.
+ * It's a whole page now (/terrain/usage, routes/terrain_.usage.tsx — un-nested,
+ * so the map unmounts and this room owns the screen). It used to render inset
+ * over the live map as a glass panel; that read as a modal, which is exactly
+ * what the owner asked these rooms to stop being. You reach it through the
+ * rooms index on the map (TerrainRoomsIndex), and "← Terrain" walks back.
  *
  * Reads GET /api/usage and nothing else. No new endpoint, no new collection —
  * the counters have run since July; there was simply never a surface comparing
@@ -49,7 +48,8 @@ import styles from './TerrainUsageView.module.css';
  * single line, rows that breathe — not on more encodings.
  *
  * Prompts that produced it: "build a simple visualizer that lives in terrain,
- * with what I already have" / "i want for this to be a page within a page."
+ * with what I already have" / "they aren't modals. They need to be separate
+ * pages."
  */
 
 const WINDOWS: readonly { days: number | null; label: string }[] = [
@@ -94,10 +94,10 @@ export function TerrainUsageView() {
           <h2 className={styles.title}>Where you actually go</h2>
           <p className={styles.sub}>The same system, ranked by attention instead of heat.</p>
         </div>
-        {/* Back to the map, not a close ×: this is a room you step out of, and
-            the map is literally visible around the frame you're stepping to. */}
-        <Link to="/terrain" className={styles.back} aria-label="Back to the map">
-          ← Map
+        {/* Back to the map, not a close ×: a page returns you somewhere named,
+            and the terrain's map is where this room's door is. */}
+        <Link to="/terrain/map" className={styles.back} aria-label="Back to the terrain map">
+          ← Terrain
         </Link>
       </header>
 

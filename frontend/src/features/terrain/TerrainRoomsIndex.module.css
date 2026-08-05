@@ -1,0 +1,127 @@
+/* TerrainRoomsIndex — the hallway moment (TerrainRoomsIndex.tsx).
+
+   Two layers, and the contrast between them is the design: the backdrop blurs
+   and quiets the live map (it stays visible — you haven't left, you're
+   choosing), while the cards are FULLY opaque — solid card background, real
+   shadow — because for this moment they're the subject and the map is context.
+   This is the exact inverse of the old inset-glass rooms, on purpose.
+
+   Motion: the blur fades in (~200ms) and the cards rise a beat behind it
+   (~260ms, slight stagger) — the same lift-and-fade gesture the app uses for
+   things that appear OVER you, distinct from the slide the room pages use for
+   going somewhere. transform/opacity only; reduced-motion drops it all. */
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  /* Above every piece of the map's floating chrome (top bar z2, bottom z3,
+     colour key z5) — the whole map, controls included, blurs as one. */
+  z-index: 9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  background: color-mix(in srgb, var(--bg) 45%, transparent);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  pointer-events: auto;
+  animation: hallwayIn 200ms ease-out both;
+}
+
+@keyframes hallwayIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.cards {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  justify-content: center;
+  gap: var(--space-3);
+  max-width: 720px;
+}
+
+/* A door, drawn as a card: opaque, generous, one whole tap target. The motif
+   gets the room's accent; name and line sit under it in the text hierarchy —
+   size and colour doing the work, nothing under the 12px floor. */
+.card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  width: min(280px, 100%);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.28);
+  text-decoration: none;
+  cursor: pointer;
+  animation: cardIn 260ms cubic-bezier(0.2, 0.8, 0.3, 1) both;
+  animation-delay: calc(60ms + var(--card-index, 0) * 50ms);
+  transition: transform 150ms ease, border-color 150ms ease;
+}
+
+.card:hover {
+  transform: translateY(-2px);
+  border-color: var(--accent);
+}
+
+@keyframes cardIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.motif {
+  color: var(--accent);
+  line-height: 0;
+}
+
+.name {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--text);
+}
+
+.line {
+  font-size: var(--font-size-md);
+  color: var(--text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .backdrop,
+  .card {
+    animation: none;
+  }
+
+  .card:hover {
+    transform: none;
+  }
+}
+
+/* Phone: the hallway stacks — one card per row, still generous. */
+@media (max-width: 560px) {
+  .backdrop {
+    padding: var(--space-3);
+  }
+
+  .cards {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .card {
+    width: 100%;
+  }
+}

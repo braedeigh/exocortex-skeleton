@@ -3,25 +3,27 @@ import { SqlLabPage } from '../sqlab/SqlLabPage';
 import styles from './TerrainSqlView.module.css';
 
 /**
- * TerrainSqlView — the database, as a room inside the Terrain page.
+ * TerrainSqlView — the database, one of the terrain's rooms.
  *
  * Terrain draws the system as a body in SPACE (which files are hot, which
  * agents are where) and /terrain/usage ranks that same body by ATTENTION. This
  * is the third axis: what the body has actually STORED. Same organism, so it
- * belongs in here rather than off in the More menu on its own.
+ * lives under /terrain rather than off in the More menu on its own.
  *
- * A child route through Terrain's <Outlet/>, inset exactly like the usage room
- * — the map stays visible around all four edges, which is what says "you opened
- * a room, you didn't leave." Being a route rather than a panel means it has a
- * URL and the back button works.
+ * A whole page now (/terrain/sql, routes/terrain_.sql.tsx — un-nested, so the
+ * map unmounts and this room owns the screen). It used to float over the live
+ * map as an inset glass panel whose glass had to be pushed to 98% opaque
+ * before the code editor was readable — the proof it wanted to be a page. You
+ * reach it through the rooms index on the map (TerrainRoomsIndex), and
+ * "← Terrain" walks back.
  *
  * The body is SqlLabPage unchanged, not a copy. It brings its own Map / Console
  * / Sandbox switch, and its own scrolling — this file is only the frame around
  * it. Keeping it as one component means the standalone /sql page and this room
  * can never drift apart.
  *
- * Prompt that produced this file: "put the SQL thingie inside terrain — cards
- * that you have to navigate into."
+ * Prompt that produced this frame: "they aren't modals. They need to be
+ * separate pages."
  */
 export function TerrainSqlView() {
   return (
@@ -31,10 +33,10 @@ export function TerrainSqlView() {
           <h2 className={styles.title}>What it's stored</h2>
           <p className={styles.sub}>The same system, as data — its shape, and a way to ask it things.</p>
         </div>
-        {/* Back to the map, not a close × — same as the usage room. You step
-            out into the terrain that's already visible around this frame. */}
-        <Link to="/terrain" className={styles.back} aria-label="Back to the map">
-          ← Map
+        {/* Back to the map, not a close × — same as the usage room. A page
+            returns you somewhere named. */}
+        <Link to="/terrain/map" className={styles.back} aria-label="Back to the terrain map">
+          ← Terrain
         </Link>
       </header>
 
