@@ -275,6 +275,91 @@
   background: color-mix(in srgb, var(--text) 6%, transparent);
 }
 
+/* Why the crew proposed this note (pick-only mode) — the policy line her
+   feedback aims at, so it reads as information, not chrome. */
+.pickWhy {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* The why-row: one optional line of her judgment before a card leaves the
+   stack. Input is the flexible one; buttons stay tappable at 40px. */
+.whyRow {
+  display: flex;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+}
+
+.whyInput {
+  flex: 1;
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md, 8px);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font-size: var(--font-size-md);
+  font-family: inherit;
+}
+
+.whySave,
+.whySkip {
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md, 8px);
+  font-size: var(--font-size-md);
+  font-family: inherit;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: transparent;
+}
+
+.whySave {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.whySkip {
+  color: var(--text-muted);
+}
+
+/* Judging a picked card: approve is the warm filled action; reject arms
+   before it fires because it writes a permanent never-propose-again. */
+.approve {
+  min-height: 40px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-md, 8px);
+  font-size: var(--font-size-md);
+  font-family: inherit;
+  cursor: pointer;
+  border: 0;
+  background: var(--accent);
+  color: var(--bg);
+  font-weight: 600;
+}
+
+.reject,
+.rejectConfirm {
+  min-height: 40px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-md, 8px);
+  font-size: var(--font-size-md);
+  font-family: inherit;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.rejectConfirm {
+  border-color: var(--danger, #c05b4d);
+  background: var(--danger, #c05b4d);
+  color: var(--bg);
+  font-weight: 600;
+}
+
 /* The regret tap on a merged card. Outline like .dismiss but warm-toned —
    it undoes real landed work, so it shouldn't look casual — with the same
    two-tap arm/fire shape as merge. */

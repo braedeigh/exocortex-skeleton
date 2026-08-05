@@ -295,20 +295,60 @@ def test_max_notes_is_a_small_number():
     assert 1 <= nc.MAX_NOTES <= 5
 
 
-def test_self_queue_is_off_unless_she_arms_it(data_dir):
+def test_pick_mode_ladder_reads_off_the_registry(data_dir):
     """The 2026-08-05 lesson: oldest-first self-queuing resurfaced notes she'd
-    been ignoring on purpose. Nomination must stay opt-in — absent flag,
-    absent row, and anything but literal true all mean off."""
+    been ignoring on purpose. Initiative is a ladder now — absent flag, absent
+    row, and any stray value all mean off; "picks" proposes without working;
+    only literal true is the original full self-queue."""
     import store
-    assert nc.self_queue_enabled() is False
+    assert nc.pick_mode() == "off"
     store.write("scheduled_runs.json", {"runs": [{"id": "nightcrew", "enabled": True}]})
-    assert nc.self_queue_enabled() is False
+    assert nc.pick_mode() == "off"
     store.write("scheduled_runs.json",
                 {"runs": [{"id": "nightcrew", "self_queue": "yes"}]})
-    assert nc.self_queue_enabled() is False
+    assert nc.pick_mode() == "off"
+    store.write("scheduled_runs.json",
+                {"runs": [{"id": "nightcrew", "self_queue": "picks"}]})
+    assert nc.pick_mode() == "picks"
     store.write("scheduled_runs.json",
                 {"runs": [{"id": "nightcrew", "self_queue": True}]})
-    assert nc.self_queue_enabled() is True
+    assert nc.pick_mode() == "full"
+
+
+def test_picks_mode_proposes_without_touching_the_notes(data_dir):
+    """A pick is a card, not work and not a moon: the note itself must be
+    untouched (approval lives on the card until making turns on), and the
+    record must carry the why + the note's age — the information her
+    picking-policy feedback aims at."""
+    import store
+    store.write("dev_notes.json", {"tabs": {"today": [
+        {"id": "old1", "text": "Add a search for to-dos", "created": "2026-05-01 09:00"},
+        {"id": "new1", "text": "Re add edit button to habits", "created": "2026-07-23 08:02"},
+    ]}})
+    store.write("night_runs.json", {"runs": []})
+    n = nc.record_picks(store.read("dev_notes.json", {})["tabs"])
+    assert n == 2
+    runs = store.read("night_runs.json", {})["runs"]
+    assert [r["note_id"] for r in runs] == ["old1", "new1"], "oldest first"
+    assert runs[0]["status"] == "picked"
+    assert "#1 of 2" in runs[0]["pick_reason"]
+    assert runs[0]["note_created"] == "2026-05-01 09:00"
+    notes = store.read("dev_notes.json", {})["tabs"]["today"]
+    assert all("night" not in x for x in notes), "no moon was flipped"
+
+
+def test_a_note_once_picked_is_never_proposed_again(data_dir):
+    """Re-proposing something she already saw — judged or not — is the
+    pestering failure mode. One pick card per note, ever; the nominator
+    moves down the backlog instead."""
+    import store
+    store.write("dev_notes.json", {"tabs": {"today": [
+        {"id": "old1", "text": "Add a search for to-dos", "created": "2026-05-01 09:00"},
+    ]}})
+    store.write("night_runs.json", {"runs": [
+        {"id": "p-1", "status": "picked", "note_id": "old1"},
+    ]})
+    assert nc.record_picks(store.read("dev_notes.json", {})["tabs"]) == 0
 
 
 def test_night_workers_are_born_ungated():

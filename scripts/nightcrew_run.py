@@ -2,15 +2,17 @@
 """nightcrew_run.py — the overnight fix crew. One dev note per branch.
 
 Plain English: while she sleeps, this works the dev-note backlog. It attempts
-notes she has green-lit (the moon tap). It CAN also nominate its own — the
-oldest notes she's never answered that would pass the gate
-(tools/nightcrew/nominate.py) — but that's opt-in and currently off: the one
-self-queued night picked notes she'd been ignoring on purpose, so hand-picked
-moons are the diet (see self_queue_enabled). For each note it makes a
-throwaway copy of the repo, lets a Claude agent fix that one note in the copy,
-runs the whole test suite itself, commits to a branch if everything passes,
-and throws the copy away. In the morning the Observatory's third lane shows
-her one card per attempt. Nothing merges. She merges.
+notes she has green-lit (the moon tap). Its own initiative is a three-rung
+ladder (see pick_mode): off / picks / full. The current rung is PICKS — each
+night it PROPOSES up to five notes as "picked" cards (oldest never-answered
+gate-passers, tools/nightcrew/nominate.py) and works none of them; she judges
+the picks in the morning (would-want / not-this, with a why), so the picking
+policy is tuned on real judgments before any tokens act on it. Her own moons
+still run as always. For each note it works, it makes a throwaway copy of the
+repo, lets a Claude agent fix that one note in the copy, runs the whole test
+suite itself, commits to a branch if everything passes, and throws the copy
+away. In the morning the Observatory's third lane shows her one card per
+attempt. Nothing merges. She merges.
 
 WHEN A NOTE ISN'T OBVIOUS, THE CREW ASKS INSTEAD OF GUESSING. A worker that
 finds the note ambiguous changes nothing and ends with a QUESTIONS: block —
@@ -221,18 +223,69 @@ def enabled():
     return True
 
 
-def self_queue_enabled():
-    """Whether the crew may pick its own notes (tools/nightcrew/nominate.py).
+def pick_mode():
+    """How much initiative the crew has over its own queue — three rungs,
+    read off `self_queue` on the Night crew row in scheduled_runs.json:
 
-    OFF unless she turns it on: the first self-queued night (2026-08-05)
-    picked the oldest gate-passers, which turned out to be notes she'd been
-    ignoring on purpose — old wasn't the same as wanted. Hand-picked moons
-    are the diet again; flipping `self_queue: true` on the Night crew row in
-    scheduled_runs.json re-arms the nominator."""
+      "off"   (absent/false) — hand-picked moons only.
+      "picks" ("picks")      — the crew PROPOSES nightly but works nothing it
+                               picked: each candidate becomes a "picked" card
+                               she judges in the morning (would-want / not-
+                               this, with a why), so the picking policy gets
+                               tuned on real judgments before any tokens are
+                               spent acting on it. Her own moons still run.
+      "full"  (true)         — picks go straight to work (the original
+                               self-queue; earned back once picking is
+                               hammered out).
+
+    The ladder exists because the first self-queued night (2026-08-05)
+    picked the oldest gate-passers — notes she'd been ignoring on purpose.
+    Old wasn't the same as wanted; now wanted gets learned first.
+    [prompt: "I want information about what it's picking too, so I can
+    target that correctly. Kinda not wanting it to work yet, just pick
+    things for now, then once that is hammered out, we go onto making"]"""
     for r in store.read("scheduled_runs.json", {"runs": []}).get("runs", []):
         if isinstance(r, dict) and r.get("id") == RUN_ID:
-            return r.get("self_queue") is True
-    return False
+            v = r.get("self_queue")
+            return "full" if v is True else ("picks" if v == "picks" else "off")
+    return "off"
+
+
+# Proposals per night in "picks" mode. More generous than MAX_NOTES because a
+# pick costs no tokens — it's a card, not an agent turn — and the tuning week
+# wants a real stream of judgments to learn from.
+PICKS_PER_NIGHT = 5
+
+
+def record_picks(tabs):
+    """One "picked" card per nominee — a proposal, not work. Nothing on the
+    note itself changes (no moon is flipped): approval lives on the card
+    until "we go onto making", and a rejection writes the sticky night:false
+    through the judgment endpoint, not here.
+
+    Skipped: notes already carrying an unjudged pick card (a proposal she
+    hasn't answered must not repeat — that's the pestering the burn's
+    refugium rule exists to prevent) and notes whose earlier pick was
+    already judged either way."""
+    already = set()
+    for r in store.read("night_runs.json", {"runs": []}).get("runs", []):
+        if isinstance(r, dict) and r.get("status") == "picked":
+            already.add(r.get("note_id"))
+    fresh = {t: [n for n in notes or [] if isinstance(n, dict)
+                 and n.get("id") not in already]
+             for t, notes in (tabs or {}).items()}
+    candidates = nominate.nominate(fresh, PICKS_PER_NIGHT)
+    total = len(nominate.nominate(fresh, 10**6))
+    for i, p in enumerate(candidates):
+        record({"id": f"p-{datetime.now():%m%d-%H%M}-{p['id'][:8]}",
+                "status": "picked", "note_id": p["id"], "tab": p["tab"],
+                "note_text": p["text"], "note_created": p["created"],
+                "pick_reason": f"oldest never-answered note that passes the "
+                               f"gate — #{i + 1} of {total} candidates",
+                "finished": now()})
+        log(f"picked [{p['id']}] ({p['tab']}, {p['created'] or 'undated'}) "
+            f"— {p['text'][:60]}")
+    return len(candidates)
 
 
 # --- the brief --------------------------------------------------------------
@@ -668,25 +721,31 @@ def main():
     queued = [n for n in eligible if not already_pending(n)]
     log(f"{len(eligible)} eligible, {len(queued)} not already waiting on her")
 
-    # Self-queue (opt-in, see self_queue_enabled): when her own moons don't
-    # fill the night, top up to MAX_NOTES with the oldest never-answered notes
-    # that pass the gate. Her taps go first — they're fresher intent — and the
-    # flags are flipped for real, so the moons show lit in the panel and
-    # un-mooning one is a permanent no (nominate.py never proposes an answered
-    # note again).
-    need = MAX_NOTES - len(queued)
-    picked = nominate.nominate(tabs, need) if need > 0 and self_queue_enabled() else []
-    if picked:
-        ids = {p["id"] for p in picked}
-        with store.mutate("dev_notes.json", {"tabs": {}}) as data:
-            for notes in (data.get("tabs") or {}).values():
-                for n in notes or []:
-                    if isinstance(n, dict) and n.get("id") in ids:
-                        n["night"] = True
-        for p in picked:
-            log(f"self-queued [{p['id']}] ({p['tab']}, {p['created'] or 'undated'}) "
-                f"— {p['text'][:60]}")
-        queued += [{"id": p["id"], "tab": p["tab"], "text": p["text"]} for p in picked]
+    # The crew's own initiative, by rung (see pick_mode):
+    #   "picks" — write proposal cards only; her moons below still run, but
+    #             nothing the crew picked is worked tonight.
+    #   "full"  — top the night up to MAX_NOTES with the oldest never-answered
+    #             gate-passers, moons flipped for real (un-mooning stays a
+    #             permanent no — nominate.py never re-proposes an answered
+    #             note). Her taps go first; they're fresher intent.
+    mode = pick_mode()
+    if mode == "picks":
+        n = record_picks(tabs)
+        log(f"pick-only mode: proposed {n} note(s), worked none of them")
+    elif mode == "full":
+        need = MAX_NOTES - len(queued)
+        picked = nominate.nominate(tabs, need) if need > 0 else []
+        if picked:
+            ids = {p["id"] for p in picked}
+            with store.mutate("dev_notes.json", {"tabs": {}}) as data:
+                for notes in (data.get("tabs") or {}).values():
+                    for n in notes or []:
+                        if isinstance(n, dict) and n.get("id") in ids:
+                            n["night"] = True
+            for p in picked:
+                log(f"self-queued [{p['id']}] ({p['tab']}, {p['created'] or 'undated'}) "
+                    f"— {p['text'][:60]}")
+            queued += [{"id": p["id"], "tab": p["tab"], "text": p["text"]} for p in picked]
 
     spent, done = 0.0, 0
     for note in queued[:MAX_NOTES]:

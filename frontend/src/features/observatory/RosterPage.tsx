@@ -263,6 +263,33 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
   const mergeNightRun = (id: string) => nightAction(id, 'merge');
   const revertNightRun = (id: string) => nightAction(id, 'revert');
 
+  /** Her one-line why, filed onto the run record. Fire-and-forget — losing a
+   * note to a network blip isn't worth making her wait on a dismissal. */
+  const feedbackNightRun = (id: string, note: string): Promise<void> =>
+    fetch(`/api/nightcrew/runs/${id}/feedback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ note }),
+    })
+      .then(() => undefined)
+      .catch(() => undefined);
+
+  /** Judges a picked card (pick-only mode). Reject writes the permanent
+   * never-propose-again on the note, so this waits for the server. */
+  const pickNightRun = (id: string, verdict: 'approve' | 'reject', note: string): Promise<string | null> =>
+    fetch(`/api/nightcrew/runs/${id}/pick`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ verdict, note: note || undefined }),
+    })
+      .then((r) => r.json().then((body) => ({ ok: r.ok, body })))
+      .then(({ ok, body }) => {
+        if (!ok || !body?.ok) return body?.error || "Couldn't record that.";
+        loadNight();
+        return null;
+      })
+      .catch(() => "Couldn't reach the server.");
+
   // ONE terrain poll for the whole page, passed down to both lanes — two
   // sections must not mean two pollers on the same endpoint. Live only while
   // something is actually running; an idle page needs no file ticking.
@@ -454,6 +481,8 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
             onDismiss={dismissNightRun}
             onMerge={mergeNightRun}
             onRevert={revertNightRun}
+            onFeedback={feedbackNightRun}
+            onPick={pickNightRun}
             onOpenSession={open}
           />
 

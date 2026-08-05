@@ -282,6 +282,83 @@ def test_conflicting_revert_aborts_with_nothing_changed(client, repo):
     assert store.read("night_runs.json", {})["runs"][0]["status"] == "merged"
 
 
+# --- her feedback on a card --------------------------------------------------
+
+def test_feedback_lands_on_the_run_record(client):
+    _seed_run()
+    res = client.post("/api/nightcrew/runs/r1/feedback",
+                      json={"note": "wanted the button gone, not moved"})
+    assert res.get_json()["ok"] is True
+    assert store.read("night_runs.json", {})["runs"][0]["her_note"] \
+        == "wanted the button gone, not moved"
+
+
+def test_feedback_requires_a_note_and_a_real_run(client):
+    _seed_run()
+    assert client.post("/api/nightcrew/runs/r1/feedback", json={}).status_code == 400
+    assert client.post("/api/nightcrew/runs/nope/feedback",
+                       json={"note": "x"}).status_code == 404
+
+
+# --- judging a picked card ---------------------------------------------------
+
+def _seed_pick():
+    store.write("dev_notes.json", {"tabs": {"today": [
+        {"id": "n1", "text": "Add a search for to-dos", "created": "2026-05-01 09:00"},
+    ]}})
+    store.write("night_runs.json", {"runs": [
+        {"id": "p1", "status": "picked", "note_id": "n1", "tab": "today",
+         "note_text": "Add a search for to-dos"},
+    ]})
+
+
+def test_approving_a_pick_records_without_mooning(client):
+    """Approval is judgment data, not a work order — the note stays unmooned
+    until she turns making on, so the picking phase can't quietly spend
+    tokens."""
+    _seed_pick()
+    body = client.post("/api/nightcrew/runs/p1/pick",
+                       json={"verdict": "approve", "note": "yes, this kind"}).get_json()
+    assert body["ok"] is True
+    run = store.read("night_runs.json", {})["runs"][0]
+    assert run["verdict"] == "approve"
+    assert run["her_note"] == "yes, this kind"
+    assert run["dismissed"] is True, "judged is answered — off the stack"
+    assert "night" not in store.read("dev_notes.json", {})["tabs"]["today"][0]
+
+
+def test_rejecting_a_pick_writes_the_sticky_no(client):
+    """"Not this" must reach the note itself as night:false — the nominator's
+    never-propose-an-answered-note rule is what makes the rejection stick."""
+    _seed_pick()
+    body = client.post("/api/nightcrew/runs/p1/pick",
+                       json={"verdict": "reject"}).get_json()
+    assert body["ok"] is True
+    assert store.read("dev_notes.json", {})["tabs"]["today"][0]["night"] is False
+
+
+def test_pick_verdict_refuses_non_picked_runs_and_junk(client):
+    _seed_run()   # a ready run, not a pick
+    assert client.post("/api/nightcrew/runs/r1/pick",
+                       json={"verdict": "approve"}).status_code == 409
+    _seed_pick()
+    assert client.post("/api/nightcrew/runs/p1/pick",
+                       json={"verdict": "shrug"}).status_code == 400
+    assert client.post("/api/nightcrew/runs/nope/pick",
+                       json={"verdict": "approve"}).status_code == 404
+
+
+def test_picked_cards_sort_after_ready_before_failed(client):
+    store.write("dev_notes.json", {"tabs": {}})
+    store.write("night_runs.json", {"runs": [
+        {"id": "r-f", "note_id": "a", "status": "failed", "finished": "2026-08-05T01:00:00"},
+        {"id": "p-1", "note_id": "b", "status": "picked", "finished": "2026-08-05T02:00:00"},
+        {"id": "r-r", "note_id": "c", "status": "ready", "finished": "2026-08-05T03:00:00"},
+    ]})
+    order = [r["id"] for r in client.get("/api/nightcrew").get_json()["runs"]]
+    assert order == ["r-r", "p-1", "r-f"]
+
+
 # --- go-live itself ----------------------------------------------------------
 
 def test_go_live_build_failure_lands_on_the_card_as_stuck(data_dir, monkeypatch):

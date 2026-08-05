@@ -40,8 +40,15 @@ export interface NightRun {
   note_id: string;
   tab: string;
   note_text: string;
-  status: 'ready' | 'failed' | 'parked' | 'merged' | 'reverted';
+  status: 'ready' | 'failed' | 'parked' | 'merged' | 'reverted' | 'picked';
   branch?: string;
+  /** Pick-only mode: why the crew proposed this note ("oldest never-answered
+   * note that passes the gate — #2 of 61 candidates"). The info she aims her
+   * picking-policy feedback at. */
+  pick_reason?: string;
+  /** When the picked note was written — age is the current policy's whole
+   * criterion, so the card must show it. */
+  note_created?: string;
   /** The merge commit's sha — recorded at merge time; its presence is what
    * offers the Revert tap (older merges without it can't be undone here). */
   merge_commit?: string;
@@ -78,6 +85,7 @@ const STATUS: Record<NightRun['status'], { cls: string; dot: string; label: stri
   parked: { cls: 'cardParked', dot: 'dotParked', label: 'parked' },
   merged: { cls: 'cardMerged', dot: 'dotMerged', label: 'merged' },
   reverted: { cls: 'cardParked', dot: 'dotParked', label: 'reverted' },
+  picked: { cls: 'cardReady', dot: 'dotReady', label: 'picked — want this?' },
 };
 
 function Card({
@@ -85,12 +93,18 @@ function Card({
   onDismiss,
   onMerge,
   onRevert,
+  onFeedback,
+  onPick,
   onOpenSession,
 }: {
   run: NightRun;
   onDismiss: (id: string) => void;
   onMerge: (id: string) => Promise<string | null>;
   onRevert: (id: string) => Promise<string | null>;
+  /** Saves one line of her judgment onto the run record. */
+  onFeedback: (id: string, note: string) => Promise<void>;
+  /** Judges a picked card; resolves to an error string or null. */
+  onPick: (id: string, verdict: 'approve' | 'reject', note: string) => Promise<string | null>;
   onOpenSession: (convId: string) => void;
 }) {
   const [showDiff, setShowDiff] = useState(false);
@@ -103,8 +117,34 @@ function Card({
   // armed button fire the other.
   const [revertConfirming, setRevertConfirming] = useState(false);
   const [reverting, setReverting] = useState(false);
+  // The learning layer: Clear/Discard opens a one-line "why?" first (Skip is
+  // right there — zero cost when she has nothing to say), and picked cards
+  // carry the same box beside their verdict buttons. Whatever she types
+  // lands on the run record for the tune-up sitting.
+  const [askingWhy, setAskingWhy] = useState(false);
+  const [why, setWhy] = useState('');
+  // "Not this" writes a permanent never-propose-again on the note, so it
+  // arms like merge/revert do.
+  const [rejectConfirming, setRejectConfirming] = useState(false);
   const s = STATUS[run.status];
   const hasShots = Boolean(run.shot_before && run.shot_after);
+
+  function clearWithWhy(save: boolean) {
+    const text = why.trim();
+    setAskingWhy(false);
+    if (save && text) void onFeedback(run.id, text);
+    onDismiss(run.id);
+  }
+
+  function judge(verdict: 'approve' | 'reject') {
+    if (verdict === 'reject' && !rejectConfirming) {
+      setRejectConfirming(true);
+      setTimeout(() => setRejectConfirming(false), 3000);
+      return;
+    }
+    setRejectConfirming(false);
+    onPick(run.id, verdict, why.trim()).then(setMergeError);
+  }
 
   function merge() {
     if (!confirming) {
@@ -161,6 +201,15 @@ function Card({
           Anything less and the card is a shrug she has to go investigate. */}
       {run.reason && <p className={styles.reason}>{run.reason}</p>}
 
+      {/* A picked card owes her the WHY of the pick — the policy is what her
+          feedback is aimed at, so it has to be visible to be judged. */}
+      {run.status === 'picked' && (
+        <p className={styles.pickWhy}>
+          {run.pick_reason || 'picked by the crew'}
+          {run.note_created ? ` · note from ${run.note_created.slice(0, 10)}` : ''}
+        </p>
+      )}
+
       {/* The worker's questions, verbatim. They also sit on the note card in
           the panel — this copy is so the morning stack shows what's being
           asked without a trip to the notes. */}
@@ -195,7 +244,44 @@ function Card({
         </p>
       )}
 
+      {/* The why-row: opened by Clear/Discard, always offered on picked
+          cards. Optional by design — Skip costs nothing. */}
+      {(askingWhy || run.status === 'picked') && (
+        <div className={styles.whyRow}>
+          <input
+            className={styles.whyInput}
+            value={why}
+            onChange={(e) => setWhy(e.target.value)}
+            placeholder="why? (optional — helps the crew learn)"
+          />
+          {askingWhy && (
+            <>
+              <button type="button" className={styles.whySave} onClick={() => clearWithWhy(true)}>
+                Save
+              </button>
+              <button type="button" className={styles.whySkip} onClick={() => clearWithWhy(false)}>
+                Skip
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
       <footer className={styles.actions}>
+        {run.status === 'picked' && (
+          <>
+            <button type="button" className={styles.approve} onClick={() => judge('approve')}>
+              Would want this
+            </button>
+            <button
+              type="button"
+              className={rejectConfirming ? styles.rejectConfirm : styles.reject}
+              onClick={() => judge('reject')}
+            >
+              {rejectConfirming ? 'Never propose again?' : 'Not this'}
+            </button>
+          </>
+        )}
         {run.status === 'ready' && (
           <button
             type="button"
@@ -231,13 +317,20 @@ function Card({
             Session ↗
           </button>
         )}
-        <button
-          type="button"
-          className={styles.dismiss}
-          onClick={() => onDismiss(run.id)}
-        >
-          {run.status === 'ready' ? 'Discard' : 'Clear'}
-        </button>
+        {/* Clear opens the why-row first (Save/Skip finish the dismissal);
+            on a picked card the row is already there, so Clear just files
+            whatever's typed and goes. */}
+        {!askingWhy && (
+          <button
+            type="button"
+            className={styles.dismiss}
+            onClick={() =>
+              run.status === 'picked' ? clearWithWhy(true) : setAskingWhy(true)
+            }
+          >
+            {run.status === 'ready' ? 'Discard' : 'Clear'}
+          </button>
+        )}
         {run.cost_usd != null && (
           <span className={styles.cost}>${run.cost_usd.toFixed(2)}</span>
         )}
@@ -253,6 +346,8 @@ export function NightCrewLane({
   onDismiss,
   onMerge,
   onRevert,
+  onFeedback,
+  onPick,
   onOpenSession,
 }: {
   runs: NightRun[];
@@ -264,6 +359,10 @@ export function NightCrewLane({
   onMerge: (id: string) => Promise<string | null>;
   /** Same contract as onMerge, for the regret tap on merged cards. */
   onRevert: (id: string) => Promise<string | null>;
+  /** Saves one line of her judgment onto a run record. */
+  onFeedback: (id: string, note: string) => Promise<void>;
+  /** Judges a picked card (approve/reject + optional why). */
+  onPick: (id: string, verdict: 'approve' | 'reject', note: string) => Promise<string | null>;
   /** Opens a worker's session (RosterPage's regular session door). */
   onOpenSession: (convId: string) => void;
 }) {
@@ -312,7 +411,8 @@ export function NightCrewLane({
         <div className={styles.rows}>
           {live.map((run) => (
             <Card key={run.id} run={run} onDismiss={onDismiss} onMerge={onMerge}
-              onRevert={onRevert} onOpenSession={onOpenSession} />
+              onRevert={onRevert} onFeedback={onFeedback} onPick={onPick}
+              onOpenSession={onOpenSession} />
           ))}
         </div>
       )}

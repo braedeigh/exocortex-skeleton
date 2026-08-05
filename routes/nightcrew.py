@@ -128,11 +128,11 @@ def register(app):
         result = triage.triage(_notes())
         runs = sorted(_runs(), key=lambda r: r.get("finished") or "", reverse=True)
 
-        # Ready-first, then failed, then parked — the only card that asks
-        # anything of her floats to the top, the same law the other two lanes
-        # use for cards that need her.
-        order = {"ready": 0, "failed": 1, "parked": 2}
-        runs.sort(key=lambda r: order.get(r.get("status"), 3))
+        # Cards that ask something of her float to the top — ready (a merge
+        # tap), then picked (a would-you-want judgment), then failed, then
+        # parked; same law the other two lanes use.
+        order = {"ready": 0, "picked": 1, "failed": 2, "parked": 3}
+        runs.sort(key=lambda r: order.get(r.get("status"), 4))
 
         return jsonify({
             "queue": result["eligible"],
@@ -332,6 +332,70 @@ def register(app):
         return jsonify({"ok": True,
                         "note": "reverted — going live now; the branch is still "
                                 "there if you want another look"})
+
+    @app.route("/api/nightcrew/runs/<run_id>/feedback", methods=["POST"])
+    def nightcrew_feedback(run_id):
+        """One line of her judgment onto a run record — why she discarded a
+        ready run, cleared a parked one, or regretted a merge. It lands in
+        night_runs.json, which already keeps failure reasons forever on the
+        principle that the branch is the corpse and the lesson is the humus;
+        her verdicts are the same soil. Read back in the tune-up sitting,
+        never analyzed automatically.
+        [prompt: "for maybe the first week or so … record what I wanted it
+        to do or disapproved of so we can iterate on it"]"""
+        note = ((request.get_json(silent=True) or {}).get("note") or "").strip()
+        if not note:
+            return jsonify({"ok": False, "error": "note required"}), 400
+        hit = False
+        with store.mutate("night_runs.json", {"runs": []}) as data:
+            for run in data.get("runs", []) or []:
+                if isinstance(run, dict) and run.get("id") == run_id:
+                    run["her_note"] = note
+                    hit = True
+        return (jsonify({"ok": True}) if hit
+                else (jsonify({"ok": False, "error": "no such run"}), 404))
+
+    @app.route("/api/nightcrew/runs/<run_id>/pick", methods=["POST"])
+    def nightcrew_pick_verdict(run_id):
+        """Her judgment on a "picked" card (pick-only mode — the crew proposes,
+        works nothing). Two verdicts:
+
+          approve — "would want this": recorded on the card only. Deliberately
+            NOT a moon: the point of the phase is judging the picking, and the
+            approvals become the ready-made queue when she turns making on.
+          reject — "not this": recorded, and writes the sticky night:false on
+            the note itself, so the nominator never proposes it again (the
+            refugium rule — re-proposing a spared note is how trust dies).
+
+        Either verdict can carry a why (`note`), same soil as /feedback.
+        """
+        data_in = request.get_json(silent=True) or {}
+        verdict = data_in.get("verdict")
+        if verdict not in ("approve", "reject"):
+            return jsonify({"ok": False, "error": "verdict must be approve or reject"}), 400
+        note = (data_in.get("note") or "").strip()
+        run = next((r for r in _runs() if r.get("id") == run_id), None)
+        if run is None:
+            return jsonify({"ok": False, "error": "no such run"}), 404
+        if run.get("status") != "picked":
+            return jsonify({"ok": False,
+                            "error": f"only a picked card takes this (this one is "
+                                     f"{run.get('status')})"}), 409
+        with store.mutate("night_runs.json", {"runs": []}) as data:
+            for r in data.get("runs", []) or []:
+                if isinstance(r, dict) and r.get("id") == run_id:
+                    r["verdict"] = verdict
+                    r["judged_at"] = _now()
+                    if note:
+                        r["her_note"] = note
+                    r["dismissed"] = True   # judged is answered — off the stack
+        if verdict == "reject":
+            with store.mutate("dev_notes.json", {"tabs": {}}) as notes:
+                for tab_notes in (notes.get("tabs") or {}).values():
+                    for n in tab_notes or []:
+                        if isinstance(n, dict) and n.get("id") == run.get("note_id"):
+                            n["night"] = False
+        return jsonify({"ok": True, "verdict": verdict})
 
     @app.route("/api/nightcrew/runs/<run_id>/dismiss", methods=["POST"])
     def nightcrew_dismiss(run_id):
