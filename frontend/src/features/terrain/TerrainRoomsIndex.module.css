@@ -99,6 +99,18 @@
   color: var(--text-muted);
 }
 
+/* The live fact — what's behind this door right now. Accent ink and tabular
+   nums: it's the one part of the card that's alive, and it should read that
+   way. min-height reserves its line so late-arriving numbers never shift the
+   card. */
+.fact {
+  min-height: 1.3em;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .backdrop,
   .card {

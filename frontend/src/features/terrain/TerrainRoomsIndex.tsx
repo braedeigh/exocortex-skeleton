@@ -1,5 +1,7 @@
-import { useEffect, type ReactElement } from 'react';
+import { useEffect, useState, type ReactElement } from 'react';
 import { Link } from '@tanstack/react-router';
+import { getCollections } from '../sqlab/api';
+import { formatDwell, rankPlaces, type UsageRecord } from './usageRanking';
 import styles from './TerrainRoomsIndex.module.css';
 
 /**
@@ -18,6 +20,12 @@ import styles from './TerrainRoomsIndex.module.css';
  * Adding a room = one entry in ROOMS (name, line, address, motif). The motifs
  * are tiny inline SVGs in each room's own visual language, drawn in the
  * theme's current ink so they ride the sky palette like everything else.
+ *
+ * Each card also carries one LIVE fact — "16 places · 4h this week", "12
+ * tables · 9 collections" — fetched when the hallway opens, because a door
+ * that states what's behind it right now describes the room better than any
+ * static line. Facts that fail to load simply don't appear; the hallway never
+ * blocks on them.
  *
  * Prompt that produced it: "I'm imagining like a blurred background with the
  * current terrain map and a few opaque cards with some visuals on them
@@ -88,6 +96,43 @@ export function TerrainRoomsIndex({ open, onClose }: { open: boolean; onClose: (
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [open, onClose]);
 
+  // The live fact under each card, keyed by room. Fetched fresh every time the
+  // hallway opens (both payloads are small), but never cleared — so reopening
+  // shows the last-known numbers instantly and quietly updates them.
+  const [facts, setFacts] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    fetch('/api/usage', { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((record: UsageRecord) => {
+        if (!alive) return;
+        const places = rankPlaces(record, 7);
+        const total = places.reduce((sum, p) => sum + p.seconds, 0);
+        if (places.length > 0) {
+          setFacts((f) => ({
+            ...f,
+            usage: `${places.length} places · ${formatDwell(total)} this week`,
+          }));
+        }
+      })
+      .catch(() => {});
+    getCollections()
+      .then(({ blobs, typed }) => {
+        if (!alive) return;
+        setFacts((f) => ({
+          ...f,
+          sql: `${typed.length} ${typed.length === 1 ? 'table' : 'tables'} · ${blobs.length} ${
+            blobs.length === 1 ? 'collection' : 'collections'
+          }`,
+        }));
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [open]);
+
   if (!open) return null;
 
   return (
@@ -108,6 +153,9 @@ export function TerrainRoomsIndex({ open, onClose }: { open: boolean; onClose: (
               </span>
               <span className={styles.name}>{room.name}</span>
               <span className={styles.line}>{room.line}</span>
+              {/* Reserved height even while empty, so a fact arriving never
+                  makes the card jump under her finger. */}
+              <span className={styles.fact}>{facts[room.key] ?? ''}</span>
             </Link>
           );
         })}
