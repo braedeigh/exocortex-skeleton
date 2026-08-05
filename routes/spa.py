@@ -128,6 +128,13 @@ def register(app):
     @app.route("/about")
     # Session-visualization surfaces (born native, no Flask ancestor):
     @app.route("/terrain")
+    # ...and the rooms inside it (/terrain/usage, /terrain/sql). These are
+    # CHILD routes in the SPA, so without this the shell only ever reached them
+    # through client-side navigation — a refresh or a pasted link 404'd.
+    @app.route("/terrain/<path:rest>")
+    # The database's own page: the collection map, the read-only console and
+    # the sandbox. Also reachable as a room inside /terrain.
+    @app.route("/sql")
     # One file, read-only (?repo=&path=) — where the observatory's session
     # cards send a tapped file, so it opens in the split's right pane.
     @app.route("/code")
