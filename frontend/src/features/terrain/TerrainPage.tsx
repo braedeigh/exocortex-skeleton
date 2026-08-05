@@ -269,6 +269,10 @@ export function TerrainPage() {
   const usageOpen = useRouterState({
     select: (s) => s.location.pathname.startsWith('/terrain/usage'),
   });
+  // Same again for the database room (/terrain/sql).
+  const sqlOpen = useRouterState({
+    select: (s) => s.location.pathname.startsWith('/terrain/sql'),
+  });
 
   const [panel, setPanel] = useState<'notes' | 'schedule' | null>(null);
   const [schedSessions, setSchedSessions] = useState<string[]>([]);
@@ -910,14 +914,26 @@ export function TerrainPage() {
                 open goes back to the bare map. */}
             <Link
               to={usageOpen ? '/terrain' : '/terrain/usage'}
-              className={[styles.chip, styles.iconChip, usageOpen ? styles.chipActive : '']
+              className={[styles.chip, styles.roomChip, usageOpen ? styles.chipActive : '']
                 .filter(Boolean)
                 .join(' ')}
               title="Where you actually go"
-              aria-label="Where you actually go"
               aria-current={usageOpen ? 'page' : undefined}
             >
-              &#128202;
+              <span aria-hidden="true">&#128202;</span> Attention
+            </Link>
+            {/* The database room, same shape as the one above. Both carry a
+                WORD as well as the glyph: two unlabelled emoji side by side is
+                a guessing game, and these are rooms rather than toggles. */}
+            <Link
+              to={sqlOpen ? '/terrain' : '/terrain/sql'}
+              className={[styles.chip, styles.roomChip, sqlOpen ? styles.chipActive : '']
+                .filter(Boolean)
+                .join(' ')}
+              title="What it's stored"
+              aria-current={sqlOpen ? 'page' : undefined}
+            >
+              <span aria-hidden="true">&#128451;</span> Data
             </Link>
           </div>
         </div>
@@ -1017,9 +1033,9 @@ export function TerrainPage() {
         triggerRef={schedBtnRef}
         sessionNames={schedSessions}
       />
-      {/* Child routes render here — today just /terrain/usage, which draws
-          itself inset so the map stays visible around its edges. Empty on
-          /terrain itself, so the bare map costs nothing. */}
+      {/* Child routes render here — /terrain/usage and /terrain/sql, each
+          drawing itself inset so the map stays visible around its edges. Empty
+          on /terrain itself, so the bare map costs nothing. */}
       <Outlet />
 
       <Sheet open={selected !== null} title={selected?.label} onClose={() => setSelected(null)}>

@@ -110,6 +110,11 @@ def test_root_injects_app_meta():
     "/person/some-slug", "/personality", "/scratchpad", "/vscode", "/food-map", "/about",
     # session-visualization surfaces (born native)
     "/terrain", "/atlas", "/sessions", "/automations",
+    # rooms inside terrain — child routes, so the catch-all has to serve the
+    # shell for them too or a pasted link 404s instead of opening the room
+    "/terrain/usage", "/terrain/sql",
+    # the database's own page, also reachable as a terrain room
+    "/sql",
     # one file, read-only — where a session card's file list opens into
     "/code",
 ])
