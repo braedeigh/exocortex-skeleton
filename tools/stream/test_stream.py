@@ -468,6 +468,112 @@ class DeleteCardTests(StreamTestCase):
         self.assertFalse(stream.card_path(cid).exists())
 
 
+class DeletionLogTests(StreamTestCase):
+    """The cast every cut leaves. These pin the two things the log exists for: that a
+    deleted card's words survive it, and that a delete which cannot be recorded does
+    not happen at all."""
+
+    def _entries(self):
+        path = stream.deleted_log_path()
+        if not path.exists():
+            return []
+        return [json.loads(ln) for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+
+    def test_delete_records_the_card_verbatim(self):
+        cid = stream.record(
+            who="B", body="the words that went\nsecond line", ts=datetime(2026, 7, 6, 17, 0, 0),
+            tags=["gut"], kind="line",
+        )
+        stream.record(who="B", body="keeps the day alive", ts=datetime(2026, 7, 6, 17, 1, 0))
+        stream.delete_card(cid, by="test")
+
+        entries = self._entries()
+        self.assertEqual(len(entries), 1)
+        e = entries[0]
+        self.assertEqual(e["id"], cid)
+        self.assertEqual(e["who"], "B")
+        self.assertEqual(e["ts"], "2026-07-06 17:00:00")
+        self.assertEqual(e["tags"], ["gut"])
+        self.assertEqual(e["by"], "test")
+        # The whole point: the body survives the card.
+        self.assertEqual(e["body"], "the words that went\nsecond line")
+
+    def test_log_is_append_only_across_deletes(self):
+        for minute in (10, 11, 12):
+            stream.record(who="B", body=f"card {minute}", ts=datetime(2026, 7, 6, 17, minute, 0))
+        stream.record(who="B", body="survivor", ts=datetime(2026, 7, 6, 17, 30, 0))
+        for minute in (10, 11, 12):
+            stream.delete_card(f"2026-07-06.17{minute}b", by="test")
+
+        entries = self._entries()
+        self.assertEqual([e["body"] for e in entries], ["card 10", "card 11", "card 12"])
+
+    def test_failed_log_write_aborts_the_delete(self):
+        """Cast before cut. If the log can't be written the card stays — refusing to
+        delete is the correct failure, since a silent removal is the thing this
+        whole mechanism exists to prevent."""
+        cid = stream.record(who="B", body="do not lose me", ts=datetime(2026, 7, 6, 18, 0, 0))
+        stream.record(who="B", body="neighbour", ts=datetime(2026, 7, 6, 18, 1, 0))
+
+        original = stream._log_deletion
+        stream._log_deletion = lambda card, by: (_ for _ in ()).throw(OSError("disk full"))
+        try:
+            with self.assertRaises(OSError):
+                stream.delete_card(cid, by="test")
+        finally:
+            stream._log_deletion = original
+
+        self.assertTrue(stream.card_path(cid).exists())
+        self.assertEqual(stream.read_card(cid).body, "do not lose me")
+
+    def test_missing_card_writes_no_entry(self):
+        with self.assertRaises(stream.StreamError):
+            stream.delete_card("2026-01-01.0000k")
+        self.assertEqual(self._entries(), [])
+
+    def test_cli_records_who_asked(self):
+        stream.record(who="B", body="via cli", ts=datetime(2026, 7, 6, 19, 0, 0))
+        stream.record(who="B", body="neighbour", ts=datetime(2026, 7, 6, 19, 1, 0))
+        cid = "2026-07-06.1900b"
+        result = subprocess.run(
+            [sys.executable, STREAM_PY, "delete", cid, "--by", "cards-route"],
+            capture_output=True, text=True, env=dict(os.environ),
+        )
+        self.assertEqual(result.returncode, 0)
+        entries = self._entries()
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["by"], "cards-route")
+        self.assertEqual(entries[0]["body"], "via cli")
+
+    def test_cli_falls_back_to_env_then_cli_literal(self):
+        stream.record(who="B", body="from env", ts=datetime(2026, 7, 6, 19, 10, 0))
+        stream.record(who="B", body="bare", ts=datetime(2026, 7, 6, 19, 11, 0))
+        stream.record(who="B", body="neighbour", ts=datetime(2026, 7, 6, 19, 12, 0))
+
+        env = dict(os.environ, STREAM_DELETE_BY="keeper")
+        subprocess.run(
+            [sys.executable, STREAM_PY, "delete", "2026-07-06.1910b"],
+            capture_output=True, text=True, env=env, check=True,
+        )
+        subprocess.run(
+            [sys.executable, STREAM_PY, "delete", "2026-07-06.1911b"],
+            capture_output=True, text=True, env=dict(os.environ), check=True,
+        )
+        self.assertEqual([e["by"] for e in self._entries()], ["keeper", "cli"])
+
+    def test_log_lives_beside_the_pool_not_inside_it(self):
+        """load_all_cards() globs *.md in the pool dir — a sidecar in there would be
+        picked up as a card. This asserts the placement, not just the filename."""
+        cid = stream.record(who="B", body="x", ts=datetime(2026, 7, 6, 20, 0, 0))
+        stream.record(who="B", body="neighbour", ts=datetime(2026, 7, 6, 20, 1, 0))
+        stream.delete_card(cid, by="test")
+
+        self.assertTrue(stream.deleted_log_path().exists())
+        self.assertNotEqual(stream.deleted_log_path().parent, stream.pool_dir())
+        ok, messages = stream.validate()
+        self.assertTrue(ok, messages)
+
+
 class ValidateDriftTests(StreamTestCase):
     def test_drift_detected_and_cleared(self):
         day = "2026-07-06"

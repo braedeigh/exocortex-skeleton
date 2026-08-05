@@ -63,26 +63,33 @@ const ALWAYS_MORE_TABS: ReadonlyArray<{ tab: LegacyTab; label: string }> = [
 // view below; Personality/Scratchpad/VS Code are SPA routes now).
 // This array is purely in-memory (never persisted), so 'bots' was renamed
 // to 'observatory' along with the surface (07-24).
-// Terrain sits next to the observatory on purpose: it's the map *of* those
-// sessions (which files they've been working), so the two read as a pair.
+// Terrain is NOT in this list any more — it was promoted to row 1 in place of
+// Research. The Observatory stays: the two still read as a pair (Terrain is the
+// map *of* the Observatory's sessions), but the pair now spans both rows.
 const MORE_PAGES: ReadonlyArray<{ key: string; label: string; to: string }> = [
   // Fronts leads the list: it's the only page here about her life rather than
   // about the system, and it's a way IN to the other surfaces (each front
   // hands off to the to-dos filtered to it) rather than a destination.
   { key: 'fronts', label: 'Fronts', to: '/fronts' },
   { key: 'observatory', label: 'Observatory', to: '/observatory' },
-  { key: 'terrain', label: 'Terrain', to: '/terrain' },
   // Atlas is gone from the menu: /atlas is now a bare redirect to the
   // Observatory's archive, which has its own doors from every room.
   { key: 'personality', label: 'Personality', to: '/personality' },
   { key: 'scratchpad', label: 'Scratchpad', to: '/scratchpad' },
   { key: 'vscode', label: 'VS Code', to: '/vscode' },
+  // The database's own page — the collection map plus a read-only query
+  // console. Sits with the other tool pages rather than in MORE_VIEWS, which
+  // is an explicit allowlist of the *content* browsers (files/notes/research).
+  { key: 'sql', label: 'SQL', to: '/sql' },
 ];
 
-// Journal/Research/Settings moved to row 1 (the dash bar) — Files and the
-// /notes browser page (native route, not a dashboard tab) live in the More
-// menu instead.
-const MORE_VIEWS = VIEW_META.filter((v) => v.key === 'files' || v.key === 'notes');
+// Journal/Settings sit in row 1 (the dash bar); Files and the /notes browser
+// page live in the More menu. Research joined them there when Terrain took its
+// slot in row 1 — it kept its route and its active-state handling, it's just
+// one tap further away now.
+const MORE_VIEWS = VIEW_META.filter(
+  (v) => v.key === 'files' || v.key === 'notes' || v.key === 'research',
+);
 
 type ActiveKey = 'today' | LegacyTab | `view:${(typeof VIEW_META)[number]['key']}` | null;
 
@@ -540,12 +547,20 @@ export function TopTabs() {
         >
           Dashboard
         </button>
+        {/* Terrain holds this slot instead of Research (her call — it's the
+            surface she actually works from now). Research kept its route and
+            moved into the More menu. startsWith, not equality: /terrain has a
+            child route (/terrain/usage), and the tab should stay lit while
+            she's in that room. */}
         <button
           type="button"
-          className={joinClass(styles.dashBtn, location.pathname === '/research' && styles.dashBtnActive)}
-          onClick={() => void navigate({ to: '/research' })}
+          className={joinClass(
+            styles.dashBtn,
+            location.pathname.startsWith('/terrain') && styles.dashBtnActive,
+          )}
+          onClick={() => void navigate({ to: '/terrain' })}
         >
-          Research
+          Terrain
         </button>
         <button
           type="button"

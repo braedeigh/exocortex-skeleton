@@ -172,6 +172,20 @@
   color: var(--text-secondary);
 }
 
+/* The worker's QUESTIONS: block, verbatim. Accent-tinted where .reason is
+   grey, because this card asks something of her; pre-line keeps the question
+   list's line breaks. */
+.question {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md, 8px);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  color: var(--text);
+  white-space: pre-line;
+}
+
 /* --- the diff, folded away ------------------------------------------------ */
 
 /* 40px tall per the house rules, and the summary line IS the label — a

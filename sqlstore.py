@@ -38,7 +38,7 @@ import sqlite3
 
 import store
 
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 3
 
 
 def _db_path():
@@ -68,6 +68,12 @@ def _connect() -> sqlite3.Connection:
 
 
 def _migrate(conn):
+    """The one migration ladder for this database file.
+
+    Every module that keeps tables here adds a rung, and the version is stamped
+    once at the end — two modules each owning their own `user_version` would
+    stamp over each other and silently skip a rung.
+    """
     version = conn.execute("PRAGMA user_version").fetchone()[0]
     if version < 1:
         conn.execute(
@@ -77,6 +83,65 @@ def _migrate(conn):
             "  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
             ")"
         )
+    if version < 2:
+        # Typed tables, entity #1: habits (see habitstore.py for what fills
+        # them). A habit is a ROW with a stable id; its name is an attribute,
+        # not its identity. `habit_aliases` maps every log key the app has ever
+        # written — legacy bare text AND the current 'section|text' — onto that
+        # row, so history stays reachable after a habit is renamed, moved, or
+        # dropped from the markdown list entirely.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS habits ("
+            "  id INTEGER PRIMARY KEY,"
+            "  name TEXT NOT NULL,"
+            # Lowercased to match data_helpers.habit_log_key. '' (never NULL)
+            # means no current section: SQLite treats NULLs as distinct in a
+            # UNIQUE index, so NULL sections would let duplicates right back in.
+            "  section TEXT NOT NULL DEFAULT '',"
+            "  active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),"
+            "  started_on TEXT,"
+            # Self-referencing FK: the owner's manual "these two were always the
+            # same habit" call. rebuild() never sets or clears it, so a merge
+            # survives every later rebuild.
+            "  merged_into INTEGER REFERENCES habits(id) ON DELETE SET NULL,"
+            "  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),"
+            "  UNIQUE (section, name)"
+            ")"
+        )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS habit_aliases ("
+            "  alias TEXT PRIMARY KEY,"
+            "  habit_id INTEGER NOT NULL REFERENCES habits(id) ON DELETE CASCADE"
+            ")"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_habit_aliases_habit"
+            " ON habit_aliases (habit_id)"
+        )
+    if version < 3:
+        # One row per habit per day — the shape habits_log can't express.
+        # `status` exists because the JSON log is pinned to `const: true`
+        # (schemas/habits_log.json): unchecking DELETES the key, so absence is
+        # its only negative and "didn't do it" is indistinguishable from "wasn't
+        # on the list" or "never opened the app". A real column separates them.
+        # `source` keeps that honest: 'logged' is what the log actually says,
+        # 'inferred' is what habitstore deduced. Never mix them in a claim.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS habit_entries ("
+            "  habit_id INTEGER NOT NULL REFERENCES habits(id) ON DELETE CASCADE,"
+            "  date TEXT NOT NULL,"
+            "  status TEXT NOT NULL CHECK (status IN ('done', 'missed', 'skipped')),"
+            "  source TEXT NOT NULL CHECK (source IN ('logged', 'inferred')),"
+            "  PRIMARY KEY (habit_id, date)"
+            ")"
+        )
+        # Date-first index: "what happened between these days" scans by date
+        # across all habits, which the (habit_id, date) primary key can't serve.
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_habit_entries_date"
+            " ON habit_entries (date)"
+        )
+    if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 
 
@@ -102,6 +167,15 @@ def _export_mirror(name, data):
     (NOT store.write, which would dispatch right back here).
     """
     store.write_file(name, data)
+
+
+def open_db():
+    """Connection factory for the typed-table modules (habitstore.py).
+
+    Same pragmas and same migration ladder as the blob path — typed tables live
+    in the same file, so they must not open it any other way.
+    """
+    return _connect()
 
 
 def get(name, default=None):

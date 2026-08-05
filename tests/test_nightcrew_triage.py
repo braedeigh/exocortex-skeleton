@@ -68,6 +68,37 @@ def test_figure_out_is_a_hedge():
     assert "figure out" in reason
 
 
+def test_somehow_is_a_hedge():
+    # journal/80ff0c1f — "get rid of the /endsession block ... somehow"
+    ok, reason = triage.check(note(
+        'get rid of the "/endsession" block that appears at 3 am somehow'))
+    assert ok is False
+    assert "somehow" in reason
+
+
+def test_plan_mode_marks_a_conversation_not_a_fix():
+    # journal/259b2afd — "Go plan mode and think and talk about this"
+    ok, reason = triage.check(note(
+        "Random words get designated to the wrong threads. Go plan mode and "
+        "think about this"))
+    assert ok is False
+    assert "plan mode" in reason
+
+
+def test_talk_about_marks_a_conversation_not_a_fix():
+    ok, reason = triage.check(note(
+        "rework how things get assigned to threads. want to talk about this"))
+    assert ok is False
+    assert "talk about" in reason
+
+
+def test_discuss_marks_a_conversation_not_a_fix():
+    ok, reason = triage.check(note(
+        "hide items that are blocked. discuss the details first"))
+    assert ok is False
+    assert "discuss" in reason
+
+
 def test_device_bound_note_is_rejected():
     # kitchen/ab0c0b9c — the crew's Playwright run can't reach the installed PWA
     ok, reason = triage.check(note(

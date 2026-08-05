@@ -1,11 +1,25 @@
 #!/usr/bin/env python3
-"""nightcrew_run.py — the overnight fix crew. One green-lit dev note per branch.
+"""nightcrew_run.py — the overnight fix crew. One dev note per branch.
 
-Plain English: while she sleeps, this picks up dev notes she has green-lit,
-and for each one it makes a throwaway copy of the repo, lets a Claude agent fix
-that one note in the copy, runs the whole test suite itself, commits to a branch
-if everything passes, and throws the copy away. In the morning the Observatory's
-third lane shows her one card per attempt. Nothing merges. She merges.
+Plain English: while she sleeps, this works the dev-note backlog. It attempts
+notes she has green-lit (the moon tap), and when those don't fill the night it
+NOMINATES ITS OWN — the oldest notes she's never answered that would pass the
+gate anyway (tools/nightcrew/nominate.py), lighting their moons so she can see
+and veto. For each note it makes a throwaway copy of the repo, lets a Claude
+agent fix that one note in the copy, runs the whole test suite itself, commits
+to a branch if everything passes, and throws the copy away. In the morning the
+Observatory's third lane shows her one card per attempt. Nothing merges. She
+merges.
+
+WHEN A NOTE ISN'T OBVIOUS, THE CREW ASKS INSTEAD OF GUESSING. A worker that
+finds the note ambiguous changes nothing and ends with a QUESTIONS: block —
+whatever questions would shape the note enough to act. The questions land on
+the morning card AND on the note itself (`night_questions`), where she answers
+by editing the note in place. The edit is the whole re-queue signal: a note
+whose text has changed since its last attempt is fair game again
+(already_pending compares texts), so an answered note re-enters the rotation
+by itself and an unanswered one is left alone while the crew moves down the
+backlog.
 
     0 0 * * * EXOCORTEX_DATA_DIR=<VAULT_DIR>/data \
         <SKELETON_DIR>/venv/bin/python3 \
@@ -49,14 +63,20 @@ meets in the morning. That's also why a throttled turn stops the whole night
 (see looks_throttled) instead of spending the rest of the queue against the
 same wall.
 
-Touches: tools/nightcrew/triage.py (what's allowed), routes/nightcrew.py (the
-morning surface), routes/observatory.py (the headless-turn machinery, shared
-with scripts/spark_morning.py), night_runs.json in the data dir (the records).
+Touches: tools/nightcrew/triage.py (what's allowed), tools/nightcrew/nominate.py
+(what it picks for itself), routes/nightcrew.py (the morning surface),
+routes/devnotes.py (editing a note clears its questions), routes/observatory.py
+(the headless-turn machinery, shared with scripts/spark_morning.py),
+night_runs.json in the data dir (the records).
 
-Prompt that produced this: "automate the easy tasks and make like a checklist
+Prompts that produced this: "automate the easy tasks and make like a checklist
 of things it has done for me so I can go see what it did ... these fixes run at
 night and keep track of my memory allocation so they are always running a
-maximum fleet without killing my [gunicorn]."
+maximum fleet without killing my [gunicorn]" — then "I want it to find things
+to queue for itself. Starting with the oldest ones until we're caught up ...
+ask me to clarify on ones that aren't totally completely obvious. And then
+they'll run again later when I have time to look through and amend them. And
+then it moves onto a next one until I do."
 """
 import json
 import os
@@ -71,6 +91,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import store                                    # noqa: E402
 from routes import observatory as rr            # noqa: E402
+from tools.nightcrew import nominate            # noqa: E402
 from tools.nightcrew import shots                # noqa: E402
 from tools.nightcrew import triage              # noqa: E402
 
@@ -111,6 +132,39 @@ def looks_throttled(error):
     """True when a turn's error reads as a usage-limit refusal."""
     low = (error or "").lower()
     return any(m in low for m in LIMIT_MARKERS)
+
+
+def parse_questions(last):
+    """The worker's QUESTIONS: block from its final message, or "".
+
+    Everything from the marker line to the end of the message is the block —
+    the brief tells the worker to end its turn with it, and taking "the rest"
+    means a multi-line list of questions survives intact rather than being
+    truncated to its first line the way PARKED: reasons are.
+    """
+    lines = (last or "").splitlines()
+    for i, line in enumerate(lines):
+        s = line.strip()
+        if s.upper().startswith("QUESTIONS:") or s.upper().startswith("QUESTION:"):
+            head = s.split(":", 1)[1].strip()
+            rest = ([head] if head else []) + [ln.rstrip() for ln in lines[i + 1:]]
+            return "\n".join(ln for ln in rest if ln.strip()).strip()
+    return ""
+
+
+def annotate_note_questions(note, questions):
+    """Write the worker's questions onto the note itself (`night_questions`),
+    so they meet her where she already reads and edits notes — the panel card —
+    not only on a morning card she might clear without acting. Editing the
+    note's text clears the field again (routes/devnotes.py), because her edit
+    IS the answer and a stale question sitting under an amended note would
+    read as still-unanswered."""
+    with store.mutate("dev_notes.json", {"tabs": {}}) as data:
+        for notes in (data.get("tabs") or {}).values():
+            for n in notes or []:
+                if isinstance(n, dict) and n.get("id") == note["id"]:
+                    n["night_questions"] = questions
+                    return
 
 
 def log(msg):
@@ -172,11 +226,19 @@ HARD LIMITS
   across more than about three files, that means the note is bigger than it
   looked: STOP, change nothing further, and say exactly what you found.
 
-WHEN YOU'RE STUCK. There is no one awake to ask. If you cannot do this safely
-or the note turns out to be ambiguous, make no changes and end your turn with a
-single line starting with `PARKED:` and a plain sentence saying why. That is a
-good outcome, not a failure — a parked note costs her one tap tomorrow, and a
-wrong guess costs her a broken app before work.
+WHEN THE NOTE ISN'T TOTALLY OBVIOUS. There is no one awake to ask, so ask in
+writing. If — after reading the code — the note is ambiguous, underspecified,
+or could reasonably mean two different things, make NO changes and end your
+turn with a block starting `QUESTIONS:` followed by whatever questions (one or
+several) would shape the note enough to act on. Write them for someone who
+does not read code, and name what you found where it helps her decide. Her
+answers get folded into the note and a future night picks it up again.
+
+WHEN YOU'RE STUCK for a reason questions can't fix (you cannot do this safely,
+or it's bigger than it looked), make no changes and end your turn with a single
+line starting with `PARKED:` and a plain sentence saying why. Questions and
+parking are both good outcomes, not failures — a wrong guess costs her a
+broken app before work.
 
 DO NOT claim your work passes. This script runs the full test suite itself
 after you finish, and its output is the only evidence that counts. Just make
@@ -406,17 +468,27 @@ def record(run):
         data.setdefault("runs", []).append(run)
 
 
-def already_pending(note_id):
+def already_pending(note):
     """Skip a note that already has an undismissed card waiting for her — the
     crew must not re-attempt work she simply hasn't looked at yet, or one
     ignored morning turns into three identical branches.
 
-    A THROTTLED card doesn't count: nothing was attempted, and its card
-    promises "still queued for tomorrow" — so tomorrow must actually pick the
-    note up, dismissed or not."""
+    UNLESS SHE'S EDITED THE NOTE SINCE. Each run records the note's text
+    verbatim, so text-changed means she amended it — answered the worker's
+    questions, sharpened the ask — and the whole design of the question loop
+    is that her edit is the re-queue signal, no extra tap. A card whose
+    recorded text differs from the note's current text no longer blocks.
+    (A run with no recorded text is treated as blocking: can't-tell defaults
+    to the cautious side.)
+
+    A THROTTLED card doesn't count either way: nothing was attempted, and its
+    card promises "still queued for tomorrow" — so tomorrow must actually pick
+    the note up, dismissed or not."""
     for r in store.read("night_runs.json", {"runs": []}).get("runs", []):
-        if isinstance(r, dict) and r.get("note_id") == note_id and not r.get("dismissed"):
+        if isinstance(r, dict) and r.get("note_id") == note["id"] and not r.get("dismissed"):
             if r.get("throttled"):
+                continue
+            if "note_text" in r and r.get("note_text") != note["text"]:
                 continue
             return True
     return False
@@ -471,6 +543,21 @@ def do_note(note):
 
         touched = changed_files(worktree)
         if not touched:
+            # A QUESTIONS: block outranks everything else an empty diff could
+            # mean: the worker read the code and is asking for the words it
+            # needs. The questions go on the note itself as well as this card,
+            # and her editing the note is what re-queues it (already_pending).
+            questions = parse_questions(last)
+            if questions:
+                try:
+                    annotate_note_questions(note, questions)
+                except Exception as e:
+                    log(f"[{note['id']}] couldn't annotate the note: "
+                        f"{type(e).__name__}: {e}")
+                return {**base, "status": "parked", "question": questions,
+                        "reason": "needs your word — it left questions on the "
+                                  "note; edit the note to answer and it'll "
+                                  "retry the next night"}
             # The agent's own PARKED line is the best explanation available,
             # but an empty diff is parked whether it said so or not.
             reason = "made no changes"
@@ -531,9 +618,29 @@ def main():
 
     sweep_old_branches()
 
-    eligible = triage.triage(store.read("dev_notes.json", {"tabs": {}}).get("tabs", {}))["eligible"]
-    queued = [n for n in eligible if not already_pending(n["id"])]
+    tabs = store.read("dev_notes.json", {"tabs": {}}).get("tabs", {})
+    eligible = triage.triage(tabs)["eligible"]
+    queued = [n for n in eligible if not already_pending(n)]
     log(f"{len(eligible)} eligible, {len(queued)} not already waiting on her")
+
+    # Self-queue: when her own moons don't fill the night, top up to MAX_NOTES
+    # with the oldest never-answered notes that pass the gate. Her taps go
+    # first — they're fresher intent — and the flags are flipped for real, so
+    # the moons show lit in the panel and un-mooning one is a permanent no
+    # (nominate.py never proposes an answered note again).
+    need = MAX_NOTES - len(queued)
+    picked = nominate.nominate(tabs, need) if need > 0 else []
+    if picked:
+        ids = {p["id"] for p in picked}
+        with store.mutate("dev_notes.json", {"tabs": {}}) as data:
+            for notes in (data.get("tabs") or {}).values():
+                for n in notes or []:
+                    if isinstance(n, dict) and n.get("id") in ids:
+                        n["night"] = True
+        for p in picked:
+            log(f"self-queued [{p['id']}] ({p['tab']}, {p['created'] or 'undated'}) "
+                f"— {p['text'][:60]}")
+        queued += [{"id": p["id"], "tab": p["tab"], "text": p["text"]} for p in picked]
 
     spent, done = 0.0, 0
     for note in queued[:MAX_NOTES]:

@@ -199,6 +199,17 @@ def test_appending_a_receipt_persists_it(data_dir):
     assert [e["id"] for e in store.read(ledger.LEDGER)["entries"]] == ["r1", "r2"]
 
 
+def test_appending_to_a_missing_ledger_does_not_pollute_the_default(data_dir, tmp_path_factory, monkeypatch):
+    """When the file doesn't exist, store.mutate fills in the DEFAULT OBJECT
+    itself — so the default must be fresh per call. A shared module-level
+    dict's inner list accumulated every entry ever appended to a missing
+    ledger and leaked them into later reads (found 2026-08-04)."""
+    ledger.append_entry({"id": "r1", "lane": "research"})
+    other = tmp_path_factory.mktemp("second-install")
+    monkeypatch.setattr(store, "DATA_DIR", other)
+    assert store.read(ledger.LEDGER, ledger._ledger_default())["entries"] == []
+
+
 # --- the daily fold -----------------------------------------------------------
 
 def _entry(lane="research", model="sonnet", out=100, cost=1.0,

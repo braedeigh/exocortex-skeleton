@@ -119,6 +119,13 @@ def register(app):
         notes = d.get("tabs", {}).get(tab, [])
         for n in notes:
             if n.get("id") == nid:
+                # Editing the text answers any questions the night crew left on
+                # this note (scripts/nightcrew_run.py writes `night_questions`
+                # when a worker finds the note ambiguous) — her amended words
+                # supersede the ask, and the changed text is itself what
+                # re-queues the note for the next night.
+                if n.get("text") != text:
+                    n.pop("night_questions", None)
                 n["text"] = text
                 break
         else:

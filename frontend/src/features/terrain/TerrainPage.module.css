@@ -94,6 +94,7 @@
 
 .chrome button,
 .chrome label,
+.chrome a,
 .chromeBottom button {
   pointer-events: auto;
 }

@@ -36,6 +36,35 @@ def test_add_and_get_roundtrip(client):
     assert res.get_json()["notes"][0]["text"] == "fix the thing"
 
 
+# --- night-crew questions ride the note until she answers ---
+
+def _plant_questions(nid):
+    with store.mutate("dev_notes.json", {"tabs": {}}) as d:
+        for n in d["tabs"]["today"]:
+            if n["id"] == nid:
+                n["night_questions"] = "which page did you mean?"
+
+
+def test_editing_the_text_clears_night_questions(client):
+    """Her edit IS the answer — the amended text supersedes the worker's ask,
+    and (via nightcrew's text-changed rule) is what re-queues the note."""
+    nid = _add(client, "today", "fix the thing")
+    _plant_questions(nid)
+    res = client.post("/api/devnote/edit",
+                      json={"tab": "today", "id": nid, "text": "fix the thing on the map page"})
+    assert res.status_code == 200
+    assert "night_questions" not in read_dev("today")[0]
+
+
+def test_saving_unchanged_text_keeps_night_questions(client):
+    """Opening the editor and hitting save without changing anything is not an
+    answer — the questions stay until the words actually change."""
+    nid = _add(client, "today", "fix the thing")
+    _plant_questions(nid)
+    client.post("/api/devnote/edit", json={"tab": "today", "id": nid, "text": "fix the thing"})
+    assert read_dev("today")[0]["night_questions"] == "which page did you mean?"
+
+
 # --- /api/devnote/to_ideas: dev note → same tab's idea notes ---
 
 def test_to_ideas_moves_note_verbatim(client):

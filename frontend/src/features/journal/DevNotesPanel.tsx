@@ -119,6 +119,9 @@ export function DevNotesPanel({ open, onClose, onError }: DevNotesPanelProps) {
                 {night.reasonFor(n.id) ? (
                   <div className={styles.gateNote}>Night crew won&rsquo;t take this — {night.reasonFor(n.id)}</div>
                 ) : null}
+                {n.night_questions ? (
+                  <div className={styles.askNote}>Night crew asks — edit the note to answer:{'\n'}{n.night_questions}</div>
+                ) : null}
               </div>
               <IconButton
                 aria-label={night.isOn(n.id, n.night === true) ? 'Remove from tonight' : 'Send to the night crew'}

@@ -19,6 +19,10 @@ export interface NotesPillNote {
   created: string;
   /** Green-lit for the night crew (routes/nightcrew.py) — seeds the moon. */
   night?: boolean;
+  /** Questions a night-crew worker left when the note wasn't clear enough to
+   * act on. Editing the note answers them (the server clears this field) and
+   * re-queues it for the next night. */
+  night_questions?: string;
 }
 
 function notesQueryKey(kind: NotesPillKind, tab: string) {

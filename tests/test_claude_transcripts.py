@@ -73,6 +73,38 @@ def test_sum_tokens_adds_up_assistant_usage_lines(tmp_path, monkeypatch):
     }
 
 
+def test_sum_tokens_counts_a_message_once_despite_duplicate_lines(tmp_path, monkeypatch):
+    """Claude Code writes one transcript line per content block, so a single
+    assistant message (with identical usage) appears several times. Summing
+    every line over-counts ~2.5x against the app's own per-turn receipts."""
+    dup = json.dumps({
+        "message": {"id": "msg_1", "role": "assistant",
+                    "usage": {"input_tokens": 10, "output_tokens": 5}},
+        "timestamp": "2026-07-17T10:00:00.000Z",
+    })
+    other = json.dumps({
+        "message": {"id": "msg_2", "role": "assistant",
+                    "usage": {"input_tokens": 1, "output_tokens": 2}},
+        "timestamp": "2026-07-17T10:01:00.000Z",
+    })
+    _write_transcript(tmp_path, monkeypatch, "sess1", "/proj", [dup, dup, dup, other])
+
+    totals = ct.sum_tokens("sess1", "/proj")
+
+    assert totals["input"] == 11
+    assert totals["output"] == 7
+
+
+def test_sum_tokens_lines_without_message_id_are_each_counted(tmp_path, monkeypatch):
+    """No id means no way to deduplicate — counting both beats dropping one."""
+    _write_transcript(tmp_path, monkeypatch, "sess1", "/proj", [
+        _usage_line("2026-07-17T10:00:00.000Z", input_tokens=3),
+        _usage_line("2026-07-17T10:00:00.000Z", input_tokens=3),
+    ])
+
+    assert ct.sum_tokens("sess1", "/proj")["input"] == 6
+
+
 def test_sum_tokens_ignores_non_assistant_lines(tmp_path, monkeypatch):
     user_line = json.dumps({"message": {"role": "user", "content": "hi"},
                              "timestamp": "2026-07-17T10:00:00.000Z"})

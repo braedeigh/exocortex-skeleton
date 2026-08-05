@@ -163,6 +163,14 @@ def sum_tokens(session_id, cwd, since=None, until=None):
     (total = sum of the other four). Missing file, unparseable lines, or a
     line with an unparseable timestamp when a window is given -> that line
     contributes zero, silently. Never raises.
+
+    Each assistant message is counted ONCE, deduplicated by message.id:
+    Claude Code writes one transcript line per content block, so a single
+    message (and its identical usage object) appears 2-5 times in the file.
+    Verified 2026-08-04 against the app's own per-turn receipts: summing
+    every line over-counts ~2.5x; deduplicated sums match the receipts
+    exactly. A message with no id can't be deduplicated and is counted as
+    seen — over-counting a line is better than silently dropping one.
     """
     totals = dict(_ZERO_TOTALS)
     path = transcript_path(session_id, cwd)
@@ -172,6 +180,7 @@ def sum_tokens(session_id, cwd, since=None, until=None):
     since_dt = _coerce_dt(since)
     until_dt = _coerce_dt(until)
     windowed = since_dt is not None or until_dt is not None
+    seen_ids = set()
 
     try:
         fh = path.open('r', encoding='utf-8', errors='replace')
@@ -205,6 +214,13 @@ def sum_tokens(session_id, cwd, since=None, until=None):
                     continue
                 if until_dt is not None and ts > until_dt:
                     continue
+
+            # One message, one count — see the docstring's dedup note.
+            msg_id = message.get("id")
+            if msg_id:
+                if msg_id in seen_ids:
+                    continue
+                seen_ids.add(msg_id)
 
             try:
                 inp = int(usage.get("input_tokens") or 0)

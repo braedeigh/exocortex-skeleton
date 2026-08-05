@@ -1,0 +1,276 @@
+/* TerrainUsageView — the attention ranking as a page inside the Terrain page
+   (TerrainUsageView.tsx).
+
+   The inset is the design. It sits below Terrain's top chrome and stops short
+   of all four edges, so the map stays visible AROUND it — you haven't left the
+   terrain, you've opened a room in it. A full-bleed takeover would have been a
+   different page wearing Terrain's URL; the visible margin is what makes the
+   nesting legible without a word of explanation.
+
+   Glass rather than solid, same as the colour key: the map showing faintly
+   through says the same thing the margin does. Opaque enough that a ranked list
+   of small numbers stays readable over whatever the map puts behind it —
+   legibility wins where the two pull against each other. */
+
+.view {
+  position: absolute;
+  /* Clears Terrain's floating top chrome; the map shows in the gap. */
+  top: calc(var(--space-3) + 52px);
+  left: var(--space-3);
+  right: var(--space-3);
+  bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--card-bg) 94%, transparent);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.32);
+  pointer-events: auto;
+  overflow: hidden;
+  animation: viewIn 260ms cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+
+/* Opacity and transform only — nothing here touches layout. */
+@keyframes viewIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.heading {
+  min-width: 0;
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--text);
+}
+
+.sub {
+  margin: 2px 0 0;
+  font-size: var(--font-size-md);
+  color: var(--text-muted);
+}
+
+/* A way back, not a dismissal — the destination is named because it's a route. */
+.back {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--text) 22%, transparent);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--card-bg) 55%, transparent);
+  color: var(--text-secondary);
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.back:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+/* --- the window presets — same pill vocabulary as the heat bar next door --- */
+.windows {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+}
+
+.window {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 var(--space-2);
+  border: 1px solid color-mix(in srgb, var(--text) 22%, transparent);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--card-bg) 55%, transparent);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: var(--font-size-md);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.windowOn {
+  border-color: var(--accent);
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 18%, var(--card-bg));
+}
+
+/* --- the table ----------------------------------------------------------
+
+   One line per place now that there's width for it: name, bar, then the three
+   numbers in their own columns. The bar takes every pixel the fixed columns
+   don't, so comparisons stay easy to read as the panel resizes. */
+
+.columns,
+.row {
+  display: grid;
+  grid-template-columns: minmax(7rem, 13rem) 1fr 4.5rem 4rem 4rem;
+  align-items: center;
+  column-gap: var(--space-2);
+}
+
+.columns {
+  padding-bottom: var(--space-1);
+  border-bottom: 1px solid var(--border-soft);
+  font-size: var(--font-size-md);
+  color: var(--text-muted);
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* Rows breathe here in a way they couldn't in a panel — the extra width bought
+   legibility, not more encodings. */
+.row {
+  padding: var(--space-2) 0;
+}
+
+.row + .row {
+  border-top: 1px solid color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+.label {
+  font-size: var(--font-size-md);
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Thin: it's a comparison, not a block of paint. Rounded at the data end,
+   anchored flush left so length reads off a shared baseline. */
+.track {
+  position: relative;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  overflow: hidden;
+}
+
+.fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  transform-origin: left center;
+  animation: growIn 320ms cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+
+@keyframes growIn {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fill,
+  .view {
+    animation: none;
+  }
+}
+
+.num {
+  font-size: var(--font-size-md);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* Dwell is the ranked measure, so it keeps full ink weight; the other two
+   recede. Hierarchy from colour and weight — nothing shrinks below readable. */
+.dwell {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.muted {
+  color: var(--text-muted);
+}
+
+.note {
+  margin: var(--space-2) 0;
+  font-size: var(--font-size-md);
+  color: var(--text-secondary);
+}
+
+.foot {
+  margin: 0;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-soft);
+  font-size: var(--font-size-md);
+  color: var(--text-muted);
+}
+
+/* --- narrow ------------------------------------------------------------
+
+   Five columns don't survive a phone. The row folds to two lines — name and
+   dwell up top, bar and the two secondary counts beneath — and the frame's
+   margins tighten so the list keeps the width it has. */
+@media (max-width: 560px) {
+  .view {
+    left: var(--space-1);
+    right: var(--space-1);
+    padding: var(--space-2);
+  }
+
+  .columns {
+    display: none;
+  }
+
+  .row {
+    grid-template-columns: 1fr auto auto;
+    row-gap: 4px;
+  }
+
+  .label {
+    grid-column: 1 / 3;
+  }
+
+  .dwell {
+    grid-column: 3;
+  }
+
+  .track {
+    grid-column: 1 / 2;
+    grid-row: 2;
+  }
+
+  .muted {
+    grid-row: 2;
+  }
+}
