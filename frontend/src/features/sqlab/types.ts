@@ -52,3 +52,24 @@ export interface TypedTable {
   kind: 'table';
   records: number;
 }
+
+/** One statement's outcome in the sandbox. An `error` here is usually the
+ *  lesson, not a failure — the script keeps running past it. */
+export interface SandboxResult {
+  sql: string;
+  ok: boolean;
+  columns: string[];
+  rows: SqlCell[][];
+  truncated: boolean;
+  /** Rows a write changed; null for statements that don't change rows. */
+  changed: number | null;
+  ms: number;
+  error: string | null;
+}
+
+export interface SandboxResponse {
+  results: SandboxResult[];
+  tables: SqlTable[];
+  /** The script ended mid-transaction, so the server rolled it back. */
+  rolled_back: boolean;
+}

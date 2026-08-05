@@ -28,7 +28,7 @@ from routes import (
     research_search, research_sources, research_import, research_text,
     annotations, spa, fronts, wiki, travel, profile, usage, streaks, spinoff,
     observatory, terrain, automations, nightcrew, push, claude_auth, run_queue,
-    sqlab,
+    sqlab, sandbox,
 )
 from routes.shell import VALID_TABS
 
@@ -1161,6 +1161,7 @@ usage.register(app)
 push.register(app)
 claude_auth.register(app)
 sqlab.register(app)
+sandbox.register(app)
 
 # --- Startup ---
 # Seed the journaling engine (stream.py + friends) into a fresh CONTENT_DIR — see

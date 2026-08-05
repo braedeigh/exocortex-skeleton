@@ -1,11 +1,13 @@
 /**
- * SqlLabPage — a read-only SQL console over exo.db, for learning by poking.
+ * SqlLabPage — the database's own page. Three views:
  *
- * Three panes: the schema down the left (every table, its columns, its
- * indexes, its row count), a query editor with a ladder of clickable example
- * queries, and the result below it.
+ *   Map      — what's in here, sized and classified (CollectionMap).
+ *   Console  — READ-ONLY queries against the real exo.db.
+ *   Sandbox  — a separate, fully writable scratch database (SandboxPanel),
+ *              which is where INSERT/UPDATE/DELETE/CREATE live. The console
+ *              can't teach those, because it points at real data.
  *
- * Two deliberate choices:
+ * The console's own two deliberate choices:
  *   - The query plan is shown with every result, not hidden behind a button.
  *     Seeing 'SCAN habit_entries' turn into 'SEARCH … USING INDEX' is how an
  *     index stops being a word and starts being a thing that happened.
@@ -21,6 +23,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ApiError } from '../../api/client';
 import { getCollections, getSchema, rebuildHabits, runQuery } from './api';
 import { CollectionMap } from './CollectionMap';
+import { SandboxPanel } from './SandboxPanel';
 import { EXAMPLES } from './examples';
 import type { Collection, SqlCell, SqlResult, SqlTable, TypedTable } from './types';
 import styles from './SqlLabPage.module.css';
@@ -28,11 +31,18 @@ import styles from './SqlLabPage.module.css';
 const STORAGE_KEY = 'sqlab_query';
 const VIEW_KEY = 'sqlab_view';
 
-type View = 'map' | 'console';
+type View = 'map' | 'console' | 'sandbox';
+
+const VIEWS: { key: View; label: string }[] = [
+  { key: 'map', label: 'Map' },
+  { key: 'console', label: 'Console' },
+  { key: 'sandbox', label: 'Sandbox' },
+];
 
 function readStoredView(): View {
   try {
-    return localStorage.getItem(VIEW_KEY) === 'console' ? 'console' : 'map';
+    const stored = localStorage.getItem(VIEW_KEY);
+    return VIEWS.some((v) => v.key === stored) ? (stored as View) : 'map';
   } catch {
     return 'map';
   }
@@ -138,20 +148,16 @@ export function SqlLabPage() {
       <div className={styles.header}>
         <h2 className={styles.title}>SQL</h2>
         <div className={styles.viewSwitch}>
-          <button
-            type="button"
-            className={view === 'map' ? styles.viewBtnOn : styles.viewBtn}
-            onClick={() => pickView('map')}
-          >
-            Map
-          </button>
-          <button
-            type="button"
-            className={view === 'console' ? styles.viewBtnOn : styles.viewBtn}
-            onClick={() => pickView('console')}
-          >
-            Console
-          </button>
+          {VIEWS.map((v) => (
+            <button
+              key={v.key}
+              type="button"
+              className={view === v.key ? styles.viewBtnOn : styles.viewBtn}
+              onClick={() => pickView(v.key)}
+            >
+              {v.label}
+            </button>
+          ))}
         </div>
         <button type="button" className={styles.rebuildBtn} onClick={() => void rebuild()} disabled={busy}>
           ↻ Rebuild habit tables
@@ -161,6 +167,8 @@ export function SqlLabPage() {
       {note && <div className={styles.note}>{note}</div>}
 
       {view === 'map' && <CollectionMap blobs={blobs} typed={typed} />}
+
+      {view === 'sandbox' && <SandboxPanel />}
 
       {view === 'console' && (
       <div className={styles.layout}>

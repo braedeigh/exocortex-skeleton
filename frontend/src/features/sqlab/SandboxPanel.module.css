@@ -1,0 +1,478 @@
+/* Sandbox chrome. Same two-column shape as the console so switching between
+ * them doesn't feel like a different app — schema left, work right. */
+
+.sandbox {
+  padding-bottom: var(--space-6);
+}
+
+/* Stated once, at the top, in plain words: nothing here can hurt real data. */
+.warnBar {
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+  border: 1px solid var(--border-soft);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+/* --- lessons --- */
+
+.lessons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.lesson {
+  min-height: var(--tap-target, 40px);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--card-bg);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.lesson:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+/* --- layout --- */
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(200px, 260px) 1fr;
+  gap: var(--space-4);
+  align-items: start;
+}
+
+@media (max-width: 780px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.main {
+  min-width: 0;
+}
+
+/* --- schema --- */
+
+.schema {
+  background: var(--card-bg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3);
+  box-shadow: var(--shadow-card);
+}
+
+.schemaHead {
+  font-size: var(--font-size-sm);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: var(--space-2);
+}
+
+.emptySchema {
+  padding: var(--space-3) 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+.tableRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-height: 34px;
+  margin-top: var(--space-2);
+  border-top: 1px solid var(--border-soft);
+  padding-top: var(--space-2);
+}
+
+.tableName {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--font-size-base);
+  color: var(--text);
+}
+
+.rowCount {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.column {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 2px 0 2px var(--space-3);
+  font-size: var(--font-size-sm);
+}
+
+.colName {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  color: var(--text-secondary);
+}
+
+.colType {
+  color: var(--text-muted);
+}
+
+.indexRow {
+  padding: 2px 0 2px var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.schemaActions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-soft);
+}
+
+.smallBtn,
+.dangerBtn {
+  min-height: var(--tap-target, 40px);
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.smallBtn {
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--text-secondary);
+}
+
+.dangerBtn {
+  border: 1px solid var(--red);
+  background: var(--card-bg);
+  color: var(--red);
+}
+
+.smallBtn:disabled,
+.dangerBtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* --- builder --- */
+
+.builderToggle {
+  min-height: var(--tap-target, 40px);
+  padding: 0 var(--space-3);
+  margin-bottom: var(--space-2);
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-size-base);
+  cursor: pointer;
+}
+
+.builder {
+  padding: var(--space-3);
+  margin-bottom: var(--space-3);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+}
+
+.kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.kind,
+.kindOn {
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.kind {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.kindOn {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: end;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.field input,
+.field select,
+.colInput {
+  min-height: 36px;
+  min-width: 130px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--font-size-sm);
+}
+
+.check,
+.flag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 36px;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.check input,
+.flag input {
+  width: 18px;
+  height: 18px;
+}
+
+/* --- column editor (CREATE TABLE) --- */
+
+.columnsEditor {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-soft);
+}
+
+.columnsHead {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  margin-bottom: var(--space-2);
+}
+
+.colRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.removeCol {
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card-bg);
+  color: var(--red);
+  font-size: var(--font-size-lg);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.preview {
+  margin: var(--space-3) 0 var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  color: var(--text-secondary);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+
+/* --- editor --- */
+
+.editor {
+  width: 100%;
+  min-height: 220px;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
+  color: var(--text);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--font-size-base);
+  line-height: 1.55;
+  resize: vertical;
+}
+
+.editor:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: var(--space-3) 0;
+}
+
+.runBtn {
+  min-height: var(--tap-target, 40px);
+  padding: 0 var(--space-6);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--accent);
+  color: #fff;
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.runBtn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.hint {
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+/* --- feedback --- */
+
+.note,
+.error,
+.warn {
+  padding: var(--space-3);
+  margin-bottom: var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-base);
+  line-height: 1.5;
+}
+
+.note {
+  background: var(--card-bg);
+  border: 1px solid var(--border-soft);
+  color: var(--text-secondary);
+}
+
+.error {
+  background: var(--card-bg);
+  border: 1px solid var(--red);
+  color: var(--red);
+}
+
+.warn {
+  background: var(--card-bg);
+  border: 1px solid var(--orange);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+/* --- per-statement results --- */
+
+.result,
+.resultBad {
+  margin-bottom: var(--space-3);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+}
+
+/* A failed statement is bordered, not screaming: here it's usually intended. */
+.resultBad {
+  border-color: var(--orange);
+}
+
+.resultSql {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg);
+  color: var(--text-secondary);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.resultMeta {
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  background: var(--card-bg);
+}
+
+.errorText {
+  padding: var(--space-3);
+  background: var(--card-bg);
+  color: var(--red);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+.gridWrap {
+  overflow-x: auto;
+  background: var(--card-bg);
+}
+
+.grid {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+}
+
+.grid th,
+.grid td {
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.grid th {
+  background: var(--bg);
+  color: var(--text-muted);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-weight: 600;
+}
+
+.grid td {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.grid tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.null {
+  color: var(--text-muted);
+  font-style: italic;
+}
