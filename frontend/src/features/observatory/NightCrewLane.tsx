@@ -223,10 +223,11 @@ export function NightCrewLane({
     <section className={styles.lane}>
       {head}
       <p className={styles.blurb}>
-        Work done while you slept. It queues the oldest notes itself (un-moon
-        one to veto it for good), fixes one note per branch in a throwaway
-        worktree, runs the tests, and stops — and when a note isn&rsquo;t clear
-        it leaves questions instead of guessing. Nothing merges without you.
+        Work done while you slept. It fixes one moon-lit note per branch in a
+        throwaway worktree, runs the tests, and stops — and when a note
+        isn&rsquo;t clear it leaves questions on the note instead of guessing;
+        edit the note to answer and it retries the next night. Nothing merges
+        without you.
       </p>
 
       {live.length === 0 ? (

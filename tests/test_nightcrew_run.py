@@ -295,6 +295,32 @@ def test_max_notes_is_a_small_number():
     assert 1 <= nc.MAX_NOTES <= 5
 
 
+def test_self_queue_is_off_unless_she_arms_it(data_dir):
+    """The 2026-08-05 lesson: oldest-first self-queuing resurfaced notes she'd
+    been ignoring on purpose. Nomination must stay opt-in — absent flag,
+    absent row, and anything but literal true all mean off."""
+    import store
+    assert nc.self_queue_enabled() is False
+    store.write("scheduled_runs.json", {"runs": [{"id": "nightcrew", "enabled": True}]})
+    assert nc.self_queue_enabled() is False
+    store.write("scheduled_runs.json",
+                {"runs": [{"id": "nightcrew", "self_queue": "yes"}]})
+    assert nc.self_queue_enabled() is False
+    store.write("scheduled_runs.json",
+                {"runs": [{"id": "nightcrew", "self_queue": True}]})
+    assert nc.self_queue_enabled() is True
+
+
+def test_night_workers_are_born_ungated():
+    """The act-vs-ask gate raises cards nobody answers at midnight — the first
+    real night had workers denied plain grep. The conv entry must carry the
+    explicit act_gate:False override (which _conv_config honors over the
+    orchestra lane default); losing it re-starves the crew silently."""
+    import inspect
+    src = inspect.getsource(nc.run_agent)
+    assert '"act_gate": False' in src
+
+
 # --- branch sweep -----------------------------------------------------------
 
 def test_sweep_deletes_only_branches_past_the_ttl(monkeypatch):
