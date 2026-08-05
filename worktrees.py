@@ -247,6 +247,22 @@ def as_skeleton_path(path):
 # the merge tap, which isn't built. So today this answers "what changed", not
 # "does it work".
 
+def branch_evidence(branch, base="main"):
+    """What a branch carries, asked of the MAIN checkout — so it works for a
+    branch whose worktree is long gone. That's the common case on the branches
+    page: the copy is removed when its session closes, but the branch stays
+    until it's merged, and it's the branch she has to decide about."""
+    log = _git("log", "--oneline", f"{base}..{branch}").stdout.strip()
+    stat = _git("diff", "--shortstat", f"{base}...{branch}").stdout.strip()
+    names = _git("diff", "--name-only", f"{base}...{branch}").stdout.strip()
+    return {
+        "branch": branch,
+        "commits": [ln for ln in log.splitlines() if ln],
+        "diff_stat": stat,
+        "files": [ln for ln in names.splitlines() if ln],
+    }
+
+
 def evidence(worktree, branch, base="main"):
     """Facts about a session's branch, read from git. Never from the agent."""
     wt = Path(worktree)
