@@ -38,7 +38,7 @@ import sqlite3
 
 import store
 
-_SCHEMA_VERSION = 4
+_SCHEMA_VERSION = 5
 
 
 def _db_path():
@@ -73,6 +73,8 @@ _EXPECTED_TABLES = (
     "docs",
     "habits", "habit_aliases", "habit_entries",
     "expenses", "expense_categories",
+    "files", "file_paths", "commits", "commit_files",
+    "sessions", "session_files",
 )
 
 
@@ -220,6 +222,121 @@ def _migrate(conn):
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_expenses_category"
             " ON expenses (category_id)"
+        )
+    if version < 5:
+        # Typed tables, entity #3: the codebase's own history (see codestore.py
+        # for what fills them). Git is the source of truth here — these tables
+        # are a queryable INDEX over it, never a second copy anyone edits. Same
+        # derived-and-rebuildable contract as habits and expenses, with one
+        # twist: the source is two git repos plus the session sidecars, not a
+        # JSON blob.
+        #
+        # A file is a ROW with a stable id; its path is an attribute, not its
+        # identity — a rename updates the path and the id survives, which is
+        # habit_aliases' identity lesson applied to files. `file_paths` maps
+        # every path a file has ever worn onto its row (most recent owner wins
+        # when a path is reused).
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS files ("
+            "  id INTEGER PRIMARY KEY,"
+            # 'skeleton' or 'vault' — the two repos Terrain covers. TEXT rather
+            # than a table of its own: two values, and the ids are already the
+            # public names the terrain payload uses.
+            "  repo TEXT NOT NULL,"
+            # The path the file wears NOW (or wore last, if deleted). No UNIQUE
+            # constraint on purpose: two different files can have worn the same
+            # path in different eras, and both eras deserve their own row.
+            # Lookups go through file_paths, not this column.
+            "  path TEXT NOT NULL,"
+            # NULL first_seen means git has never seen it — a session touched a
+            # file that was never committed (or not committed yet).
+            "  first_seen TEXT,"
+            "  last_seen TEXT,"
+            # Set when a commit deletes the file, cleared if a later commit
+            # brings the path back. NULL = alive.
+            "  deleted_at TEXT"
+            ")"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_files_repo_path ON files (repo, path)"
+        )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS file_paths ("
+            "  repo TEXT NOT NULL,"
+            "  path TEXT NOT NULL,"
+            "  file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,"
+            "  PRIMARY KEY (repo, path)"
+            ")"
+        )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS commits ("
+            "  sha TEXT PRIMARY KEY,"
+            "  repo TEXT NOT NULL,"
+            # Both clocks for the same instant: epoch seconds for maths and the
+            # terrain payload, local ISO text for joining against everything
+            # else in this system (journal days, habit dates) with strftime.
+            "  authored_ts INTEGER NOT NULL,"
+            "  authored_at TEXT NOT NULL,"
+            "  author TEXT NOT NULL DEFAULT '',"
+            "  subject TEXT NOT NULL DEFAULT ''"
+            ")"
+        )
+        # Almost every question is "over what period" — same reasoning as
+        # idx_expenses_date.
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_commits_repo_ts"
+            " ON commits (repo, authored_ts)"
+        )
+        # The many-to-many-carrying-data shape, third appearance in this file
+        # (habit_entries, then expenses→categories, now this). "Which files
+        # change together" is a self-join on it.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS commit_files ("
+            "  sha TEXT NOT NULL REFERENCES commits(sha) ON DELETE CASCADE,"
+            "  file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,"
+            # Git's own letter: A added, M modified, D deleted, R renamed-to,
+            # C copied-to, T type-changed.
+            "  status TEXT NOT NULL DEFAULT 'M',"
+            # Line counts from --numstat. NULL means git couldn't count
+            # (binary files) — distinct from 0, which means counted-as-zero.
+            "  added INTEGER,"
+            "  removed INTEGER,"
+            "  PRIMARY KEY (sha, file_id)"
+            ")"
+        )
+        # File-first index: "this file's whole history" is the query the
+        # (sha, file_id) primary key can't serve.
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_commit_files_file"
+            " ON commit_files (file_id)"
+        )
+        # Observatory sessions and which files they touched — the harvest that
+        # already exists as bot_chats/footprints.json, made joinable. Wholly
+        # derived from the sidecars; codestore.sync_sessions() rebuilds both.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS sessions ("
+            "  id TEXT PRIMARY KEY,"
+            "  title TEXT NOT NULL DEFAULT '',"
+            "  bot TEXT,"
+            "  lane TEXT,"
+            "  started TEXT,"
+            "  last_at TEXT"
+            ")"
+        )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS session_files ("
+            "  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,"
+            "  file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,"
+            "  writes INTEGER NOT NULL DEFAULT 0,"
+            "  reads INTEGER NOT NULL DEFAULT 0,"
+            "  creates INTEGER NOT NULL DEFAULT 0,"
+            "  last TEXT,"
+            "  PRIMARY KEY (session_id, file_id)"
+            ")"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_session_files_file"
+            " ON session_files (file_id)"
         )
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")

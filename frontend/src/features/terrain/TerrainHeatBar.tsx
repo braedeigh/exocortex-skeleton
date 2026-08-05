@@ -17,10 +17,10 @@ import styles from './TerrainHeatBar.module.css';
  * Four things worth knowing about the shape of it:
  *
  * 1. **The track is logarithmic**, like the Files dial next door and for the
- *    same reason: one day to one month is a 30x span, so a linear track would
- *    bunch the two most-used settings into its left fifth and spend most of
- *    its travel on the difference between three weeks and a month. On a log
- *    track the three presets land at 0%, ~57% and 100%.
+ *    same reason: one day to one year is a 365x span, so a linear track would
+ *    bunch the most-used settings into its left sliver and spend most of its
+ *    travel on the difference between ten months and twelve. On a log track
+ *    the day/week/month/year presets land at roughly even strides.
  * 2. **The map's own colour ramp is painted along the track**, so the control
  *    IS the legend: read as an age axis, the colour under any point is what a
  *    file that old wears on the map right now. Drag right and the whole ramp
@@ -59,6 +59,7 @@ const PRESETS: readonly { days: number; label: string }[] = [
   { days: 1, label: '1 day' },
   { days: 7, label: '1 week' },
   { days: 30, label: '1 month' },
+  { days: 365, label: '1 year' },
 ];
 
 /** Where a given day sits along the log track, 0..100%. Shared by the tick
@@ -67,7 +68,15 @@ function trackPct(days: number): number {
   return (posFromValue(days, HEAT_DAYS_MIN, HEAT_DAYS_MAX) / POS_STEPS) * 100;
 }
 
-const TICK_DAYS = Array.from({ length: HEAT_DAYS_MAX }, (_, i) => i + 1);
+/** The ruler: a tick per day out to a month, then a tick per 30 days to the
+ * year end. Daily ticks past a month would smear into a solid bar on a log
+ * track that now runs to 365 — the ruler switches to the unit the eye
+ * actually reads at that distance, same instinct as formatAge's unit ladder. */
+const TICK_DAYS = [
+  ...Array.from({ length: 30 }, (_, i) => i + 1),
+  ...Array.from({ length: 11 }, (_, i) => (i + 2) * 30),
+  365,
+];
 
 export interface TerrainHeatBarProps {
   /** The half-life in days. Whole days when she set it; fractional while the

@@ -1,8 +1,8 @@
 /**
  * api.ts — typed fetch for GET /api/observatory/terrain (routes/observatory.py,
  * built in parallel with this page — see terrainGraph.ts for the contract this
- * was coded against). "Where is being worked on": every repo's file tree in
- * the last `window_days`, files glowing ember by recency of touch.
+ * was coded against). "Where is being worked on": every repo's file tree
+ * across its whole git history, files glowing ember by recency of touch.
  */
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../api/client';
@@ -68,7 +68,10 @@ export interface TerrainLiveSession {
 
 export interface TerrainData {
   generated_at: string;
-  window_days: number;
+  /** null since the payload went whole-history (the server used to cut at 90
+   * days and said so here); kept for old cached payloads, and as the empty-map
+   * fallback horizon in terrainEarliestTouch. */
+  window_days: number | null;
   /** The hottest-N-per-repo cut this payload was built at; null = every file.
    * The Files slider reads it to know whether it can grow locally or must
    * refetch. */

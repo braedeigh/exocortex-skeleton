@@ -96,6 +96,17 @@ import worktrees  # noqa: E402
 worktrees.WORKTREE_ROOT = pathlib.Path(_TEST_ROOT) / "worktrees"
 worktrees.SKELETON = pathlib.Path(_TEST_ROOT) / "not-a-repo"
 
+# Same floor for the code-history walker: codestore.default_repos() resolves
+# the REAL skeleton checkout (store.BUILD_DIR is this repo, not an env var),
+# so any test that reaches rebuild()/update() without passing repos would walk
+# hundreds of real commits into its tmp database — slow, and coupled to live
+# history. Reads only, so no data is at risk; the floor is speed + isolation.
+# Tests that want real git behaviour build scratch repos and pass them in
+# explicitly (tests/test_codestore.py), which bypasses this default entirely.
+import codestore  # noqa: E402
+
+codestore.default_repos = lambda: ()
+
 
 @pytest.fixture
 def data_dir(tmp_path, monkeypatch):

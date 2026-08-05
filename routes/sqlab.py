@@ -51,6 +51,7 @@ import time
 
 from flask import jsonify, request
 
+import codestore
 import expensestore
 import habitstore
 import store
@@ -64,7 +65,9 @@ TIMEOUT_SECONDS = 5.0
 # blob is still the source of truth and the table is derived from it, so both
 # are real and the response keeps them in separate lists.
 TYPED_TABLES = ("habits", "habit_aliases", "habit_entries",
-                "expenses", "expense_categories")
+                "expenses", "expense_categories",
+                "files", "file_paths", "commits", "commit_files",
+                "sessions", "session_files")
 
 _DATE_KEY = re.compile(r"^\d{4}-\d{2}-\d{2}")
 
@@ -267,11 +270,14 @@ def register(app):
 
     @app.route("/api/sql/rebuild", methods=["POST"])
     def sql_rebuild():
-        """Re-derive every typed table from its blob — the undo button.
+        """Re-derive every typed table from its source — the undo button.
 
-        Nothing here can hurt the blobs: both rebuilds read them and never
-        write them.
+        Nothing here can hurt the sources: all three rebuilds only read them
+        (JSON blobs for habits and expenses; git + the bot_chats sidecars for
+        code history).
         """
         habits = habitstore.rebuild()
         expenses = expensestore.rebuild()
-        return jsonify({"ok": True, "habits": habits, "expenses": expenses})
+        code = codestore.rebuild()
+        return jsonify({"ok": True, "habits": habits, "expenses": expenses,
+                        "code": code})

@@ -150,7 +150,8 @@ def test_collections_reports_typed_tables_separately(client):
     order of magnitude."""
     body = client.get("/api/sql/collections").get_json()
     assert {t["name"] for t in body["typed"]} == {
-        "habits", "habit_aliases", "habit_entries", "expenses", "expense_categories"}
+        "habits", "habit_aliases", "habit_entries", "expenses", "expense_categories",
+        "files", "file_paths", "commits", "commit_files", "sessions", "session_files"}
     assert all(t["kind"] == "table" for t in body["typed"])
     # 'expenses' is BOTH a typed table and a blob collection during the
     # migration — the blob is still the source of truth. They must not collide

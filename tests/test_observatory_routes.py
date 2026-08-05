@@ -1042,12 +1042,13 @@ def test_her_next_send_clears_the_red_before_the_turn_runs(bot_client, monkeypat
 
 
 # --- Terrain (GET /api/observatory/terrain) ---------------------------------
-# The file-tree heatmap's data layer: git heat (routes/observatory.py's own
-# `git log` call) merged with bot_chats footprint attribution (scripts/
-# extract_footprints.py's sidecar). Repo roots are monkeypatched to scratch
-# git repos under tmp_path — never the real skeleton/vault checkouts — and
-# the module-level cache is reset per test so runs don't bleed into each
-# other.
+# The file-tree heatmap's data layer: git heat (the code-history tables in
+# exo.db, caught up on each cache miss via codestore.update) merged with
+# bot_chats footprint attribution (scripts/extract_footprints.py's sidecar).
+# Repo roots are monkeypatched to scratch git repos under tmp_path — never
+# the real skeleton/vault checkouts — so the walk indexes those into the
+# test's own tmp database; the module-level cache is reset per test so runs
+# don't bleed into each other.
 
 def _git(repo, *args):
     subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
@@ -1104,7 +1105,7 @@ def test_terrain_returns_200_with_missing_sidecars(terrain_client, tmp_path, mon
     assert resp.status_code == 200
     data = resp.get_json()
     assert set(data.keys()) == {"generated_at", "window_days", "file_cap", "repos", "sessions"}
-    assert data["window_days"] == 90
+    assert data["window_days"] is None   # whole history — no server-side horizon
     assert [r["id"] for r in data["repos"]] == ["skeleton", "vault"]
     assert all(r["files"] == [] for r in data["repos"])
     assert data["sessions"] == []
@@ -1274,7 +1275,7 @@ def test_open_session_joins_the_roster_with_no_footprint_and_nothing_running(
 def test_terrain_caches_the_payload_for_the_ttl(terrain_client, tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(terrain, "_terrain_git_touches",
-                        lambda root, window_days: calls.append(root) or {})
+                        lambda repo_id: calls.append(repo_id) or {})
     _set_terrain_repos(monkeypatch, tmp_path / "a", tmp_path / "b")
 
     terrain_client.get("/api/observatory/terrain")
@@ -1289,7 +1290,7 @@ def test_terrain_caches_the_payload_for_the_ttl(terrain_client, tmp_path, monkey
 def test_terrain_ttl_shortens_while_a_session_is_running(terrain_client, tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(terrain, "_terrain_git_touches",
-                        lambda root, window_days: calls.append(root) or {})
+                        lambda repo_id: calls.append(repo_id) or {})
     _set_terrain_repos(monkeypatch, tmp_path / "a", tmp_path / "b")
     (store.DATA_DIR / "bot_chats").mkdir(parents=True, exist_ok=True)
     store.write("bot_chats/index", {"conv-live": {
@@ -1358,7 +1359,7 @@ def test_limit_is_bounded_so_one_request_cannot_ask_for_everything(terrain_clien
 def test_each_limit_gets_its_own_cache_slot(terrain_client, tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(terrain, "_terrain_git_touches",
-                        lambda root, window_days: calls.append(root) or {})
+                        lambda repo_id: calls.append(repo_id) or {})
     _set_terrain_repos(monkeypatch, tmp_path / "a", tmp_path / "b")
 
     terrain_client.get("/api/observatory/terrain?limit=100")

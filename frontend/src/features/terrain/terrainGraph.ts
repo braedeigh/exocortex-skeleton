@@ -33,11 +33,12 @@ export function halfLifeSeconds(span: HeatSpan): number {
   return typeof span === 'number' ? span : LENS_HALF_LIFE_SECONDS[span];
 }
 
-/** The heat bar's ends, in whole days: one day out to one month. Same two
- * values the old Day/Week/Month chips sat between — the chips were only ever
- * three presets on a range the heat math always supported. */
+/** The heat bar's ends, in whole days: one day out to one year. The far end
+ * grew from a month when the payload stopped being windowed to 90 days — the
+ * server now sends every touch in both repos' git history (codestore.py), so
+ * the bar can afford a memory as long as the history itself. */
 export const HEAT_DAYS_MIN = 1;
-export const HEAT_DAYS_MAX = 30;
+export const HEAT_DAYS_MAX = 365;
 
 /** Compact age label — minutes under an hour, hours under a day, then days.
  * One unit ladder the whole way rather than switching to weeks partway, so

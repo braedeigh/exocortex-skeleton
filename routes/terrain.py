@@ -1,9 +1,16 @@
 """Terrain API — a force-directed file-tree heatmap of where work has
-happened, fed by git history (coverage of everything) and bot_chats
+happened, fed by code history (coverage of everything) and bot_chats
 footprints (attribution of which session touched which file). Serves the two
 endpoints the map reads: GET /api/observatory/terrain (the payload) and GET
 /api/observatory/terrain/file (one file's text for the tap-a-node code
 modal). See scripts/extract_footprints.py for the footprints sidecar.
+
+Git heat comes from the code-history tables in exo.db (codestore.py), not
+from running `git log` per request. On every cache miss this module first
+asks codestore.update() to catch the tables up to both repos' HEADs — cheap
+when nothing is new — then reads the WHOLE history: the old 90-day window
+and 60-touch-per-file cap existed to keep a per-request subprocess bearable,
+and they went with it. The heat bar can now scrub all the way back.
 
 Split out of routes/observatory.py on 08-03 — the heatmap had grown its own
 caching, ranking and path-security model (~450 lines) inside the session
@@ -24,21 +31,13 @@ from fnmatch import fnmatch
 from pathlib import Path
 import os
 import re
-import subprocess
 import time
 
+import codestore
 import store
 from routes import observatory
 from scripts.extract_footprints import harvest_conversation
 
-_TERRAIN_WINDOW_DAYS = 90
-_TERRAIN_TOUCH_CAP = 60           # newest git touches kept per file. Sized for
-                                  # the client's date-range filter: it slices
-                                  # these timestamps, so a file whose older
-                                  # touches were trimmed would read as "not
-                                  # touched" in an early window. At ~8 weeks of
-                                  # history and hourly vault backups, 60 covers
-                                  # the busiest files end to end.
 _TERRAIN_FILE_CAP = 350           # DEFAULT hottest files kept per repo (a phone
                                   # canvas force-sim drowns past the low
                                   # hundreds). The client's Files slider
@@ -50,14 +49,14 @@ _TERRAIN_FILE_CAP_MAX = 5000      # ceiling on ?limit= — above the real corpus
                                   # still a bound on what one request can build
 _TERRAIN_CACHE_SLOTS = 6          # distinct ?limit= payloads kept warm at once
 _TERRAIN_CAP_HALF_LIFE_SEC = 7 * 86400   # week half-life for the cap ranking only
-_TERRAIN_CACHE_TTL_SEC = 300      # git log over two repos isn't free
+_TERRAIN_CACHE_TTL_SEC = 300      # building the payload still reads the whole
+                                  # history + sidecars; not per-tap work
 _TERRAIN_LIVE_TTL_SEC = 5         # ...but a mid-turn session must read fresh:
                                   # while anything is running, the cache ages
                                   # out fast enough for a polling client
 _TERRAIN_LIVE_WINDOW_SEC = 15 * 60   # how recently-active a conversation must
                                      # be for a live jsonl re-parse (the batch
                                      # sidecar may lag it)
-_TERRAIN_GIT_MARKER = "\x01commit\x01"   # unlikely to collide with a real filename
 
 # Machine-churn denylist: the vault gets hourly auto-backup commits, so
 # app-state files (databases, logs, session sidecars, build output) would
@@ -246,35 +245,27 @@ def _terrain_clean_summary(raw, max_chars=600):
     return summary
 
 
-def _terrain_git_touches(root, window_days):
-    """{repo-relative path: [unix_ts, ...]} for every file `git log` says was
-    touched in the window, newest-first-uncapped (caller caps). Defensive:
-    a missing git binary, a root that isn't a repo, or any subprocess hiccup
-    yields {} — git heat is a nice-to-have layer, never a 500."""
+def _terrain_git_touches(repo_id):
+    """{repo-relative path: [unix_ts, ...]} for every living file, newest
+    first, the whole history — read from the code-history tables rather than
+    a `git log` subprocess. Defensive: any database hiccup yields {} — git
+    heat is a nice-to-have layer, never a 500."""
     try:
-        proc = subprocess.run(
-            ["git", "log", f"--since={window_days}.days",
-             f"--pretty=format:{_TERRAIN_GIT_MARKER}%ct", "--name-only"],
-            cwd=str(root), capture_output=True, text=True, timeout=30,
-        )
-    except (OSError, subprocess.SubprocessError):
+        return codestore.touches(repo_id)
+    except Exception:
         return {}
-    if proc.returncode != 0:
-        return {}
-    touches = {}
-    current_ts = None
-    for line in proc.stdout.splitlines():
-        if line.startswith(_TERRAIN_GIT_MARKER):
-            try:
-                current_ts = int(line[len(_TERRAIN_GIT_MARKER):])
-            except ValueError:
-                current_ts = None
-            continue
-        line = line.strip()
-        if not line or current_ts is None:
-            continue
-        touches.setdefault(line, []).append(current_ts)
-    return touches
+
+
+def _terrain_refresh_history():
+    """Catch the code-history tables up to both repos before building a
+    payload. codestore.update() costs one `git rev-list` per repo when
+    nothing is new, so eager-on-cache-miss keeps the map at most one cache
+    TTL stale without any cron in the loop. Failure is swallowed for the
+    same reason as above: yesterday's heat beats a 500."""
+    try:
+        codestore.update(observatory._terrain_repos())
+    except Exception:
+        pass
 
 
 def _terrain_session_title(conv_id, gists, index):
@@ -356,10 +347,13 @@ def _build_terrain(file_cap=_TERRAIN_FILE_CAP):
         root = repo["root"]
         files = {}   # repo-relative path -> {"touches": [...], "sessions": {conv_id: {...}}}
 
-        for relpath, epochs in _terrain_git_touches(root, _TERRAIN_WINDOW_DAYS).items():
+        # The machine-churn denylist applies HERE, at serve time — the tables
+        # underneath index everything, and what the map declines to draw is a
+        # display decision, not a storage one.
+        for relpath, epochs in _terrain_git_touches(repo["id"]).items():
             if _terrain_denylisted(relpath):
                 continue
-            files[relpath] = {"touches": sorted(epochs, reverse=True)[:_TERRAIN_TOUCH_CAP],
+            files[relpath] = {"touches": sorted(epochs, reverse=True),
                               "sessions": {}}
 
         # Session attribution: map each footprint's absolute path into this
@@ -450,7 +444,10 @@ def _build_terrain(file_cap=_TERRAIN_FILE_CAP):
     sessions_out.sort(key=lambda s: s.get("last") or "", reverse=True)
 
     return {"generated_at": datetime.now().isoformat(timespec="seconds"),
-            "window_days": _TERRAIN_WINDOW_DAYS,
+            # No window anymore — the payload carries the whole history. null
+            # tells the client "don't assume a horizon"; terrainGraph's
+            # earliest-touch scan finds the real one.
+            "window_days": None,
             # What this payload was cut to, so the client's Files slider knows
             # whether it already holds every file or must refetch to grow.
             "file_cap": file_cap,
@@ -462,9 +459,10 @@ def register(app):
     @app.route("/api/observatory/terrain")
     def observatory_terrain():
         """The heatmap's data layer: git heat + session attribution, merged
-        per repo/file. Cached in-process for _TERRAIN_CACHE_TTL_SEC — two
-        repos' worth of `git log` isn't free, and this isn't a per-tap read —
-        EXCEPT while a session is running: then the cache ages out at
+        per repo/file. On a cache miss the code-history tables are first
+        caught up to HEAD (codestore.update — cheap when nothing is new), so
+        freshness rides the cache: _TERRAIN_CACHE_TTL_SEC normally, EXCEPT
+        while a session is running: then the cache ages out at
         _TERRAIN_LIVE_TTL_SEC so a polling client sees live touches land.
         Running-ness is checked BEFORE consulting the cache (a cheap index
         read), so a turn starting mid-TTL shortens the window immediately.
@@ -482,6 +480,7 @@ def register(app):
         slot = _terrain_cache.get(file_cap)
         if slot is not None and now - slot["computed_at"] < ttl:
             return jsonify(slot["payload"])
+        _terrain_refresh_history()
         payload = _build_terrain(file_cap)
         # Evict oldest-computed slots first — bounded memory even if something
         # walks every possible ?limit= value.
