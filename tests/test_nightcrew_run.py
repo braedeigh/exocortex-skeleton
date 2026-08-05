@@ -204,6 +204,37 @@ def test_parse_questions_is_empty_when_the_worker_did_not_ask():
     assert nc.parse_questions(None) == ""
 
 
+def test_last_assistant_text_reads_the_real_stream_json_shape(tmp_path):
+    """Pinned against the actual event shape in bot_chats/*.jsonl — assistant
+    text lives nested at message.content[].text, NOT at a top-level "text".
+    The first night of the question loop (2026-08-05) lost every question the
+    workers asked because the extraction read the flat field; this test is the
+    regression pin, built from a real event, not a stub."""
+    import json
+    log = tmp_path / "conv.jsonl"
+    events = [
+        {"type": "user", "text": "the brief"},
+        {"type": "assistant", "message": {"role": "assistant", "content": [
+            {"type": "text", "text": "Reading the code first."}]}},
+        {"type": "system", "subtype": "turn_start"},
+        {"type": "assistant", "message": {"role": "assistant", "content": [
+            {"type": "tool_use", "id": "t1", "name": "Read", "input": {}},
+            {"type": "text", "text": "QUESTIONS:\nWhich store did you mean?"}]}},
+        {"type": "result", "is_error": False},
+    ]
+    log.write_text("\n".join(json.dumps(e) for e in events))
+    last = nc.last_assistant_text(log)
+    assert last == "QUESTIONS:\nWhich store did you mean?"
+    assert nc.parse_questions(last) == "Which store did you mean?"
+
+
+def test_last_assistant_text_survives_a_missing_or_garbled_log(tmp_path):
+    assert nc.last_assistant_text(tmp_path / "nope.jsonl") == ""
+    bad = tmp_path / "bad.jsonl"
+    bad.write_text("not json at all")
+    assert nc.last_assistant_text(bad) == ""
+
+
 def test_a_crash_still_produces_a_card(monkeypatch):
     """A night that attempts a note and produces no record is a night she can't
     audit — every path through do_note returns something."""
