@@ -51,6 +51,13 @@ RECIPES_DIR = Path(os.environ.get("EXOCORTEX_RECIPES_DIR", DATA_DIR / "recipes")
 # standalone inventory-app). Item metadata lives in archivals.json; the photo
 # binaries live here — same relocation story as RECEIPTS_DIR.
 ARCHIVALS_DIR = Path(os.environ.get("EXOCORTEX_ARCHIVALS_DIR", DATA_DIR / "archivals"))
+# Recordings: the audio + transcript files for routes/recordings.py. The
+# metadata (title, date, tags, which files belong to which recording) lives in
+# recordings.json; the bulky parts — audio blobs and full transcript text —
+# live here as loose files. Audio is the biggest thing this app stores, so this
+# is the root most likely to get pointed at a different disk: same env-override
+# story as RECEIPTS_DIR / ARCHIVALS_DIR.
+RECORDINGS_DIR = Path(os.environ.get("EXOCORTEX_RECORDINGS_DIR", DATA_DIR / "recordings"))
 # Triage: the "talk to it and it reorders your todos" Claude session works out of
 # this folder (its CLAUDE.md is the skill). Defaults to a `triage/` at the
 # deployment root (sibling of the data dir), next to recipes/; override via env.
@@ -188,6 +195,7 @@ SQL_COLLECTIONS = frozenset((
     "places",
     "priority_notes",
     "recipes",
+    "recordings",
     "reminders",
     "research",
     "research_vectors",

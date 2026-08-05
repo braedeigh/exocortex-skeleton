@@ -87,4 +87,5 @@ export const VIEW_META = [
   { key: 'settings', label: 'Settings', icon: '⚙️', to: '/settings' },
   { key: 'files', label: 'Files', icon: '🗂️', to: '/files' },
   { key: 'notes', label: 'Notes', icon: '📝', to: '/notes' },
+  { key: 'recordings', label: 'Recordings', icon: '🎙️', to: '/recordings' },
 ] as const;

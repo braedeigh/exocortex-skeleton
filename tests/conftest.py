@@ -68,7 +68,8 @@ import store  # noqa: E402
 # vault is not. (Only on the first pass — see the sentinel above.)
 if _FIRST_PASS:
     for _name in ("DATA_DIR", "CONTENT_DIR", "UPLOAD_DIR", "RECEIPTS_DIR", "RECIPES_DIR",
-                  "ARCHIVALS_DIR", "TRIAGE_DIR", "SPINOFF_DIR", "PERSON_SKILL_DIR",
+                  "ARCHIVALS_DIR", "RECORDINGS_DIR",
+                  "TRIAGE_DIR", "SPINOFF_DIR", "PERSON_SKILL_DIR",
                   "RESEARCH_DIR", "RESEARCH_FILER_DIR", "RESEARCH_RUNNER_DIR",
                   "RESEARCH_DEEP_DIR", "RESEARCH_WORKER_DIR", "RESEARCH_DISTILLER_DIR"):
         _root = getattr(store, _name, None)
@@ -98,9 +99,16 @@ worktrees.SKELETON = pathlib.Path(_TEST_ROOT) / "not-a-repo"
 
 @pytest.fixture
 def data_dir(tmp_path, monkeypatch):
-    """Point the store at a fresh temp dir for this test only."""
+    """Point the store at a fresh temp dir for this test only.
+
+    The blob roots have to be re-pointed one by one: each is resolved from its
+    own env var AT IMPORT TIME, so moving DATA_DIR alone leaves them aimed at
+    the process-wide test root — shared by every test, and therefore a place
+    where one test's uploaded file is still sitting when the next one runs.
+    """
     monkeypatch.setattr(store, "DATA_DIR", tmp_path)
     monkeypatch.setattr(store, "UPLOAD_DIR", tmp_path / "uploads")
+    monkeypatch.setattr(store, "RECORDINGS_DIR", tmp_path / "recordings")
     return tmp_path
 
 

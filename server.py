@@ -28,7 +28,7 @@ from routes import (
     research_search, research_sources, research_import, research_text,
     annotations, spa, fronts, wiki, travel, profile, usage, streaks, spinoff,
     observatory, terrain, automations, nightcrew, push, claude_auth, run_queue,
-    branches,
+    branches, recordings,
     sqlab, sandbox,
 )
 from routes.shell import VALID_TABS
@@ -1163,6 +1163,7 @@ push.register(app)
 claude_auth.register(app)
 sqlab.register(app)
 branches.register(app)
+recordings.register(app)
 sandbox.register(app)
 
 # --- Startup ---

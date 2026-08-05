@@ -1,0 +1,514 @@
+/* Recordings page chrome. A reading page, like Branches — one column of cards,
+ * opened one at a time.
+ *
+ * The transcript is the thing this page exists to show, so it gets real reading
+ * typography (16px, 1.7 line-height, ~68ch measure) and everything around it
+ * stays quiet. Colour carries one meaning: accent = the primary action.
+ *
+ * Tap targets are 40px on everything interactive, per the UI guidelines — the
+ * page is used one-handed on a phone while doing something else. */
+
+.page {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--space-4);
+  padding-bottom: var(--space-8);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-size-xl);
+  color: var(--text);
+}
+
+.intro {
+  margin: 0 0 var(--space-4);
+  font-size: var(--font-size-base);
+  line-height: 1.55;
+  color: var(--text-secondary);
+  max-width: 62ch;
+}
+
+.sectionHead {
+  margin: 0;
+  font-size: var(--font-size-md);
+  color: var(--text);
+}
+
+.quiet {
+  color: var(--text-secondary);
+  font-size: var(--font-size-md);
+  line-height: 1.5;
+}
+
+.empty {
+  margin: var(--space-5) 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-base);
+  line-height: 1.6;
+  max-width: 56ch;
+}
+
+.error {
+  margin: var(--space-3) 0;
+  padding: var(--space-3);
+  border-left: 3px solid var(--red);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--font-size-base);
+  line-height: 1.5;
+}
+
+/* --- buttons ------------------------------------------------------------- */
+
+.primaryBtn,
+.secondaryBtn,
+.dangerBtn {
+  min-height: var(--tap-target, 40px);
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-lg);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-base);
+  cursor: pointer;
+}
+
+.primaryBtn {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.secondaryBtn {
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--text);
+}
+
+.dangerBtn {
+  border: 1px solid var(--red);
+  background: none;
+  color: var(--red);
+}
+
+.primaryBtn:disabled,
+.secondaryBtn:disabled,
+.dangerBtn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* A text button, but still a 40px target — the guideline holds even where the
+ * control looks like a link. */
+.linkBtn {
+  min-height: var(--tap-target, 40px);
+  padding: 0 var(--space-2);
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-md);
+  cursor: pointer;
+}
+
+.linkBtn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* --- search + filters ---------------------------------------------------- */
+
+.searchRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.search {
+  flex: 1 1 16rem;
+  min-height: var(--tap-target, 40px);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-base);
+}
+
+.chipRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.chip,
+.chipOn {
+  min-height: var(--tap-target, 40px);
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-pill);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-md);
+  cursor: pointer;
+}
+
+.chip {
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--text-secondary);
+}
+
+.chipOn {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+/* --- full-text results --------------------------------------------------- */
+
+.hits {
+  margin-bottom: var(--space-5);
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg);
+}
+
+.hitsHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.hit + .hit {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-soft, var(--border));
+}
+
+.hitTitle {
+  display: block;
+  min-height: var(--tap-target, 40px);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-base);
+  text-align: left;
+  cursor: pointer;
+}
+
+.snippet {
+  margin: var(--space-1) 0;
+  font-size: var(--font-size-md);
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+/* --- card ---------------------------------------------------------------- */
+
+.card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+  padding: var(--space-2) var(--space-4) var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  /* The whole title line opens the card, not just the chevron. */
+  min-height: var(--tap-target, 40px);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-lg);
+  text-align: left;
+  cursor: pointer;
+}
+
+.chevron {
+  flex: none;
+  width: 1.1em;
+  color: var(--text-secondary);
+}
+
+.cardTitle {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.35;
+}
+
+.kindBadge {
+  flex: none;
+  padding: 0.25em 0.7em;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+}
+
+.cardMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin-left: 1.6em;
+  font-size: var(--font-size-md);
+  color: var(--text-secondary);
+}
+
+.dot {
+  opacity: 0.6;
+}
+
+.tagRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0 1.6em;
+}
+
+.tag {
+  padding: 0.2em 0.6em;
+  border-radius: var(--radius-pill);
+  background: var(--bg);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.cardBody {
+  margin: var(--space-4) 0 0 1.6em;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-soft, var(--border));
+}
+
+.cardFooter {
+  margin-top: var(--space-5);
+}
+
+/* --- player -------------------------------------------------------------- */
+
+.player {
+  margin-bottom: var(--space-4);
+}
+
+.audio {
+  width: 100%;
+  /* Native controls, so this is the OS's height — don't squeeze it. */
+  min-height: 40px;
+}
+
+.playerMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+  font-size: var(--font-size-md);
+  color: var(--text-secondary);
+}
+
+/* The "nothing attached yet, put something here" slot. Big on purpose: it's
+ * the main action on a half-filled recording. */
+.dropSlot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 56px;
+  margin: var(--space-3) 0;
+  padding: var(--space-3);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg);
+  color: var(--text-secondary);
+  font-size: var(--font-size-base);
+  cursor: pointer;
+}
+
+.dropSlot input {
+  display: none;
+}
+
+.notes {
+  margin: var(--space-3) 0;
+  font-size: var(--font-size-base);
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+/* --- transcript ---------------------------------------------------------- */
+
+.transcriptHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin: var(--space-4) 0 var(--space-2);
+}
+
+.transcriptTitle {
+  margin: 0;
+  font-size: var(--font-size-md);
+  letter-spacing: var(--tracking-label, normal);
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+/* The reading surface. Capped measure and generous leading because a training
+ * transcript is tens of thousands of words and she reads it, not skims it. */
+.transcript {
+  max-width: 68ch;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-soft, var(--border));
+  border-radius: var(--radius-lg);
+  background: var(--bg);
+}
+
+.transcript p {
+  margin: 0 0 var(--space-4);
+  font-size: var(--font-size-base);
+  line-height: 1.7;
+  color: var(--text);
+}
+
+.transcript mark {
+  padding: 0.1em 0.2em;
+  border-radius: var(--radius-sm);
+  background: var(--yellow);
+  color: #000;
+}
+
+/* --- editors ------------------------------------------------------------- */
+
+.editor {
+  margin-top: var(--space-2);
+}
+
+.editorRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.textarea {
+  width: 100%;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-base);
+  line-height: 1.6;
+  resize: vertical;
+}
+
+/* --- add sheet ----------------------------------------------------------- */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: var(--space-4);
+  overflow-y: auto;
+  background: rgb(0 0 0 / 45%);
+}
+
+.sheet {
+  width: min(40rem, 100%);
+  margin: auto;
+  padding: var(--space-5);
+  border-radius: var(--radius-xl);
+  background: var(--card-bg);
+  box-shadow: var(--shadow-card, 0 8px 32px rgb(0 0 0 / 25%));
+}
+
+.sheetTitle {
+  margin: 0 0 var(--space-4);
+  font-size: var(--font-size-lg);
+  color: var(--text);
+}
+
+.field {
+  display: block;
+  margin-bottom: var(--space-4);
+}
+
+.fieldRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.fieldRow .field {
+  flex: 1 1 12rem;
+}
+
+.label {
+  display: block;
+  margin-bottom: var(--space-1);
+  font-size: var(--font-size-md);
+  color: var(--text-secondary);
+}
+
+.input {
+  width: 100%;
+  min-height: var(--tap-target, 40px);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-base);
+}
+
+.fileInput {
+  display: block;
+  width: 100%;
+  min-height: var(--tap-target, 40px);
+  padding: var(--space-2);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-md);
+}
+
+.sheetButtons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-5);
+}

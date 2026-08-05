@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "recordings",
+  "type": "object",
+  "$defs": {
+    "fileref": {
+      "description": "A file living in store.RECORDINGS_DIR. `filename` is the only index — nothing resolves a file by parsing it. null means the recording has no file of that kind.",
+      "type": ["object", "null"],
+      "required": ["filename"],
+      "properties": {
+        "filename": { "type": "string" },
+        "bytes": { "type": "integer" },
+        "added_at": { "type": "string" },
+        "original_name": { "type": "string" },
+        "chars": { "type": "integer" },
+        "words": { "type": "integer" },
+        "lines": { "type": "integer" }
+      },
+      "additionalProperties": true
+    },
+    "item": {
+      "type": "object",
+      "required": ["id", "title"],
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "date": { "type": "string" },
+        "kind": { "type": "string" },
+        "source": { "type": "string" },
+        "notes": { "type": "string" },
+        "duration": { "type": "string" },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "audio": { "$ref": "#/$defs/fileref" },
+        "transcript": { "$ref": "#/$defs/fileref" },
+        "created_at": { "type": "string" },
+        "last_edited": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "properties": {
+    "items": { "type": "array", "items": { "$ref": "#/$defs/item" } }
+  },
+  "additionalProperties": true
+}

@@ -97,6 +97,7 @@ def register(app):
     @app.route("/files")
     @app.route("/chat")
     @app.route("/notes")
+    @app.route("/recordings")
     # The observatory (renamed from "bots" 07-24 — the persona concept
     # keeps the name "bot" everywhere; only this surface's URL changed).
     # /bots/* stays reachable too, for old bookmarks and cached PWA clients.
