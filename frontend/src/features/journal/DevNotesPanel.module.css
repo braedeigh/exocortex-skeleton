@@ -105,3 +105,14 @@
   line-height: 1.4;
   color: var(--text-muted);
 }
+
+/* Questions the night crew left on a note it couldn't act on. Accent-colored
+   (unlike the muted gateNote) because these ask something of her, and
+   pre-line so a multi-question block keeps its line breaks. */
+.askNote {
+  margin-top: var(--space-1);
+  font-size: var(--font-size-sm);
+  line-height: 1.4;
+  color: var(--accent);
+  white-space: pre-line;
+}

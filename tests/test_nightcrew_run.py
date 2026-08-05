@@ -40,12 +40,15 @@ def test_mem_available_reads_a_real_number():
 
 # --- skip what's already waiting -------------------------------------------
 
+ABC = {"id": "abc", "tab": "today", "text": "fix the thing"}
+
+
 def test_note_with_undismissed_run_is_skipped(data_dir):
     import store
     store.write("night_runs.json", {"runs": [
-        {"id": "r1", "note_id": "abc", "status": "ready"},
+        {"id": "r1", "note_id": "abc", "status": "ready", "note_text": "fix the thing"},
     ]})
-    assert nc.already_pending("abc") is True
+    assert nc.already_pending(ABC) is True
 
 
 def test_note_with_dismissed_run_is_attempted_again(data_dir):
@@ -53,15 +56,40 @@ def test_note_with_dismissed_run_is_attempted_again(data_dir):
     failed attempt would retire a note forever."""
     import store
     store.write("night_runs.json", {"runs": [
-        {"id": "r1", "note_id": "abc", "status": "failed", "dismissed": True},
+        {"id": "r1", "note_id": "abc", "status": "failed", "dismissed": True,
+         "note_text": "fix the thing"},
     ]})
-    assert nc.already_pending("abc") is False
+    assert nc.already_pending(ABC) is False
 
 
 def test_unknown_note_is_not_pending(data_dir):
     import store
     store.write("night_runs.json", {"runs": []})
-    assert nc.already_pending("nope") is False
+    assert nc.already_pending({"id": "nope", "tab": "today", "text": "x"}) is False
+
+
+def test_edited_note_is_fair_game_despite_a_pending_card(data_dir):
+    """The question loop's whole re-queue signal: she answers a worker's
+    questions by editing the note, so text-changed must beat card-pending —
+    otherwise answering does nothing until she also finds and clears a card."""
+    import store
+    store.write("night_runs.json", {"runs": [
+        {"id": "r1", "note_id": "abc", "status": "parked",
+         "note_text": "fix the thing"},
+    ]})
+    amended = {"id": "abc", "tab": "today",
+               "text": "fix the thing — yes, only on the selected day"}
+    assert nc.already_pending(amended) is False
+
+
+def test_run_without_recorded_text_still_blocks(data_dir):
+    """Can't-tell defaults to the cautious side: a record predating note_text
+    must not read as 'she edited it'."""
+    import store
+    store.write("night_runs.json", {"runs": [
+        {"id": "r1", "note_id": "abc", "status": "ready"},
+    ]})
+    assert nc.already_pending(ABC) is True
 
 
 # --- scoring one attempt ----------------------------------------------------
@@ -120,6 +148,62 @@ def test_empty_diff_is_parked_even_without_a_parked_line(monkeypatch):
     assert run["reason"] == "made no changes"
 
 
+# --- the question loop: ask instead of guess --------------------------------
+
+def test_questions_block_parks_with_the_questions_on_the_card(monkeypatch):
+    _stub(monkeypatch, touched=[], last=(
+        "I read the run form.\n"
+        "QUESTIONS:\n"
+        "1. Should the run land on the selected day even when notes are open?\n"
+        "2. Or only when the notes field is empty?"))
+    monkeypatch.setattr(nc, "annotate_note_questions", lambda n, q: None)
+    run = nc.do_note(NOTE)
+    assert run["status"] == "parked"
+    assert "selected day" in run["question"]
+    assert "edit the note to answer" in run["reason"]
+
+
+def test_questions_are_written_onto_the_note_itself(monkeypatch, data_dir):
+    """The questions must meet her where she edits notes — the panel card —
+    not only on a morning card she might clear without acting."""
+    import store
+    store.write("dev_notes.json", {"tabs": {"today": [
+        {"id": "n1", "text": "Add a search for to-dos", "created": "2026-05-01 09:00"},
+    ]}})
+    _stub(monkeypatch, touched=[], last="QUESTIONS: search titles only, or notes too?")
+    nc.do_note(NOTE)
+    saved = store.read("dev_notes.json", {})["tabs"]["today"][0]
+    assert saved["night_questions"] == "search titles only, or notes too?"
+
+
+def test_annotation_failure_does_not_lose_the_card(monkeypatch):
+    """The note write is a nicety; the run record is the audit trail. A store
+    hiccup must downgrade to a log line, not a crashed night."""
+    def boom(note, questions):
+        raise RuntimeError("store unavailable")
+    _stub(monkeypatch, touched=[], last="QUESTIONS: which emoji?")
+    monkeypatch.setattr(nc, "annotate_note_questions", boom)
+    run = nc.do_note(NOTE)
+    assert run["status"] == "parked"
+    assert run["question"] == "which emoji?"
+
+
+def test_parse_questions_takes_the_whole_block():
+    got = nc.parse_questions(
+        "Looked at the code.\nQUESTIONS:\nA?\nB?\n\nC?")
+    assert got == "A?\nB?\nC?"
+
+
+def test_parse_questions_accepts_the_singular_marker():
+    assert nc.parse_questions("QUESTION: which tab?") == "which tab?"
+
+
+def test_parse_questions_is_empty_when_the_worker_did_not_ask():
+    assert nc.parse_questions("PARKED: too big to do safely.") == ""
+    assert nc.parse_questions("") == ""
+    assert nc.parse_questions(None) == ""
+
+
 def test_a_crash_still_produces_a_card(monkeypatch):
     """A night that attempts a note and produces no record is a night she can't
     audit — every path through do_note returns something."""
@@ -158,6 +242,13 @@ def test_brief_tells_the_worker_not_to_claim_success():
 
 def test_brief_gives_a_parked_escape_hatch():
     assert "PARKED:" in nc.BRIEF
+
+
+def test_brief_tells_the_worker_to_ask_instead_of_guessing():
+    """The question loop starts in the brief — if `QUESTIONS:` drops out of it,
+    ambiguous notes silently go back to being guessed at."""
+    assert "QUESTIONS:" in nc.BRIEF
+    assert "make NO changes" in nc.BRIEF
 
 
 def test_brief_names_the_worktree_so_the_worker_can_self_check():
@@ -268,6 +359,7 @@ def test_throttled_note_stays_queued_for_tomorrow(data_dir):
     the way a real attempt's card does. The card costs her nothing to ignore."""
     import store
     store.write("night_runs.json", {"runs": [
-        {"id": "r1", "note_id": "abc", "status": "parked", "throttled": True},
+        {"id": "r1", "note_id": "abc", "status": "parked", "throttled": True,
+         "note_text": "fix the thing"},
     ]})
-    assert nc.already_pending("abc") is False
+    assert nc.already_pending(ABC) is False

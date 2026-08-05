@@ -51,6 +51,10 @@ export interface NightRun {
   /** Why a failed/parked run stopped. Kept forever even after the branch is
    * swept, so the next worker on this note reads what beat the last one. */
   reason?: string;
+  /** Questions the worker left when the note wasn't clear enough to act on.
+   * Also written onto the note itself (`night_questions`) — she answers by
+   * editing the note, which re-queues it for the next night. */
+  question?: string;
   dismissed?: boolean;
 }
 
@@ -123,6 +127,11 @@ function Card({
       {/* A failed or parked run owes her one plain sentence about what beat it.
           Anything less and the card is a shrug she has to go investigate. */}
       {run.reason && <p className={styles.reason}>{run.reason}</p>}
+
+      {/* The worker's questions, verbatim. They also sit on the note card in
+          the panel — this copy is so the morning stack shows what's being
+          asked without a trip to the notes. */}
+      {run.question && <p className={styles.question}>{run.question}</p>}
 
       {run.diff_stat && (
         <>
@@ -214,9 +223,10 @@ export function NightCrewLane({
     <section className={styles.lane}>
       {head}
       <p className={styles.blurb}>
-        Work done while you slept. It fixes one green-lit note per branch in a
-        throwaway worktree, runs the tests, and stops — nothing merges without
-        you.
+        Work done while you slept. It queues the oldest notes itself (un-moon
+        one to veto it for good), fixes one note per branch in a throwaway
+        worktree, runs the tests, and stops — and when a note isn&rsquo;t clear
+        it leaves questions instead of guessing. Nothing merges without you.
       </p>
 
       {live.length === 0 ? (

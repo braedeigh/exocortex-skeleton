@@ -218,6 +218,9 @@ export const NotesPanel = forwardRef<HTMLDivElement, NotesPanelProps>(function N
                   {night.reasonFor(n.id) ? (
                     <div className={styles.gateNote}>Night crew won&rsquo;t take this — {night.reasonFor(n.id)}</div>
                   ) : null}
+                  {n.night_questions ? (
+                    <div className={styles.askNote}>Night crew asks — edit the note to answer:{'\n'}{n.night_questions}</div>
+                  ) : null}
                 </div>
                 <div className={styles.acts}>
                   {kind === 'dev' ? (

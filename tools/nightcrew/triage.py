@@ -49,6 +49,15 @@ HEDGE_WORDS = (
     "rethink",
     "unsure",
     "idk",
+    # Her idiom for "not decided yet", added when the crew started nominating
+    # notes itself: with no owner tap in front of these, the words that mark a
+    # note as a conversation ("go plan mode and talk about this", "get rid of
+    # it somehow") have to be caught here or an agent turn gets spent
+    # discovering it.
+    "somehow",
+    "plan mode",
+    "discuss",
+    "talk about",
 )
 
 # Device-bound: only reproducible on hardware the crew can't reach. Playwright
