@@ -1915,6 +1915,78 @@ def register(app):
         return _send_to_conversation(conv_req, text, record, legacy_bot=bot,
                                      decision=decision, operator=operator)
 
+    def _nightcrew_reply(conv_id, text):
+        """Her reply to a finished night-crew session, routed to the one place
+        it can still matter: the dev note the attempt was about.
+
+        A night worker's Claude session is born inside a throwaway /tmp
+        worktree that is removed when the attempt ends, so --resume has
+        nothing to find — her first try at answering a worker's questions hit
+        "No conversation found…". But answering by replying is the right
+        instinct, so instead of a dead end the reply is APPENDED to the note.
+        That clears the worker's night_questions and — via the crew's
+        text-changed rule (scripts/nightcrew_run.already_pending) — re-queues
+        the note for the next night. The chat answers with a receipt saying
+        exactly what happened, streamed in the same SSE shape as a real turn
+        so the composer treats it like any reply.
+
+        Prompt that produced this: "when I went to go respond in the sessions
+        open and labeled as night ... they said no conversation id found."
+        """
+        run = None
+        for r in store.read("night_runs.json", {"runs": []}).get("runs", []):
+            if isinstance(r, dict) and r.get("conv_id") == conv_id:
+                run = r   # last match wins — it's the latest attempt
+        if run is None or not run.get("note_id"):
+            return jsonify({"error": "this night session isn't tied to a dev "
+                                     "note, so a reply has nowhere to go"}), 409
+
+        folded = False
+        with store.mutate("dev_notes.json", {"tabs": {}}) as data:
+            for notes in (data.get("tabs") or {}).values():
+                for n in notes or []:
+                    if isinstance(n, dict) and n.get("id") == run["note_id"]:
+                        n["text"] = (n.get("text") or "").rstrip() + "\n\n" + text
+                        n.pop("night_questions", None)
+                        folded = True
+                        break
+                if folded:
+                    break
+        if not folded:
+            return jsonify({"error": "the dev note this session worked on has "
+                                     "been deleted, so a reply has nowhere "
+                                     "to go"}), 409
+
+        ack = (f"Folded into the dev note ({run.get('tab') or '?'} tab). "
+               "That edit is the re-queue signal — the crew picks the note "
+               "back up on its next run. (This worker's session ended with "
+               "its worktree; replies here land on the note instead.)")
+        now = _now()
+        log_path = _chats_dir() / f"{conv_id}.jsonl"
+        with open(log_path, "a", encoding="utf-8") as log:
+            log.write(json.dumps({"type": "user", "text": text, "ts": now,
+                                  "journaled": False}) + "\n")
+            # Nested stream-json shape, same as a real worker's words, so every
+            # reader of this log (the chat view, the crew's own extractor)
+            # parses it one way.
+            log.write(json.dumps({"type": "assistant", "message": {
+                "role": "assistant",
+                "content": [{"type": "text", "text": ack}]}, "ts": now}) + "\n")
+        with store.mutate("bot_chats/index", {}) as index:
+            e = index.get(conv_id)
+            if isinstance(e, dict):
+                e["last_at"] = now
+
+        def generate():
+            yield _sse({"type": "conv", "conversation_id": conv_id,
+                        "bot": "keeper", "journaled": False})
+            yield _sse({"type": "assistant", "message": {
+                "role": "assistant",
+                "content": [{"type": "text", "text": ack}]}})
+        return Response(generate(), mimetype="text/event-stream",
+                        headers={"Cache-Control": "no-cache",
+                                 "X-Accel-Buffering": "no"})
+
     def _send_to_conversation(conv_id_req, text, record, legacy_bot=None, decision=None,
                               operator=False):
         """Shared machinery behind both send routes above: one-turn-at-a-time
@@ -1931,6 +2003,14 @@ def register(app):
         and is the only thing that keeps a turn out of her chat log."""
         if conv_id_req is not None and not _CONV_ID_RE.match(str(conv_id_req)):
             return jsonify({"error": "invalid conversation id"}), 400
+
+        # Night-crew sessions never resume (their worktree ground is gone by
+        # morning) — a reply to one folds into its dev note instead. Checked
+        # here, before any index mutation, so both send doors get the behavior.
+        if conv_id_req:
+            pre = store.read("bot_chats/index", {}).get(str(conv_id_req))
+            if isinstance(pre, dict) and pre.get("origin") == "nightcrew":
+                return _nightcrew_reply(str(conv_id_req), text)
 
         # Everything request-bound happens BEFORE the generator: conv/index
         # setup, the journal mint, and the spawn — the stream only relays.

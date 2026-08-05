@@ -55,6 +55,10 @@ export interface NightRun {
    * Also written onto the note itself (`night_questions`) — she answers by
    * editing the note, which re-queues it for the next night. */
   question?: string;
+  /** The worker's own session — every attempt is one. Opens from the card
+   * (night sessions are excluded from the room lanes), and replying in it
+   * folds her words into the dev note. */
+  conv_id?: string;
   dismissed?: boolean;
 }
 
@@ -72,10 +76,12 @@ function Card({
   run,
   onDismiss,
   onMerge,
+  onOpenSession,
 }: {
   run: NightRun;
   onDismiss: (id: string) => void;
   onMerge: (id: string) => Promise<string | null>;
+  onOpenSession: (convId: string) => void;
 }) {
   const [showDiff, setShowDiff] = useState(false);
   // Merging writes to her real branch, so it confirms first — the same
@@ -166,6 +172,17 @@ function Card({
           </button>
         )}
         {run.status === 'merged' && <span className={styles.merged}>merged</span>}
+        {/* The worker's own session, from the card — night sessions live
+            HERE, not in the room lanes. Replying in it folds into the note. */}
+        {run.conv_id && (
+          <button
+            type="button"
+            className={styles.sessionLink}
+            onClick={() => onOpenSession(run.conv_id!)}
+          >
+            Session ↗
+          </button>
+        )}
         <button
           type="button"
           className={styles.dismiss}
@@ -187,6 +204,7 @@ export function NightCrewLane({
   spendUsd,
   onDismiss,
   onMerge,
+  onOpenSession,
 }: {
   runs: NightRun[];
   /** How many notes are green-lit and would pass the gate tonight. */
@@ -195,6 +213,8 @@ export function NightCrewLane({
   onDismiss: (id: string) => void;
   /** Resolves to an error message to show on the card, or null on success. */
   onMerge: (id: string) => Promise<string | null>;
+  /** Opens a worker's session (RosterPage's regular session door). */
+  onOpenSession: (convId: string) => void;
 }) {
   const live = runs.filter((r) => !r.dismissed);
   const ready = live.filter((r) => r.status === 'ready').length;
@@ -240,7 +260,8 @@ export function NightCrewLane({
       ) : (
         <div className={styles.rows}>
           {live.map((run) => (
-            <Card key={run.id} run={run} onDismiss={onDismiss} onMerge={onMerge} />
+            <Card key={run.id} run={run} onDismiss={onDismiss} onMerge={onMerge}
+              onOpenSession={onOpenSession} />
           ))}
         </div>
       )}

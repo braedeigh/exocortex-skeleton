@@ -275,6 +275,26 @@
   background: color-mix(in srgb, var(--text) 6%, transparent);
 }
 
+/* The door to the worker's own session — same quiet outline shape as
+   .dismiss (night sessions live behind their cards, not in the room lanes),
+   accent text so it reads as a link, ~40px tall per the touch rules. */
+.sessionLink {
+  min-height: 40px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-md, 8px);
+  font-size: var(--font-size-md);
+  font-family: inherit;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--accent);
+  transition: background 160ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sessionLink:hover {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
 .cost {
   margin-left: auto;
   font-size: var(--font-size-sm);

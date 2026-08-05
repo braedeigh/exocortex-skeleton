@@ -91,6 +91,11 @@ export interface SessionMeta {
   id: string;
   title: string;
   last_at: string;
+  /** Who minted this session. "nightcrew" marks an overnight worker's
+   * session: it renders under the Night crew section (via its run card's
+   * session door), never in the room lanes, and replying to it folds her
+   * words into the dev note it worked on. */
+  origin?: string;
   /** Which room the card lives in. Always present — the server resolves it
    * (deriving from `cwd` for entries that predate lanes), so the client never
    * has to guess. */

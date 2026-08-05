@@ -299,9 +299,12 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
   // The lane is server-resolved (it derives one for every session that predates
   // the field), so this is a straight split, not a guess. An unknown value
   // falls to Orchestra — the gated room, same fail-toward-ask as the backend
-  // (see toLane). Pinned is excluded so the Keeper isn't drawn twice.
+  // (see toLane). Pinned is excluded so the Keeper isn't drawn twice, and
+  // night-crew workers' sessions are excluded from every room — they belong
+  // to the Night crew section, reached through their run card's session door
+  // ("they showed up in orchestra rather than in night crew").
   const byLane = (lane: Lane) =>
-    shown.filter((s) => !s.pinned && toLane(s.lane) === lane);
+    shown.filter((s) => !s.pinned && s.origin !== 'nightcrew' && toLane(s.lane) === lane);
 
   // What an empty lane says while the rail is narrowing it — "tap + to start
   // one" would be a lie there, and she'd make a session to fill a room that
@@ -444,6 +447,7 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
             spendUsd={night?.spend?.night_usd ?? 0}
             onDismiss={dismissNightRun}
             onMerge={mergeNightRun}
+            onOpenSession={open}
           />
 
           <div className={styles.laterNote}>

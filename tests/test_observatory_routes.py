@@ -2241,3 +2241,64 @@ def test_a_worktree_sessions_files_still_belong_to_the_repo(tmp_path, monkeypatc
     surface = observatory._fork_work_surface(conv_id, meta)
 
     assert surface == [("App code", [("routes/spinoff.py", False)])]
+
+
+# --- night-crew replies fold into the note -----------------------------------
+# A night worker's session dies with its /tmp worktree, so it can never resume.
+# Her reply instead APPENDS to the dev note the attempt was about (clearing the
+# worker's questions; the text change is what re-queues the note), and the chat
+# streams back a receipt. Pinned here because the failure mode it replaces was
+# ugly: a raw "No conversation found" from the CLI.
+
+def _seed_night_conv(conv="2026-08-05.000002", note="n1"):
+    observatory._chats_dir()   # the index (and its .lock) lives inside it
+    store.write("dev_notes.json", {"tabs": {"today": [
+        {"id": note, "text": "fix the thing", "created": "2026-05-01 09:00",
+         "night": True, "night_questions": "which thing?"}]}})
+    store.write("night_runs.json", {"runs": [
+        {"id": "r1", "note_id": note, "tab": "today", "status": "parked",
+         "note_text": "fix the thing", "conv_id": conv}]})
+    with store.mutate("bot_chats/index", {}) as index:
+        index[conv] = {"bot": "keeper", "origin": "nightcrew",
+                       "lane": "orchestra", "started": "2026-08-05T00:00:02",
+                       "last_at": "2026-08-05T00:00:02", "journal": False,
+                       "running": False, "title": "night · fix the thing"}
+    return conv
+
+
+def test_night_session_reply_folds_into_the_note(bot_client):
+    conv = _seed_night_conv()
+    resp = bot_client.post(f"/api/observatory/conversation/{conv}/send",
+                           json={"text": "the one on the map page"})
+    assert resp.status_code == 200
+    note = store.read("dev_notes.json", {})["tabs"]["today"][0]
+    assert note["text"].endswith("the one on the map page")
+    assert "night_questions" not in note, "her reply IS the answer"
+    # No model was spawned — a fold is not a turn.
+    assert not bot_client._argv_log.exists()
+    # The receipt streams back in the normal SSE vocabulary.
+    events = _sse_events(resp)
+    assert any("Folded into the dev note" in json.dumps(e) for e in events)
+
+
+def test_night_session_reply_lands_in_the_conversation_log(bot_client):
+    conv = _seed_night_conv()
+    bot_client.post(f"/api/observatory/conversation/{conv}/send",
+                    json={"text": "the one on the map page"})
+    lines = [json.loads(ln) for ln in
+             (store.DATA_DIR / "bot_chats" / f"{conv}.jsonl")
+             .read_text().splitlines()]
+    assert lines[-2]["type"] == "user"
+    assert lines[-2]["text"] == "the one on the map page"
+    # The receipt uses the nested stream-json shape, same as a real worker's
+    # words, so every reader of the log parses one way.
+    body = lines[-1]["message"]["content"][0]["text"]
+    assert "Folded into the dev note" in body
+
+
+def test_night_session_reply_without_a_run_is_refused(bot_client):
+    conv = _seed_night_conv()
+    store.write("night_runs.json", {"runs": []})
+    resp = bot_client.post(f"/api/observatory/conversation/{conv}/send",
+                           json={"text": "hello?"})
+    assert resp.status_code == 409
