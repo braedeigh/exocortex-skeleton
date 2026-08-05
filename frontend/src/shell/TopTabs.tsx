@@ -81,7 +81,6 @@ const MORE_PAGES: ReadonlyArray<{ key: string; label: string; to: string }> = [
   // console. Sits with the other tool pages rather than in MORE_VIEWS, which
   // is an explicit allowlist of the *content* browsers (files/notes/research).
   { key: 'sql', label: 'SQL', to: '/sql' },
-  { key: 'branches', label: 'Built for you', to: '/branches' },
 ];
 
 // Journal/Settings sit in row 1 (the dash bar); Files and the /notes browser

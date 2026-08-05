@@ -208,3 +208,116 @@ def test_shot_route_rejects_a_traversal_shaped_run_id(client):
     """`..` passes the charset but resolves outside nightcrew_shots/ — the
     parent check has to catch it."""
     assert client.get("/api/nightcrew/shot/../before.png").status_code == 404
+
+
+# --- one room, one question -------------------------------------------------
+# The room was never about a crew — its own header says it's the
+# finished-and-waiting room, defined by STATE. A daytime session's branch is in
+# exactly that state, so it belongs here rather than on a second page answering
+# the same question in different words.
+
+@pytest.fixture
+def agent_repo(tmp_path, monkeypatch, data_dir):
+    """A real repo the WORKTREE layer points at, so branches can be cut for
+    real. conftest quarantines these away from the live checkout by default;
+    this opts one test file back in, against a throwaway."""
+    import worktrees
+    r = tmp_path / "agentrepo"
+    r.mkdir()
+    _git(r, "init", "-b", "main")
+    _git(r, "config", "user.email", "t@test")
+    _git(r, "config", "user.name", "t")
+    (r / "a.txt").write_text("one\n")
+    (r / ".gitignore").write_text("venv/\nvenv\n")
+    _git(r, "add", "-A")
+    _git(r, "commit", "-m", "seed")
+    monkeypatch.setattr(worktrees, "SKELETON", r)
+    monkeypatch.setattr(worktrees, "WORKTREE_ROOT", tmp_path / "wt")
+    monkeypatch.setattr(store, "SPINOFF_DIR", data_dir / "spinoffs")
+    return r
+
+
+def _branch_with_work(slug="spun"):
+    import worktrees
+    path, branch = worktrees.mint(slug)
+    (path / "feature.py").write_text("x = 1\n")
+    _git(path, "add", "-A")
+    _git(path, "commit", "-m", f"{slug}: built a thing")
+    return path, branch
+
+
+def test_a_spinoff_branch_appears_in_the_room(client, agent_repo):
+    _, branch = _branch_with_work()
+
+    card = next(r for r in client.get("/api/nightcrew").get_json()["runs"]
+                if r.get("branch") == branch)
+
+    assert card["source"] == "branch"
+    assert card["status"] == "ready"          # built, not taken — it asks her
+    assert "1 file changed" in card["diff_stat"]
+
+
+def test_a_night_run_is_not_drawn_twice(client, agent_repo):
+    """Both sources know about a night branch. The night run wins the tie — it
+    carries screenshots, a test result and a merge path a bare branch hasn't."""
+    _, branch = _branch_with_work("nightly")
+    store.write("night_runs.json", {"runs": [
+        {"id": "r-1", "branch": branch, "status": "ready", "note_text": "fix it",
+         "shot_after": "/api/nightcrew/shot/r-1/after.png"}]})
+
+    runs = client.get("/api/nightcrew").get_json()["runs"]
+
+    matching = [r for r in runs if r.get("branch") == branch]
+    assert len(matching) == 1
+    assert matching[0]["source"] == "night"
+    assert matching[0]["id"] == "r-1"
+
+
+def test_night_runs_with_no_branch_all_survive_the_join(client, agent_repo):
+    """They broke before a worktree existed. Joining on branch must not let a
+    null key collapse them together or drop them."""
+    store.write("night_runs.json", {"runs": [
+        {"id": "r-a", "status": "failed", "note_text": "one"},
+        {"id": "r-b", "status": "failed", "note_text": "two"}]})
+
+    runs = client.get("/api/nightcrew").get_json()["runs"]
+
+    assert {r["id"] for r in runs if r.get("source") == "night"} == {"r-a", "r-b"}
+
+
+def test_the_card_that_asks_her_for_something_floats_to_the_top(client, agent_repo):
+    _, ready = _branch_with_work("ready-one")
+    store.write("night_runs.json", {"runs": [
+        {"id": "r-parked", "status": "parked", "note_text": "nope"}]})
+
+    runs = client.get("/api/nightcrew").get_json()["runs"]
+
+    assert runs[0]["branch"] == ready
+    assert runs[-1]["id"] == "r-parked"
+
+
+def test_a_live_copy_mid_edit_reads_as_still_building(client, agent_repo):
+    """A night run is never in progress — she's asleep and it's over by
+    morning. A daytime session's copy can be mid-edit right now, which is the
+    one genuinely new state the join brought in."""
+    path, branch = _branch_with_work("in-flight")
+    (path / "half-done.py").write_text("mid-edit\n")
+
+    card = next(r for r in client.get("/api/nightcrew").get_json()["runs"]
+                if r.get("branch") == branch)
+
+    assert card["status"] == "working"
+    assert any("half-done.py" in line for line in card["uncommitted"])
+
+
+def test_a_branch_card_carries_no_merge_handle(client, agent_repo):
+    """The merge button posts a night-RUN id, and a night run earned it by
+    being verified in its worktree first. A spinoff branch has had no gate run
+    against it, so a one-tap merge here would ship unverified work."""
+    _, branch = _branch_with_work()
+
+    card = next(r for r in client.get("/api/nightcrew").get_json()["runs"]
+                if r.get("branch") == branch)
+
+    assert card["id"].startswith("branch:")
+    assert "test_tail" not in card

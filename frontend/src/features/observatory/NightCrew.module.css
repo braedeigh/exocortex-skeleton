@@ -86,6 +86,13 @@
   background: color-mix(in srgb, var(--accent) 4%, var(--card-bg));
 }
 
+/* Still being built — a live copy with uncommitted files in it. Quieter than
+   ready on purpose: it isn't asking her for anything yet, it's just not over.
+   Only a daytime branch reaches this state. */
+.cardWorking {
+  border-left-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
 .cardFailed {
   border-left-color: color-mix(in srgb, var(--text) 30%, transparent);
 }
@@ -109,6 +116,7 @@
 }
 
 .dotReady { background: var(--accent); }
+.dotWorking { background: color-mix(in srgb, var(--accent) 45%, transparent); }
 .dotFailed { background: color-mix(in srgb, var(--text) 42%, transparent); }
 .dotParked { background: color-mix(in srgb, var(--text) 24%, transparent); }
 
@@ -358,4 +366,49 @@
   font-size: var(--font-size-sm);
   line-height: 1.5;
   color: var(--text-secondary);
+}
+
+/* --- what a branch card adds --------------------------------------------- */
+
+/* Work left in the copy that a merge would NOT take. Warm-edged rather than
+   red: it isn't an error, it's a fact she'd otherwise never learn — and it's
+   the single most useful line on a branch card. */
+.stranded {
+  margin: var(--space-2) 0 var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-left: 3px solid var(--orange);
+  border-radius: var(--radius-md, 8px);
+  background: color-mix(in srgb, var(--orange) 7%, transparent);
+  font-size: var(--font-size-base);
+  line-height: 1.5;
+  color: var(--text);
+}
+
+/* Says "this is a claim" every time the prose is offered. Never styled to look
+   like a result — that distinction is the whole safety property. */
+.claimNote {
+  margin-left: var(--space-2);
+  font-size: var(--font-size-sm);
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+.report {
+  margin: var(--space-2) 0 var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius-md, 8px);
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-base);
+  line-height: 1.55;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Where a night run has its Merge button, a branch has the name to type. */
+.branchName {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  word-break: break-all;
 }

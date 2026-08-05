@@ -147,48 +147,98 @@ def _age_days(iso):
         return None
 
 
+def collect():
+    """One row per agent/* branch: what it carries, who made it, where it
+    stands. A plain function, not just a route body, because routes/nightcrew.py
+    folds these into the room's card list — the Observatory has ONE place
+    finished work waits, and two endpoints answering "what's waiting for me?"
+    is how a surface starts lying by disagreeing with itself.
+
+    The report BODY is deliberately not included — it's fetched per branch, so
+    drawing the room doesn't read a dozen files off disk."""
+    index = store.read("bot_chats/index", {})
+    merged = _merged_branches()
+    live = _live_worktrees()
+    sessions = _sessions_by_branch(index)
+    nights = _night_runs_by_branch()
+
+    rows = []
+    for name, date, subject in _branch_rows():
+        session = sessions.get(name)
+        slug = (session or {}).get("slug")
+        has_report = bool(
+            slug and (store.SPINOFF_DIR / slug / "REPORT.md").is_file())
+        ev = worktrees.branch_evidence(name)
+        # Only a live worktree can hold work that never reached the branch —
+        # the gap between what the session did and what a merge would get.
+        uncommitted = (worktrees.evidence(live[name], name).get("uncommitted")
+                       if name in live else [])
+        rows.append({
+            "branch": name,
+            "subject": subject,
+            "committed": date,
+            "age_days": _age_days(date),
+            "merged": name in merged,
+            "state": _state(len(ev["commits"]), name in merged,
+                            nights.get(name), working=bool(uncommitted)),
+            "worktree": live.get(name),
+            "session": session,
+            "night_run": nights.get(name),
+            "has_report": has_report,
+            "commits": len(ev["commits"]),
+            "diff_stat": ev["diff_stat"],
+            "files": ev["files"],
+            "uncommitted": uncommitted,
+        })
+    return rows
+
+
+# How a branch's state reads in the room's own vocabulary. The room sorts by
+# `status` and it already had four values; `working` is the one genuinely new
+# thing a spinoff branch brought — a night run is never in progress (she's
+# asleep and it's over by morning), but a daytime session's copy can be
+# mid-edit right now.
+_STATE_TO_STATUS = {
+    "waiting": "ready",     # built, not taken — the only card that asks her
+    "working": "working",   # a live copy with uncommitted files in it
+    "empty": "parked",      # tried, built nothing
+    "taken": "merged",
+    "done": "merged",
+}
+
+
+def as_card(row):
+    """A branch, in the shape the Night crew room's cards already speak.
+
+    Deliberately NO merge affordance rides along. The room's merge button posts
+    a night-RUN id, and a night run earned it by being verified in its worktree
+    before the card ever appeared. A spinoff branch has had no gate run against
+    it at all, so a one-tap merge here would be a button that ships unverified
+    work — worse than making her type it. Merging these belongs with the
+    ship-it card, where the gates run against the MERGED result."""
+    session = row.get("session") or {}
+    return {
+        "id": f"branch:{row['branch']}",
+        "source": "branch",
+        "note_text": session.get("title") or row["subject"],
+        "status": _STATE_TO_STATUS.get(row["state"], "parked"),
+        "branch": row["branch"],
+        "diff_stat": row["diff_stat"],
+        "finished": row["committed"],
+        "conv_id": session.get("conversation_id"),
+        "files": row["files"],
+        "uncommitted": row["uncommitted"],
+        "has_report": row["has_report"],
+        "worktree": row["worktree"],
+        "commits": row["commits"],
+    }
+
+
 def register(app):
 
     @app.route("/api/branches", methods=["GET"])
     def branches_list():
-        """One row per agent/* branch: what it carries, who made it, where it
-        stands. The report BODY isn't included — it's fetched per branch, so
-        opening the page doesn't read a dozen files off disk."""
-        index = store.read("bot_chats/index", {})
-        merged = _merged_branches()
-        live = _live_worktrees()
-        sessions = _sessions_by_branch(index)
-        nights = _night_runs_by_branch()
-
-        rows = []
-        for name, date, subject in _branch_rows():
-            session = sessions.get(name)
-            slug = (session or {}).get("slug")
-            has_report = bool(
-                slug and (store.SPINOFF_DIR / slug / "REPORT.md").is_file())
-            ev = worktrees.branch_evidence(name)
-            # Only a live worktree can hold work that never reached the branch —
-            # the gap between what the session did and what a merge would get.
-            uncommitted = (worktrees.evidence(live[name], name).get("uncommitted")
-                           if name in live else [])
-            rows.append({
-                "branch": name,
-                "subject": subject,
-                "committed": date,
-                "age_days": _age_days(date),
-                "merged": name in merged,
-                "state": _state(len(ev["commits"]), name in merged,
-                                nights.get(name), working=bool(uncommitted)),
-                "worktree": live.get(name),
-                "session": session,
-                "night_run": nights.get(name),
-                "has_report": has_report,
-                "commits": len(ev["commits"]),
-                "diff_stat": ev["diff_stat"],
-                "files": ev["files"],
-                "uncommitted": uncommitted,
-            })
-        return jsonify({"branches": rows,
+        return jsonify({"branches": collect(),
                         "worktree_root": str(worktrees.WORKTREE_ROOT)})
 
     @app.route("/api/branches/report", methods=["GET"])
