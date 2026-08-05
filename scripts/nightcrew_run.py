@@ -2,14 +2,15 @@
 """nightcrew_run.py — the overnight fix crew. One dev note per branch.
 
 Plain English: while she sleeps, this works the dev-note backlog. It attempts
-notes she has green-lit (the moon tap), and when those don't fill the night it
-NOMINATES ITS OWN — the oldest notes she's never answered that would pass the
-gate anyway (tools/nightcrew/nominate.py), lighting their moons so she can see
-and veto. For each note it makes a throwaway copy of the repo, lets a Claude
-agent fix that one note in the copy, runs the whole test suite itself, commits
-to a branch if everything passes, and throws the copy away. In the morning the
-Observatory's third lane shows her one card per attempt. Nothing merges. She
-merges.
+notes she has green-lit (the moon tap). It CAN also nominate its own — the
+oldest notes she's never answered that would pass the gate
+(tools/nightcrew/nominate.py) — but that's opt-in and currently off: the one
+self-queued night picked notes she'd been ignoring on purpose, so hand-picked
+moons are the diet (see self_queue_enabled). For each note it makes a
+throwaway copy of the repo, lets a Claude agent fix that one note in the copy,
+runs the whole test suite itself, commits to a branch if everything passes,
+and throws the copy away. In the morning the Observatory's third lane shows
+her one card per attempt. Nothing merges. She merges.
 
 WHEN A NOTE ISN'T OBVIOUS, THE CREW ASKS INSTEAD OF GUESSING. A worker that
 finds the note ambiguous changes nothing and ends with a QUESTIONS: block —
@@ -218,6 +219,20 @@ def enabled():
         if isinstance(r, dict) and r.get("id") == RUN_ID:
             return r.get("enabled", True)
     return True
+
+
+def self_queue_enabled():
+    """Whether the crew may pick its own notes (tools/nightcrew/nominate.py).
+
+    OFF unless she turns it on: the first self-queued night (2026-08-05)
+    picked the oldest gate-passers, which turned out to be notes she'd been
+    ignoring on purpose — old wasn't the same as wanted. Hand-picked moons
+    are the diet again; flipping `self_queue: true` on the Night crew row in
+    scheduled_runs.json re-arms the nominator."""
+    for r in store.read("scheduled_runs.json", {"runs": []}).get("runs", []):
+        if isinstance(r, dict) and r.get("id") == RUN_ID:
+            return r.get("self_queue") is True
+    return False
 
 
 # --- the brief --------------------------------------------------------------
@@ -451,8 +466,17 @@ def run_agent(note, worktree, branch):
             "origin": ORIGIN,
             # Explicit, not derived: without this the /tmp cwd would derive the
             # PERSONAL lane ("her, talking, in real time") for a run that is
-            # precisely the opposite. Orchestra is the gated, unattended room.
+            # precisely the opposite. Orchestra is the unattended room.
             "lane": "orchestra",
+            # But Orchestra's act-vs-ask gate is OFF for this crew: the gate
+            # raises an Approve/Deny card and waits, and at midnight nobody
+            # answers — the first real night (2026-08-05) had workers denied
+            # plain grep and limping through read-only. This crew's safety is
+            # structural instead: cwd is a throwaway worktree, the brief
+            # forbids git-writes/services, this script does the committing,
+            # and nothing merges without her. (_conv_config honors an explicit
+            # per-session override over the lane default.)
+            "act_gate": False,
             "started": now(), "last_at": now(),
             "claude_session_id": None,
             "title": f"night · {note['text'][:40]}",
@@ -644,13 +668,14 @@ def main():
     queued = [n for n in eligible if not already_pending(n)]
     log(f"{len(eligible)} eligible, {len(queued)} not already waiting on her")
 
-    # Self-queue: when her own moons don't fill the night, top up to MAX_NOTES
-    # with the oldest never-answered notes that pass the gate. Her taps go
-    # first — they're fresher intent — and the flags are flipped for real, so
-    # the moons show lit in the panel and un-mooning one is a permanent no
-    # (nominate.py never proposes an answered note again).
+    # Self-queue (opt-in, see self_queue_enabled): when her own moons don't
+    # fill the night, top up to MAX_NOTES with the oldest never-answered notes
+    # that pass the gate. Her taps go first — they're fresher intent — and the
+    # flags are flipped for real, so the moons show lit in the panel and
+    # un-mooning one is a permanent no (nominate.py never proposes an answered
+    # note again).
     need = MAX_NOTES - len(queued)
-    picked = nominate.nominate(tabs, need) if need > 0 else []
+    picked = nominate.nominate(tabs, need) if need > 0 and self_queue_enabled() else []
     if picked:
         ids = {p["id"] for p in picked}
         with store.mutate("dev_notes.json", {"tabs": {}}) as data:
