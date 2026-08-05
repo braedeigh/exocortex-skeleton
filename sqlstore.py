@@ -38,7 +38,7 @@ import sqlite3
 
 import store
 
-_SCHEMA_VERSION = 2
+_SCHEMA_VERSION = 3
 
 
 def _db_path():
@@ -117,6 +117,29 @@ def _migrate(conn):
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_habit_aliases_habit"
             " ON habit_aliases (habit_id)"
+        )
+    if version < 3:
+        # One row per habit per day — the shape habits_log can't express.
+        # `status` exists because the JSON log is pinned to `const: true`
+        # (schemas/habits_log.json): unchecking DELETES the key, so absence is
+        # its only negative and "didn't do it" is indistinguishable from "wasn't
+        # on the list" or "never opened the app". A real column separates them.
+        # `source` keeps that honest: 'logged' is what the log actually says,
+        # 'inferred' is what habitstore deduced. Never mix them in a claim.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS habit_entries ("
+            "  habit_id INTEGER NOT NULL REFERENCES habits(id) ON DELETE CASCADE,"
+            "  date TEXT NOT NULL,"
+            "  status TEXT NOT NULL CHECK (status IN ('done', 'missed', 'skipped')),"
+            "  source TEXT NOT NULL CHECK (source IN ('logged', 'inferred')),"
+            "  PRIMARY KEY (habit_id, date)"
+            ")"
+        )
+        # Date-first index: "what happened between these days" scans by date
+        # across all habits, which the (habit_id, date) primary key can't serve.
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_habit_entries_date"
+            " ON habit_entries (date)"
         )
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")

@@ -17,14 +17,18 @@ the app has ever written onto it:
     eras: the legacy bare text (`'Belly massage'`) and the current qualified
     form (`'evening / night|Floss'`).
 
+  - `habit_entries` — one row per habit per day, with a real `status` and a
+    `source` saying whether that status is fact or deduction.
+
 So `history()` can hand back a habit's complete record across renames, section
 moves, and retirement — including the days logged before the `section|text` key
 format existed.
 
-**This layer is additive and nothing reads it yet.** `rebuild()` only ever reads
-`habits_log`; it never writes it. The app keeps using the blob exactly as before,
-so this can be built, inspected, and rebuilt with no behavior change and no risk
-to the log. Making habit *entries* typed rows is the next layer.
+**`habits_log` is still the source of truth and is never written here.**
+`rebuild()` only reads it; the three tables are derived, wiped and rewritten on
+every run. The app's own read/write path is untouched, so this can be rebuilt
+freely without risking the log. `routes/sqlab.py` exposes the tables read-only
+for querying.
 
 Touches: `sqlstore.py` (owns the schema + the connection factory),
 `data_helpers.py` (`parse_md_sections`, `habit_log_key` — the key format is
@@ -163,6 +167,7 @@ def rebuild():
                     " ON CONFLICT (alias) DO UPDATE SET habit_id = excluded.habit_id",
                     (alias, habit_id),
                 )
+        _rebuild_entries(conn, log)
         conn.execute("COMMIT")
     except BaseException:
         conn.execute("ROLLBACK")
@@ -170,6 +175,67 @@ def rebuild():
     finally:
         conn.close()
     return len(canon)
+
+
+def _rebuild_entries(conn, log):
+    """Derive one row per habit per day from the log. Runs inside rebuild()'s
+    transaction, on the connection it already holds.
+
+    Two statuses come out of this, and the difference is the whole point:
+
+      done / logged     — the log says so. Fact.
+      missed / inferred — the app WAS used that day, the habit was in its own
+                          observed window, and it wasn't checked. Deduction.
+
+    The window matters. Outside the range a habit was ever logged in, we know
+    nothing — it may not have existed yet, or may have already been retired —
+    so no row is written at all. Silence is more honest than a guessed miss.
+    Days the app was never opened produce nothing for anyone, for the same
+    reason. That's why adherence here is always "of the days you showed up".
+
+    Fully derived: wiped and rewritten every rebuild. Anything hand-inserted
+    here does not survive.
+    """
+    conn.execute("DELETE FROM habit_entries")
+    # Days the app was actually opened — a day absent from the log is a day we
+    # have no evidence about, not a day of universal failure.
+    used_days = {
+        day for day, entries in log.items()
+        if isinstance(entries, dict) and entries
+    }
+    rows = conn.execute(
+        "SELECT h.id, a.alias FROM habits h JOIN habit_aliases a ON a.habit_id = h.id"
+    ).fetchall()
+    # Entries belong to the SURVIVING habit, so a merge shows up here as one
+    # continuous record rather than two half-records nobody would think to union.
+    merged = dict(conn.execute("SELECT id, merged_into FROM habits").fetchall())
+
+    def survivor(habit_id):
+        seen = set()
+        while merged.get(habit_id) is not None and habit_id not in seen:
+            seen.add(habit_id)
+            habit_id = merged[habit_id]
+        return habit_id
+
+    by_habit = defaultdict(set)
+    for habit_id, alias in rows:
+        by_habit[survivor(habit_id)].add(alias)
+
+    for habit_id, aliases in by_habit.items():
+        done = sorted(
+            day for day, entries in log.items()
+            if isinstance(entries, dict) and any(entries.get(a) for a in aliases)
+        )
+        if not done:
+            continue
+        first, last = done[0], done[-1]
+        conn.executemany(
+            "INSERT OR REPLACE INTO habit_entries (habit_id, date, status, source)"
+            " VALUES (?, ?, ?, ?)",
+            [(habit_id, d, "done", "logged") for d in done]
+            + [(habit_id, d, "missed", "inferred")
+               for d in used_days if first <= d <= last and d not in set(done)],
+        )
 
 
 # --- reading ------------------------------------------------------------------

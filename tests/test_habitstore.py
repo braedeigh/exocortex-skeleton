@@ -260,3 +260,120 @@ def test_duplicate_section_name_pairs_are_impossible(habits_md):
             conn.execute("INSERT INTO habits (name, section) VALUES ('Kefir', 'morning')")
     finally:
         conn.close()
+
+
+# --- entries (layer 2): the status the JSON log can't express -----------------
+
+def entries(habit_id):
+    import sqlstore
+    conn = sqlstore.open_db()
+    try:
+        return conn.execute(
+            "SELECT date, status, source FROM habit_entries"
+            " WHERE habit_id = ? ORDER BY date", (habit_id,)).fetchall()
+    finally:
+        conn.close()
+
+
+def test_logged_days_become_done_rows(habits_md):
+    store.write("habits_log", {"2026-06-10": {"morning|Kefir": True}})
+    habitstore.rebuild()
+    kefir = by_name(habitstore.all_habits(), "Kefir")["id"]
+    assert entries(kefir) == [("2026-06-10", "done", "logged")]
+
+
+def test_a_used_day_inside_the_window_becomes_an_inferred_miss(habits_md):
+    """The app was open on the 11th and Kefir wasn't checked — that's a miss,
+    and it's marked inferred because the log can't actually say so."""
+    store.write("habits_log", {
+        "2026-06-10": {"morning|Kefir": True},
+        "2026-06-11": {"morning|Water upon waking": True},
+        "2026-06-12": {"morning|Kefir": True},
+    })
+    habitstore.rebuild()
+    kefir = by_name(habitstore.all_habits(), "Kefir")["id"]
+    assert entries(kefir) == [
+        ("2026-06-10", "done", "logged"),
+        ("2026-06-11", "missed", "inferred"),
+        ("2026-06-12", "done", "logged"),
+    ]
+
+
+def test_days_outside_the_observed_window_get_no_row(habits_md):
+    """Before a habit's first log it may not have existed; after its last it may
+    be retired. Writing a miss there would be inventing history."""
+    store.write("habits_log", {
+        "2026-06-01": {"morning|Water upon waking": True},
+        "2026-06-10": {"morning|Kefir": True},
+        "2026-06-20": {"morning|Water upon waking": True},
+    })
+    habitstore.rebuild()
+    kefir = by_name(habitstore.all_habits(), "Kefir")["id"]
+    assert [d for d, _, _ in entries(kefir)] == ["2026-06-10"]
+
+
+def test_unopened_days_produce_nothing_for_anyone(habits_md):
+    """A day absent from the log is a day with no evidence, not a day everyone
+    failed. Empty day-dicts count as unopened too."""
+    store.write("habits_log", {
+        "2026-06-10": {"morning|Kefir": True},
+        "2026-06-11": {},
+        "2026-06-12": {"morning|Kefir": True},
+    })
+    habitstore.rebuild()
+    kefir = by_name(habitstore.all_habits(), "Kefir")["id"]
+    assert [d for d, _, _ in entries(kefir)] == ["2026-06-10", "2026-06-12"]
+
+
+def test_entries_span_the_key_format_change(habits_md):
+    store.write("habits_log", {
+        "2026-03-01": {"Floss": True},
+        "2026-03-02": {"evening / night|Floss": True},
+    })
+    habitstore.rebuild()
+    floss = by_name(habitstore.all_habits(), "Floss")["id"]
+    assert [d for d, _, _ in entries(floss)] == ["2026-03-01", "2026-03-02"]
+
+
+def test_merged_habits_share_one_continuous_entry_record(habits_md):
+    store.write("habits_log", {
+        "2026-03-01": {"Neck rub": True},
+        "2026-03-02": {"Neck-side rubbing": True},
+    })
+    habitstore.rebuild()
+    src = by_name(habitstore.all_habits(), "Neck rub")["id"]
+    dst = by_name(habitstore.all_habits(), "Neck-side rubbing")["id"]
+    habitstore.merge(src, dst)
+    habitstore.rebuild()
+    assert [d for d, _, _ in entries(dst)] == ["2026-03-01", "2026-03-02"]
+    assert entries(src) == []
+
+
+def test_entries_are_derived_so_rebuild_rewrites_them(habits_md):
+    store.write("habits_log", {"2026-06-10": {"morning|Kefir": True}})
+    habitstore.rebuild()
+    import sqlstore
+    conn = sqlstore.open_db()
+    conn.execute("INSERT INTO habit_entries (habit_id, date, status, source)"
+                 " VALUES ((SELECT id FROM habits WHERE name='Kefir'),"
+                 " '2030-01-01', 'done', 'logged')")
+    conn.close()
+    habitstore.rebuild()
+    kefir = by_name(habitstore.all_habits(), "Kefir")["id"]
+    assert [d for d, _, _ in entries(kefir)] == ["2026-06-10"]
+
+
+def test_status_and_source_are_constrained(habits_md):
+    import sqlite3
+    import sqlstore
+    habitstore.rebuild()
+    conn = sqlstore.open_db()
+    try:
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute("INSERT INTO habit_entries (habit_id, date, status, source)"
+                         " VALUES (1, '2026-01-01', 'maybe', 'logged')")
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute("INSERT INTO habit_entries (habit_id, date, status, source)"
+                         " VALUES (1, '2026-01-01', 'done', 'vibes')")
+    finally:
+        conn.close()
