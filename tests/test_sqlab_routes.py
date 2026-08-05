@@ -149,8 +149,12 @@ def test_collections_reports_typed_tables_separately(client):
     """Blobs and tables must not share one axis — their scales differ by an
     order of magnitude."""
     body = client.get("/api/sql/collections").get_json()
-    assert {t["name"] for t in body["typed"]} == {"habits", "habit_aliases", "habit_entries"}
+    assert {t["name"] for t in body["typed"]} == {
+        "habits", "habit_aliases", "habit_entries", "expenses", "expense_categories"}
     assert all(t["kind"] == "table" for t in body["typed"])
+    # 'expenses' is BOTH a typed table and a blob collection during the
+    # migration — the blob is still the source of truth. They must not collide
+    # in one list, which is exactly why the response has two.
     assert "habits" not in {b["name"] for b in body["blobs"]}
 
 

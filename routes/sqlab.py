@@ -10,8 +10,9 @@ Four endpoints:
                           written), plus the typed tables alongside.
   POST /api/sql/query   — run ONE read-only statement and get columns + rows
                           back, along with the query plan and how long it took.
-  POST /api/sql/rebuild — re-derive the habit tables from habits_log
-                          (habitstore.rebuild), so experimenting is undoable.
+  POST /api/sql/rebuild — re-derive every typed table from its JSON blob
+                          (habitstore + expensestore), so experimenting is
+                          undoable.
 
 **Why the plan comes back with every result.** The point of this page is to
 build intuition, and `EXPLAIN QUERY PLAN` is where indexes stop being folklore:
@@ -50,15 +51,20 @@ import time
 
 from flask import jsonify, request
 
+import expensestore
 import habitstore
 import store
 
 MAX_ROWS = 500
 TIMEOUT_SECONDS = 5.0
 
-# The three tables that are real columns rather than a JSON blob. Listed rather
-# than sniffed so the map can say "3 of 53" without guessing what counts.
-TYPED_TABLES = ("habits", "habit_aliases", "habit_entries")
+# The tables that are real columns rather than a JSON blob. Listed rather than
+# sniffed so the map can count them without guessing what qualifies. Note that
+# 'expenses' appears here AND as a blob collection: during the migration the
+# blob is still the source of truth and the table is derived from it, so both
+# are real and the response keeps them in separate lists.
+TYPED_TABLES = ("habits", "habit_aliases", "habit_entries",
+                "expenses", "expense_categories")
 
 _DATE_KEY = re.compile(r"^\d{4}-\d{2}-\d{2}")
 
@@ -261,9 +267,11 @@ def register(app):
 
     @app.route("/api/sql/rebuild", methods=["POST"])
     def sql_rebuild():
-        """Re-derive the habit tables from habits_log — the undo button.
+        """Re-derive every typed table from its blob — the undo button.
 
-        Nothing here can hurt the log: rebuild() reads it and never writes it.
+        Nothing here can hurt the blobs: both rebuilds read them and never
+        write them.
         """
-        count = habitstore.rebuild()
-        return jsonify({"ok": True, "habits": count})
+        habits = habitstore.rebuild()
+        expenses = expensestore.rebuild()
+        return jsonify({"ok": True, "habits": habits, "expenses": expenses})

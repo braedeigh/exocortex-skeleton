@@ -38,7 +38,7 @@ import sqlite3
 
 import store
 
-_SCHEMA_VERSION = 3
+_SCHEMA_VERSION = 4
 
 
 def _db_path():
@@ -67,14 +67,48 @@ def _connect() -> sqlite3.Connection:
     return conn
 
 
+# Every table a fully-migrated database must have. This is the cross-check that
+# makes the version stamp trustworthy — see _migrate.
+_EXPECTED_TABLES = (
+    "docs",
+    "habits", "habit_aliases", "habit_entries",
+    "expenses", "expense_categories",
+)
+
+
+def _tables_present(conn):
+    found = conn.execute(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN"
+        f" ({','.join('?' * len(_EXPECTED_TABLES))})",
+        _EXPECTED_TABLES,
+    ).fetchone()[0]
+    return found == len(_EXPECTED_TABLES)
+
+
 def _migrate(conn):
     """The one migration ladder for this database file.
 
     Every module that keeps tables here adds a rung, and the version is stamped
     once at the end — two modules each owning their own `user_version` would
     stamp over each other and silently skip a rung.
+
+    **The stamp alone is not trusted**, because it can lie. Bump
+    _SCHEMA_VERSION and the next connection stamps the new number whether or
+    not the rung that goes with it exists yet — after which every later
+    connection sees "already migrated" and skips it forever. That failed
+    silently on the live database: user_version said 4 while the expense tables
+    were missing, and nothing noticed until a query for them errored.
+
+    So the fast path requires the stamp AND the tables actually being there;
+    anything else re-runs the whole ladder. Every rung is `IF NOT EXISTS`, so
+    re-running is a no-op on what already exists and self-heals what doesn't.
     """
     version = conn.execute("PRAGMA user_version").fetchone()[0]
+    complete = _tables_present(conn)
+    if version >= _SCHEMA_VERSION and complete:
+        return
+    if not complete:
+        version = 0  # the stamp lied — replay every rung
     if version < 1:
         conn.execute(
             "CREATE TABLE IF NOT EXISTS docs ("
@@ -140,6 +174,52 @@ def _migrate(conn):
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_habit_entries_date"
             " ON habit_entries (date)"
+        )
+    if version < 4:
+        # Typed tables, entity #2: expenses (see expensestore.py). The second
+        # entity exists partly to keep the schema-driven UI honest — a generator
+        # with only habits to generalise over would be secretly shaped like
+        # habits.
+        #
+        # Category gets its own table rather than staying a repeated string: 15
+        # distinct values across 124 rows, and a foreign key is what lets a form
+        # render a dropdown instead of a free-text box.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS expense_categories ("
+            "  id INTEGER PRIMARY KEY,"
+            "  name TEXT NOT NULL UNIQUE"
+            ")"
+        )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS expenses ("
+            # The blob's uuid, kept verbatim, so a row here and a row there are
+            # provably the same expense.
+            "  id TEXT PRIMARY KEY,"
+            "  date TEXT NOT NULL,"
+            # Money as INTEGER CENTS, never a float: 0.1 + 0.2 != 0.3 in binary
+            # floating point, and a budget that drifts by fractions of a cent
+            # per row is a bug you find months later.
+            "  amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),"
+            # Every amount in the blob is positive, including the ones tagged
+            # 'Income' — so sign can't tell money in from money out. This column
+            # can.
+            "  direction TEXT NOT NULL DEFAULT 'out'"
+            "    CHECK (direction IN ('out', 'in')),"
+            "  category_id INTEGER REFERENCES expense_categories(id),"
+            # The raw bank memo line ('LEASERUNNER LTD 02/08 PURCHASE …').
+            "  description TEXT NOT NULL DEFAULT '',"
+            "  title TEXT,"
+            "  receipt TEXT,"
+            "  source TEXT NOT NULL DEFAULT 'manual',"
+            "  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+            ")"
+        )
+        # Almost every question asked of this table is "over what period" —
+        # month, year, since-a-date — so date leads.
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses (date)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_expenses_category"
+            " ON expenses (category_id)"
         )
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")

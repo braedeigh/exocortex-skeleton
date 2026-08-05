@@ -95,3 +95,48 @@ def test_non_sql_collections_stay_on_files(data_dir):
     store.write("todos", {"now": {"items": []}})
     assert (data_dir / "todos.json").exists()
     assert not (data_dir / "exo.db").exists()
+
+
+# --- the migration ladder must not trust its own stamp ------------------------
+
+def _tables(data_dir):
+    conn = sqlite3.connect(data_dir / "exo.db")
+    try:
+        return {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    finally:
+        conn.close()
+
+
+def test_a_fresh_database_gets_every_table(data_dir):
+    store.write("car_maintenance", {"entries": []})
+    assert {"docs", "habits", "habit_aliases", "habit_entries",
+            "expenses", "expense_categories"} <= _tables(data_dir)
+
+
+def test_a_stamp_that_lies_is_repaired(data_dir):
+    """Bumping _SCHEMA_VERSION before its rung exists stamps the new number
+    anyway; every later connection then skips the rung forever. This happened on
+    the live database — user_version said 4 with the expense tables missing."""
+    import sqlstore
+    store.write("car_maintenance", {"entries": []})
+    conn = sqlite3.connect(data_dir / "exo.db")
+    try:
+        conn.execute("DROP TABLE expenses")
+        conn.execute("DROP TABLE expense_categories")
+        conn.execute(f"PRAGMA user_version = {sqlstore._SCHEMA_VERSION}")
+        conn.commit()
+    finally:
+        conn.close()
+    assert "expenses" not in _tables(data_dir)
+
+    store.read("car_maintenance")          # any touch re-opens the database
+    assert {"expenses", "expense_categories"} <= _tables(data_dir)
+
+
+def test_migrating_an_already_current_database_changes_nothing(data_dir):
+    import sqlstore
+    store.write("car_maintenance", {"entries": [{"id": "a"}]})
+    before = _tables(data_dir)
+    sqlstore.open_db().close()
+    assert _tables(data_dir) == before
+    assert store.read("car_maintenance") == {"entries": [{"id": "a"}]}
