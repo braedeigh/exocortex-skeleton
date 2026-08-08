@@ -10,9 +10,9 @@ Four endpoints:
                           written), plus the typed tables alongside.
   POST /api/sql/query   — run ONE read-only statement and get columns + rows
                           back, along with the query plan and how long it took.
-  POST /api/sql/rebuild — re-derive every typed table from its JSON blob
-                          (habitstore + expensestore), so experimenting is
-                          undoable.
+  POST /api/sql/rebuild — re-derive every typed table from its source
+                          (habitstore, expensestore, codestore, cardstore),
+                          so experimenting is undoable.
 
 **Why the plan comes back with every result.** The point of this page is to
 build intuition, and `EXPLAIN QUERY PLAN` is where indexes stop being folklore:
@@ -51,6 +51,7 @@ import time
 
 from flask import jsonify, request
 
+import cardstore
 import codestore
 import expensestore
 import habitstore
@@ -272,12 +273,13 @@ def register(app):
     def sql_rebuild():
         """Re-derive every typed table from its source — the undo button.
 
-        Nothing here can hurt the sources: all three rebuilds only read them
+        Nothing here can hurt the sources: all four rebuilds only read them
         (JSON blobs for habits and expenses; git + the bot_chats sidecars for
-        code history).
+        code history; the vault's card pool + deletion cast for cards).
         """
         habits = habitstore.rebuild()
         expenses = expensestore.rebuild()
         code = codestore.rebuild()
+        cards = cardstore.rebuild()
         return jsonify({"ok": True, "habits": habits, "expenses": expenses,
-                        "code": code})
+                        "code": code, "cards": cards})

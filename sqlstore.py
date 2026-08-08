@@ -38,7 +38,7 @@ import sqlite3
 
 import store
 
-_SCHEMA_VERSION = 5
+_SCHEMA_VERSION = 6
 
 
 def _db_path():
@@ -75,6 +75,7 @@ _EXPECTED_TABLES = (
     "expenses", "expense_categories",
     "files", "file_paths", "commits", "commit_files",
     "sessions", "session_files",
+    "cards", "card_tags",
 )
 
 
@@ -337,6 +338,60 @@ def _migrate(conn):
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_session_files_file"
             " ON session_files (file_id)"
+        )
+    if version < 6:
+        # Typed entity #4: the journal card pool (see cardstore.py for what
+        # fills these). The markdown files in the vault stay the single source
+        # of truth — these rows are a one-way queryable mirror, same contract
+        # as git and the commits table. The three presence columns double as
+        # the capture-integrity alarm: a row whose file disappeared is either
+        # `deleted_at` (found in the pool's deleted_cards.jsonl cast — a cut
+        # the owner asked for) or `missing_since` (no cast — silent loss, the
+        # thing the pool promises can never happen, surfaced loudly).
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS cards ("
+            # The pool's own id, e.g. 2026-08-02.0808b — date.HHMM + who-letter
+            # + optional counter. Stable for a card's whole life.
+            "  id TEXT PRIMARY KEY,"
+            # The journal day, split out of the id so day queries don't need
+            # substr(). Indexed: almost every question is 'over what period'.
+            "  day TEXT NOT NULL,"
+            # Full timestamp from the frontmatter (local, 'YYYY-MM-DD HH:MM:SS').
+            "  ts TEXT,"
+            # 'B' = the owner, 'K' = the Keeper.
+            "  who TEXT NOT NULL DEFAULT 'B',"
+            "  kind TEXT,"
+            # Card id this one answers (the K-question/B-answer pairing).
+            "  reply_to TEXT,"
+            "  session TEXT,"
+            # refs kept as a JSON list in text — rarely queried, not worth a
+            # join table until a real query wants one.
+            "  refs TEXT,"
+            "  body TEXT NOT NULL DEFAULT '',"
+            # Presence tracking (the alarm). first_seen/last_seen are sync
+            # clock times, not card times.
+            "  first_seen TEXT NOT NULL,"
+            "  last_seen TEXT NOT NULL,"
+            # Set from the deletion cast when the file is legitimately gone.
+            "  deleted_at TEXT,"
+            # Set when the file is gone with NO cast. NULL = alive or
+            # explained. A non-NULL here is an integrity incident, kept as a
+            # row forever so it can't be un-noticed.
+            "  missing_since TEXT"
+            ")"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_cards_day ON cards (day)")
+        # Tags are the many-to-many-carrying-nothing shape — a plain pair
+        # table, so 'every card tagged x' is one indexed lookup.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS card_tags ("
+            "  card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,"
+            "  tag TEXT NOT NULL,"
+            "  PRIMARY KEY (card_id, tag)"
+            ")"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_card_tags_tag ON card_tags (tag)"
         )
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
