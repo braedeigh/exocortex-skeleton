@@ -26,6 +26,7 @@ from datetime import datetime, timedelta
 
 from flask import request, jsonify
 
+import cardstore
 import store
 from routes.entities import _parse_frontmatter, CARDS_CUTOVER
 
@@ -107,6 +108,17 @@ def _run_stream(*args, stdin=None):
     return subprocess.run(
         cmd, input=stdin, text=True, capture_output=True, timeout=STREAM_TIMEOUT_SEC,
     )
+
+
+def _echo_mirror(cid):
+    """Push one card's change into the SQL mirror immediately (cardstore).
+    Best-effort on purpose: the mirror is derived — if this hiccups, the
+    hourly sync catches the same change, so a mirror problem must never fail
+    the save the owner just made."""
+    try:
+        cardstore.sync_one(cid)
+    except Exception:
+        pass
 
 
 def _stream_error_response(result, fallback):
@@ -293,6 +305,7 @@ def register(app):
         card = _read_card(cid)
         if card is None:
             return jsonify({"error": "card not found after add"}), 404
+        _echo_mirror(cid)
         return jsonify(card)
 
     @app.route("/api/cards/update", methods=["POST"])
@@ -313,6 +326,7 @@ def register(app):
         card = _read_card(cid)
         if card is None:
             return jsonify({"error": "card not found after edit"}), 404
+        _echo_mirror(cid)
         return jsonify(card)
 
     # Tag management — the journal UI's door to stream.py's `tag`/`untag`
@@ -340,6 +354,7 @@ def register(app):
         card = _read_card(cid)
         if card is None:
             return jsonify({"error": f"card not found after {verb}"}), 404
+        _echo_mirror(cid)
         return jsonify(card)
 
     @app.route("/api/cards/tag", methods=["POST"])
@@ -366,4 +381,5 @@ def register(app):
             return jsonify({"error": "timed out deleting card"}), 400
         if result.returncode != 0:
             return _stream_error_response(result, "delete failed")
+        _echo_mirror(cid)
         return jsonify({"ok": True})

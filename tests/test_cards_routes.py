@@ -134,6 +134,10 @@ if __name__ == "__main__":
 @pytest.fixture
 def vault(tmp_path, monkeypatch):
     monkeypatch.setattr(store, "CONTENT_DIR", tmp_path)
+    # The mutation routes echo each change into the SQL mirror (exo.db at
+    # store.DATA_DIR), so that needs per-test isolation too.
+    monkeypatch.setattr(store, "DATA_DIR", tmp_path / "appdata")
+    (tmp_path / "appdata").mkdir()
     pool = tmp_path / "_system" / "data" / "cards"
     pool.mkdir(parents=True)
     (pool / "2026-07-08.2114k.md").write_text(REF_CARD)
@@ -450,3 +454,18 @@ def test_tag_rejects_invalid_slugs_and_empty_lists(client):
     empty = client.post("/api/cards/tag", json={"id": "2026-07-08.0734b", "tags": []})
     assert bad_slug.status_code == 400
     assert empty.status_code == 400
+
+
+def test_tag_echoes_into_the_sql_mirror_immediately(client):
+    import sqlstore
+
+    client.post("/api/cards/tag",
+                json={"id": "2026-07-08.0734b", "tags": ["ezra"]})
+
+    conn = sqlstore.open_db()
+    try:
+        tags = {r[0] for r in conn.execute(
+            "SELECT tag FROM card_tags WHERE card_id = ?", ("2026-07-08.0734b",))}
+    finally:
+        conn.close()
+    assert tags == {"khalil", "ezra"}

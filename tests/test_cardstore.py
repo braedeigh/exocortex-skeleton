@@ -148,3 +148,33 @@ def test_non_card_files_are_skipped(pool):
     result = cardstore.sync()
 
     assert result["cards"] == 1
+
+
+def test_sync_one_refreshes_a_single_card_without_walking_the_pool(pool):
+    _write_card(pool, "2026-08-02.0808b", body="first", tags=("ezra",))
+    _write_card(pool, "2026-08-02.0900b", body="untouched")
+    cardstore.sync()
+    _write_card(pool, "2026-08-02.0808b", body="retagged", tags=("plans",))
+    (pool / "2026-08-02.0900b.md").unlink()  # sync_one must NOT flag this
+
+    cardstore.sync_one("2026-08-02.0808b")
+
+    assert _rows("SELECT body FROM cards WHERE id = ?", "2026-08-02.0808b") == [("retagged",)]
+    assert _rows("SELECT tag FROM card_tags") == [("plans",)]
+    # The other card's absence is the hourly sync's business, not sync_one's.
+    assert _rows("SELECT missing_since FROM cards WHERE id = ?", "2026-08-02.0900b") == [(None,)]
+
+
+def test_sync_one_marks_a_cast_deletion_deleted(pool):
+    _write_card(pool, "2026-08-02.0808b", body="going")
+    cardstore.sync()
+    (pool / "2026-08-02.0808b.md").unlink()
+    cardstore.deleted_log_path().write_text(json.dumps({
+        "deleted_at": "2026-08-02 21:00:00", "by": "cards-route",
+        "id": "2026-08-02.0808b", "body": "going", "tags": [],
+    }) + "\n", encoding="utf-8")
+
+    cardstore.sync_one("2026-08-02.0808b")
+
+    assert _rows("SELECT deleted_at, missing_since FROM cards WHERE id = ?",
+                 "2026-08-02.0808b") == [("2026-08-02 21:00:00", None)]

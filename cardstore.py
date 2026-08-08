@@ -242,6 +242,42 @@ def sync():
     }
 
 
+def sync_one(cid: str):
+    """Refresh a single card's row right now — the instant echo under the
+    hourly sync. The card routes call this after every mutation so a tag,
+    edit, add, or delete is queryable the moment it lands instead of at :12.
+    Constant-time: parses one file, never walks the pool.
+
+    A file that's gone is only marked deleted here when the deletion cast
+    explains it (which it always does for a route delete — the cast is
+    written before the unlink). Flagging UNexplained absences stays the
+    hourly sync's job; it has the full-pool view this doesn't."""
+    if not _CARD_ID_RE.match(cid):
+        return
+    conn = sqlstore.open_db()
+    now = _now()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        path = pool_dir() / f"{cid}.md"
+        card = _parse_card(path) if path.exists() else None
+        if card is not None:
+            _upsert(conn, card, now)
+        else:
+            entry = _load_casts().get(cid)
+            if entry is not None:
+                conn.execute(
+                    "UPDATE cards SET deleted_at = ? WHERE id = ?"
+                    " AND deleted_at IS NULL",
+                    (entry.get("deleted_at") or now, cid),
+                )
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.close()
+
+
 def rebuild():
     """Wipe and re-derive. Self-repair only — sync() is the daily driver.
     Forgets missing_since incidents (they live nowhere but these rows);
