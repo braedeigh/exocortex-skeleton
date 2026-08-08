@@ -221,3 +221,56 @@
 .confirmActions > * {
   flex: 1;
 }
+
+/* Edit-mode tag editor — the row where a card's tags (= its thread
+   memberships) get added and removed. Edit mode, so everything grows to the
+   ~40px rule: chips are full-height with a clearly visible ×, the input is a
+   real tap target. In read mode tags stay the small meta-row chips above. */
+.tagRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+}
+
+.tagChip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--tap-target);
+  padding: 0 var(--space-1) 0 var(--space-3);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  font-size: var(--font-size-sm);
+}
+
+.tagRemove {
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: var(--font-size-lg);
+  line-height: 1;
+  min-width: 36px;
+  min-height: var(--tap-target);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.tagRemove:hover {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.tagInput {
+  flex: 1;
+  min-width: 10ch;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input, var(--bg));
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: var(--font-size-base);
+}

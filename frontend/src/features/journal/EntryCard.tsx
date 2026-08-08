@@ -34,6 +34,12 @@ export interface EntryCardProps {
   sessionNames?: ReadonlyMap<string, string>;
   /** Tapped on a session chip — opens that conversation. */
   onOpenSession?: (convId: string) => void;
+  /** Edit-mode tag editor: add one tag (tags are the thread link, so this is
+   * "put this card in that thread"). Editor only renders when both tag
+   * callbacks are wired. */
+  onAddTag?: (id: string, tag: string) => void;
+  /** Edit-mode tag editor: remove one tag. */
+  onRemoveTag?: (id: string, tag: string) => void;
 }
 
 /** "8:46 AM" from "YYYY-MM-DD HH:MM:SS" — string ops only, no Date/timezone games. */
@@ -77,10 +83,22 @@ export function EntryCard({
   onOpenCounter,
   sessionNames,
   onOpenSession,
+  onAddTag,
+  onRemoveTag,
 }: EntryCardProps) {
   const [draft, setDraft] = useState(card.body);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [tagDraft, setTagDraft] = useState('');
   const taRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // What she types becomes a slug the pool accepts ("Dating & Romance" ->
+  // "dating-romance") — same shape TAG_RE enforces server-side.
+  function submitTag() {
+    const slug = tagDraft.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').slice(0, 40);
+    if (!slug || card.tags.includes(slug)) return;
+    onAddTag?.(card.id, slug);
+    setTagDraft('');
+  }
 
   useEffect(() => {
     if (editing) setDraft(card.body);
@@ -168,6 +186,54 @@ export function EntryCard({
             onChange={(e) => setDraft(e.target.value)}
             disabled={saving}
           />
+          {onAddTag && onRemoveTag ? (
+            /* The tag editor — edit mode only ("small until edit"): every tag
+               as a chip with a visible ×, plus an input that suggests the
+               live thread names. Tagging a card is how it joins a thread, so
+               this row IS the "add this card to a thread" control. */
+            <div className={styles.tagRow}>
+              {card.tags.map((t) => (
+                <span key={t} className={styles.tagChip}>
+                  {threadNames?.get(t) ?? t}
+                  <button
+                    type="button"
+                    className={styles.tagRemove}
+                    aria-label={`Remove tag ${t}`}
+                    onClick={() => onRemoveTag(card.id, t)}
+                    disabled={saving}
+                    data-track="card-tag-remove"
+                  >
+                    &times;
+                  </button>
+                </span>
+              ))}
+              <input
+                className={styles.tagInput}
+                list={`thread-tags-${card.id}`}
+                placeholder="+ tag / thread"
+                value={tagDraft}
+                onChange={(e) => setTagDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    submitTag();
+                  }
+                }}
+                disabled={saving}
+                data-track="card-tag-input"
+              />
+              <datalist id={`thread-tags-${card.id}`}>
+                {threadNames
+                  ? [...threadNames.entries()]
+                      .filter(([slug]) => !card.tags.includes(slug))
+                      .map(([slug, name]) => <option key={slug} value={slug} label={name} />)
+                  : null}
+              </datalist>
+              <Button variant="secondary" onClick={submitTag} disabled={saving || !tagDraft.trim()} data-track="card-tag-add">
+                Add
+              </Button>
+            </div>
+          ) : null}
           <div className={styles.controls}>
             <Button variant="danger" onClick={() => setConfirmOpen(true)} disabled={saving}>
               Delete

@@ -9,6 +9,8 @@ API over that pool for the journal-day UI:
   - POST /api/cards/add      — insert a new note card at the top or bottom
                                 of a day's timeline
   - POST /api/cards/update   — edit a card's body
+  - POST /api/cards/tag      — add tags to a card (tags are the thread link)
+  - POST /api/cards/untag    — remove tags from a card
   - POST /api/cards/delete   — remove a card
 
 Reads parse the frontmatter directly (fast, no subprocess). Mutations never
@@ -312,6 +314,41 @@ def register(app):
         if card is None:
             return jsonify({"error": "card not found after edit"}), 404
         return jsonify(card)
+
+    # Tag management — the journal UI's door to stream.py's `tag`/`untag`
+    # verbs, which already existed for the CLI but had no route. Tags are how
+    # a card joins a thread (see TAG_RE above), so "add this card to the ezra
+    # thread" and "take it out" are exactly these two calls. Both return the
+    # updated card so the UI can redraw chips without refetching the day.
+    # Prompt: "some way for threads to be tagged on cards and easily added or
+    # editable."
+    def _retag(verb):
+        data = request.json or {}
+        cid = (data.get("id") or "").strip()
+        tags = data.get("tags") or []
+        if not CARD_ID_RE.match(cid):
+            return jsonify({"error": "invalid card id"}), 400
+        if (not isinstance(tags, list) or not tags
+                or not all(isinstance(t, str) and TAG_RE.match(t) for t in tags)):
+            return jsonify({"error": "tags must be a non-empty list of slugs"}), 400
+        try:
+            result = _run_stream(verb, cid, *tags)
+        except subprocess.TimeoutExpired:
+            return jsonify({"error": f"timed out running {verb}"}), 400
+        if result.returncode != 0:
+            return _stream_error_response(result, f"{verb} failed")
+        card = _read_card(cid)
+        if card is None:
+            return jsonify({"error": f"card not found after {verb}"}), 404
+        return jsonify(card)
+
+    @app.route("/api/cards/tag", methods=["POST"])
+    def tag_card():
+        return _retag("tag")
+
+    @app.route("/api/cards/untag", methods=["POST"])
+    def untag_card():
+        return _retag("untag")
 
     @app.route("/api/cards/delete", methods=["POST"])
     def delete_card():

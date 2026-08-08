@@ -95,12 +95,34 @@ def do_record(argv):
     (POOL / f"{cid}.md").write_text("---\\n" + front + "---\\n" + body)
     print(cid)
 
+def do_retag(cid, tags, add):
+    path = POOL / f"{cid}.md"
+    if not path.exists():
+        raise SystemExit(f"no such card: {cid}")
+    lines = path.read_text().splitlines()
+    for i, line in enumerate(lines):
+        if line.startswith("tags:"):
+            inner = line.partition("[")[2].rpartition("]")[0]
+            cur = [t.strip() for t in inner.split(",") if t.strip()]
+            if add:
+                cur += [t for t in tags if t not in cur]
+            else:
+                cur = [t for t in cur if t not in tags]
+            lines[i] = "tags: [" + ", ".join(cur) + "]"
+            break
+    path.write_text("\\n".join(lines) + "\\n")
+    print(cid)
+
 def main():
     verb = sys.argv[1]
     if verb == "edit":
         do_edit(sys.argv[2])
     elif verb == "record":
         do_record(sys.argv[2:])
+    elif verb == "tag":
+        do_retag(sys.argv[2], sys.argv[3:], add=True)
+    elif verb == "untag":
+        do_retag(sys.argv[2], sys.argv[3:], add=False)
     else:
         raise SystemExit(f"unknown verb: {verb}")
 
@@ -402,3 +424,29 @@ def test_get_cards_reply_context_absent_key_when_no_reply_to(client):
     card = _by_id(resp.get_json(), "2026-07-08.0734b")
     assert card["reply_to"] is None
     assert "reply_context" not in card
+
+
+def test_tag_adds_thread_tags_to_existing_card(client):
+    resp = client.post("/api/cards/tag",
+                       json={"id": "2026-07-08.0734b", "tags": ["ezra", "plans"]})
+    assert resp.status_code == 200
+    assert sorted(resp.get_json()["tags"]) == ["ezra", "khalil", "plans"]
+
+
+def test_untag_removes_only_the_named_tag(client):
+    resp = client.post("/api/cards/untag",
+                       json={"id": "2026-07-08.0734b", "tags": ["khalil"]})
+    assert resp.status_code == 200
+    assert resp.get_json()["tags"] == []
+    # The body survived the retag untouched.
+    day = client.get("/api/cards/2026-07-08").get_json()
+    card = _by_id(day, "2026-07-08.0734b")
+    assert card["body"] == "I feel really good this morning."
+
+
+def test_tag_rejects_invalid_slugs_and_empty_lists(client):
+    bad_slug = client.post("/api/cards/tag",
+                           json={"id": "2026-07-08.0734b", "tags": ["Not A Slug!"]})
+    empty = client.post("/api/cards/tag", json={"id": "2026-07-08.0734b", "tags": []})
+    assert bad_slug.status_code == 400
+    assert empty.status_code == 400

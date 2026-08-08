@@ -18,6 +18,8 @@ import {
   updateCard,
   addCard,
   deleteCard as deleteCardRequest,
+  tagCard,
+  untagCard,
 } from '../../api/endpoints';
 import type {
   JournalDayBundle,
@@ -313,6 +315,29 @@ export function useDeleteCard(date: string, onError: (message: string) => void) 
       }
     },
   });
+}
+
+/** Add/remove tags on a card from the day editor. Tags are the thread link,
+ * so these read as "put this card in a thread" / "take it out". One tag per
+ * call — each chip tap is its own round-trip, so a failure only loses that
+ * one gesture. */
+export function useCardTags(date: string, onError: (message: string) => void) {
+  const queryClient = useQueryClient();
+  const invalidate = () => void queryClient.invalidateQueries({ queryKey: journalDayKey(date) });
+  const add = useMutation({
+    mutationFn: (vars: { id: string; tag: string }) => tagCard(vars.id, [vars.tag]),
+    onError: (err) => onError(errorMessage(err, "Couldn't add tag")),
+    onSuccess: invalidate,
+  });
+  const remove = useMutation({
+    mutationFn: (vars: { id: string; tag: string }) => untagCard(vars.id, [vars.tag]),
+    onError: (err) => onError(errorMessage(err, "Couldn't remove tag")),
+    onSuccess: invalidate,
+  });
+  return {
+    add: (id: string, tag: string) => add.mutate({ id, tag }),
+    remove: (id: string, tag: string) => remove.mutate({ id, tag }),
+  };
 }
 
 export function useDevNoteMutations(onError: (message: string) => void) {

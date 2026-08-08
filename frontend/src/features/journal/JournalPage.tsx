@@ -22,6 +22,7 @@ import { resolveDayMode } from './types';
 import {
   useAddCard,
   useClearedTodos,
+  useCardTags,
   useDeleteCard,
   useJournalDates,
   useJournalDay,
@@ -158,6 +159,7 @@ export function JournalPage() {
 
   const updateCard = useUpdateCard(currentDate ?? '', push);
   const deleteCard = useDeleteCard(currentDate ?? '', push);
+  const cardTags = useCardTags(currentDate ?? '', push);
   const addCard = useAddCard(currentDate ?? '', push);
   const saveBlobMutation = useSaveJournalBlob(currentDate ?? '', push);
 
@@ -423,6 +425,8 @@ export function JournalPage() {
                 onReplyContext={jumpToReplySource}
                 threadNames={threadNames}
                 onOpenThread={(slug) => void navigateTo({ to: '/threads/$slug', params: { slug } })}
+                onAddTag={cardTags.add}
+                onRemoveTag={cardTags.remove}
                 counterNames={counterNames}
                 onOpenCounter={openCounter}
                 sessionNames={sessionNames}

@@ -317,6 +317,16 @@ export function updateCard(id: string, body: string): Promise<Card> {
   return api.post('/api/cards/update', { id, body });
 }
 
+// Tags are how a card joins a thread — these two are "add to thread" /
+// "remove from thread" as far as the journal UI is concerned.
+export function tagCard(id: string, tags: string[]): Promise<Card> {
+  return api.post('/api/cards/tag', { id, tags });
+}
+
+export function untagCard(id: string, tags: string[]): Promise<Card> {
+  return api.post('/api/cards/untag', { id, tags });
+}
+
 export function addCard(
   date: string,
   position: 'top' | 'bottom',

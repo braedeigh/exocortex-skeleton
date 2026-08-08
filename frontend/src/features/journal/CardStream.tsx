@@ -36,6 +36,10 @@ export interface CardStreamProps {
   counterNames?: ReadonlyMap<string, string>;
   /** Passed through to entry cards' counter chips. */
   onOpenCounter?: (tag: string) => void;
+  /** Passed through to entry cards' edit-mode tag editor. */
+  onAddTag?: (id: string, tag: string) => void;
+  /** Passed through to entry cards' edit-mode tag editor. */
+  onRemoveTag?: (id: string, tag: string) => void;
   /** Session titles by conversation id, for the "pulled from this room" chip. */
   sessionNames?: ReadonlyMap<string, string>;
   /** Passed through to entry cards' session chips. */
@@ -164,6 +168,8 @@ export function CardStream({
   onOpenThread,
   counterNames,
   onOpenCounter,
+  onAddTag,
+  onRemoveTag,
   sessionNames,
   onOpenSession,
   retirements = [],
@@ -231,6 +237,8 @@ export function CardStream({
         onOpenThread={onOpenThread}
         counterNames={counterNames}
         onOpenCounter={onOpenCounter}
+        onAddTag={onAddTag}
+        onRemoveTag={onRemoveTag}
         sessionNames={sessionNames}
         onOpenSession={onOpenSession}
       />
