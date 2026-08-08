@@ -143,8 +143,6 @@ def register(app):
     @app.route("/atlas")
     @app.route("/sessions")
     @app.route("/automations")
-    # What the agents built and she hasn't taken (routes/branches.py).
-    @app.route("/branches")
     def spa_shell(tab=None, slug=None, rest=None):
         return _spa_response()
 

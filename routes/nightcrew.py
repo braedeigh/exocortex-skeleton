@@ -126,13 +126,37 @@ def register(app):
         splitting them into two round-trips would only make the lane flicker.
         """
         result = triage.triage(_notes())
-        runs = sorted(_runs(), key=lambda r: r.get("finished") or "", reverse=True)
+        runs = list(_runs())
+        for r in runs:
+            r.setdefault("source", "night")
+
+        # EVERY finished branch belongs in this room, not just the night crew's.
+        # The room was never about a crew — its own header says so: it's the
+        # finished-and-waiting room, defined by STATE rather than by who made
+        # the work. A daytime session's branch is in exactly that state, and it
+        # was showing up nowhere here while a separate page answered the same
+        # question in different words. Two surfaces answering "what's waiting
+        # for me?" is how a system starts disagreeing with itself.
+        #
+        # Keyed by BRANCH so nothing is drawn twice, and the night run wins the
+        # tie: it carries screenshots, a real test result and a merge path that
+        # a bare branch has none of. A night run that never got a branch (it
+        # broke before the worktree existed) is already in `runs` and nothing
+        # here drops it.
+        from routes import branches as branch_source
+        seen = {r.get("branch") for r in runs if r.get("branch")}
+        runs += [branch_source.as_card(b) for b in branch_source.collect()
+                 if b["branch"] not in seen]
 
         # Cards that ask something of her float to the top — ready (a merge
-        # tap), then picked (a would-you-want judgment), then failed, then
-        # parked; same law the other two lanes use.
-        order = {"ready": 0, "picked": 1, "failed": 2, "parked": 3}
-        runs.sort(key=lambda r: order.get(r.get("status"), 4))
+        # tap), then picked (a would-you-want judgment), then still-being-built,
+        # then failed, then parked; same law the other two lanes use. Sorted
+        # AFTER the two sources are joined, so a branch and a night run of the
+        # same age sit together rather than in two blocks: newest first inside
+        # a status (the stable first sort), then status (the second).
+        runs.sort(key=lambda r: r.get("finished") or "", reverse=True)
+        order = {"ready": 0, "picked": 1, "working": 2, "failed": 3, "parked": 4}
+        runs.sort(key=lambda r: order.get(r.get("status"), 5))
 
         return jsonify({
             "queue": result["eligible"],
