@@ -3,6 +3,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from pathlib import Path
 import json
 import hashlib
+import sys
 import secrets
 import bcrypt
 import time
@@ -132,7 +133,18 @@ if auth_path.exists():
     AUTH_ALGO = _auth.get("hash_algo", "sha256")
 else:
     sk = secrets.token_hex(32)
-    ph = bcrypt.hashpw(config.DEFAULT_PASSWORD.encode(), bcrypt.gensalt()).decode()
+    seed_pw = config.DEFAULT_PASSWORD
+    if not seed_pw:
+        # No EXOCORTEX_DEFAULT_PASSWORD set: mint a random one-time password
+        # rather than seeding a well-known default every reader of this source
+        # could guess. Printed once, at first boot only — change it in
+        # Settings after logging in.
+        seed_pw = secrets.token_urlsafe(9)
+        print(f"[exocortex] First boot: generated admin password: {seed_pw}\n"
+              f"[exocortex] Log in with it and change it in Settings "
+              f"(or set EXOCORTEX_DEFAULT_PASSWORD before first boot).",
+              file=sys.stderr, flush=True)
+    ph = bcrypt.hashpw(seed_pw.encode(), bcrypt.gensalt()).decode()
     auth_path.write_text(json.dumps({"secret_key": sk, "password_hash": ph, "hash_algo": "bcrypt"}, indent=2))
     app.secret_key = sk
     AUTH_HASH = ph
