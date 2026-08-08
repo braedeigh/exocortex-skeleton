@@ -2,6 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { Checkbox } from '../../ui';
 import type { ColorKey, PhaseName } from '../../theme';
 import { ColorField } from './ColorField';
+import {
+  contrastRatio,
+  formatRatio,
+  wcagLevel,
+  worstRatio,
+  type ContrastLevel,
+} from '../../theme/contrast';
 import { effectiveColor, type ThemeDraft } from './settingsHelpers';
 import styles from './PhaseCard.module.css';
 
@@ -18,6 +25,23 @@ const COLOR_KEYS: ReadonlyArray<[ColorKey, string]> = [
   ['textMuted', 'Text muted'],
   ['border', 'Border'],
 ];
+
+/** The three colors that carry words, so the three worth checking. bg/cardBg
+ * are the surfaces they're checked against, and border isn't text. */
+const CONTRAST_KEYS: ReadonlyArray<[ColorKey, string]> = [
+  ['text', 'Text'],
+  ['textSecondary', 'Text 2°'],
+  ['textMuted', 'Text muted'],
+];
+
+/** AAA/AA read as a pass, "AA Large" as a warning (fine for a heading, not
+ * for a paragraph), Fail as a failure. */
+const LEVEL_CLASS: Record<ContrastLevel, string> = {
+  AAA: 'levelPass',
+  AA: 'levelPass',
+  'AA Large': 'levelWarn',
+  Fail: 'levelFail',
+};
 
 export interface PhaseCardProps {
   phase: PhaseName;
@@ -113,6 +137,45 @@ export function PhaseCard({ phase, draft, onColorChange, onToggleEnabled, onRese
                 Muted metadata · timestamp · hint text
               </div>
             </div>
+          </div>
+
+          {/* Contrast checker: the same three text colors the preview renders
+              above, measured against both surfaces they land on — the card
+              and the page behind it. The badge grades the worse of the two,
+              so a pass here means it reads everywhere in this phase. Alpha is
+              composited before measuring (theme/contrast.ts), which matters:
+              textSecondary and textMuted are rgba and their real contrast
+              depends on what's underneath.
+              Prompt that produced it: "Contrast checker for color
+              accessibility standards". */}
+          <div className={styles.contrast}>
+            <div className={styles.contrastHead}>
+              <span>Contrast (WCAG)</span>
+              <span className={styles.contrastCols}>card · page</span>
+            </div>
+            {CONTRAST_KEYS.map(([key, label]) => {
+              const onCard = contrastRatio(color(key), color('cardBg'));
+              const onPage = contrastRatio(color(key), color('bg'));
+              const level = wcagLevel(worstRatio(onCard, onPage));
+              return (
+                <div className={styles.contrastRow} key={key}>
+                  <span className={styles.contrastLabel}>{label}</span>
+                  <span className={styles.contrastNums}>
+                    {formatRatio(onCard)} · {formatRatio(onPage)}
+                  </span>
+                  <span
+                    className={`${styles.level} ${level ? styles[LEVEL_CLASS[level]] : ''}`}
+                    title={
+                      level
+                        ? `Worst of the two surfaces grades ${level}`
+                        : 'One of these colors could not be read'
+                    }
+                  >
+                    {level ?? '—'}
+                  </span>
+                </div>
+              );
+            })}
           </div>
 
           {COLOR_KEYS.map(([key, label]) => (

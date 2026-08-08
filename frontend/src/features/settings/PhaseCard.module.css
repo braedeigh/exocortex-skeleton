@@ -99,6 +99,77 @@
   transition: color 0.12s;
 }
 
+/* Contrast readout under the preview. Deliberately uses the app's own theme
+   tokens, not the phase being edited: it's a measuring instrument, so it has
+   to stay readable while the colors it's measuring are unreadable. */
+.contrast {
+  margin-bottom: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+}
+
+.contrastHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding-bottom: var(--space-1);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.contrastCols {
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.contrastRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 32px;
+  font-size: 13px;
+}
+
+.contrastLabel {
+  flex: 1;
+  color: var(--text-secondary);
+}
+
+/* Tabular figures so the ratios line up column-wise as they tick during edits. */
+.contrastNums {
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.level {
+  min-width: 68px;
+  padding: 3px var(--space-2);
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--text-muted) 12%, transparent);
+}
+
+.levelPass {
+  color: var(--green);
+  background: color-mix(in srgb, var(--green) 15%, transparent);
+}
+
+.levelWarn {
+  color: var(--orange);
+  background: color-mix(in srgb, var(--orange) 15%, transparent);
+}
+
+.levelFail {
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 15%, transparent);
+}
+
 .actions {
   display: flex;
   justify-content: flex-end;
