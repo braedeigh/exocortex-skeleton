@@ -270,15 +270,39 @@ def _stats_off():
     return os.environ.get("EXOCORTEX_STORE_STATS_OFF", "") == "1"
 
 
+_ADHOC_CALLER = "adhoc"              # every one-liner, under one honest name
+
+
 def _stats_caller():
     """This process's label: EXOCORTEX_PROC if set, else argv[0]'s basename
     minus a trailing .py; sanitized to lowercase [a-z0-9_-], max 40 chars,
-    empty -> 'unknown'. Computed once, lazily."""
+    empty -> 'unknown'. Computed once, lazily.
+
+    Scripts name themselves correctly for free — a cron line running
+    scripts/spark_morning.py lands in the record as `spark_morning`, no config.
+    The exception is a python run with no program at all: `-c "..."` or `-`
+    (code on stdin) put the FLAG in argv[0], so those used to appear as callers
+    literally named `-c` and `-`. That reads as two distinct processes when the
+    truth is "somebody ran a one-liner", twice — and since one-liners are by
+    definition unplanned, the set of fake names grew every time anyone poked at
+    the store from a shell.
+
+    They bucket into one `adhoc` caller instead. Two things are bought: the
+    node set stops churning (anything drawn from this record keeps a stable
+    identity per process), and the record stops claiming to know who did
+    something it cannot know. The cost is that two different one-liners are no
+    longer distinguishable — which was never real; they were both `-c`.
+
+    Anything long-lived enough to deserve a name of its own can still set
+    EXOCORTEX_PROC, which overrides all of this.
+    """
     global _stats_caller_cache
     if _stats_caller_cache is None:
         raw = os.environ.get("EXOCORTEX_PROC") or ""
         if not raw:
-            raw = os.path.basename(sys.argv[0] or "")
+            argv0 = sys.argv[0] or ""
+            # Checked BEFORE basename: basename("-c") is still "-c".
+            raw = _ADHOC_CALLER if argv0.startswith("-") else os.path.basename(argv0)
             if raw.endswith(".py"):
                 raw = raw[:-3]
         raw = re.sub(r"[^a-z0-9_-]", "-", raw.lower())[:40]

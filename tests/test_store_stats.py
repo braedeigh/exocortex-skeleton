@@ -95,6 +95,48 @@ def test_flush_with_kill_switch_is_a_noop(stats_on, monkeypatch):
 
 # --- telemetry can never break a real op -------------------------------------
 
+# --- who the caller is -------------------------------------------------------
+#
+# The label decides the node identity of everything drawn from this record, so
+# it has to be stable. Scripts get theirs from argv[0] for free; the awkward
+# case is a python run with no program name at all.
+
+@pytest.fixture
+def fresh_caller(monkeypatch):
+    """Clear the lazily-computed label so each test resolves its own."""
+    monkeypatch.setattr(store, "_stats_caller_cache", None)
+    monkeypatch.delenv("EXOCORTEX_PROC", raising=False)
+
+
+def test_a_script_names_itself_from_argv(fresh_caller, monkeypatch):
+    monkeypatch.setattr(store.sys, "argv", ["/opt/x/scripts/spark_morning.py"])
+    assert store._stats_caller() == "spark_morning"
+
+
+@pytest.mark.parametrize("argv0", ["-c", "-"])
+def test_one_liners_bucket_into_one_adhoc_caller(fresh_caller, monkeypatch, argv0):
+    """`python -c ...` and `python -` put the FLAG in argv[0]. Recording those
+    verbatim invented a new caller per invocation style, and claimed to
+    identify a process that never said who it was."""
+    monkeypatch.setattr(store.sys, "argv", [argv0])
+    assert store._stats_caller() == "adhoc"
+
+
+def test_explicit_proc_name_still_wins(fresh_caller, monkeypatch):
+    monkeypatch.setenv("EXOCORTEX_PROC", "nightcrew_run")
+    monkeypatch.setattr(store.sys, "argv", ["-c"])
+    assert store._stats_caller() == "nightcrew_run"
+
+
+def test_no_argv_at_all_is_unknown_not_adhoc(fresh_caller, monkeypatch):
+    """An empty argv[0] (embedded interpreter, REPL) isn't a one-liner — it's
+    genuinely unidentified, and the record already had a word for that."""
+    monkeypatch.setattr(store.sys, "argv", [""])
+    assert store._stats_caller() == "unknown"
+
+
+# --- robustness --------------------------------------------------------------
+
 def test_broken_counting_never_breaks_the_real_op(stats_on, monkeypatch):
     def boom():
         raise RuntimeError("telemetry exploded")
