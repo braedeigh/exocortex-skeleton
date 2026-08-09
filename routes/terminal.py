@@ -278,6 +278,39 @@ def _load_titles():
     titles = store.read("session_titles", {})
     return titles if isinstance(titles, dict) else {}
 
+
+# How often the sessions SSE loop wakes, and how long it may stay silent before
+# writing a comment frame just to prove the socket is still there. See
+# sessions_stream() below for what each one is fixing.
+_STREAM_TICK_SEC = 1.0
+_STREAM_HEARTBEAT_SEC = 20.0
+
+
+def _mtime(path):
+    """A file's mtime, or 0.0 when it isn't there. A missing file is a stable
+    state, not an error — it has to compare equal to itself tick after tick."""
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+def _sessions_signature():
+    """Has anything the sessions payload shows actually changed?
+
+    Two stat() calls and the already-TTL-cached worker list. What matters is
+    what this does NOT do: it never opens or parses either file. The SSE loop
+    runs it once a second for every connected client, and *building the payload
+    to find out whether it changed* is what turned an idle stream into millions
+    of disk reads a day.
+
+    Deliberately mtime rather than content: a rewrite with identical bytes now
+    re-emits one redundant frame, which costs nothing, and in exchange the
+    check never has to read the file it's checking.
+    """
+    return (_mtime(SESSIONS_PATH), _mtime(store.file_path("session_titles")),
+            tuple(_live_workers()))
+
 # Shared with terminal_send()'s "accept the confirmation prompt before typing"
 # logic below, and with /api/terminal/needs-input (which tints a background
 # session's tab so it's not silently waiting forever off-screen).
@@ -894,22 +927,43 @@ def register(app):
 
     @app.route("/api/sessions/stream")
     def sessions_stream():
+        """Push the session list to the UI, and cost almost nothing while idle.
+
+        Two faults used to compound here, and together they made this the
+        single largest source of traffic through the data layer:
+
+        1. THE PAYLOAD WAS REBUILT EVERY TICK just to decide whether anything
+           had changed — including a full read-and-parse of session_titles.json
+           through the store — and then thrown away, because it usually hadn't.
+           The old loop even stat()'d the sessions file and then read it anyway;
+           the mtime only ever landed in the comparison, never gated the work.
+           The decision now comes from _sessions_signature() (two stat calls),
+           and the payload is built only when it genuinely changed.
+
+        2. THE LOOP COULD NEVER NOTICE ITS CLIENT WAS GONE. SSE discovers a
+           closed socket only by WRITING to it, and this generator wrote only
+           on a change — so a closed browser tab left it spinning forever, at a
+           disk read per second, reaped only when gunicorn recycled the worker.
+           The heartbeat is a comment frame: EventSource ignores it entirely
+           (onmessage never fires, see shell/useSessions.ts), and its whole job
+           is to be a write that fails once nobody is listening.
+
+        Prompt that produced it: "fix the leak — the sessions stream rebuilds
+        its payload every second and never reaps dead clients."
+        """
         def generate():
             last_sig = None
+            last_write = time.monotonic()
             while True:
-                try:
-                    mtime = SESSIONS_PATH.stat().st_mtime
-                except FileNotFoundError:
-                    mtime = 0
-                payload = _sessions_payload()
-                # Re-emit on any change a client renders: the session list
-                # itself, a worker appearing/finishing, or a title edit.
-                sig = (mtime, tuple(payload["workers"]),
-                       tuple(sorted(payload["titles"].items())))
+                sig = _sessions_signature()
                 if sig != last_sig:
                     last_sig = sig
-                    yield f"data: {json.dumps(payload)}\n\n"
-                time.sleep(1)
+                    last_write = time.monotonic()
+                    yield f"data: {json.dumps(_sessions_payload())}\n\n"
+                elif time.monotonic() - last_write >= _STREAM_HEARTBEAT_SEC:
+                    last_write = time.monotonic()
+                    yield ": ping\n\n"
+                time.sleep(_STREAM_TICK_SEC)
         return Response(generate(), mimetype='text/event-stream',
                         headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
