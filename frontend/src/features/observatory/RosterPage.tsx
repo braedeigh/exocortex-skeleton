@@ -8,6 +8,7 @@ import {
   getSessions,
   toLane,
   updateConversation,
+  wakeSteward,
   type Lane,
   type SessionMeta,
 } from './api';
@@ -274,6 +275,25 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
       .then(() => undefined)
       .catch(() => undefined);
 
+  /** Her reply on a finished card — wakes (or rejoins) the ONE steward for
+   * that branch. Waits for the server: waking cuts a worktree and can
+   * legitimately refuse (merged branch, live session), and the refusal
+   * belongs on the card in the server's plain words. On success the night
+   * stack reloads so the card grows its Session ↗ link. */
+  const wakeBranchSteward = (
+    branch: string,
+    message: string,
+  ): Promise<{ convId: string | null; error: string | null }> =>
+    wakeSteward(branch, message)
+      .then((body) => {
+        loadNight();
+        return { convId: body.conversation_id ?? null, error: null };
+      })
+      .catch((e: unknown) => ({
+        convId: null,
+        error: e instanceof Error ? e.message : "Couldn't wake it.",
+      }));
+
   /** Judges a picked card (pick-only mode). Reject writes the permanent
    * never-propose-again on the note, so this waits for the server. */
   const pickNightRun = (id: string, verdict: 'approve' | 'reject', note: string): Promise<string | null> =>
@@ -483,6 +503,7 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
             onRevert={revertNightRun}
             onFeedback={feedbackNightRun}
             onPick={pickNightRun}
+            onWake={wakeBranchSteward}
             onOpenSession={open}
           />
 

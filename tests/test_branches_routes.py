@@ -248,3 +248,122 @@ def test_a_copy_with_uncommitted_work_reads_as_still_building(client, repo):
                if b["branch"] == branch)
 
     assert row["state"] == "working"
+
+
+# --- the steward door: replying to a branch card wakes a session on it -------
+# The endpoint's own job is the refusal ladder and the brief; the actual spawn
+# is routes/spinoff.py's adopt-mode (tested in test_spinoff_routes.py), so it
+# is stubbed here and the calls are asserted instead.
+
+import routes.spinoff as spinoff_mod
+from routes.branches import steward_slug
+
+
+@pytest.fixture
+def spawn_spy(monkeypatch):
+    calls = []
+    def fake_open_spinoff(slug, lane=None, branch=None, **kw):
+        calls.append({"slug": slug, "lane": lane, "branch": branch})
+        return {"ok": True, "conversation_id": "2026-08-09.120000",
+                "newly_spawned": True}, 200
+    monkeypatch.setattr(spinoff_mod, "open_spinoff", fake_open_spinoff)
+    return calls
+
+
+def _wake(client, branch, message="make the button teal"):
+    return client.post("/api/branches/steward",
+                       json={"branch": branch, "message": message})
+
+
+def test_steward_slug_is_deterministic_and_slug_shaped(repo):
+    # Determinism IS the one-steward-per-branch rule: same branch, same slug,
+    # and the spinoff door's rejoin does the rest.
+    assert steward_slug("agent/E2E02") == "steward-e2e02"
+    assert steward_slug("agent/nightcrew-room-0805-1727") == \
+        "steward-nightcrew-room-0805-1727"
+    import worktrees as wt
+    assert wt.is_valid_slug(steward_slug("agent/" + "x" * 60))
+
+
+def test_waking_needs_an_agent_branch_and_a_message(client, spawn_spy):
+    assert _wake(client, "main").status_code == 400
+    assert _wake(client, "agent/thing", message="  ").status_code == 400
+    assert client.post("/api/branches/steward", json={}).status_code == 400
+    assert spawn_spy == []
+
+
+def test_waking_a_branch_that_does_not_exist_404s(client, repo, spawn_spy):
+    assert _wake(client, "agent/never-was").status_code == 404
+    assert spawn_spy == []
+
+
+def test_a_merged_branch_refuses_the_wake(client, repo, spawn_spy):
+    _, branch = _build_a_branch(repo)
+    _git(repo, "merge", "-q", "--no-ff", "-m", "take it", branch)
+
+    r = _wake(client, branch)
+
+    assert r.status_code == 409
+    assert "merged" in r.get_json()["error"]
+    assert spawn_spy == []
+
+
+def test_a_live_session_on_the_branch_is_rejoined_not_doubled(
+        client, repo, data_dir, spawn_spy):
+    """One branch, one voice. A live session standing on the branch (builder
+    or steward) answers instead — no second spawn, no second worktree."""
+    _, branch = _build_a_branch(repo)
+    _index(data_dir, {"conv-1": {"branch": branch, "title": "the builder",
+                                 "spinoff_slug": "builder-slug"}})
+
+    r = _wake(client, branch)
+
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["existing"] is True
+    assert body["conversation_id"] == "conv-1"
+    assert spawn_spy == []
+
+
+def test_an_archived_session_does_not_block_the_wake(
+        client, repo, data_dir, spawn_spy):
+    _, branch = _build_a_branch(repo)
+    _index(data_dir, {"conv-1": {"branch": branch, "archived": "2026-01-01",
+                                 "spinoff_slug": "builder-slug"}})
+
+    r = _wake(client, branch)
+
+    assert r.status_code == 200
+    assert r.get_json()["existing"] is False
+    assert [c["branch"] for c in spawn_spy] == [branch]
+
+
+def test_a_fresh_wake_briefs_from_evidence_and_spawns_through_the_door(
+        client, repo, spawn_spy):
+    _, branch = _build_a_branch(repo)
+
+    r = _wake(client, branch, message="make the button teal")
+
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["conversation_id"] == "2026-08-09.120000"
+    assert spawn_spy == [{"slug": steward_slug(branch), "lane": "orchestra",
+                          "branch": branch}]
+    brief = (store.SPINOFF_DIR / steward_slug(branch) / "BRIEF.md").read_text()
+    # Her words verbatim, the branch by name, the evidence from git, and the
+    # honesty rail — the four things the brief exists to carry.
+    assert "make the button teal" in brief
+    assert branch in brief
+    assert "did the thing" in brief          # the commit subject, from git
+    assert "1 file changed" in brief         # the diff stat, from git
+    assert "NOT the session that built this" in brief
+    assert "NOTHING MERGES WITHOUT HER TAP" in brief
+
+
+def test_the_card_carries_commit_subjects_for_the_face(client, repo):
+    _, branch = _build_a_branch(repo)
+
+    row = next(b for b in client.get("/api/branches").get_json()["branches"]
+               if b["branch"] == branch)
+
+    assert row["commit_lines"] == ["thing: did the thing"]

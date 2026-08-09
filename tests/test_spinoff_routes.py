@@ -418,3 +418,86 @@ def test_no_model_means_no_field_so_the_cli_default_drives(spinoff_client):
     r = _post(spinoff_client, "unpinned")
     assert r.status_code == 200
     assert "model" not in _index()[r.get_json()["conversation_id"]]
+
+
+# --- adopt-mode: standing a spinoff on an EXISTING branch (the steward seam) --
+# `branch` switches the worktree from mint to adopt. Same door, a mode — the
+# steward endpoint (routes/branches.py) and any future escalation spawner both
+# come through here rather than growing organs of their own.
+
+def _fake_adopt(monkeypatch, data_dir, adoptions):
+    def fake(slug, branch):
+        adoptions.append((slug, branch))
+        path = data_dir / "worktrees" / slug
+        path.mkdir(parents=True, exist_ok=True)
+        return path, branch
+    monkeypatch.setattr(spinoff.worktrees, "adopt", fake)
+
+
+def test_a_branch_spinoff_adopts_instead_of_minting(spinoff_client, monkeypatch, data_dir):
+    adoptions = []
+    _fake_adopt(monkeypatch, data_dir, adoptions)
+    _write_brief(store.SPINOFF_DIR, "steward-x")
+
+    body = _post(spinoff_client, "steward-x", room="orchestra",
+                 branch="agent/x").get_json()
+
+    assert adoptions == [("steward-x", "agent/x")]
+    assert spinoff_client._mints == []          # no new branch was cut
+    entry = _index()[body["conversation_id"]]
+    assert entry["branch"] == "agent/x"         # the EXISTING branch, verbatim
+    assert entry["cwd"] == body["worktree"]
+
+
+def test_a_failed_adoption_refuses_the_whole_spawn(spinoff_client, monkeypatch):
+    """Unlike a failed mint (degrade to the shared checkout, flag it), a failed
+    adoption refuses: a session that believes it stands on a branch and
+    doesn't is the lie the worktree exists to prevent."""
+    def boom(slug, branch):
+        raise spinoff.worktrees.WorktreeError("branch is checked out elsewhere")
+    monkeypatch.setattr(spinoff.worktrees, "adopt", boom)
+    _write_brief(store.SPINOFF_DIR, "steward-stuck")
+
+    r = _post(spinoff_client, "steward-stuck", room="orchestra", branch="agent/x")
+
+    assert r.status_code == 409
+    assert "agent/x" in r.get_json()["error"]
+    assert _index() == {}                        # nothing minted, nothing staged
+    assert spinoff_client._launches == []
+
+
+def test_adoption_outside_orchestra_is_a_caller_bug(spinoff_client):
+    _write_brief(store.SPINOFF_DIR, "steward-lost")
+    r = _post(spinoff_client, "steward-lost", room="coding", branch="agent/x")
+    assert r.status_code == 400
+    assert _index() == {}
+
+
+def test_adoption_without_a_worktree_is_a_caller_bug(spinoff_client):
+    _write_brief(store.SPINOFF_DIR, "steward-bare")
+    r = _post(spinoff_client, "steward-bare", room="orchestra",
+              branch="agent/x", worktree=False)
+    assert r.status_code == 400
+    assert _index() == {}
+
+
+def test_only_agent_branches_can_be_adopted(spinoff_client):
+    _write_brief(store.SPINOFF_DIR, "steward-main")
+    r = _post(spinoff_client, "steward-main", room="orchestra", branch="main")
+    assert r.status_code == 400
+    assert _index() == {}
+
+
+def test_a_rejoin_never_re_adopts(spinoff_client, monkeypatch, data_dir):
+    adoptions = []
+    _fake_adopt(monkeypatch, data_dir, adoptions)
+    _write_brief(store.SPINOFF_DIR, "steward-again")
+    first = _post(spinoff_client, "steward-again", room="orchestra",
+                  branch="agent/x").get_json()
+
+    again = _post(spinoff_client, "steward-again", room="orchestra",
+                  branch="agent/x").get_json()
+
+    assert again["newly_spawned"] is False
+    assert again["conversation_id"] == first["conversation_id"]
+    assert adoptions == [("steward-again", "agent/x")]

@@ -5,7 +5,9 @@ one), it should not be editing the same folder the owner is editing. This module
 mints it a `git worktree` — a second full checkout of this repo, on its own
 `agent/<slug>` branch, sharing one history. The session lives there for its whole
 life, commits there, and its branch is merged back by hand later. Two agents can
-then work at once without touching each other's files.
+then work at once without touching each other's files. A second door, adopt(),
+stands a NEW session on an EXISTING branch instead — how a steward session
+(routes/branches.py) wakes onto work an earlier, now-dead session left behind.
 
 WHY A COPY AND NOT A RULE. Twice now two sessions sharing this one checkout have
 mixed their work: one ran a sweeping `git add -A` and committed another
@@ -135,6 +137,39 @@ def mint(slug, base="HEAD"):
 
     WORKTREE_ROOT.mkdir(parents=True, exist_ok=True)
     r = _git("worktree", "add", str(path), "-b", branch, base)
+    if r.returncode != 0:
+        raise WorktreeError(f"worktree add failed: {r.stderr.strip()}")
+    link_shared(path)
+    return path, branch
+
+
+def adopt(slug, branch):
+    """A worktree standing on an EXISTING agent/* branch — the steward door's
+    ground, and the seam a future escalation spawner rides too. Where mint()
+    cuts a NEW branch for new work, adopt() puts a fresh copy of the checkout
+    on a branch some earlier session already built, so a new session can read,
+    amend and re-test that work. Returns (path, branch).
+
+    REFUSES rather than degrades, always with nothing created:
+      - the path already exists (a live adoption — rejoin its session instead)
+      - the branch doesn't exist (nothing to stand on)
+      - git refuses the add — the important case being a branch already
+        checked out in ANOTHER worktree: git allows one checkout per branch,
+        and that refusal is correct here, because a branch with a live
+        worktree has a live session standing in it, and the answer is to talk
+        to THAT session, never to fork its ground out from under it.
+
+    Prompt that produced it: "replying to a finished-work card wakes a steward
+    session in a worktree on that existing branch — rejoin, never re-mint."
+    """
+    path = worktree_path(slug)
+    if path.exists():
+        raise WorktreeError(f"{path} already exists")
+    if _git("rev-parse", "--verify", "--quiet",
+            f"refs/heads/{branch}").returncode != 0:
+        raise WorktreeError(f"branch {branch} does not exist")
+    WORKTREE_ROOT.mkdir(parents=True, exist_ok=True)
+    r = _git("worktree", "add", str(path), branch)
     if r.returncode != 0:
         raise WorktreeError(f"worktree add failed: {r.stderr.strip()}")
     link_shared(path)

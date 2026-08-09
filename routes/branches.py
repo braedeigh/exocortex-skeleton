@@ -16,16 +16,26 @@ same reason scripts/nightcrew_run.py runs the tests itself instead of believing
 the worker. Today the evidence answers "what changed", not "does it work":
 running the gates belongs with the merge tap, which isn't built.
 
-Read-only. There is no merge button here on purpose — merging is her tap and it
+Read-only, with ONE deliberate exception: the steward door (POST
+/api/branches/steward). Replying to a finished branch's card wakes a *steward*
+— a fresh session stood on that existing branch in its own worktree
+(worktrees.adopt via routes/spinoff.py's adopt-mode), briefed with the literal
+evidence plus her message. The steward reads the record; it does NOT remember
+the session that built the branch — that one is gone, and nothing here
+pretends otherwise. One steward per branch: a live session already claiming
+the branch (steward or original builder) is rejoined, never duplicated.
+There is still no merge button here on purpose — merging is her tap and it
 lands with the ship-it card, where the gates can run first.
 
-Touches: worktrees.py (all the git), routes/observatory.py (the session behind
+Touches: worktrees.py (all the git, and adopt()), routes/spinoff.py (the spawn
+door the steward rides through), routes/observatory.py (the session behind
 a branch, and its own report endpoint), night_runs.json (the overnight crew's
 branches, which come from scripts/nightcrew_run.py rather than a spinoff).
 
 Prompt that produced it: "is there any way to make this into a visual UI that i
 can look at to understand it better?"
 """
+import re
 import subprocess
 from datetime import datetime
 
@@ -186,6 +196,11 @@ def collect():
             "night_run": nights.get(name),
             "has_report": has_report,
             "commits": len(ev["commits"]),
+            # The first few commit subjects, sha stripped — the card's face
+            # speaks in first person from literal evidence, and for a branch
+            # with no report these lines are most of what's known of it.
+            "commit_lines": [c.split(" ", 1)[1] if " " in c else c
+                             for c in ev["commits"][:5]],
             "diff_stat": ev["diff_stat"],
             "files": ev["files"],
             "uncommitted": uncommitted,
@@ -226,15 +241,158 @@ def as_card(row):
         "diff_stat": row["diff_stat"],
         "finished": row["committed"],
         "conv_id": session.get("conversation_id"),
+        # Whether somebody is still standing on this branch — a live
+        # (non-archived) session, builder or steward. The compose box hides
+        # behind this: a branch with a living session is talked to THROUGH
+        # that session, never given a second voice.
+        "session_live": bool(session) and not session.get("archived"),
         "files": row["files"],
         "uncommitted": row["uncommitted"],
         "has_report": row["has_report"],
         "worktree": row["worktree"],
         "commits": row["commits"],
+        "commit_lines": row["commit_lines"],
     }
 
 
+# --- the steward door ---------------------------------------------------
+# Her ask, verbatim (2026-08-07): "I need them to be more like, sessions I can
+# interact with if I need to. I want them to have all the same capacities as
+# other sessions in the room but they describe what they've done." The card's
+# face describes (frontend, from these same evidence fields, no model call);
+# replying is what wakes. The steward is minted through the spinoff door's
+# adopt-mode — a mode of the existing organ, because the same seam later
+# serves the checker-escalation spawner.
+
+def steward_slug(branch):
+    """One branch → one slug, deterministically — the idempotency key.
+
+    The spinoff door rejoins a slug that already has a live conversation, so
+    deriving the slug from the branch name (rather than minting a fresh one
+    per reply) is the whole one-steward-per-branch rule. Lowercased and
+    squeezed to the spinoff slug alphabet; agent/ prefix dropped."""
+    tail = re.sub(r"[^a-z0-9-]+", "-", branch.split("/", 1)[-1].lower())
+    return f"steward-{tail}"[:39].strip("-")
+
+
+def _steward_brief(branch, message, ev, night, report_path):
+    """The steward's BRIEF.md: literal evidence + her message + the rails.
+
+    Written fresh at every wake (a rejoin never gets this far), grounded in
+    git rather than in anything a previous agent said. The honesty rail is
+    spelled out because it's the one promise the UI makes about stewards:
+    it reads the record, it does not remember the night."""
+    commits = "\n".join(f"  - {c}" for c in ev["commits"]) or "  - (none)"
+    files = "\n".join(f"  - {f}" for f in ev["files"][:40]) or "  - (none)"
+    tested = ("the overnight run recorded a real test result on its card"
+              if (night or {}).get("tested")
+              else "NO tests have been recorded against this branch")
+    report_line = (f"- The builder's own account (a claim, not a result): "
+                   f"{report_path}" if report_path
+                   else "- The builder never wrote an account of this work.")
+    return f"""# Steward of `{branch}`
+
+You are the STEWARD of this branch — finished work waiting in the
+Observatory's "Built for you" room. The owner replied to its card; her
+message is below, and answering it is this session's job.
+
+## What you are (the honesty rail — do not soften it)
+- You are NOT the session that built this branch. That session is gone.
+  You read the record — git, the report, the run log — and you never claim
+  to remember the building. If asked about intent the record doesn't show,
+  say the record doesn't show it.
+- Your working directory IS a worktree standing on `{branch}`. Work there:
+  add commits forward (never rewrite history), run the tests yourself, and
+  report what they actually said — never claim a green you didn't watch.
+- NOTHING MERGES WITHOUT HER TAP. You never merge, never touch main, never
+  restart services. Your work stays on this branch until she takes it.
+- Follow this repo's CLAUDE.md (plain-English notes, tests for behavior).
+
+## The evidence (read from git at wake time — verify it yourself in cwd)
+- Diff against main: {ev['diff_stat'] or '(empty)'}
+- Commits on the branch:
+{commits}
+- Files it touches:
+{files}
+- Tests: {tested}
+{report_line}
+
+## Her message
+> {message}
+
+## Protocol
+1. Ground yourself: `git log`/`git diff main...` in your own directory, and
+   read the builder's account if one exists (it is unverified prose).
+2. Do what her message asks, on this branch, with tests run fresh.
+3. Answer her conversationally — she reads this session in the Observatory.
+   Describe what you did and what the tests said, evidence apart from claim.
+"""
+
+
+def open_steward(branch, message):
+    """Wake (or rejoin) the one steward for `branch`. Returns (payload, status).
+
+    The order of refusals is the design: not an agent branch / no such
+    branch / already merged (nothing left to amend — follow-ups belong in a
+    fresh session) / a LIVE session already claims it (builder or steward —
+    talk to that one; git would refuse a second worktree on the branch
+    anyway, and that refusal is correct). Only then does the spinoff door's
+    adopt-mode mint, with the brief written first so the kickoff has
+    something to read."""
+    if not branch.startswith("agent/"):
+        return {"error": "not an agent branch"}, 400
+    if not message:
+        return {"error": "say something for the steward to answer"}, 400
+    if _git("rev-parse", "--verify", "--quiet",
+            f"refs/heads/{branch}").returncode != 0:
+        return {"error": "no such branch"}, 404
+    if branch in _merged_branches():
+        return {"error": "this branch is already merged — its work is live; "
+                         "follow-ups belong in a fresh session"}, 409
+
+    index = store.read("bot_chats/index", {})
+    live = _sessions_by_branch(index).get(branch)
+    if live and not live.get("archived"):
+        return {"ok": True, "conversation_id": live["conversation_id"],
+                "existing": True,
+                "note": "a session is already standing on this branch — "
+                        "say it there"}, 200
+
+    slug = steward_slug(branch)
+    ev = worktrees.branch_evidence(branch)
+    night = _night_runs_by_branch().get(branch)
+    report_slug = (live or {}).get("slug")   # the BUILDER's report, if any
+    report_path = None
+    if report_slug and (store.SPINOFF_DIR / report_slug / "REPORT.md").is_file():
+        report_path = str(store.SPINOFF_DIR / report_slug / "REPORT.md")
+
+    d = store.SPINOFF_DIR / slug
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "BRIEF.md").write_text(
+        _steward_brief(branch, message, ev, night, report_path),
+        encoding="utf-8")
+
+    # Import at call time, not module top: spinoff imports observatory, and
+    # keeping this module import-light is what lets nightcrew.py fold our
+    # cards in without dragging the whole observatory machinery along.
+    from routes.spinoff import open_spinoff
+    payload, status = open_spinoff(slug, lane="orchestra", branch=branch)
+    if status != 200:
+        return payload, status
+    return {"ok": True, "conversation_id": payload["conversation_id"],
+            "existing": not payload.get("newly_spawned", False),
+            "branch": branch, "slug": slug}, 200
+
+
 def register(app):
+
+    @app.route("/api/branches/steward", methods=["POST"])
+    def branches_steward():
+        data = request.get_json(silent=True) or {}
+        payload, status = open_steward(
+            (data.get("branch") or "").strip(),
+            (data.get("message") or "").strip())
+        return jsonify(payload), status
 
     @app.route("/api/branches", methods=["GET"])
     def branches_list():
