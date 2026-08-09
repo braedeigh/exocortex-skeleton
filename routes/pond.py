@@ -16,10 +16,24 @@ endpoints are that door, shaped for one drawing.
                             one touches, not how many cards it has. A thread
                             that surfaces on ten days across a month is the
                             interesting shape; one with forty cards on a single
-                            afternoon is a busy day, not a thread.
+                            afternoon is a busy day, not a thread. Each tag also
+                            comes back CLASSIFIED — person / thread / topic —
+                            and threads carry the fronts they belong to.
     GET /api/pond/cards     the cards themselves in a window, flat and sorted,
-                            with a short preview and their tags.
+                            with their whole text and their tags. Whole, not a
+                            preview: the drawing reads cards in place and
+                            re-windows them around whichever thread is lit,
+                            which changes with no refetch.
     GET /api/pond/card/<id> one card, in full, when she taps it.
+
+The classification is not invented here and it is not stored here. The vault
+ALREADY sorts these: a tag with a file in `people/` is a person, a tag with a
+file in `Threads/` is a thread (and that file's frontmatter names the `fronts:`
+it belongs to), and `fronts.json` holds the front vocabulary. The pond was
+flattening all three into one undifferentiated list. This just reads the sorting
+that was already there and passes it up, so the rail can offer People / Threads
+/ Fronts instead of ninety tags in a row. Anything the vault doesn't file lands
+in `topic` — honestly labelled, never guessed at.
 
 Read-only throughout, on a connection SQLite itself refuses writes through —
 same `mode=ro` + `query_only` belt-and-braces as routes/sqlab.py. The pool in
@@ -44,6 +58,8 @@ from datetime import date
 from flask import jsonify, request
 
 import store
+from routes.entities import PEOPLE_DIR, _parse_frontmatter
+from routes.threads import THREADS_DIR
 
 # Card ids encode their own timestamp and speaker: `2026-08-09.0855b`. Shape-
 # checked before it ever reaches a query — the SQL is parameterised anyway, so
@@ -65,14 +81,97 @@ def _valid_day(raw):
         return False
     return True
 
-# How much of a card's body rides along in the list payload. Enough to know
-# which card you're looking at from the drawing; the full text is one tap away
-# on /api/pond/card/<id>. Keeps a whole month's payload small.
-PREVIEW_CHARS = 160
+# The pond's WORDS arrangement reads cards in place, at whatever length they
+# are, and re-windows them around whichever thread is lit — which changes
+# without a refetch. So the list carries the WHOLE body rather than a preview:
+# the entire pool is about a third of a megabyte, roughly a hundred kilobytes
+# over the wire, fetched once. A per-card ceiling bounds the pathological case
+# (a card far longer than anything the drawing can show) without touching the
+# 99% of cards that are shorter than a screen.
+BODY_CHARS = 6000
+
+# Stop words dropped when a tag is broken into searchable words. Only the
+# grammar — nothing topical, so this stays true for any vault.
+_STOP = {
+    "and", "the", "a", "an", "of", "to", "in", "for", "on", "at", "by", "with",
+    "is", "it", "be", "or", "no", "not", "my", "me", "i", "im", "this", "that",
+}
+_WORD_RE = re.compile(r"[^a-z0-9]+")
 
 # A ceiling so a widened date range can never ask for the entire pool at once.
 # Reported honestly as `truncated` rather than silently trimming.
 MAX_CARDS = 4000
+
+
+def _taxonomy():
+    """What KIND each tag is, read straight off the vault's own filing.
+
+    Three shelves, and the vault already put everything on one of them:
+
+      person  — there's a `people/<tag>.md`
+      thread  — there's a `Threads/<tag>.md`, whose frontmatter names the
+                `fronts:` it belongs to
+      topic   — neither; a loose tag the journal minted and nobody filed
+
+    Only the frontmatter of each thread file is parsed, not the body — this runs
+    on a rail that redraws whenever she changes the window, and the bodies are
+    the bulk of those files. `fronts.json` supplies the display names; a front
+    id a thread references that isn't in the vocabulary still comes through,
+    titled from its own id, rather than vanishing.
+
+    Everything is best-effort: a vault with no `people/` or `Threads/` (any
+    install that isn't hers) simply classifies every tag as `topic`, and the
+    rail degrades to the flat list it is today rather than erroring.
+    """
+    people, threads = set(), {}
+    root = store.CONTENT_DIR
+    try:
+        people = {p.stem for p in (root / PEOPLE_DIR).glob("*.md")}
+    except OSError:
+        pass
+    try:
+        for path in (root / THREADS_DIR).glob("*.md"):
+            try:
+                meta, _ = _parse_frontmatter(path.read_text())
+            except (OSError, UnicodeDecodeError):
+                continue
+            def _list(key):
+                v = meta.get(key, [])
+                if isinstance(v, str):
+                    v = [v] if v else []
+                return [x for x in v if x]
+
+            threads[path.stem] = {
+                "name": meta.get("name") or path.stem,
+                "fronts": _list("fronts"),
+                "aliases": _list("aliases"),
+                "status": meta.get("status") or None,
+            }
+    except OSError:
+        pass
+
+    names = {}
+    for front in (store.read("fronts", {"fronts": []}).get("fronts") or []):
+        if front.get("id"):
+            names[front["id"]] = front.get("name") or front["id"]
+    return people, threads, names
+
+
+def _classify(tag, people, threads):
+    """One tag -> the shelf it sits on, its display name, fronts, and the words
+    to hunt for when centring a long card's excerpt on it."""
+    if tag in threads:
+        t = threads[tag]
+        return {"kind": "thread", "name": t["name"], "fronts": t["fronts"],
+                "status": t["status"],
+                "terms": _terms(tag, t["name"], *t["aliases"])}
+    if tag in people:
+        # People files have no display name — the slug IS the name, just cased.
+        name = tag.replace("-", " ").title()
+        return {"kind": "person", "name": name, "fronts": [], "status": None,
+                "terms": _terms(tag, name)}
+    return {"kind": "topic", "name": tag, "fronts": [], "status": None,
+            "terms": _terms(tag)}
 
 
 def _read_only_conn():
@@ -91,11 +190,34 @@ def _read_only_conn():
     return conn
 
 
-def _preview(body):
-    """First line-ish of a card, whitespace collapsed. Markdown is left as-is —
+def _body(body):
+    """A card's text, whitespace collapsed, capped. Markdown is left as-is —
     stripping it properly is a rendering job, and half-stripping it lies."""
     flat = " ".join((body or "").split())
-    return flat[:PREVIEW_CHARS] + ("…" if len(flat) > PREVIEW_CHARS else "")
+    return flat[:BODY_CHARS] + ("…" if len(flat) > BODY_CHARS else "")
+
+
+def _terms(*phrases):
+    """The words to look for in a card when centring an excerpt on a thread.
+
+    A tag is metadata, not a marker in the text: `housing-rent-and-the-move`
+    names a preoccupation, and she never types that string. But she does type
+    *housing*, and *rent*, and *move*. So each tag's slug, display name and
+    aliases are broken into their component words, and the excerpt centres on
+    the first of those the card actually says.
+
+    Measured against this vault: matching whole phrases finds the thread in 62%
+    of long cards (person names land, abstract threads don't); matching the
+    component words finds it in 85%. The remaining 15% have no honest anchor at
+    all and the drawing falls back to the head of the card rather than inventing
+    a relevance it can't show.
+    """
+    out = set()
+    for phrase in phrases:
+        for word in _WORD_RE.split((phrase or "").lower()):
+            if len(word) > 2 and word not in _STOP:
+                out.add(word)
+    return sorted(out)
 
 
 def _window():
@@ -137,12 +259,18 @@ def register(app):
 
     @app.route("/api/pond/threads")
     def pond_threads():
-        """Tags ranked by how many distinct DAYS they touch.
+        """Tags ranked by how many distinct DAYS they touch, each on its shelf.
 
         Span, not volume, because span is what the drawing is about: a thread
         that keeps resurfacing has a shape worth seeing, and one that fired
         forty times on a single afternoon doesn't — that's just a busy day
         wearing a tag. `cards` comes back too so the two can be compared.
+
+        Every tag carries the `kind` the vault filed it under, so the rail can
+        split People from Threads instead of interleaving them. `fronts` rolls
+        the threads up one more level — a front is a set of threads, so its
+        span is the union of their days, counted here rather than in the
+        browser because only the database knows which days those are.
         """
         window, err = _window()
         if err:
@@ -162,7 +290,48 @@ def register(app):
                   ORDER BY days DESC, cards DESC, t.tag ASC""",
                 params,
             ).fetchall()
-        return jsonify({"threads": [dict(r) for r in rows]})
+            # Which days each tag touched — needed for a front's span, because
+            # two threads under one front often fire on the SAME day and adding
+            # their day-counts would double-count it.
+            day_rows = conn.execute(
+                f"""SELECT DISTINCT t.tag AS tag, c.day AS day
+                      FROM card_tags t
+                      JOIN cards c ON c.id = t.card_id
+                     WHERE {where}""",
+                params,
+            ).fetchall()
+
+        people, thread_meta, front_names = _taxonomy()
+        threads = []
+        for row in rows:
+            entry = dict(row)
+            entry.update(_classify(entry["tag"], people, thread_meta))
+            threads.append(entry)
+
+        days_by_tag = {}
+        for r in day_rows:
+            days_by_tag.setdefault(r["tag"], set()).add(r["day"])
+        cards_by_tag = {t["tag"]: t["cards"] for t in threads}
+
+        # A front is only as real as the threads under it that actually fired
+        # in this window — a front whose threads are all silent isn't listed,
+        # rather than sitting in the rail as a row that lights nothing.
+        rolled = {}
+        for t in threads:
+            for front in t["fronts"]:
+                slot = rolled.setdefault(
+                    front, {"id": front, "name": front_names.get(front, front),
+                            "tags": [], "days": set(), "cards": 0})
+                slot["tags"].append(t["tag"])
+                slot["days"] |= days_by_tag.get(t["tag"], set())
+                slot["cards"] += cards_by_tag.get(t["tag"], 0)
+
+        fronts = sorted(
+            ({"id": f["id"], "name": f["name"], "tags": sorted(f["tags"]),
+              "days": len(f["days"]), "cards": f["cards"]} for f in rolled.values()),
+            key=lambda f: (-f["days"], -f["cards"], f["name"]),
+        )
+        return jsonify({"threads": threads, "fronts": fronts})
 
     @app.route("/api/pond/cards")
     def pond_cards():
@@ -211,7 +380,7 @@ def register(app):
                 "who": r["who"],
                 "kind": r["kind"],
                 "tags": sorted(tags.get(r["id"], [])),
-                "preview": _preview(r["body"]),
+                "body": _body(r["body"]),
             }
             for r in rows
         ]

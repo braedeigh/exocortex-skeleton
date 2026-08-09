@@ -10,9 +10,14 @@
  * list stays small enough to pan smoothly and the body is fetched (and then
  * cached by react-query) only for the card actually opened.
  */
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client';
 import type { PondCard } from './pondMath';
+
+/** Which shelf the vault filed a tag on — a file in `people/`, a file in
+ * `Threads/`, or neither. The rail splits on this instead of listing ninety
+ * tags in one undifferentiated run. */
+export type PondKind = 'person' | 'thread' | 'topic';
 
 export interface PondThread {
   tag: string;
@@ -22,6 +27,25 @@ export interface PondThread {
   days: number;
   first: string;
   last: string;
+  kind: PondKind;
+  /** Display name — the thread's `name:`, a person's slug cased, else the tag. */
+  name: string;
+  /** Fronts this thread belongs to (threads only; from its frontmatter). */
+  fronts: string[];
+  status: string | null;
+  /** The tag's slug, name and aliases broken into searchable words — what a
+   * long card's excerpt centres on when this thread is lit. */
+  terms: string[];
+}
+
+/** A front — a life domain, holding the threads filed under it. Lighting one
+ * lights all its threads at once, so `days` is the union of theirs, not a sum. */
+export interface PondFront {
+  id: string;
+  name: string;
+  tags: string[];
+  days: number;
+  cards: number;
 }
 
 export interface PondCardsPayload {
@@ -45,7 +69,8 @@ export interface PondCardDetail extends PondCard {
 export function usePondThreads() {
   return useQuery({
     queryKey: ['pond', 'threads'],
-    queryFn: () => api.get<{ threads: PondThread[] }>('/api/pond/threads'),
+    queryFn: () =>
+      api.get<{ threads: PondThread[]; fronts: PondFront[] }>('/api/pond/threads'),
     staleTime: 60_000,
   });
 }
@@ -67,5 +92,25 @@ export function usePondCard(id: string | null) {
     queryFn: () => api.get<{ card: PondCardDetail }>(`/api/pond/card/${id}`),
     enabled: id !== null,
     staleTime: 5 * 60_000,
+  });
+}
+
+/**
+ * Put a card into a thread, or take it out — the one WRITE the pond makes.
+ *
+ * It doesn't get its own endpoint: tags are how a card joins a thread
+ * everywhere in the system, and POST /api/cards/tag|untag (routes/cards.py)
+ * already does this properly — through the vault's own stream.py, which
+ * re-renders the derived views, then echoes the change into the SQL mirror the
+ * pond reads. Writing the mirror directly from here would desync the record.
+ * On success every pond query is refetched, so the dot, the line, the rail
+ * counts and the open card all agree again.
+ */
+export function useRetagCard() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, tag, verb }: { id: string; tag: string; verb: 'tag' | 'untag' }) =>
+      api.post<{ id: string }>(`/api/cards/${verb}`, { id, tags: [tag] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['pond'] }),
   });
 }

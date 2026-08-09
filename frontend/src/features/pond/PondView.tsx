@@ -1,13 +1,19 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link } from '@tanstack/react-router';
-import { usePondCard, usePondCards, usePondThreads } from './api';
+import { usePondCard, usePondCards, usePondThreads, useRetagCard } from './api';
+import type { PondFront, PondKind, PondThread } from './api';
 import {
+  clockOf,
   dayLabel,
   hourLines,
+  labelStep,
   layoutPond,
   polylinePoints,
+  threadLine,
   threadPoints,
 } from './pondMath';
+import type { PondMode } from './pondMath';
 import styles from './PondView.module.css';
 
 /**
@@ -15,62 +21,308 @@ import styles from './PondView.module.css';
  *
  * The terrain map draws the CREEK: data moving across the seam between the
  * code and the vault. This is the other half — the POND, where that data comes
- * to rest. Time runs left to right, one column per day, and inside a column
- * every card sits at the hour it was written, so a month of living has a
- * visible shape: the late-night cards low, the morning ones high, a quiet day
- * a nearly empty column.
+ * to rest. Time runs left to right, one column per day, and you choose what
+ * runs DOWN the column:
  *
- * Pick a thread from the rail and its cards join into a line that dips and
- * climbs across the days it touches. That bouncing is the point. A thread
- * surfacing on ten days across a month draws a long, wandering, mostly-silent
- * line — and nothing else in the system shows that shape.
+ *   TIME  — every card at the hour it was written. The shape of *when*: late
+ *           cards low, morning cards high, a quiet day nearly empty. Cards are
+ *           dots, because at that density nothing else would read.
+ *   WORDS — the clock dropped, cards stacked flush and set in tiny type, each
+ *           as tall as it has words. The shape of *how much*: a day she poured
+ *           out is a long ribbon of text, a thin day is a stub. This is the
+ *           arrangement you can actually READ the pond in.
  *
- * Lighting a thread is EMPHASIS, NOT A FILTER: the rest of the pond stays
- * drawn, just quieter. Seeing where a preoccupation sits inside everything
- * else that was happening is the whole reason to draw it in place rather than
- * list it.
+ * The rail down the left is sorted the way the VAULT already sorts things,
+ * rather than as one flat run of ninety tags: FRONTS (life domains, each
+ * holding the threads filed under it), THREADS, PEOPLE, and LOOSE for whatever
+ * was never filed. Lighting a front lights all its threads at once.
+ *
+ * Lighting anything is EMPHASIS, NOT A FILTER: the rest of the pond stays
+ * drawn, just quieter. Seeing where a preoccupation sits inside everything else
+ * that was happening is the whole reason to draw it in place rather than list
+ * it.
  *
  * Reads GET /api/pond/{threads,cards,card/<id>} (routes/pond.py) and nothing
  * else. All positioning maths lives in pondMath.ts and is tested there; this
  * file only draws what comes back and handles what's lit and what's open.
  *
- * Prompt that produced it: "the base files laid out by day and time with
- * threads stored inside of them connected by lines, and you can scroll to the
- * left or right over time and the threads bounce around in the entries."
+ * Prompt that produced it: "make it so it can be organized by time or just by
+ * the words in the journal — I want the words to be tiny and the cards to show.
+ * And I want the thread filters sorted by person and front, so I can sort by
+ * people or threads."
  */
 
-/** Visible radius of a card. The hit target is much larger — see HIT_R. */
-const CARD_R = 3.5;
-/** An invisible circle over each card so a 3.5px dot is still tappable on a
- * phone. The dot is the drawing; this is the button. */
-const HIT_R = 11;
-/** How many threads the rail lists before "show all". Ranked by span, so the
- * ones with a shape worth seeing are always above the fold. */
-const RAIL_LIMIT = 14;
+/** How many rows the rail lists in a group before "show all". */
+const RAIL_LIMIT = 12;
+
+/**
+ * One zoom scale, read differently by each arrangement.
+ *
+ * Zooming out is the whole point of the far end: at four pixels a day a YEAR of
+ * pond is about fifteen hundred pixels, so the entire record becomes one
+ * picture you take in at once — which is the only scale at which the big shape
+ * (the dense months, the fallow weeks) is visible at all. Zooming in is the
+ * other extreme: room for the within-day bouncing, and type you can read.
+ *
+ * The two tightest words settings sit below the house 12px floor on purpose.
+ * That's the "tiny words" this view exists for — at those steps the text is
+ * texture you lean into rather than copy you read, and every control around it
+ * stays at full size.
+ */
+const ZOOMS = [
+  { clock: { colWidth: 4, dayHeight: 190, dotSize: 2.5 }, words: { colWidth: 30, fontSize: 5 } },
+  { clock: { colWidth: 12, dayHeight: 380, dotSize: 4 }, words: { colWidth: 78, fontSize: 8 } },
+  { clock: { colWidth: 34, dayHeight: 760, dotSize: 7 }, words: { colWidth: 172, fontSize: 13 } },
+  { clock: { colWidth: 62, dayHeight: 1040, dotSize: 9 }, words: { colWidth: 244, fontSize: 15 } },
+  { clock: { colWidth: 96, dayHeight: 1360, dotSize: 11 }, words: { colWidth: 320, fontSize: 17 } },
+];
+const DEFAULT_ZOOM = 2;
+
+/** The rail's shelves, in the order she reads them. */
+const GROUPS: { key: PondKind | 'front'; label: string }[] = [
+  { key: 'front', label: 'Fronts' },
+  { key: 'thread', label: 'Threads' },
+  { key: 'person', label: 'People' },
+  { key: 'topic', label: 'Loose' },
+];
+
+/** What the hover popup needs from a card — a plain slice of PondCard. */
+interface PondCardHover {
+  id: string;
+  day: string;
+  ts: string | null;
+  who: string;
+  tags: string[];
+  body: string;
+}
+
+/** What's currently lit — a label to say so, and the set of tags it covers.
+ * A front covers many tags; a thread or a person covers one. */
+interface Lit {
+  key: string;
+  label: string;
+  tags: Set<string>;
+  /** The words a long card's excerpt centres on — every lit tag's, pooled. */
+  terms: string[];
+}
 
 export function PondView() {
   const threads = usePondThreads();
   const cards = usePondCards();
-  const [lit, setLit] = useState<string | null>(null);
+  const [mode, setMode] = useState<PondMode>('clock');
+  const [zoom, setZoom] = useState(DEFAULT_ZOOM);
+  const [onlyLit, setOnlyLit] = useState(false);
+  const [hideKeeper, setHideKeeper] = useState(false);
+  const [group, setGroup] = useState<PondKind | 'front'>('front');
+  const [lit, setLit] = useState<Lit | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
-  const [showAllThreads, setShowAllThreads] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
+  const [newTag, setNewTag] = useState('');
+  // The dot under the pointer, and where to hang its popup (viewport coords —
+  // the popup is position:fixed so the scroller can't clip it at the edges).
+  const [hover, setHover] = useState<{
+    card: PondCardHover;
+    x: number;
+    y: number;
+    flip: boolean;
+  } | null>(null);
   const detail = usePondCard(openId);
+  const retag = useRetagCard();
+  const gutterRef = useRef<HTMLDivElement>(null);
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  // Auto-fit runs once per visit; after that the view is hers.
+  const fitted = useRef(false);
+  const fitTarget = useRef<number | null>(null);
+  // Where the eye was, as fractions of the canvas, carried across a zoom step.
+  const keepCentre = useRef<{ fx: number; fy: number } | null>(null);
+
+  const z = ZOOMS[zoom];
+  const geom = mode === 'clock' ? z.clock : z.words;
+  const litTags = lit?.tags ?? null;
+  // Hiding only bites when something is actually lit — otherwise the toggle
+  // would blank the page and read as a bug rather than a filter.
+  const hiding = onlyLit && litTags !== null;
+
+  // The Keeper's turns, toggleable out of the water entirely. Different move
+  // from lighting a thread: dimming is emphasis, this is subtraction — with it
+  // off the pond is only her own voice, and everything downstream (the line,
+  // the walk, the counts) follows because it all derives from this list.
+  const visibleCards = useMemo(() => {
+    const all = cards.data?.cards ?? [];
+    return hideKeeper ? all.filter((c) => c.who !== 'K') : all;
+  }, [cards.data?.cards, hideKeeper]);
 
   const layout = useMemo(
-    () => layoutPond(cards.data?.cards ?? []),
-    [cards.data?.cards],
+    () =>
+      layoutPond(visibleCards, {
+        mode,
+        ...geom,
+        only: hiding ? litTags : null,
+        // A long card windows onto whatever's lit, so lighting a thread
+        // re-cuts every long card to the passage that's about it.
+        terms: lit?.terms ?? null,
+      }),
+    [visibleCards, mode, geom, hiding, litTags, lit?.terms],
   );
-  const litPoints = useMemo(() => threadPoints(layout, lit), [layout, lit]);
   const litIds = useMemo(
-    () => new Set(litPoints.map((p) => p.card.id)),
-    [litPoints],
+    () => new Set(threadPoints(layout, litTags).map((p) => p.card.id)),
+    [layout, litTags],
   );
-  const gridLines = useMemo(() => hourLines(), []);
+  const line = useMemo(() => threadLine(layout, litTags), [layout, litTags]);
+  const gridLines = useMemo(
+    () => hourLines({ mode, dayHeight: z.clock.dayHeight }),
+    [mode, z.clock.dayHeight],
+  );
+  const step = labelStep(layout.colWidth);
+  // How far past the dot the invisible button reaches. Capped at 6px so it
+  // never becomes a slab up close, and squeezed toward the dot's own size once
+  // the columns get narrow enough that a fat target would spill into its
+  // neighbours and make tapping a coin-flip.
+  const hitPad =
+    mode === 'clock'
+      ? Math.max(2, Math.min(6, (z.clock.colWidth - z.clock.dotSize) / 2 + 2))
+      : 0;
+
+  // Opening the pond frames the WHOLE of it: pick the widest zoom whose days
+  // all fit the viewport at once, then centre. "Where does my journal sit"
+  // should be answered by the first paint, not by panning around looking for
+  // it. Once only — after that the view is hers to steer.
+  useLayoutEffect(() => {
+    const el = scrollerRef.current;
+    const n = cards.data?.cards.length ?? 0;
+    if (fitted.current || !el || n === 0) return;
+    fitted.current = true;
+    const dayCount = new Set(cards.data!.cards.map((c) => c.day)).size;
+    let best = 0;
+    for (let i = ZOOMS.length - 1; i >= 0; i -= 1) {
+      if (dayCount * ZOOMS[i].clock.colWidth <= el.clientWidth) {
+        best = i;
+        break;
+      }
+    }
+    fitTarget.current = best;
+    setZoom(best);
+  }, [cards.data]);
+
+  // The second half of the fit, once the chosen zoom's layout is on screen:
+  // centre the days horizontally, and vertically sit over the mean of the
+  // dots — where the journal actually lives (her evenings), not midnight.
+  useLayoutEffect(() => {
+    const el = scrollerRef.current;
+    if (el && fitTarget.current !== null && zoom === fitTarget.current) {
+      fitTarget.current = null;
+      el.scrollLeft = Math.max(0, (el.scrollWidth - el.clientWidth) / 2);
+      const ys = layout.columns.flatMap((c) => c.cards.map((p) => p.y));
+      const meanY = ys.length ? ys.reduce((a, b) => a + b, 0) / ys.length : 0;
+      el.scrollTop = Math.max(0, meanY - el.clientHeight / 2);
+    }
+    // A manual zoom step keeps the view trained on the same spot — zooming
+    // is meant to change the grain, not fling her somewhere else.
+    const k = keepCentre.current;
+    if (el && k) {
+      keepCentre.current = null;
+      el.scrollLeft = Math.max(0, k.fx * el.scrollWidth - el.clientWidth / 2);
+      el.scrollTop = Math.max(0, k.fy * el.scrollHeight - el.clientHeight / 2);
+    }
+  }, [zoom, layout]);
+
+  function changeZoom(next: number) {
+    const el = scrollerRef.current;
+    if (el) {
+      keepCentre.current = {
+        fx: (el.scrollLeft + el.clientWidth / 2) / Math.max(1, el.scrollWidth),
+        fy: (el.scrollTop + el.clientHeight / 2) / Math.max(1, el.scrollHeight),
+      };
+    }
+    setZoom(next);
+  }
+
+  // The path prev/next walks from the open card: the lit thread's cards in
+  // time order when the open card is on it, the whole pond otherwise.
+  const walk = useMemo(() => {
+    const onThread = openId !== null && litIds.has(openId);
+    const seq =
+      onThread && litTags
+        ? threadPoints(layout, litTags)
+        : layout.columns.flatMap((c) => c.cards);
+    return seq.map((p) => p.card.id);
+  }, [layout, litTags, litIds, openId]);
+  const walkAt = openId ? walk.indexOf(openId) : -1;
+  const walkingThread = openId !== null && litIds.has(openId) && lit !== null;
+
+  // A fresh card starts with a clean slate — no half-armed remove, no
+  // half-typed tag carried over from the last one.
+  useEffect(() => {
+    setConfirmRemove(null);
+    setNewTag('');
+  }, [openId]);
+
+  /** Fixed width the popup is clamped against; must match the CSS. */
+  const POPUP_W = 272;
+  function showHover(el: Element, card: PondCardHover) {
+    const r = el.getBoundingClientRect();
+    const flip = r.right + POPUP_W + 16 > window.innerWidth;
+    setHover({ card, x: flip ? r.left : r.right, y: r.top, flip });
+  }
+
+  const TAG_OK = /^[a-z0-9-]{1,40}$/;
+  function addTag() {
+    const slug = newTag.trim().toLowerCase().replace(/\s+/g, '-');
+    if (!openId || !TAG_OK.test(slug) || retag.isPending) return;
+    retag.mutate({ id: openId, tag: slug, verb: 'tag' });
+    setNewTag('');
+  }
 
   const allThreads = threads.data?.threads ?? [];
-  const shownThreads = showAllThreads ? allThreads : allThreads.slice(0, RAIL_LIMIT);
-  const totalCards = cards.data?.cards.length ?? 0;
+  const allFronts = threads.data?.fronts ?? [];
+
+  // The rail's current shelf. Fronts are their own kind of row (they hold
+  // threads); the other three are just the tags filed under that kind.
+  const termsByTag = useMemo(() => {
+    const m = new Map<string, string[]>();
+    for (const t of allThreads) m.set(t.tag, t.terms ?? []);
+    return m;
+  }, [allThreads]);
+
+  const rows = useMemo(() => {
+    if (group === 'front') {
+      return allFronts.map((f: PondFront) => ({
+        key: `front:${f.id}`,
+        name: f.name,
+        days: f.days,
+        cards: f.cards,
+        note: `${f.tags.length} threads`,
+        tags: new Set(f.tags),
+        // A front's excerpt anchors on any of its threads' words — you're
+        // reading the domain, not one thread inside it.
+        terms: [...new Set(f.tags.flatMap((t) => termsByTag.get(t) ?? []))],
+      }));
+    }
+    return allThreads
+      .filter((t: PondThread) => t.kind === group)
+      .map((t: PondThread) => ({
+        key: `tag:${t.tag}`,
+        name: t.name,
+        days: t.days,
+        cards: t.cards,
+        note: null as string | null,
+        tags: new Set([t.tag]),
+        terms: t.terms ?? [],
+      }));
+  }, [group, allFronts, allThreads, termsByTag]);
+
+  const shown = showAll ? rows : rows.slice(0, RAIL_LIMIT);
+  const totalCards = visibleCards.length;
   const dayCount = layout.columns.length;
+
+  function toggle(row: { key: string; name: string; tags: Set<string>; terms: string[] }) {
+    setLit((cur) =>
+      cur?.key === row.key
+        ? null
+        : { key: row.key, label: row.name, tags: row.tags, terms: row.terms },
+    );
+  }
 
   return (
     <section className={styles.view} aria-label="The pond">
@@ -79,13 +331,98 @@ export function PondView() {
           <h2 className={styles.title}>The pond</h2>
           <p className={styles.sub}>
             {totalCards > 0
-              ? `${totalCards.toLocaleString()} cards across ${dayCount} days — where the journal sits.`
+              ? `${totalCards.toLocaleString()} cards across ${dayCount} days${
+                  lit ? ` — ${lit.label} lit` : ''
+                }`
               : 'Where the journal sits.'}
           </p>
         </div>
-        <Link to="/terrain/map" className={styles.back} aria-label="Back to the terrain map">
-          ← Terrain
-        </Link>
+
+        <div className={styles.controls}>
+          {/* The two axes of a day. Not a display preference — a different
+              question each. */}
+          <div className={styles.segmented} role="group" aria-label="Arrangement">
+            <button
+              type="button"
+              className={mode === 'clock' ? styles.segOn : styles.seg}
+              aria-pressed={mode === 'clock'}
+              onClick={() => setMode('clock')}
+            >
+              Time
+            </button>
+            <button
+              type="button"
+              className={mode === 'words' ? styles.segOn : styles.seg}
+              aria-pressed={mode === 'words'}
+              onClick={() => setMode('words')}
+            >
+              Words
+            </button>
+          </div>
+
+          {/* One scale for both arrangements — out to the whole record as a
+              single picture, in to type you can read. */}
+          <div className={styles.segmented} role="group" aria-label="Zoom">
+            <button
+              type="button"
+              className={styles.seg}
+              disabled={zoom === 0}
+              aria-label="Zoom out"
+              onClick={() => changeZoom(Math.max(0, zoom - 1))}
+            >
+              −
+            </button>
+            <span className={styles.zoomPips} aria-hidden="true">
+              {ZOOMS.map((_, i) => (
+                <span key={i} className={i === zoom ? styles.pipOn : styles.pip} />
+              ))}
+            </span>
+            <button
+              type="button"
+              className={styles.seg}
+              disabled={zoom === ZOOMS.length - 1}
+              aria-label="Zoom in"
+              onClick={() => changeZoom(Math.min(ZOOMS.length - 1, zoom + 1))}
+            >
+              +
+            </button>
+          </div>
+
+          {/* The Keeper's voice, toggleable out of the water. Struck through
+              when hidden — the label wears its own state. Not the same move as
+              lighting a thread: dimming is emphasis, this is subtraction. */}
+          <button
+            type="button"
+            className={hideKeeper ? styles.keeperOff : styles.keeperOn}
+            aria-pressed={hideKeeper}
+            aria-label={hideKeeper ? 'Show the Keeper’s cards' : 'Hide the Keeper’s cards'}
+            onClick={() => setHideKeeper((v) => !v)}
+          >
+            Keeper
+          </button>
+
+          {/* Emphasis is the default — this is the other reading, where the
+              pond drops away, the untouched days close up, and only the
+              thread's own words are left. Labelled for what it DOES rather
+              than for what's lit: a label carrying the thread name changed
+              width every time she picked a different one, so the whole header
+              shuffled sideways on each tap. */}
+          {lit ? (
+            <button
+              type="button"
+              className={onlyLit ? styles.onlyOn : styles.only}
+              aria-pressed={onlyLit}
+              aria-label={`Filter to ${lit.label}`}
+              onClick={() => setOnlyLit((v) => !v)}
+            >
+              Filter
+            </button>
+          ) : null}
+
+          <Link to="/terrain/map" className={styles.back} aria-label="Back to the terrain map">
+            ← Terrain
+          </Link>
+        </div>
       </header>
 
       {cards.isLoading ? <p className={styles.note}>Reading the pond…</p> : null}
@@ -93,151 +430,282 @@ export function PondView() {
       {cards.data && totalCards === 0 ? (
         <p className={styles.note}>No cards in the pool yet.</p>
       ) : null}
+      {cards.data?.truncated ? (
+        <p className={styles.note}>
+          Showing the first {totalCards.toLocaleString()} cards — the pond holds more than
+          one screen can carry.
+        </p>
+      ) : null}
 
       {totalCards > 0 ? (
         <div className={styles.body}>
-          {/* The threads, ranked by how many DAYS they touch rather than how
-              many cards they have — span is the shape this page is about. */}
           <nav className={styles.rail} aria-label="Threads">
-            <button
-              type="button"
-              className={[styles.thread, lit === null ? styles.threadOn : ''].filter(Boolean).join(' ')}
-              aria-pressed={lit === null}
-              onClick={() => setLit(null)}
-            >
-              <span className={styles.threadName}>Everything</span>
-              <span className={styles.threadMeta}>{dayCount} days</span>
-            </button>
-            {shownThreads.map((t) => (
-              <button
-                key={t.tag}
-                type="button"
-                className={[styles.thread, lit === t.tag ? styles.threadOn : ''].filter(Boolean).join(' ')}
-                aria-pressed={lit === t.tag}
-                onClick={() => setLit((cur) => (cur === t.tag ? null : t.tag))}
-              >
-                <span className={styles.threadName}>{t.tag}</span>
-                <span className={styles.threadMeta}>
-                  {t.days} {t.days === 1 ? 'day' : 'days'} · {t.cards}
-                </span>
-              </button>
-            ))}
-            {allThreads.length > RAIL_LIMIT ? (
+            {/* The vault's own filing, offered as shelves. */}
+            <div className={styles.groups} role="group" aria-label="Sort threads by">
+              {GROUPS.map((g) => (
+                <button
+                  key={g.key}
+                  type="button"
+                  className={group === g.key ? styles.groupOn : styles.group}
+                  aria-pressed={group === g.key}
+                  onClick={() => {
+                    setGroup(g.key);
+                    setShowAll(false);
+                  }}
+                >
+                  {g.label}
+                </button>
+              ))}
+            </div>
+
+            <div className={styles.railList}>
               <button
                 type="button"
-                className={styles.moreThreads}
-                onClick={() => setShowAllThreads((v) => !v)}
+                className={[styles.thread, lit === null ? styles.threadOn : '']
+                  .filter(Boolean)
+                  .join(' ')}
+                aria-pressed={lit === null}
+                onClick={() => setLit(null)}
               >
-                {showAllThreads ? 'Show fewer' : `${allThreads.length - RAIL_LIMIT} more`}
+                <span className={styles.threadName}>Everything</span>
+                <span className={styles.threadMeta}>{dayCount} days</span>
               </button>
-            ) : null}
+              {shown.map((row) => (
+                <button
+                  key={row.key}
+                  type="button"
+                  className={[styles.thread, lit?.key === row.key ? styles.threadOn : '']
+                    .filter(Boolean)
+                    .join(' ')}
+                  aria-pressed={lit?.key === row.key}
+                  onClick={() => toggle(row)}
+                >
+                  <span className={styles.threadName}>{row.name}</span>
+                  <span className={styles.threadMeta}>
+                    {row.days} {row.days === 1 ? 'day' : 'days'} · {row.cards}
+                    {row.note ? ` · ${row.note}` : ''}
+                  </span>
+                </button>
+              ))}
+              {rows.length === 0 ? (
+                <p className={styles.railEmpty}>Nothing filed here yet.</p>
+              ) : null}
+              {rows.length > RAIL_LIMIT ? (
+                <button
+                  type="button"
+                  className={styles.moreThreads}
+                  onClick={() => setShowAll((v) => !v)}
+                >
+                  {showAll ? 'Show fewer' : `${rows.length - RAIL_LIMIT} more`}
+                </button>
+              ) : null}
+            </div>
           </nav>
 
           <div className={styles.stage}>
-            {/* The clock gutter sits OUTSIDE the scroller so the hours stay put
-                while the days pan underneath them. */}
-            <svg
-              className={styles.gutter}
-              width={34}
-              height={layout.height}
-              aria-hidden="true"
-            >
-              {gridLines.map((line) => (
-                <text key={line.label} x={30} y={line.y + 3} className={styles.hourLabel}>
-                  {line.label}
-                </text>
-              ))}
-            </svg>
+            {/* The clock gutter sits OUTSIDE the horizontal scroller so the
+                hours stay put while the days pan — but it's inside the SAME
+                vertical scroll as the cards, so the labels can't drift away
+                from the rows they name. Words mode has no clock to rule. */}
+            {mode === 'clock' ? (
+              <div className={styles.gutter} ref={gutterRef} aria-hidden="true">
+                <div className={styles.gutterInner} style={{ height: layout.height }}>
+                  {gridLines.map((l) => (
+                    <span key={l.label} className={styles.hourLabel} style={{ top: l.y - 8 }}>
+                      {l.label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
 
-            <div className={styles.scroller}>
-              <svg
-                width={layout.width}
-                height={layout.height}
+            <div
+              className={styles.scroller}
+              ref={scrollerRef}
+              /* The gutter is a sibling, so it doesn't inherit this scroller's
+                 vertical position — without this it would sit still while the
+                 cards slid past, and every hour label would end up naming a row
+                 it isn't beside. Cheaper and steadier than nesting scrollers. */
+              onScroll={(e) => {
+                const g = gutterRef.current;
+                if (g) g.scrollTop = e.currentTarget.scrollTop;
+                // The popup hangs at fixed viewport coords — a scroll moves the
+                // dot out from under it, so it lets go rather than pointing at
+                // the wrong water.
+                setHover(null);
+              }}
+            >
+              <div
                 className={styles.canvas}
-                role="img"
+                style={{ width: layout.width, height: layout.height }}
+                role="group"
                 aria-label={
                   lit
-                    ? `The pond, with the ${lit} thread lit`
-                    : 'The pond — every card by day and time'
+                    ? `The pond, with ${lit.label} lit`
+                    : 'The pond — every card by day'
                 }
               >
-                {gridLines.map((line) => (
-                  <line
-                    key={line.label}
-                    x1={0}
-                    x2={layout.width}
-                    y1={line.y}
-                    y2={line.y}
-                    className={styles.hourLine}
-                  />
-                ))}
+                {/* Rules and the lit line, under the cards. An overlay rather
+                    than a container so the cards above it stay real elements
+                    that hold real text. */}
+                <svg
+                  className={styles.underlay}
+                  width={layout.width}
+                  height={layout.height}
+                  aria-hidden="true"
+                >
+                  {gridLines.map((l) => (
+                    <line
+                      key={l.label}
+                      x1={0}
+                      x2={layout.width}
+                      y1={l.y}
+                      y2={l.y}
+                      className={styles.hourLine}
+                    />
+                  ))}
+                  {/* One point per DAY, not per card — ten cards in a day used
+                      to draw ten stacked points and the line came out a comb.
+                      The day-to-day wandering is the shape worth seeing. */}
+                  {line.length > 1 ? (
+                    <polyline points={polylinePoints(line)} className={styles.threadLine} />
+                  ) : null}
+                </svg>
 
-                {layout.columns.map((col, i) => (
-                  <text
-                    key={col.day}
-                    x={col.x}
-                    y={14}
-                    className={styles.dayLabel}
-                    textAnchor="middle"
-                  >
-                    {dayLabel(col.day, layout.columns[i - 1]?.day)}
-                  </text>
-                ))}
-
-                {/* The thread's own line, under the cards so the dots stay
-                    readable where it passes through them. Drawn across the
-                    silences too — the long flat stretch between appearances is
-                    part of the thread's shape. */}
-                {litPoints.length > 1 ? (
-                  <polyline points={polylinePoints(litPoints)} className={styles.threadLine} />
-                ) : null}
+                {/* The dates ride a sticky strip so they stay readable however
+                    far down a long day you've scrolled. */}
+                <div className={styles.dayHeader} style={{ width: layout.width }}>
+                  {layout.columns.map((col, i) =>
+                    // Zoomed out there's no room for a date on every column, so
+                    // only every Nth is drawn — a readable axis beats a smear.
+                    i % step === 0 ? (
+                      <span
+                        key={col.day}
+                        className={styles.dayLabel}
+                        style={{
+                          left: col.x,
+                          width: Math.max(layout.colWidth, 30),
+                        }}
+                      >
+                        {dayLabel(col.day, step === 1 ? layout.columns[i - 1]?.day : undefined)}
+                      </span>
+                    ) : null,
+                  )}
+                </div>
 
                 {layout.columns.map((col) =>
                   col.cards.map((placed) => {
                     const isLit = litIds.has(placed.card.id);
                     const isOpen = placed.card.id === openId;
                     return (
-                      <g key={placed.card.id}>
-                        <circle
-                          cx={placed.x}
-                          cy={placed.y}
-                          r={isLit || isOpen ? CARD_R + 1.5 : CARD_R}
-                          className={[
-                            styles.card,
-                            placed.card.who === 'K' ? styles.cardKeeper : styles.cardOwner,
-                            lit && !isLit ? styles.cardDimmed : '',
-                            isOpen ? styles.cardOpen : '',
-                          ]
-                            .filter(Boolean)
-                            .join(' ')}
-                        />
-                        {/* The button over the dot. Invisible, generous, and
-                            the thing that actually receives a fingertip. */}
-                        <circle
-                          cx={placed.x}
-                          cy={placed.y}
-                          r={HIT_R}
-                          className={styles.hit}
-                          onClick={() => setOpenId((cur) => (cur === placed.card.id ? null : placed.card.id))}
-                        >
-                          <title>
-                            {`${placed.card.day}${placed.card.ts ? ` ${placed.card.ts}` : ''} · ${placed.card.preview}`}
-                          </title>
-                        </circle>
-                      </g>
+                      <button
+                        key={placed.card.id}
+                        type="button"
+                        className={[
+                          mode === 'clock' ? styles.dot : styles.wordCard,
+                          placed.card.who === 'K' ? styles.fromKeeper : styles.fromOwner,
+                          lit && !isLit ? styles.dimmed : '',
+                          // Once the rest is hidden, everything left IS the
+                          // thread — marking each one says nothing.
+                          isLit && !hiding ? styles.onThread : '',
+                          isOpen ? styles.open : '',
+                        ]
+                          .filter(Boolean)
+                          .join(' ')}
+                        style={{
+                          left: placed.x,
+                          top: placed.y,
+                          width: placed.w,
+                          height: placed.h,
+                          ...(mode === 'words'
+                            ? { fontSize: z.words.fontSize }
+                            : { ['--hit' as string]: `${hitPad}px` }),
+                        }}
+                        title={
+                          mode === 'words'
+                            ? `${placed.card.day}${clockOf(placed.card.ts) ? ` ${clockOf(placed.card.ts)}` : ''}`
+                            : undefined
+                        }
+                        onClick={() =>
+                          setOpenId((cur) => (cur === placed.card.id ? null : placed.card.id))
+                        }
+                        onMouseEnter={
+                          mode === 'clock'
+                            ? (e) => showHover(e.currentTarget, placed.card)
+                            : undefined
+                        }
+                        onMouseLeave={mode === 'clock' ? () => setHover(null) : undefined}
+                        onFocus={
+                          mode === 'clock'
+                            ? (e) => showHover(e.currentTarget, placed.card)
+                            : undefined
+                        }
+                        onBlur={mode === 'clock' ? () => setHover(null) : undefined}
+                      >
+                        {placed.text ? (
+                          <span className={styles.wordText}>
+                            {/* The ellipses are the card admitting there's more
+                                either side of what it's showing — never dressed
+                                up as a whole entry. */}
+                            {placed.text.clippedHead ? '… ' : ''}
+                            {placed.text.text}
+                            {placed.text.clippedTail ? ' …' : ''}
+                          </span>
+                        ) : null}
+                      </button>
                     );
                   }),
                 )}
-              </svg>
+              </div>
             </div>
           </div>
+
+          {/* The hovercard, in the terrain map's own voice — same frost, same
+              arrival, same uppercase labels — so pointing at a dot here feels
+              like pointing at an orb there. A TOOLTIP, though, not a hovercard:
+              it never takes the pointer, because the tap already opens the full
+              panel and a popup you can wander into would fight it. Portaled to
+              body so the scroller can't clip it at the edges. */}
+          {hover
+            ? createPortal(
+                <div
+                  className={styles.hoverCard}
+                  style={{
+                    left: hover.flip ? hover.x - POPUP_W - 10 : hover.x + 10,
+                    top: Math.max(8, Math.min(hover.y - 12, window.innerHeight - 300)),
+                  }}
+                >
+                  <div className={styles.hoverHead}>
+                    <span
+                      className={
+                        hover.card.who === 'K' ? styles.hoverDotKeeper : styles.hoverDotOwner
+                      }
+                      aria-hidden="true"
+                    />
+                    <span className={styles.hoverTitle}>
+                      {dayLabel(hover.card.day)}
+                      {clockOf(hover.card.ts) ? ` · ${clockOf(hover.card.ts)}` : ''}
+                      {` · ${hover.card.who === 'K' ? 'Keeper' : 'You'}`}
+                    </span>
+                  </div>
+                  <div className={styles.hoverBody}>{hover.card.body}</div>
+                  {hover.card.tags.length > 0 ? (
+                    <div className={styles.hoverThreads}>
+                      <div className={styles.hoverLabel}>threads</div>
+                      <div className={styles.hoverTags}>{hover.card.tags.join(' · ')}</div>
+                    </div>
+                  ) : null}
+                </div>,
+                document.body,
+              )
+            : null}
 
           {openId ? (
             <aside className={styles.detail} aria-label="Card">
               <div className={styles.detailHead}>
                 <span className={styles.detailMeta}>
                   {detail.data?.card
-                    ? `${detail.data.card.day}${detail.data.card.ts ? ` · ${detail.data.card.ts}` : ''} · ${
+                    ? `${detail.data.card.day}${clockOf(detail.data.card.ts) ? ` · ${clockOf(detail.data.card.ts)}` : ''} · ${
                         detail.data.card.who === 'K' ? 'Keeper' : 'You'
                       }`
                     : 'Loading…'}
@@ -251,25 +719,137 @@ export function PondView() {
                   ×
                 </button>
               </div>
+
+              {/* Walking the thread card by card — reading it as a sequence
+                  rather than a scatter of taps, which is also how membership
+                  gets curated: step, read, keep or remove, step. Falls back to
+                  walking the whole pond when the open card isn't on the lit
+                  thread. */}
+              {walkAt !== -1 && walk.length > 1 ? (
+                <div className={styles.detailNav}>
+                  <button
+                    type="button"
+                    className={styles.navBtn}
+                    disabled={walkAt <= 0}
+                    aria-label={walkingThread ? 'Previous card in thread' : 'Previous card'}
+                    onClick={() => setOpenId(walk[walkAt - 1])}
+                  >
+                    ‹
+                  </button>
+                  <span className={styles.navWhere}>
+                    {walkAt + 1} of {walk.length}
+                    {walkingThread ? ` in ${lit!.label}` : ''}
+                  </span>
+                  <button
+                    type="button"
+                    className={styles.navBtn}
+                    disabled={walkAt >= walk.length - 1}
+                    aria-label={walkingThread ? 'Next card in thread' : 'Next card'}
+                    onClick={() => setOpenId(walk[walkAt + 1])}
+                  >
+                    ›
+                  </button>
+                </div>
+              ) : null}
+
               {detail.isError ? <p className={styles.note}>Couldn&rsquo;t read that card.</p> : null}
               {detail.data?.card ? (
                 <>
                   <p className={styles.detailBody}>{detail.data.card.body}</p>
-                  {detail.data.card.tags.length > 0 ? (
-                    <div className={styles.detailTags}>
-                      {detail.data.card.tags.map((tag) => (
+
+                  {/* Membership, editable in place. The chip lights the
+                      thread; its × takes this card out of it — armed on the
+                      first tap, done on the second, so a stray touch near a
+                      chip never silently edits the journal. Writes go through
+                      /api/cards/untag → the vault's stream.py; the pond just
+                      redraws what comes back. */}
+                  <div className={styles.detailTags}>
+                    {detail.data.card.tags.map((tag) => (
+                      <span key={tag} className={styles.chipPair}>
                         <button
-                          key={tag}
                           type="button"
-                          className={[styles.tagChip, lit === tag ? styles.tagChipOn : '']
+                          className={[
+                            styles.tagChip,
+                            lit?.key === `tag:${tag}` ? styles.tagChipOn : '',
+                          ]
                             .filter(Boolean)
                             .join(' ')}
-                          onClick={() => setLit((cur) => (cur === tag ? null : tag))}
+                          onClick={() =>
+                            toggle({
+                              key: `tag:${tag}`,
+                              name: tag,
+                              tags: new Set([tag]),
+                              terms: termsByTag.get(tag) ?? [],
+                            })
+                          }
                         >
                           {tag}
                         </button>
+                        <button
+                          type="button"
+                          className={
+                            confirmRemove === tag ? styles.chipRemoveArmed : styles.chipRemove
+                          }
+                          disabled={retag.isPending}
+                          aria-label={
+                            confirmRemove === tag
+                              ? `Really remove ${tag} from this card`
+                              : `Remove ${tag} from this card`
+                          }
+                          onClick={() => {
+                            if (confirmRemove === tag) {
+                              setConfirmRemove(null);
+                              retag.mutate({ id: openId, tag, verb: 'untag' });
+                            } else {
+                              setConfirmRemove(tag);
+                            }
+                          }}
+                        >
+                          {confirmRemove === tag ? 'sure?' : '×'}
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+
+                  {/* The other direction: put this card INTO a thread. Typing
+                      offers every tag the pond knows; a new slug mints a new
+                      thread, same as tagging anywhere else. */}
+                  <form
+                    className={styles.addTag}
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      addTag();
+                    }}
+                  >
+                    <input
+                      type="text"
+                      className={styles.addTagInput}
+                      list="pond-known-tags"
+                      value={newTag}
+                      placeholder="add to thread…"
+                      aria-label="Add this card to a thread"
+                      onChange={(e) => setNewTag(e.target.value)}
+                    />
+                    <datalist id="pond-known-tags">
+                      {allThreads.map((t) => (
+                        <option key={t.tag} value={t.tag}>
+                          {t.name}
+                        </option>
                       ))}
-                    </div>
+                    </datalist>
+                    <button
+                      type="submit"
+                      className={styles.addTagBtn}
+                      disabled={
+                        retag.isPending ||
+                        !TAG_OK.test(newTag.trim().toLowerCase().replace(/\s+/g, '-'))
+                      }
+                    >
+                      Add
+                    </button>
+                  </form>
+                  {retag.isError ? (
+                    <p className={styles.note}>Couldn&rsquo;t change that — try again.</p>
                   ) : null}
                 </>
               ) : null}
