@@ -48,8 +48,8 @@ from flask import jsonify, request
 import store
 import worktrees
 from routes.observatory import (_BUILDER_TOOLS, _DEFAULT_LANE, _LANES,
-                                _chats_dir, _conv_lane, _lane_profile,
-                                _new_conv_id, _now)
+                                _MODEL_CHOICES, _chats_dir, _conv_lane,
+                                _lane_profile, _new_conv_id, _now)
 
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,38}$")
 
@@ -81,7 +81,7 @@ def _live_conv_for(index, slug):
                  and not entry.get("archived")), None)
 
 
-def open_spinoff(slug, start=True, lane=None, worktree=None):
+def open_spinoff(slug, start=True, lane=None, worktree=None, model=None):
     """Core shared by the route and scripts/spinoff_open.py (the agents' door).
 
     Mints (or rejoins) an Observatory conversation for the spinoff and, by
@@ -108,11 +108,20 @@ def open_spinoff(slug, start=True, lane=None, worktree=None):
     spinoff otherwise gets (see worktrees.py). Only Orchestra gets one at all:
     Coding and Personal are her own hands, and they need the real checkout
     because that's the one gunicorn serves and the one she refreshes.
+
+    `model` pins the child to one of _MODEL_CHOICES ("fable", "opus", …); left
+    None it inherits the CLI default like every other conversation. Validated
+    here the same way `lane` is, and written onto the entry at mint so even
+    the kickoff turn runs on the pinned model — the interim pin-after-spawn
+    trick only caught the second turn onward.
     """
     if not SLUG_RE.match(slug or ""):
         return {"error": "bad slug"}, 400
     if lane is not None and lane not in _LANES:
         return {"error": f"unknown room {lane!r}"}, 400
+    if model is not None and model not in _MODEL_CHOICES:
+        return {"error": f"unknown model {model!r} "
+                         f"(choices: {', '.join(_MODEL_CHOICES)})"}, 400
 
     brief = store.SPINOFF_DIR / slug / "BRIEF.md"
     if not brief.exists():
@@ -166,6 +175,11 @@ def open_spinoff(slug, start=True, lane=None, worktree=None):
                 "allowed_tools": list(profile["allowed_tools"]), "draft": kickoff,
                 "autostart": True,
             }
+            if model:
+                # On the entry, not the reply alone: per-turn resolution
+                # (observatory's effective_model) reads it from here, so the
+                # pin holds from the kickoff turn onward.
+                index[conv_id]["model"] = model
             if wt_path:
                 index[conv_id]["worktree"] = str(wt_path)
                 index[conv_id]["branch"] = branch
@@ -194,6 +208,7 @@ def open_spinoff(slug, start=True, lane=None, worktree=None):
         "started": started,
         "staged": True,
         "autostart": True,
+        "model": model,
         "brief": str(brief),
         "worktree": str(wt_path) if wt_path else None,
         "branch": branch,
@@ -255,5 +270,6 @@ def register(app):
         # there when somebody remembers to ask for it.
         payload, status = open_spinoff(
             data.get("slug", ""), lane=(lane or "").strip() or None,
-            worktree=False if data.get("worktree") is False else None)
+            worktree=False if data.get("worktree") is False else None,
+            model=(data.get("model") or "").strip() or None)
         return jsonify(payload), status

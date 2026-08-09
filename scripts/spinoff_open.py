@@ -37,7 +37,7 @@ from routes.spinoff import open_spinoff  # noqa: E402
 
 
 USAGE = ("usage: spinoff_open.py <slug> [--room personal|coding|orchestra] "
-         "[--no-worktree]")
+         "[--model <name>] [--no-worktree]")
 
 
 def main():
@@ -45,16 +45,30 @@ def main():
     # has to print the same one-JSON-line shape as open_spinoff's, not
     # argparse's stderr essay — the caller is an agent reading stdout.
     args = sys.argv[1:]
-    room, worktree = None, None
+    room, worktree, model = None, None, None
     if "--no-worktree" in args:
         args = [a for a in args if a != "--no-worktree"]
         worktree = False
-    if len(args) == 3 and args[1] in ("--room", "--lane"):
-        args, room = args[:1], args[2]
+    # Flag-value pairs pulled out wherever they sit; the server validates the
+    # values (room against _LANES, model against _MODEL_CHOICES) so a bad one
+    # comes back as the same one-JSON-line refusal every caller already reads.
+    for flag in ("--room", "--lane", "--model"):
+        if flag in args:
+            i = args.index(flag)
+            if i + 1 >= len(args):
+                print(json.dumps({"error": USAGE}))
+                return 2
+            value = args[i + 1]
+            args = args[:i] + args[i + 2:]
+            if flag == "--model":
+                model = value
+            else:
+                room = value
     if len(args) != 1:
         print(json.dumps({"error": USAGE}))
         return 2
-    payload, status = open_spinoff(args[0], lane=room, worktree=worktree)
+    payload, status = open_spinoff(args[0], lane=room, worktree=worktree,
+                                   model=model)
     print(json.dumps(payload))
     return 0 if status == 200 else 1
 

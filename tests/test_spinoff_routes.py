@@ -392,3 +392,29 @@ def test_a_spinoff_whose_worktree_fails_still_runs_and_says_so(spinoff_client, m
     entry = _index()[body["conversation_id"]]
     assert entry["cwd"] == str(store.BUILD_DIR)
     assert "no space left" in entry["worktree_failed"]
+
+
+def test_unknown_model_is_refused_without_touching_the_index(spinoff_client):
+    _write_brief(store.SPINOFF_DIR, "bad-model")
+    r = _post(spinoff_client, "bad-model", model="gpt")
+    assert r.status_code == 400
+    assert "unknown model 'gpt'" in r.get_json()["error"]
+    assert _index() == {}
+
+
+def test_a_model_pin_lands_on_the_entry_at_mint(spinoff_client):
+    _write_brief(store.SPINOFF_DIR, "pinned")
+    r = _post(spinoff_client, "pinned", model="fable")
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["model"] == "fable"
+    # On the entry, not just the reply — per-turn model resolution reads it
+    # from there, so the pin holds from the kickoff turn onward.
+    assert _index()[body["conversation_id"]]["model"] == "fable"
+
+
+def test_no_model_means_no_field_so_the_cli_default_drives(spinoff_client):
+    _write_brief(store.SPINOFF_DIR, "unpinned")
+    r = _post(spinoff_client, "unpinned")
+    assert r.status_code == 200
+    assert "model" not in _index()[r.get_json()["conversation_id"]]
