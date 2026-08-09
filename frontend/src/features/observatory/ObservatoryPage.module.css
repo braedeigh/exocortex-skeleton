@@ -717,10 +717,18 @@
   flex-shrink: 0;
   border-top: 1px solid var(--border-soft);
   background: var(--card-bg);
-  /* Bottom is the safe-area inset plus a hair — iMessage's input sits right
-     above the home indicator, not floating a row above it. The extra
-     --space-3 that used to be here read as dead space under the composer. */
-  padding: var(--space-3) var(--space-3) calc(var(--space-1) + env(safe-area-inset-bottom));
+  /* The bottom number is the one that matters, and it is deliberately LESS
+     than the safe-area inset. iOS reserves 34pt at the bottom of the phone,
+     but the home indicator itself is a 5pt pill sitting 8pt off the edge —
+     the rest is Apple being generous, and on this page it read as a dead
+     stripe under the input ("I have this amount of space, I'm wondering if we
+     could shave most of it off"). 14pt comes back off, leaving the input's
+     bottom edge clear of the pill by a visible breath rather than by a whole
+     empty row. max() keeps a real 8pt on any phone with no inset at all.
+     Top is tighter than the sides on purpose: the border-top above it already
+     does the work of separating the composer from the conversation, so the
+     padding only has to keep the buttons off the line. */
+  padding: var(--space-2) var(--space-3) max(var(--space-2), calc(env(safe-area-inset-bottom, 0px) - 14px));
   transition: background 200ms ease, border-color 200ms ease;
 }
 
@@ -975,7 +983,11 @@
   gap: 5px;
   max-width: 68ch;
   margin: 0 auto;
-  padding: 5px 0;
+  /* Nothing above — the composer's own padding is the gap to the border, and
+     stacking a second one there just pushed the whole bar up the screen. The
+     space below is on the scale (8, not 5) so the toolbar and the input read
+     as two rows with one rhythm between them. */
+  padding: 0 0 var(--space-2);
 }
 
 .toolBtn {
@@ -1009,6 +1021,10 @@
   margin: var(--space-1) auto 0;
   padding-right: calc(var(--tap-target) + var(--space-2));
   color: #8888aa;
+  /* One line of 12px caption, set solid — inheriting the body's 1.5 gave this
+     row a third more height than the words in it, under an input where every
+     point of it is height the conversation doesn't get. */
+  line-height: 1.2;
   font-size: var(--font-size-sm);
   font-variant-numeric: tabular-nums;
   text-align: right;

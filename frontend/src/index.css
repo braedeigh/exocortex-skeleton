@@ -6,14 +6,42 @@
   box-sizing: border-box;
 }
 
+/* The app is exactly as tall as the screen, on iOS too.
+ *
+ * In an installed iOS PWA (index.html: `viewport-fit=cover` +
+ * `apple-mobile-web-app-status-bar-style: black-translucent`) the web view
+ * really does cover the whole screen — the page is drawn from y=0, under the
+ * clock — but the height that CSS percentages resolve against comes back
+ * SHORT by exactly the status-bar inset. So plain `height: 100%` stops that
+ * far above the bottom of the screen, and because the whole shell hangs off it
+ * (#root -> main -> route -> composer, all flex), anything anchored to the
+ * bottom floats up and leaves a band of bare page canvas under it.
+ *
+ * Measured on the phone with a throwaway on-screen probe: screen 956, both
+ * `window.innerHeight` and `documentElement.clientHeight` 956 - 62 = 894, and
+ * `env(safe-area-inset-top)` 62 — the shortfall IS the top inset, to the
+ * pixel. So adding it back is the fix, and it needs no JS: on every browser
+ * that isn't this one the inset is 0px and this is plain `100%`.
+ *
+ * Only `html` gets the calc. body and #root take a normal 100% OF html, or
+ * they'd each add the 62 again and overshoot.
+ *
+ * Prompt: "the bottom of the screen has this gap on the bottom I want to fix.
+ * I think it's an iPhone screen issue maybe... wanting the text entry box
+ * lower down."
+ */
+html {
+  height: calc(100% + env(safe-area-inset-top, 0px));
+}
+
 html,
 body {
   margin: 0;
   padding: 0;
-  height: 100%;
 }
 
 body {
+  height: 100%;
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-sans);

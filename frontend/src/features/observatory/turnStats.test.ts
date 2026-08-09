@@ -105,7 +105,10 @@ describe('the formatted line', () => {
     expect(formatWorkingLine(s, t0 + 12_000)).toBe('Musing… 12s · 1.3k tokens');
   });
 
-  it('shows thought time once any accumulates', () => {
+  // Thinking time is still measured (the gap rule below is the thing worth
+  // protecting), but the line shows one clock and one clock only — a second
+  // Ns beside a running one read as a laggy duplicate of it.
+  it('keeps thought time off the line, however much accumulates', () => {
     const think = streamEvent({
       type: 'content_block_delta',
       delta: { type: 'thinking_delta', thinking: '' },
@@ -114,6 +117,7 @@ describe('the formatted line', () => {
     s = applyStatsEvent(s, think, t0);
     s = applyStatsEvent(s, think, t0 + 4000); // over the gap: not counted
     s = applyStatsEvent(s, think, t0 + 5000);
-    expect(formatWorkingLine(s, t0 + 6000)).toBe('Sifting… 6s · thought 1s');
+    expect(s.thinkingMs).toBe(1000);
+    expect(formatWorkingLine(s, t0 + 6000)).toBe('Sifting… 6s');
   });
 });

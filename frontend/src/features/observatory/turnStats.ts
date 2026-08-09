@@ -1,6 +1,6 @@
 /**
  * turnStats.ts — the Claude Code-style working line, ported into the reading
- * room: "✻ Percolating… 12s · ~1.3k tokens · thought 4s". A pure reducer over
+ * room: "✻ Percolating… 12s · ~1.3k tokens". A pure reducer over
  * the same raw SSE events events.ts sees (kept separate on purpose:
  * events.ts builds the transcript, this builds the heartbeat).
  *
@@ -13,6 +13,7 @@
  *   messages are banked across tool round-trips on message_start;
  * - thought: wall time accumulated while thinking deltas are arriving
  *   (gaps over THINKING_GAP_MS don't count — that's tool time, not thought).
+ *   Measured but NOT shown — see formatWorkingLine.
  */
 
 export interface TurnStats {
@@ -139,14 +140,22 @@ export function formatSessionSpend(tokens: { output: number; cost_usd: number })
   return tokens.cost_usd >= 0.01 ? `${count} · $${tokens.cost_usd.toFixed(2)}` : count;
 }
 
-/** "Percolating… 12s · ~1.3k tokens · thought 4s" — parts appear as their
- * numbers do; the "~" drops once the API's own count lands. */
+/**
+ * "Percolating… 12s · ~1.3k tokens" — parts appear as their numbers do; the
+ * "~" drops once the API's own count lands.
+ *
+ * ONE clock on this line, deliberately. It used to end with "· thought 4s",
+ * and a second bare Ns beside a running one reads as a rival clock that keeps
+ * losing: thinking time only advances while thinking deltas are arriving, so
+ * it stalls whenever the elapsed count doesn't ("it says x seconds twice, the
+ * second one is laggier"). It was never the same kind of number. `thinkingMs`
+ * is still measured on TurnStats below — nothing renders it, so bringing it
+ * back in some shape that can't be mistaken for a clock is a one-liner.
+ */
 export function formatWorkingLine(stats: TurnStats, now: number): string {
   const secs = Math.max(0, Math.floor((now - stats.startedAt) / 1000));
   const parts = [`${stats.word}… ${secs}s`];
   const tokens = totalTokens(stats);
   if (tokens > 0) parts.push(`${tokensAreEstimated(stats) ? '~' : ''}${fmtTokens(tokens)}`);
-  const thoughtSecs = Math.round(stats.thinkingMs / 1000);
-  if (thoughtSecs > 0) parts.push(`thought ${thoughtSecs}s`);
   return parts.join(' · ');
 }
