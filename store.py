@@ -73,6 +73,11 @@ PERSON_SKILL_DIR = Path(os.environ.get("EXOCORTEX_PERSON_DIR", DATA_DIR.parent /
 # The ideas/vision doc that "send to ideas" (dev notes) appends to. Defaults
 # inside the content store; point it at an existing ideas doc via env.
 IDEAS_FILE = Path(os.environ.get("EXOCORTEX_IDEAS_FILE", CONTENT_DIR / "IDEAS.md"))
+# The legacy build-queue markdown. New build items are separate records in the
+# `build_todo` collection (routes/buildtodo.py); this file is the pre-split
+# backlog, still read by the personas and rendered read-only beside the cards.
+# Sibling of the content dir by default — it's the owner's doc, not app data.
+DEV_TODO_FILE = Path(os.environ.get("EXOCORTEX_DEV_TODO_FILE", CONTENT_DIR.parent / "dev_todo.md"))
 # Research library: the markdown corpus the /research page lists read-only.
 # Sibling of the data dir (like TRIAGE_DIR), override via env.
 RESEARCH_DIR = Path(os.environ.get("EXOCORTEX_RESEARCH_DIR", DATA_DIR.parent / "research"))
@@ -160,6 +165,7 @@ SQL_COLLECTIONS = frozenset((
     "annotations",
     "archivals",
     "budget",
+    "build_todo",
     "buy_list",
     "car_maintenance",
     "car_notes",

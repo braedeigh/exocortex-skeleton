@@ -24,7 +24,7 @@ import proxy_auth
 from routes import (
     kitchen, habits, todos, places, health, inventory, money, car,
     meditation, media, movement, reminders, food_test, terminal, settings,
-    devnotes, ideas, ecosystem, keeper, pending, housing, triage, decisions,
+    devnotes, ideas, buildtodo, ecosystem, keeper, pending, housing, triage, decisions,
     entities, threads, person, shell, cards, archivals, research,
     research_search, research_sources, research_import, research_text,
     annotations, spa, fronts, wiki, travel, profile, usage, streaks, spinoff,
@@ -1156,6 +1156,7 @@ def features_snapshot():
 settings.register(app)
 devnotes.register(app)
 ideas.register(app)
+buildtodo.register(app)
 streaks.register(app)
 ecosystem.register(app)
 keeper.register(app)

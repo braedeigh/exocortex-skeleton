@@ -11,8 +11,8 @@ Four endpoints:
   POST /api/sql/query   — run ONE read-only statement and get columns + rows
                           back, along with the query plan and how long it took.
   POST /api/sql/rebuild — re-derive every typed table from its source
-                          (habitstore, expensestore, codestore, cardstore),
-                          so experimenting is undoable.
+                          (habitstore, expensestore, codestore, cardstore,
+                          todostore), so experimenting is undoable.
 
 **Why the plan comes back with every result.** The point of this page is to
 build intuition, and `EXPLAIN QUERY PLAN` is where indexes stop being folklore:
@@ -56,6 +56,7 @@ import codestore
 import expensestore
 import habitstore
 import store
+import todostore
 
 MAX_ROWS = 500
 TIMEOUT_SECONDS = 5.0
@@ -68,7 +69,9 @@ TIMEOUT_SECONDS = 5.0
 TYPED_TABLES = ("habits", "habit_aliases", "habit_entries",
                 "expenses", "expense_categories",
                 "files", "file_paths", "commits", "commit_files",
-                "sessions", "session_files")
+                "sessions", "session_files",
+                "cards", "card_tags",
+                "todos", "fronts", "todo_fronts", "todo_subtasks")
 
 _DATE_KEY = re.compile(r"^\d{4}-\d{2}-\d{2}")
 
@@ -273,13 +276,15 @@ def register(app):
     def sql_rebuild():
         """Re-derive every typed table from its source — the undo button.
 
-        Nothing here can hurt the sources: all four rebuilds only read them
-        (JSON blobs for habits and expenses; git + the bot_chats sidecars for
-        code history; the vault's card pool + deletion cast for cards).
+        Nothing here can hurt the sources: all five rebuilds only read them
+        (JSON blobs for habits, expenses and to-dos; git + the bot_chats
+        sidecars for code history; the vault's card pool + deletion cast for
+        cards).
         """
         habits = habitstore.rebuild()
         expenses = expensestore.rebuild()
         code = codestore.rebuild()
         cards = cardstore.rebuild()
+        todos = todostore.rebuild()
         return jsonify({"ok": True, "habits": habits, "expenses": expenses,
-                        "code": code, "cards": cards})
+                        "code": code, "cards": cards, "todos": todos})

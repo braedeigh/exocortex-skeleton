@@ -1,0 +1,427 @@
+/* BuildPage.module.css — the build queue. Deliberately the same visual
+ * language as the Ideas tab's section cards (transparent pill cards, purple
+ * accent when open) so a build card reads as the same kind of object as an
+ * idea card. Colors/spacing come from theme.css custom properties so the
+ * runtime sky-theme overrides keep working.
+ *
+ * Touch floor per the UI guidelines: every control is >= 40px tall, nothing
+ * under 12px. The action row is small-until-open — it only exists inside an
+ * expanded card, which is this page's version of "small until edit". */
+
+.page {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--space-4);
+  padding-bottom: calc(var(--space-8) + 64px);
+}
+
+.publicStub,
+.empty {
+  color: var(--text-muted);
+  font-size: var(--font-size-base);
+  padding: var(--space-6) 0;
+  text-align: center;
+}
+
+.empty {
+  font-style: italic;
+}
+
+.sectionTitle {
+  font-size: var(--font-size-xl);
+  font-weight: 700;
+  color: var(--text);
+  margin: var(--space-8) 0 var(--space-4);
+  padding-bottom: var(--space-2);
+  border-bottom: 2px solid var(--border);
+}
+
+.firstTitle {
+  margin-top: 0;
+}
+
+.hint {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  margin: calc(-1 * var(--space-2)) 0 var(--space-3);
+  line-height: 1.5;
+}
+
+.hint code {
+  font-size: inherit;
+}
+
+/* --- Status filter --- */
+
+.filterRow {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.filterBtn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--tap-target);
+  padding: 0 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xl);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.filterOn {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.filterCount {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
+}
+
+/* --- Add --- */
+
+.addOpener {
+  width: 100%;
+  min-height: var(--tap-target);
+  margin-bottom: var(--space-4);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-xl);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.addOpener:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.addBox,
+.editBox {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+  padding: var(--space-3);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-xl);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+.editBox {
+  margin: var(--space-2) 0;
+}
+
+.addTitle,
+.tagInput {
+  box-sizing: border-box;
+  min-height: var(--tap-target);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 15px;
+  outline: none;
+}
+
+.addTitle {
+  font-weight: 600;
+}
+
+.addBody {
+  box-sizing: border-box;
+  min-height: 88px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  resize: none;
+  overflow: hidden;
+  outline: none;
+}
+
+.addTitle:focus,
+.addBody:focus,
+.tagInput:focus {
+  border-color: var(--accent);
+}
+
+.addFooter {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.select {
+  min-height: var(--tap-target);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+}
+
+.addActions {
+  display: flex;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+.primaryBtn,
+.ghostBtn {
+  min-height: var(--tap-target);
+  padding: 0 18px;
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.primaryBtn {
+  border: none;
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.primaryBtn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.ghostBtn {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+}
+
+/* --- Cards --- */
+
+.card {
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xl);
+  background: transparent;
+  box-shadow: var(--shadow-card);
+  margin-bottom: 10px;
+  padding: 2px 14px;
+  transition:
+    border-color 0.18s,
+    background 0.18s;
+}
+
+/* Shipped / dropped read as settled, not as work. */
+.cardClosed .cardTitle {
+  color: var(--text-muted);
+}
+
+.legacyCard {
+  border-style: dashed;
+}
+
+.nested {
+  margin: 6px 0;
+  box-shadow: none;
+}
+
+.cardSummary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: var(--space-2) 0;
+  min-height: var(--tap-target);
+  box-sizing: border-box;
+  border-radius: var(--radius-sm);
+}
+
+.cardSummary::-webkit-details-marker {
+  display: none;
+}
+
+.card[open] > .cardSummary {
+  border-bottom: 1px dashed color-mix(in srgb, var(--accent) 18%, transparent);
+  margin-bottom: 4px;
+}
+
+.arrow {
+  font-size: var(--font-size-sm);
+  transition: transform 0.15s;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.card[open] .arrow {
+  color: var(--accent);
+  transform: rotate(90deg);
+}
+
+.dot {
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.cardTitle {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.cardDate {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* --- Card body --- */
+
+.body {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text);
+  padding: var(--space-2) 0;
+  word-break: break-word;
+}
+
+.body p {
+  margin: 0 0 var(--space-2);
+}
+
+.body ul {
+  margin: 0 0 var(--space-2);
+  padding-left: 20px;
+}
+
+.body h3 {
+  font-size: 15px;
+  margin: var(--space-3) 0 var(--space-1);
+}
+
+.body blockquote {
+  margin: 0 0 var(--space-2);
+  padding-left: var(--space-3);
+  border-left: 3px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  color: var(--text-muted);
+}
+
+.body code {
+  font-size: 13px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.emptyRow {
+  color: var(--text-muted);
+  font-size: 13px;
+  font-style: italic;
+  padding: var(--space-2) 0;
+}
+
+.tagRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-bottom: var(--space-2);
+}
+
+.tag {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: var(--radius-xl);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+
+/* --- Action row (only inside an open card) --- */
+
+.actionRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+  padding: var(--space-1) 0 var(--space-2);
+  border-top: 1px solid var(--border-soft);
+}
+
+.author {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.act {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  min-width: 40px;
+  min-height: 40px;
+  padding: 0 10px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.act:hover {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--accent);
+}
+
+.actShip {
+  color: var(--green, var(--accent));
+}
+
+.actX {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.actSure {
+  background: color-mix(in srgb, var(--red) 15%, transparent);
+  color: var(--red);
+}
+
+.actSure:hover {
+  background: color-mix(in srgb, var(--red) 25%, transparent);
+  color: var(--red);
+}

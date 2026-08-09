@@ -38,7 +38,7 @@ import sqlite3
 
 import store
 
-_SCHEMA_VERSION = 6
+_SCHEMA_VERSION = 7
 
 
 def _db_path():
@@ -76,6 +76,7 @@ _EXPECTED_TABLES = (
     "files", "file_paths", "commits", "commit_files",
     "sessions", "session_files",
     "cards", "card_tags",
+    "todos", "fronts", "todo_fronts", "todo_subtasks",
 )
 
 
@@ -392,6 +393,113 @@ def _migrate(conn):
         )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_card_tags_tag ON card_tags (tag)"
+        )
+    if version < 7:
+        # Typed entity #5: to-dos (see todostore.py for what fills these).
+        # `todos.json` stays truth; these rows are a one-way mirror, same
+        # contract as habits/expenses.
+        #
+        # `fronts` is the life-domain registry (fronts.json). It gets a real
+        # table rather than a repeated string for the same reason expenses'
+        # category did — a foreign key is what lets a form render a dropdown —
+        # plus one this data needed on its own: `registered` marks a front id
+        # that appears on a to-do but NOT in the registry (the retired
+        # junk-drawer tags 'life'/'admin'/'work' still ride four old items).
+        # Dropping them would lose data; a flag makes the drift queryable.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS fronts ("
+            "  id TEXT PRIMARY KEY,"
+            "  name TEXT NOT NULL,"
+            "  registered INTEGER NOT NULL DEFAULT 1"
+            "    CHECK (registered IN (0, 1)),"
+            "  created TEXT"
+            ")"
+        )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS todos ("
+            # The blob's 8-hex id, kept verbatim. Unique across every bucket
+            # today, and the only identity a to-do has ever had.
+            "  id TEXT PRIMARY KEY,"
+            "  text TEXT NOT NULL DEFAULT '',"
+            # Which list it sits in (now/up_next/later/someday/done). An
+            # ATTRIBUTE, not the identity — habitstore's lesson: a to-do moved
+            # from up_next to done is the same row, so its history survives
+            # the move.
+            "  bucket TEXT NOT NULL,"
+            # Her manual ordering within that bucket. The blob expresses it as
+            # array position and nothing else, so it has to be carried or the
+            # ordering she set is lost the moment rows leave the list.
+            "  position INTEGER NOT NULL,"
+            # Kept ALONGSIDE bucket, never collapsed into it: one live item is
+            # currently done:true while still sitting in `now` (the sweep only
+            # archives yesterday's). Deriving one from the other would erase a
+            # real state the app can be in.
+            "  done INTEGER NOT NULL DEFAULT 0 CHECK (done IN (0, 1)),"
+            "  created TEXT,"
+            # ONE completion moment, folded from the blob's three competing
+            # fields (finished_on / done_at / completed) by todostore's
+            # precedence — with `finished_source` naming which one it came
+            # from, so a query can never quietly present a legacy day-stamp as
+            # a claim about when the thing was actually done. Same honesty rule
+            # as habit_entries.source.
+            "  finished_on TEXT,"
+            "  finished_time TEXT,"
+            "  finished_source TEXT"
+            "    CHECK (finished_source IN ('claimed', 'marked', 'legacy')),"
+            "  finished_note TEXT,"
+            "  notes TEXT,"
+            "  due_by TEXT,"
+            "  due_time TEXT,"
+            "  duration_min INTEGER,"
+            "  place_id TEXT,"
+            "  after_date TEXT,"
+            # Deliberately NOT a foreign key: the blob's after_id holds
+            # hand-written refs ('homedepot_run') beside real ids, and a
+            # dangling pointer here is data about how she works, not
+            # corruption to reject.
+            "  after_id TEXT,"
+            "  status TEXT,"
+            "  created_at TEXT NOT NULL"
+            "    DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+            ")"
+        )
+        # The two questions this table exists to answer: "what got done in this
+        # window" and "what's in this bucket, in her order".
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_todos_finished ON todos (finished_on)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_todos_bucket"
+            " ON todos (bucket, position)"
+        )
+        # Same pair-table shape as card_tags on purpose, so a domain can be
+        # asked across the journal AND the to-do list in one UNION. Note the
+        # limit (todostore.py, decision 3): the two tag vocabularies overlap on
+        # almost nothing today, so that query is possible but nearly empty
+        # until a front->tags mapping exists.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS todo_fronts ("
+            "  todo_id TEXT NOT NULL REFERENCES todos(id) ON DELETE CASCADE,"
+            "  front TEXT NOT NULL REFERENCES fronts(id) ON DELETE CASCADE,"
+            "  PRIMARY KEY (todo_id, front)"
+            ")"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_todo_fronts_front"
+            " ON todo_fronts (front)"
+        )
+        # Ordered children. Subtask ids are not unique across the blob (some
+        # are hand-written slugs like 'sd_desk'), so position carries identity
+        # here and the blob's own id rides along as an attribute.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS todo_subtasks ("
+            "  todo_id TEXT NOT NULL REFERENCES todos(id) ON DELETE CASCADE,"
+            "  position INTEGER NOT NULL,"
+            "  subtask_id TEXT,"
+            "  text TEXT NOT NULL DEFAULT '',"
+            "  done INTEGER NOT NULL DEFAULT 0 CHECK (done IN (0, 1)),"
+            "  PRIMARY KEY (todo_id, position)"
+            ")"
         )
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")

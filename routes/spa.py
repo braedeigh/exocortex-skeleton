@@ -143,6 +143,12 @@ def register(app):
     @app.route("/atlas")
     @app.route("/sessions")
     @app.route("/automations")
+    # The build queue (routes/buildtodo.py serves its data). Listed here for
+    # the same reason /terrain/<rest> is: the client-side router handles a tap
+    # on the tab, but a refresh, a pasted link, or a PWA cold-start on /build
+    # hits Flask first — and the catch-all below only serves loose files out of
+    # dist/, so without this line those all 404.
+    @app.route("/build")
     def spa_shell(tab=None, slug=None, rest=None):
         return _spa_response()
 
