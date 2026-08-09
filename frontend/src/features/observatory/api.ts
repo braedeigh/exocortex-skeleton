@@ -549,3 +549,15 @@ export function getBranchReport(
 ): Promise<{ branch: string; report: string | null; reason?: string }> {
   return api.get(`/api/branches/report?branch=${encodeURIComponent(branch)}`, signal);
 }
+
+/** Replying to a finished branch's card is what wakes it: mints (or rejoins)
+ * the ONE steward session standing on that existing branch, briefed with the
+ * literal evidence plus her message (routes/branches.py). `existing` = a live
+ * session already claims the branch and was rejoined instead; refusals (merged
+ * branch, no branch) arrive as ApiError with the server's plain-words reason. */
+export function wakeSteward(
+  branch: string,
+  message: string,
+): Promise<{ ok: boolean; conversation_id: string; existing?: boolean; note?: string }> {
+  return api.post('/api/branches/steward', { branch, message });
+}

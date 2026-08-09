@@ -223,3 +223,59 @@ def test_evidence_on_a_removed_worktree_says_so_rather_than_crashing(repo):
     worktrees.remove(path)
 
     assert worktrees.evidence(path, branch) == {"branch": branch, "gone": True}
+
+
+# --- adopt(): a worktree standing on an EXISTING branch (the steward door) ---
+# mint() is for new work; adopt() is for work some earlier session already
+# left on a branch. The refusals are the contract: a live checkout of the
+# branch means a live session is standing there, and adopt must never fork
+# that ground out from under it.
+
+def _leave_a_branch(repo, name="agent/left-behind"):
+    """A branch with one commit and NO worktree — what a dead session leaves."""
+    _git(repo, "branch", name)
+    _git(repo, "checkout", "-q", name)
+    (repo / "feature.py").write_text("x = 1\n")
+    _git(repo, "add", "feature.py")
+    _git(repo, "commit", "-qm", "left work here")
+    _git(repo, "checkout", "-q", "main")
+    return name
+
+
+def test_adopt_stands_a_copy_on_the_existing_branch(repo):
+    branch = _leave_a_branch(repo)
+
+    path, got = worktrees.adopt("steward-left-behind", branch)
+
+    assert got == branch
+    assert (path / "feature.py").read_text() == "x = 1\n"
+    # No new branch was minted — adoption reuses, never re-creates.
+    heads = _git(repo, "branch", "--list", "agent/*").stdout
+    assert heads.strip().split() in ([branch], ["+", branch])
+
+
+def test_adopt_refuses_a_branch_that_does_not_exist(repo):
+    with pytest.raises(worktrees.WorktreeError):
+        worktrees.adopt("steward-ghost", "agent/never-was")
+    assert not worktrees.worktree_path("steward-ghost").exists()
+
+
+def test_adopt_refuses_a_branch_someone_is_standing_on(repo):
+    """git allows one checkout per branch, and that refusal is load-bearing:
+    a branch with a live worktree has a live session in it, and the answer is
+    to talk to that session, not to fork its ground."""
+    _, branch = worktrees.mint("builder")   # builder still standing there
+
+    with pytest.raises(worktrees.WorktreeError):
+        worktrees.adopt("steward-builder", branch)
+
+
+def test_adopt_refuses_when_the_path_is_already_taken(repo):
+    branch = _leave_a_branch(repo)
+    path, _ = worktrees.adopt("steward-left-behind", branch)
+    (path / "half-written.py").write_text("work in progress\n")
+
+    with pytest.raises(worktrees.WorktreeError):
+        worktrees.adopt("steward-left-behind", branch)
+
+    assert (path / "half-written.py").read_text() == "work in progress\n"

@@ -81,7 +81,8 @@ def _live_conv_for(index, slug):
                  and not entry.get("archived")), None)
 
 
-def open_spinoff(slug, start=True, lane=None, worktree=None, model=None):
+def open_spinoff(slug, start=True, lane=None, worktree=None, model=None,
+                 branch=None):
     """Core shared by the route and scripts/spinoff_open.py (the agents' door).
 
     Mints (or rejoins) an Observatory conversation for the spinoff and, by
@@ -114,11 +115,24 @@ def open_spinoff(slug, start=True, lane=None, worktree=None, model=None):
     here the same way `lane` is, and written onto the entry at mint so even
     the kickoff turn runs on the pinned model — the interim pin-after-spawn
     trick only caught the second turn onward.
+
+    `branch` switches the worktree from MINT to ADOPT: instead of cutting a
+    new `agent/<slug>-<date>` branch, the child is stood on the EXISTING
+    agent/* branch named — the steward door (routes/branches.py), and the
+    same seam a future checker-escalation spawner calls: one door, a mode,
+    not a new organ. Adopt-mode never degrades to the shared checkout the
+    way a failed mint does — a session that believes it stands on a branch
+    and doesn't is the exact lie the worktree exists to prevent — so a
+    failed adoption refuses the whole spawn.
     """
     if not SLUG_RE.match(slug or ""):
         return {"error": "bad slug"}, 400
     if lane is not None and lane not in _LANES:
         return {"error": f"unknown room {lane!r}"}, 400
+    if branch is not None and not branch.startswith("agent/"):
+        # Stewards adopt agents' work. main (or anything hand-made) is never
+        # a thing this door stands a session on.
+        return {"error": "only an agent/* branch can be adopted"}, 400
     if model is not None and model not in _MODEL_CHOICES:
         return {"error": f"unknown model {model!r} "
                          f"(choices: {', '.join(_MODEL_CHOICES)})"}, 400
@@ -145,13 +159,23 @@ def open_spinoff(slug, start=True, lane=None, worktree=None, model=None):
     # Orchestra — and cwd is the one thing a session can never change
     # afterwards, which is why it's settled here at birth.
     room = lane or _inherit_lane(snapshot)
+    if branch is not None and (room != "orchestra" or worktree is False):
+        # Adoption IS a worktree on that branch — there is no shared-checkout
+        # version of standing on a branch, so the combination is a caller bug,
+        # refused loudly rather than quietly ignored.
+        return {"error": "adopting a branch needs the orchestra room "
+                         "and its worktree"}, 400
     profile = _lane_profile(room)
-    cwd, wt_path, branch, wt_error = profile["cwd"], None, None, None
+    cwd, wt_path, wt_branch, wt_error = profile["cwd"], None, None, None
     if room == "orchestra" and worktree is not False:
         try:
-            wt_path, branch = worktrees.mint(slug)
+            wt_path, wt_branch = (worktrees.adopt(slug, branch) if branch
+                                  else worktrees.mint(slug))
             cwd = str(wt_path)
         except (worktrees.WorktreeError, OSError, subprocess.SubprocessError) as e:
+            if branch:
+                # Adopt-mode refuses instead of degrading — see the docstring.
+                return {"error": f"couldn't stand on {branch}: {e}"}, 409
             # A spinoff that couldn't get its own copy still runs, in the shared
             # checkout — the same "degraded is still usable" call _launch_runner
             # makes. But it is NOT silent: the flag rides on the entry so the
@@ -182,7 +206,7 @@ def open_spinoff(slug, start=True, lane=None, worktree=None, model=None):
                 index[conv_id]["model"] = model
             if wt_path:
                 index[conv_id]["worktree"] = str(wt_path)
-                index[conv_id]["branch"] = branch
+                index[conv_id]["branch"] = wt_branch
             if wt_error:
                 index[conv_id]["worktree_failed"] = wt_error
 
@@ -211,7 +235,7 @@ def open_spinoff(slug, start=True, lane=None, worktree=None, model=None):
         "model": model,
         "brief": str(brief),
         "worktree": str(wt_path) if wt_path else None,
-        "branch": branch,
+        "branch": wt_branch,
         "worktree_failed": wt_error,
     }, 200
 
@@ -271,5 +295,9 @@ def register(app):
         payload, status = open_spinoff(
             data.get("slug", ""), lane=(lane or "").strip() or None,
             worktree=False if data.get("worktree") is False else None,
-            model=(data.get("model") or "").strip() or None)
+            model=(data.get("model") or "").strip() or None,
+            # `branch` = adopt an EXISTING agent/* branch instead of minting a
+            # new one — the steward door and the future escalation spawner
+            # both come through here.
+            branch=(data.get("branch") or "").strip() or None)
         return jsonify(payload), status

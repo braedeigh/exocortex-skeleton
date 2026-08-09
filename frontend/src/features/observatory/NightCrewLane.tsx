@@ -30,6 +30,15 @@ import styles from './NightCrew.module.css';
  * that ships unverified work. Its evidence is what changed, plus its own
  * written account, captioned as a claim wherever it appears.
  *
+ * THE CARDS SPEAK, AND REPLYING WAKES THEM (the stewards, her 08-07 ask: "I
+ * want them to have all the same capacities as other sessions in the room but
+ * they describe what they've done"). The face is workVoice() — first person,
+ * assembled from the evidence fields, no model call. The compose box on a
+ * ready card is the wake door: the first send mints ONE steward session per
+ * branch, stood on that existing branch in its own worktree
+ * (POST /api/branches/steward). The steward reads the record; it does not
+ * remember the building — the original session stays gone by design.
+ *
  * THE SCREENSHOT LEADS, THE DIFF FOLDS AWAY (Sunflower's call, confirmed with
  * her). She reads her own app, not diffs — a before/after answers "is this
  * right?" in about a second, where a diff asks a question she isn't the best
@@ -98,11 +107,51 @@ export interface NightRun {
   uncommitted?: string[];
   has_report?: boolean;
   commits?: number;
+  /** The first few commit subjects — the face's degraded voice for a branch
+   * with no report: what the commits say is most of what's known of it. */
+  commit_lines?: string[];
+  /** A live (non-archived) session still claims this branch — builder or an
+   * already-woken steward. The compose box hides behind this: a branch with
+   * a living session is talked to THROUGH that session, never given a second
+   * voice (git would refuse a second worktree on the branch anyway). */
+  session_live?: boolean;
 }
 
 /* The card's whole visual vocabulary in one table, the way SessionLane does it
    — adding a status is a row here and a rule in the stylesheet, never another
    branch buried in the markup. */
+/* The card's FACE — the work speaking in first person, assembled from the
+   literal evidence fields already on the card. Deliberately NOT a model call:
+   the sentence exists even for a long-dead worker, and it can only say what
+   the record says (the steward honesty rail: narrate from evidence, never
+   from claims). The voice changed, the layout didn't — her own words stay
+   the title; this line sits under them.
+   [prompt: "the card's face IS the session's opening message — the work
+   speaking, rendered from literal evidence, no model call"] */
+function workVoice(run: NightRun): string | null {
+  if (!run.branch) return null; // nothing was built — the status line already says so
+  const stat = run.diff_stat?.trim();
+  if (run.source === 'branch') {
+    if (run.status === 'working') return null; // someone is mid-build; their session speaks
+    if (run.status === 'merged') return 'You took this — it lives in the site now.';
+    const n = run.commits ?? 0;
+    if (!n) return 'Nothing was ever committed to me; there is nothing here to take.';
+    const built = `${n} commit${n === 1 ? '' : 's'} went into me${stat ? ` — ${stat}` : ''}.`;
+    if (run.has_report) {
+      return `${built} No test gate has run against me. My builder left an account on this card — its word, not a result.`;
+    }
+    const says = run.commit_lines?.length
+      ? ` My commits say: ${run.commit_lines.join(' · ')}.`
+      : '';
+    return `${built}${says} No test gate has run against me, and no account was written — this is all that is known of me.`;
+  }
+  // A night run's ready card: the one place a real test result exists.
+  if (run.status === 'ready') {
+    return `I was built overnight${stat ? ` — ${stat}` : ''}. The test line below ran against my copy — its output, not my word.`;
+  }
+  return null; // failed/parked speak through `reason`; merged through the live line
+}
+
 const STATUS: Record<NightRun['status'], { cls: string; dot: string; label: string }> = {
   ready: { cls: 'cardReady', dot: 'dotReady', label: 'ready for you' },
   // Only a daytime branch reaches this one: a night run is never in progress —
@@ -122,6 +171,7 @@ function Card({
   onRevert,
   onFeedback,
   onPick,
+  onWake,
   onOpenSession,
 }: {
   run: NightRun;
@@ -132,6 +182,9 @@ function Card({
   onFeedback: (id: string, note: string) => Promise<void>;
   /** Judges a picked card; resolves to an error string or null. */
   onPick: (id: string, verdict: 'approve' | 'reject', note: string) => Promise<string | null>;
+  /** Her reply on a finished card — wakes (or rejoins) the steward on that
+   * branch. Resolves to the session to open, or an error in her words. */
+  onWake: (branch: string, message: string) => Promise<{ convId: string | null; error: string | null }>;
   onOpenSession: (convId: string) => void;
 }) {
   const [showDiff, setShowDiff] = useState(false);
@@ -162,6 +215,30 @@ function Card({
   // test result would.
   const [report, setReport] = useState<string | null>(null);
   const [loadingReport, setLoadingReport] = useState(false);
+  // The steward composer. Replying is what wakes the work: the first send
+  // mints a session standing on this card's branch (one per branch — the
+  // server rejoins a live one instead of doubling it). Only a `ready` card
+  // with a branch nobody living claims offers it: a live session is talked
+  // to through its own door, and merged work has nothing left to amend.
+  const [wake, setWakeText] = useState('');
+  const [waking, setWaking] = useState(false);
+  const [wakeError, setWakeError] = useState<string | null>(null);
+  const canWake =
+    run.status === 'ready' && Boolean(run.branch) && !run.session_live;
+
+  function sendWake() {
+    const text = wake.trim();
+    if (!text || waking) return;
+    setWaking(true);
+    setWakeError(null);
+    void onWake(run.branch!, text).then(({ convId, error }) => {
+      setWaking(false);
+      setWakeError(error);
+      if (error) return; // her words stay in the box — a refusal never eats them
+      setWakeText('');
+      if (convId) onOpenSession(convId);
+    });
+  }
 
   function toggleReport() {
     if (report !== null) {
@@ -231,6 +308,10 @@ function Card({
       {/* Her own words are the title — she recognises the note before she
           recognises anything we'd write about it. */}
       <p className={styles.noteText}>{run.note_text}</p>
+
+      {/* The work speaking for itself, from the evidence fields alone —
+          see workVoice. Under her title: voice changed, layout kept. */}
+      {workVoice(run) && <p className={styles.voice}>{workVoice(run)}</p>}
 
       {hasShots && (
         <div className={styles.shots}>
@@ -320,6 +401,32 @@ function Card({
           )}
         </>
       )}
+
+      {/* Replying is what wakes it: the first send mints the steward — a
+          fresh session standing on this branch in its own worktree, briefed
+          with the evidence above plus her words. It reads the record; it does
+          NOT remember the building (that session is gone, by design). Same
+          law as the archive door: talking to it brings it back. */}
+      {canWake && (
+        <div className={styles.wakeRow}>
+          <textarea
+            className={styles.wakeInput}
+            value={wake}
+            rows={1}
+            placeholder="Reply to wake this work…"
+            onChange={(e) => setWakeText(e.target.value)}
+          />
+          <button
+            type="button"
+            className={styles.wakeSend}
+            disabled={waking || !wake.trim()}
+            onClick={sendWake}
+          >
+            {waking ? 'Waking…' : 'Send'}
+          </button>
+        </div>
+      )}
+      {wakeError && <p className={styles.mergeError}>{wakeError}</p>}
 
       {/* A merge that couldn't happen has to say why in her words, not git's —
           "you have uncommitted changes" is actionable, a conflict dump is not. */}
@@ -449,6 +556,7 @@ export function NightCrewLane({
   onRevert,
   onFeedback,
   onPick,
+  onWake,
   onOpenSession,
 }: {
   runs: NightRun[];
@@ -464,6 +572,8 @@ export function NightCrewLane({
   onFeedback: (id: string, note: string) => Promise<void>;
   /** Judges a picked card (approve/reject + optional why). */
   onPick: (id: string, verdict: 'approve' | 'reject', note: string) => Promise<string | null>;
+  /** Wakes the steward for a branch (the card's compose box). */
+  onWake: (branch: string, message: string) => Promise<{ convId: string | null; error: string | null }>;
   /** Opens a worker's session (RosterPage's regular session door). */
   onOpenSession: (convId: string) => void;
 }) {
@@ -514,7 +624,7 @@ export function NightCrewLane({
           {live.map((run) => (
             <Card key={run.id} run={run} onDismiss={onDismiss} onMerge={onMerge}
               onRevert={onRevert} onFeedback={onFeedback} onPick={onPick}
-              onOpenSession={onOpenSession} />
+              onWake={onWake} onOpenSession={onOpenSession} />
           ))}
         </div>
       )}
