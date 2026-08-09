@@ -38,7 +38,7 @@ import sqlite3
 
 import store
 
-_SCHEMA_VERSION = 8
+_SCHEMA_VERSION = 9
 
 
 def _db_path():
@@ -527,6 +527,34 @@ def _migrate(conn):
             # LOCAL naive ISO, exactly as the transcript writes it — the same
             # clock `cards.ts` and `commits.authored_at` keep.
             "  ts TEXT NOT NULL,"
+            "  PRIMARY KEY (session_id, seq)"
+            ")"
+        )
+    if version < 9:
+        # session_turns gains `journaled`: was this message one she PUT IN THE
+        # JOURNAL? The capture hook writes the flag onto the turn as it mints
+        # the card, so it's the pool's own answer rather than a guess — 97% of
+        # flagged turns have a matching card within two minutes, and the flag
+        # never appears on a session rooted in the app checkout.
+        #
+        # It exists so the pond can draw the working half WITHOUT redrawing the
+        # journal: a message that became a card is already a dot in the left
+        # lane, and drawing it again on the right makes one afternoon look like
+        # two. Recorded either way — the filtering is a reading decision, made
+        # by whoever queries, never by dropping rows.
+        #
+        # DROP and recreate rather than ALTER: this table is derived wholesale
+        # from the transcripts by codestore.sync_turns() on every run, so
+        # rebuilding it costs nothing and stays idempotent if the ladder
+        # replays (an ALTER would raise the second time through).
+        conn.execute("DROP TABLE IF EXISTS session_turns")
+        conn.execute(
+            "CREATE TABLE session_turns ("
+            "  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,"
+            "  seq INTEGER NOT NULL,"
+            "  ts TEXT NOT NULL,"
+            "  journaled INTEGER NOT NULL DEFAULT 0"
+            "    CHECK (journaled IN (0, 1)),"
             "  PRIMARY KEY (session_id, seq)"
             ")"
         )

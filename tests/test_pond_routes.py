@@ -35,6 +35,7 @@ CREATE TABLE sessions (
   started TEXT, last_at TEXT);
 CREATE TABLE session_turns (
   session_id TEXT NOT NULL, seq INTEGER NOT NULL, ts TEXT NOT NULL,
+  journaled INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (session_id, seq));
 CREATE TABLE files (
   id INTEGER PRIMARY KEY, repo TEXT NOT NULL, path TEXT NOT NULL,
@@ -166,12 +167,13 @@ def working_db(pond_db, data_dir):
             " VALUES (?,?,?,?,?,?)", (sid, title, "keeper", lane, started, last_at))
         conn.commit()
 
-    def turn(sid, ts, seq=None):
+    def turn(sid, ts, seq=None, journaled=0):
         seq = conn.execute(
             "SELECT COALESCE(MAX(seq) + 1, 0) FROM session_turns WHERE session_id = ?",
             (sid,)).fetchone()[0] if seq is None else seq
-        conn.execute("INSERT INTO session_turns (session_id, seq, ts) VALUES (?,?,?)",
-                     (sid, seq, ts))
+        conn.execute(
+            "INSERT INTO session_turns (session_id, seq, ts, journaled) VALUES (?,?,?,?)",
+            (sid, seq, ts, journaled))
         conn.commit()
 
     def write(sid, last_utc, path="app.py", repo="skeleton", writes=1, creates=0):
@@ -514,3 +516,75 @@ def test_a_vault_without_people_or_threads_degrades_to_a_flat_list(
     body = client.get("/api/pond/threads").get_json()
     assert [t["kind"] for t in body["threads"]] == ["topic"]
     assert body["fronts"] == []
+
+
+# --- the journal is drawn ONCE ------------------------------------------------
+#
+# The pond has two lanes and the journal owns the left one. So anything that IS
+# a journal entry must not also appear on the right, or one afternoon reads as
+# two. The rule is about what the THING is, never about which directory the
+# session was rooted in — the room-based version of this rule was tried and it
+# hid 43% of her real code.
+
+def test_a_journalled_message_is_not_drawn_in_the_working_lane(working_db, client):
+    """It already exists as a card in the other lane."""
+    working_db.session("s1", "2026-08-09T09:00:00", "2026-08-09T12:00:00")
+    working_db.turn("s1", "2026-08-09T09:30:00", journaled=1)
+    working_db.turn("s1", "2026-08-09T10:30:00", journaled=0)
+
+    got = client.get("/api/pond/working").get_json()
+    assert [t["ts"] for t in got["turns"]] == ["2026-08-09T10:30:00"]
+
+
+def test_writing_the_card_pool_is_not_a_code_change(working_db, client, fixed_tz):
+    """A write to the pool IS her writing an entry — the same event the left
+    lane draws. cardstore.py mirrors exactly these files into the `cards`
+    table this module reads, so drawing them here is drawing them twice."""
+    working_db.session("s1", "2026-08-09T09:00:00", "2026-08-09T12:00:00")
+    working_db.write("s1", "2026-08-09T15:00:00.000Z",
+                     repo="vault", path="tulku/_system/data/cards/2026-08-09.0930b.md")
+    working_db.write("s1", "2026-08-09T15:05:00.000Z",
+                     repo="vault", path="tulku/tulku-diary/2026-08-09.md")
+
+    assert client.get("/api/pond/working").get_json()["writes"] == []
+
+
+def test_code_written_during_a_keeper_session_still_counts(working_db, client, fixed_tz):
+    """The anti-regression for the rule that was almost shipped. A session can
+    be rooted in the vault, journal half its messages, and still change real
+    app code — 43% of her writes are exactly this. What it IS decides, not
+    where it happened."""
+    working_db.session("keeper", "2026-08-09T09:00:00", "2026-08-09T12:00:00")
+    working_db.turn("keeper", "2026-08-09T09:30:00", journaled=1)
+    working_db.write("keeper", "2026-08-09T15:00:00.000Z",
+                     repo="vault", path="tulku/_system/data/cards/2026-08-09.0930b.md")
+    working_db.write("keeper", "2026-08-09T15:10:00.000Z",
+                     repo="skeleton", path="routes/observatory.py", writes=28)
+
+    got = client.get("/api/pond/working").get_json()
+    assert [w["path"] for w in got["writes"]] == ["routes/observatory.py"]
+    assert got["turns"] == []          # the message was an entry; the code was not
+
+
+def test_an_ordinary_vault_file_is_still_work(working_db, client, fixed_tz):
+    """Only the journal itself is exempt. Her vault also holds data, docs and
+    deploy config — building, and it belongs on the working side."""
+    working_db.session("s1", "2026-08-09T09:00:00", "2026-08-09T12:00:00")
+    working_db.write("s1", "2026-08-09T15:00:00.000Z", repo="vault", path="data/todos.json")
+
+    got = client.get("/api/pond/working").get_json()
+    assert [w["path"] for w in got["writes"]] == ["data/todos.json"]
+
+
+def test_journal_writes_do_not_pad_a_sessions_worked_span(working_db, client, fixed_tz):
+    """The solid core of the hairline means "work happened here". Writing an
+    entry at midnight shouldn't stretch it."""
+    working_db.session("s1", "2026-08-09T09:00:00", "2026-08-09T23:00:00")
+    working_db.write("s1", "2026-08-09T15:00:00.000Z",
+                     repo="skeleton", path="routes/pond.py")
+    working_db.write("s1", "2026-08-10T03:00:00.000Z",     # 22:00 local, an entry
+                     repo="vault", path="tulku/_system/data/cards/2026-08-09.2200b.md")
+
+    session = client.get("/api/pond/working").get_json()["sessions"][0]
+    assert session["worked_from"] == "2026-08-09T10:00:00"
+    assert session["worked_to"] == "2026-08-09T10:00:00"

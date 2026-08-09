@@ -329,6 +329,29 @@ def test_a_torn_transcript_line_doesnt_hide_the_rest(data_dir, tmp_path):
         "2026-06-01T09:00:00", "2026-06-01T09:10:00"]
 
 
+def test_a_turn_records_whether_it_became_a_journal_entry(data_dir, tmp_path):
+    """The capture hook stamps `journaled` on the turn as it mints the card, so
+    this is the pool's own answer rather than a guess. The pond uses it to
+    avoid drawing one moment in both lanes. A turn with no flag at all (the
+    imported conversations predate it) counts as NOT journalled — erring toward
+    drawing a message is recoverable; silently hiding one is not."""
+    repo = _make_repo(tmp_path / "repo")
+    _seed_sidecars(repo)
+    _write_transcript("conv-1", [
+        {"type": "user", "text": "an entry", "ts": "2026-06-01T09:00:00", "journaled": True},
+        {"type": "user", "text": "a build ask", "ts": "2026-06-01T09:05:00", "journaled": False},
+        {"type": "user", "text": "imported, no flag", "ts": "2026-06-01T09:10:00"},
+    ])
+
+    codestore.rebuild(_repos(repo))
+
+    assert _rows("SELECT ts, journaled FROM session_turns ORDER BY seq") == [
+        ("2026-06-01T09:00:00", 1),
+        ("2026-06-01T09:05:00", 0),
+        ("2026-06-01T09:10:00", 0),
+    ]
+
+
 def test_turns_are_a_full_rederive(data_dir, tmp_path):
     """Same contract as its sibling: the transcripts are truth, so a turn that
     left them must leave the table too."""

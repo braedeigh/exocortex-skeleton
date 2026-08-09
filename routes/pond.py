@@ -118,6 +118,28 @@ MAX_CARDS = 4000
 # a year or two rather than a limit anything meets today.
 MAX_WORKING = 6000
 
+# Vault paths that ARE the journal, rather than files the journal happens to
+# live near. A write here is her writing an entry — the same event the left
+# lane already draws as a card — so it must not also appear as a code change on
+# the right.
+#
+#   _system/data/cards/  the card pool itself: one markdown file per utterance,
+#                        which cardstore.py mirrors into the `cards` table this
+#                        very module reads. A write here IS a journal entry, by
+#                        definition.
+#   tulku-diary/         the day's written-up entry, the Keeper's end-of-day
+#                        work. Prose about her life, not code.
+#
+# Deliberately a PREFIX list and not "everything in the vault": her vault holds
+# plenty that is genuinely built rather than written — data files, docs, deploy
+# config, spinoff briefs — and those are real work that belongs on the working
+# side. The test is what the file IS, not which repo it sits in.
+JOURNAL_PATHS = ("tulku/_system/data/cards/", "tulku/tulku-diary/")
+
+
+def _is_journal_file(repo, path):
+    return repo == "vault" and (path or "").startswith(JOURNAL_PATHS)
+
 
 def _taxonomy():
     """What KIND each tag is, read straight off the vault's own filing.
@@ -434,6 +456,18 @@ def register(app):
                      file, not every time. A file edited at 10:00 and again at
                      16:00 appears once, at 16:00. The drawing says so on its
                      face rather than implying a complete edit history.
+        WHAT THIS LEAVES OUT, and why it isn't a room rule. The journal is
+        already drawn, in the other lane, as cards. So anything that IS a
+        journal entry is skipped here rather than drawn twice: a turn the
+        capture hook journalled (`session_turns.journaled`), and a write to the
+        card pool or the diary (JOURNAL_PATHS). Nothing is filtered by which
+        directory the session was rooted in — that was the tempting rule and it
+        is wrong. Her Keeper conversations wrote 1,039 writes across 219 files
+        of real app code, 43% of everything; excluding those sessions wholesale
+        would have made nearly half her building invisible, and would also have
+        dropped 577 messages in those rooms that never became journal entries
+        at all. The test is what the THING is, not what room it happened in.
+
           sessions — a SPAN. `started` → `last_at` is how long a conversation
                      sat OPEN, which is a different question from when work
                      happened in it; a third of them stay open past twelve
@@ -455,8 +489,13 @@ def register(app):
             return jsonify({"error": err}), 400
 
         with closing(_read_only_conn()) as conn:
+            # journaled turns are excluded HERE rather than never recorded:
+            # the row stays in the table (she asked for all of it kept
+            # granularly), and this drawing simply declines to say the same
+            # thing twice.
             turn_rows = conn.execute(
                 """SELECT session_id, ts FROM session_turns
+                    WHERE journaled = 0
                     ORDER BY ts ASC LIMIT ?""",
                 (MAX_WORKING + 1,),
             ).fetchall()
@@ -486,6 +525,8 @@ def register(app):
         writes = []
         worked = {}
         for r in write_rows:
+            if _is_journal_file(r["repo"], r["path"]):
+                continue          # writing an entry is not changing the code
             ts = codestore.local_iso(r["last"])
             if not ts:
                 continue

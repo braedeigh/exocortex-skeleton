@@ -517,9 +517,15 @@ def _sync_sessions(conn, repos):
 # is one JSON object per line and holds four kinds of clock reading; only this
 # one is her:
 #
-#   {"type": "user", "text": "...", "ts": "2026-08-09T10:07:02"}   <- her, LOCAL
+#   {"type": "user", "text": "...", "ts": "...", "journaled": true}  <- her, LOCAL
 #   {"type": "user", "timestamp": "...Z"}        a tool RESULT, not a message
 #   {"type": "assistant", "timestamp": "...Z"}   the agent's reply, UTC
+#
+# `journaled` rides along on her own turns: true when the capture hook minted a
+# journal card out of that message. It is the pool's own answer, not a guess —
+# 97% of flagged turns have a matching card within two minutes, and the flag
+# never appears on a session rooted in the app checkout. Recorded here so a
+# drawing can avoid showing the same moment twice; the row is kept either way.
 #
 # So `type == "user"` AND a `ts` key is the exact test for "she hit send", and
 # the value is already in the local clock the rest of the system keeps. The
@@ -562,8 +568,13 @@ def local_iso(raw):
 
 
 def _turn_times(path):
-    """The local timestamps of every message she sent in one conversation, in
-    transcript order, each already normalised by `local_iso`.
+    """Every message she sent in one conversation as (local ts, journaled), in
+    transcript order, each timestamp already normalised by `local_iso`.
+
+    A turn with no `journaled` key at all (the 47 imported ones, which predate
+    the flag) counts as NOT journalled rather than unknown — the pond would
+    otherwise hide a message on the strength of a field that was never written.
+    Erring toward drawing it is the recoverable direction.
 
     The cheap `in` test before json.loads is doing real work, not
     micro-optimising: these logs total ~300 MB and 95% of their lines are
@@ -586,7 +597,7 @@ def _turn_times(path):
                     continue
                 ts = local_iso(ev.get("ts"))
                 if ts:
-                    out.append(ts)
+                    out.append((ts, 1 if ev.get("journaled") is True else 0))
     except (OSError, UnicodeDecodeError):
         return []                   # an unreadable log is a quiet gap, not a crash
     return out
@@ -609,12 +620,13 @@ def _sync_turns(conn):
     for path in sorted(chats.glob("*.jsonl")):
         if path.stem not in known:
             continue
-        rows = [(path.stem, seq, ts)
-                for seq, ts in enumerate(_turn_times(path))]
+        rows = [(path.stem, seq, ts, journaled)
+                for seq, (ts, journaled) in enumerate(_turn_times(path))]
         if not rows:
             continue
         conn.executemany(
-            "INSERT INTO session_turns (session_id, seq, ts) VALUES (?, ?, ?)",
+            "INSERT INTO session_turns (session_id, seq, ts, journaled)"
+            " VALUES (?, ?, ?, ?)",
             rows,
         )
         n += len(rows)
