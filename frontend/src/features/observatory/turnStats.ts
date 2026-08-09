@@ -125,18 +125,32 @@ function fmtTokens(n: number): string {
 }
 
 /**
- * A session's lifetime spend, for the roster card and the session header:
- * "18.2k tokens · $4.21". Same 1-decimal-k shape as the working line above so
- * the running total and the in-flight count read as the same kind of number,
- * and millions fold to "m" rather than printing "1832.4k".
+ * A session's lifetime output, count only: "18.2k tokens". Same 1-decimal-k
+ * shape as the working line above so the running total and the in-flight count
+ * read as the same kind of number, and millions fold to "m" rather than
+ * printing "1832.4k".
+ *
+ * This is what the conversation itself shows, under the composer — "I prefer
+ * the number only". A dollar figure sitting under the box she's about to type
+ * in is a price tag on the next thing she says, and that isn't what the line
+ * is for there; it's a sense of scale. The cost still rides along on the
+ * roster card (formatSessionSpend), which is where she's actually looking to
+ * total anything up.
+ */
+export function formatSessionTokens(tokens: { output: number }): string {
+  const n = tokens.output;
+  return n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}m tokens` : fmtTokens(n);
+}
+
+/**
+ * The same count with what it cost, for the roster card: "18.2k tokens ·
+ * $4.21".
  *
  * The cost is dropped below a cent — a session that has barely started should
  * say what it wrote, not claim "$0.00".
  */
 export function formatSessionSpend(tokens: { output: number; cost_usd: number }): string {
-  const n = tokens.output;
-  const count =
-    n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}m tokens` : fmtTokens(n);
+  const count = formatSessionTokens(tokens);
   return tokens.cost_usd >= 0.01 ? `${count} · $${tokens.cost_usd.toFixed(2)}` : count;
 }
 

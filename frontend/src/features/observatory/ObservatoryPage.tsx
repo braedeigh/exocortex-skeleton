@@ -13,7 +13,7 @@ import { applyEvent, assistantText, lastUserTurnIndex, turnsFromHistory, userTur
 import { HighlightPill, HighlightSheet } from './JournalHighlight';
 import { useJournalHighlight } from './useJournalHighlight';
 import { useComposerBox } from './useComposerBox';
-import { formatSessionSpend, formatWorkingLine } from './turnStats';
+import { formatSessionTokens, formatWorkingLine } from './turnStats';
 import { isUnread, markConversationOpened } from './readReceipts';
 import { useOpenSessionHeartbeat } from './useOpenSessions';
 import { Reply, StreamingReply, UserMessage } from './replyViews';
@@ -152,8 +152,9 @@ export function ObservatoryPage({
   // Explicit pinned state of this session (null until meta loads) — the
   // "Roll over" control only exists in the one pinned session (the Keeper).
   const [sessionPinned, setSessionPinned] = useState<boolean | null>(null);
-  // Lifetime spend of this session, preformatted ("18.2k tokens · $4.21"), or
-  // null until a turn has finished. Refreshed whenever history reloads.
+  // Lifetime output of this session, preformatted ("18.2k tokens"), or null
+  // until a turn has finished. Refreshed whenever history reloads. Count only
+  // in here — the cost stays on the roster card (turnStats.ts).
   const [sessionSpend, setSessionSpend] = useState<string | null>(null);
   // The roster's cached Haiku one-liner of what this session is working on
   // (SessionMeta.summary). Seeded on open like its neighbours here, then
@@ -298,7 +299,7 @@ export function ObservatoryPage({
         setSessionJournal(data.meta?.journal === true ? true : data.meta?.journal === false ? false : null);
         setSessionPinned(data.meta?.pinned === true);
         setSessionArchived(Boolean(data.meta?.archived));
-        setSessionSpend(data.meta?.tokens ? formatSessionSpend(data.meta.tokens) : null);
+        setSessionSpend(data.meta?.tokens ? formatSessionTokens(data.meta.tokens) : null);
         setSessionSummary(data.meta?.summary ?? null);
         if (data.meta?.title) setRoomTitle(data.meta.title);
         // Draft prefill: a staged first message she hasn't fired yet. Only
@@ -967,13 +968,14 @@ export function ObservatoryPage({
             ↑
           </button>
         </div>
-        {/* What this session has spent, sitting directly under the input —
-            her call, so on the phone it's the line right above the keyboard
-            rather than buried in the toolbar above the box. Same number as
-            the roster card; it advances a turn at a time, since the total
-            only lands when a turn finishes. */}
+        {/* How much this session has written, sitting directly under the input
+            — her call, so on the phone it's the line right above the keyboard
+            rather than buried in the toolbar above the box. The count only, no
+            dollars ("I prefer the number only"): the roster card is where the
+            cost lives. It advances a turn at a time, since the total only
+            lands when a turn finishes. */}
         {sessionSpend ? (
-          <div className={styles.spend} title="Tokens written and cost, this session">
+          <div className={styles.spend} title="Tokens written this session">
             {sessionSpend}
           </div>
         ) : null}

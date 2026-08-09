@@ -7,6 +7,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyStatsEvent,
+  formatSessionSpend,
+  formatSessionTokens,
   formatWorkingLine,
   startTurnStats,
   tokensAreEstimated,
@@ -119,5 +121,20 @@ describe('the formatted line', () => {
     s = applyStatsEvent(s, think, t0 + 5000);
     expect(s.thinkingMs).toBe(1000);
     expect(formatWorkingLine(s, t0 + 6000)).toBe('Sifting… 6s');
+  });
+});
+
+// Two surfaces, two lines, and the difference between them is the point: the
+// conversation shows what it wrote, the roster card shows what it cost.
+describe('session totals', () => {
+  it('shows the count alone in the conversation, however much it cost', () => {
+    expect(formatSessionTokens({ output: 18_200 })).toBe('18.2k tokens');
+    expect(formatSessionTokens({ output: 940 })).toBe('940 tokens');
+    expect(formatSessionTokens({ output: 1_832_400 })).toBe('1.8m tokens');
+  });
+
+  it('adds the cost on the roster card, and drops it below a cent', () => {
+    expect(formatSessionSpend({ output: 18_200, cost_usd: 4.21 })).toBe('18.2k tokens · $4.21');
+    expect(formatSessionSpend({ output: 940, cost_usd: 0.004 })).toBe('940 tokens');
   });
 });
