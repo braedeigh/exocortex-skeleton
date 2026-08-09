@@ -22,6 +22,15 @@
  * (nothing is where the clock put it). Neither is the "real" one — they're the
  * two axes a day has, and the toggle is how you look down each.
  *
+ * CLOCK mode carries a SECOND LANE: the working half of the day — when she was
+ * talking to an agent, when files were written, how long each session sat open.
+ * It sits just right of the journal lane, close enough to overlap, on the SAME
+ * clock, because the whole point is seeing that she was writing at 2pm while
+ * something was being built at 2pm. Two lanes, not two charts.
+ *
+ * Words mode has no working lane and can't have one: there is no clock there to
+ * hang a moment on. The layer switches off rather than pretending.
+ *
  * This module is only the arithmetic. It takes the cards the API returned and
  * answers two questions — where does each card BOX go, and what path connects
  * one thread's cards — with no React, no DOM and no fetching, so both can be
@@ -127,6 +136,27 @@ export interface PondLayoutOptions {
    * is lit, in which case long cards simply show from the top.
    */
   terms: readonly string[] | null;
+  /**
+   * CLOCK only: how far LEFT of the column's centre the journal dots sit, to
+   * make room for the working lane on the right.
+   *
+   * Zero when the working layers are off, and that matters: with them hidden
+   * the pond is drawn exactly where it has always been drawn, so turning a
+   * layer on is the only thing that ever moves a journal dot. Toggling a layer
+   * shouldn't quietly re-draw the half of the page it isn't about.
+   */
+  laneShift: number;
+  /**
+   * Days that must get a column even though no card falls on them — the days
+   * she built something and wrote nothing.
+   *
+   * Doesn't matter against today's data (the journal has covered every single
+   * day since it started), which is exactly why it's here: the first day she
+   * ships code without journaling, the working marks would otherwise have
+   * nowhere to land and would silently vanish rather than draw an empty
+   * journal column with work in it.
+   */
+  extraDays: readonly string[];
 }
 
 export const DEFAULT_LAYOUT: PondLayoutOptions = {
@@ -141,6 +171,8 @@ export const DEFAULT_LAYOUT: PondLayoutOptions = {
   context: 220,
   only: null,
   terms: null,
+  laneShift: 0,
+  extraDays: [],
 };
 
 /** A dot's diameter at the default zoom. */
@@ -359,7 +391,13 @@ export function layoutPond(
   // The full pond is one toggle away, and the unfiltered view still holds the
   // silence.
   const kept = opt.only ? cards.filter((c) => matchesLit(c, opt.only!)) : cards;
-  const days = pondDays(kept);
+  // Columns come from the cards PLUS any day that only has work on it. When
+  // a thread filter is on, `only` has already narrowed the cards and the extra
+  // days go with them — she asked to read one thread, not to keep the build
+  // days it never touched standing open.
+  const days = opt.only
+    ? pondDays(kept)
+    : [...new Set([...kept.map((c) => c.day), ...opt.extraDays])].sort();
   const byDay = new Map<string, PondCard[]>();
   for (const card of kept) {
     const list = byDay.get(card.day);
@@ -420,7 +458,10 @@ export function layoutPond(
       if (bottom > lowest) lowest = bottom;
       return {
         card,
-        x: opt.mode === 'clock' ? cx - opt.dotSize / 2 : x + opt.cardGap,
+        x:
+          opt.mode === 'clock'
+            ? cx - opt.dotSize / 2 - opt.laneShift
+            : x + opt.cardGap,
         y,
         w: boxWidth,
         h,
@@ -439,6 +480,268 @@ export function layoutPond(
     width: Math.max(days.length * opt.colWidth, opt.colWidth),
     height: lowest + opt.dotSize * 2,
   };
+}
+
+/* --- the working lane -------------------------------------------------------
+ *
+ * Three kinds of event, three marks, one clock. They are NOT interchangeable
+ * and the drawing must not let them look it:
+ *
+ *   a turn  — a POINT. She sent a message. A dot, like a card, because it is
+ *             the same kind of thing: a moment she did something.
+ *   a write — a POINT, but a machine's. A tick, not a dot: it reads as a
+ *             different species at a glance even at four pixels a day, which
+ *             is the only defence against "her afternoon" and "its afternoon"
+ *             blurring into one smear.
+ *   a session — a SPAN. A hairline down the day. The only thing on the page
+ *             with extent, because it's the only thing that HAS extent.
+ *
+ * All of it comes in already on her clock (routes/pond.py converts), so
+ * nothing here has to know that the file touches arrive from the transcripts
+ * in UTC.
+ */
+
+/** A moment she sent a message to an agent. */
+export interface PondTurn {
+  ts: string;
+  session: string;
+}
+
+/** The last time one session touched one file. NOT every touch of that file —
+ * the footprints harvest keeps one row per session/file pair. */
+export interface PondWrite {
+  ts: string;
+  session: string;
+  repo: string;
+  path: string;
+  writes: number;
+  creates: number;
+}
+
+/** A conversation: how long it was OPEN, and the part of that in which files
+ * were actually written. The two are very different numbers. */
+export interface PondSession {
+  id: string;
+  title: string;
+  lane: string | null;
+  started: string;
+  last_at: string;
+  worked_from: string | null;
+  worked_to: string | null;
+}
+
+export interface PondWorking {
+  turns: PondTurn[];
+  writes: PondWrite[];
+  sessions: PondSession[];
+}
+
+/** A point mark in the working lane — a turn or a write. */
+export interface PlacedMark<T> {
+  item: T;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** One day's slice of a session: the whole open stretch, and the worked part
+ * inside it. `worked` is null when nothing was written that day. */
+export interface PlacedSpan {
+  session: PondSession;
+  day: string;
+  x: number;
+  /** Top and bottom of the OPEN stretch within this day. */
+  y: number;
+  h: number;
+  /** The stretch that actually wrote files, if any fell on this day. */
+  worked: { y: number; h: number } | null;
+}
+
+export interface WorkingLayout {
+  turns: PlacedMark<PondTurn>[];
+  writes: PlacedMark<PondWrite>[];
+  spans: PlacedSpan[];
+}
+
+/** The day part of a working timestamp — "2026-08-09T14:33:15" → "2026-08-09". */
+export function tsDay(ts: string): string {
+  return (ts || '').slice(0, 10);
+}
+
+/**
+ * The days the working half actually HAPPENED on — turns and writes only.
+ *
+ * A session merely being open doesn't count. A conversation left open over a
+ * weekend would otherwise mint columns for two days she never touched it, and
+ * "the pond has a column here" should mean something occurred, not that a
+ * window was never closed.
+ */
+export function workingDays(working: PondWorking | null | undefined): string[] {
+  if (!working) return [];
+  const days = new Set<string>();
+  for (const t of working.turns) days.add(tsDay(t.ts));
+  for (const w of working.writes) days.add(tsDay(w.ts));
+  return [...days].sort();
+}
+
+/**
+ * How dark one file-touch tick is drawn, 0..1, from its write count.
+ *
+ * Logarithmic, because the counts are: most touches are one or two writes and
+ * the heaviest in this vault is 46. On a linear ramp everything below ten
+ * would be indistinguishable from nothing, and the one 46 would be the only
+ * mark on the page with any weight — the same mistake that killed the creek
+ * (a dynamic range no single scale could carry honestly).
+ *
+ * Floored at 0.35 rather than 0, because a touch that happened must be
+ * visible: fading a real edit to nothing to make a busier one look busier is
+ * the drawing lying about what it knows.
+ */
+export function writeWeight(writes: number): number {
+  const n = Math.max(0, writes || 0);
+  if (n <= 0) return 0.35;
+  return Math.min(1, 0.35 + (Math.log(n + 1) / Math.log(40)) * 0.65);
+}
+
+/** Minutes past midnight → y, on the same 24-hour ruler the cards use. */
+function clockY(minutes: number, opt: PondLayoutOptions): number {
+  return opt.top + (minutes / MINUTES_PER_DAY) * opt.dayHeight;
+}
+
+/**
+ * Place the working half against an existing pond layout.
+ *
+ * Takes the LAYOUT rather than the cards, so the two halves can never disagree
+ * about which day is which column: whatever the journal did — filtered to a
+ * thread, closed its empty days, zoomed — the working marks follow it. A day
+ * with no column simply has nothing drawn on it, which is the honest outcome
+ * of a filter that removed it.
+ *
+ * Words mode returns nothing at all. There is no clock in words mode, so there
+ * is no honest y for a moment; drawing these there would place them at
+ * positions that mean nothing.
+ */
+export function layoutWorking(
+  layout: PondLayout,
+  working: PondWorking | null | undefined,
+  options: Partial<PondLayoutOptions> = {},
+): WorkingLayout {
+  const opt = { ...DEFAULT_LAYOUT, ...options };
+  const empty: WorkingLayout = { turns: [], writes: [], spans: [] };
+  if (!working || layout.mode !== 'clock') return empty;
+
+  const columnX = new Map<string, number>();
+  for (const column of layout.columns) columnX.set(column.day, column.cx);
+
+  const dot = opt.dotSize;
+  // The working lane's centre: as far right of the column's middle as the
+  // journal sits left of it. Close enough that the two lanes overlap slightly
+  // — her call, and it's the right one: pulled apart they read as two separate
+  // charts that happen to share an axis, touching they read as one day.
+  const laneX = (day: string) => (columnX.get(day) ?? 0) + opt.laneShift;
+
+  // A journal dot's TOP sits at its minute (see layoutPond), so its middle
+  // rides half a dot lower. Every mark in this lane is centred on that same
+  // middle rather than on the bare minute — otherwise a message sent at noon
+  // would draw a few pixels above a card written at noon, and "these two
+  // happened at the same time" is the single claim this whole lane makes.
+  const anchor = dot / 2;
+  const markY = (minutes: number, h: number) =>
+    clockY(minutes, opt) + anchor - h / 2;
+
+  const turns: PlacedMark<PondTurn>[] = [];
+  for (const turn of working.turns) {
+    const day = tsDay(turn.ts);
+    if (!columnX.has(day)) continue;
+    const minutes = parseMinutes(turn.ts);
+    if (minutes === null) continue;
+    const w = dot * 0.85;
+    turns.push({ item: turn, x: laneX(day) - w / 2, y: markY(minutes, w), w, h: w });
+  }
+
+  const writes: PlacedMark<PondWrite>[] = [];
+  for (const write of working.writes) {
+    const day = tsDay(write.ts);
+    if (!columnX.has(day)) continue;
+    const minutes = parseMinutes(write.ts);
+    if (minutes === null) continue;
+    // Wider than tall — a tick, so it can't be mistaken for a dot even where
+    // the columns are four pixels apart.
+    const w = Math.max(3, dot * 1.5);
+    const h = Math.max(1.5, dot * 0.4);
+    writes.push({ item: write, x: laneX(day) - w / 2, y: markY(minutes, h), w, h });
+  }
+
+  const spans: PlacedSpan[] = [];
+  for (const session of working.sessions) {
+    for (const day of layout.columns.map((c) => c.day)) {
+      const slice = sessionOnDay(session, day, opt);
+      // Nudged onto the same anchor as the marks, so a session's start lines
+      // up with the first turn inside it instead of floating half a dot above.
+      if (slice) {
+        spans.push({
+          session,
+          day,
+          x: laneX(day),
+          y: slice.y + anchor,
+          h: slice.h,
+          worked: slice.worked
+            ? { y: slice.worked.y + anchor, h: slice.worked.h }
+            : null,
+        });
+      }
+    }
+  }
+
+  return { turns, writes, spans };
+}
+
+/**
+ * One session's slice of one day, or null if it wasn't open that day.
+ *
+ * A session that opened Saturday and closed Wednesday is open for the WHOLE of
+ * Sunday, Monday and Tuesday — those days get a full-height line, with no ends
+ * on it, which is exactly what "still open" looks like. Only the first and
+ * last day get a real start or stop.
+ *
+ * Exported for its own tests: the multi-day clipping is the part with corners,
+ * and it's the part that would go unnoticed if it were wrong, since a session
+ * drawn one day short still looks like a plausible session.
+ */
+export function sessionOnDay(
+  session: PondSession,
+  day: string,
+  options: Partial<PondLayoutOptions> = {},
+): { y: number; h: number; worked: { y: number; h: number } | null } | null {
+  const opt = { ...DEFAULT_LAYOUT, ...options };
+  const startDay = tsDay(session.started);
+  const endDay = tsDay(session.last_at || session.started);
+  if (day < startDay || day > endDay) return null;
+
+  const bounds = (
+    from: string,
+    to: string,
+  ): { y: number; h: number } | null => {
+    const fromDay = tsDay(from);
+    const toDay = tsDay(to);
+    if (day < fromDay || day > toDay) return null;
+    const startMin = day === fromDay ? (parseMinutes(from) ?? 0) : 0;
+    const endMin = day === toDay ? (parseMinutes(to) ?? MINUTES_PER_DAY) : MINUTES_PER_DAY;
+    const y = clockY(startMin, opt);
+    // A session that opened and closed within the same minute still gets a
+    // visible mark rather than a zero-height nothing.
+    const h = Math.max(1, clockY(Math.max(endMin, startMin), opt) - y);
+    return { y, h };
+  };
+
+  const open = bounds(session.started, session.last_at || session.started);
+  if (!open) return null;
+  const worked =
+    session.worked_from && session.worked_to
+      ? bounds(session.worked_from, session.worked_to)
+      : null;
+  return { ...open, worked };
 }
 
 /**

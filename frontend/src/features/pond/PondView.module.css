@@ -398,6 +398,88 @@
   opacity: 0.8;
 }
 
+/* --- the working lane ------------------------------------------------------
+
+   The other half of her day, one lane right of the journal and overlapping it
+   slightly, on the same clock.
+
+   ONE COLOUR for all three marks: `--ongoing`, the teal already in the theme's
+   four accents, which means it follows light and dark without a new value
+   being invented here. The pond's standing rule is that the page carries
+   exactly one SATURATED colour and it belongs to whatever is lit (`--accent`,
+   the thread line and the open card). Teal is the working half's whole
+   allowance, held below the accent's weight so a lit thread still wins the
+   page. The three layers tell themselves apart by SHAPE — dot, tick, hairline
+   — the same way the journal tells her voice from the Keeper's without a
+   second hue. */
+
+/* Her messages to agents. A dot, like a card: the same kind of event. Slightly
+   translucent for the same reason the cards are — a burst of messages should
+   read as a darker blot rather than as one mark hiding five. */
+.turnDot {
+  position: absolute;
+  border-radius: 50%;
+  background: var(--ongoing);
+  opacity: 0.75;
+  pointer-events: none;
+}
+
+/* Files written. A TICK — wider than tall — so it stays a different species
+   from a dot even at four pixels a day, which is the zoom where two round
+   marks would melt together. Its opacity is set inline from the write count
+   (writeWeight in pondMath.ts), so nothing here fixes it. */
+.writeTick {
+  position: absolute;
+  border-radius: 1px;
+  background: var(--ongoing);
+  pointer-events: none;
+}
+
+/* How long a session sat OPEN: a hairline the length of the whole stretch,
+   deliberately faint, because an open window is not activity — it's the
+   absence of closing one. */
+.sessionOpen {
+  stroke: var(--ongoing);
+  stroke-width: 1;
+  opacity: 0.22;
+}
+
+/* ...and the part of it that actually wrote files, solid inside the ghost.
+   The gap between the two IS the answer to "how long do I leave things open" —
+   a long faint line with a short solid core is a session she walked away
+   from. */
+.sessionWorked {
+  stroke: var(--ongoing);
+  stroke-width: 2.5;
+  opacity: 0.6;
+  stroke-linecap: round;
+}
+
+/* The three layer switches. Same pill as the Time/Words segmented control so
+   they read as part of the same family of controls, but tinted teal when on
+   rather than accent-filled — these choose what the page CONTAINS, which is a
+   quieter kind of switch than choosing what it's ABOUT. */
+.work,
+.workOn {
+  min-height: calc(var(--tap-target) - 8px);
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.workOn {
+  background: color-mix(in srgb, var(--ongoing) 22%, transparent);
+  color: var(--ongoing);
+}
+
+.work:hover { color: var(--text); }
+
 /* --- the cards, in both arrangements -------------------------------------- */
 
 /* TIME: a dot, at exactly its minute. Translucent BY DESIGN: close entries

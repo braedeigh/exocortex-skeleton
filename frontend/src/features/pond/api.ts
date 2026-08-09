@@ -12,7 +12,7 @@
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client';
-import type { PondCard } from './pondMath';
+import type { PondCard, PondWorking } from './pondMath';
 
 /** Which shelf the vault filed a tag on — a file in `people/`, a file in
  * `Threads/`, or neither. The rail splits on this instead of listing ninety
@@ -90,6 +90,28 @@ export function usePondCards(from: string | null) {
     queryFn: () =>
       api.get<PondCardsPayload>(`/api/pond/cards${from ? `?from=${from}` : ''}`),
     staleTime: 60_000,
+  });
+}
+
+/**
+ * The working half of her days — messages to agents, files written, sessions
+ * sitting open.
+ *
+ * Its own query, not folded into the cards one, for the same reason the card
+ * detail is separate: it's roughly three times the size of the card list, and
+ * it's only worth fetching for the arrangement that can draw it. Kept fresh a
+ * little harder than the journal (30s rather than 60s) because a session she
+ * is IN RIGHT NOW is the case where the answer changes while she's looking.
+ */
+export function usePondWorking(from: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: ['pond', 'working', from],
+    queryFn: () =>
+      api.get<PondWorking & { truncated: boolean }>(
+        `/api/pond/working${from ? `?from=${from}` : ''}`,
+      ),
+    enabled,
+    staleTime: 30_000,
   });
 }
 

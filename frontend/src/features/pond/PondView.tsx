@@ -1,7 +1,13 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from '@tanstack/react-router';
-import { usePondCard, usePondCards, usePondThreads, useRetagCard } from './api';
+import {
+  usePondCard,
+  usePondCards,
+  usePondThreads,
+  usePondWorking,
+  useRetagCard,
+} from './api';
 import type { PondFront, PondKind, PondThread } from './api';
 import {
   UNFILED,
@@ -10,11 +16,14 @@ import {
   hourLines,
   labelStep,
   layoutPond,
+  layoutWorking,
   polylinePoints,
   threadLine,
   threadPoints,
+  workingDays,
+  writeWeight,
 } from './pondMath';
-import type { PondMode } from './pondMath';
+import type { PondMode, PondSession, PondTurn, PondWrite } from './pondMath';
 import styles from './PondView.module.css';
 
 /**
@@ -96,6 +105,36 @@ const RANGES = [
   { key: '30', label: '30d', days: 30 },
 ];
 
+/**
+ * The working half, as three switchable layers.
+ *
+ * They are separate switches rather than one because they answer three
+ * different questions and she won't always want all three: "when was I at the
+ * keyboard", "when did files change", "how long did I leave that open". All
+ * three ride TIME mode only — words mode has no clock, so there is nowhere
+ * honest to put a moment.
+ *
+ * One colour between them (`--ongoing`, the teal already in her palette), not
+ * one each. The pond's standing rule is that the page carries exactly one
+ * saturated colour and it belongs to whatever is LIT; the working half gets
+ * the second and last hue in the system, and tells its three parts apart by
+ * SHAPE — dot, tick, hairline — the way the journal tells hers from the
+ * Keeper's without a second colour.
+ */
+type WorkLayer = 'turns' | 'writes' | 'sessions';
+
+const WORK_LAYERS: { key: WorkLayer; label: string; hint: string }[] = [
+  { key: 'turns', label: 'Messages', hint: 'When you were talking to an agent' },
+  { key: 'writes', label: 'Files', hint: 'When files were written' },
+  { key: 'sessions', label: 'Open', hint: 'How long each session sat open' },
+];
+
+/** All on. She asked for this half of the page to exist; shipping it hidden
+ * behind three switches she'd have to find is shipping it off. */
+const WORK_DEFAULT: Record<WorkLayer, boolean> = {
+  turns: true, writes: true, sessions: true,
+};
+
 /** How the pond was left, restored on the next visit (localStorage — same
  * house pattern as the collapsible cards remembering open/closed). */
 interface SavedView {
@@ -105,6 +144,7 @@ interface SavedView {
   hideKeeper?: boolean;
   range?: string;
   litKey?: string | null;
+  layers?: Partial<Record<WorkLayer, boolean>>;
 }
 
 const SAVE_KEY = 'pond-view';
@@ -137,6 +177,30 @@ interface Lit {
   terms: string[];
 }
 
+/** What a message mark says when you point at it. The session's own title is
+ * the only context a bare moment has — without it a dot is just "something
+ * happened here". */
+function workTitle(turn: PondTurn, sessions: Map<string, PondSession>): string {
+  const clock = clockOf(turn.ts) ?? '';
+  const session = sessions.get(turn.session);
+  return `${clock} — you wrote to ${session?.title || turn.session}`;
+}
+
+/**
+ * What a file mark says. It names its own limit out loud: the footprints
+ * harvest keeps one row per session per file, so this is the LAST time that
+ * session touched that file, not every time it did. A drawing that implied a
+ * complete edit history would be claiming more than the data knows.
+ */
+function writeTitle(write: PondWrite, sessions: Map<string, PondSession>): string {
+  const clock = clockOf(write.ts) ?? '';
+  const session = sessions.get(write.session);
+  const count = write.writes === 1 ? '1 write' : `${write.writes} writes`;
+  const born = write.creates > 0 ? ', created' : '';
+  return `${clock} — ${write.repo}/${write.path} (${count}${born}, last touch)`
+    + `\n${session?.title || write.session}`;
+}
+
 export function PondView() {
   // Read once; the states below seed from it so the pond comes back up the
   // way she left it.
@@ -154,6 +218,9 @@ export function PondView() {
     GROUPS.some((g) => g.key === saved.group) ? saved.group! : 'front',
   );
   const [lit, setLit] = useState<Lit | null>(null);
+  const [layers, setLayers] = useState<Record<WorkLayer, boolean>>(() => ({
+    ...WORK_DEFAULT, ...(saved.layers ?? {}),
+  }));
 
   const rangeDays = RANGES.find((r) => r.key === range)?.days ?? null;
   const from = useMemo(
@@ -165,6 +232,11 @@ export function PondView() {
   );
   const threads = usePondThreads(from);
   const cards = usePondCards(from);
+  // Only fetched for the arrangement that can draw it, and only while at
+  // least one layer is on — a switched-off half of the page shouldn't cost a
+  // 300KB request.
+  const anyLayer = layers.turns || layers.writes || layers.sessions;
+  const working = usePondWorking(from, mode === 'clock' && anyLayer);
   const [openId, setOpenId] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
@@ -207,6 +279,20 @@ export function PondView() {
     return hideKeeper ? all.filter((c) => c.who !== 'K') : all;
   }, [cards.data?.cards, hideKeeper]);
 
+  // How far the journal steps left of centre to make room for the working
+  // lane. A fraction of a dot, so the two lanes touch and overlap rather than
+  // reading as two charts sharing an axis — her call. Zero when no layer is
+  // on, which is what keeps the pond pixel-identical to how it drew before.
+  const laneShift = mode === 'clock' && anyLayer ? Math.max(1.25, z.clock.dotSize * 0.38) : 0;
+  const workingData = working.data ?? null;
+  // Days she built on but never wrote on. Doesn't arise yet — the journal has
+  // covered every day so far — but the columns have to be able to exist or the
+  // marks would land nowhere and silently vanish.
+  const extraDays = useMemo(
+    () => (anyLayer ? workingDays(workingData) : []),
+    [workingData, anyLayer],
+  );
+
   const layout = useMemo(
     () =>
       layoutPond(visibleCards, {
@@ -216,9 +302,29 @@ export function PondView() {
         // A long card windows onto whatever's lit, so lighting a thread
         // re-cuts every long card to the passage that's about it.
         terms: lit?.terms ?? null,
+        laneShift,
+        extraDays,
       }),
-    [visibleCards, mode, geom, hiding, litTags, lit?.terms],
+    [visibleCards, mode, geom, hiding, litTags, lit?.terms, laneShift, extraDays],
   );
+
+  // The working half, placed against the SAME columns the journal just got —
+  // so a filter, a zoom or a closed day carries both halves together and they
+  // can never disagree about which column is which day.
+  const work = useMemo(
+    () =>
+      layoutWorking(layout, anyLayer ? workingData : null, {
+        mode,
+        ...geom,
+        laneShift,
+      }),
+    [layout, workingData, anyLayer, mode, geom, laneShift],
+  );
+  const sessionById = useMemo(() => {
+    const m = new Map<string, PondSession>();
+    for (const s of workingData?.sessions ?? []) m.set(s.id, s);
+    return m;
+  }, [workingData]);
   const litIds = useMemo(
     () => new Set(threadPoints(layout, litTags).map((p) => p.card.id)),
     [layout, litTags],
@@ -295,12 +401,12 @@ export function PondView() {
     try {
       localStorage.setItem(
         SAVE_KEY,
-        JSON.stringify({ mode, zoom, group, hideKeeper, range, litKey: lit?.key ?? null }),
+        JSON.stringify({ mode, zoom, group, hideKeeper, range, litKey: lit?.key ?? null, layers }),
       );
     } catch {
       // Storage full or blocked — the pond just won't remember, which is fine.
     }
-  }, [mode, zoom, group, hideKeeper, range, lit?.key, lit]);
+  }, [mode, zoom, group, hideKeeper, range, lit?.key, lit, layers]);
 
   function changeRange(next: string) {
     if (next === range) return;
@@ -544,6 +650,28 @@ export function PondView() {
             Keeper
           </button>
 
+          {/* The working half. Time mode only — words mode has no clock to
+              hang a moment on, so the switches go away rather than sitting
+              there doing nothing. */}
+          {mode === 'clock' ? (
+            <div className={styles.segmented} role="group" aria-label="Working layers">
+              {WORK_LAYERS.map((layer) => (
+                <button
+                  key={layer.key}
+                  type="button"
+                  className={layers[layer.key] ? styles.workOn : styles.work}
+                  aria-pressed={layers[layer.key]}
+                  title={layer.hint}
+                  onClick={() =>
+                    setLayers((cur) => ({ ...cur, [layer.key]: !cur[layer.key] }))
+                  }
+                >
+                  {layer.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
+
           {/* Emphasis is the default — this is the other reading, where the
               pond drops away, the untouched days close up, and only the
               thread's own words are left. Labelled for what it DOES rather
@@ -728,6 +856,36 @@ export function PondView() {
                   {/* One point per DAY, not per card — ten cards in a day used
                       to draw ten stacked points and the line came out a comb.
                       The day-to-day wandering is the shape worth seeing. */}
+                  {/* How long each session sat OPEN — a hairline down the
+                      day, with the stretch that actually wrote files drawn
+                      solid inside it. Two different facts about the same
+                      conversation: one is how long a window was left up, the
+                      other is when work happened in it, and a third of her
+                      sessions make those numbers very far apart. In the SVG
+                      so they sit UNDER everything: this is the ground the
+                      day's marks stand on, not a mark itself. */}
+                  {layers.sessions
+                    ? work.spans.map((span) => (
+                        <g key={`${span.session.id}:${span.day}`}>
+                          <line
+                            x1={span.x}
+                            x2={span.x}
+                            y1={span.y}
+                            y2={span.y + span.h}
+                            className={styles.sessionOpen}
+                          />
+                          {span.worked ? (
+                            <line
+                              x1={span.x}
+                              x2={span.x}
+                              y1={span.worked.y}
+                              y2={span.worked.y + span.worked.h}
+                              className={styles.sessionWorked}
+                            />
+                          ) : null}
+                        </g>
+                      ))
+                    : null}
                   {line.length > 1 ? (
                     <polyline points={polylinePoints(line)} className={styles.threadLine} />
                   ) : null}
@@ -817,6 +975,46 @@ export function PondView() {
                     );
                   }),
                 )}
+
+                {/* Her messages to agents. A dot, like a card, because it is
+                    the same kind of event — a moment she did something — just
+                    in the other half of her day. Sat one lane over so a 2pm
+                    message reads level with a 2pm journal entry. */}
+                {layers.turns
+                  ? work.turns.map((mark) => (
+                      <span
+                        key={`${mark.item.session}:${mark.item.ts}`}
+                        className={styles.turnDot}
+                        style={{ left: mark.x, top: mark.y, width: mark.w, height: mark.h }}
+                        title={workTitle(mark.item, sessionById)}
+                        aria-hidden="true"
+                      />
+                    ))
+                  : null}
+
+                {/* Files written. A TICK, not a dot — wider than tall — so
+                    that even at four pixels a day her afternoon and its
+                    afternoon can't blur into one smear. Weight carries the
+                    write count, on a log ramp with a floor: a one-write touch
+                    stays visible rather than fading away to flatter a
+                    forty-write one. */}
+                {layers.writes
+                  ? work.writes.map((mark) => (
+                      <span
+                        key={`${mark.item.session}:${mark.item.repo}:${mark.item.path}`}
+                        className={styles.writeTick}
+                        style={{
+                          left: mark.x,
+                          top: mark.y,
+                          width: mark.w,
+                          height: mark.h,
+                          opacity: writeWeight(mark.item.writes),
+                        }}
+                        title={writeTitle(mark.item, sessionById)}
+                        aria-hidden="true"
+                      />
+                    ))
+                  : null}
               </div>
             </div>
           </div>

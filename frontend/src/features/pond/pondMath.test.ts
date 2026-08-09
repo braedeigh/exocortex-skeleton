@@ -15,7 +15,15 @@ import {
   pondDays,
   threadLine,
   threadPoints,
+  layoutWorking,
+  sessionOnDay,
+  workingDays,
+  writeWeight,
   type PondCard,
+  type PondSession,
+  type PondTurn,
+  type PondWorking,
+  type PondWrite,
 } from './pondMath';
 
 function card(
@@ -554,5 +562,218 @@ describe('pondDays', () => {
       card('b', '2026-07-06', null),
       card('c', '2026-08-09', null),
     ])).toEqual(['2026-07-06', '2026-08-09']);
+  });
+});
+
+// --- the working lane -------------------------------------------------------
+//
+// The half of her day that isn't the journal: messages to agents, files
+// written, sessions sitting open. It shares the clock with the cards, which is
+// the whole point and also the whole risk — everything below is about the two
+// halves agreeing on where a moment is.
+
+function turn(ts: string, session = 's1'): PondTurn {
+  return { ts, session };
+}
+
+function write(ts: string, over: Partial<PondWrite> = {}): PondWrite {
+  return {
+    ts, session: 's1', repo: 'skeleton', path: 'app.py', writes: 1, creates: 0,
+    ...over,
+  };
+}
+
+function session(over: Partial<PondSession> = {}): PondSession {
+  return {
+    id: 's1', title: 'A session', lane: 'coding',
+    started: '2026-08-09T10:00:00', last_at: '2026-08-09T12:00:00',
+    worked_from: null, worked_to: null,
+    ...over,
+  };
+}
+
+function working(over: Partial<PondWorking> = {}): PondWorking {
+  return { turns: [], writes: [], sessions: [], ...over };
+}
+
+describe('layoutPond with a working lane', () => {
+  it('leaves the journal exactly where it was when the lane is off', () => {
+    // The guarantee that makes the toggle safe: with laneShift at its default
+    // of 0 the cards are drawn at the same coordinates they have always been
+    // drawn at, so turning a layer on is the ONLY thing that ever moves them.
+    const cards = [card('a', '2026-08-09', '12:00')];
+    const plain = layoutPond(cards, { mode: 'clock' });
+    const withDefault = layoutPond(cards, { mode: 'clock', laneShift: 0 });
+    expect(withDefault.columns[0].cards[0].x).toBe(plain.columns[0].cards[0].x);
+  });
+
+  it('shifts the journal left of centre to make room', () => {
+    const cards = [card('a', '2026-08-09', '12:00')];
+    const plain = layoutPond(cards, { mode: 'clock' });
+    const shifted = layoutPond(cards, { mode: 'clock', laneShift: 3 });
+    expect(shifted.columns[0].cards[0].x).toBe(plain.columns[0].cards[0].x - 3);
+  });
+
+  it('gives a column to a day she built on but never wrote on', () => {
+    // Doesn't happen against today's data — the journal has covered every day
+    // — which is why it needs a test rather than a glance at the page.
+    const layout = layoutPond([card('a', '2026-08-08', '12:00')], {
+      mode: 'clock',
+      extraDays: ['2026-08-09'],
+    });
+    expect(layout.columns.map((c) => c.day)).toEqual(['2026-08-08', '2026-08-09']);
+    expect(layout.columns[1].cards).toEqual([]);
+  });
+
+  it('drops the work-only days when a thread filter is on', () => {
+    // Filtering means "show me this thread and close the rest up". Keeping a
+    // build day she never journaled would re-open a gap the filter just shut.
+    const layout = layoutPond(
+      [card('a', '2026-08-08', '12:00', ['t']), card('b', '2026-08-10', '12:00')],
+      { mode: 'clock', only: new Set(['t']), extraDays: ['2026-08-09'] },
+    );
+    expect(layout.columns.map((c) => c.day)).toEqual(['2026-08-08']);
+  });
+});
+
+describe('layoutWorking', () => {
+  const cards = [card('a', '2026-08-09', '12:00')];
+
+  it('puts a turn at its own minute, on the same ruler as the cards', () => {
+    // A message sent at noon and a card written at noon must land at the same
+    // height. If these two ever disagree the page is quietly lying about the
+    // thing it exists to show.
+    const layout = layoutPond(cards, { mode: 'clock' });
+    const w = layoutWorking(layout, working({ turns: [turn('2026-08-09T12:00:00')] }),
+      { mode: 'clock' });
+    const cardMid = layout.columns[0].cards[0].y + layout.columns[0].cards[0].h / 2;
+    const turnMid = w.turns[0].y + w.turns[0].h / 2;
+    expect(turnMid).toBeCloseTo(cardMid, 5);
+  });
+
+  it('sits the working lane right of centre, opposite the journal', () => {
+    const layout = layoutPond(cards, { mode: 'clock', laneShift: 3 });
+    const w = layoutWorking(layout, working({ turns: [turn('2026-08-09T12:00:00')] }),
+      { mode: 'clock', laneShift: 3 });
+    const cx = layout.columns[0].cx;
+    const cardMid = layout.columns[0].cards[0].x + layout.columns[0].cards[0].w / 2;
+    const turnMid = w.turns[0].x + w.turns[0].w / 2;
+    expect(cardMid).toBeCloseTo(cx - 3, 5);
+    expect(turnMid).toBeCloseTo(cx + 3, 5);
+  });
+
+  it('draws a write as a tick — wider than tall, so it is not a dot', () => {
+    const layout = layoutPond(cards, { mode: 'clock' });
+    const w = layoutWorking(layout, working({ writes: [write('2026-08-09T12:00:00')] }),
+      { mode: 'clock' });
+    expect(w.writes[0].w).toBeGreaterThan(w.writes[0].h);
+  });
+
+  it('draws nothing at all in words mode', () => {
+    // There is no clock in words mode, so there is no honest y for a moment.
+    const layout = layoutPond(cards, { mode: 'words' });
+    const w = layoutWorking(
+      layout,
+      working({ turns: [turn('2026-08-09T12:00:00')], sessions: [session()] }),
+      { mode: 'words' },
+    );
+    expect(w).toEqual({ turns: [], writes: [], spans: [] });
+  });
+
+  it('skips work on days the pond has no column for', () => {
+    const layout = layoutPond(cards, { mode: 'clock' });
+    const w = layoutWorking(layout, working({
+      turns: [turn('2026-08-09T12:00:00'), turn('2026-07-01T12:00:00')],
+    }), { mode: 'clock' });
+    expect(w.turns).toHaveLength(1);
+  });
+
+  it('survives a payload it has no columns for at all', () => {
+    const layout = layoutPond([], { mode: 'clock' });
+    expect(() => layoutWorking(layout, working({ turns: [turn('2026-08-09T12:00:00')] }),
+      { mode: 'clock' })).not.toThrow();
+  });
+});
+
+describe('sessionOnDay', () => {
+  const opt = { mode: 'clock' as const, top: 0, dayHeight: 1440 };  // 1px a minute
+
+  it('bounds a same-day session by its own two ends', () => {
+    const s = session({ started: '2026-08-09T10:00:00', last_at: '2026-08-09T12:00:00' });
+    expect(sessionOnDay(s, '2026-08-09', opt)).toEqual({
+      y: 600, h: 120, worked: null,
+    });
+  });
+
+  it('runs a middle day the whole way down — that is what still-open looks like', () => {
+    // The case that would go unnoticed if it were wrong: a session drawn one
+    // day short still looks like a perfectly plausible session.
+    const s = session({ started: '2026-08-07T22:00:00', last_at: '2026-08-09T02:00:00' });
+    expect(sessionOnDay(s, '2026-08-07', opt)).toMatchObject({ y: 1320, h: 120 });
+    expect(sessionOnDay(s, '2026-08-08', opt)).toMatchObject({ y: 0, h: 1440 });
+    expect(sessionOnDay(s, '2026-08-09', opt)).toMatchObject({ y: 0, h: 120 });
+  });
+
+  it('is absent on days it was not open', () => {
+    const s = session({ started: '2026-08-09T10:00:00', last_at: '2026-08-09T12:00:00' });
+    expect(sessionOnDay(s, '2026-08-08', opt)).toBeNull();
+    expect(sessionOnDay(s, '2026-08-10', opt)).toBeNull();
+  });
+
+  it('marks the worked stretch inside the open one', () => {
+    // The whole reason this layer exists: open for four hours, working for
+    // one. Both numbers are true and they are not the same number.
+    const s = session({
+      started: '2026-08-09T10:00:00', last_at: '2026-08-09T14:00:00',
+      worked_from: '2026-08-09T11:00:00', worked_to: '2026-08-09T12:00:00',
+    });
+    expect(sessionOnDay(s, '2026-08-09', opt)).toEqual({
+      y: 600, h: 240, worked: { y: 660, h: 60 },
+    });
+  });
+
+  it('leaves worked null on an open day that wrote nothing', () => {
+    const s = session({
+      started: '2026-08-08T22:00:00', last_at: '2026-08-09T12:00:00',
+      worked_from: '2026-08-09T10:00:00', worked_to: '2026-08-09T11:00:00',
+    });
+    expect(sessionOnDay(s, '2026-08-08', opt)!.worked).toBeNull();
+    expect(sessionOnDay(s, '2026-08-09', opt)!.worked).toEqual({ y: 600, h: 60 });
+  });
+
+  it('still draws a session that opened and closed in the same minute', () => {
+    const s = session({ started: '2026-08-09T10:00:00', last_at: '2026-08-09T10:00:00' });
+    expect(sessionOnDay(s, '2026-08-09', opt)!.h).toBeGreaterThan(0);
+  });
+});
+
+describe('workingDays', () => {
+  it('counts days work HAPPENED on, not days a window was left open', () => {
+    // A conversation left open over a weekend shouldn't mint columns for two
+    // days she never touched it.
+    expect(workingDays(working({
+      turns: [turn('2026-08-09T12:00:00')],
+      writes: [write('2026-08-07T09:00:00')],
+      sessions: [session({ started: '2026-08-01T10:00:00', last_at: '2026-08-05T10:00:00' })],
+    }))).toEqual(['2026-08-07', '2026-08-09']);
+  });
+
+  it('is empty when there is nothing to draw', () => {
+    expect(workingDays(null)).toEqual([]);
+  });
+});
+
+describe('writeWeight', () => {
+  it('keeps a single edit visible rather than fading it to nothing', () => {
+    // A touch that happened must be seen. Fading a real edit away to make a
+    // busier one look busier is the drawing lying about what it knows.
+    expect(writeWeight(1)).toBeGreaterThanOrEqual(0.35);
+    expect(writeWeight(0)).toBeGreaterThanOrEqual(0.35);
+  });
+
+  it('rises with the count but never runs off the top', () => {
+    expect(writeWeight(30)).toBeGreaterThan(writeWeight(3));
+    expect(writeWeight(3)).toBeGreaterThan(writeWeight(1));
+    expect(writeWeight(5000)).toBeLessThanOrEqual(1);
   });
 });
