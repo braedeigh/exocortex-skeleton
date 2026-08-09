@@ -15,6 +15,7 @@ import {
   pondDays,
   threadLine,
   threadPoints,
+  filesBySession,
   layoutWorking,
   sessionOnDay,
   workingDays,
@@ -775,5 +776,35 @@ describe('writeWeight', () => {
     expect(writeWeight(30)).toBeGreaterThan(writeWeight(3));
     expect(writeWeight(3)).toBeGreaterThan(writeWeight(1));
     expect(writeWeight(5000)).toBeLessThanOrEqual(1);
+  });
+});
+
+
+describe('filesBySession', () => {
+  it('groups a session\'s files heaviest first — what it was really doing', () => {
+    const w = working({
+      writes: [
+        write('2026-08-09T10:00:00', { path: 'a.ts', writes: 2 }),
+        write('2026-08-09T11:00:00', { path: 'b.ts', writes: 40 }),
+        write('2026-08-09T12:00:00', { path: 'c.ts', writes: 2, session: 's2' }),
+      ],
+    });
+    const got = filesBySession(w);
+    expect(got.get('s1')!.map((f) => f.path)).toEqual(['b.ts', 'a.ts']);
+    expect(got.get('s2')!.map((f) => f.path)).toEqual(['c.ts']);
+  });
+
+  it('breaks ties on path so the list does not reshuffle between renders', () => {
+    const w = working({
+      writes: [
+        write('2026-08-09T10:00:00', { path: 'z.ts', writes: 3 }),
+        write('2026-08-09T11:00:00', { path: 'a.ts', writes: 3 }),
+      ],
+    });
+    expect(filesBySession(w).get('s1')!.map((f) => f.path)).toEqual(['a.ts', 'z.ts']);
+  });
+
+  it('is empty, not broken, with nothing to group', () => {
+    expect(filesBySession(null).size).toBe(0);
   });
 });

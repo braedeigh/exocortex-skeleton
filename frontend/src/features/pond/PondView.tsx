@@ -20,10 +20,12 @@ import {
   polylinePoints,
   threadLine,
   threadPoints,
+  filesBySession,
   workingDays,
   writeWeight,
 } from './pondMath';
 import type { PondMode, PondSession, PondTurn, PondWrite } from './pondMath';
+import { FileCodeBody } from '../terrain/FileCodeBody';
 import styles from './PondView.module.css';
 
 /**
@@ -201,6 +203,136 @@ function writeTitle(write: PondWrite, sessions: Map<string, PondSession>): strin
     + `\n${session?.title || write.session}`;
 }
 
+/**
+ * WorkDetail — what one tap on the working lane opens.
+ *
+ * A mark on that lane is a moment with almost no text on it, so the panel's job
+ * is to answer the two questions the mark can't: WHAT was touched, and WHICH
+ * session did it. Both are already in the payload — this reads it, it doesn't
+ * fetch — except the file's own contents, which come from the terrain file
+ * endpoint through FileCodeBody, the same viewer the map's tap-a-node modal
+ * and the /code page use.
+ *
+ * THE HONEST LIMIT, and it's printed on the panel rather than buried here: the
+ * code shown is the file AS IT IS NOW, not the change that session made. No
+ * diff exists to show. `session_files` records which file was touched, how many
+ * times, and when it was last touched — not what the text became. Git has
+ * diffs but its commits don't line up with sessions (that's why commits were
+ * left off this page in the first place). A panel that opened a file under the
+ * heading "what was edited" and quietly showed today's version would be the
+ * most plausible-looking lie on the page.
+ */
+function WorkDetail({
+  open,
+  sessions,
+  sessionFiles,
+  onClose,
+  onPickFile,
+}: {
+  open: { kind: 'write'; write: PondWrite } | { kind: 'turn'; turn: PondTurn };
+  sessions: Map<string, PondSession>;
+  sessionFiles: Map<string, PondWrite[]>;
+  onClose: () => void;
+  onPickFile: (w: PondWrite) => void;
+}) {
+  const sessionId = open.kind === 'write' ? open.write.session : open.turn.session;
+  const session = sessions.get(sessionId);
+  const files = sessionFiles.get(sessionId) ?? [];
+  const when = open.kind === 'write' ? open.write.ts : open.turn.ts;
+
+  return (
+    <>
+      <div className={styles.detailHead}>
+        <span className={styles.detailMeta}>
+          {dayLabel(when.slice(0, 10))}
+          {clockOf(when) ? ` · ${clockOf(when)}` : ''}
+          {` · ${open.kind === 'write' ? 'file written' : 'you wrote to an agent'}`}
+        </span>
+        <button
+          type="button"
+          className={styles.detailClose}
+          onClick={onClose}
+          aria-label="Close"
+        >
+          ×
+        </button>
+      </div>
+
+      {/* Which session. The title is the session's own, and the two clocks are
+          different facts: how long it sat open, and it is not the same as how
+          long it worked. */}
+      <div className={styles.workSession}>
+        <div className={styles.workSessionName}>{session?.title || sessionId}</div>
+        <div className={styles.workSessionMeta}>
+          {session ? (
+            <>
+              {session.lane ? `${session.lane} · ` : ''}
+              open {clockOf(session.started)}–{clockOf(session.last_at)}
+              {session.worked_from && session.worked_to
+                ? ` · wrote files ${clockOf(session.worked_from)}–${clockOf(session.worked_to)}`
+                : ' · wrote no files'}
+            </>
+          ) : (
+            'session not in this window'
+          )}
+        </div>
+      </div>
+
+      {open.kind === 'write' ? (
+        <>
+          <div className={styles.workFileLine}>
+            <span className={styles.workRepo}>{open.write.repo}</span>
+            <span className={styles.workPath}>{open.write.path}</span>
+          </div>
+          <p className={styles.workCounts}>
+            {open.write.writes} {open.write.writes === 1 ? 'write' : 'writes'}
+            {open.write.creates > 0 ? ' · created here' : ''}
+            {' · last touched by this session at '}
+            {clockOf(open.write.ts)}
+          </p>
+          {/* Said plainly, every time, because the heading invites the opposite
+              reading. */}
+          <p className={styles.workCaveat}>
+            The file as it is now — not the change made at this moment. Nothing
+            records the diff.
+          </p>
+          <div className={styles.workCode}>
+            <FileCodeBody repo={open.write.repo} path={open.write.path} />
+          </div>
+        </>
+      ) : null}
+
+      {/* Everything else that session worked on — the context a single mark
+          can't carry. Heaviest first: the file it wrote forty times is what it
+          was really doing. */}
+      {files.length > 0 ? (
+        <div className={styles.workFiles}>
+          <div className={styles.workFilesLabel}>
+            {files.length} {files.length === 1 ? 'file' : 'files'} in this session
+          </div>
+          {files.map((f) => (
+            <button
+              key={`${f.repo}:${f.path}`}
+              type="button"
+              className={
+                open.kind === 'write' && f.path === open.write.path && f.repo === open.write.repo
+                  ? styles.workFileRowOn
+                  : styles.workFileRow
+              }
+              onClick={() => onPickFile(f)}
+            >
+              <span className={styles.workFileName}>{f.path}</span>
+              <span className={styles.workFileWrites}>{f.writes}</span>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <p className={styles.workCaveat}>This session wrote no files.</p>
+      )}
+    </>
+  );
+}
+
 export function PondView() {
   // Read once; the states below seed from it so the pond comes back up the
   // way she left it.
@@ -238,6 +370,11 @@ export function PondView() {
   const anyLayer = layers.turns || layers.writes || layers.sessions;
   const working = usePondWorking(from, mode === 'clock' && anyLayer);
   const [openId, setOpenId] = useState<string | null>(null);
+  // A tapped working mark. Mutually exclusive with an open card — one detail
+  // panel, one subject, so a tap always replaces rather than stacking.
+  const [openWork, setOpenWork] = useState<
+    { kind: 'write'; write: PondWrite } | { kind: 'turn'; turn: PondTurn } | null
+  >(null);
   const [showAll, setShowAll] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
   const [newTag, setNewTag] = useState('');
@@ -320,6 +457,7 @@ export function PondView() {
       }),
     [layout, workingData, anyLayer, mode, geom, laneShift],
   );
+  const sessionFiles = useMemo(() => filesBySession(workingData), [workingData]);
   const sessionById = useMemo(() => {
     const m = new Map<string, PondSession>();
     for (const s of workingData?.sessions ?? []) m.set(s.id, s);
@@ -945,9 +1083,10 @@ export function PondView() {
                             ? `${placed.card.day}${clockOf(placed.card.ts) ? ` ${clockOf(placed.card.ts)}` : ''}`
                             : undefined
                         }
-                        onClick={() =>
-                          setOpenId((cur) => (cur === placed.card.id ? null : placed.card.id))
-                        }
+                        onClick={() => {
+                          setOpenWork(null);
+                          setOpenId((cur) => (cur === placed.card.id ? null : placed.card.id));
+                        }}
                         onMouseEnter={
                           mode === 'clock'
                             ? (e) => showHover(e.currentTarget, placed.card)
@@ -982,12 +1121,20 @@ export function PondView() {
                     message reads level with a 2pm journal entry. */}
                 {layers.turns
                   ? work.turns.map((mark) => (
-                      <span
+                      <button
                         key={`${mark.item.session}:${mark.item.ts}`}
+                        type="button"
                         className={styles.turnDot}
-                        style={{ left: mark.x, top: mark.y, width: mark.w, height: mark.h }}
+                        style={{
+                          left: mark.x, top: mark.y, width: mark.w, height: mark.h,
+                          ['--hit' as string]: `${hitPad}px`,
+                        }}
                         title={workTitle(mark.item, sessionById)}
-                        aria-hidden="true"
+                        aria-label={workTitle(mark.item, sessionById)}
+                        onClick={() => {
+                          setOpenId(null);
+                          setOpenWork({ kind: 'turn', turn: mark.item });
+                        }}
                       />
                     ))
                   : null}
@@ -1000,8 +1147,9 @@ export function PondView() {
                     forty-write one. */}
                 {layers.writes
                   ? work.writes.map((mark) => (
-                      <span
+                      <button
                         key={`${mark.item.session}:${mark.item.repo}:${mark.item.path}`}
+                        type="button"
                         className={styles.writeTick}
                         style={{
                           left: mark.x,
@@ -1009,9 +1157,14 @@ export function PondView() {
                           width: mark.w,
                           height: mark.h,
                           opacity: writeWeight(mark.item.writes),
+                          ['--hit' as string]: `${hitPad}px`,
                         }}
                         title={writeTitle(mark.item, sessionById)}
-                        aria-hidden="true"
+                        aria-label={writeTitle(mark.item, sessionById)}
+                        onClick={() => {
+                          setOpenId(null);
+                          setOpenWork({ kind: 'write', write: mark.item });
+                        }}
                       />
                     ))
                   : null}
@@ -1058,6 +1211,18 @@ export function PondView() {
                 document.body,
               )
             : null}
+
+          {openWork ? (
+            <aside className={styles.detail} aria-label="Work">
+              <WorkDetail
+                open={openWork}
+                sessions={sessionById}
+                sessionFiles={sessionFiles}
+                onClose={() => setOpenWork(null)}
+                onPickFile={(w) => setOpenWork({ kind: 'write', write: w })}
+              />
+            </aside>
+          ) : null}
 
           {openId ? (
             <aside className={styles.detail} aria-label="Card">

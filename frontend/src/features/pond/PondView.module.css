@@ -416,12 +416,32 @@
 /* Her messages to agents. A dot, like a card: the same kind of event. Slightly
    translucent for the same reason the cards are — a burst of messages should
    read as a darker blot rather than as one mark hiding five. */
+/* Both point marks are BUTTONS now — tapping one opens what was touched and
+   which session did it. They borrow the journal dot's hit trick: a transparent
+   border widens the target well past the ink, offset by a negative margin so
+   the mark itself doesn't move. Capped by --hit (set inline, same value the
+   cards use) so a fat target never spills into the neighbouring day and makes
+   tapping a coin-flip. The house 40px rule doesn't apply here for the same
+   reason it doesn't apply to the cards: these are data marks at four pixels a
+   day, and a 40px target would swallow a week. */
 .turnDot {
   position: absolute;
+  padding: 0;
+  border: var(--hit, 4px) solid transparent;
   border-radius: 50%;
   background: var(--ongoing);
+  background-clip: padding-box;
+  box-sizing: content-box;
+  margin: calc(-1 * var(--hit, 4px)) 0 0 calc(-1 * var(--hit, 4px));
   opacity: 0.75;
-  pointer-events: none;
+  cursor: pointer;
+  transition: transform 140ms ease, opacity 140ms ease;
+}
+
+.turnDot:hover,
+.turnDot:focus-visible {
+  opacity: 1;
+  transform: scale(1.5);
 }
 
 /* Files written. A TICK — wider than tall — so it stays a different species
@@ -430,9 +450,140 @@
    (writeWeight in pondMath.ts), so nothing here fixes it. */
 .writeTick {
   position: absolute;
+  padding: 0;
+  border: var(--hit, 4px) solid transparent;
   border-radius: 1px;
   background: var(--ongoing);
-  pointer-events: none;
+  background-clip: padding-box;
+  box-sizing: content-box;
+  margin: calc(-1 * var(--hit, 4px)) 0 0 calc(-1 * var(--hit, 4px));
+  cursor: pointer;
+  transition: transform 140ms ease;
+}
+
+.writeTick:hover,
+.writeTick:focus-visible { transform: scaleY(2); }
+
+/* --- what a tapped mark opens ---------------------------------------------
+   Lives in the same panel slot as an open card, so there is one detail region
+   and one subject at a time. */
+
+.workSession {
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md, 8px);
+  background: color-mix(in srgb, var(--ongoing) 12%, var(--card-bg));
+}
+
+.workSessionName {
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.workSessionMeta {
+  margin-top: 2px;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.workFileLine {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.workRepo {
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--ongoing) 20%, transparent);
+  color: var(--ongoing);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.workPath {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--font-size-sm);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.workCounts {
+  margin: var(--space-1) 0 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+/* The panel saying what it does NOT know. Styled to be read, not skipped —
+   the heading above it invites exactly the wrong assumption. */
+.workCaveat {
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-2);
+  border-left: 2px solid var(--border-soft);
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.workCode {
+  margin-top: var(--space-3);
+}
+
+.workFiles {
+  margin-top: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.workFilesLabel {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: var(--space-1);
+}
+
+.workFileRow,
+.workFileRowOn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: var(--tap-target);
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm, 6px);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.workFileRowOn {
+  background: color-mix(in srgb, var(--ongoing) 16%, transparent);
+  color: var(--text);
+}
+
+.workFileRow:hover { background: var(--card-bg); color: var(--text); }
+
+.workFileName {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;          /* a long path keeps its FILENAME visible, not its root */
+  text-align: left;
+}
+
+.workFileWrites {
+  flex: none;
+  color: var(--ongoing);
+  font-variant-numeric: tabular-nums;
 }
 
 /* How long a session sat OPEN: a hairline the length of the whole stretch,

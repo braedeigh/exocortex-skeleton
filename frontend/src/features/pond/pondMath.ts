@@ -604,6 +604,30 @@ export function writeWeight(writes: number): number {
   return Math.min(1, 0.35 + (Math.log(n + 1) / Math.log(40)) * 0.65);
 }
 
+/**
+ * Every file a session touched, heaviest first — what fills the panel when she
+ * taps a mark and asks "what was this session doing?".
+ *
+ * Ranked by writes rather than by time, because the question a file list
+ * answers is "what was this session WORKING on", and the file it wrote forty
+ * times is that answer however early it stopped touching it. Ties break on
+ * path so the list doesn't reshuffle between renders.
+ */
+export function filesBySession(
+  working: PondWorking | null | undefined,
+): Map<string, PondWrite[]> {
+  const out = new Map<string, PondWrite[]>();
+  for (const w of working?.writes ?? []) {
+    const list = out.get(w.session);
+    if (list) list.push(w);
+    else out.set(w.session, [w]);
+  }
+  for (const list of out.values()) {
+    list.sort((a, b) => b.writes - a.writes || a.path.localeCompare(b.path));
+  }
+  return out;
+}
+
 /** Minutes past midnight → y, on the same 24-hour ruler the cards use. */
 function clockY(minutes: number, opt: PondLayoutOptions): number {
   return opt.top + (minutes / MINUTES_PER_DAY) * opt.dayHeight;
