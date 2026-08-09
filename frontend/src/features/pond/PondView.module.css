@@ -1,0 +1,303 @@
+/* PondView — the journal drawn as a place (PondView.tsx).
+
+   A whole page, worn the way the terrain's other rooms are: full-bleed, opaque
+   on the theme's own background, no border, no float, no frost. The same short
+   horizontal slide on entry says "you went somewhere" in the same voice the
+   Attention and Growth rooms use.
+
+   The drawing itself is deliberately quiet — hairline hour rules, dots small
+   enough that a month reads as texture rather than as a list, and only ONE
+   saturated colour on the page: the lit thread. Everything else is ink at
+   three weights. That restraint is what lets a single thread's line be
+   instantly findable in a field of a thousand cards; if the dots competed,
+   nothing would read. */
+
+.view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+  background: var(--bg);
+  overflow: hidden;
+  animation: pageIn 320ms cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+
+@keyframes pageIn {
+  from { opacity: 0; transform: translateX(28px); }
+  to { opacity: 1; transform: none; }
+}
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.heading { min-width: 0; }
+
+.title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--text);
+}
+
+.sub {
+  margin: 2px 0 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.back {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--card-bg);
+  border: 1px solid var(--border-soft);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  text-decoration: none;
+}
+
+.note {
+  margin: var(--space-3) 0 0;
+  font-size: var(--font-size-base);
+  color: var(--text-secondary);
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+
+/* --- the threads ---------------------------------------------------------- */
+
+.rail {
+  flex: none;
+  width: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  padding-right: var(--space-1);
+}
+
+.thread {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  /* The house rule: ~40px of tappable height even though the content is two
+     short lines. */
+  min-height: var(--tap-target);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text-secondary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.thread:hover { background: var(--card-bg); }
+
+.threadOn {
+  background: var(--card-bg);
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.threadName {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.threadMeta {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.moreThreads {
+  min-height: var(--tap-target);
+  margin-top: var(--space-1);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+/* --- the drawing ---------------------------------------------------------- */
+
+.stage {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+  overflow: hidden;
+}
+
+/* Outside the scroller on purpose: the hours stay put while the days pan. */
+.gutter {
+  flex: none;
+  overflow: visible;
+}
+
+.hourLabel {
+  fill: var(--text-muted);
+  font-size: 12px;
+  text-anchor: end;
+}
+
+.scroller {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: auto;
+  overscroll-behavior-x: contain;
+}
+
+.canvas { display: block; }
+
+.hourLine {
+  stroke: var(--border-soft);
+  stroke-width: 1;
+}
+
+.dayLabel {
+  fill: var(--text-muted);
+  font-size: 12px;
+}
+
+/* The one saturated thing on the page. */
+.threadLine {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  opacity: 0.75;
+}
+
+.card { transition: r 140ms ease, opacity 140ms ease; }
+
+.cardOwner { fill: var(--text-secondary); }
+.cardKeeper { fill: var(--text-muted); opacity: 0.7; }
+
+/* Emphasis, not a filter — the unlit pond stays drawn, just quieter, so a
+   thread is seen in the context of everything else that was happening. */
+.cardDimmed { opacity: 0.16; }
+
+.cardOpen { fill: var(--accent); }
+
+.hit {
+  fill: transparent;
+  cursor: pointer;
+}
+
+/* --- the card she opened -------------------------------------------------- */
+
+.detail {
+  flex: none;
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+  overflow-y: auto;
+}
+
+.detailHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.detailMeta {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.detailClose {
+  flex: none;
+  width: var(--tap-target);
+  height: var(--tap-target);
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text-secondary);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.detailClose:hover { background: var(--bg); color: var(--text); }
+
+.detailBody {
+  margin: 0;
+  font-size: var(--font-size-base);
+  line-height: 1.55;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
+.detailTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.tagChip {
+  min-height: 32px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.tagChipOn {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+/* Phone: the rail becomes a scrolling strip above the drawing, and the opened
+   card sits underneath rather than beside — a 320px panel next to a timeline
+   on a narrow screen leaves neither enough room to be worth having. */
+@media (max-width: 780px) {
+  .body { flex-direction: column; }
+
+  .rail {
+    width: auto;
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: var(--space-1);
+  }
+
+  .thread { flex: none; }
+
+  .detail { width: auto; max-height: 40vh; }
+}

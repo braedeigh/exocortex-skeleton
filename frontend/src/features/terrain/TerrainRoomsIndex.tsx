@@ -77,6 +77,34 @@ function DataMotif() {
   );
 }
 
+/** Dots at their hours with one thread's line bouncing through them — the
+ * pond's own drawing, in miniature. */
+function PondMotif() {
+  return (
+    <svg viewBox="0 0 64 40" width="64" height="40" aria-hidden="true">
+      <polyline
+        points="6,26 20,12 34,30 48,16 58,22"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+        opacity="0.9"
+      />
+      <g fill="currentColor">
+        {[[6, 26], [20, 12], [34, 30], [48, 16], [58, 22]].map(([cx, cy]) => (
+          <circle key={`${cx}`} cx={cx} cy={cy} r="3" />
+        ))}
+        <g opacity="0.3">
+          {[[13, 33], [27, 20], [41, 8], [41, 24], [55, 33]].map(([cx, cy]) => (
+            <circle key={`q${cx}-${cy}`} cx={cx} cy={cy} r="2" />
+          ))}
+        </g>
+      </g>
+    </svg>
+  );
+}
+
 const ROOMS: ReadonlyArray<{
   key: string;
   to: string;
@@ -90,6 +118,13 @@ const ROOMS: ReadonlyArray<{
     name: 'Attention',
     line: 'The same system, ranked by where your time actually goes.',
     motif: AttentionMotif,
+  },
+  {
+    key: 'pond',
+    to: '/terrain/pond',
+    name: 'Pond',
+    line: 'The journal by day and hour, with your threads running through it.',
+    motif: PondMotif,
   },
   {
     key: 'growth',
@@ -151,6 +186,19 @@ export function TerrainRoomsIndex({ open, onClose }: { open: boolean; onClose: (
             growth: `${compact(commits)} commits since ${monthLabel(first.slice(0, 7))}`,
           }));
         }
+      })
+      .catch(() => {});
+    fetch('/api/pond/threads', { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((data: { threads: { tag: string; days: number }[] }) => {
+        if (!alive || !data.threads?.length) return;
+        // The widest thread, by days touched — the door states the shape
+        // that's actually behind it right now.
+        const widest = data.threads[0];
+        setFacts((f) => ({
+          ...f,
+          pond: `${data.threads.length} threads · ${widest.tag} spans ${widest.days} days`,
+        }));
       })
       .catch(() => {});
     getCollections()
