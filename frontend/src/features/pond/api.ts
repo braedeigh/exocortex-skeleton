@@ -66,22 +66,29 @@ export interface PondCardDetail extends PondCard {
   last_seen: string;
 }
 
-export function usePondThreads() {
+/** Both reads take the same optional window start (`from`, YYYY-MM-DD, null =
+ * as far back as the pool goes) so the rail and the drawing always describe
+ * the same slice of time — a thread ranked by days it touched in a window the
+ * cards don't share would be quietly wrong. */
+export function usePondThreads(from: string | null) {
   return useQuery({
-    queryKey: ['pond', 'threads'],
+    queryKey: ['pond', 'threads', from],
     queryFn: () =>
-      api.get<{ threads: PondThread[]; fronts: PondFront[] }>('/api/pond/threads'),
+      api.get<{ threads: PondThread[]; fronts: PondFront[] }>(
+        `/api/pond/threads${from ? `?from=${from}` : ''}`,
+      ),
     staleTime: 60_000,
   });
 }
 
-/** Every card in the pond. Not filtered by the lit thread: lighting one is a
+/** Every card in the window. Not filtered by the lit thread: lighting one is a
  * change of emphasis, not of subject — the rest of the pond stays visible
  * around it, which is the whole point of seeing a thread in context. */
-export function usePondCards() {
+export function usePondCards(from: string | null) {
   return useQuery({
-    queryKey: ['pond', 'cards'],
-    queryFn: () => api.get<PondCardsPayload>('/api/pond/cards'),
+    queryKey: ['pond', 'cards', from],
+    queryFn: () =>
+      api.get<PondCardsPayload>(`/api/pond/cards${from ? `?from=${from}` : ''}`),
     staleTime: 60_000,
   });
 }

@@ -159,6 +159,23 @@ export function labelStep(colWidth: number): number {
 const MINUTES_PER_DAY = 1440;
 
 /**
+ * The rail's "Unfiled" row lights the cards that belong to NO thread — a
+ * quarter of the journal, invisible to every tag-based view. It can't be a
+ * real tag (the whole point is the absence of one), so it's this sentinel:
+ * a lit set containing it matches exactly the cards with an empty tag list.
+ * Underscored so it can never collide with a real slug (TAG_RE forbids
+ * underscores everywhere tags are minted).
+ */
+export const UNFILED = '__unfiled__';
+
+/** Does a card match a lit set — by carrying one of its tags, or by carrying
+ * none at all when the set asks for the unfiled. */
+export function matchesLit(card: PondCard, tags: ReadonlySet<string>): boolean {
+  if (tags.has(UNFILED) && card.tags.length === 0) return true;
+  return card.tags.some((t) => tags.has(t));
+}
+
+/**
  * A card's timestamp → minutes past midnight.
  *
  * Accepts both a bare clock time ("09:00", "09:00:30") and the pool's actual
@@ -341,9 +358,7 @@ export function layoutPond(
   // this filter is reading the thread, which wants the words next to each other.
   // The full pond is one toggle away, and the unfiltered view still holds the
   // silence.
-  const kept = opt.only
-    ? cards.filter((c) => c.tags.some((t) => opt.only!.has(t)))
-    : cards;
+  const kept = opt.only ? cards.filter((c) => matchesLit(c, opt.only!)) : cards;
   const days = pondDays(kept);
   const byDay = new Map<string, PondCard[]>();
   for (const card of kept) {
@@ -441,7 +456,7 @@ export function threadPoints(
   const hits: PlacedCard[] = [];
   for (const column of layout.columns) {
     for (const placed of column.cards) {
-      if (placed.card.tags.some((t) => tags.has(t))) hits.push(placed);
+      if (matchesLit(placed.card, tags)) hits.push(placed);
     }
   }
   return hits;

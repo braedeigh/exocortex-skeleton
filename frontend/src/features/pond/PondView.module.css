@@ -761,6 +761,24 @@
 .addTagBtn:hover:not(:disabled) { color: var(--text); }
 .addTagBtn:disabled { opacity: 0.4; cursor: default; }
 
+/* The one way OUT of the panel — quiet, full width, sat under everything else
+   the way the terrain hovercard keeps its single action in the footer. */
+.journalLink {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap-target);
+  margin-top: var(--space-1);
+  padding: 0 var(--space-3);
+  border-top: 1px solid var(--border-soft);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.journalLink:hover { color: var(--text); }
+
 /* Phone: the rail becomes a scrolling strip above the drawing, and the opened
    card sits underneath rather than beside — a 320px panel next to a timeline
    on a narrow screen leaves neither enough room to be worth having. */

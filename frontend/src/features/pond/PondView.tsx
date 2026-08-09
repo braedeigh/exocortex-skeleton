@@ -4,6 +4,7 @@ import { Link } from '@tanstack/react-router';
 import { usePondCard, usePondCards, usePondThreads, useRetagCard } from './api';
 import type { PondFront, PondKind, PondThread } from './api';
 import {
+  UNFILED,
   clockOf,
   dayLabel,
   hourLines,
@@ -86,6 +87,36 @@ const GROUPS: { key: PondKind | 'front'; label: string }[] = [
   { key: 'topic', label: 'Loose' },
 ];
 
+/** The window presets — how far back the pond reaches. Server-side (`from=`),
+ * so the payload stays bounded as the journal grows: the API truncates at
+ * 4,000 cards, and "All" will cross that line eventually. */
+const RANGES = [
+  { key: 'all', label: 'All', days: null as number | null },
+  { key: '90', label: '90d', days: 90 },
+  { key: '30', label: '30d', days: 30 },
+];
+
+/** How the pond was left, restored on the next visit (localStorage — same
+ * house pattern as the collapsible cards remembering open/closed). */
+interface SavedView {
+  mode?: PondMode;
+  zoom?: number;
+  group?: PondKind | 'front';
+  hideKeeper?: boolean;
+  range?: string;
+  litKey?: string | null;
+}
+
+const SAVE_KEY = 'pond-view';
+
+function loadSavedView(): SavedView {
+  try {
+    return JSON.parse(localStorage.getItem(SAVE_KEY) ?? '{}') as SavedView;
+  } catch {
+    return {};
+  }
+}
+
 /** What the hover popup needs from a card — a plain slice of PondCard. */
 interface PondCardHover {
   id: string;
@@ -107,14 +138,33 @@ interface Lit {
 }
 
 export function PondView() {
-  const threads = usePondThreads();
-  const cards = usePondCards();
-  const [mode, setMode] = useState<PondMode>('clock');
-  const [zoom, setZoom] = useState(DEFAULT_ZOOM);
+  // Read once; the states below seed from it so the pond comes back up the
+  // way she left it.
+  const [saved] = useState(loadSavedView);
+  const [mode, setMode] = useState<PondMode>(saved.mode === 'words' ? 'words' : 'clock');
+  const [zoom, setZoom] = useState(() =>
+    saved.zoom != null ? Math.max(0, Math.min(ZOOMS.length - 1, saved.zoom)) : DEFAULT_ZOOM,
+  );
+  const [range, setRange] = useState(() =>
+    RANGES.some((r) => r.key === saved.range) ? (saved.range as string) : 'all',
+  );
   const [onlyLit, setOnlyLit] = useState(false);
-  const [hideKeeper, setHideKeeper] = useState(false);
-  const [group, setGroup] = useState<PondKind | 'front'>('front');
+  const [hideKeeper, setHideKeeper] = useState(saved.hideKeeper === true);
+  const [group, setGroup] = useState<PondKind | 'front'>(
+    GROUPS.some((g) => g.key === saved.group) ? saved.group! : 'front',
+  );
   const [lit, setLit] = useState<Lit | null>(null);
+
+  const rangeDays = RANGES.find((r) => r.key === range)?.days ?? null;
+  const from = useMemo(
+    () =>
+      rangeDays === null
+        ? null
+        : new Date(Date.now() - rangeDays * 86_400_000).toISOString().slice(0, 10),
+    [rangeDays],
+  );
+  const threads = usePondThreads(from);
+  const cards = usePondCards(from);
   const [openId, setOpenId] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
@@ -131,9 +181,13 @@ export function PondView() {
   const retag = useRetagCard();
   const gutterRef = useRef<HTMLDivElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
-  // Auto-fit runs once per visit; after that the view is hers.
+  // Auto-fit runs once per visit (and again when the window changes); after
+  // that the view is hers. A restored zoom skips the zoom-pick but still gets
+  // the centering.
   const fitted = useRef(false);
   const fitTarget = useRef<number | null>(null);
+  const skipZoomPick = useRef(saved.zoom != null);
+  const litRestored = useRef(false);
   // Where the eye was, as fractions of the canvas, carried across a zoom step.
   const keepCentre = useRef<{ fx: number; fy: number } | null>(null);
 
@@ -193,17 +247,23 @@ export function PondView() {
     const n = cards.data?.cards.length ?? 0;
     if (fitted.current || !el || n === 0) return;
     fitted.current = true;
-    const dayCount = new Set(cards.data!.cards.map((c) => c.day)).size;
-    let best = 0;
-    for (let i = ZOOMS.length - 1; i >= 0; i -= 1) {
-      if (dayCount * ZOOMS[i].clock.colWidth <= el.clientWidth) {
-        best = i;
-        break;
+    let best = zoom;
+    if (skipZoomPick.current) {
+      // A restored zoom is a choice she already made — honour it, centre only.
+      skipZoomPick.current = false;
+    } else {
+      const dayCount = new Set(cards.data!.cards.map((c) => c.day)).size;
+      best = 0;
+      for (let i = ZOOMS.length - 1; i >= 0; i -= 1) {
+        if (dayCount * ZOOMS[i].clock.colWidth <= el.clientWidth) {
+          best = i;
+          break;
+        }
       }
     }
     fitTarget.current = best;
     setZoom(best);
-  }, [cards.data]);
+  }, [cards.data, zoom]);
 
   // The second half of the fit, once the chosen zoom's layout is on screen:
   // centre the days horizontally, and vertically sit over the mean of the
@@ -226,6 +286,28 @@ export function PondView() {
       el.scrollTop = Math.max(0, k.fy * el.scrollHeight - el.clientHeight / 2);
     }
   }, [zoom, layout]);
+
+  // How she left it, written through on every change of the pieces worth
+  // keeping. Not the scroll position — that's where she WAS, not how she
+  // looks at things — and not the filter, which is a moment's reading, not a
+  // setting.
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        SAVE_KEY,
+        JSON.stringify({ mode, zoom, group, hideKeeper, range, litKey: lit?.key ?? null }),
+      );
+    } catch {
+      // Storage full or blocked — the pond just won't remember, which is fine.
+    }
+  }, [mode, zoom, group, hideKeeper, range, lit?.key, lit]);
+
+  function changeRange(next: string) {
+    if (next === range) return;
+    setRange(next);
+    // A new window is a new picture — frame it again.
+    fitted.current = false;
+  }
 
   function changeZoom(next: number) {
     const el = scrollerRef.current;
@@ -316,6 +398,51 @@ export function PondView() {
   const totalCards = visibleCards.length;
   const dayCount = layout.columns.length;
 
+  // The cards that belong to NO thread — a quarter of the journal, invisible
+  // to every tag-based row. Counted from the visible cards so the Keeper
+  // toggle and this row always agree about what's in the water.
+  const unfiled = useMemo(() => {
+    const hits = visibleCards.filter((c) => c.tags.length === 0);
+    return { cards: hits.length, days: new Set(hits.map((c) => c.day)).size };
+  }, [visibleCards]);
+
+  function unfiledRow(): { key: string; name: string; tags: Set<string>; terms: string[] } {
+    return { key: 'unfiled', name: 'Unfiled', tags: new Set([UNFILED]), terms: [] };
+  }
+
+  // Relight what was lit last visit, once the rail's data is here to
+  // reconstruct it from. A thread that no longer exists (retired, window
+  // narrowed) simply stays unlit rather than erroring.
+  useEffect(() => {
+    if (litRestored.current) return;
+    const key = saved.litKey;
+    if (!key) {
+      litRestored.current = true;
+      return;
+    }
+    if (key === 'unfiled') {
+      litRestored.current = true;
+      setLit({ key: 'unfiled', label: 'Unfiled', tags: new Set([UNFILED]), terms: [] });
+      return;
+    }
+    if (!threads.data) return;
+    litRestored.current = true;
+    if (key.startsWith('front:')) {
+      const f = allFronts.find((x) => `front:${x.id}` === key);
+      if (f) {
+        setLit({
+          key,
+          label: f.name,
+          tags: new Set(f.tags),
+          terms: [...new Set(f.tags.flatMap((t) => termsByTag.get(t) ?? []))],
+        });
+      }
+    } else if (key.startsWith('tag:')) {
+      const t = allThreads.find((x) => `tag:${x.tag}` === key);
+      if (t) setLit({ key, label: t.name, tags: new Set([t.tag]), terms: t.terms ?? [] });
+    }
+  }, [threads.data, allFronts, allThreads, termsByTag, saved.litKey]);
+
   function toggle(row: { key: string; name: string; tags: Set<string>; terms: string[] }) {
     setLit((cur) =>
       cur?.key === row.key
@@ -358,6 +485,22 @@ export function PondView() {
             >
               Words
             </button>
+          </div>
+
+          {/* How far back the water reaches. Server-side, so the payload stays
+              bounded however long the journal runs. */}
+          <div className={styles.segmented} role="group" aria-label="How far back">
+            {RANGES.map((r) => (
+              <button
+                key={r.key}
+                type="button"
+                className={range === r.key ? styles.segOn : styles.seg}
+                aria-pressed={range === r.key}
+                onClick={() => changeRange(r.key)}
+              >
+                {r.label}
+              </button>
+            ))}
           </div>
 
           {/* One scale for both arrangements — out to the whole record as a
@@ -470,6 +613,24 @@ export function PondView() {
                 <span className={styles.threadName}>Everything</span>
                 <span className={styles.threadMeta}>{dayCount} days</span>
               </button>
+              {/* The cards no thread claims — pinned above the shelves because
+                  it's the pile curation starts from: light it, walk it with
+                  ‹ ›, file each card or consciously leave it loose. */}
+              {unfiled.cards > 0 ? (
+                <button
+                  type="button"
+                  className={[styles.thread, lit?.key === 'unfiled' ? styles.threadOn : '']
+                    .filter(Boolean)
+                    .join(' ')}
+                  aria-pressed={lit?.key === 'unfiled'}
+                  onClick={() => toggle(unfiledRow())}
+                >
+                  <span className={styles.threadName}>Unfiled</span>
+                  <span className={styles.threadMeta}>
+                    {unfiled.days} {unfiled.days === 1 ? 'day' : 'days'} · {unfiled.cards} to file
+                  </span>
+                </button>
+              ) : null}
               {shown.map((row) => (
                 <button
                   key={row.key}
@@ -851,6 +1012,17 @@ export function PondView() {
                   {retag.isError ? (
                     <p className={styles.note}>Couldn&rsquo;t change that — try again.</p>
                   ) : null}
+
+                  {/* The door out — this card, in the day it belongs to. The
+                      pond is where the journal SITS; the journal page is where
+                      it's read and written. */}
+                  <Link
+                    to="/journal"
+                    search={{ date: detail.data.card.day }}
+                    className={styles.journalLink}
+                  >
+                    Open in journal
+                  </Link>
                 </>
               ) : null}
             </aside>

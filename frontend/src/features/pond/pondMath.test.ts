@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  UNFILED,
   clockOf,
   excerpt,
   findTerm,
@@ -453,6 +454,30 @@ describe('threadPoints', () => {
     expect(threadPoints(layout, null)).toEqual([]);
     expect(threadPoints(layout, new Set())).toEqual([]);
     expect(threadPoints(layout, new Set(['missing']))).toEqual([]);
+  });
+
+  it('lights exactly the cards with NO tags when the unfiled sentinel is lit', () => {
+    // A quarter of the journal belongs to no thread — invisible to every
+    // tag-based row. The sentinel can't be a real tag because the whole point
+    // is the absence of one.
+    const layout = layoutPond([
+      card('loose', '2026-07-06', '10:00', []),
+      card('filed', '2026-07-06', '11:00', ['t']),
+      card('loose2', '2026-07-07', '10:00', []),
+    ]);
+    const hits = threadPoints(layout, new Set([UNFILED]));
+    expect(hits.map((p) => p.card.id)).toEqual(['loose', 'loose2']);
+  });
+
+  it('filters to only the unfiled cards, same as any lit selection', () => {
+    const layout = layoutPond(
+      [
+        card('loose', '2026-07-06', '10:00', []),
+        card('filed', '2026-07-06', '11:00', ['t']),
+      ],
+      { only: new Set([UNFILED]) },
+    );
+    expect(layout.columns.flatMap((c) => c.cards.map((p) => p.card.id))).toEqual(['loose']);
   });
 });
 
