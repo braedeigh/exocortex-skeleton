@@ -31,6 +31,13 @@ Everything is derived and re-derivable:
   - `sync_sessions()` — full re-derive of the two session tables from
     bot_chats/index.json + gists.json + footprints.json (small, so no
     incremental variant is needed).
+  - `sync_turns()` — full re-derive of `session_turns`: when she actually
+    SENT a message to an agent, read straight out of the conversation
+    transcripts. The sidecars don't carry this (footprints.json records
+    files, index.json records only a session's first and last moment), so
+    this is the one place that opens the jsonl logs itself. ~300 MB across
+    ~150 files, scanned in under two seconds by skipping any line that can't
+    contain a timestamp before parsing it.
 
 Everything gets indexed — both repos, full history, machine-churn commits
 included. Filtering (Terrain's denylist, the hourly "auto backup" noise) is
@@ -50,6 +57,7 @@ entire codebase/file system as it grows."
 """
 from datetime import datetime
 from pathlib import Path
+import json
 import os
 import subprocess
 
@@ -368,7 +376,7 @@ def rebuild(repos=None):
         commits = 0
         for repo in repos:
             commits += _index_repo(conn, repo["id"], repo["root"])
-        sessions = _sync_sessions(conn, repos)
+        sessions, turns = _sync_sessions(conn, repos)
         conn.execute("COMMIT")
     except BaseException:
         conn.execute("ROLLBACK")
@@ -376,19 +384,49 @@ def rebuild(repos=None):
     finally:
         conn.close()
     files = _count("files")
-    return {"commits": commits, "files": files, "sessions": sessions}
+    return {"commits": commits, "files": files, "sessions": sessions,
+            "turns": turns}
 
 
 def sync_sessions(repos=None):
-    """Re-derive sessions + session_files from the bot_chats sidecars. Full
-    rewrite every run — the corpus is ~a thousand rows, and the sidecars are
-    themselves rebuilt wholesale by their own cron, so mirroring that shape
-    keeps the two rebuilds impossible to half-align."""
+    """Re-derive sessions + session_files + session_turns from the bot_chats
+    sidecars and transcripts. Full rewrite every run — the corpus is ~a
+    thousand rows, and the sidecars are themselves rebuilt wholesale by their
+    own cron, so mirroring that shape keeps the rebuilds impossible to
+    half-align.
+
+    Turns come along for the ride rather than getting their own door here,
+    because this function DELETES every `sessions` row and re-inserts it: any
+    child row that didn't follow would be orphaned by construction. Returns
+    {"files": n, "turns": n}."""
     repos = default_repos() if repos is None else repos
     conn = sqlstore.open_db()
     try:
         conn.execute("BEGIN IMMEDIATE")
-        n = _sync_sessions(conn, repos)
+        n, turns = _sync_sessions(conn, repos)
+        conn.execute("COMMIT")
+    except BaseException:
+        conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.close()
+    return {"files": n, "turns": turns}
+
+
+def sync_turns():
+    """Re-derive `session_turns` alone — when she was at the keyboard talking
+    to an agent.
+
+    Split out from the sessions sync because it moves on a different clock:
+    the sidecars are rebuilt hourly by their own crons, but a transcript grows
+    every time she hits send. Safe on its own (it only ever touches this one
+    table, and existing `sessions` rows are what it hangs off), so a caller
+    that wants a fresh answer without re-walking the footprints can have one.
+    Returns the row count."""
+    conn = sqlstore.open_db()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        n = _sync_turns(conn)
         conn.execute("COMMIT")
     except BaseException:
         conn.execute("ROLLBACK")
@@ -409,6 +447,7 @@ def _sync_sessions(conn, repos):
     if not isinstance(footprints, dict):
         footprints = {}
 
+    conn.execute("DELETE FROM session_turns")
     conn.execute("DELETE FROM session_files")
     conn.execute("DELETE FROM sessions")
 
@@ -469,6 +508,116 @@ def _sync_sessions(conn, repos):
                  counts.get("last")),
             )
             n += 1
+    return n, _sync_turns(conn)
+
+
+# --- when she was actually talking ---------------------------------------------
+
+# The transcript line that carries a message SHE sent. A conversation's jsonl
+# is one JSON object per line and holds four kinds of clock reading; only this
+# one is her:
+#
+#   {"type": "user", "text": "...", "ts": "2026-08-09T10:07:02"}   <- her, LOCAL
+#   {"type": "user", "timestamp": "...Z"}        a tool RESULT, not a message
+#   {"type": "assistant", "timestamp": "...Z"}   the agent's reply, UTC
+#
+# So `type == "user"` AND a `ts` key is the exact test for "she hit send", and
+# the value is already in the local clock the rest of the system keeps. The
+# tool-result envelopes wear `timestamp` instead, which is what keeps 254 of
+# them out of a table that would otherwise claim she sent 270 messages.
+_TURN_HINT = '"ts"'
+
+
+def local_iso(raw):
+    """One turn timestamp, normalised to the local clock, or None.
+
+    `ts` is USUALLY already local and naive — that's what the capture hook
+    writes. But the five conversations imported from an earlier system
+    (`imported_from` in the index) carry UTC with a `Z` instead: 47 of 1,765
+    rows here. Left alone they'd sit five hours off on any drawing, at 3am
+    on a page whose whole point is that her sleep schedule is visible in the
+    shape — wrong in exactly the way that looks plausible.
+
+    So the conversion happens ONCE, here, and `session_turns.ts` is local
+    without exception. Note this differs from its sibling
+    `session_files.last`, which stores whatever the footprints sidecar wrote
+    (UTC, from the transcripts' `timestamp` fields) — that column has other
+    readers and isn't ours to redefine, so the pond converts it at read time
+    instead. Two tables, two clocks, both documented where they're used.
+    """
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    text = raw.strip()
+    try:
+        when = datetime.fromisoformat(text[:-1] + "+00:00" if text.endswith("Z")
+                                      else text)
+    except ValueError:
+        return None
+    # A naive reading is already local — astimezone() on it would ASSUME local
+    # and convert to local, which is a no-op, but only by luck. Return it as
+    # written and leave the guessing out.
+    if when.tzinfo is not None:
+        when = when.astimezone().replace(tzinfo=None)
+    return when.isoformat(timespec="seconds")
+
+
+def _turn_times(path):
+    """The local timestamps of every message she sent in one conversation, in
+    transcript order, each already normalised by `local_iso`.
+
+    The cheap `in` test before json.loads is doing real work, not
+    micro-optimising: these logs total ~300 MB and 95% of their lines are
+    assistant events and tool results that can't match. Parsing only the
+    candidates turns a full sweep of every conversation from a minute into
+    under two seconds, which is what makes this affordable to re-derive
+    wholesale on an hourly cron instead of maintaining an incremental cursor.
+    """
+    out = []
+    try:
+        with path.open(encoding="utf-8") as fh:
+            for line in fh:
+                if _TURN_HINT not in line:
+                    continue
+                try:
+                    ev = json.loads(line)
+                except ValueError:
+                    continue        # a torn line shouldn't hide the rest
+                if not isinstance(ev, dict) or ev.get("type") != "user":
+                    continue
+                ts = local_iso(ev.get("ts"))
+                if ts:
+                    out.append(ts)
+    except (OSError, UnicodeDecodeError):
+        return []                   # an unreadable log is a quiet gap, not a crash
+    return out
+
+
+def _sync_turns(conn):
+    """Rebuild `session_turns` from the conversation transcripts.
+
+    Only conversations that already have a `sessions` row get turns — the
+    transcripts directory can hold a log whose index entry has been archived
+    away, and a turn belonging to no session is a row nothing can join to.
+    Full rewrite, same reasoning as its sibling.
+    """
+    conn.execute("DELETE FROM session_turns")
+    known = {r[0] for r in conn.execute("SELECT id FROM sessions")}
+    chats = store.DATA_DIR / "bot_chats"
+    if not chats.exists():
+        return 0
+    n = 0
+    for path in sorted(chats.glob("*.jsonl")):
+        if path.stem not in known:
+            continue
+        rows = [(path.stem, seq, ts)
+                for seq, ts in enumerate(_turn_times(path))]
+        if not rows:
+            continue
+        conn.executemany(
+            "INSERT INTO session_turns (session_id, seq, ts) VALUES (?, ?, ?)",
+            rows,
+        )
+        n += len(rows)
     return n
 
 

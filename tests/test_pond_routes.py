@@ -12,6 +12,7 @@ one afternoon is a busy day; a tag that surfaces on ten days across a month is
 a thread. The drawing is about the second one.
 """
 import sqlite3
+import time
 
 import pytest
 from flask import Flask
@@ -29,6 +30,20 @@ CREATE TABLE cards (
 CREATE TABLE card_tags (
   card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
   tag TEXT NOT NULL, PRIMARY KEY (card_id, tag));
+CREATE TABLE sessions (
+  id TEXT PRIMARY KEY, title TEXT NOT NULL DEFAULT '', bot TEXT, lane TEXT,
+  started TEXT, last_at TEXT);
+CREATE TABLE session_turns (
+  session_id TEXT NOT NULL, seq INTEGER NOT NULL, ts TEXT NOT NULL,
+  PRIMARY KEY (session_id, seq));
+CREATE TABLE files (
+  id INTEGER PRIMARY KEY, repo TEXT NOT NULL, path TEXT NOT NULL,
+  first_seen TEXT, last_seen TEXT, deleted_at TEXT);
+CREATE TABLE session_files (
+  session_id TEXT NOT NULL, file_id INTEGER NOT NULL,
+  writes INTEGER NOT NULL DEFAULT 0, reads INTEGER NOT NULL DEFAULT 0,
+  creates INTEGER NOT NULL DEFAULT 0, last TEXT,
+  PRIMARY KEY (session_id, file_id));
 """
 
 
@@ -116,6 +131,153 @@ def test_cards_come_back_in_time_order(pond_db, client):
 def test_a_bad_window_is_rejected(pond_db, client, qs):
     assert client.get(f"/api/pond/cards?{qs}").status_code == 400
     assert client.get(f"/api/pond/threads?{qs}").status_code == 400
+    assert client.get(f"/api/pond/working?{qs}").status_code == 400
+
+
+# --- the working half ---------------------------------------------------------
+#
+# The pond draws two lives on one clock, and the two halves arrive wearing
+# DIFFERENT clocks: her turns and her sessions are local, the file touches are
+# UTC. Every test below is really about that seam, because a five-hour skew
+# here doesn't error — it draws her building things at 3am.
+
+@pytest.fixture
+def fixed_tz(monkeypatch):
+    """Pin the process to a fixed UTC-5 with no daylight saving, so the
+    expected local times below can be written as literals instead of being
+    recomputed by the same arithmetic they're meant to be checking. `Etc/GMT+5`
+    is POSIX-signed — the +5 means five hours BEHIND UTC."""
+    monkeypatch.setenv("TZ", "Etc/GMT+5")
+    time.tzset()
+    yield
+    monkeypatch.undo()
+    time.tzset()
+
+
+@pytest.fixture
+def working_db(pond_db, data_dir):
+    """Helpers to seed the three working tables in the same throwaway db."""
+    conn = sqlite3.connect(data_dir / "exo.db")
+    next_file = [1]
+
+    def session(sid, started, last_at, title="A session", lane=None):
+        conn.execute(
+            "INSERT INTO sessions (id, title, bot, lane, started, last_at)"
+            " VALUES (?,?,?,?,?,?)", (sid, title, "keeper", lane, started, last_at))
+        conn.commit()
+
+    def turn(sid, ts, seq=None):
+        seq = conn.execute(
+            "SELECT COALESCE(MAX(seq) + 1, 0) FROM session_turns WHERE session_id = ?",
+            (sid,)).fetchone()[0] if seq is None else seq
+        conn.execute("INSERT INTO session_turns (session_id, seq, ts) VALUES (?,?,?)",
+                     (sid, seq, ts))
+        conn.commit()
+
+    def write(sid, last_utc, path="app.py", repo="skeleton", writes=1, creates=0):
+        fid = next_file[0]
+        next_file[0] += 1
+        conn.execute("INSERT INTO files (id, repo, path) VALUES (?,?,?)",
+                     (fid, repo, path))
+        conn.execute(
+            "INSERT INTO session_files (session_id, file_id, writes, reads,"
+            " creates, last) VALUES (?,?,?,0,?,?)", (sid, fid, writes, creates, last_utc))
+        conn.commit()
+
+    yield type("W", (), {"session": staticmethod(session),
+                         "turn": staticmethod(turn),
+                         "write": staticmethod(write)})
+    conn.close()
+
+
+def test_file_touches_are_converted_from_utc_to_her_clock(working_db, client, fixed_tz):
+    """The one that would silently draw nonsense. `session_files.last` is UTC
+    because it comes from the transcripts; everything the pond draws is local.
+    16:16Z is a late-morning edit, not an evening one."""
+    working_db.session("s1", "2026-08-09T10:00:00", "2026-08-09T12:00:00")
+    working_db.write("s1", "2026-08-09T16:16:55.447Z")
+
+    writes = client.get("/api/pond/working").get_json()["writes"]
+    assert [w["ts"] for w in writes] == ["2026-08-09T11:16:55"]
+
+
+def test_a_touch_after_midnight_utc_belongs_to_the_previous_local_day(
+        working_db, client, fixed_tz):
+    """02:30Z on the 9th is 21:30 on the 8th where she lives — so it must land
+    in the 8th's column, and a window on the 8th must FIND it. Filtering on the
+    raw string would put it in the wrong column and hide it from the right
+    one."""
+    working_db.session("s1", "2026-08-08T20:00:00", "2026-08-08T22:00:00")
+    working_db.write("s1", "2026-08-09T02:30:00.000Z")
+
+    got = client.get("/api/pond/working?from=2026-08-08&to=2026-08-08").get_json()
+    assert [w["ts"] for w in got["writes"]] == ["2026-08-08T21:30:00"]
+    # And it is absent from the 9th, where the raw timestamp would have put it.
+    ninth = client.get("/api/pond/working?from=2026-08-09&to=2026-08-09").get_json()
+    assert ninth["writes"] == []
+
+
+def test_turns_are_her_messages_in_the_window(working_db, client):
+    """One row per message she sent — the grain the sessions table can't give."""
+    working_db.session("s1", "2026-08-07T09:00:00", "2026-08-09T10:00:00")
+    for ts in ("2026-08-07T09:01:00", "2026-08-08T14:00:00", "2026-08-09T09:30:00"):
+        working_db.turn("s1", ts)
+
+    got = client.get("/api/pond/working?from=2026-08-08&to=2026-08-09").get_json()
+    assert [t["ts"] for t in got["turns"]] == ["2026-08-08T14:00:00", "2026-08-09T09:30:00"]
+    assert {t["session"] for t in got["turns"]} == {"s1"}
+
+
+def test_a_session_reports_open_and_worked_separately(working_db, client, fixed_tz):
+    """How long it sat OPEN and when work actually happened in it are two
+    different questions — a session left open overnight is the case that makes
+    them different, and the drawing needs both to say so."""
+    working_db.session("s1", "2026-08-08T10:00:00", "2026-08-09T06:00:00")
+    working_db.write("s1", "2026-08-08T16:05:00.000Z", path="a.py")
+    working_db.write("s1", "2026-08-08T17:40:00.000Z", path="b.py")
+
+    session = client.get("/api/pond/working").get_json()["sessions"][0]
+    assert session["started"] == "2026-08-08T10:00:00"
+    assert session["last_at"] == "2026-08-09T06:00:00"      # 20 hours open
+    assert session["worked_from"] == "2026-08-08T11:05:00"  # 95 minutes working
+    assert session["worked_to"] == "2026-08-08T12:40:00"
+
+
+def test_a_session_that_wrote_nothing_says_so(working_db, client):
+    """Null, not a zero-length span at its start — a conversation that touched
+    no files is a real thing that happened, and inventing a working moment for
+    it would draw a mark where no work was."""
+    working_db.session("quiet", "2026-08-08T10:00:00", "2026-08-08T10:20:00")
+    session = client.get("/api/pond/working").get_json()["sessions"][0]
+    assert session["worked_from"] is None and session["worked_to"] is None
+
+
+def test_the_worked_span_covers_touches_outside_the_window(working_db, client, fixed_tz):
+    """A session's worked span is a property of the SESSION, not of the window
+    — narrowing the view mustn't make a session look like it worked less than
+    it did."""
+    working_db.session("s1", "2026-08-07T09:00:00", "2026-08-09T09:00:00")
+    working_db.write("s1", "2026-08-07T15:00:00.000Z", path="a.py")   # 10:00 on the 7th
+    working_db.write("s1", "2026-08-09T15:00:00.000Z", path="b.py")   # 10:00 on the 9th
+
+    got = client.get("/api/pond/working?from=2026-08-09&to=2026-08-09").get_json()
+    assert [w["ts"] for w in got["writes"]] == ["2026-08-09T10:00:00"]
+    assert got["sessions"][0]["worked_from"] == "2026-08-07T10:00:00"
+
+
+def test_a_session_open_across_the_window_is_kept(working_db, client):
+    """It opened before the window and closed after it — which is exactly the
+    long-open session the layer exists to make visible."""
+    working_db.session("long", "2026-08-01T10:00:00", "2026-08-05T10:00:00")
+    got = client.get("/api/pond/working?from=2026-08-03&to=2026-08-04").get_json()
+    assert [s["id"] for s in got["sessions"]] == ["long"]
+
+
+def test_working_is_empty_not_broken_on_a_fresh_install(pond_db, client):
+    """No agent sessions yet — three empty lists and a 200, so the toggles
+    render as 'nothing here' rather than as an error."""
+    got = client.get("/api/pond/working").get_json()
+    assert got["turns"] == [] and got["writes"] == [] and got["sessions"] == []
 
 
 # --- one thread at a time -----------------------------------------------------

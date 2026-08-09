@@ -13,9 +13,11 @@ accidentally walk the live checkout). The contracts that matter:
     would — the incremental and the full walk are two roads to one truth.
   - The session tables derive from the bot_chats sidecars and join on file id.
 """
+import json
 import os
 import sqlite3
 import subprocess
+import time
 
 import pytest
 
@@ -233,6 +235,115 @@ def test_sync_sessions_is_a_full_rederive(data_dir, tmp_path):
     store.write("bot_chats/footprints", {})
     codestore.sync_sessions(_repos(repo))
     assert _rows("SELECT COUNT(*) FROM session_files")[0][0] == 0
+
+
+# --- the turns: when she was actually at the keyboard -------------------------
+#
+# A conversation's jsonl carries four kinds of line, and only one of them is a
+# message she sent. Getting that test wrong doesn't error — it silently claims
+# she typed seventeen times when she typed one, which on a time axis reads as a
+# busy afternoon she never had.
+
+def _write_transcript(conv_id, lines):
+    path = store.DATA_DIR / "bot_chats" / f"{conv_id}.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(json.dumps(line) for line in lines) + "\n")
+
+
+def test_turns_are_only_the_messages_she_sent(data_dir, tmp_path):
+    repo = _make_repo(tmp_path / "repo")
+    _seed_sidecars(repo)
+    _write_transcript("conv-1", [
+        {"type": "user", "text": "do the thing", "ts": "2026-06-01T09:00:12"},
+        # An agent reply — wears `timestamp`, not `ts`.
+        {"type": "assistant", "timestamp": "2026-06-01T14:00:20.100Z"},
+        # A TOOL RESULT. Also type "user", which is the trap: these outnumber
+        # her real messages fifteen to one in a working session.
+        {"type": "user", "timestamp": "2026-06-01T14:00:25.500Z"},
+        {"type": "user", "text": "again", "ts": "2026-06-01T09:05:44"},
+    ])
+
+    codestore.rebuild(_repos(repo))
+
+    assert _rows("SELECT session_id, seq, ts FROM session_turns ORDER BY seq") == [
+        ("conv-1", 0, "2026-06-01T09:00:12"),
+        ("conv-1", 1, "2026-06-01T09:05:44"),
+    ]
+
+
+def test_an_imported_utc_turn_is_converted_to_her_clock(data_dir, tmp_path, monkeypatch):
+    """Most transcripts write local time, but the handful imported from an
+    earlier system wrote UTC with a `Z`. One table, one clock — the conversion
+    happens at the sync, so nothing downstream has to know which kind it got."""
+    monkeypatch.setenv("TZ", "Etc/GMT+5")
+    time.tzset()
+    try:
+        repo = _make_repo(tmp_path / "repo")
+        _seed_sidecars(repo)
+        _write_transcript("conv-1", [
+            {"type": "user", "text": "local", "ts": "2026-06-01T09:00:00"},
+            {"type": "user", "text": "imported", "ts": "2026-06-01T14:30:00.500Z"},
+        ])
+
+        codestore.rebuild(_repos(repo))
+
+        assert [r[0] for r in _rows("SELECT ts FROM session_turns ORDER BY seq")] == [
+            "2026-06-01T09:00:00",   # already local — passed through untouched
+            "2026-06-01T09:30:00",   # 14:30Z, five hours back
+        ]
+    finally:
+        monkeypatch.undo()
+        time.tzset()
+
+
+def test_a_transcript_with_no_session_row_is_skipped(data_dir, tmp_path):
+    """The transcripts directory outlives the index — a log whose entry was
+    pruned would otherwise mint turns that join to nothing."""
+    repo = _make_repo(tmp_path / "repo")
+    _seed_sidecars(repo)
+    _write_transcript("conv-1", [{"type": "user", "text": "a", "ts": "2026-06-01T09:00:00"}])
+    _write_transcript("conv-forgotten",
+                      [{"type": "user", "text": "b", "ts": "2026-06-01T09:00:00"}])
+
+    codestore.rebuild(_repos(repo))
+
+    assert {r[0] for r in _rows("SELECT DISTINCT session_id FROM session_turns")} == {"conv-1"}
+
+
+def test_a_torn_transcript_line_doesnt_hide_the_rest(data_dir, tmp_path):
+    """These logs are appended to live, so the last line can be half-written
+    when the sync reads it. One bad line must cost one turn, not the file."""
+    repo = _make_repo(tmp_path / "repo")
+    _seed_sidecars(repo)
+    path = store.DATA_DIR / "bot_chats" / "conv-1.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        '{"type": "user", "text": "first", "ts": "2026-06-01T09:00:00"}\n'
+        '{"type": "user", "text": "torn", "ts": "2026-06-0\n'
+        '{"type": "user", "text": "third", "ts": "2026-06-01T09:10:00"}\n'
+    )
+
+    codestore.rebuild(_repos(repo))
+
+    assert [r[0] for r in _rows("SELECT ts FROM session_turns ORDER BY seq")] == [
+        "2026-06-01T09:00:00", "2026-06-01T09:10:00"]
+
+
+def test_turns_are_a_full_rederive(data_dir, tmp_path):
+    """Same contract as its sibling: the transcripts are truth, so a turn that
+    left them must leave the table too."""
+    repo = _make_repo(tmp_path / "repo")
+    _seed_sidecars(repo)
+    _write_transcript("conv-1", [
+        {"type": "user", "text": "a", "ts": "2026-06-01T09:00:00"},
+        {"type": "user", "text": "b", "ts": "2026-06-01T09:01:00"},
+    ])
+    codestore.rebuild(_repos(repo))
+    assert _rows("SELECT COUNT(*) FROM session_turns")[0][0] == 2
+
+    _write_transcript("conv-1", [{"type": "user", "text": "a", "ts": "2026-06-01T09:00:00"}])
+    assert codestore.sync_turns() == 1
+    assert _rows("SELECT COUNT(*) FROM session_turns")[0][0] == 1
 
 
 def test_growth_series_counts_days_deltas_not_totals(data_dir, tmp_path):

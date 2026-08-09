@@ -5,9 +5,11 @@ Two jobs, both incremental-or-cheap:
   - codestore.update()        — index any commits newer than what's stored,
                                 across both repos. Milliseconds when nothing
                                 landed since last hour.
-  - codestore.sync_sessions() — re-derive the sessions / session_files tables
-                                from the bot_chats sidecars (index, gists,
-                                footprints). Small corpus, full rewrite.
+  - codestore.sync_sessions() — re-derive the sessions / session_files /
+                                session_turns tables from the bot_chats
+                                sidecars (index, gists, footprints) and the
+                                conversation transcripts. Small corpus, full
+                                rewrite; the transcript sweep is ~2s.
 
 Terrain also runs update() on its own cache misses, so this cron isn't what
 keeps the MAP fresh — it's what keeps the TABLES fresh for the SQL console
@@ -37,13 +39,15 @@ def main():
     if args.rebuild:
         result = codestore.rebuild()
         print(f"update_code_history: full rebuild — {result['commits']} commits, "
-              f"{result['files']} files, {result['sessions']} session-file rows")
+              f"{result['files']} files, {result['sessions']} session-file rows, "
+              f"{result['turns']} turns")
         return
 
     indexed = codestore.update()
     sessions = codestore.sync_sessions()
     new = ", ".join(f"{repo}: {n} new" for repo, n in indexed.items())
-    print(f"update_code_history: {new}; {sessions} session-file rows synced")
+    print(f"update_code_history: {new}; {sessions['files']} session-file rows and "
+          f"{sessions['turns']} turns synced")
 
 
 if __name__ == "__main__":

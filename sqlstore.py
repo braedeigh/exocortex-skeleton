@@ -38,7 +38,7 @@ import sqlite3
 
 import store
 
-_SCHEMA_VERSION = 7
+_SCHEMA_VERSION = 8
 
 
 def _db_path():
@@ -74,7 +74,7 @@ _EXPECTED_TABLES = (
     "habits", "habit_aliases", "habit_entries",
     "expenses", "expense_categories",
     "files", "file_paths", "commits", "commit_files",
-    "sessions", "session_files",
+    "sessions", "session_files", "session_turns",
     "cards", "card_tags",
     "todos", "fronts", "todo_fronts", "todo_subtasks",
 )
@@ -499,6 +499,35 @@ def _migrate(conn):
             "  text TEXT NOT NULL DEFAULT '',"
             "  done INTEGER NOT NULL DEFAULT 0 CHECK (done IN (0, 1)),"
             "  PRIMARY KEY (todo_id, position)"
+            ")"
+        )
+    if version < 8:
+        # When she was actually TALKING to an agent — one row per message she
+        # sent, harvested from the conversation transcripts by
+        # codestore.sync_turns().
+        #
+        # Why this exists when `sessions` already has started/last_at: a
+        # session is a container, not an activity. A third of them stay open
+        # more than twelve hours and two dozen span more than a day, so
+        # "started 10am, last_at 4am" says almost nothing about when she was
+        # at the keyboard. A turn is the real event, and there are eleven of
+        # them for every session.
+        #
+        # NO PROMPT TEXT. Only the moment. What she typed lives in the
+        # transcript (and, when she journals it, in the card pool); this table
+        # exists to be drawn on a time axis, and text it doesn't need is text
+        # a mirror has no business holding.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS session_turns ("
+            "  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,"
+            # Position in the transcript. Part of the key because two messages
+            # sent inside the same second are two turns, not one — the clock
+            # here is second-resolution and she does send twice in a second.
+            "  seq INTEGER NOT NULL,"
+            # LOCAL naive ISO, exactly as the transcript writes it — the same
+            # clock `cards.ts` and `commits.authored_at` keep.
+            "  ts TEXT NOT NULL,"
+            "  PRIMARY KEY (session_id, seq)"
             ")"
         )
     if version < _SCHEMA_VERSION:

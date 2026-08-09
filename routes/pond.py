@@ -25,6 +25,16 @@ endpoints are that door, shaped for one drawing.
                             re-windows them around whichever thread is lit,
                             which changes with no refetch.
     GET /api/pond/card/<id> one card, in full, when she taps it.
+    GET /api/pond/working   the OTHER half of her days: when she was talking
+                            to an agent, when files were written, and how long
+                            each session sat open. Three lists, one window,
+                            one clock.
+
+The working half comes from a DIFFERENT pipeline into the same database:
+agent conversations write transcripts into `bot_chats/`, an hourly cron
+harvests which files each one touched, and `codestore.py` folds both into
+`sessions` / `session_files` / `session_turns`. Nothing new is synced for the
+pond — this endpoint is a read across tables that were already there.
 
 The classification is not invented here and it is not stored here. The vault
 ALREADY sorts these: a tag with a file in `people/` is a person, a tag with a
@@ -57,6 +67,7 @@ from datetime import date
 
 from flask import jsonify, request
 
+import codestore
 import store
 from routes.entities import PEOPLE_DIR, _parse_frontmatter
 from routes.threads import THREADS_DIR
@@ -101,6 +112,11 @@ _WORD_RE = re.compile(r"[^a-z0-9]+")
 # A ceiling so a widened date range can never ask for the entire pool at once.
 # Reported honestly as `truncated` rather than silently trimming.
 MAX_CARDS = 4000
+
+# The same ceiling for the working half, applied to each list separately. The
+# real corpus is ~1,800 turns and ~1,400 file touches, so this is headroom for
+# a year or two rather than a limit anything meets today.
+MAX_WORKING = 6000
 
 
 def _taxonomy():
@@ -255,6 +271,17 @@ def _window_sql(window, alias="c"):
     return " AND ".join(clauses), params
 
 
+def _in_window(day, window):
+    """Is a local day inside the requested window? The working half filters in
+    Python rather than SQL because one of its three clocks only becomes local
+    AFTER conversion — see `pond_working`."""
+    if window["from"] and day < window["from"]:
+        return False
+    if window["to"] and day > window["to"]:
+        return False
+    return True
+
+
 def register(app):
 
     @app.route("/api/pond/threads")
@@ -389,6 +416,130 @@ def register(app):
             "from": window["from"],
             "to": window["to"],
             "tag": tag or None,
+            "truncated": truncated,
+        })
+
+    @app.route("/api/pond/working")
+    def pond_working():
+        """The building half of her days, on the same clock as the journal.
+
+        Three lists, because they are three different KINDS of event and
+        flattening them would be the lie the drawing has to avoid:
+
+          turns    — a POINT. One row per message she sent to an agent. This
+                     is "when I was interacting with agents", at the grain she
+                     actually asked for: 1,765 moments, not 154 containers.
+          writes   — a POINT. One row per (session, file) from the footprints
+                     harvest, so it is the LAST time that session touched that
+                     file, not every time. A file edited at 10:00 and again at
+                     16:00 appears once, at 16:00. The drawing says so on its
+                     face rather than implying a complete edit history.
+          sessions — a SPAN. `started` → `last_at` is how long a conversation
+                     sat OPEN, which is a different question from when work
+                     happened in it; a third of them stay open past twelve
+                     hours. `worked_from`/`worked_to` bound the part that
+                     actually wrote files, so the drawing can show both.
+
+        THE CLOCK, which is the trap in this endpoint. `session_turns.ts` and
+        `sessions.started/last_at` are local; `session_files.last` is UTC,
+        because it comes from the transcripts' own `timestamp` fields through
+        the footprints sidecar. Everything leaves here LOCAL and naive, in the
+        same shape the journal's own `cards.ts` uses, so the frontend has one
+        clock and no chance to guess. Skip the conversion and the code layer
+        draws five hours off — at 3am on a page whose whole point is that her
+        sleep schedule is visible in the shape. Wrong in the way that looks
+        entirely plausible, which is why it is done once, here, at the seam.
+        """
+        window, err = _window()
+        if err:
+            return jsonify({"error": err}), 400
+
+        with closing(_read_only_conn()) as conn:
+            turn_rows = conn.execute(
+                """SELECT session_id, ts FROM session_turns
+                    ORDER BY ts ASC LIMIT ?""",
+                (MAX_WORKING + 1,),
+            ).fetchall()
+            write_rows = conn.execute(
+                """SELECT sf.session_id, sf.last, sf.writes, sf.creates,
+                          f.repo, f.path
+                     FROM session_files sf
+                     JOIN files f ON f.id = sf.file_id
+                    WHERE sf.last IS NOT NULL
+                    ORDER BY sf.last ASC""",
+            ).fetchall()
+            session_rows = conn.execute(
+                """SELECT id, title, lane, started, last_at FROM sessions
+                    ORDER BY started ASC""",
+            ).fetchall()
+
+        truncated = len(turn_rows) > MAX_WORKING
+        turns = [
+            {"ts": r["ts"], "session": r["session_id"]}
+            for r in turn_rows[:MAX_WORKING]
+            if r["ts"] and _in_window(r["ts"][:10], window)
+        ]
+
+        # Converted first, filtered second: a UTC touch at 02:30Z belongs to
+        # the PREVIOUS local day, so windowing on the raw string would put it
+        # in the wrong column and then hide it from the right one.
+        writes = []
+        worked = {}
+        for r in write_rows:
+            ts = codestore.local_iso(r["last"])
+            if not ts:
+                continue
+            span = worked.setdefault(r["session_id"], [ts, ts])
+            if ts < span[0]:
+                span[0] = ts
+            if ts > span[1]:
+                span[1] = ts
+            if not _in_window(ts[:10], window):
+                continue
+            writes.append({
+                "ts": ts,
+                "session": r["session_id"],
+                "repo": r["repo"],
+                "path": r["path"],
+                "writes": r["writes"],
+                "creates": r["creates"],
+            })
+        if len(writes) > MAX_WORKING:
+            truncated = True
+            writes = writes[:MAX_WORKING]
+
+        # A session is kept when its open interval OVERLAPS the window, not
+        # when one of its ends happens to land inside it. The difference is
+        # the whole point of this layer: a session opened on Saturday and
+        # still open on Wednesday has neither end inside a Monday window, and
+        # it is precisely the long-open session she wants to see.
+        sessions = []
+        for r in session_rows:
+            span = worked.get(r["id"])
+            started, last_at = r["started"], r["last_at"]
+            if not started:
+                continue
+            open_from, open_to = started[:10], (last_at or started)[:10]
+            if window["to"] and open_from > window["to"]:
+                continue
+            if window["from"] and open_to < window["from"]:
+                continue
+            sessions.append({
+                "id": r["id"],
+                "title": r["title"] or r["id"],
+                "lane": r["lane"],
+                "started": started,
+                "last_at": last_at or started,
+                "worked_from": span[0] if span else None,
+                "worked_to": span[1] if span else None,
+            })
+
+        return jsonify({
+            "turns": turns,
+            "writes": writes,
+            "sessions": sessions,
+            "from": window["from"],
+            "to": window["to"],
             "truncated": truncated,
         })
 
