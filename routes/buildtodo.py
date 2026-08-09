@@ -123,7 +123,7 @@ def _public(card):
 
 # --- the legacy markdown half ------------------------------------------------
 
-# `## 🟡 Some title (Bradie, 2026-08-08)` — the heading dialect dev_todo.md has
+# `## 🟡 Some title (Sam, 2026-08-08)` — the heading dialect dev_todo.md has
 # always used. The emoji and the trailing attribution are both optional; a
 # heading that has neither still becomes a card, just a barer one.
 _HEADING_RE = re.compile(r"^## (.+)$")

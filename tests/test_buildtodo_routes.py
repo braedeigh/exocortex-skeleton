@@ -179,7 +179,7 @@ def test_list_fills_defaults_for_a_card_written_before_a_field_existed(client):
 
 LEGACY = """# Build TODO
 
-## 🟡 Prune unused sections (Bradie, 2026-08-08)
+## 🟡 Prune unused sections (Sam, 2026-08-08)
 
 Two separate jobs in one sentence.
 
@@ -198,7 +198,7 @@ def test_parse_legacy_splits_on_headings_and_lifts_the_attribution():
     got = buildtodo.parse_legacy(LEGACY)
     assert len(got) == 3
     # The `# Build TODO` preamble is dropped — it's the doc title, not an item.
-    assert got[0]["author"] == "Bradie" and got[0]["created"] == "2026-08-08"
+    assert got[0]["author"] == "Sam" and got[0]["created"] == "2026-08-08"
     assert "Two separate jobs" in got[0]["body"]
     # `###` subsections stay inside their parent card's body.
     assert "### Detail" in got[1]["body"]
