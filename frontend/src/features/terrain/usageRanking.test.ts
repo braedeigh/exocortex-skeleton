@@ -19,8 +19,11 @@ const record: UsageRecord = {
       clicks: { todos: { 'card-edit': 5 } },
     },
     '2026-07-21': {
-      tabs: { observatory: 4, todos: 6, journal: 3 },
-      time: { observatory: 400, todos: 200, journal: 100 },
+      // reading-room is the middle hop of the rename (bots → reading-room →
+      // observatory). It had a LABEL but no ALIAS for two weeks, which is the
+      // regression these tests exist to stop.
+      tabs: { observatory: 4, 'reading-room': 5, todos: 6, journal: 3 },
+      time: { observatory: 400, 'reading-room': 250, todos: 200, journal: 100 },
       clicks: { todos: { 'card-edit': 2, 'card-add': 1 } },
     },
     '2026-07-22': {
@@ -36,14 +39,24 @@ describe('alias folding', () => {
     const keys = ranked.map((p) => p.key);
     expect(keys).not.toContain('bots');
     expect(keys).not.toContain('atlas');
+    expect(keys).not.toContain('reading-room');
     expect(keys.filter((k) => k === 'observatory')).toHaveLength(1);
   });
 
   it('sums the renamed halves together rather than dropping either', () => {
     const observatory = rankPlaces(record, null).find((p) => p.key === 'observatory');
-    // bots 600 + observatory 400 + atlas 50
-    expect(observatory?.seconds).toBe(1050);
-    expect(observatory?.visits).toBe(15);
+    // bots 600 + observatory 400 + reading-room 250 + atlas 50
+    expect(observatory?.seconds).toBe(1300);
+    expect(observatory?.visits).toBe(20);
+  });
+
+  it('folds every hop of a multi-step rename, not just the first and last', () => {
+    // The failure this pins: a key that has a LABEL but no ALIAS reads as a
+    // named, plausible, separate room and silently keeps its share out of the
+    // total. Naming a key is not the same as folding it.
+    expect(labelFor('reading-room')).toBe('Observatory');
+    const ranked = rankPlaces(record, null);
+    expect(ranked.every((p) => labelFor(p.key) !== 'Reading Room')).toBe(true);
   });
 });
 
@@ -103,7 +116,11 @@ describe('labels', () => {
   it('uses the name a place wears in the UI, not its route segment', () => {
     expect(labelFor('todos')).toBe('To Do');
     expect(labelFor('map')).toBe('Life Map');
-    expect(labelFor('code')).toBe('VS Code');
+  });
+
+  it('keeps /code and /vscode apart — they are two different surfaces', () => {
+    expect(labelFor('code')).toBe('File Viewer');
+    expect(labelFor('vscode')).toBe('VS Code');
   });
 
   it('falls back readably for a route nobody has named yet', () => {

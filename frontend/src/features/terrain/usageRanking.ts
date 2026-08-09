@@ -17,17 +17,27 @@
  *
  * The one part that isn't arithmetic: the record keys on the ROUTE SEGMENT
  * (usageBeacon.ts posts the first path segment of the URL). Route segments are
- * not feature-directory names, and they are not stable across renames — `bots`
- * was renamed to `observatory` along with the surface, so both keys sit in the
- * record describing the same room. ALIASES folds those together; LABELS gives
- * each key the name it wears in the UI. Without the fold, a renamed room appears
- * twice at roughly half its real size.
+ * not feature-directory names, and they are not stable across renames. One room
+ * has worn FOUR of them — `bots` → `reading-room` → `observatory`, plus `atlas`
+ * — so four keys sit in the record describing one place. ALIASES folds them
+ * together; LABELS gives each key the name it wears in the UI. Without the fold
+ * a renamed room appears several times at a fraction of its real size, which is
+ * exactly how the observatory's trend was misread before this module existed.
+ *
+ * A label without an alias is the trap here: it names the row convincingly and
+ * still leaves it split off from the room it belongs to. `reading-room` sat in
+ * LABELS alone for two weeks and hid 4.9 hours and 114 opens from the panel
+ * built to surface them — invisible by default because TerrainUsageView opens on
+ * a 7-day window and that key's last data is 2026-07-27. If you add a key here,
+ * add it to BOTH tables or to neither.
  *
  * This table is the CLIENT-SIDE half of a fix that belongs at the source: the
  * beacon should record a stable feature id beside the display key. Once it does,
  * this table becomes a one-time migration instead of a permanent translation
- * layer. Same fix is a prerequisite for the Burn's unit map, which reads this
- * same record against feature directories.
+ * layer. Note the fix cannot be written as "log the feature id" today — there is
+ * no id namespace anywhere in the repo to log. The Burn does NOT depend on this:
+ * it units on `features/<name>/` + `routes/<name>.py` and reads usage_rollup's
+ * per-feature api counts, never these tab keys.
  *
  * Prompt that produced it: "build a simple visualizer that lives in terrain,
  * with what I already have" — a view of which places actually get used.
@@ -62,8 +72,10 @@ export interface PlaceUsage {
  * Only renames belong here: two keys that were genuinely the same room.
  */
 export const ALIASES: Readonly<Record<string, string>> = {
-  // Renamed with the surface itself (see shell/TopTabs.tsx).
+  // Renamed with the surface itself (see shell/TopTabs.tsx). Two hops, not one:
+  // bots → reading-room → observatory. All three keys are in the live record.
   bots: 'observatory',
+  'reading-room': 'observatory',
   // Retired: /atlas is now a bare redirect into the Observatory's archive.
   atlas: 'observatory',
 };
@@ -75,12 +87,13 @@ export const ALIASES: Readonly<Record<string, string>> = {
  */
 const LABELS: Readonly<Record<string, string>> = {
   todos: 'To Do',
-  today: 'To Do',
   map: 'Life Map',
-  lifemap: 'Life Map',
-  code: 'VS Code',
+  // Two different surfaces, and they used to share a label wrongly. /code is
+  // Terrain's read-only single-file viewer (routes/code.tsx renders
+  // features/terrain/FileCodePage — it's where an Observatory card sends a
+  // tapped file); /vscode launches code-server, which is the actual VS Code.
+  code: 'File Viewer',
   vscode: 'VS Code',
-  'reading-room': 'Reading Room',
   runqueue: 'Run Queue',
   nightcrew: 'Night Crew',
   devnotes: 'Dev Notes',
