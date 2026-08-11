@@ -587,9 +587,36 @@ def _run_turn(proc, stderr_f, conv_id, log_path, resume_sid, live_q):
     # for longer than ten minutes read as frozen to all three at once: the
     # dispatcher failed it mid-flight, the one-turn-per-conversation guard fell
     # open, and the card went quiet. The heartbeat keeps it honest DURING the
-    # turn. It beats on a wall clock, not per event, because it writes through
-    # store.mutate on the shared index that the roster is already polling.
-    last_beat = time.monotonic()
+    # turn.
+    #
+    # It runs on its own wall clock rather than off the event loop below, and
+    # that distinction is the whole point. The loop only sees events, and the
+    # non-stream_event ones are exactly what gets written to the jsonl — the
+    # same signal the dispatcher's other witness already reads. Beating on them
+    # left both witnesses blind in the same places: a long Bash step, a Task
+    # subagent, an extended think all emit nothing but token deltas, or nothing
+    # at all, for minutes at a stretch. Those are the turns most expensive to
+    # lose, and they were the ones the liveness machinery couldn't see.
+    #
+    # It only ever stamps a turn the index still calls running, so it cannot
+    # resurrect one that Stop or the `finally` has already put down — and it
+    # stops itself the moment it finds one, so a missed `beat_stop` can't leave
+    # a thread writing forever. _HEARTBEAT_SEC is deliberately slow: this writes
+    # through store.mutate on the shared index the roster already polls.
+    beat_stop = threading.Event()
+
+    def _heartbeat() -> None:
+        while not beat_stop.wait(_HEARTBEAT_SEC):
+            try:
+                with store.mutate("bot_chats/index", {}) as index:
+                    beat_entry = index.get(conv_id)
+                    if not (isinstance(beat_entry, dict) and beat_entry.get("running")):
+                        return          # the turn is down — stop beating
+                    beat_entry["last_at"] = _now()
+            except Exception:
+                continue                # a contended write is not a dead turn
+
+    threading.Thread(target=_heartbeat, daemon=True).start()
     # What killed this turn, if anything — hoisted out of the log-writing block
     # so the index update in `finally` can persist it. That's what puts a red
     # card on the roster: an error used to exist only as an event in the live
@@ -635,18 +662,6 @@ def _run_turn(proc, stderr_f, conv_id, log_path, resume_sid, live_q):
                     if isinstance(idx_entry, dict) and idx_entry.get("stop_requested"):
                         _stop_requested.add(conv_id)
                         proc.kill()
-                # The heartbeat. Same message-granular rule as the stop check
-                # above — never per token delta — and additionally throttled to
-                # _HEARTBEAT_SEC. Only ever stamps a turn the index still calls
-                # running, so it can't resurrect one that Stop or the `finally`
-                # has already put down.
-                if (event.get("type") != "stream_event"
-                        and time.monotonic() - last_beat >= _HEARTBEAT_SEC):
-                    last_beat = time.monotonic()
-                    with store.mutate("bot_chats/index", {}) as index:
-                        beat_entry = index.get(conv_id)
-                        if isinstance(beat_entry, dict) and beat_entry.get("running"):
-                            beat_entry["last_at"] = _now()
             proc.wait()
             stopped = conv_id in _stop_requested
             if proc.returncode != 0 and not stopped:
@@ -656,6 +671,7 @@ def _run_turn(proc, stderr_f, conv_id, log_path, resume_sid, live_q):
                 log.write(json.dumps(ev) + "\n")
                 live_q.put(ev)
     finally:
+        beat_stop.set()   # before the index write below, so the two can't race
         _running_procs.pop(conv_id, None)
         _stop_requested.discard(conv_id)
         try:
@@ -704,6 +720,50 @@ def _terrain_repos():
 
 def _sse(obj):
     return f"data: {json.dumps(obj)}\n\n"
+
+
+# --- following a turn this process does not own ------------------------------
+# The send route hands its client a live view of the turn thread's in-memory
+# queue, which only works when the turn is running in THIS process. Everything
+# else — the other gunicorn worker, a re-attaching phone, and (the reason this
+# exists) a turn hosted outside the web service entirely — has had to poll the
+# whole transcript and diff it. That is fine for a reconnect and much too heavy
+# to be the normal way of watching a reply arrive.
+#
+# So this reads the transcript the way `tail -f` does: remember a byte offset,
+# read what's new, hand over the whole lines, keep the partial one for next
+# time. The log is already flushed per event by _run_turn ("the log is what a
+# re-attaching client reads"), so it is a live feed that happens to be durable
+# — and it does not care one bit which process, service or machine is doing
+# the writing.
+_FOLLOW_POLL_SEC = 0.4        # how often to look for new lines
+_FOLLOW_RUNNING_EVERY = 5     # ...and how many of those before re-asking the
+                              # index whether the turn is still alive (that is
+                              # a database read; the file check is a seek)
+_FOLLOW_KEEPALIVE_SEC = 15    # silence the client can sit through before a
+                              # comment goes down the pipe to hold it open
+_FOLLOW_MAX_SEC = 30 * 60     # close and let the client reconnect with ?from=,
+                              # so one stream can't be held open forever
+
+
+def _read_whole_lines(path, offset):
+    """Complete lines after `offset`, and the offset just past the last one.
+
+    A final line with no newline yet is a write in progress — it is left alone
+    and picked up on the next read. Without that, a client can be handed half
+    an event and a torn line can never be repaired.
+    """
+    try:
+        with path.open("rb") as fh:
+            fh.seek(offset)
+            chunk = fh.read()
+    except OSError:
+        return [], offset
+    end = chunk.rfind(b"\n")
+    if end == -1:
+        return [], offset
+    whole = chunk[: end + 1]
+    return whole.decode("utf-8", "replace").splitlines(), offset + len(whole)
 
 
 # --- Keeper rollover control: let the UI fire (and poll) the same close/open
@@ -1802,6 +1862,75 @@ def register(app):
         if tokens:
             meta = dict(meta, tokens=tokens)
         return jsonify({"id": conv_id, "meta": meta, "events": events})
+
+    @app.route("/api/observatory/conversation/<conv_id>/follow")
+    def bot_conv_follow(conv_id):
+        """Stream a turn's events as they land, for a watcher that doesn't own it.
+
+        `?from=<n>` is how many events the client already has — exactly the
+        length of the `events` array the conversation route just gave it, so
+        loading a session and then following it has no gap and no overlap.
+
+        Ends when the turn is over, with a final `{"type": "follow_end"}` so
+        the client can tell "the reply finished" from "my connection died" —
+        the two look identical to an SSE reader otherwise. Also ends on a time
+        limit; reconnect with the `from` this one reported.
+
+        Deliberately knows nothing about who is running the turn. That is the
+        whole point: the same endpoint serves the other gunicorn worker, a
+        reconnecting phone, and a turn hosted in a different systemd service.
+        """
+        if not _CONV_ID_RE.match(conv_id or ""):
+            return jsonify({"error": "bad conversation id"}), 400
+        path = _chats_dir() / f"{conv_id}.jsonl"
+        try:
+            already = max(0, int(request.args.get("from", 0)))
+        except (TypeError, ValueError):
+            already = 0
+
+        def generate():
+            offset, sent = 0, 0
+            started = last_spoke = time.monotonic()
+            ticks = 0
+            running = True
+            while True:
+                lines, offset = _read_whole_lines(path, offset)
+                for raw in lines:
+                    sent += 1
+                    if sent <= already:
+                        continue      # catching up to where the client already is
+                    try:
+                        yield _sse(json.loads(raw))
+                    except ValueError:
+                        continue      # a torn historical line, same as elsewhere
+                    last_spoke = time.monotonic()
+                # `running` is only ever set False after a read, so the events
+                # written between the last read and the flag clearing are
+                # always sent before this loop leaves.
+                if not running or time.monotonic() - started > _FOLLOW_MAX_SEC:
+                    break
+                # Checked on the very first pass, not after the first interval:
+                # following a turn that has already finished is the common
+                # case (a reconnect that missed the end) and it must return at
+                # once rather than sit here waiting to ask.
+                if ticks % _FOLLOW_RUNNING_EVERY == 0:
+                    entry = store.read("bot_chats/index", {}).get(conv_id)
+                    running = bool(isinstance(entry, dict)
+                                   and _effective_running(conv_id, entry))
+                    if not running:
+                        continue      # one last read, then out
+                ticks += 1
+                if time.monotonic() - last_spoke > _FOLLOW_KEEPALIVE_SEC:
+                    # nginx gives up on a silent proxied stream at 60s, and a
+                    # long tool stretch says nothing for longer than that.
+                    yield ": keepalive\n\n"
+                    last_spoke = time.monotonic()
+                time.sleep(_FOLLOW_POLL_SEC)
+            yield _sse({"type": "follow_end", "count": sent})
+
+        return Response(generate(), mimetype="text/event-stream",
+                        headers={"Cache-Control": "no-cache",
+                                 "X-Accel-Buffering": "no"})
 
     @app.route("/api/observatory/conversation/<conv_id>/preview")
     def bot_conv_preview(conv_id):
