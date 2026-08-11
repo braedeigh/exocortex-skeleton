@@ -118,8 +118,11 @@ tab's notes from `dev_notes.json` then and dig in.
 Do all build work in `<SKELETON_DIR>` with absolute paths.
 
 - After **Python** edits (`server.py`, `routes/`, `store.py`):
-  `sudo systemctl restart exocortex.service` (or however this deployment runs — a
-  laptop install just re-runs `server.py`).
+  `sudo systemctl reload exocortex.service` (or however this deployment runs — a
+  laptop install just re-runs `server.py`). **Never `restart` on a box that hosts
+  agent sessions:** it SIGTERMs the whole service cgroup, and each `claude -p` turn
+  is spawned as a child of a gunicorn worker, so it kills every session mid-task.
+  Restart only for unit-file / `Environment=` changes.
 - After **frontend** edits: `cd frontend && npm run build` (vite → `frontend/dist/`),
   then refresh — no restart. (If this fork is still on the older static-JS frontend,
   a browser refresh alone is enough — check which one you're looking at before
