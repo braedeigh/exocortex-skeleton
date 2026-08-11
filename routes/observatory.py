@@ -49,6 +49,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 
 import recap_summary
 import store
@@ -522,6 +523,12 @@ _stop_requested = set()
 # THIS worker's registry — cross-worker we can't see it, so time decides.
 _RUNNING_STALE_SEC = 600
 
+# How often a live turn re-stamps `last_at` while it works (see the heartbeat
+# in _run_turn). Has to stay well under _RUNNING_STALE_SEC — and under the run
+# dispatcher's STALE_SEC, which is the same 600 — or the heartbeat can't
+# prevent the thing it exists to prevent.
+_HEARTBEAT_SEC = 30
+
 
 def _effective_running(conv_id, entry):
     if not entry.get("running"):
@@ -572,6 +579,17 @@ def _run_turn(proc, stderr_f, conv_id, log_path, resume_sid, live_q):
     session_id = resume_sid
     sid_saved = False
     cost = None
+    # `last_at` means "this session was doing something at this moment", and
+    # three separate readers use it to decide a turn has died: the run
+    # dispatcher's liveness probe, _effective_running's cross-worker fallback,
+    # and the roster card. It used to be written only at the send door and in
+    # the `finally` below — never while the turn ran — so a turn that thought
+    # for longer than ten minutes read as frozen to all three at once: the
+    # dispatcher failed it mid-flight, the one-turn-per-conversation guard fell
+    # open, and the card went quiet. The heartbeat keeps it honest DURING the
+    # turn. It beats on a wall clock, not per event, because it writes through
+    # store.mutate on the shared index that the roster is already polling.
+    last_beat = time.monotonic()
     # What killed this turn, if anything — hoisted out of the log-writing block
     # so the index update in `finally` can persist it. That's what puts a red
     # card on the roster: an error used to exist only as an event in the live
@@ -617,6 +635,18 @@ def _run_turn(proc, stderr_f, conv_id, log_path, resume_sid, live_q):
                     if isinstance(idx_entry, dict) and idx_entry.get("stop_requested"):
                         _stop_requested.add(conv_id)
                         proc.kill()
+                # The heartbeat. Same message-granular rule as the stop check
+                # above — never per token delta — and additionally throttled to
+                # _HEARTBEAT_SEC. Only ever stamps a turn the index still calls
+                # running, so it can't resurrect one that Stop or the `finally`
+                # has already put down.
+                if (event.get("type") != "stream_event"
+                        and time.monotonic() - last_beat >= _HEARTBEAT_SEC):
+                    last_beat = time.monotonic()
+                    with store.mutate("bot_chats/index", {}) as index:
+                        beat_entry = index.get(conv_id)
+                        if isinstance(beat_entry, dict) and beat_entry.get("running"):
+                            beat_entry["last_at"] = _now()
             proc.wait()
             stopped = conv_id in _stop_requested
             if proc.returncode != 0 and not stopped:

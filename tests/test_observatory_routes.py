@@ -2320,3 +2320,57 @@ def test_night_session_reply_without_a_run_is_refused(bot_client):
     resp = bot_client.post(f"/api/observatory/conversation/{conv}/send",
                            json={"text": "hello?"})
     assert resp.status_code == 409
+
+
+# --- the heartbeat -----------------------------------------------------------
+
+def test_a_running_turn_stamps_last_at_while_it_works(bot_client, tmp_path, monkeypatch):
+    """`last_at` is what three separate readers use to decide a turn has died —
+    the run dispatcher's liveness probe, _effective_running's cross-worker
+    fallback, and the roster card. It used to be written only at the send door
+    and in the `finally`, so a turn thinking for longer than ten minutes read as
+    frozen to all three at once: the dispatcher failed it mid-flight and the
+    one-turn-per-conversation guard fell open. It has to move DURING the turn.
+    """
+    import time as _t
+    _install_slow_stub(tmp_path, monkeypatch)
+    # A strictly-increasing clock so every individual write is visible; without
+    # it the send door and the heartbeat land in the same wall-clock second.
+    base = datetime(2026, 8, 10, 9, 0, 0)
+    seq = iter(range(1, 500))
+    monkeypatch.setattr(observatory, "_now",
+                        lambda: (base + timedelta(seconds=next(seq))).isoformat(timespec="seconds"))
+    monkeypatch.setattr(observatory, "_HEARTBEAT_SEC", 0)
+
+    resp = _send(bot_client, text="think about this for a while")
+    it = resp.iter_encoded()
+    conv_id = _first_frame_conv(it)
+    at_send = store.read("bot_chats/index", {})[conv_id]["last_at"]
+    next(it)   # the init event has been relayed; the stub now sleeps 4s
+
+    deadline = _t.time() + 3
+    meta = {}
+    while _t.time() < deadline:
+        meta = store.read("bot_chats/index", {}).get(conv_id, {})
+        if meta.get("last_at") != at_send:
+            break
+        _t.sleep(0.05)
+    assert meta.get("running") is True, "still mid-turn — that's the whole point"
+    assert meta.get("last_at") != at_send
+
+    resp.close()
+    _wait_not_running(conv_id)
+
+
+def test_the_heartbeat_does_not_resurrect_a_stopped_turn(bot_client, tmp_path, monkeypatch):
+    """It only ever stamps a turn the index still calls running, so it can't
+    undo a Stop or race the `finally` into looking alive again."""
+    _install_slow_stub(tmp_path, monkeypatch)
+    monkeypatch.setattr(observatory, "_HEARTBEAT_SEC", 0)
+    resp = _send(bot_client, text="never mind")
+    it = resp.iter_encoded()
+    conv_id = _first_frame_conv(it)
+    assert bot_client.post(f"/api/observatory/conversation/{conv_id}/stop").status_code == 200
+    b"".join(it)
+    meta = _wait_not_running(conv_id)
+    assert meta["running"] is False

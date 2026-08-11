@@ -33,6 +33,7 @@ import re
 import signal
 import subprocess
 import threading
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -57,6 +58,53 @@ def _set_live(run_id, value):
                 r["live"] = value
 
 
+# How long a go-live waits for live turns to end before giving up and leaving
+# the reload for later. Long enough for an ordinary turn; short enough that one
+# wedged session can't hold a merge hostage all morning.
+_QUIET_WAIT_SEC = 300
+_QUIET_POLL_SEC = 10
+
+
+def _live_turn_count():
+    """How many conversations are mid-turn right now, judged by
+    _effective_running rather than the bare `running` flag — so a session
+    stranded by an earlier crash can't block a reload forever.
+
+    Cross-worker this leans on `last_at`, which the turn relay heartbeats
+    every 30s (observatory._HEARTBEAT_SEC); without that heartbeat this count
+    would go blind to any turn older than ten minutes, which is exactly the
+    kind of long turn most worth not cutting off.
+
+    Imported lazily because routes.observatory drags in a good deal of the app
+    and this module is imported at startup."""
+    from routes.observatory import _effective_running
+    index = store.read("bot_chats/index", {})
+    if not isinstance(index, dict):
+        return 0
+    return sum(1 for conv_id, entry in index.items()
+               if isinstance(entry, dict) and _effective_running(conv_id, entry))
+
+
+def _wait_for_quiet(run_id, sleep_fn=time.sleep, now_fn=time.monotonic):
+    """Wait until nothing is mid-turn, up to _QUIET_WAIT_SEC. True if the room
+    went quiet (or already was), False if it timed out with a turn still live.
+    Injected clock/sleep so the tests don't."""
+    deadline = now_fn() + _QUIET_WAIT_SEC
+    announced = False
+    while True:
+        busy = _live_turn_count()
+        if not busy:
+            return True
+        if now_fn() >= deadline:
+            return False
+        if not announced:
+            _set_live(run_id, f"built — holding the reload while {busy} live "
+                              f"session{'' if busy == 1 else 's'} finish"
+                              f"{'es' if busy == 1 else ''}…")
+            announced = True
+        sleep_fn(_QUIET_POLL_SEC)
+
+
 def _go_live(run_id):
     """Make the checkout that just changed (merge or revert) BE the running
     site: rebuild the frontend, then signal gunicorn's master to reload.
@@ -71,6 +119,12 @@ def _go_live(run_id):
     Runs in a background thread (_start_go_live): the build takes ~30s and
     the merge response shouldn't hang on it. Progress lands on the run
     record via _set_live, which the card shows verbatim.
+
+    The reload is graceful for HTTP and brutal for agents: fresh workers
+    replace the old ones, and a live turn's relay thread lives INSIDE a
+    worker, so reloading mid-turn kills the relay and strands the reply
+    half-written. Tapping Approve is not a request to stop whatever else is
+    talking, so this waits for the room to go quiet first.
     """
     build = subprocess.run(["npm", "run", "build"],
                            cwd=str(SKELETON / "frontend"),
@@ -80,6 +134,11 @@ def _go_live(run_id):
         _set_live(run_id, "stuck: the frontend build failed — the change is "
                           "merged but the site still runs the old build. "
                           + " / ".join(tail))
+        return
+    if not _wait_for_quiet(run_id):
+        _set_live(run_id, "built and merged, reload held — a session is still "
+                          "mid-turn and reloading now would cut its reply off. "
+                          "The change goes live on the next reload or restart.")
         return
     try:
         # This worker's parent IS the gunicorn master. PID 1 would mean

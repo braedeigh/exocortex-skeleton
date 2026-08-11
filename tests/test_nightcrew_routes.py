@@ -507,3 +507,65 @@ def test_a_branch_card_carries_no_merge_handle(client, agent_repo):
 
     assert card["id"].startswith("branch:")
     assert "test_tail" not in card
+
+
+# --- the reload waits for the room to go quiet -------------------------------
+# Approve rebuilds and then SIGHUPs gunicorn, which replaces every worker. A
+# live turn's relay thread lives INSIDE a worker, so reloading mid-turn cuts
+# the reply off half-written and strands `running: true` forever. Tapping
+# Approve is not a request to stop whatever else is talking.
+
+def _running_conv(**extra):
+    (store.DATA_DIR / "bot_chats").mkdir(parents=True, exist_ok=True)
+    entry = {"running": True, "last_at": datetime.now().isoformat(timespec="seconds")}
+    entry.update(extra)
+    store.write("bot_chats/index", {"c1": entry})
+
+
+def test_go_live_holds_the_reload_while_a_turn_is_running(data_dir, monkeypatch):
+    store.write("night_runs.json", {"runs": [{"id": "r1", "status": "merged"}]})
+    _running_conv()
+    monkeypatch.setattr(nightcrew.subprocess, "run",
+                        lambda *a, **k: subprocess.CompletedProcess(a, 0, stdout="ok", stderr=""))
+    monkeypatch.setattr(nightcrew, "_QUIET_WAIT_SEC", 0)
+    signals = []
+    monkeypatch.setattr(nightcrew.os, "getppid", lambda: 4242)
+    monkeypatch.setattr(nightcrew.os, "kill", lambda pid, sig: signals.append((pid, sig)))
+
+    nightcrew._go_live("r1")
+
+    assert signals == [], "a live turn must not be reloaded out from under"
+    live = store.read("night_runs.json", {})["runs"][0]["live"]
+    assert "held" in live
+    assert live != "live", "the card must not claim live when it isn't"
+
+
+def test_go_live_reloads_once_the_last_turn_finishes(data_dir, monkeypatch):
+    """The wait is a wait, not a refusal: the reload lands as soon as the room
+    empties."""
+    store.write("night_runs.json", {"runs": [{"id": "r1", "status": "merged"}]})
+    monkeypatch.setattr(nightcrew.subprocess, "run",
+                        lambda *a, **k: subprocess.CompletedProcess(a, 0, stdout="ok", stderr=""))
+    busy = iter([2, 1, 0])
+    monkeypatch.setattr(nightcrew, "_live_turn_count", lambda: next(busy))
+    monkeypatch.setattr(nightcrew.time, "sleep", lambda s: None)
+    signals = []
+    monkeypatch.setattr(nightcrew.os, "getppid", lambda: 4242)
+    monkeypatch.setattr(nightcrew.os, "kill", lambda pid, sig: signals.append((pid, sig)))
+
+    nightcrew._go_live("r1")
+
+    assert signals == [(4242, nightcrew.signal.SIGHUP)]
+    assert store.read("night_runs.json", {})["runs"][0]["live"] == "live"
+
+
+def test_a_stale_running_flag_cannot_hold_the_reload_hostage(data_dir):
+    """The count judges by _effective_running, not the bare flag — otherwise a
+    session stranded by an earlier crash would block every future merge."""
+    _running_conv(last_at=(datetime.now() - timedelta(hours=3)).isoformat(timespec="seconds"))
+    assert nightcrew._live_turn_count() == 0
+
+
+def test_a_live_turn_is_counted(data_dir):
+    _running_conv()
+    assert nightcrew._live_turn_count() == 1

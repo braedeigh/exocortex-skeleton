@@ -7,7 +7,14 @@ After=network.target
 User=<APP_USER>
 Group=<APP_USER>
 WorkingDirectory=<SKELETON_DIR>
-ExecStart=<SKELETON_DIR>/venv/bin/gunicorn -k gevent -w 2 --worker-connections 1000 --timeout 120 --max-requests 1000 --max-requests-jitter 200 -b 127.0.0.1:5000 server:app
+# --max-requests recycles a worker after N requests, as a memory-leak guard.
+# It is also a turn-killer: an agent turn's relay lives inside the worker, so
+# a recycle mid-turn strands the reply half-written and leaves `running: true`
+# set forever. At 1000, against a roster that polls every few seconds, that
+# fired roughly hourly during ordinary use. 10000 keeps the leak guard and
+# makes the collision rare. The real fix is hosting turns outside gunicorn;
+# this is the cheap part of it.
+ExecStart=<SKELETON_DIR>/venv/bin/gunicorn -k gevent -w 2 --worker-connections 1000 --timeout 120 --max-requests 10000 --max-requests-jitter 1000 -b 127.0.0.1:5000 server:app
 Environment=TEMPLATES_AUTO_RELOAD=1
 Environment=EXOCORTEX_DATA_DIR=<VAULT_DIR>/data
 Environment=EXOCORTEX_CONTENT_DIR=<VAULT_DIR>/tulku

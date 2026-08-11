@@ -361,3 +361,93 @@ def test_an_overlapping_tick_exits_instead_of_racing(data_dir, monkeypatch):
     _tick(spawner=spawned.append)
     assert spawned == []
     assert _runs()[0]["status"] == "queued"
+
+
+# --- make_probe: the real probe, on observatory turns -------------------------
+# These are the first tests make_probe has ever had, and they exist because the
+# thing it got wrong was invisible without them: every other test in this file
+# injects a stub probe, so the real one shipped a bug that quietly killed live
+# turns. The regression it guards is the one below — a healthy turn that has
+# simply been thinking for a while.
+
+class _Tmux:
+    """Minimal stand-in for shared.tmux — no tmux workers in these tests."""
+    returncode = 1
+    stdout = ""
+
+
+def _probe_for(entry, log_age_sec=None, now=NOW):
+    """A real probe over one conversation, with both witnesses under control."""
+    (store.DATA_DIR / "bot_chats").mkdir(parents=True, exist_ok=True)
+    store.write("bot_chats/index", {"c1": entry})
+    mtime = None if log_age_sec is None else (
+        now - timedelta(seconds=log_age_sec)).timestamp()
+    return rd.make_probe(tmux_fn=lambda *a, **kw: _Tmux(),
+                         clock=lambda: now,
+                         log_mtime_fn=lambda conv_id: mtime)
+
+
+def _observatory_run(**extra):
+    return _run(id="a", status="running",
+                spawn={"type": "observatory_turn", "conv_id": "c1"},
+                conv_id="c1", **extra)
+
+
+def test_a_long_thinking_turn_is_alive_even_though_last_at_went_stale(data_dir):
+    """THE REGRESSION. last_at only moves at the start and end of a turn plus a
+    30s heartbeat; the log moves on every event. A turn quiet in the index for
+    longer than STALE_SEC, whose log was written seconds ago, is working — and
+    used to be requeued and then permanently failed while it was still typing.
+    """
+    stale = (NOW - timedelta(seconds=rd.STALE_SEC + 300)).isoformat()
+    probe = _probe_for({"running": True, "last_at": stale}, log_age_sec=5)
+    assert probe(_observatory_run())["alive"] is True
+
+
+def test_a_turn_with_no_witness_moving_is_not_alive(data_dir):
+    """The other half: `running` on its own still buys nothing. A worker that
+    died mid-turn leaves the flag set forever, and neither witness moves."""
+    stale = (NOW - timedelta(seconds=rd.STALE_SEC + 300)).isoformat()
+    probe = _probe_for({"running": True, "last_at": stale},
+                       log_age_sec=rd.STALE_SEC + 300)
+    assert probe(_observatory_run())["alive"] is False
+
+
+def test_a_freshly_spawned_turn_with_no_log_yet_is_alive_on_last_at(data_dir):
+    """Between spawn and the first event there may be no log file at all (or
+    only a stale one from a previous turn). last_at covers exactly that gap."""
+    probe = _probe_for({"running": True, "last_at": NOW.isoformat()},
+                       log_age_sec=None)
+    assert probe(_observatory_run())["alive"] is True
+
+
+def test_a_turn_that_stopped_running_reads_as_completed(data_dir):
+    probe = _probe_for({"running": False, "last_at": NOW.isoformat()},
+                       log_age_sec=5)
+    result = probe(_observatory_run())
+    assert result["alive"] is False
+    assert result["completed"] is True
+
+
+def test_a_turns_last_error_reaches_the_probe(data_dir):
+    probe = _probe_for({"running": False, "last_at": NOW.isoformat(),
+                        "last_error": "claude exited 1"}, log_age_sec=5)
+    assert probe(_observatory_run())["error"] == "claude exited 1"
+
+
+# --- quiet_seconds: which witness wins ----------------------------------------
+
+def test_quiet_seconds_takes_the_freshest_of_the_two_witnesses(data_dir):
+    entry = {"last_at": (NOW - timedelta(seconds=900)).isoformat()}
+    fresh_log = (NOW - timedelta(seconds=10)).timestamp()
+    quiet = rd.quiet_seconds("c1", entry, NOW, lambda conv_id: fresh_log)
+    assert quiet == pytest.approx(10, abs=1)
+
+    entry = {"last_at": (NOW - timedelta(seconds=10)).isoformat()}
+    old_log = (NOW - timedelta(seconds=900)).timestamp()
+    quiet = rd.quiet_seconds("c1", entry, NOW, lambda conv_id: old_log)
+    assert quiet == pytest.approx(10, abs=1)
+
+
+def test_quiet_seconds_is_none_when_neither_witness_exists(data_dir):
+    assert rd.quiet_seconds("c1", {}, NOW, lambda conv_id: None) is None

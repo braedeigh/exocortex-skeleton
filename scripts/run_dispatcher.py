@@ -335,7 +335,7 @@ def _live_tmux_names(tmux_fn):
     return {n.strip() for n in (result.stdout or "").splitlines() if n.strip()}
 
 
-def make_probe(tmux_fn=None, clock=None):
+def make_probe(tmux_fn=None, clock=None, log_mtime_fn=None):
     """Build the real probe: one function that answers, for any run, "is it
     alive, did it finish, and did it error."
 
@@ -379,8 +379,17 @@ def make_probe(tmux_fn=None, clock=None):
             # Alive = the index says running AND its log has moved recently.
             # The flag alone is exactly what we refuse to trust: a worker that
             # died mid-turn leaves it set forever.
-            last = parse_ts(entry.get("last_at"))
-            fresh = last is not None and (clock() - last).total_seconds() < STALE_SEC
+            #
+            # This used to read `last_at` alone while the comment above claimed
+            # it read the log, and the gap between the two was a real bug: back
+            # then last_at only moved at the start and the end of a turn, so
+            # every turn quiet for STALE_SEC probed dead while perfectly
+            # healthy, got requeued, and was failed for good on the next tick
+            # (rq-0805-173324 was killed 18 seconds before it finished
+            # cleanly). quiet_seconds now grounds the answer in the log the way
+            # the comment always said it did.
+            quiet = quiet_seconds(conv_id, entry, clock(), log_mtime_fn)
+            fresh = quiet is not None and quiet < STALE_SEC
             return {
                 "alive": bool(entry.get("running")) and fresh,
                 "completed": bool(entry) and not entry.get("running"),
@@ -445,6 +454,44 @@ def conv_log_size(conv_id):
         return (store.DATA_DIR / "bot_chats" / f"{conv_id}.jsonl").stat().st_size
     except OSError:
         return 0
+
+
+def conv_log_mtime(conv_id):
+    """When a conversation's log was last written to, or None if there isn't
+    one yet. The turn relay flushes this file on every event it receives
+    (routes/observatory.py's turn loop), so the mtime is DIRECT evidence the
+    turn is still producing — which is what a probe is supposed to want, as
+    against the index's `running` flag, which a worker that died mid-turn
+    leaves set forever."""
+    try:
+        return (store.DATA_DIR / "bot_chats" / f"{conv_id}.jsonl").stat().st_mtime
+    except OSError:
+        return None
+
+
+def quiet_seconds(conv_id, entry, now, log_mtime_fn=None):
+    """How long this conversation has shown no sign of life, measured by the
+    freshest of two independent witnesses; None when neither exists.
+
+    Two, because each covers the other's blind spot. The LOG's mtime moves on
+    every single event, so it's the more responsive witness — but a turn that
+    has spawned and not yet emitted anything may have no log file at all, or
+    only a stale one from a previous turn. `last_at` covers exactly that gap:
+    the send door stamps it, and the relay re-stamps it every 30s while the
+    turn runs (observatory._HEARTBEAT_SEC). Neither is the `running` flag,
+    which is the one thing this function refuses to take anyone's word for.
+    """
+    log_mtime_fn = log_mtime_fn or conv_log_mtime
+    witnesses = []
+    mtime = log_mtime_fn(conv_id)
+    if mtime is not None:
+        witnesses.append(datetime.fromtimestamp(mtime))
+    last = parse_ts(entry.get("last_at"))
+    if last is not None:
+        witnesses.append(last)
+    if not witnesses:
+        return None
+    return (now - max(witnesses)).total_seconds()
 
 
 # --- orchestration ------------------------------------------------------------
