@@ -345,7 +345,7 @@ def update(repos=None):
     conn = sqlstore.open_db()
     out = {}
     try:
-        conn.execute("BEGIN IMMEDIATE")
+        sqlstore.begin_immediate(conn)
         for repo in repos:
             out[repo["id"]] = _index_repo(conn, repo["id"], repo["root"])
         conn.execute("COMMIT")
@@ -365,7 +365,7 @@ def rebuild(repos=None):
     repos = default_repos() if repos is None else repos
     conn = sqlstore.open_db()
     try:
-        conn.execute("BEGIN IMMEDIATE")
+        sqlstore.begin_immediate(conn)
         # Children first, same reasoning as expensestore.
         conn.execute("DELETE FROM session_files")
         conn.execute("DELETE FROM sessions")
@@ -402,7 +402,7 @@ def sync_sessions(repos=None):
     repos = default_repos() if repos is None else repos
     conn = sqlstore.open_db()
     try:
-        conn.execute("BEGIN IMMEDIATE")
+        sqlstore.begin_immediate(conn)
         n, turns = _sync_sessions(conn, repos)
         conn.execute("COMMIT")
     except BaseException:
@@ -425,7 +425,7 @@ def sync_turns():
     Returns the row count."""
     conn = sqlstore.open_db()
     try:
-        conn.execute("BEGIN IMMEDIATE")
+        sqlstore.begin_immediate(conn)
         n = _sync_turns(conn)
         conn.execute("COMMIT")
     except BaseException:

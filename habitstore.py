@@ -141,7 +141,7 @@ def rebuild():
 
     conn = sqlstore.open_db()
     try:
-        conn.execute("BEGIN IMMEDIATE")
+        sqlstore.begin_immediate(conn)
         for (section, name), aliases in sorted(canon.items()):
             # Active = on the current list and not hidden. Everything else is
             # history: still queryable, just not part of today's practice.
@@ -334,7 +334,7 @@ def merge(source_id, target_id):
         raise ValueError("cannot merge a habit into itself")
     conn = sqlstore.open_db()
     try:
-        conn.execute("BEGIN IMMEDIATE")
+        sqlstore.begin_immediate(conn)
         if _follow(conn, target_id) == source_id:
             raise ValueError("that merge would form a cycle")
         conn.execute("UPDATE habits SET merged_into = ? WHERE id = ?", (target_id, source_id))

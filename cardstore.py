@@ -179,7 +179,7 @@ def sync():
     conn = sqlstore.open_db()
     now = _now()
     try:
-        conn.execute("BEGIN IMMEDIATE")
+        sqlstore.begin_immediate(conn)
         known = {r[0] for r in conn.execute("SELECT id FROM cards")}
         seen = set()
         for path in sorted(pool_dir().glob("*.md")):
@@ -257,7 +257,7 @@ def sync_one(cid: str):
     conn = sqlstore.open_db()
     now = _now()
     try:
-        conn.execute("BEGIN IMMEDIATE")
+        sqlstore.begin_immediate(conn)
         path = pool_dir() / f"{cid}.md"
         card = _parse_card(path) if path.exists() else None
         if card is not None:
@@ -284,7 +284,7 @@ def rebuild():
     deleted cards survive because the cast log is re-read."""
     conn = sqlstore.open_db()
     try:
-        conn.execute("BEGIN IMMEDIATE")
+        sqlstore.begin_immediate(conn)
         conn.execute("DELETE FROM card_tags")
         conn.execute("DELETE FROM cards")
         conn.execute("COMMIT")

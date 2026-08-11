@@ -75,7 +75,7 @@ def rebuild():
 
     conn = sqlstore.open_db()
     try:
-        conn.execute("BEGIN IMMEDIATE")
+        sqlstore.begin_immediate(conn)
         # Children first: expenses reference categories, and clearing the
         # parent while rows still point at it is what a foreign key is for.
         conn.execute("DELETE FROM expenses")

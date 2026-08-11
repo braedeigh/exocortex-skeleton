@@ -168,7 +168,7 @@ def rebuild():
 
     conn = sqlstore.open_db()
     try:
-        conn.execute("BEGIN IMMEDIATE")
+        sqlstore.begin_immediate(conn)
         # Children first — the FKs point this way, and clearing a parent out
         # from under live rows is what ON DELETE CASCADE would otherwise
         # silently paper over.

@@ -15,7 +15,9 @@ Guarantees per SQL-backed collection:
     output; the database is the truth.
   - `mutate()` runs the whole read-modify-write inside one BEGIN IMMEDIATE
     transaction, which is a stronger, simpler version of store.mutate's flock:
-    concurrent writers queue on SQLite's write lock (busy_timeout 5s).
+    concurrent writers queue on SQLite's write lock. They queue by yielding in
+    Python, not by parking inside SQLite — see `begin_immediate` for why that
+    distinction is the difference between waiting and failing here.
   - First touch of a collection that has a legacy JSON file but no DB row
     seeds the row from the file — the same lazy back-fill-on-read migration
     style data_helpers uses, so flipping a collection on requires no script.
@@ -34,7 +36,9 @@ forth is safe in either direction.
 """
 from contextlib import contextmanager
 import json
+import random
 import sqlite3
+import time
 
 import store
 
@@ -58,13 +62,67 @@ def _connect() -> sqlite3.Connection:
     what lets the two gunicorn workers (and, later, the agent watcher) share
     the file safely.
     """
-    conn = sqlite3.connect(_db_path(), timeout=5, isolation_level=None)
+    conn = sqlite3.connect(_db_path(), timeout=_BUSY_MS / 1000, isolation_level=None)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
-    conn.execute("PRAGMA busy_timeout=5000")
+    conn.execute(f"PRAGMA busy_timeout={_BUSY_MS}")
     conn.execute("PRAGMA foreign_keys=ON")
     _migrate(conn)
     return conn
+
+
+# --- waiting for the write lock ----------------------------------------------
+# The app runs under gunicorn's gevent worker, and sqlite3 is a C extension
+# gevent cannot patch. So a thread parked in SQLite's busy handler is parked
+# for real: the whole worker's event loop stops, and every other greenlet in
+# that process — INCLUDING THE ONE HOLDING THE TRANSACTION — is frozen until
+# the handler returns.
+#
+# That inverts what busy_timeout is for. Two concurrent writes in one worker
+# used to cost the full five seconds and fail one of them, no matter how
+# trivial the work: the waiter blocked the hub, the holder could not be
+# scheduled to commit, and the waiter timed out against a transaction its own
+# waiting was preventing from finishing. Measured, before this: 0.2s of work,
+# 5.01s wall clock, one OperationalError. It ran ~5 times a day on the two
+# highest-frequency writers — the usage beacons, which both fire on the same
+# navigation.
+#
+# So the C-level wait is now short enough to be irrelevant, and the real
+# waiting happens up in Python where `time.sleep` is monkey-patched and YIELDS
+# — which is precisely what lets the holder run and commit.
+_BUSY_MS = 250
+_LOCK_WAIT_BUDGET = 5.0     # total seconds to keep trying; matches the old ceiling
+_LOCK_BACKOFF_START = 0.01
+_LOCK_BACKOFF_MAX = 0.2
+
+
+def _is_locked(exc):
+    return "locked" in str(exc).lower() or "busy" in str(exc).lower()
+
+
+def begin_immediate(conn, budget=_LOCK_WAIT_BUDGET):
+    """Take the write lock, yielding between attempts instead of blocking.
+
+    Retrying is safe precisely because a failed BEGIN starts no transaction —
+    there is never a half-applied write to clean up, so the only thing a retry
+    can duplicate is the waiting.
+
+    Raises the original OperationalError if the budget runs out, so a genuinely
+    stuck database still surfaces rather than hanging forever.
+    """
+    deadline = time.monotonic() + budget
+    delay = _LOCK_BACKOFF_START
+    while True:
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            return
+        except sqlite3.OperationalError as exc:
+            if not _is_locked(exc) or time.monotonic() >= deadline:
+                raise
+            # Jittered so two waiters woken by the same commit don't collide
+            # again in lockstep.
+            time.sleep(min(delay, _LOCK_BACKOFF_MAX) * (0.5 + random.random()))
+            delay = min(delay * 2, _LOCK_BACKOFF_MAX)
 
 
 # Every table a fully-migrated database must have. This is the cross-check that
@@ -106,13 +164,44 @@ def _migrate(conn):
     were missing, and nothing noticed until a query for them errored.
 
     So the fast path requires the stamp AND the tables actually being there;
-    anything else re-runs the whole ladder. Every rung is `IF NOT EXISTS`, so
-    re-running is a no-op on what already exists and self-heals what doesn't.
+    anything else re-runs the whole ladder. Almost every rung is
+    `IF NOT EXISTS`, so re-running is a no-op on what already exists and
+    self-heals what doesn't — the exception is v9, which DROPs and recreates
+    `session_turns` on purpose.
+
+    **The ladder runs inside the write lock**, and that exception is why. Two
+    connections opening a database that isn't migrated yet both saw work to
+    do and both climbed at once, so one of them ran v9's bare CREATE against
+    a table the other had just made: `table session_turns already exists`,
+    about half the time on a fresh install. Only a fresh install — an
+    already-migrated database returns on the fast path above and never gets
+    here — which is exactly why it went unnoticed. The version and the table
+    check are re-read once the lock is held, so the loser of the race sees
+    the winner's finished work and does nothing.
     """
     version = conn.execute("PRAGMA user_version").fetchone()[0]
     complete = _tables_present(conn)
     if version >= _SCHEMA_VERSION and complete:
         return
+
+    begin_immediate(conn)
+    try:
+        _run_ladder(conn)
+        conn.execute("COMMIT")
+    except BaseException:
+        try:
+            conn.execute("ROLLBACK")
+        except sqlite3.OperationalError:
+            pass
+        raise
+
+
+def _run_ladder(conn):
+    """The rungs themselves. Called only with the write lock held."""
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    complete = _tables_present(conn)
+    if version >= _SCHEMA_VERSION and complete:
+        return  # another connection climbed it while we waited for the lock
     if not complete:
         version = 0  # the stamp lied — replay every rung
     if version < 1:
@@ -749,7 +838,7 @@ def put(name, data):
     text = json.dumps(data, indent=2, ensure_ascii=False)
     conn = _connect()
     try:
-        conn.execute("BEGIN IMMEDIATE")
+        begin_immediate(conn)
         conn.execute(
             "INSERT INTO docs (name, data, updated_at)"
             " VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
@@ -774,7 +863,7 @@ def mutate(name, default=None):
     """
     conn = _connect()
     try:
-        conn.execute("BEGIN IMMEDIATE")
+        begin_immediate(conn)
         row = conn.execute("SELECT data FROM docs WHERE name = ?", (name,)).fetchone()
         if row is None:
             seeded = _seed_from_file(conn, name)
