@@ -34,11 +34,30 @@ const TRACK_NAME_RE = /^[a-z0-9:._-]{1,60}$/;
  * while inspecting the heat must not pollute the very counts on display. */
 const HEAT_ACTIVE_ATTR = 'data-heat-view';
 
+/** One contiguous run of active attention on one (tab, conversation), in
+ * epoch ms. The server converts to its own local clock — see
+ * attentionstore.py. */
+interface Segment {
+  tab: string;
+  conv: string | null;
+  started: number;
+  ended: number;
+}
+
 interface BatchBody {
   time?: Record<string, number>;
   clicks?: Record<string, Record<string, number>>;
   sessions?: Record<string, number>;
+  segments?: Segment[];
 }
+
+/** Force-close an open segment at this length so a long unbroken sitting is
+ * still partly on the record if the browser dies. Well above a normal reading
+ * stretch — the idle pause (2 min) closes segments far more often than this
+ * does — so it costs almost nothing in fragmentation. */
+const MAX_SEGMENT_MS = 10 * 60_000;
+/** Don't let the queue grow without bound if flushes keep failing offline. */
+const MAX_QUEUED_SEGMENTS = 500;
 
 /**
  * Install the dwell clock + click counter + flush queue. Call once in
@@ -72,6 +91,33 @@ export function installUsageTracker(router: AnyRouter): void {
   let runningSince: number | null = document.hidden ? null : Date.now();
   let lastFlush = 0;
 
+  // The open segment: where the current unbroken run of attention began, and
+  // how far it has been credited. `segStart` null = no run in progress.
+  // Because the clock stopping is exactly what closes a segment, the clock
+  // ran for the whole of every segment emitted — which is why the server
+  // stores no duration and derives it from the two ends.
+  let segStart: number | null = null;
+  let segEnd = 0;
+  let queuedSegments: Segment[] = [];
+
+  /** Close the open segment, if any, and queue it. */
+  function closeSegment(): void {
+    if (segStart !== null && currentTab && segEnd > segStart) {
+      queuedSegments.push({
+        tab: currentTab,
+        conv: currentConv,
+        started: segStart,
+        ended: segEnd,
+      });
+      // Oldest first: if a long offline stretch overflows the queue, the
+      // recent past is the part worth keeping.
+      if (queuedSegments.length > MAX_QUEUED_SEGMENTS) {
+        queuedSegments = queuedSegments.slice(-MAX_QUEUED_SEGMENTS);
+      }
+    }
+    segStart = null;
+  }
+
   /** Fold elapsed running time into the current tab and restart the clock at `upTo`. */
   function commitDwell(upTo = Date.now()): void {
     if (runningSince === null) return;
@@ -83,12 +129,26 @@ export function installUsageTracker(router: AnyRouter): void {
       if (currentConv) {
         pendingConvMs[currentConv] = (pendingConvMs[currentConv] ?? 0) + ms;
       }
+      // Same milliseconds again, third view: the run they belong to. Opens
+      // at the moment the clock started, not at `now` — the credited time is
+      // the interval [runningSince, upTo], and the segment has to be that
+      // same interval or the lane draws in a different place from the total.
+      if (segStart === null) segStart = runningSince;
+      segEnd = upTo;
+      if (segEnd - segStart >= MAX_SEGMENT_MS) {
+        closeSegment();
+        segStart = upTo;
+        segEnd = upTo;
+      }
     }
     runningSince = upTo;
   }
 
   function pauseDwell(upTo = Date.now()): void {
     commitDwell(upTo);
+    // The clock stopping IS the end of the run — an idle timeout, a hidden
+    // tab. Whatever comes next starts a new segment.
+    closeSegment();
     runningSince = null;
   }
 
@@ -115,12 +175,18 @@ export function installUsageTracker(router: AnyRouter): void {
     }
     const clicks = pendingClicks;
     pendingClicks = {};
+    // Only CLOSED segments go — the open one keeps running and is sent by
+    // whichever pause, navigation or pagehide ends it. So a flush mid-sitting
+    // never chops one sitting into thirty-second pieces.
+    const segments = queuedSegments;
+    queuedSegments = [];
 
     const body: BatchBody = {};
     if (Object.keys(time).length > 0) body.time = time;
     if (Object.keys(clicks).length > 0) body.clicks = clicks;
     if (Object.keys(sessions).length > 0) body.sessions = sessions;
-    if (!body.time && !body.clicks && !body.sessions) return;
+    if (segments.length > 0) body.segments = segments;
+    if (!body.time && !body.clicks && !body.sessions && !body.segments) return;
 
     lastFlush = now;
     const json = JSON.stringify(body);
@@ -215,8 +281,12 @@ export function installUsageTracker(router: AnyRouter): void {
     const nextConv = convFromLocation(event.toLocation.pathname, event.toLocation.search);
     if (nextTab === currentTab && nextConv === currentConv) return;
     commitDwell();
-    flush(false);
+    // Settle the run against where she WAS before the labels move; a segment
+    // carries its own tab and conv, so closing after the switch would file
+    // the time she just spent under the page she just opened.
+    closeSegment();
     currentTab = nextTab;
     currentConv = nextConv;
+    flush(false);
   });
 }

@@ -38,7 +38,7 @@ import sqlite3
 
 import store
 
-_SCHEMA_VERSION = 9
+_SCHEMA_VERSION = 11
 
 
 def _db_path():
@@ -77,6 +77,8 @@ _EXPECTED_TABLES = (
     "sessions", "session_files", "session_turns",
     "cards", "card_tags",
     "todos", "fronts", "todo_fronts", "todo_subtasks",
+    "job_runs",
+    "attention_segments",
 )
 
 
@@ -557,6 +559,140 @@ def _migrate(conn):
             "    CHECK (journaled IN (0, 1)),"
             "  PRIMARY KEY (session_id, seq)"
             ")"
+        )
+    if version < 10:
+        # Entity #6: what the system's ~19 scheduled jobs actually DID (see
+        # jobstore.py for what fills this). Every other table in this file is
+        # DERIVED — wipe it and re-walk git, the markdown, or a JSON blob and
+        # you get it back. **This one cannot be.** A job run is an event that
+        # happened once; when it's over the only evidence it ever existed is
+        # the row it wrote. So:
+        #
+        #   - NEVER add job_runs to routes/sqlab.py's rebuild button. Every
+        #     other rebuild only reads its source; a rebuild here would delete
+        #     history that exists nowhere else.
+        #   - jobstore.export_day() writes a JSON mirror per sealed day under
+        #     data/job_runs/, so the vault's hourly git commit is the backup.
+        #
+        # Why it exists: the state was stored and the DECIDING was not. "28% of
+        # cards carry no tag" was answerable; "did the 2 AM swarm run on July
+        # 17th, and did it look at those cards and decline them, or did it
+        # never wake up" was not — cricket_swarm.sh writes a text log and
+        # nothing else. Three different failures, three different fixes, and no
+        # way to tell them apart. That's what this table is for.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS job_runs ("
+            "  id INTEGER PRIMARY KEY,"
+            # Matches the `id` in scheduled_runs.json where the job has an
+            # entry there, so the Automations page can join the two.
+            "  job TEXT NOT NULL,"
+            # LOCAL naive ISO ('YYYY-MM-DDTHH:MM:SS') — the same clock
+            # cards.ts, session_turns.ts and commits.authored_at keep, NOT the
+            # UTC that session_files.last uses. Mixing them draws work five
+            # hours off and looks entirely plausible, so this column picks one
+            # and says which.
+            "  started TEXT NOT NULL,"
+            # NULL means the run never closed: it's still going, or it DIED —
+            # OOM, a killed cgroup, the box rebooted. An open row older than
+            # the job's own schedule is the silent-failure alarm, and it only
+            # works because the row is written at START, not at finish.
+            "  finished TEXT,"
+            #   running — opened, not yet closed (see above)
+            #   ok      — did work
+            #   noop    — woke up, found nothing to do (the common case for the
+            #             three every-minute jobs)
+            #   failed  — raised, or reported a nonzero result
+            #   skipped — deliberately stood down (the Automations `enabled`
+            #             toggle is off), which is NOT a failure
+            "  status TEXT NOT NULL"
+            "    CHECK (status IN ('running','ok','noop','failed','skipped')),"
+            # How many no-op runs this row stands for. Three jobs run every
+            # minute and on almost every tick do nothing; a row each is ~1.5M
+            # rows a year of noise wrapped around the few thousand that matter.
+            # So consecutive no-ops inside one clock hour collapse onto one
+            # heartbeat row and bump this instead (jobstore._close). "Was it
+            # alive at 4am" stays answerable; the noise doesn't accumulate.
+            "  ticks INTEGER NOT NULL DEFAULT 1,"
+            # What it DECIDED, in three counters every job can express:
+            # considered / changed / errored on. Generic on purpose — the
+            # alternative is a bespoke column set per job, and 19 jobs would
+            # never all get one. NULL means the job doesn't count that (which
+            # is honestly different from 0, same rule as commit_files.added).
+            "  looked INTEGER,"
+            "  acted INTEGER,"
+            "  failed INTEGER,"
+            "  note TEXT,"
+            # Optional JSON for anything the three counters can't carry. Kept
+            # as text, unqueried for now — a column to grow into, not a promise.
+            "  detail TEXT"
+            ")"
+        )
+        # "This job's history" and "everything that ran in this window" — the
+        # two questions, same reasoning as idx_commits_repo_ts.
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_job_runs_job_started"
+            " ON job_runs (job, started)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_job_runs_started"
+            " ON job_runs (started)"
+        )
+    if version < 11:
+        # Entity #7: WHEN she was looking at what (see attentionstore.py).
+        # feature_usage already counts dwell, but only as a per-day total per
+        # tab — "90 minutes of observatory on Sunday" can't be laid beside a
+        # file write or a journal card, because it has no clock. A segment is
+        # one contiguous run of active attention, so this table gives that
+        # number a beginning and an end.
+        #
+        # DERIVED, unlike job_runs above: the record is an append-only JSONL
+        # per day under data/attention/, which the vault's hourly git commit
+        # backs up for free. Wipe this table and attentionstore.rebuild()
+        # walks it back. That keeps the invariant job_runs had to break —
+        # everything in exo.db except job_runs can be re-derived from a
+        # source that isn't SQLite.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS attention_segments ("
+            "  id INTEGER PRIMARY KEY,"
+            # The tab's own name, same vocabulary feature_usage's "time" key
+            # uses, so the two can be compared directly.
+            "  tab TEXT NOT NULL,"
+            # The conversation, when the tab was an agent chat — joins to
+            # sessions.id, and through it to session_turns.journaled, which
+            # is what makes "how long did I journal" a query. NULL everywhere
+            # else, and also on a chat too new to have an id in its url yet.
+            "  conv TEXT,"
+            # LOCAL naive ISO, the clock cards.ts / session_turns.ts /
+            # job_runs.started keep — NOT the UTC session_files.last uses.
+            # Drawing this lane against the working lane in the wrong clock
+            # puts her evening five hours into the next morning and looks
+            # entirely plausible, so the conversion happens once, on the way
+            # in (attentionstore._local), and never again.
+            "  started TEXT NOT NULL,"
+            "  ended TEXT NOT NULL,"
+            # The journal day this belongs to: the date part of `started`,
+            # split out so day queries don't need substr(). Same trick as
+            # cards.day.
+            "  day TEXT NOT NULL"
+            ")"
+        )
+        # Deliberately NO `seconds` column. A segment only ever accumulates
+        # while the dwell clock is running, and the clock stopping is what
+        # ENDS a segment — so active seconds and (ended - started) are the
+        # same quantity, and storing both invites them to disagree.
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_attention_day"
+            " ON attention_segments (day)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_attention_conv"
+            " ON attention_segments (conv)"
+        )
+        # Re-deriving a day means deleting it first; without this the wipe
+        # half of an incremental update scans the whole table.
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_attention_started"
+            " ON attention_segments (started)"
         )
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")

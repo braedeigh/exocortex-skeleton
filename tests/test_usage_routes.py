@@ -157,6 +157,47 @@ def test_batch_bad_session_id_400s_and_persists_nothing(client):
     assert read_usage() == {"days": {}}                  # not even the valid part
 
 
+def test_batch_carries_segments_through_to_the_record(client, data_dir):
+    from datetime import timedelta
+    end = datetime.now() - timedelta(minutes=1)
+    start = end - timedelta(minutes=20)
+    res = client.post("/api/usage/batch", json={
+        "time": {"observatory": 1200},
+        "segments": [{"tab": "observatory", "conv": "2026-08-09.030450",
+                      "started": start.timestamp() * 1000,
+                      "ended": end.timestamp() * 1000}],
+    })
+    assert res.status_code == 200
+    day_file = data_dir / "attention" / start.strftime("%Y-%m-%d.jsonl")
+    assert day_file.exists()
+    # The counter half landed too — segments ride along, they don't replace.
+    assert read_usage()["days"][today()]["time"] == {"observatory": 1200}
+
+
+def test_batch_bad_segment_does_not_400_the_flush(client, data_dir):
+    """A segment is a standalone event, so a bad one is dropped rather than
+    costing the counters in the same payload. The opposite rule to `time`."""
+    res = client.post("/api/usage/batch", json={
+        "time": {"observatory": 1200},
+        "segments": [{"tab": "observatory", "started": "junk", "ended": None}],
+    })
+    assert res.status_code == 200
+    assert read_usage()["days"][today()]["time"] == {"observatory": 1200}
+    assert not (data_dir / "attention").exists()
+
+
+def test_batch_segments_alone_is_enough_to_be_accepted(client, data_dir):
+    from datetime import timedelta
+    end = datetime.now() - timedelta(minutes=1)
+    res = client.post("/api/usage/batch", json={
+        "segments": [{"tab": "todos", "conv": None,
+                      "started": (end - timedelta(minutes=5)).timestamp() * 1000,
+                      "ended": end.timestamp() * 1000}],
+    })
+    assert res.status_code == 200
+    assert (data_dir / "attention" / end.strftime("%Y-%m-%d.jsonl")).exists()
+
+
 def test_batch_out_of_range_session_time_400s_and_persists_nothing(client):
     for body in (
         {"sessions": {"2026-08-09.030450": 0}},

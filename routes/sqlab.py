@@ -51,6 +51,7 @@ import time
 
 from flask import jsonify, request
 
+import attentionstore
 import cardstore
 import codestore
 import expensestore
@@ -71,7 +72,8 @@ TYPED_TABLES = ("habits", "habit_aliases", "habit_entries",
                 "files", "file_paths", "commits", "commit_files",
                 "sessions", "session_files",
                 "cards", "card_tags",
-                "todos", "fronts", "todo_fronts", "todo_subtasks")
+                "todos", "fronts", "todo_fronts", "todo_subtasks",
+                "attention_segments")
 
 _DATE_KEY = re.compile(r"^\d{4}-\d{2}-\d{2}")
 
@@ -276,15 +278,21 @@ def register(app):
     def sql_rebuild():
         """Re-derive every typed table from its source — the undo button.
 
-        Nothing here can hurt the sources: all five rebuilds only read them
+        Nothing here can hurt the sources: all six rebuilds only read them
         (JSON blobs for habits, expenses and to-dos; git + the bot_chats
         sidecars for code history; the vault's card pool + deletion cast for
-        cards).
+        cards; the append-only day files for attention).
+
+        `job_runs` is deliberately absent and must stay that way: it is the
+        one table in exo.db that is not derived from anything, so a rebuild
+        there would delete history that exists nowhere else. See jobstore.py.
         """
         habits = habitstore.rebuild()
         expenses = expensestore.rebuild()
         code = codestore.rebuild()
         cards = cardstore.rebuild()
         todos = todostore.rebuild()
+        attention = attentionstore.rebuild()
         return jsonify({"ok": True, "habits": habits, "expenses": expenses,
-                        "code": code, "cards": cards, "todos": todos})
+                        "code": code, "cards": cards, "todos": todos,
+                        "attention": attention})

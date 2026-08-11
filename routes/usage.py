@@ -51,6 +51,7 @@ from datetime import date, datetime, timedelta
 
 from flask import request, jsonify
 
+import attentionstore
 import store
 
 _TAB_RE = re.compile(r"^[a-z0-9_-]{1,40}$")
@@ -141,6 +142,28 @@ def register(app):
                     sess = day.setdefault("session_time", {})
                     for conv, seconds in sessions_part.items():
                         sess[conv] = sess.get(conv, 0) + seconds
+
+        # Segments ride along on the same flush but land somewhere else
+        # entirely — an append-only JSONL in the vault, mirrored into
+        # exo.db (see attentionstore.py). They carry the same seconds the
+        # counters above already hold, with a beginning and an end attached.
+        #
+        # Deliberately NOT validated the way `time`/`clicks`/`sessions` are.
+        # Those are counters: one bad key would corrupt a running total, so a
+        # single bad item 400s the whole batch. A segment is a standalone
+        # event that corrupts nothing, and this is the payload most likely to
+        # carry an oddity — a clock that leapt, a phone flushing an hour of
+        # backlog on reconnect. Dropping the bad ones and keeping the good
+        # ones is right here and wrong above.
+        if body.get("segments"):
+            try:
+                attentionstore.record(body.get("segments"))
+            except Exception:
+                # Same rule store.py's op counters follow: telemetry never
+                # breaks the request it rode in on. The counters above are
+                # already persisted by here, and losing a segment costs a gap
+                # in a drawing — not a number that silently goes wrong.
+                pass
         return jsonify({"ok": True})
 
     @app.route("/api/usage")
