@@ -12,7 +12,7 @@
  * Shares SessionLane.module.css — the cards and the lane are one visual
  * language, and the stylesheet is named for it.
  */
-import { useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import {
   approveConversation,
@@ -50,6 +50,75 @@ const DOT_CLASS: Record<CardState, string> = {
   recent: 'recentDot',
   rest: 'restDot',
 };
+
+/** Her last ask, clamped to three lines with a tap to open it up.
+ *
+ * The button only appears when the text ACTUALLY overflows, and the only way
+ * to know that is to ask the browser: with -webkit-line-clamp there's no
+ * character count that answers it, because the answer moves with the card's
+ * width and her font size. So we render the clamped text, compare scrollHeight
+ * against clientHeight, and re-measure whenever the box is resized — a phone
+ * rotation or a lane that reflows changes the answer.
+ *
+ * Expanded state is deliberately ephemeral: it lives here and resets on
+ * reload. Opening a message is a peek, not a preference — and the card is
+ * keyed by conversation id in the lane, so it survives every roster poll.
+ */
+function LastPrompt({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const [overflows, setOverflows] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  // Measured against the CLAMPED box, so it has to run while clamped — once
+  // expanded, scrollHeight and clientHeight match and the question is moot.
+  // That's why `expanded` isn't a dependency: the last honest measurement,
+  // taken before she opened it, is the one that stays true.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || expanded) return;
+    setOverflows(el.scrollHeight > el.clientHeight + 1);
+  }, [text, expanded]);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => {
+      if (!ref.current || expanded) return;
+      setOverflows(ref.current.scrollHeight > ref.current.clientHeight + 1);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [expanded]);
+
+  return (
+    <>
+      <div
+        ref={ref}
+        className={[styles.lastPrompt, expanded ? '' : styles.lastPromptClamped]
+          .filter(Boolean)
+          .join(' ')}
+      >
+        {/* Curly quotes as real text, not ::before/::after — a pseudo-element
+            on a clamped box gets cut off with the line it lands on, so the
+            closing quote used to vanish on exactly the long messages this
+            feature exists to show. */}
+        {'“'}
+        {text}
+        {'”'}
+      </div>
+      {overflows ? (
+        <button
+          type="button"
+          className={styles.lastPromptToggle}
+          aria-expanded={expanded}
+          onClick={() => setExpanded((v) => !v)}
+        >
+          {expanded ? 'Show less' : 'Show more'}
+        </button>
+      ) : null}
+    </>
+  );
+}
 
 // What a resumed session is told. `--resume` hands it the whole conversation
 // back, so this is a CUE, not context — and a deliberately cautious one: the
@@ -484,16 +553,16 @@ export function SessionCard({
         ) : null}
       </div>
 
-      {/* What she asked, then what it made of it — cause above effect. Only
-          while the session is WORKING or UNREAD: those are the two states
-          where the question "what did I ask for?" is still live. Once she's
-          read the reply the summary is the better artifact and this would
-          just be a longer card. Everything about what's safe to show here was
-          decided at send time (routes/observatory.py) — the card only picks
-          the moment. */}
-      {(row.running || unread) && meta.last_prompt ? (
-        <div className={styles.lastPrompt}>{meta.last_prompt}</div>
-      ) : null}
+      {/* What she asked, then what it made of it — cause above effect. Shown
+          for the life of the session, not just while it works: she reads back
+          through cold cards to find where she left something, and the summary
+          alone doesn't say what she ASKED for.
+          Everything about what's safe to show here was decided at send time
+          (routes/observatory.py) — off-record and journaling sessions never
+          store a last_prompt at all, so the card has nothing to withhold and
+          never re-decides. That mattered when this was transient; it's the
+          whole guarantee now that the line is permanent. */}
+      {meta.last_prompt ? <LastPrompt text={meta.last_prompt} /> : null}
       {row.summary ? <div className={styles.summary}>{row.summary}</div> : null}
       {/* One quiet line of housekeeping — model, when it last did anything,
           what it has spent. Shared with the terrain map's hovercard

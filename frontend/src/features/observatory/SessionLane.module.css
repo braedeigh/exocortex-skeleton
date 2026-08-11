@@ -665,28 +665,59 @@
 /* What it's working on — the line that was already in the payload and never
    drawn. Sits directly under the title, above the files: the WHAT before the
    WHICH. */
-/* Her own words, above the summary, while the session is working or unread.
-   Quoted and italic so it reads as HER voice rather than another line of the
-   app talking — across a lane of cards the summaries all sound alike, and the
-   phrasing she actually typed is the faster thing to recognise. One line: it's
-   a landmark, not the content, and the card is already tall. */
+/* Her own words, above the summary, for the life of the session. Quoted and
+   italic so it reads as HER voice rather than another line of the app talking —
+   across a lane of cards the summaries all sound alike, and the phrasing she
+   actually typed is the faster thing to recognise.
+
+   Three lines, then it fades under the tap-to-expand button below. It used to
+   be one nowrap line with an ellipsis, which made a landmark out of something
+   she wanted to actually READ. [prompt: "i want more of my last message to show
+   on the card, at least 2-3 lines, and then it will drop off into ellipses...
+   and then allow me to expand it if i want. for all times, not just when it's
+   running"] */
 .lastPrompt {
   margin-top: var(--space-1);
   color: var(--text-muted);
   font-size: var(--font-size-sm);
   font-style: italic;
   line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The quotes are on a SPAN inside the text flow rather than ::before/::after on
+   the clamping box. A pseudo-element after clamped text gets cut off with the
+   line it lands on, so the closing quote simply vanished whenever the message
+   was long enough to clamp — which is now the common case, not the rare one. */
+.lastPromptClamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
 }
 
-.lastPrompt::before {
-  content: '\201C';
+/* Tap target for the expand/collapse, ~40px per the UI rules. Styled as quiet
+   text rather than a button: it sits inside her sentence and shouldn't compete
+   with the card's real controls. */
+.lastPromptToggle {
+  display: block;
+  width: 100%;
+  min-height: 40px;
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
 }
 
-.lastPrompt::after {
-  content: '\201D';
+.lastPromptToggle:hover {
+  color: var(--text-secondary);
+  text-decoration: underline;
 }
 
 .summary {

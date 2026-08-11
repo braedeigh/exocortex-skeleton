@@ -493,7 +493,7 @@ def test_a_bare_continuation_leaves_the_previous_ask_up(bot_client):
 def test_a_long_ask_is_trimmed_to_one_line(bot_client):
     conv_id = bot_client.post("/api/observatory/keeper/conversations",
                               json={"title": "work"}).get_json()["id"]
-    _sse_events(_send(bot_client, text="ok so\nthe real ask is on the second line " + "x" * 300,
+    _sse_events(_send(bot_client, text="ok so\nthe real ask is on the second line " + "x" * 800,
                       conversation_id=conv_id))
     got = _conv_from_roster(bot_client, conv_id)["last_prompt"]
     assert len(got) == observatory._MAX_PROMPT_CHARS
@@ -501,6 +501,21 @@ def test_a_long_ask_is_trimmed_to_one_line(bot_client):
     # Whitespace is collapsed rather than cut at the first newline, so the
     # throat-clearing opener doesn't hide the point.
     assert got.startswith("ok so the real ask is on the second line")
+
+
+def test_a_multi_line_ask_survives_whole(bot_client):
+    # The card clamps to three lines and expands; the cap has to leave it
+    # something to expand INTO. At the old 120 this was cut mid-sentence.
+    conv_id = bot_client.post("/api/observatory/keeper/conversations",
+                              json={"title": "work"}).get_json()["id"]
+    ask = ("i want more of my last message to show on the card, at least 2-3 "
+           "lines, and then it will drop off into ellipses, and then allow me "
+           "to expand it if i want -- for all times, not just when it is "
+           "running, because reading back through cold cards is how i find "
+           "where i left something unfinished")
+    assert len(ask) > 120                      # would have been cut before
+    _sse_events(_send(bot_client, text=ask, conversation_id=conv_id))
+    assert _conv_from_roster(bot_client, conv_id)["last_prompt"] == ask
 
 
 # --- model_effective: what the card shows a session is running on -----------

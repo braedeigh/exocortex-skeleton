@@ -102,7 +102,18 @@ _CONTINUATION_RE = re.compile(
 # Long enough to be worth a line on the card. The regex above catches the known
 # noise words; this is the backstop for the ones nobody thought of.
 _MIN_PROMPT_CHARS = 12
-_MAX_PROMPT_CHARS = 120
+# The card clamps to three lines and expands on tap, so this is the budget for
+# the EXPANDED read -- roughly three lines' worth over again. It was 120, which
+# is about one line: the card had nothing to expand INTO, and five of her open
+# cards sat at exactly the cap, cut mid-word. Raising it is forward-only, since
+# the trim happens here at send time and the discarded tail is already gone.
+#
+# Not the whole message on purpose. bot_chats/index is re-read in full on every
+# roster poll (every few seconds, every session including archived ones), so
+# what's stored here is paid for continuously -- a pasted wall of text would tax
+# the poll forever to be read once. The full text is still in the session's
+# jsonl if anything ever needs it.
+_MAX_PROMPT_CHARS = 500
 
 
 def _card_prompt(text):
@@ -113,8 +124,10 @@ def _card_prompt(text):
     that opens with "ok so" and puts the meat on line two would otherwise show
     its throat-clearing and hide its point.
 
-    [prompt: "display the last prompt I gave along with the generated summary",
-    shown while the session is running or unread]"""
+    [prompt: "display the last prompt I gave along with the generated summary"
+    / "i want more of my last message to show on the card, at least 2-3 lines,
+    and then it will drop off into ellipses... and then allow me to expand it
+    if i want. for all times, not just when it's running"]"""
     one_line = " ".join((text or "").split())
     if not one_line or one_line.startswith("/"):
         return None            # slash commands are operator control, not an ask
@@ -2228,10 +2241,11 @@ def register(app):
             # no longer the last thing this session did. If THIS turn fails too,
             # _run_turn writes the flag straight back.
             entry.pop("last_error", None)
-            # Her ask, for the card to show while the session is working or
-            # unread — the window where the cached Haiku summary is still
-            # describing the PREVIOUS thing (recap_summary refreshes in the
-            # background, no more than once a minute).
+            # Her ask, for the card to show. It stays up for the life of the
+            # session now, not just while it works — so these two gates are the
+            # ONLY thing standing between a send and a line that sits on the
+            # roster indefinitely. They were already load-bearing; they're more
+            # so now.
             #
             # Two hard gates, both here rather than at the card, so there's one
             # place to get them right:
