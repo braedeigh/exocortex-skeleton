@@ -12,9 +12,17 @@
  * pointerdown/keydown/wheel/touchstart/scroll for 120s — passive listeners,
  * no mousemove). Pauses on visibilitychange-hidden; resumes on visible +
  * the next interaction.
+ *
+ * Every agent conversation lives at the same url — /observatory/<botId>
+ * ?conv=<id> — so per-tab dwell alone piles journaling, building and the
+ * orchestra into one bucket called "observatory", and the journal (the
+ * most-used thing here) reads as unused. So the SAME running clock is
+ * committed twice: once to the tab, and once to the conversation id from
+ * `?conv=` when there is one. Two views of one measurement, never two
+ * measurements — see routes/usage.py for why they don't sum equal.
  */
 import type { AnyRouter } from '@tanstack/react-router';
-import { deriveValidTabs, tabFromPathname } from './usageBeacon';
+import { convFromLocation, deriveValidTabs, tabFromPathname } from './usageBeacon';
 
 const IDLE_MS = 120_000;
 const FLUSH_INTERVAL_MS = 30_000;
@@ -29,6 +37,7 @@ const HEAT_ACTIVE_ATTR = 'data-heat-view';
 interface BatchBody {
   time?: Record<string, number>;
   clicks?: Record<string, Record<string, number>>;
+  sessions?: Record<string, number>;
 }
 
 /**
@@ -47,10 +56,15 @@ export function installUsageTracker(router: AnyRouter): void {
   }
 
   let currentTab = resolveTab(router.state.location.pathname);
+  let currentConv = convFromLocation(
+    router.state.location.pathname,
+    router.state.location.search,
+  );
 
   // Accumulators — flushed (and reset) as a whole; dwell keeps sub-second
   // remainders locally so rounding never loses time across flushes.
   const pendingMs: Record<string, number> = {};
+  const pendingConvMs: Record<string, number> = {};
   let pendingClicks: Record<string, Record<string, number>> = {};
 
   let lastInteraction = Date.now();
@@ -64,6 +78,11 @@ export function installUsageTracker(router: AnyRouter): void {
     const ms = upTo - runningSince;
     if (ms > 0 && currentTab) {
       pendingMs[currentTab] = (pendingMs[currentTab] ?? 0) + ms;
+      // Same milliseconds, second view. Never an `else` — the conversation
+      // split is a breakdown OF the tab total, not a slice taken out of it.
+      if (currentConv) {
+        pendingConvMs[currentConv] = (pendingConvMs[currentConv] ?? 0) + ms;
+      }
     }
     runningSince = upTo;
   }
@@ -86,13 +105,22 @@ export function installUsageTracker(router: AnyRouter): void {
         pendingMs[tab] -= secs * 1000; // keep the sub-second remainder
       }
     }
+    const sessions: Record<string, number> = {};
+    for (const conv of Object.keys(pendingConvMs)) {
+      const secs = Math.floor(pendingConvMs[conv] / 1000);
+      if (secs > 0) {
+        sessions[conv] = secs;
+        pendingConvMs[conv] -= secs * 1000; // same remainder rule as `time`
+      }
+    }
     const clicks = pendingClicks;
     pendingClicks = {};
 
     const body: BatchBody = {};
     if (Object.keys(time).length > 0) body.time = time;
     if (Object.keys(clicks).length > 0) body.clicks = clicks;
-    if (!body.time && !body.clicks) return;
+    if (Object.keys(sessions).length > 0) body.sessions = sessions;
+    if (!body.time && !body.clicks && !body.sessions) return;
 
     lastFlush = now;
     const json = JSON.stringify(body);
@@ -177,12 +205,18 @@ export function installUsageTracker(router: AnyRouter): void {
 
   window.setInterval(() => flush(false), FLUSH_INTERVAL_MS);
 
-  // Tab change: settle the outgoing tab's dwell, flush (rate-limited), switch.
+  // Tab OR conversation change: settle the outgoing dwell, flush
+  // (rate-limited), switch. Testing the conversation too is what makes the
+  // split correct — moving between two chats never leaves the tab, so a
+  // tab-only test would return early here and bank the whole of the
+  // conversation you just left onto the one you just opened.
   router.subscribe('onResolved', (event) => {
-    const next = resolveTab(event.toLocation.pathname);
-    if (next === currentTab) return;
+    const nextTab = resolveTab(event.toLocation.pathname);
+    const nextConv = convFromLocation(event.toLocation.pathname, event.toLocation.search);
+    if (nextTab === currentTab && nextConv === currentConv) return;
     commitDwell();
     flush(false);
-    currentTab = next;
+    currentTab = nextTab;
+    currentConv = nextConv;
   });
 }

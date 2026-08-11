@@ -114,6 +114,63 @@ def test_batch_empty_body_is_ok_and_writes_nothing(client):
     assert read_usage() == {"days": {}}
 
 
+# --- per-conversation dwell ("session_time") ---------------------------------
+# The same seconds the tab total already counted, broken down by which agent
+# conversation they went to — so journaling stops being invisible inside one
+# "observatory" bucket. See routes/usage.py for why it's a separate key.
+
+def test_batch_persists_session_time_beside_the_tab_total(client):
+    res = client.post("/api/usage/batch", json={
+        "time": {"observatory": 900},
+        "sessions": {"2026-08-09.030450": 780},
+    })
+    assert res.status_code == 200
+    day = read_usage()["days"][today()]
+    # Both views survive: the tab keeps the whole total, unchanged by the split.
+    assert day["time"] == {"observatory": 900}
+    assert day["session_time"] == {"2026-08-09.030450": 780}
+
+
+def test_batch_session_time_accumulates_across_flushes(client):
+    client.post("/api/usage/batch", json={"sessions": {"2026-08-09.030450": 780}})
+    client.post("/api/usage/batch", json={"sessions": {"2026-08-09.030450": 120}})
+    assert read_usage()["days"][today()]["session_time"] == {"2026-08-09.030450": 900}
+
+
+def test_batch_session_time_keeps_conversations_separate(client):
+    client.post("/api/usage/batch", json={"sessions": {
+        "2026-08-09.030450": 780,          # the keeper conversation
+        "2026-07-23.102832-2": 60,         # a build session, suffixed id
+    }})
+    assert read_usage()["days"][today()]["session_time"] == {
+        "2026-08-09.030450": 780,
+        "2026-07-23.102832-2": 60,
+    }
+
+
+def test_batch_bad_session_id_400s_and_persists_nothing(client):
+    res = client.post("/api/usage/batch", json={
+        "time": {"observatory": 900},                    # valid half...
+        "sessions": {"../../etc/passwd": 60},            # ...junk id
+    })
+    assert res.status_code == 400
+    assert read_usage() == {"days": {}}                  # not even the valid part
+
+
+def test_batch_out_of_range_session_time_400s_and_persists_nothing(client):
+    for body in (
+        {"sessions": {"2026-08-09.030450": 0}},
+        {"sessions": {"2026-08-09.030450": -5}},
+        {"sessions": {"2026-08-09.030450": 86401}},
+        {"sessions": {"2026-08-09.030450": "780"}},
+        {"sessions": {"2026-08-09.030450": True}},
+        {"sessions": ["2026-08-09.030450"]},
+    ):
+        res = client.post("/api/usage/batch", json=body)
+        assert res.status_code == 400
+    assert read_usage() == {"days": {}}
+
+
 # --- GET /api/usage/export ---------------------------------------------------
 
 def seed_days(days):

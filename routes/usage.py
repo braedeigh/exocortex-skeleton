@@ -6,18 +6,37 @@ One collection, feature_usage.json, holds all data sources keyed by day:
                              "tabs": {"habits": 4},
                              "time": {"habits": 84},
                              "clicks": {"habits": {"card-edit": 3}},
+                             "session_time": {"2026-07-20.030450": 1820},
                              "store": {"gunicorn": {"todos": {"reads": 40,
                                                               "writes": 2}}}}}}
 
 The "tabs" key is written live by the beacon below (the frontend pings it on
-tab switches). The "time" (seconds of dwell per tab) and "clicks" (per-page
-control click counts) keys are written by the batch endpoint below, which the
-frontend flushes to periodically. The "api" key is back-filled for past days
-by scripts/usage_rollup.py, which folds the access log's per-request lines
-into per-feature read/write counts. The "store" key is flushed periodically
-by store.py's op counters — per-caller, per-collection read/write counts
-measured at the data seam itself. The five writers never touch each other's
-keys.
+tab switches). The "time" (seconds of dwell per tab), "clicks" (per-page
+control click counts) and "session_time" keys are written by the batch
+endpoint below, which the frontend flushes to periodically. The "api" key is
+back-filled for past days by scripts/usage_rollup.py, which folds the access
+log's per-request lines into per-feature read/write counts. The "store" key
+is flushed periodically by store.py's op counters — per-caller,
+per-collection read/write counts measured at the data seam itself. The six
+writers never touch each other's keys.
+
+WHY "session_time" IS ITS OWN KEY rather than more entries under "time".
+Every conversation with an agent — journaling with the Keeper, building,
+the orchestra — happens at the SAME url, /observatory/<botId>?conv=<id>, so
+all of it lands in `time` under one bucket called "observatory". That bucket
+is the single largest dwell number in the collection and it cannot answer
+"how much of that was journaling", which made the most-used feature in the
+system look unused. This key splits the same seconds by conversation id;
+`sessions.lane` and `session_turns.journaled` in exo.db carry what each
+conversation WAS, so the split is a join away and nothing has to guess.
+
+The seconds are counted once and reported twice: "time" keeps the whole
+Observatory total exactly as before (nothing downstream changes), and
+"session_time" says where inside it the time went. They will not sum equal —
+dwell on the roster, the archive, or a brand-new conversation that has no
+id in the url yet is real Observatory time attributable to no conversation.
+That gap is honest and is left visible rather than smeared across the
+conversations to make the arithmetic tidy.
 
 GET /api/usage/export packages the collection as a downloadable JSON bundle
 (schema "usage-export/1"). Exports are read-only snapshots — nothing in the
@@ -36,6 +55,11 @@ import store
 
 _TAB_RE = re.compile(r"^[a-z0-9_-]{1,40}$")
 _CONTROL_RE = re.compile(r"^[a-z0-9:._-]{1,60}$")
+# Conversation ids are minted as `<date>.<HHMMSS>` with an optional `-<n>`
+# suffix (e.g. 2026-07-23.102832-2), so unlike tab names they carry dots and
+# uppercase. Same shape routes/pond.py checks card ids against: junk gets a
+# clear 400 here rather than becoming a permanent key in the collection.
+_CONV_RE = re.compile(r"^[0-9A-Za-z._-]{1,64}$")
 
 
 def _valid_count(value, upper):
@@ -63,10 +87,13 @@ def register(app):
         body = request.json or {}
         time_part = body.get("time", {})
         clicks_part = body.get("clicks", {})
+        sessions_part = body.get("sessions", {})
         if not isinstance(time_part, dict):
             return jsonify({"error": '"time" must be an object'}), 400
         if not isinstance(clicks_part, dict):
             return jsonify({"error": '"clicks" must be an object'}), 400
+        if not isinstance(sessions_part, dict):
+            return jsonify({"error": '"sessions" must be an object'}), 400
 
         # Validate everything up front — a single bad item rejects the whole
         # batch and nothing is persisted.
@@ -89,8 +116,14 @@ def register(app):
                     return jsonify({"error": f"invalid click count for "
                                              f"{page!r}/{control!r}: "
                                              "must be an int in 1..10000"}), 400
+        for conv, seconds in sessions_part.items():
+            if not (isinstance(conv, str) and _CONV_RE.match(conv)):
+                return jsonify({"error": f"invalid session id: {conv!r}"}), 400
+            if not _valid_count(seconds, 86400):
+                return jsonify({"error": f"invalid session time for {conv!r}: "
+                                         "must be an int in 1..86400"}), 400
 
-        if time_part or clicks_part:
+        if time_part or clicks_part or sessions_part:
             today = datetime.now().strftime("%Y-%m-%d")
             with store.mutate("feature_usage.json", {"days": {}}) as data:
                 day = data.setdefault("days", {}).setdefault(today, {})
@@ -104,6 +137,10 @@ def register(app):
                         page_clicks = clicks.setdefault(page, {})
                         for control, n in controls.items():
                             page_clicks[control] = page_clicks.get(control, 0) + n
+                if sessions_part:
+                    sess = day.setdefault("session_time", {})
+                    for conv, seconds in sessions_part.items():
+                        sess[conv] = sess.get(conv, 0) + seconds
         return jsonify({"ok": True})
 
     @app.route("/api/usage")

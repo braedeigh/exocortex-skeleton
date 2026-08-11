@@ -19,6 +19,34 @@ export function tabFromPathname(pathname: string): string {
   return pathname.split('/').find(Boolean)?.toLowerCase() ?? DEFAULT_TAB;
 }
 
+/** Conversation ids as the observatory mints them: `<date>.<HHMMSS>` with an
+ * optional `-<n>` suffix. Kept in step with `_CONV_RE` in routes/usage.py —
+ * the server rejects anything else with a 400, so a mismatch here would show
+ * up as silently dropped telemetry. */
+const CONV_ID_RE = /^[0-9A-Za-z._-]{1,64}$/;
+
+/**
+ * The conversation a location is looking at, or null. Only /observatory
+ * carries one, as `?conv=<id>`.
+ *
+ * Two values are deliberately NOT conversations. `?conv=latest` is a sentinel
+ * the route swaps for a real id on mount — counting it would invent a
+ * conversation that never existed. And a brand-new chat has no `conv` at all
+ * until its first send puts one in the url, so its opening seconds belong to
+ * no id; they stay in the tab total and out of the per-conversation split
+ * rather than being guessed onto the previous conversation.
+ *
+ * Shared with usageTracker.ts; `search` is whatever the router parsed, so it
+ * is treated as unknown and shape-checked here.
+ */
+export function convFromLocation(pathname: string, search: unknown): string | null {
+  if (tabFromPathname(pathname) !== 'observatory') return null;
+  if (typeof search !== 'object' || search === null) return null;
+  const raw = (search as Record<string, unknown>).conv;
+  if (typeof raw !== 'string' || raw === 'latest') return null;
+  return CONV_ID_RE.test(raw) ? raw : null;
+}
+
 /**
  * Valid tab names, derived from the route tree itself (first path segment
  * of every registered route) rather than a hand-maintained list — so new
