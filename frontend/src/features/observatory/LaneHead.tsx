@@ -5,14 +5,13 @@ import styles from './LaneHead.module.css';
  * LaneHead — the title line every room on the Observatory wears, and the thing
  * that opens and shuts it.
  *
- * WHY IT'S SHARED. The roster is four rooms stacked down one page (Personal,
- * Coding, Orchestra, Night crew) and it had grown taller than a phone. Rather
- * than four sections each inventing its own header and its own chevron, the
- * heading itself IS the control, once, here — so collapsing is the same
- * gesture in every room and the page reads as one object instead of a pile of
- * parts.
+ * WHY IT'S SHARED. The roster is rooms stacked down one page (Personal,
+ * Coding, Night crew) and it had grown taller than a phone. Rather than each
+ * section inventing its own header and its own chevron, the heading itself IS
+ * the control, once, here — so collapsing is the same gesture in every room and
+ * the page reads as one object instead of a pile of parts.
  *
- * A SHUT ROOM MUST NOT GO SILENT. That's the whole design risk: if Orchestra
+ * A SHUT ROOM MUST NOT GO SILENT. That's the whole design risk: if a room
  * is collapsed while a session raises an approval card, she'd never see it,
  * and the queue becomes a graveyard (Terra). So the census — "2 need you", "1
  * running", the resting count — sits on the HEADER, outside the body, and
@@ -24,7 +23,7 @@ import styles from './LaneHead.module.css';
  * Open/shut is remembered per room in localStorage — a layout preference, not
  * live state, so it should survive a reload the way the sort toggle does.
  *
- * Used by SessionLane.tsx (Personal / Coding / Orchestra) and NightCrewLane.tsx.
+ * Used by SessionLane.tsx (Personal / Coding) and NightCrewLane.tsx.
  *
  * [prompt: "making all of the areas in general collapsible"]
  */

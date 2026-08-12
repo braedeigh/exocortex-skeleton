@@ -40,7 +40,7 @@ export interface PendingApproval {
   command: string;
 }
 
-/** The Observatory's three rooms. A session BELONGS to one — this is assigned
+/** Every lane a session can carry. A session BELONGS to one — this is assigned
  * at creation, not derived from whether it happens to be running. Every lane
  * carries the same full toolkit; what the lane decides is WHERE the session
  * stands and whether it stops and ASKS:
@@ -48,28 +48,49 @@ export interface PendingApproval {
  *   personal   her, talking about her life — rooted where both repos meet,
  *              ungated (she's the check)
  *   coding     her, building — rooted in the app checkout, also ungated
- *   orchestra  work while she isn't watching — app checkout, gated, raises
- *              orange approval cards
+ *   orchestra  RETIRED as a room (her 08-12 ask, "remove the orchestra section
+ *              for now") — app checkout, gated. Still a real lane server-side:
+ *              it's what night-crew workers run in and what routes/
+ *              observatory.py falls back to for any session it can't place, so
+ *              an unplaceable session still asks before anything irreversible.
+ *              It has no room on the roster and the pickers don't offer it;
+ *              its history stays reachable under Past sessions.
  *
- * Personal and Coding differ by GROUND; Coding and Orchestra by GATE. */
+ * Personal and Coding differ by GROUND. */
 export type Lane = 'orchestra' | 'personal' | 'coding';
 
-/** Every room the client knows, in the order the roster stacks them: the two
- * she's present for, then the one running underneath. Anything that walks the
- * set (the roster's sections, the dialog's picker) reads this rather than
- * repeating the list. */
+/** Every lane the client can name — used for PARSING and LABELLING (the archive
+ * scopes and chips), not for deciding what the roster draws. Orchestra is in
+ * here because sessions still carry it; see ROOMS for what's actually offered. */
 export const ALL_LANES: Lane[] = ['personal', 'coding', 'orchestra'];
 
-/** Narrow whatever the server said into a room this client can draw. An
- * unknown value falls to Orchestra — the gated room, the same fail-toward-ask
- * the backend uses for anything it can't place. */
+/** The rooms the Observatory actually DRAWS and offers, in the order the roster
+ * stacks them. Split from ALL_LANES when Orchestra was retired: a lane can
+ * exist (old sessions, night-crew workers, the server's fail-toward-ask
+ * fallback) without having a room on the page. Anything that walks the rooms —
+ * the roster's sections, the create/edit picker — reads this. */
+export const ROOMS = ['personal', 'coding'] as const satisfies readonly Lane[];
+export type Room = (typeof ROOMS)[number];
+
+/** Is this lane one she can see a room for? False for a retired lane, which is
+ * what tells the roster to fold those sessions somewhere visible instead of
+ * dropping them off the page. */
+export function isRoom(lane: Lane): lane is Room {
+  return (ROOMS as readonly Lane[]).includes(lane);
+}
+
+/** Narrow whatever the server said into a lane this client can name. An
+ * unknown value falls to Orchestra — the gated lane, the same fail-toward-ask
+ * the backend uses for anything it can't place. Orchestra has no room, so the
+ * roster shows such a session in Coding rather than dropping it (RosterPage). */
 export function toLane(value: string | undefined): Lane {
   return (ALL_LANES as string[]).includes(value ?? '') ? (value as Lane) : 'orchestra';
 }
 
-/** The rooms' display names — one copy, here beside ALL_LANES, so the roster
+/** The lanes' display names — one copy, here beside ALL_LANES, so the roster
  * headings, the dialog's picker and the archive's chips can't drift into
- * spelling the same room differently. */
+ * spelling the same one differently. Retired lanes keep a label: the archive
+ * still has to say which room an old session was in. */
 export const LANE_LABEL: Record<Lane, string> = {
   personal: 'Personal',
   coding: 'Coding',
@@ -321,7 +342,15 @@ export function searchSessions(q: string, signal?: AbortSignal): Promise<SearchR
 /** Create a session ahead of its first message — the roster's '+ New
  * session', and the observatory's own blank-compose first send (the old
  * create-implicitly-on-send flow is gone; the client drives it explicitly
- * now). The server picks the rest of the config (cwd/tools) itself. */
+ * now). The server picks the rest of the config (cwd/tools) itself.
+ *
+ * The lane default stays ORCHESTRA even though that room is retired, and it's
+ * deliberate: it's the gated lane, and a session nobody named a room for should
+ * stop and ask rather than quietly gain autonomy from a UI change. It shares
+ * its ground with Coding, so the only difference is the gate. The roster draws
+ * such a session in the Coding room (see RosterPage's byLane) — visible, still
+ * asking. The roster's own '+' sheet always sends an explicit room, so this
+ * default only catches the blank-compose path. */
 export function createSession(
   title: string,
   journal: boolean,

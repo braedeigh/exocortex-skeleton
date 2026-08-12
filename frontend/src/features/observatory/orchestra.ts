@@ -1,9 +1,10 @@
 /**
  * orchestra.ts — the pure marriage behind every room's session cards. (The
- * name is a fossil: this fed a live "Orchestra" section until the 07-27
- * rework made Orchestra one room of three — orchestraRows now feeds
- * SessionLane in ALL of them, the Keeper slot included.) Two signals that
- * already exist in the app get combined here, with NO new backend plumbing:
+ * name is a fossil twice over: this fed a live "Orchestra" section until the
+ * 07-27 rework made Orchestra one room among several, and the Orchestra room
+ * itself was retired 08-12. orchestraRows feeds SessionLane in every room
+ * that's left, the Keeper slot included.) Two signals that already exist in
+ * the app get combined here, with NO new backend plumbing:
  *
  *   - WHICH sessions are running now  ← the roster (GET /api/observatory,
  *     already `_effective_running`-corrected server-side).
@@ -13,9 +14,9 @@
  *
  * The roster is the authority on running-ness; terrain only supplies files.
  * A session that's running but hasn't written anything yet still shows (with an
- * empty file list) — Orchestra never claims more than the data knows.
+ * empty file list) — a card never claims more than the data knows.
  *
- * We keep WRITES + CREATES and drop pure reads on purpose: Orchestra shows work
+ * We keep WRITES + CREATES and drop pure reads on purpose: a card shows work
  * being *produced*, not files merely glanced at — the same writing/creating
  * signal S3 (fork-the-work) will read to seed a take-over spinoff.
  */

@@ -1,8 +1,9 @@
 /* SessionLane — the card language every room on the roster shares (Personal,
-   Coding, Orchestra, and the hoisted Keeper slot all render through
-   SessionLane.tsx). Quiet-until-active (Sunflower): still and calm when idle,
-   the live rows the only thing that breathes. (Named Orchestra.module.css
-   until 08-03, after a section the 07-27 rework abolished.) */
+   Coding, and the hoisted Keeper slot all render through SessionLane.tsx).
+   Quiet-until-active (Sunflower): still and calm when idle, the live rows the
+   only thing that breathes. (Named Orchestra.module.css until 08-03, after a
+   section the 07-27 rework abolished; the .orchestra class name is the last
+   fossil of it and is just "the room's outer section".) */
 
 .orchestra {
   margin-bottom: var(--space-6);

@@ -1,6 +1,6 @@
 import { useEffect, useState, type KeyboardEvent } from 'react';
 import { Sheet } from '../../ui';
-import { ALL_LANES, LANE_BLURB, LANE_LABEL, type Lane } from './api';
+import { LANE_BLURB, LANE_LABEL, ROOMS, isRoom, type Lane } from './api';
 import styles from './RosterPage.module.css';
 
 /** Display names for the model aliases the server offers. Anything not
@@ -99,8 +99,17 @@ export function SessionDialog({
   };
 
   // What the gate will actually DO once saved — resolved here so the label
-  // never says "default" without saying what the default resolves to.
+  // never says "default" without saying what the default resolves to. Both
+  // rooms she can pick just act; the check still names Orchestra because a
+  // session left in that retired lane really does still ask, and the label has
+  // to tell the truth about the session in front of her.
   const gateOn = actGate === null ? pickedLane === 'orchestra' : actGate;
+
+  // The rooms on offer, plus the session's own lane when that lane no longer
+  // has a room (a leftover Orchestra session). Without it the <select> would
+  // sit on a value it doesn't list — showing blank, and quietly rewriting the
+  // lane to whatever ended up selected the first time she saved something else.
+  const laneChoices: Lane[] = isRoom(pickedLane) ? [...ROOMS] : [...ROOMS, pickedLane];
 
   return (
     <Sheet open={open} title={title} onClose={onClose}>
@@ -123,7 +132,7 @@ export function SessionDialog({
             value={pickedLane}
             onChange={(e) => setPickedLane(e.target.value as Lane)}
           >
-            {ALL_LANES.map((l) => (
+            {laneChoices.map((l) => (
               <option key={l} value={l}>
                 {LANE_LABEL[l]}
               </option>
@@ -175,8 +184,8 @@ export function SessionDialog({
           </select>
           <span className={styles.dialogFieldDesc}>
             Whether it stops and raises an orange card before something
-            irreversible. Orchestra asks because nobody&rsquo;s watching;
-            Personal and Coding don&rsquo;t, because you are.
+            irreversible. Personal and Coding don&rsquo;t ask, because
+            you&rsquo;re the one watching — set it here if you want this one to.
           </span>
         </label>
 

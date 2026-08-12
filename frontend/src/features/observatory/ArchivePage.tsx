@@ -196,8 +196,11 @@ export function ArchivePage({ lane }: { lane?: string }) {
         </div>
 
         {/* Switch rooms, or widen to all, without going back to the roster.
-            Reads ALL_LANES so a fourth room can't appear on the roster and
-            silently have no archive. */}
+            Reads ALL_LANES — every lane that exists, not just the ones with a
+            room on the roster — so a new room can't appear and silently have no
+            archive, and a RETIRED one (Orchestra) doesn't take its history off
+            the record when its room goes. This chip row is the only way left to
+            reach what Orchestra held. */}
         <div className={styles.scopeRow} role="group" aria-label="Which room">
           {(['', ...ALL_LANES] as (Lane | '')[]).map((l) => (
             <button

@@ -7,29 +7,29 @@ import type { TerrainData } from '../terrain/api';
 import styles from './SessionLane.module.css';
 
 /**
- * SessionLane — one of the Observatory's three rooms: the title line, the
- * collapse, the urgency ordering, and the way back through the room's past.
- * The cards themselves live in SessionCard.tsx (split 08-03 — three renderers
- * and seven per-row state maps had grown inline here).
+ * SessionLane — one room of the Observatory (Personal, Coding, or the Keeper's
+ * slot): the title line, the collapse, the urgency ordering, and the way back
+ * through the room's past. The cards themselves live in SessionCard.tsx (split
+ * 08-03 — three renderers and seven per-row state maps had grown inline here).
  *
  * WHY THIS EXISTS (her 07-27 call). The page used to render every session
- * twice: once in "My sessions" (the whole roster) and again in "Orchestra" (a
- * `running || awaiting` filter over that same roster), in two different visual
- * languages. So there was no way to say where anything *lived* — Orchestra was
- * a view, not a place. Now a session BELONGS to a lane, exclusively, and stays
- * put whether or not it happens to be working.
+ * twice: once in "My sessions" (the whole roster) and again in a live section
+ * that was just a `running || awaiting` filter over that same roster, in two
+ * different visual languages. So there was no way to say where anything
+ * *lived*. Now a session BELONGS to a lane, exclusively, and stays put whether
+ * or not it happens to be working.
  *
  * The move that made it collapse: LIVE IS A STATE THE CARD WEARS, not a
  * section it migrates into. One card renders idle, breathing, waiting, and
- * blocked — so a Personal session shows the files it's touching exactly like
- * an Orchestra one, which the old split couldn't do at all.
+ * blocked — so every room shows the files its sessions are touching, which the
+ * old split couldn't do at all.
  *
  * QUIET-UNTIL-ACTIVE, LOUD-WHEN-WAITING (Sunflower): a resting lane is still;
  * working cards breathe violet; cards that need her glow orange and float to
  * the top with the ask in her face — a request she has to walk past can't be a
  * whisper, or the queue becomes a graveyard (Terra).
  *
- * COLLAPSIBLE (her 08-03 ask). Three rooms of cards is a long page on a phone,
+ * COLLAPSIBLE (her 08-03 ask). Rooms of cards make a long page on a phone,
  * so each one shuts to its title line and remembers that. The census stays on
  * the HEADER, so a shut room still reports what's running and what's waiting —
  * see LaneHead.tsx, which owns that whole contract.
@@ -45,7 +45,7 @@ import styles from './SessionLane.module.css';
  * question from leaving Personal.
  *
  * Terrain is polled ONCE by the page and passed in, not fetched per lane —
- * three lanes must not mean three pollers hitting the same endpoint.
+ * several lanes must not mean several pollers hitting the same endpoint.
  */
 export function SessionLane({
   laneKey,

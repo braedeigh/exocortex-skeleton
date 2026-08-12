@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import {
-  ALL_LANES,
   LANE_LABEL,
+  ROOMS,
   closeConversation,
   createSession,
   getSessions,
+  isRoom,
   toLane,
   updateConversation,
   wakeSteward,
-  type Lane,
+  type Room,
   type SessionMeta,
 } from './api';
 import { sessionLocation } from './sessionLocation';
@@ -112,15 +113,15 @@ interface NightState {
 
 /** Each room's fuller introduction, in the page's own voice — headings come
  * from LANE_LABEL (api.ts), the shared single source, and the walk order from
- * ALL_LANES, so this page and the create dialog can't drift into offering
- * different sets. */
-const LANE_INTRO: Record<Lane, string> = {
+ * ROOMS, so this page and the create dialog can't drift into offering
+ * different sets. Keyed by Room, not Lane: a retired lane has no room to
+ * introduce, and typing it this way makes TypeScript point here the moment the
+ * set of rooms changes. */
+const LANE_INTRO: Record<Room, string> = {
   personal:
     'You, talking, in real time — your life, not the build. Rooted where both repos meet, so it can reach everything, and it just acts, because you’re the one watching.',
   coding:
     'You, building, in real time. Rooted in the app code so it stands where the work is — and it just acts, same as Personal, because you’re still here.',
-  orchestra:
-    'Work happening while you’re not. Rooted in the app code, and it stops to ask before anything irreversible.',
 };
 
 /**
@@ -135,7 +136,7 @@ const LANE_INTRO: Record<Lane, string> = {
  * session is ASSIGNED to a lane and stays there; being live became a state its
  * card wears rather than a section it migrates into. One card, one home.
  *
- * THREE OF THEM (her 08-03 call — "separation of sessions that are personal
+ * TWO OF THEM (her 08-03 call — "separation of sessions that are personal
  * and those that are coding"). The old Personal room held both her life and
  * her build, which are the same in one respect (she's watching, so nothing
  * needs to stop and ask) and different in the one that matters day to day:
@@ -144,6 +145,14 @@ const LANE_INTRO: Record<Lane, string> = {
  * in the app checkout, because a build session that stands one level up can
  * drift into the vault and leave app code there. So the split is a real
  * boundary, not a label — see _lane_profile in routes/observatory.py.
+ *
+ * THERE WAS A THIRD (Orchestra — work running while she wasn't watching,
+ * gated). She retired it 08-12: "remove the orchestra section from my
+ * observatory for now." The room is gone from this page and from both pickers;
+ * the LANE is untouched server-side, because it's still what night-crew workers
+ * run in and still the fail-toward-ask lane the backend files anything it can't
+ * place into. Everything Orchestra ever held is reachable under Past sessions,
+ * and bringing the room back is adding 'orchestra' to ROOMS in api.ts.
  *
  * COLLAPSIBLE (same ask). Every room on this page shuts to its title line and
  * remembers it, Night crew included. The census stays on the header, so a shut
@@ -170,9 +179,9 @@ const LANE_INTRO: Record<Lane, string> = {
  * (SessionLane) writes it through readReceipts' setConversationRead.
  *
  * The order down the page is the two rooms she's PRESENT for (Personal, then
- * Coding), then the two that run underneath her (Orchestra, Night crew) — the
- * things she's doing above the things being done for her, which is the same
- * instinct as the 07-27 ordering call applied to a wider set.
+ * Coding), then the one that runs underneath her (Night crew) — the things
+ * she's doing above the things being done for her, which is the same instinct
+ * as the 07-27 ordering call applied to a wider set.
  *
  * DOCKED MODE (07-25): also the Sessions view of the desktop split's left
  * pane (shell/KeeperPane.tsx). `onOpenConversation` is the seam — opening a
@@ -350,14 +359,26 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
   // promise the moment she used a filter.
   const keeper = ordered.filter((s) => s.pinned);
   // The lane is server-resolved (it derives one for every session that predates
-  // the field), so this is a straight split, not a guess. An unknown value
-  // falls to Orchestra — the gated room, same fail-toward-ask as the backend
-  // (see toLane). Pinned is excluded so the Keeper isn't drawn twice, and
-  // night-crew workers' sessions are excluded from every room — they belong
-  // to the Night crew section, reached through their run card's session door
-  // ("they showed up in orchestra rather than in night crew").
-  const byLane = (lane: Lane) =>
-    shown.filter((s) => !s.pinned && s.origin !== 'nightcrew' && toLane(s.lane) === lane);
+  // the field), so this is a straight split, not a guess. Pinned is excluded so
+  // the Keeper isn't drawn twice, and night-crew workers' sessions are excluded
+  // from every room — they belong to the Night crew section, reached through
+  // their run card's session door ("they showed up in orchestra rather than in
+  // night crew").
+  //
+  // NOTHING FALLS THROUGH THE FLOOR. Orchestra was retired as a room (her 08-12
+  // ask) but survives as a lane: the server still files anything it can't place
+  // there, and a session she'd made in it before would otherwise be on the
+  // roster payload with no section to land in — invisible, unreachable, still
+  // burning. So a session in a lane with no room shows up in Coding, which
+  // stands on the same ground (the app checkout). What it DOES is unaffected:
+  // the gate is resolved server-side from its own lane, so an Orchestra session
+  // drawn here still stops and asks.
+  const byLane = (room: Room) =>
+    shown.filter((s) => {
+      if (s.pinned || s.origin === 'nightcrew') return false;
+      const lane = toLane(s.lane);
+      return lane === room || (room === 'coding' && !isRoom(lane));
+    });
 
   // What an empty lane says while the rail is narrowing it — "tap + to start
   // one" would be a lie there, and she'd make a session to fill a room that
@@ -473,7 +494,7 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
             />
           ) : null}
 
-          {ALL_LANES.map((lane) => (
+          {ROOMS.map((lane) => (
             <SessionLane
               key={lane}
               laneKey={lane}
@@ -491,7 +512,7 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
             />
           ))}
 
-          {/* The third room. Not a lane of sessions — a stack of finished
+          {/* The last room. Not a lane of sessions — a stack of finished
               attempts waiting for a verdict, so it renders itself rather than
               going through SessionLane. */}
           <NightCrewLane
@@ -512,13 +533,17 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
             <span className={styles.laterEm}>coming later</span>
           </div>
 
-          {/* Seeded to Orchestra — the gated room, the same fail-toward-ask the
-              backend uses for anything it can't place. A session made by accident
-              should be one that stops and asks. */}
+          {/* Seeded to Coding — the narrower ground of the two rooms left, so a
+              session made without thinking about it stands in the app checkout
+              rather than one level up beside the vault. It used to seed to
+              Orchestra for the stronger reason that an accidental session should
+              stop and ask; that room is retired, and both rooms she can pick now
+              just act. The "Asks first" field in the sheet is where that's set
+              deliberately. */}
           <SessionDialog
             open={creating}
             title="New session"
-            lane="orchestra"
+            lane="coding"
             modelChoices={modelChoices}
             onClose={() => setCreating(false)}
             onSave={onCreate}

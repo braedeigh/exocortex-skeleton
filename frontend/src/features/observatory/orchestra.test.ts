@@ -79,7 +79,7 @@ describe('orchestraRows', () => {
     expect(rows[0].fileCount).toBe(0);
   });
 
-  it('drops pure reads — Orchestra shows work being produced, not glanced at', () => {
+  it('drops pure reads — a card shows work being produced, not glanced at', () => {
     const rows = orchestraRows(
       [session('a')],
       terrain([

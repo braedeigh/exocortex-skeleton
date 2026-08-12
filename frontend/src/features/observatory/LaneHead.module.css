@@ -1,11 +1,11 @@
 /* LaneHead — the shared title line for every room on the Observatory
-   (Personal, Coding, Orchestra, Night crew). One header, one chevron idiom, so
+   (Personal, Coding, Night crew). One header, one chevron idiom, so
    collapsing feels identical wherever she does it.
 
    The census that sits beside the heading is styled by each room in its own
-   module (Orchestra's .waitCount / .count, Night crew's .readyCount / .spend) —
-   this file owns the LINE and the CONTROL, not what the room chooses to report
-   on it. */
+   module (SessionLane's .waitCount / .count, Night crew's .readyCount /
+   .spend) — this file owns the LINE and the CONTROL, not what the room chooses
+   to report on it. */
 
 .head {
   display: flex;

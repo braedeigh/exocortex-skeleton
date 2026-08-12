@@ -158,7 +158,7 @@ def _cli_default_model():
     return model if isinstance(model, str) and model.strip() else None
 
 
-# --- Lanes: the Observatory's three rooms ----------------------------------
+# --- Lanes: where a session stands, and whether it asks ---------------------
 # A session BELONGS to a lane; it is not filtered into one. Before this, the
 # live "Orchestra" section was a derived view (running or awaiting) over the
 # same roster "My sessions" already rendered — so a working session was one
@@ -171,7 +171,7 @@ def _cli_default_model():
 # The lane does NOT gate tools — every lane carries the full builder toolkit
 # (her call: "it should be able to do honestly anything"). What it decides is
 # WHERE the session stands and whether it STOPS AND ASKS — two independent
-# switches, which is exactly why there are three rooms and not two:
+# switches, which is why there are three lanes and not two:
 #
 #   personal  — her, talking, in real time, about her life. Rooted at the
 #               parent of both repos, the one place a session sees the app
@@ -192,6 +192,16 @@ def _cli_default_model():
 # So: Personal and Coding differ by GROUND, Coding and Orchestra by GATE. The
 # split of the old Personal room into Personal + Coding is her 08-03 call —
 # "separation of sessions that are personal and those that are coding".
+#
+# ORCHESTRA HAS NO ROOM ON THE PAGE ANY MORE (her 08-12 ask, "remove the
+# orchestra section from my observatory for now"). Nothing here changed: the
+# lane still exists, still gates, and is still _DEFAULT_LANE, because it is (a)
+# what night-crew workers run in and (b) the fail-toward-ask home for any
+# session this file can't place — retiring it here would silently WIDEN the
+# autonomy of everything unplaceable, which is the one thing the gate exists to
+# prevent. The frontend simply stops drawing and offering it: ROOMS in
+# frontend/src/features/observatory/api.ts is the list with a room, ALL_LANES is
+# the list that exists. Bringing the room back is a one-line change there.
 #
 # Per-session overrides (`act_gate` / `guard_docs` written explicitly) still
 # win over the lane default — see _conv_config.
