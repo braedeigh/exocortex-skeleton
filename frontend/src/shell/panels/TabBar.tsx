@@ -202,30 +202,26 @@ export function TabBar({
       <div className={styles.tabs} role="tablist" aria-label="Panel tabs">
         {tabs.map((section, i) => {
           const isHere = here?.id === section.id;
+          // The visiting tab isn't in the set, so there's nothing to take out
+          // of it — it leaves on its own when you go elsewhere.
+          const closable = section !== visiting;
           return (
-            <button
+            /* The × has to be a real button, and HTML won't nest one inside
+               another — so it's a sibling laid over the tab's right edge
+               rather than a child of it. The wrapper is presentational so the
+               tablist still sees `role="tab"` directly beneath it, and it
+               carries the drag because the whole tab is what moves. */
+            <div
               key={section.id}
-              type="button"
-              role="tab"
-              aria-selected={isHere}
-              draggable={section !== visiting}
+              role="presentation"
               className={[
-                styles.tab,
-                isHere ? styles.tabActive : '',
-                section === visiting ? styles.tabVisiting : '',
+                styles.tabWrap,
                 drag?.over === i && drag.from !== i ? styles.tabDropTarget : '',
               ]
                 .filter(Boolean)
                 .join(' ')}
-              title={
-                section === visiting
-                  ? `${section.label} — not pinned to ${active?.name}. Use the ▾ to pin it.`
-                  : isHere
-                    ? `Back to ${section.label}`
-                    : section.label
-              }
-              onClick={() => goTo(section)}
-              onDragStart={() => section !== visiting && setDrag({ from: i, over: i })}
+              draggable={closable}
+              onDragStart={() => closable && setDrag({ from: i, over: i })}
               onDragOver={(e) => {
                 e.preventDefault(); // without this the drop never fires
                 setDrag((d) => (d && d.over !== i ? { ...d, over: i } : d));
@@ -233,14 +229,52 @@ export function TabBar({
               onDrop={() => {
                 // Dropping onto the visiting tab would aim at a slot the set
                 // doesn't have; reorder ignores it, but don't even ask.
-                if (drag && section !== visiting) save(reorder(sets, activeSetId, drag.from, i));
+                if (drag && closable) save(reorder(sets, activeSetId, drag.from, i));
                 setDrag(null);
               }}
               onDragEnd={() => setDrag(null)}
             >
-              <span className={styles.icon}>{section.icon}</span>
-              <span className={styles.tabLabel}>{labelFor(section)}</span>
-            </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={isHere}
+                className={[
+                  styles.tab,
+                  isHere ? styles.tabActive : '',
+                  section === visiting ? styles.tabVisiting : '',
+                  closable ? styles.tabClosable : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+                title={
+                  section === visiting
+                    ? `${section.label} — not pinned to ${active?.name}. Use the ▾ to pin it.`
+                    : isHere
+                      ? `Back to ${section.label}`
+                      : section.label
+                }
+                onClick={() => goTo(section)}
+              >
+                <span className={styles.icon}>{section.icon}</span>
+                <span className={styles.tabLabel}>{labelFor(section)}</span>
+              </button>
+              {closable ? (
+                <button
+                  type="button"
+                  className={styles.close}
+                  title={`Remove ${section.label} from ${active?.name}`}
+                  aria-label={`Remove ${section.label} from ${active?.name}`}
+                  onClick={(e) => {
+                    // The × sits on top of the tab; without this the click
+                    // would also navigate to the tab being removed.
+                    e.stopPropagation();
+                    save(unpin(sets, activeSetId, section.id));
+                  }}
+                >
+                  &#10005;
+                </button>
+              ) : null}
+            </div>
           );
         })}
         {tabs.length === 0 ? (

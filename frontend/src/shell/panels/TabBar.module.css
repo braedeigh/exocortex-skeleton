@@ -145,12 +145,21 @@
   overflow: hidden;
 }
 
+/* Holds the tab and, over its right edge, the × that takes it out of the set.
+   Presentational: the tablist still sees the tab itself. */
+.tabWrap {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .tab {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  flex: 1 1 auto;
+  flex: 1;
   min-width: 0;
   min-height: 40px;
   padding: 0 var(--space-3, 12px);
@@ -191,6 +200,60 @@
    whole row around the pointer. */
 .tabDropTarget {
   box-shadow: inset 3px 0 0 var(--accent);
+}
+
+/* Room for the × so it never sits on top of the label. Only on tabs that have
+   one, so a visiting tab isn't padded around nothing. */
+.tabClosable {
+  padding-right: 30px;
+}
+
+/* Take this tab out of the set. Hidden until the tab is hovered — the browser
+   convention, and asked for — but NOT hidden from the keyboard: focus-within
+   reveals it too, or it would be a control only a mouse could ever reach. On a
+   touch screen there is no hover to wait for, so it's simply always there.
+
+   Small, but not faint: at 15px on a 24px target it's comfortably readable and
+   clickable once shown, which is the visible-icon rule applied to a control
+   that earns its space by appearing only when it's wanted. */
+.close {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 5px;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s, color 0.12s, background-color 0.12s;
+}
+
+.tabWrap:hover .close,
+.tabWrap:focus-within .close {
+  opacity: 1;
+}
+
+.close:hover,
+.close:focus-visible {
+  background: var(--border);
+  color: var(--text);
+}
+
+@media (hover: none) {
+  .close {
+    opacity: 1;
+  }
 }
 
 .icon {
