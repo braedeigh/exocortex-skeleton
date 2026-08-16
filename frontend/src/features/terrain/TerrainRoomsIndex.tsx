@@ -76,6 +76,29 @@ function FlowMotif() {
   );
 }
 
+/** One big pane and a stack of small ones — the desk's own layout, with the
+ * hero's newest-edit line lit. */
+function WorkshopMotif() {
+  return (
+    <svg viewBox="0 0 64 40" width="64" height="40" aria-hidden="true">
+      <g fill="none" stroke="currentColor" strokeWidth="2">
+        <rect x="1" y="1" width="36" height="38" rx="3" opacity="0.9" />
+        <rect x="43" y="1" width="20" height="10" rx="2" opacity="0.55" />
+        <rect x="43" y="15" width="20" height="10" rx="2" opacity="0.35" />
+        <rect x="43" y="29" width="20" height="10" rx="2" opacity="0.2" />
+      </g>
+      <g fill="currentColor">
+        <rect x="6" y="8" width="22" height="3" rx="1.5" opacity="0.4" />
+        <rect x="6" y="15" width="26" height="3" rx="1.5" opacity="0.9">
+          <animate attributeName="opacity" values="0.9;0.3;0.9" dur="1.8s" repeatCount="indefinite" />
+        </rect>
+        <rect x="6" y="22" width="18" height="3" rx="1.5" opacity="0.4" />
+        <rect x="6" y="29" width="24" height="3" rx="1.5" opacity="0.4" />
+      </g>
+    </svg>
+  );
+}
+
 /** A table of cells — rows and columns, the database's shape. */
 function DataMotif() {
   return (
@@ -149,6 +172,13 @@ const ROOMS: ReadonlyArray<{
     name: 'Flow',
     line: 'Code as it’s being written, agent by agent, as it lands.',
     motif: FlowMotif,
+  },
+  {
+    key: 'workshop',
+    to: '/terrain/workshop',
+    name: 'Workshop',
+    line: 'An agent’s desk — every file it’s writing, open at once.',
+    motif: WorkshopMotif,
   },
   {
     key: 'growth',
