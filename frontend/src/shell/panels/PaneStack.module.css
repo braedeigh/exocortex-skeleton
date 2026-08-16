@@ -1,0 +1,112 @@
+/* The reading room's own chrome. Pinned twilight-indigo rather than theme
+   variables — this is the terminal apparatus's colouring (same literals as
+   SessionBar.module.css), and it sits above the Keeper too so the strip
+   doesn't change colour when the surface switches. It fills the tile's shared
+   header row, which is why there's no border-bottom here: the row has one. */
+
+.switch {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  height: 100%;
+  min-height: 40px;
+  background: #1a1a2e;
+}
+
+.tabs {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+
+/* The tile's own back. Same height and quiet colour as a tab so it reads as
+   part of the strip, but narrow and unlabelled — it's a direction, not a
+   destination. Stays in the layout when there's nowhere to go and just dims,
+   so the tabs never shift underneath. */
+.back {
+  flex: 0 0 auto;
+  width: 40px;
+  min-height: 40px;
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  color: #9ca3af;
+  font-family: inherit;
+  /* A chevron needs the size to read at all — this is the visible-icon rule,
+     not body text. */
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.15s, background-color 0.15s;
+}
+
+.back:hover:not(:disabled) {
+  background: #23233d;
+  color: #e5e7eb;
+}
+
+.back:disabled {
+  color: #4b5563;
+  cursor: default;
+}
+
+.tab {
+  flex: 1;
+  min-width: 0;
+  min-height: 40px;
+  padding: 0 var(--space-3, 12px);
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  color: #9ca3af;
+  font-family: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  transition: color 0.15s, background-color 0.15s;
+  /* The middle tab wears the open session's own title, which can run to 60
+     characters — clip it rather than let it shove the other two out of the
+     tile. The full title stays in the tooltip. */
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.tab:hover,
+.tab:focus-visible {
+  color: #ececec;
+  background: #23233d;
+}
+
+.tabActive {
+  background: #2a2547;
+  border-bottom-color: #7c5cbf;
+  color: #ececec;
+}
+
+/* The two surfaces stack here; the hidden one stays mounted (see PaneStack's
+   header note). `overscroll-behavior-x: contain` is the single line that makes
+   the two-finger swipe-back land on THIS tile: scrolling inside works
+   normally, but the leftover horizontal overscroll refuses to chain out to the
+   viewport, which is the thing the browser would otherwise turn into its own
+   swipe-back. The same gesture over any other tile never hits this rule and
+   stays an ordinary browser back — nothing has to track where the cursor is. */
+.body {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  overscroll-behavior-x: contain;
+}
+
+.slot {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.slotHidden {
+  display: none;
+}

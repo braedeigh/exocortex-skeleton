@@ -1,0 +1,55 @@
+/* A split is a flex box; its children hold the percentages the layout tree
+   says. flex-grow 0 / flex-shrink 1 with an explicit basis is what keeps the
+   proportions honest — let the boxes grow and they renegotiate their own
+   sizes, and the number you dragged to stops meaning anything. */
+
+.row,
+.col {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.row {
+  flex-direction: row;
+}
+
+.col {
+  flex-direction: column;
+}
+
+.slot {
+  flex-grow: 0;
+  flex-shrink: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The boundaries. 6px of actual box with a wider invisible grab area would be
+   nicer still, but a padded handle overlaps its neighbours' content and eats
+   clicks near a tile's edge — so this stays a plain 6px, matching the divider
+   the split has always had, and lights up on hover so it's findable. */
+.dividerV,
+.dividerH {
+  flex: 0 0 6px;
+  background: var(--border);
+  transition: background 0.15s;
+}
+
+.dividerV {
+  cursor: col-resize;
+}
+
+.dividerH {
+  cursor: row-resize;
+}
+
+.dividerV:hover,
+.dividerH:hover {
+  background: var(--accent);
+}

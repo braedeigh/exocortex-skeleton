@@ -1,0 +1,196 @@
+/* One tile: a header row that never scrolls, and a body that fills the rest.
+   Theme variables rather than the terminal's pinned indigo — a tile can hold
+   any page in the app, and dark chrome stapled above a light dashboard page
+   reads as a bug. The reading-room tile keeps its own pinned colours inside
+   the header slot it fills. */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  /* Each tile contains its own overlays (popovers, sheets, the terminal's
+     floating widgets). Without this they escape and paint over neighbouring
+     tiles, which looks like the wrong panel is on top. */
+  isolation: isolate;
+}
+
+/* `stretch`, not `center`: a tile can hand in header content that's taller
+   than one row (the primary tile hands in the app's tab strip), and that
+   content should fill the row rather than float in the middle of it. The
+   action buttons re-centre themselves below. */
+.head {
+  display: flex;
+  align-items: stretch;
+  flex-shrink: 0;
+  min-height: 40px;
+  gap: var(--space-2, 8px);
+  padding-right: 4px;
+  background: var(--card-bg);
+  border-bottom: 1px solid var(--border);
+}
+
+/* A tile that supplies its own header content (the reading room's switcher)
+   hands it in whole — it should be free to fill the row. */
+.head > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Flex rather than plain text, because the row stretches its children — a
+   bare span would hang its text from the top of a tall header. */
+.title {
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-3, 12px);
+  font-size: 14px;
+  color: var(--text-secondary, var(--text));
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.pickWrap {
+  position: relative;
+  min-width: 0;
+}
+
+/* The name doubles as the destination menu — full row height so it's an easy
+   target, and clipped rather than allowed to shove the actions off the end. */
+.pick {
+  display: block;
+  width: 100%;
+  min-height: 40px;
+  padding: 0 var(--space-3, 12px);
+  background: none;
+  border: none;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  transition: background-color 0.15s;
+}
+
+.pick:hover,
+.pick:focus-visible {
+  background: var(--bg);
+}
+
+.menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 30;
+  min-width: 220px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 6px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+
+.group + .group {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+.groupLabel {
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.menuItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 40px;
+  padding: 0 10px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.menuItem:hover,
+.menuItem:focus-visible {
+  background: var(--bg);
+}
+
+.menuIcon {
+  width: 20px;
+  font-size: 15px;
+  text-align: center;
+}
+
+.actions {
+  display: flex;
+  align-self: center;
+  flex-shrink: 0;
+  gap: 2px;
+}
+
+/* A header taller than one row (the primary tile's, which holds the app's
+   two-row tab strip) pins its buttons to the top-right instead of letting them
+   sit in the flow. In flow they'd take their width out of BOTH rows, and the
+   second row is the tight one — it started clipping tab labels. Pinned, they
+   sit over the first row only, which reserves the space for them. */
+.headOverlay {
+  position: relative;
+}
+
+.headOverlay .actions {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+}
+
+/* Comfortable hit area and a clearly visible glyph — these are the controls
+   that rearrange the whole workspace, so they don't get to be faint. */
+.action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-secondary, var(--text));
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.action:hover,
+.action:focus-visible {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  /* The measuring box for anything inside that wants to size itself to its
+     TILE rather than to the window. A page in a 500px column on a wide monitor
+     is narrow, whatever the viewport thinks. */
+  container-type: inline-size;
+}
