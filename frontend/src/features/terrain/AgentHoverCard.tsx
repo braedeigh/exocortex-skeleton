@@ -24,10 +24,14 @@ import styles from './AgentHoverCard.module.css';
  *  - IT CARRIES THE LAST MESSAGE. The roster summarises; this prints the words,
  *    below the fold, so sweeping four orbs tells her what all four actually
  *    said without opening anything. Catching up is what the map is for.
- *  - ONE ACTION: open the session. The roster's controls (Stop, Approve/Deny,
- *    ✎, ×, Resume) are decisions, and a decision wants a surface that doesn't
- *    vanish when the mouse slips. The flag row's job here is triage — THIS orb
- *    needs you — and Open is the door to where it gets dealt with.
+ *  - TWO ACTIONS, and only two: open HERE (this page becomes the
+ *    conversation) or open THERE (the Observatory catches it, wherever one is
+ *    watching — a tile in this window or another monitor's, via the window
+ *    bus). Her words, and an honest fork the app used to decide silently. The
+ *    roster's other controls (Stop, Approve/Deny, ✎, ×, Resume) are
+ *    decisions, and a decision wants a surface that doesn't vanish when the
+ *    mouse slips. The flag row's job here is triage — THIS orb needs you —
+ *    and the open pair is the door to where it gets dealt with.
  *
  * Top to bottom it's a hierarchy of urgency rather than of source. Anything the
  * session is WAITING on (a question it raised, a command blocked at the gate, a
@@ -95,15 +99,18 @@ export function AgentHoverCard({
   facts,
   engaged,
   onEngage,
-  onOpen,
+  onOpenHere,
+  onOpenThere,
 }: {
   hover: AgentHover | null;
   facts: AgentHoverFacts | null;
   /** The cursor is inside the card — it's being read, not passed. */
   engaged: boolean;
   onEngage: (engaged: boolean) => void;
-  /** Open this conversation (the left pane on desktop, see TerrainPage). */
-  onOpen: () => void;
+  /** Open this conversation on THIS page (the map navigates away to it). */
+  onOpenHere: () => void;
+  /** Hand it to the Observatory, wherever one is watching (see TerrainPage). */
+  onOpenThere: () => void;
 }) {
   if (!hover || !facts) return null;
 
@@ -207,12 +214,31 @@ export function AgentHoverCard({
         ) : null}
       </div>
 
-      {/* One action, full width. Quiet until she's actually in the card, then
-          solid — a footer that shouted from across the map would make every
-          sweep feel like a demand. */}
+      {/* The open pair, her words: HERE = this page becomes the conversation,
+          THERE = the Observatory catches it wherever one is watching. "There"
+          wears the accent because it's the move that keeps the map up — the
+          reason she's on the terrain at all. Both stay quiet until she's
+          actually in the card, then go solid — a footer that shouted from
+          across the map would make every sweep feel like a demand.
+
+          Prompt: "i maybe want it to say 'open here' or 'open there' and
+          'there' is the observatory and 'here' is that page". */}
       <div className={styles.actions}>
-        <button type="button" className={styles.openBtn} onClick={onOpen}>
-          Open session
+        <button
+          type="button"
+          className={[styles.openBtn, styles.openBtnQuiet].join(' ')}
+          title="This page becomes the conversation"
+          onClick={onOpenHere}
+        >
+          Open here
+        </button>
+        <button
+          type="button"
+          className={styles.openBtn}
+          title="Open in the Observatory — this window's tile, or another monitor's"
+          onClick={onOpenThere}
+        >
+          Open there
         </button>
       </div>
     </div>,

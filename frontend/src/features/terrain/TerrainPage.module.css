@@ -309,6 +309,14 @@
   gap: var(--space-2);
 }
 
+/* The open pair on the agent sheet: two equal halves of one fork —
+   "Open here" beside "Open there" — in the sheet's own list-button dress. */
+.openPair {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-2);
+}
+
 /* The row's main tap target — opens the conversation like the atlas does. */
 .sessionOpen {
   flex: 1;

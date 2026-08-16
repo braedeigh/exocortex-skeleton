@@ -304,8 +304,9 @@
   opacity: 1;
 }
 
-/* The only control on the card. Full width because it's the only one — nothing
-   to sit beside, and an action that spans the card can't be mis-aimed. */
+/* The open pair. Equal halves — the fork is a real choice, so neither side is
+   mis-aimable — with weight carried by fill, not size: "there" (the move that
+   keeps the map up) wears the solid accent, "here" sits quiet beside it. */
 .openBtn {
   flex: 1;
   min-width: 0;
@@ -324,6 +325,18 @@
 
 .cardEngaged .openBtn:hover {
   background: color-mix(in srgb, var(--accent) 86%, #000);
+}
+
+.openBtnQuiet {
+  border-color: color-mix(in srgb, var(--text) 26%, transparent);
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.cardEngaged .openBtnQuiet:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-color: var(--accent);
+  color: var(--text);
 }
 
 @keyframes cardIn {

@@ -777,23 +777,26 @@ export function TerrainPage() {
     });
   };
 
-  const openSession = (convId: string) => {
-    // On the desktop split the session opens in the LEFT pane's middle tab —
-    // the one beside Observatory — so the map stays up in the right half and
-    // she can read the conversation next to the footprint it made, instead of
-    // the map being replaced by it. Closing the sheet is part of that: the
-    // point is seeing the terrain again.
-    //
-    // Prompt: "i really want for when i click on an agent on the terrain page,
-    // that opens that session on the left hand page middle tab next to the
-    // observatory rather than the half of the split screen on the right".
+  // The open pair, in her words: HERE means this very page becomes the
+  // conversation (inside a workspace tile, just that tile navigates); THERE
+  // means the Observatory catches it wherever one is watching — a tile in
+  // this window, or one on another monitor, over the window bus. The app
+  // used to make this call silently (pane first, navigate as fallback); now
+  // the fork is hers, on the button. "There" with no observatory watching
+  // anywhere honestly collapses to "here" rather than doing nothing.
+  //
+  // Prompt: "i maybe want it to say 'open here' or 'open there' and 'there'
+  // is the observatory and 'here' is that page".
+  const openSessionHere = (convId: string) => {
+    setSelected(null);
+    void navigate(sessionLocation(convId));
+  };
+  const openSessionThere = (convId: string) => {
     if (openConversationInPane(convId)) {
       setSelected(null);
       return;
     }
-    // No left pane (mobile, public) — full navigation, same destination as
-    // RosterPage.open.
-    void navigate(sessionLocation(convId));
+    openSessionHere(convId);
   };
 
   // Files are read in the frosted window now, not the sheet, so this is the
@@ -1041,9 +1044,15 @@ export function TerrainPage() {
         facts={hoverFacts}
         engaged={hoverEngaged}
         onEngage={engageHover}
-        onOpen={() => {
+        onOpenHere={() => {
           if (hoverId) {
-            openSession(hoverId);
+            openSessionHere(hoverId);
+            dismissHover();
+          }
+        }}
+        onOpenThere={() => {
+          if (hoverId) {
+            openSessionThere(hoverId);
             dismissHover();
           }
         }}
@@ -1080,14 +1089,24 @@ export function TerrainPage() {
               {' · '}
               {selected.session.files} {selected.session.files === 1 ? 'file' : 'files'} in footprint
             </div>
-            <div className={styles.sessionList}>
+            {/* The same open pair the hovercard wears — here = this page,
+                there = the Observatory, wherever one is watching. */}
+            <div className={styles.openPair}>
               <button
                 type="button"
                 className={styles.sessionOpen}
-                onClick={() => openSession(selected.session!.id)}
+                onClick={() => openSessionHere(selected.session!.id)}
               >
-                <span className={styles.sessionTitle}>Open conversation</span>
-                <span className={styles.sessionMeta}>{selected.session.title}</span>
+                <span className={styles.sessionTitle}>Open here</span>
+                <span className={styles.sessionMeta}>this page</span>
+              </button>
+              <button
+                type="button"
+                className={styles.sessionOpen}
+                onClick={() => openSessionThere(selected.session!.id)}
+              >
+                <span className={styles.sessionTitle}>Open there</span>
+                <span className={styles.sessionMeta}>the Observatory</span>
               </button>
             </div>
             <div className={styles.sheetMeta}>
@@ -1120,7 +1139,10 @@ export function TerrainPage() {
               <div className={styles.sessionList}>
                 {codeFile.file.sessions.map((s) => (
                   <div key={s.id} className={styles.sessionRow}>
-                    <button type="button" className={styles.sessionOpen} onClick={() => openSession(s.id)}>
+                    {/* Rows keep the quiet default — "there", the move that
+                        preserves this window — the sheet's pair is where the
+                        explicit fork lives. */}
+                    <button type="button" className={styles.sessionOpen} onClick={() => openSessionThere(s.id)}>
                       <span className={styles.sessionTitle}>{s.title || s.id}</span>
                       <span className={styles.sessionMeta}>
                         {s.writes} {s.writes === 1 ? 'write' : 'writes'}
