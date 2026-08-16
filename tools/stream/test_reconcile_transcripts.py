@@ -282,6 +282,39 @@ class SkipRuleTests(ReconcilerTestCase):
         reconcile_transcripts.main()
         self.assertEqual(stream.load_all_cards(), [])
 
+    def test_captioned_and_photo_uploads_are_skipped(self):
+        """The two shapes that leaked and minted a duplicate card per upload for three
+        weeks: an upload marker with her caption after it (a fullmatch never fired), and
+        a photo (the rule only recognized _paste.txt). The server already minted both
+        under the accumulated body, so dedup-by-body can't catch them."""
+        reconcile_transcripts.main()   # bootstrap on empty project dirs
+        self._write_transcript("s11.jsonl", [
+            _sentinel_entry("2026-07-14T07:00:00.000Z"),
+            _user("[uploaded: /home/owner/paste/20260714_075555_paste.txt]\nwhat do we think",
+                  "2026-07-14T07:01:00.000Z"),
+            _user("[uploaded: /home/owner/uploads/20260714_075600_IMG_2933.png]",
+                  "2026-07-14T07:02:00.000Z"),
+            _user("[uploaded: /home/owner/uploads/20260714_075700_IMG_2934.png]\nthis one too",
+                  "2026-07-14T07:03:00.000Z"),
+        ])
+        reconcile_transcripts.main()
+        self.assertEqual(stream.load_all_cards(), [])
+
+    def test_upload_marker_mid_sentence_still_mints(self):
+        """Prefix-anchored, not a substring search — her talking *about* an upload is an
+        ordinary turn and must still be repaired if the server missed it."""
+        reconcile_transcripts.main()   # bootstrap on empty project dirs
+        self._write_transcript("s12.jsonl", [
+            _sentinel_entry("2026-07-14T07:00:00.000Z"),
+            _user("why does it say [uploaded: foo.png] instead of my text",
+                  "2026-07-14T07:01:00.000Z"),
+        ])
+        reconcile_transcripts.main()
+        self.assertEqual(
+            [c.body for c in stream.load_all_cards()],
+            ["why does it say [uploaded: foo.png] instead of my text"],
+        )
+
     def test_isMeta_and_isSidechain_are_not_candidates(self):
         reconcile_transcripts.main()   # bootstrap on empty project dirs
         self._write_transcript("s8.jsonl", [

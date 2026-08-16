@@ -103,10 +103,19 @@ def _failure_log_path() -> Path:
 # does see it, so it's local to this module rather than imported.
 INTERRUPTED_PREFIX = "[Request interrupted"
 
-# What the web terminal types into the pane in place of a >500-char composer paste —
-# her real text was already minted server-side under a different body, so dedup by
-# body can't catch this one; it has to be recognized and skipped outright.
-_UPLOAD_PASTE_RE = re.compile(r"\[uploaded: \S+_paste\.txt\]")
+# What the web terminal types into the pane in place of an upload — a long composer
+# paste (…_paste.txt), a photo, a screenshot. Her real text was already minted
+# server-side under a DIFFERENT body (the pane gets only what she typed this turn; the
+# card gets the whole accumulated body), so dedup-by-body structurally cannot catch
+# these — they have to be recognized and skipped outright.
+#
+# Matched as a PREFIX, and against any filename, because both narrower readings leaked:
+# an upload almost always carries a caption after the marker, so a fullmatch never fired,
+# and photo uploads never ended in _paste.txt at all. Between them they minted a
+# duplicate card for seven uploads over three weeks — one per upload, backdated to the
+# transcript timestamp so each landed a second after the server's real card and looked
+# like two doors racing. It was this cron, ~50s later.
+_UPLOAD_PASTE_RE = re.compile(r"\[uploaded: [^\]\n]+\]")
 
 
 def _default_project_dirs() -> List[Path]:
@@ -332,7 +341,7 @@ def _maybe_mint(entry: dict, path: Path, mode) -> None:
         return
     if prompt.startswith("/"):          # slash commands — not a journaled utterance
         return
-    if _UPLOAD_PASTE_RE.fullmatch(prompt):
+    if _UPLOAD_PASTE_RE.match(prompt):   # an upload marker leads the turn — server's job
         return
     # She put this turn off the record in the observatory composer. The text still
     # reached the model, so it's sitting right here in the transcript looking exactly
