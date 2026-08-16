@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { tabIcon, tabLabel } from '../../shell/tabs';
 import { getBranchReport } from './api';
 import { LaneHead, useLaneOpen } from './LaneHead';
 import styles from './NightCrew.module.css';
@@ -300,10 +301,22 @@ function Card({
       <header className={styles.cardHead}>
         <span className={`${styles.dot} ${styles[s.dot]}`} aria-hidden />
         <span className={styles.status}>{s.label}</span>
-        {/* A night run is filed under the dev-note tab it came from; a branch
-            has no tab, so it says what it is instead of showing a blank. */}
-        <span className={styles.tab}>{isBranch ? 'session' : run.tab}</span>
       </header>
+
+      {/* WHERE THE NOTE CAME FROM — a caption above her words, not a whisper in
+          the corner. It used to sit right-aligned in the header at the 12px
+          floor in --text-muted: three de-emphasis levers stacked on the one
+          piece of context that makes her note parseable. A note reading "make
+          this function like the other normal pages" is only legible once you
+          know which page she was standing on, so the origin is a premise, not a
+          footnote — it goes ABOVE the sentence it qualifies, and it says the
+          page's real name (Today, not `today`) via shell/tabs.ts. */}
+      <p className={styles.origin}>
+        <span className={styles.originIcon} aria-hidden>
+          {isBranch ? '⎇' : tabIcon(run.tab ?? '')}
+        </span>
+        {isBranch ? 'session branch' : tabLabel(run.tab ?? '')}
+      </p>
 
       {/* Her own words are the title — she recognises the note before she
           recognises anything we'd write about it. */}

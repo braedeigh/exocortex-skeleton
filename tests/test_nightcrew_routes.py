@@ -18,6 +18,7 @@ from datetime import datetime, timedelta
 import pytest
 from flask import Flask
 
+import devnote_judgments
 import store
 from routes import nightcrew
 
@@ -83,7 +84,9 @@ def test_greenlight_persists_the_flag(client):
     body = client.post("/api/nightcrew/notes/n1/greenlight",
                        json={"night": True}).get_json()
     assert body["ok"] is True and body["eligible"] is True
-    assert store.read("dev_notes.json", {})["tabs"]["today"][0]["night"] is True
+    n = store.read("dev_notes.json", {})["tabs"]["today"][0]
+    assert devnote_judgments.current(n) == "approved"
+    assert devnote_judgments.is_green_lit(n) is True
 
 
 def test_greenlight_reports_the_gates_refusal_on_the_spot(client):
@@ -324,17 +327,25 @@ def test_approving_a_pick_records_without_mooning(client):
     assert run["verdict"] == "approve"
     assert run["her_note"] == "yes, this kind"
     assert run["dismissed"] is True, "judged is answered — off the stack"
-    assert "night" not in store.read("dev_notes.json", {})["tabs"]["today"][0]
+    n = store.read("dev_notes.json", {})["tabs"]["today"][0]
+    assert devnote_judgments.current(n) == "approved"
 
 
-def test_rejecting_a_pick_writes_the_sticky_no(client):
-    """"Not this" must reach the note itself as night:false — the nominator's
-    never-propose-an-answered-note rule is what makes the rejection stick."""
+def test_rejecting_a_pick_reaches_the_note_as_unsure(client):
+    """"Not this" must reach the NOTE, not just the run record — the
+    nominator's never-propose-an-answered-note rule is what makes it stick.
+
+    It lands as `unsure`, not `denied`: this card has two buttons, so "not
+    this" carries both "don't want it" and "can't tell what this is", and the
+    recorded reasons say it's mostly the second. Still answered (so it isn't
+    re-proposed), but she can bring it back by editing the note."""
     _seed_pick()
     body = client.post("/api/nightcrew/runs/p1/pick",
                        json={"verdict": "reject"}).get_json()
     assert body["ok"] is True
-    assert store.read("dev_notes.json", {})["tabs"]["today"][0]["night"] is False
+    n = store.read("dev_notes.json", {})["tabs"]["today"][0]
+    assert devnote_judgments.current(n) == "unsure"
+    assert devnote_judgments.is_answered(n) is True
 
 
 def test_pick_verdict_refuses_non_picked_runs_and_junk(client):

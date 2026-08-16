@@ -126,10 +126,29 @@
   color: var(--text-secondary);
 }
 
-.tab {
-  margin-left: auto;
-  font-size: var(--font-size-sm);
-  color: var(--text-muted);
+/* The note's origin — which page she was standing on when she wrote it.
+   Hierarchy by COLOUR and a tinted ground, not by size: it sits at --font-size-md
+   (14px) rather than the 12px floor, because the floor is for captions and this
+   is a premise she reads before the sentence below it. Tight bottom margin
+   (--space-1) binds it to her words as a label; the card's own gap would let it
+   float free and read as a second header. */
+.origin {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0 0 var(--space-1);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--text-secondary) 9%, transparent);
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+  color: var(--text-secondary);
+}
+
+.originIcon {
+  font-size: var(--font-size-md);
+  line-height: 1;
 }
 
 /* Her own words, at reading size — she recognises the note before she

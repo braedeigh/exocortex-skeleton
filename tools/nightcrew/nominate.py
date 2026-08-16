@@ -25,6 +25,7 @@ scripts/nightcrew_run.py (the consumer), tests/test_nightcrew_nominate.py.
 Prompt that produced this: "I want it to find things to queue for itself.
 Starting with the oldest ones until we're caught up."
 """
+import devnote_judgments
 from tools.nightcrew import triage
 
 
@@ -44,10 +45,15 @@ def nominate(notes_by_tab, count):
     candidates = []
     for tab, notes in (notes_by_tab or {}).items():
         for note in notes or []:
-            if not isinstance(note, dict) or "night" in note:
+            # Skip anything she has already ruled on — approved, denied, or
+            # unsure. An `unsure` stops being answered the moment she edits the
+            # note to add context (that appends `open`), so it comes back here
+            # on its own without ever needing to be re-proposed blind.
+            # (Was "is the `night` key present", which did this job invisibly.)
+            if not isinstance(note, dict) or devnote_judgments.is_answered(note):
                 continue
-            # Ask the gate the hypothetical: would this pass if it were lit?
-            ok, _ = triage.check({**note, "night": True})
+            # Ask the gate the hypothetical: would this pass if she'd lit it?
+            ok, _ = triage.check({**note, "judgments": [devnote_judgments.make("approved")]})
             if ok:
                 candidates.append({
                     "id": note.get("id"),

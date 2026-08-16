@@ -12,11 +12,19 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import devnote_judgments  # noqa: E402
 from tools.nightcrew import nominate  # noqa: E402
 
 
-def note(text, nid, created="2026-06-01 12:00", **extra):
-    return {"id": nid, "text": text, "created": created, **extra}
+def note(text, nid, created="2026-06-01 12:00", night=None, **extra):
+    """`night=True/False` is kept as the parameter these tests read as; it
+    builds the judgment record that replaced the boolean. True -> approved
+    (already lit), False -> unsure (her "not this" from the morning card).
+    Both are ANSWERS, and the nominator never re-proposes an answered note."""
+    n = {"id": nid, "text": text, "created": created, **extra}
+    if night is not None:
+        devnote_judgments.append(n, "approved" if night else "unsure")
+    return n
 
 
 def picked_ids(tabs, count=3):

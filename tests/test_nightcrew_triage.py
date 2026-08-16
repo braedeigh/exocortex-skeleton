@@ -16,13 +16,20 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import devnote_judgments  # noqa: E402
 from tools.nightcrew import triage  # noqa: E402
 
 
 def note(text, night=True, nid="n1"):
     """A dev note in dev_notes.json's shape. Green-lit by default, since most
-    tests are about lock 2 (the text rules), not lock 1 (her tap)."""
-    return {"id": nid, "text": text, "night": night}
+    tests are about lock 2 (the text rules), not lock 1 (her verdict).
+
+    `night=True/False` is kept as the parameter name because that's what these
+    tests read as; it now builds the judgment record that replaced the boolean
+    (devnote_judgments.py) — approved is the green light, open is not."""
+    n = {"id": nid, "text": text}
+    devnote_judgments.append(n, "approved" if night else "open")
+    return n
 
 
 # --- lock 1: her green-light ------------------------------------------------
@@ -39,16 +46,25 @@ def test_flagged_simple_note_passes():
     assert reason == ""
 
 
-def test_missing_night_key_is_treated_as_unflagged():
+def test_a_note_with_no_judgments_is_treated_as_unflagged():
     ok, _ = triage.check({"id": "x", "text": "Re add edit button to habits"})
     assert ok is False
 
 
-def test_night_must_be_true_not_truthy():
-    """A stray "yes"/1 in the JSON must not open the gate — the flag is written
-    by one button and anything else means the data drifted."""
-    ok, _ = triage.check({"id": "x", "text": "Add a search", "night": "yes"})
-    assert ok is False
+def test_only_an_approval_opens_the_gate():
+    """A stray value in the JSON must not open the gate. `unsure` and `denied`
+    are answers, not permissions, and the retired `night: true` boolean no
+    longer means anything on its own."""
+    for junk in ({"judgments": "approved"}, {"judgments": [{"verdict": "yes"}]},
+                 {"night": True}):
+        ok, _ = triage.check({"id": "x", "text": "Add a search", **junk})
+        assert ok is False, junk
+    for answered in ("unsure", "denied", "open"):
+        n = {"id": "x", "text": "Add a search"}
+        devnote_judgments.append(n, answered,
+                                 reason="outdated" if answered == "denied" else "")
+        ok, _ = triage.check(n)
+        assert ok is False, answered
 
 
 # --- lock 2: the text rules, each keyed to a real note ----------------------

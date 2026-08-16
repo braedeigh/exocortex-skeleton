@@ -28,7 +28,15 @@ Prompt that produced this: "automate the easy tasks ... simple bugs that I put
 in my dev notes ... these fixes run at night" — with the triage fork cut to
 hand-pick + regex filter rather than an agent classifying the notes.
 """
+import os
 import re
+import sys
+
+# The judgment record lives at the repo root beside store.py. This module is
+# imported both as `tools.nightcrew.triage` (by the routes) and directly by the
+# cron script, so the root has to be on the path either way.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+import devnote_judgments  # noqa: E402
 
 # --- the disqualifying vocabulary -------------------------------------------
 # Each entry is a literal shape found in the real dev notes that marks work the
@@ -173,9 +181,11 @@ def check(note):
     if not text:
         return False, "empty note"
 
-    # Lock 1. Absence of the flag is the normal case, not an error — most notes
-    # are simply not offered to the crew.
-    if note.get("night") is not True:
+    # Lock 1. Her verdict on the note — `approved` is the green light. Most
+    # notes are simply unjudged, which is the normal case, not an error.
+    # (Was a `night: true` boolean until 2026-08-11; the judgment record
+    # replaced it so a verdict could say more than yes/no — devnote_judgments.py.)
+    if not devnote_judgments.is_green_lit(note):
         return False, "not green-lit"
 
     low = text.lower()

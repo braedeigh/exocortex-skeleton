@@ -12,6 +12,7 @@ from flask import request, jsonify
 from datetime import datetime
 import secrets
 
+import devnote_judgments
 import store
 
 
@@ -49,10 +50,12 @@ def _restore_note(data, load, save):
     if not tab or not nid or not text:
         return None, (jsonify({"error": "tab and note {id, text} required"}), 400)
     clean = {"id": nid, "text": text, "created": str(note.get("created") or "")}
-    # The night-crew green-light survives an undo — rebuilding the note without
-    # it would silently unqueue work she'd already lit (routes/nightcrew.py).
-    if note.get("night") is True:
-        clean["night"] = True
+    # Her judgment record survives an undo. Rebuilding the note without it would
+    # silently unqueue work she'd lit AND throw away every ruling she'd made on
+    # it — the old version of this kept only `night: true`, so an undo on a
+    # refused note quietly made it proposable again.
+    if devnote_judgments.history(note):
+        clean["judgments"] = devnote_judgments.history(note)
     d = load()
     notes = d.setdefault("tabs", {}).setdefault(tab, [])
     if not any(n.get("id") == nid for n in notes):
@@ -126,6 +129,12 @@ def register(app):
                 # re-queues the note for the next night.
                 if n.get("text") != text:
                     n.pop("night_questions", None)
+                    # Same principle one layer up: if she'd marked this `unsure`
+                    # ("can't tell what I meant"), the added context IS the
+                    # answer, so the edit reopens it rather than asking for a
+                    # second tap. A denial is deliberately NOT reopened — see
+                    # devnote_judgments.reopen_on_edit.
+                    devnote_judgments.reopen_on_edit(n)
                 n["text"] = text
                 break
         else:

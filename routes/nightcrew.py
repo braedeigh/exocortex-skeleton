@@ -39,6 +39,7 @@ from pathlib import Path
 
 from flask import jsonify, request, send_file
 
+import devnote_judgments
 import store
 from tools.nightcrew import triage
 
@@ -243,12 +244,18 @@ def register(app):
         says immediately whether the net caught it so the card can show her.
         """
         want = bool((request.get_json(silent=True) or {}).get("night", True))
+        # The moon tap is a judgment like any other, so it lands in the same
+        # append-only record the browser writes to (devnote_judgments.py) —
+        # one judgment store, not two. Un-mooning appends `open` rather than
+        # erasing: the fact that she lit it and changed her mind is the
+        # material for seeing whether the crew's picking is improving.
         found = None
         with store.mutate("dev_notes.json", {"tabs": {}}) as data:
             for notes in (data.get("tabs") or {}).values():
                 for note in notes or []:
                     if isinstance(note, dict) and note.get("id") == note_id:
-                        note["night"] = want
+                        devnote_judgments.append(
+                            note, "approved" if want else "open", by="moon")
                         found = dict(note)
         if found is None:
             return jsonify({"ok": False, "error": "no such note"}), 404
@@ -472,13 +479,25 @@ def register(app):
                     if note:
                         r["her_note"] = note
                     r["dismissed"] = True   # judged is answered — off the stack
-        if verdict == "reject":
-            with store.mutate("dev_notes.json", {"tabs": {}}) as notes:
-                for tab_notes in (notes.get("tabs") or {}).values():
-                    for n in tab_notes or []:
-                        if isinstance(n, dict) and n.get("id") == run.get("note_id"):
-                            n["night"] = False
-        return jsonify({"ok": True, "verdict": verdict})
+        # BOTH verdicts land on the note now, not just the refusal — the note is
+        # the one judgment store (devnote_judgments.py), and an approval that
+        # only ever existed on a run record is how 23 notes ended up not knowing
+        # they'd been judged.
+        #
+        # `reject` maps to `unsure`, not `denied`, for the same reason the
+        # backfill did it: this card has two buttons, so "not this" has to carry
+        # both "I don't want it" and "I can't tell what this is" — and the
+        # recorded reasons say it's mostly the second. `unsure` still stops the
+        # crew re-proposing it (is_answered), but she can bring it back by
+        # editing the note. A real denial needs its reason, and that's collected
+        # in the notes browser where there's room to ask.
+        landed = {"approve": "approved", "reject": "unsure"}[verdict]
+        with store.mutate("dev_notes.json", {"tabs": {}}) as notes:
+            for tab_notes in (notes.get("tabs") or {}).values():
+                for n in tab_notes or []:
+                    if isinstance(n, dict) and n.get("id") == run.get("note_id"):
+                        devnote_judgments.append(n, landed, text=note, by="card")
+        return jsonify({"ok": True, "verdict": verdict, "landed": landed})
 
     @app.route("/api/nightcrew/runs/<run_id>/dismiss", methods=["POST"])
     def nightcrew_dismiss(run_id):
