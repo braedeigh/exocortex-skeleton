@@ -20,7 +20,11 @@
    chevron big enough to actually read, which is the visible-icon rule rather
    than body text. */
 .menuBtn {
-  width: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  width: 42px;
   min-height: 40px;
   height: 100%;
   background: none;
@@ -276,4 +280,101 @@
   border-bottom-style: dashed;
   border-bottom-color: var(--text-muted);
   font-style: italic;
+}
+
+/* The set number in the ▾ button, so which set a panel wears is legible
+   without opening anything. */
+.setNum {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- live sessions -------------------------------------------------------
+
+   Two states, one group. Running breathes purple->teal->purple; waiting-on-you
+   is amber and still, because a thing that has stopped shouldn't animate as if
+   it were working.
+
+   Teal isn't in the theme palette, so it's defined here. Both values are
+   chosen to carry on the light lavender-grey and the dark indigo without
+   changing: they sit between the two backgrounds in lightness rather than
+   near either.
+
+   ONE CLOCK. Every pulse runs the same animation with no delay, so browsers
+   start them from the same document timeline and several running sessions
+   breathe together. Per-tab delays would drift them out of phase, which reads
+   as flickering rather than breathing. */
+.tabRunning,
+.tabAwaiting {
+  --live-purple: #7c5cbf;
+  --live-teal: #2fa6a0;
+  --live-amber: #d98a3c;
+}
+
+.tabRunning {
+  color: var(--text);
+  border-bottom-color: var(--live-purple);
+  animation: liveBreath 2.4s ease-in-out infinite;
+}
+
+.tabAwaiting {
+  color: var(--text);
+  border-bottom-color: var(--live-amber);
+}
+
+@keyframes liveBreath {
+  0%,
+  100% {
+    border-bottom-color: var(--live-purple);
+  }
+  50% {
+    border-bottom-color: var(--live-teal);
+  }
+}
+
+/* The dot carries the same state at the head of the tab, where the section
+   icon would otherwise be — so the state is readable even when the underline
+   is off the bottom of a cramped bar. */
+.dotRunning,
+.dotAwaiting {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.dotRunning {
+  background: var(--live-purple);
+  animation: dotBreath 2.4s ease-in-out infinite;
+}
+
+.dotAwaiting {
+  background: var(--live-amber);
+}
+
+@keyframes dotBreath {
+  0%,
+  100% {
+    background: var(--live-purple);
+    box-shadow: 0 0 0 0 rgba(47, 166, 160, 0);
+  }
+  50% {
+    background: var(--live-teal);
+    box-shadow: 0 0 6px 1px rgba(47, 166, 160, 0.55);
+  }
+}
+
+/* A continuous glow is exactly what reduced-motion asks not to see. Settle on
+   the teal — still clearly not an idle tab, just not moving. */
+@media (prefers-reduced-motion: reduce) {
+  .tabRunning,
+  .dotRunning {
+    animation: none;
+  }
+  .tabRunning {
+    border-bottom-color: var(--live-teal);
+  }
+  .dotRunning {
+    background: var(--live-teal);
+  }
 }

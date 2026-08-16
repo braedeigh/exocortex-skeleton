@@ -4,16 +4,19 @@ import { TopTabs } from '../TopTabs';
 import { PanelTree } from './PanelTree';
 import { RoutePanel } from './RoutePanel';
 import { TabBar } from './TabBar';
+import { pathOf, sectionForUrl } from './sections';
 import { usePaneStack } from './PaneStack';
 import {
   closePanel,
   listPanels,
   resizeSplit,
   setPanelSet,
+  setPanelTabs,
   setPanelUrl,
   splitPanel,
   type PanelNode,
 } from './layoutTree';
+import { openTab, type OpenTab } from './panelTabs';
 import { newId, newRoutePanel, useLayout } from './panelStore';
 import styles from './Workspace.module.css';
 
@@ -84,6 +87,51 @@ export function Workspace({ children }: { children: ReactNode }) {
     [setLayout],
   );
 
+  const onOpenTabs = useCallback(
+    (panelId: string, tabs: OpenTab[]) => setLayout((cur) => setPanelTabs(cur, panelId, tabs)),
+    [setLayout],
+  );
+
+  /* ARRIVING SOMEWHERE IS WHAT OPENS A TAB. However a panel got there — a tab
+     clicked, a session picked out of the roster, a link inside a page — the
+     page she's now looking at is by definition one she's using, so it earns a
+     tab. That's what fills the bar as she works instead of making her ask for
+     it, and it's why clicking a session in the roster is all it takes.
+
+     A section's own front page is excluded: its anchor already stands for it,
+     and a second tab beside the anchor saying the same thing is just noise. */
+  const rememberArrival = useCallback(
+    (panelId: string, url: string) => {
+      setLayout((cur) => {
+        const panel = listPanels(cur).find((p) => p.id === panelId);
+        if (!panel) return cur;
+        const section = sectionForUrl(url);
+        if (section && pathOf(section.home) === pathOf(url)) return cur;
+        return setPanelTabs(cur, panelId, openTab(panel.tabs ?? [], url, Date.now()));
+      });
+    },
+    [setLayout],
+  );
+
+  /** A panel moved itself (a link, the roster) — record where it landed. */
+  const onPanelUrlChanged = useCallback(
+    (panelId: string, url: string) => {
+      onPick(panelId, url);
+      rememberArrival(panelId, url);
+    },
+    [onPick, rememberArrival],
+  );
+
+  /** Something in the bar was clicked. */
+  const navigatePanel = useCallback(
+    (panelId: string, url: string, isPrimary: boolean) => {
+      if (isPrimary) void navigate({ to: url });
+      else onPick(panelId, url);
+      rememberArrival(panelId, url);
+    },
+    [navigate, onPick, rememberArrival],
+  );
+
   const onResize = useCallback(
     (splitId: string, boundary: number, deltaPct: number) =>
       setLayout((cur) => resizeSplit(cur, splitId, boundary, deltaPct)),
@@ -103,9 +151,11 @@ export function Workspace({ children }: { children: ReactNode }) {
         );
       }
       if (panel.kind === 'pane') return pane.body;
-      return <RoutePanel url={panel.url ?? '/'} onUrlChange={(url) => onPick(panel.id, url)} />;
+      return (
+        <RoutePanel url={panel.url ?? '/'} onUrlChange={(url) => onPanelUrlChanged(panel.id, url)} />
+      );
     },
-    [children, pane.body, onPick],
+    [children, pane.body, onPanelUrlChanged],
   );
 
   /**
@@ -124,15 +174,14 @@ export function Workspace({ children }: { children: ReactNode }) {
         <TabBar
           url={isPrimary ? href : (panel.url ?? '/')}
           setId={panel.setId ?? (isPrimary ? 'life' : 'work')}
+          openTabs={panel.tabs ?? []}
           onSetId={(setId) => onSetId(panel.id, setId)}
-          onNavigate={(url) => {
-            if (isPrimary) void navigate({ to: url });
-            else onPick(panel.id, url);
-          }}
+          onOpenTabs={(tabs) => onOpenTabs(panel.id, tabs)}
+          onNavigate={(url) => navigatePanel(panel.id, url, isPrimary)}
         />
       );
     },
-    [pane.header, href, navigate, onPick, onSetId],
+    [pane.header, href, onSetId, onOpenTabs, navigatePanel],
   );
 
   return (

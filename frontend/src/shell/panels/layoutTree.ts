@@ -58,6 +58,11 @@ export interface PanelNode {
    *  monitor running sessions wants a different bar from the one running the
    *  journal. Absent = the first set. */
   setId?: string;
+  /** What she has OPEN in this panel, with when each was last in front of her
+   *  (panelTabs.ts). Saved, so tabs survive a reload; the ones she's been
+   *  ignoring age off the bar on their own. Live sessions aren't here — those
+   *  are computed from the roster every render. */
+  tabs?: { url: string; at: number }[];
 }
 
 export interface SplitNode {
@@ -226,6 +231,19 @@ export function setPanelSet(root: LayoutNode, id: string, setId: string): Layout
   const panel = findPanel(root, id);
   if (!panel || panel.setId === setId) return root;
   return replaceNode(root, id, { ...panel, setId });
+}
+
+/** Replace a panel's open tabs. The caller does the work (panelTabs.ts); this
+ *  only puts the result back, and returns the same tree when it's unchanged so
+ *  a poll that finds no news doesn't re-render the workspace. */
+export function setPanelTabs(
+  root: LayoutNode,
+  id: string,
+  tabs: { url: string; at: number }[],
+): LayoutNode {
+  const panel = findPanel(root, id);
+  if (!panel || panel.tabs === tabs) return root;
+  return replaceNode(root, id, { ...panel, tabs });
 }
 
 /* ---------- helpers ---------- */
