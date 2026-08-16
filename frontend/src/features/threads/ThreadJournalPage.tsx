@@ -3,6 +3,7 @@ import { Link, useNavigate } from '@tanstack/react-router';
 import { NotesPill } from '../todos/NotesPill';
 import { useSessionsContext } from '../../shell/SessionsContext';
 import { DESKTOP_QUERY } from '../../shell/useMediaQuery';
+import { openSessionInTerminal } from '../../shell/sessionIntent';
 import { Button, IconButton, Sheet, ToastStack } from '../../ui';
 import type { EntityMatcher } from '../journal/entityHighlight';
 import { buildEntityMatcher, highlightEntities } from '../journal/entityHighlight';
@@ -303,7 +304,7 @@ export function ThreadJournalPage({ slug }: ThreadJournalPageProps) {
     try {
       const res = await startThreadTalk(slug);
       if (window.matchMedia(DESKTOP_QUERY).matches) {
-        window.dispatchEvent(new CustomEvent('exo:set-session', { detail: res.session }));
+        openSessionInTerminal(res.session);
         setTalkState('sent');
       } else {
         setActive(res.session);

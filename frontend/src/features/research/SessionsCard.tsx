@@ -8,7 +8,8 @@
  * into the thread. A running session gets a "follow live" button that
  * attaches its tmux session for watching/steering: on mobile it becomes the
  * active Chat session; on desktop it flips the docked terminal pane via the
- * 'exo:set-session' window event (SplitLayout listens).
+ * window bus, which finds a terminal tile in this window or another one
+ * (shell/sessionIntent.ts).
  */
 
 import { useNavigate } from '@tanstack/react-router';
@@ -16,6 +17,7 @@ import { Card } from './Card';
 import { roundMagnitude, fmtRunDuration } from './helpers';
 import { useSessionsContext } from '../../shell/SessionsContext';
 import { useMediaQuery, DESKTOP_QUERY } from '../../shell/useMediaQuery';
+import { openSessionInTerminal } from '../../shell/sessionIntent';
 import styles from './ResearchPage.module.css';
 import type { Session } from './types';
 
@@ -37,7 +39,7 @@ export function SessionsCard({ sessions }: { sessions: Session[] }) {
   function follow(s: Session) {
     const name = tmuxNameFor(s);
     if (isDesktop) {
-      window.dispatchEvent(new CustomEvent('exo:set-session', { detail: name }));
+      openSessionInTerminal(name);
     } else {
       shellSessions.setActive(name);
       void navigate({ to: '/chat' });

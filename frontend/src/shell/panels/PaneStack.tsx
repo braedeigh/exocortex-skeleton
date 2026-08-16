@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { TerminalPane } from '../TerminalPane';
 import { KeeperPane } from '../KeeperPane';
 import { useSessions } from '../useSessions';
-import { useChatSurfaceObservatory, setChatSurfaceObservatory } from '../chatSurface';
-import { registerPaneConversationTarget } from '../paneConversation';
+import { usePaneSurfaceObservatory, setChatSurfaceObservatory } from '../chatSurface';
+import { registerIntentTarget } from './windowBus';
 import { useLeftPaneHistory } from '../paneHistory';
 import { usePaneSwipeBack } from '../usePaneSwipeBack';
 import styles from './PaneStack.module.css';
@@ -37,9 +37,10 @@ import styles from './PaneStack.module.css';
  */
 export function usePaneStack(enabled: boolean): { header: ReactNode; body: ReactNode } {
   const sessions = useSessions(enabled);
-  // Which surface is showing. Not local state: it IS the shared chat-surface
-  // flag, so flipping it in Settings moves this tile and vice versa.
-  const keeperPane = useChatSurfaceObservatory();
+  // Which surface is showing — asked per window, so the reading room on one
+  // monitor doesn't flip when she switches surfaces on the other. Settings
+  // still moves it, because that fires a same-window event (chatSurface.ts).
+  const keeperPane = usePaneSurfaceObservatory();
   const { here, push, back, canGoBack, canGoBackRef } = useLeftPaneHistory(enabled);
   const roster = here.roster;
   // The open conversation's own title, reported up by the room — it's what the
@@ -70,34 +71,29 @@ export function usePaneStack(enabled: boolean): { header: ReactNode; body: React
 
   const openConversation = useCallback((id: string) => push({ roster: false, conv: id }), [push]);
 
-  // Other features push the docked terminal at a named session — research's
-  // "follow live", and "talk to this thread". Pushing also REVEALS the
-  // terminal, because otherwise the session runs invisibly behind whichever
-  // surface happened to be up.
+  // This tile is where conversations and terminal sessions can be sent — from
+  // another tile, or from another browser window (windowBus.ts). Both reveal
+  // the surface they land on, because something arriving behind a hidden
+  // surface has arrived invisibly, and the only way to find it would be to
+  // guess which tab had something new in it.
+  //
+  // Registered as ONE target for both kinds, and only while the tile is
+  // actually open — with it closed nothing here is claimed, so the senders
+  // learn there's nowhere to put their work and navigate instead.
   const { setActive } = sessions;
   useEffect(() => {
     if (!enabled) return;
-    function onSetSession(e: Event) {
-      const name = (e as CustomEvent).detail;
-      if (typeof name === 'string' && name) {
-        setActive(name);
+    const { unregister } = registerIntentTarget(['conversation', 'session'], (intent) => {
+      if (intent.kind === 'session') {
+        setActive(intent.name);
         setChatSurfaceObservatory(false);
+      } else if (intent.kind === 'conversation') {
+        push({ roster: false, conv: intent.convId });
+        setChatSurfaceObservatory(true);
       }
-    }
-    window.addEventListener('exo:set-session', onSetSession);
-    return () => window.removeEventListener('exo:set-session', onSetSession);
-  }, [enabled, setActive]);
-
-  // "Open this conversation here", pushed in from another tile (the terrain
-  // map's agent orbs do this). Two moves: push the conversation as this tile's
-  // location, and reveal the room rather than the terminal.
-  useEffect(() => {
-    if (!enabled) return;
-    return registerPaneConversationTarget((convId) => {
-      push({ roster: false, conv: convId });
-      setChatSurfaceObservatory(true);
     });
-  }, [enabled, push]);
+    return unregister;
+  }, [enabled, setActive, push]);
 
   const header = (
     <div className={styles.switch}>

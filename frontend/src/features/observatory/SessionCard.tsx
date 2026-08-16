@@ -14,6 +14,7 @@
  */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
+import { dispatchIntent } from '../../shell/panels/windowBus';
 import {
   approveConversation,
   denyConversation,
@@ -328,12 +329,14 @@ export function SessionCard({
   // failure text if even the retry couldn't get through.
   const [resuming, setResuming] = useState<string | null>(null);
 
-  // Tap a file to read it (her 07-27 ask). On desktop this lane lives in the
-  // split's LEFT pane and the router owns the right one, so navigating to
-  // /code opens the file beside the session that's writing it, without
-  // disturbing the lane. On mobile there's no split and it's a normal page
-  // move — back returns here.
+  // Tap a file to read it. It goes to a code tile if one is open — including
+  // one in another browser window, on another monitor (shell/panels/
+  // windowBus.ts), and to the most recently touched one when several are. With
+  // no code tile anywhere it falls back to what it always did: navigate, which
+  // on desktop opens the file beside the lane and on mobile is a normal page
+  // move that back returns from.
   const openFile = (repo: string, path: string) => {
+    if (dispatchIntent({ kind: 'code', repo, path }) !== 'none') return;
     void navigate({ to: '/code', search: { repo, path } });
   };
 

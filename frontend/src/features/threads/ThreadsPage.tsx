@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useSessionsContext } from '../../shell/SessionsContext';
 import { DESKTOP_QUERY } from '../../shell/useMediaQuery';
+import { openSessionInTerminal } from '../../shell/sessionIntent';
 import { ToastStack } from '../../ui';
 import { NotesPill } from '../todos/NotesPill';
 import { useThread, useThreads, useThreadsTree, useToasts } from '../journal/useJournalData';
@@ -517,7 +518,7 @@ function ThreadBody({ id, fronts, frontsList, alsoUnderNames, grandchildren, onJ
     try {
       const res = await startThreadTalk(id);
       if (window.matchMedia(DESKTOP_QUERY).matches) {
-        window.dispatchEvent(new CustomEvent('exo:set-session', { detail: res.session }));
+        openSessionInTerminal(res.session);
         setTalkState('sent');
         void navigate({ to: '/threads/$slug', params: { slug: id } });
       } else {

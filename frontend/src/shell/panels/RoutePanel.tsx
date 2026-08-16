@@ -1,7 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { RouterProvider, createMemoryHistory, createRouter } from '@tanstack/react-router';
 import { routeTree } from '../../routeTree.gen';
 import { InPanelContext } from './panelContext';
+import { intentKindsForUrl, urlForIntent } from './panelIntents';
+import { registerIntentTarget, type IntentKind } from './windowBus';
+import styles from './RoutePanel.module.css';
 
 /**
  * RoutePanel.tsx — one tile showing any page in the app.
@@ -43,18 +46,21 @@ export function RoutePanel({ url, onUrlChange }: { url: string; onUrlChange: (ur
     }),
   );
 
+  /* The subscription below and the intent target further down are both bound
+     once and outlive many renders, so neither can close over `url` or
+     `onUrlChange` directly — it would freeze whatever those were on the tile's
+     first render. They read these refs instead, which are rewritten every
+     render and are therefore always current. */
+  const latest = useRef({ url, onUrlChange });
+  latest.current = { url, onUrlChange };
+
   // Page moved itself (a link, a redirect) — tell the workspace so the
   // arrangement remembers where this tile actually ended up.
   useEffect(() => {
-    const unsub = router.subscribe('onResolved', () => {
+    return router.subscribe('onResolved', () => {
       const href = router.state.location.href;
-      if (href !== url) onUrlChange(href);
+      if (href !== latest.current.url) latest.current.onUrlChange(href);
     });
-    return unsub;
-    // `url` and `onUrlChange` are read live inside the callback; re-subscribing
-    // on every address change would tear down and rebuild the subscription for
-    // no reason.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
   // Picker moved the tile — follow it.
@@ -62,9 +68,41 @@ export function RoutePanel({ url, onUrlChange }: { url: string; onUrlChange: (ur
     if (router.state.location.href !== url) void router.navigate({ to: url });
   }, [router, url]);
 
+  /**
+   * This tile catches things, if the page it's showing is the kind of page
+   * that should — a code tile catches code files, an observatory tile catches
+   * conversations (panelIntents.ts). Catching one just points the tile
+   * somewhere new, which is the same move the picker makes.
+   *
+   * Re-registering when the accepted kinds change is what makes a tile stop
+   * catching code the moment you point it at the journal.
+   */
+  const accepts = intentKindsForUrl(url);
+  const acceptsKey = accepts.join(',');
+  const bumpRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    if (!acceptsKey) return;
+    const { unregister, bump } = registerIntentTarget(acceptsKey.split(',') as IntentKind[], (intent) => {
+      const next = urlForIntent(intent);
+      if (next) latest.current.onUrlChange(next);
+    });
+    bumpRef.current = bump;
+    return () => {
+      bumpRef.current = () => {};
+      unregister();
+    };
+  }, [acceptsKey]);
+
   return (
     <InPanelContext.Provider value={true}>
-      <RouterProvider router={router} />
+      {/* Touching a tile makes it the one that catches the next thing. Capture
+          phase, so it counts even when the click lands on something inside the
+          page that stops the event — and pointerdown rather than focus,
+          because scrolling or clicking dead space in a tile still means "this
+          is the one I'm working in". */}
+      <div className={styles.host} onPointerDownCapture={() => bumpRef.current()}>
+        <RouterProvider router={router} />
+      </div>
     </InPanelContext.Provider>
   );
 }

@@ -1,0 +1,10 @@
+/* The tile's own box. Exists so the tile can hear a pointer land anywhere in
+   it — that's what marks it as the one you're working in, and therefore the
+   one the next file or conversation opens in (windowBus.ts). */
+.host {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
