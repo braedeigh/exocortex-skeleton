@@ -142,41 +142,58 @@
   color: var(--accent);
 }
 
-/* Deleting a set. Same 40×40 slot as the star so the two menu groups line up
-   down the right edge. Visible at rest rather than on hover — a control you
-   can't see isn't a control, and this one is the only way to undo a set. */
-.trash {
+/* The set number is the set's NAME here — these are slots, not categories, so
+   it's what the eye should land on first. Heavier and a step up in size rather
+   than a colour, which is the cheaper lever and leaves colour free to mean
+   state. Tabular so the column doesn't shift between 9 and 10. */
+.setNumRow {
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Deleting a set. Deliberately NOT the star's 40×40 icon slot: the star is a
+   reversible toggle she hits constantly and this destroys a saved thing, so
+   they must not read as one class of gesture. A word, at full body size, on
+   the row she's already wearing. */
+.delete {
   flex: 0 0 auto;
-  width: 40px;
-  height: 40px;
-  padding: 0;
+  min-height: 40px;
+  padding: 0 12px;
   background: none;
   border: none;
   border-radius: 6px;
   color: var(--text-muted);
   font-family: inherit;
-  font-size: 16px;
+  font-size: 14px;
   line-height: 1;
   cursor: pointer;
   transition: color 0.15s, background-color 0.15s;
 }
 
-.trash:hover,
-.trash:focus-visible {
+.delete:hover,
+.delete:focus-visible {
   background: var(--bg);
   color: var(--danger, #c0554d);
 }
 
-/* Armed: the word replaces the ✕, so the second click is a different-looking
-   target rather than the same one twice. Wider than 40px because "Sure?" is a
-   word, and it keeps the 40px height. */
-.trashArmed {
-  width: auto;
-  min-width: 56px;
-  padding: 0 10px;
-  font-size: 13px;
-  color: var(--danger, #c0554d);
+/* Armed. The word changes and the weight comes up, so the second click lands
+   on a visibly different target than the first — not the same button twice. */
+.deleteArmed {
   background: var(--bg);
+  color: var(--danger, #c0554d);
+  font-weight: 600;
+}
+
+/* The one additive action in the menu. Sits in the radio column so "new" reads
+   as another of these, and gets the accent — used rarely enough here that it
+   still means something when it appears. */
+.plus {
+  width: 16px;
+  font-size: 18px;
+  line-height: 1;
+  text-align: center;
+  color: var(--accent);
 }
 
 .tabs {

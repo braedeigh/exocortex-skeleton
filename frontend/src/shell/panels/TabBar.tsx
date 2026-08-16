@@ -61,10 +61,17 @@ import styles from './TabBar.module.css';
  * SETS ARE HERS TO MAKE AND UNMAKE, from the ▾. A new one starts empty and the
  * panel switches to it immediately — an empty bar says "nothing pinned, use the
  * ▾", which is already the next thing to do, so there's nothing to name or
- * configure first. Deleting is two clicks (the bin turns into "Sure?") rather
- * than a dialog, because a modal that interrupts a dropdown is a worse
- * interruption than the thing it's guarding. The last set has no bin at all:
- * deleting it would leave no ▾ to make another from.
+ * configure first.
+ *
+ * Deleting is deliberately the quietest thing in the menu. Only the set she's
+ * WEARING offers it, so switching to a set is how she takes aim and the bar
+ * shows her what she's about to lose; it says "Delete" rather than wearing an
+ * icon, because the icon column beside it belongs to the pin stars, which are a
+ * reversible toggle and must not read as the same kind of gesture; and it takes
+ * two clicks ("Delete" → "Sure?", disarming itself after a few seconds) rather
+ * than opening a dialog, which interrupts a dropdown worse than the thing it's
+ * guarding. The last set offers nothing at all — deleting it would leave no ▾
+ * to make another from.
  *
  * Touches: panelTabs.ts (what belongs on the bar), useLiveSessions.ts (the
  * live feed), sections.ts (what a tab means), tabSets.ts (create/remove/pin/
@@ -257,49 +264,62 @@ export function TabBar({
         {menuOpen ? (
           <div className={styles.menu} role="menu">
             <div className={styles.groupLabel}>Sets</div>
-            {/* Same shape as the pin rows below: the name flexes, a fixed
-                40×40 button sits at the end. One menu, one pattern. */}
-            {sets.map((s, i) => (
-              <div key={s.id} className={styles.menuRow}>
-                <button
-                  type="button"
-                  role="menuitemradio"
-                  aria-checked={s.id === activeSetId}
-                  className={styles.menuItem}
-                  onClick={() => {
-                    onSetId(s.id);
-                    setMenuOpen(false);
-                  }}
-                >
-                  <span className={styles.radio}>{s.id === activeSetId ? '●' : '○'}</span>
-                  {i + 1}
-                  <span className={styles.setPreview}>
-                    {sectionsOf(sets, s.id).map((x) => x.label).join(' · ') || 'empty'}
-                  </span>
-                </button>
-                {/* No bin on the last set — there'd be no ▾ left to make
-                    another from. Nothing to disable, nothing to explain. */}
-                {sets.length > 1 ? (
+            {sets.map((s, i) => {
+              const isActive = s.id === activeSetId;
+              return (
+                <div key={s.id} className={styles.menuRow}>
                   <button
                     type="button"
-                    className={[styles.trash, confirmDelete === s.id ? styles.trashArmed : '']
-                      .filter(Boolean)
-                      .join(' ')}
-                    title={confirmDelete === s.id ? `Delete set ${i + 1}?` : `Delete set ${i + 1}`}
-                    aria-label={
-                      confirmDelete === s.id
-                        ? `Confirm delete set ${i + 1}`
-                        : `Delete set ${i + 1}`
-                    }
-                    onClick={() => (confirmDelete === s.id ? onDeleteSet(s.id) : armDelete(s.id))}
+                    role="menuitemradio"
+                    aria-checked={isActive}
+                    className={styles.menuItem}
+                    onClick={() => {
+                      onSetId(s.id);
+                      setMenuOpen(false);
+                    }}
                   >
-                    {confirmDelete === s.id ? 'Sure?' : '✕'}
+                    <span className={styles.radio}>{isActive ? '●' : '○'}</span>
+                    <span className={styles.setNumRow}>{i + 1}</span>
+                    <span className={styles.setPreview}>
+                      {sectionsOf(sets, s.id).map((x) => x.label).join(' · ') || 'empty'}
+                    </span>
                   </button>
-                ) : null}
-              </div>
-            ))}
+                  {/* ONLY THE SET SHE'S WEARING CAN BE DELETED, and it says the
+                      word rather than wearing an icon.
+
+                      A bin on every row put three destructive controls on the
+                      path she takes to do the ordinary thing — switch sets —
+                      and put them in the same column, at the same size, as the
+                      pin stars, which are a reversible toggle. One control, on
+                      the row already marked as hers, can't be mis-aimed: she
+                      switches to a set, sees the bar become it, then throws it
+                      away. A word rather than a glyph for the same reason —
+                      rare and consequential earns language; frequent and
+                      reversible earns an icon.
+
+                      None at all on the last set: there'd be no ▾ left to make
+                      another from. Absent, not disabled — a control she can
+                      never use is a question she answers every time she looks. */}
+                  {isActive && sets.length > 1 ? (
+                    <button
+                      type="button"
+                      className={[styles.delete, confirmDelete === s.id ? styles.deleteArmed : '']
+                        .filter(Boolean)
+                        .join(' ')}
+                      title={`Delete set ${i + 1}`}
+                      aria-label={
+                        confirmDelete === s.id ? `Confirm delete set ${i + 1}` : `Delete set ${i + 1}`
+                      }
+                      onClick={() => (confirmDelete === s.id ? onDeleteSet(s.id) : armDelete(s.id))}
+                    >
+                      {confirmDelete === s.id ? 'Sure?' : 'Delete'}
+                    </button>
+                  ) : null}
+                </div>
+              );
+            })}
             <button type="button" role="menuitem" className={styles.menuItem} onClick={onCreateSet}>
-              <span className={styles.radio} aria-hidden="true">
+              <span className={styles.plus} aria-hidden="true">
                 +
               </span>
               New set
