@@ -55,6 +55,10 @@ export interface ClearedTodo {
   marked?: string;
   /** finished_note — optional completion note. */
   note?: string;
+  /** Card receipt (todo_done approvals): the journal card that closed it. */
+  receipt?: string;
+  /** Her verbatim line from that card — the proof-of-done. */
+  receipt_quote?: string;
 }
 
 /** A done to-do whose completion moment lands on the queried day — the

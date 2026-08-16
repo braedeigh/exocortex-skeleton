@@ -9,7 +9,9 @@ reaches the real dashboard data until Approve runs here.
 Commit is delegated back to the Rust binary (no --stage) so there is exactly ONE
 writer of build_todos.json — the validated "narrow door" stays the only way in.
 """
+from datetime import datetime
 from pathlib import Path
+import re
 import subprocess
 
 from flask import request, jsonify
@@ -56,6 +58,100 @@ def _run_thread(args):
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or "thread failed")
+
+
+# ── todo_done: close a to-do off a journal card, with the card as the receipt ─
+# The todos-closer cricket nominates "this card closes to-do X" with a verbatim
+# quote of her line; on Approve the handler below verifies the quote against the
+# actual card ON DISK before anything is written — a fabricated quote cannot
+# survive to the record. The close is backdated to the card's moment
+# (finished_on/finished_time), so the day view weaves it next to the entry
+# where she said it. Prompt distilled: "a feature that marks to-dos done for me
+# and places them next to entries where I said they're done."
+
+_CARD_ID_RE = re.compile(r"^\d{4}-\d{2}-\d{2}\.\d{4}[a-z]+\d*$")
+
+
+def _squash(text):
+    """Whitespace-insensitive form for the verbatim-quote check: the day render
+    re-wraps lines, so runs of whitespace collapse to single spaces before the
+    substring test. Characters are otherwise untouched — 'verbatim' stays real."""
+    return " ".join((text or "").split())
+
+
+def _read_card(card_id):
+    """Load one card from the stream pool (same path scheme as routes/cards.py).
+    Returns (day, 'HH:MM', body). Fails loudly on a bad id, a missing card, or
+    an unparseable file — the approval stays queued rather than half-applying."""
+    if not _CARD_ID_RE.match(card_id):
+        raise RuntimeError(f"bad card id: {card_id!r}")
+    path = store.CONTENT_DIR.resolve() / "_system" / "data" / "cards" / f"{card_id}.md"
+    if not path.exists():
+        raise RuntimeError(f"card not found: {card_id}")
+    text = path.read_text(encoding="utf-8")
+    # The card's ts (to the second) beats the id's minute; fall back to the id.
+    m = re.search(r"^ts:\s*(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})", text, re.MULTILINE)
+    if m:
+        day, hhmm = m.group(1), m.group(2)
+    else:
+        day, hhmm = card_id[:10], f"{card_id[11:13]}:{card_id[13:15]}"
+    # Body = everything after the closing frontmatter fence; if the fence isn't
+    # where we expect, check the quote against the whole file rather than fail.
+    parts = text.split("---", 2)
+    body = parts[2] if len(parts) == 3 else text
+    return day, hhmm, body
+
+
+def _commit_todo_done(payload):
+    """Close a to-do with a card receipt. Mirrors the toggle route's contract
+    (done_at = marking moment, subtasks cascade, day re-render) and adds the
+    provenance: finished_on/finished_time = the card's moment, receipt = the
+    card id, receipt_quote = her words. Identity is by id (text fallback),
+    same as every other todos route."""
+    from routes.todos import _match, _rerender_days
+
+    card_id = (payload.get("card_id") or "").strip()
+    quote = (payload.get("quote") or "").strip()
+    ident = payload.get("id") or payload.get("text") or ""
+    if not ident:
+        raise RuntimeError("todo_done: missing to-do id")
+    if len(quote) < 8:
+        raise RuntimeError("todo_done: quote missing or too short to verify")
+    day, hhmm, body = _read_card(card_id)
+    if _squash(quote) not in _squash(body):
+        raise RuntimeError(f"todo_done: quote not found verbatim in card {card_id}")
+    rerender_days = []
+    matched = False
+    with store.mutate("todos", {}) as todos:
+        for key in todos:
+            sec = todos[key]
+            if not isinstance(sec, dict):
+                continue
+            items = sec.get("items", [])
+            for item in items:
+                if _match(item, ident):
+                    matched = True
+                    if item.get("done"):
+                        # Closed by hand between staging and approval — refuse
+                        # rather than overwrite her own stamp with the cricket's.
+                        raise RuntimeError("todo_done: to-do is already done")
+                    item["done"] = True
+                    item["done_at"] = datetime.now().strftime("%Y-%m-%dT%H:%M")
+                    item["finished_on"] = day
+                    item["finished_time"] = hhmm
+                    item["receipt"] = card_id
+                    item["receipt_quote"] = quote
+                    for sub in item.get("subtasks", []):
+                        sub["done"] = True
+                    items.remove(item)
+                    items.append(item)
+                    rerender_days = [day, item["done_at"][:10]]
+                    break
+            if matched:
+                break
+    if not matched:
+        raise RuntimeError(f"todo_done: to-do not found: {ident!r}")
+    _rerender_days(*rerender_days)
 
 
 def _card_sources(card):
@@ -151,6 +247,9 @@ def _commit(change):
         cmd = [str(ADD_TODO_BIN), "life", "--remove",
                "--id", payload["id"],
                "--data-dir", data_dir]
+    elif kind == "todo_done":
+        _commit_todo_done(payload)
+        return
     elif kind == "profile":
         # Conversational door for the owner profile (docs/PERSONALIZE.md) —
         # same partial-dict shape and merge logic as PUT /api/profile.

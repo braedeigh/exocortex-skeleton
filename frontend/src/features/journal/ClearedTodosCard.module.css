@@ -44,6 +44,13 @@
   font-size: var(--font-size-sm); /* the 12px floor — captions only */
 }
 
+/* The card receipt — her own words that closed the item (todo_done). */
+.receipt {
+  color: var(--text-secondary);
+  font-size: var(--font-size-base);
+  font-style: italic;
+}
+
 .timeChip {
   flex-shrink: 0;
   display: inline-flex;

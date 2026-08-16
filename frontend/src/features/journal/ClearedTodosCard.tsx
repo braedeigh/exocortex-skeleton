@@ -125,6 +125,9 @@ export function ClearedTodosCard({ date }: { date: string }) {
                 ) : null}
               </div>
               {!editing && it.note ? <div className={styles.note}>{it.note}</div> : null}
+              {!editing && it.receipt_quote ? (
+                <div className={styles.receipt}>“{it.receipt_quote}”</div>
+              ) : null}
               {editing ? (
                 <>
                   <div className={styles.controls}>

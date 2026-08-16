@@ -484,6 +484,13 @@ def register(app):
                     row["marked"] = item["done_at"]
                 if item.get("finished_note"):
                     row["note"] = item["finished_note"]
+                # Card receipt (todo_done approvals): the id of the journal
+                # card that closed this item, plus her verbatim line — the
+                # Cleared card renders the quote as the proof-of-done.
+                if item.get("receipt"):
+                    row["receipt"] = item["receipt"]
+                if item.get("receipt_quote"):
+                    row["receipt_quote"] = item["receipt_quote"]
                 items.append(row)
         items.sort(key=lambda r: ("time" not in r, r.get("time", "")))
         marked_items.sort(key=lambda r: r["time"])
