@@ -1,6 +1,6 @@
 """Automations — the app-visible registry of recurring scheduled runs.
 
-Recurring jobs (e.g. the 5 AM Morning Spark) are fired by the system crontab,
+Recurring jobs (e.g. the 6 AM Morning Spark) are fired by the system crontab,
 which the web app can't and shouldn't read or write directly. This registry
 (scheduled_runs.json) is the app-owned MIRROR: each cron script writes its
 last-run status back here, and this surface reads it so the owner can see what

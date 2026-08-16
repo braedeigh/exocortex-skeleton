@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""spark_morning.py — the 5 AM build-orientation ritual.
+"""spark_morning.py — the 6 AM build-orientation ritual.
 
 Every morning: kill yesterday's Spark session and respawn a fresh one in the
 observatory, already oriented on the build so the owner walks up to a
@@ -22,7 +22,7 @@ prior investigation instead of restarting it. Same discipline as
 nightcrew_run.py ignoring what an agent claims and running the tests itself:
 measure independently, reconcile second.
 
-THE REGISTRY IS WRITTEN BY THIS SCRIPT, NOT BY THE TURN. The 5 AM session is
+THE REGISTRY IS WRITTEN BY THIS SCRIPT, NOT BY THE TURN. The 6 AM session is
 act-gated (no explicit lane + a cwd inside the app checkout derives to
 orchestra, because nobody is watching it), so it cannot run python to record
 anything. Instead the turn drops structured JSON at INBOX_PATH with the Write
@@ -56,7 +56,7 @@ off the index entry.
 Cwd is the SKELETON checkout, not the vault: Spark builds the app, so it should
 boot skeleton/CLAUDE.md and act on the code. The turn runs with a full tool set
 so Spark can actually do the work (and spin things off) once she picks a task;
-the 5 AM turn itself is orientation-only by instruction, not by tool-scoping.
+the 6 AM turn itself is orientation-only by instruction, not by tool-scoping.
 
 Run by cron every morning (the owner wires the crontab):
 
@@ -91,8 +91,8 @@ def _registry_default():
         "name": "Morning Spark",
         "description": "A fresh, oriented Spark session in the observatory each "
                        "morning, ranked against the build.",
-        "schedule": "0 5 * * *",
-        "schedule_human": "Every day at 5:00 AM",
+        "schedule": "0 6 * * *",
+        "schedule_human": "Every day at 6:00 AM",
         "enabled": True,
         "last_run": None,
         "last_status": None,
@@ -233,7 +233,7 @@ KEEP_WINDOW_HOURS = 24
 
 
 def _was_used(conv_id):
-    """Did she actually say anything to this Spark, or is it just the 5 AM
+    """Did she actually say anything to this Spark, or is it just the 6 AM
     orientation nobody opened?
 
     Counts her messages in the conversation log, and the shape matters: the

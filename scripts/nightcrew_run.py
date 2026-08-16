@@ -60,11 +60,12 @@ Max subscription over OAuth and no API key is set anywhere, so the `cost_usd`
 figures recorded here and shown on the morning cards are the CLI's usage
 ESTIMATES at API-equivalent rates — not charges. The real ceiling is the
 subscription's rolling usage window, which this run shares with the 3 AM keeper
-rollover and the 5 AM Morning Spark. Midnight is deliberately three hours
-clear of the rollover so a long night can't crowd the two jobs she actually
-meets in the morning. That's also why a throttled turn stops the whole night
-(see looks_throttled) instead of spending the rest of the queue against the
-same wall.
+rollover and Morning Spark. The night runs 3:30–5 AM (her call, 2026-08-11):
+cron starts it at 3:30, LAST_START_HOUR refuses to begin a new note at or after
+5, and a note already in flight finishes rather than being killed. Morning Spark
+moved to 6 AM in the same change so an overrun still lands clear of it. That's
+also why a throttled turn stops the whole night (see looks_throttled) instead of
+spending the rest of the queue against the same wall.
 
 Touches: tools/nightcrew/triage.py (what's allowed), tools/nightcrew/nominate.py
 (what it picks for itself), routes/nightcrew.py (the morning surface),
@@ -105,9 +106,17 @@ WORKTREE_ROOT = Path("/tmp")
 
 # How many notes to attempt per night. This is the usage knob: at roughly
 # $1.50-$3 of API-equivalent usage an attempt, 3 adds about $5-9 equivalent on
-# top of the ~$6-9 the 3 AM and 5 AM crons already draw from the same rolling
+# top of the ~$6-9 the 3 AM and 6 AM crons already draw from the same rolling
 # window. Raise it only after a few nights of real data.
 MAX_NOTES = 3
+
+# The window she set (2026-08-11): cron starts the night at 3:30 AM and no NEW
+# note begins at or after 5. A note already running is allowed to FINISH —
+# killing a worker mid-verify would leave a half-built worktree and no card to
+# show for it, which is worse than running late. Morning Spark moved 5 AM → 6 AM
+# in the same change, so an overrunning note still lands clear of the job she
+# actually meets at breakfast.
+LAST_START_HOUR = 5
 
 # Memory guard, mirroring scripts/research_dispatcher.py's numbers so the two
 # fleets reason about this box the same way. Checked before EVERY note, not
@@ -604,8 +613,8 @@ def status_to_registry(status, spent):
             runs.append(entry)
         # Overwritten every run, not just at creation, so the Automations page
         # can never keep showing a schedule this script no longer runs on.
-        entry["schedule"] = "0 0 * * *"
-        entry["schedule_human"] = "Every night at midnight"
+        entry["schedule"] = "30 3 * * *"
+        entry["schedule_human"] = "Nightly, 3:30–5 AM"
         entry["last_run"] = now()
         entry["last_status"] = status
         entry["last_cost_usd"] = round(spent, 4)
@@ -749,6 +758,13 @@ def main():
 
     spent, done = 0.0, 0
     for note in queued[:MAX_NOTES]:
+        # The window closes before the note does: checked before every note, the
+        # same shape as the memory gate below, because a night that starts in
+        # the window can run out of it.
+        if datetime.now().hour >= LAST_START_HOUR:
+            log(f"stopping: past {LAST_START_HOUR} AM — remaining notes stay queued "
+                f"for tomorrow rather than crowding the morning")
+            break
         avail = mem_available_mb()
         if avail < FLOOR_MB + NEED_MB:
             log(f"stopping: {avail}MB available, need {FLOOR_MB + NEED_MB}MB "
