@@ -656,21 +656,46 @@
 
 /* --- the rail as a bottom bar, on every full-page width --- */
 /* Beside the roster, a reserved lane cost the cards width — 56px of it on a
-   phone, the one screen that can't spare any. Down here the rail is fixed to
-   the bottom instead, in the row the dev-notes pill already occupies, so it
-   takes no width from the cards at all and the roster runs full-bleed.
+   phone, the one screen that can't spare any. Down here the rail sits along the
+   bottom instead, in the row the dev-notes pill already occupies, so it takes
+   no width from the cards at all and the roster runs full-bleed.
 
-   Keyed on .layoutRoomy — the FULL-PAGE route — not on a width. The other case
-   is the desktop split's docked pane, which keeps the side lane above: the pill
-   isn't rendered there to sit beside, and a viewport-fixed bar would escape the
-   pane and hover over the whole app.
+   Keyed on .layoutRoomy — the ROUTED page — not on a width. The other case is
+   the docked pane (KeeperPane passes onOpenConversation), which keeps the
+   sticky rail above.
+
+   ANCHORED TO THE FRAME THE PAGE FILLS, NOT THE WINDOW. The bar was `fixed`
+   back when this route WAS the whole screen. It isn't any more — the panel
+   workspace renders /observatory as one tile among several, and a
+   viewport-fixed bar measures the window, so the buttons tore loose from the
+   roster and went to the bottom edge of the whole app, reading (correctly) as
+   gone. `absolute` puts them back, landing on the nearest positioned ancestor.
+   There is always exactly one, and it's the right one: inside a tile it's the
+   panel root (routes/__root.tsx PanelRoot), in the window it's #content-host.
+   Both are the frame this page fills, and neither scrolls. What must NOT
+   change for that to hold: .page, .layout and .inner all stay unpositioned. If
+   any of them gains `position`, the rail's containing block becomes the
+   scrollport and the bar scrolls away with the cards.
+
+   ONE BOX OUT OF FLOW, NOT THREE. Only .rail is positioned; the '+', the
+   filters and the sort lay out INSIDE it as an ordinary flex row. Pinning each
+   of the three to its own corner worked only while all three measured the same
+   box — the viewport — and the moment .rail became positioned it turned into
+   its own children's containing block, so the '+' and the sort started
+   measuring the 40px-tall bar rather than the page and landed in a heap on top
+   of the filter pills. That's the failure this replaces, and it's the reason
+   the rule is "one anchored box": in flow there is nothing left to disagree
+   about. The '+' holds one end, the sort the other, the filters take the space
+   between, and the whole bar stops short of the notes pill's corner.
 
    The labels went with the lane. There's no width at which four labelled pills,
    the '+', the sort and the pill all fit on one line down here, so every button
    is a dot and a count; the hover title carries the name.
    [prompt: "on PWA can you move all the buttons to the bottom to the left of
    the dev notes buttons"; "can you also put the buttons on the bottom for the
-   desktop app too"] */
+   desktop app too"; "my buttons are gone from the observatory page so i can't
+   open a new session or filter my sessions"; "my buttons in the observatory are
+   messed up, like for filtering and making new sessions"] */
 .layoutRoomy {
   /* No lane to reserve any more — the cards get the whole column back. */
   max-width: 640px;
@@ -680,15 +705,14 @@
 }
 
 .layoutRoomy .rail {
-  position: fixed;
-  /* The band between the '+' on the left and the sort button on the right. The
-     filter group centres in it, and because every state owns a reserved slot
-     the group's width never changes — so nothing in it ever shifts, whatever
-     is running or broken. */
-  right: calc(var(--space-4) + 94px + var(--space-1) + var(--tap-target) + var(--space-1));
+  position: absolute;
+  /* The whole bottom edge, stopping short of the notes pill's corner: the pill
+     is two 46px squares sitting --space-4 in, so 94px + a gap is reserved for
+     it and nothing in the bar can ever land under it. */
+  left: var(--space-4);
+  right: calc(var(--space-4) + 94px + var(--space-1));
   bottom: calc(var(--space-4) + 4px);
   top: auto;
-  left: calc(var(--space-3) + var(--tap-target) + var(--space-1));
   width: auto;
   margin-top: 0;
   /* Under the pill's 45 so the two can never fight, and well under the
@@ -696,7 +720,12 @@
   z-index: 44;
   flex-direction: row;
   flex-wrap: nowrap;
-  justify-content: center;
+  /* The '+' at one end, the sort at the other, the filters in the middle. Both
+     ends are one tap target wide, so "the middle" is genuinely centred — and
+     because every state owns a reserved grid slot, the filter group's width
+     never changes either. Nothing in the bar shifts, whatever is running or
+     broken. */
+  justify-content: space-between;
   align-items: center;
   gap: var(--space-2);
   pointer-events: none;
@@ -713,12 +742,9 @@
 }
 
 /* Sort at the right end, immediately left of the notes pill; the '+' anchors
-   the other end of the bottom edge. Both are fixed to a corner, so neither
-   ever moves. */
+   the other end. Both are flex items of the bar — see the note above on why
+   they are NOT pinned separately. */
 .layoutRoomy .railUtils {
-  position: fixed;
-  right: calc(var(--space-4) + 94px + var(--space-1));
-  bottom: calc(var(--space-4) + 4px);
   margin-top: 0;
   pointer-events: auto;
 }
@@ -747,11 +773,10 @@
 }
 
 .layoutRoomy .railNew {
-  position: fixed;
-  left: var(--space-4);
-  bottom: calc(var(--space-4) + 4px);
+  flex: none;
   height: var(--tap-target);
   font-size: var(--font-size-lg);
+  pointer-events: auto;
 }
 
 /* Pressed wins outright: solid fill, and BOTH shadows — its own glow plus the
@@ -763,27 +788,29 @@
     0 4px 14px rgba(0, 0, 0, 0.18);
 }
 
-/* Wide screens: keep the six controls together as ONE cluster beside the pill
-   rather than flinging the '+' to the far corner and the filters to the middle
-   of a 1440px screen. Spreading them across that much emptiness reads as three
-   unrelated things; grouped, it reads as one control bar. The corner-anchoring
+/* Wide screens: keep the six controls together as ONE cluster, CENTRED, rather
+   than flinging the '+' to the far corner and the filters to the middle of a
+   1440px screen. Spreading them across that much emptiness reads as three
+   unrelated things; grouped, it reads as one control bar. The edge-anchoring
    above is a phone answer to a phone problem — no room — and doesn't earn its
-   keep once there's space.
+   keep once there's space. Centred and not bunched at one end because the
+   roster column is itself centred (.layout is max-width 640, auto margins), so
+   the bar reads as belonging to the cards above it.
    Keyed at 769px: the desktop split's own breakpoint, so "wide" here means
-   exactly the widths where this page could also be a pane. */
+   exactly the widths where this page could also be a pane.
+   [prompt: "on desktop though i'd like all the buttons centered"] */
 @media (min-width: 769px) {
   .layoutRoomy .rail {
-    left: auto;
+    /* Same box, the six controls centred inside it. The box is deliberately NOT
+       symmetric: the right edge keeps the notes pill's corner reserved, so the
+       cluster's centre sits about half that reserve left of the panel's true
+       middle. That offset is the price of a guarantee — a symmetric box would
+       centre perfectly on a wide screen and put the bar straight under the pill
+       in a 400px tile. The left edge stays put for the mirror reason: a
+       shrink-to-fit bar anchored only on the right would spill past a narrow
+       tile's left edge and be clipped. */
     right: calc(var(--space-4) + 94px + var(--space-2));
-    justify-content: flex-end;
-  }
-
-  .layoutRoomy .railNew,
-  .layoutRoomy .railUtils {
-    position: static;
-    left: auto;
-    right: auto;
-    bottom: auto;
+    justify-content: center;
   }
 
   .layoutRoomy .filters {
@@ -791,14 +818,15 @@
   }
 }
 
+/* Narrower than a modern phone: the '+', four filters, the sort and the pill
+   genuinely don't fit on one line. The sort steps up onto its own row above the
+   bar's left end — anchored to .rail, the one box that's out of flow, so it
+   rides with the bar instead of measuring some other box. The line it leaves
+   behind goes to the '+' and the filters. */
 @media (max-width: 384px) {
-  .layoutRoomy .rail {
-    right: calc(var(--space-4) + 94px + var(--space-2));
-  }
-
   .layoutRoomy .railUtils {
-    right: auto;
-    left: var(--space-3);
-    bottom: calc(var(--space-4) + 4px + var(--tap-target) + var(--space-2));
+    position: absolute;
+    left: 0;
+    bottom: calc(100% + var(--space-2));
   }
 }
