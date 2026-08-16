@@ -105,7 +105,7 @@ describe('trusting what the server sent', () => {
 describe('the defaults match the server', () => {
   it('seeds the two sets she asked for, plus an empty third', () => {
     expect(DEFAULT_SETS.map((s) => s.name)).toEqual(['Work', 'Life', 'Spare']);
-    expect(DEFAULT_SETS[0].sections).toEqual(['observatory', 'research', 'terrain']);
+    expect(DEFAULT_SETS[0].sections).toEqual(['observatory']);
     expect(DEFAULT_SETS[1].sections).toEqual(['journal', 'dashboard', 'pond']);
     expect(DEFAULT_SETS[2].sections).toEqual([]);
   });

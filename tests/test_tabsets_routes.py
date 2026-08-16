@@ -41,7 +41,7 @@ def test_the_spare_set_starts_empty(client):
 def test_defaults_are_usable_without_saving_anything(client):
     sets = client.get("/api/tabsets").get_json()["sets"]
     work = next(s for s in sets if s["id"] == "work")
-    assert work["sections"] == ["observatory", "research", "terrain"]
+    assert work["sections"] == ["observatory"]
 
 
 def test_put_round_trips(client):

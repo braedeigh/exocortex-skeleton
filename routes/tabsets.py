@@ -29,7 +29,9 @@ FILE = "tab_sets.json"
 # whatever she's doing this week without disturbing either of the other two.
 DEFAULT = {
     "sets": [
-        {"id": "work", "name": "Work", "sections": ["observatory", "research", "terrain"]},
+        # Just the Observatory: this is the set for the panel that watches
+        # sessions, and live ones fill the rest of its bar on their own.
+        {"id": "work", "name": "Work", "sections": ["observatory"]},
         {"id": "life", "name": "Life", "sections": ["journal", "dashboard", "pond"]},
         {"id": "spare", "name": "Spare", "sections": []},
     ]

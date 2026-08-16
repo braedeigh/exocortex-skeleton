@@ -33,7 +33,9 @@ export interface TabSet {
 /** Matches routes/tabsets.py's DEFAULT — used before the server answers, so
  *  the bar isn't empty for the first moment of every page load. */
 export const DEFAULT_SETS: TabSet[] = [
-  { id: 'work', name: 'Work', sections: ['observatory', 'research', 'terrain'] },
+  // Just the Observatory: this is the set for the panel that watches
+  // sessions, and the live ones fill the rest of its bar on their own.
+  { id: 'work', name: 'Work', sections: ['observatory'] },
   { id: 'life', name: 'Life', sections: ['journal', 'dashboard', 'pond'] },
   // Deliberately empty: a bar for whatever she's doing this week, that doesn't
   // cost her either of the other two to set up.
