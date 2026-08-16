@@ -22,6 +22,31 @@ pub struct FileReport {
 pub const KNOWN_KINDS: [&str; 2] = ["standing", "arc"];
 pub const KNOWN_STATUSES: [&str; 3] = ["active", "dormant", "retired"];
 
+/// "One line" made a number. Long enough for scope plus an explicit `Out: ...`
+/// clause; short enough that it can't quietly become a summary — which is the
+/// thing the whole design refuses to store (threads-architecture.md §1).
+pub const CHARTER_MAX_CHARS: usize = 240;
+
+/// Shape checks for a charter's text, shared by `lint`, `open`, `set-charter`,
+/// and the `propose` validators — so every door enforces the same sentence.
+/// An EMPTY charter is not an error here: existing threads predate the field
+/// and only get a lint warning. The write commands require non-empty
+/// separately, so nothing new is born without one.
+pub fn charter_errors(text: &str) -> Vec<String> {
+    let mut errors = Vec::new();
+    if text.contains('\n') {
+        errors.push("charter must be a single line — it's a scope sentence, not a summary".to_string());
+    }
+    let len = text.chars().count();
+    if len > CHARTER_MAX_CHARS {
+        errors.push(format!(
+            "charter is {} chars (over the {}-char one-line limit)",
+            len, CHARTER_MAX_CHARS
+        ));
+    }
+    errors
+}
+
 /// Frontmatter-only checks that don't need the rest of the vault — used both
 /// by full `lint` and by the write commands (`open`, `link`, ...) before they
 /// commit a change.
@@ -44,6 +69,8 @@ pub fn check_frontmatter(
     if m.name.trim().is_empty() {
         errors.push("name is required and must be non-empty".to_string());
     }
+
+    errors.extend(charter_errors(&m.charter));
 
     if m.fronts.is_empty() {
         errors.push("fronts must have at least 1 entry — every thread is on at least one front".to_string());
@@ -176,6 +203,16 @@ pub fn lint_one(
     let mut errors = tf.fm_errors.clone();
     errors.extend(check_frontmatter(slug, &tf.meta, known_fronts, known_slugs, known_people));
     let mut warnings = tf.fm_warnings.clone();
+    // Backfill grace: threads written before charters existed warn rather than
+    // fail, so the vault doesn't go red on every file at once. `open` refuses a
+    // new thread with no charter, so the warning count only ever goes down.
+    if tf.meta.charter.trim().is_empty() {
+        warnings.push(
+            "no charter — one line of scope (what belongs here, what doesn't) is what makes \
+             this thread's cards gradeable; set it with `thread set-charter`"
+                .to_string(),
+        );
+    }
     let (body_errors, body_warnings) = check_body(tf, content_dir, known_slugs);
     errors.extend(body_errors);
     warnings.extend(body_warnings);

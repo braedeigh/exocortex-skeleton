@@ -1,5 +1,6 @@
 ---
 name: Migraines
+charter: "The headaches themselves — triggers, timing, what helps. Out: the illness underneath."
 aliases: [migraine, aura]
 fronts: [health, job]
 parents: [long-covid]

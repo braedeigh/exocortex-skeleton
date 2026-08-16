@@ -16,6 +16,7 @@
 //!   thread link --slug migraines --add-parent long-covid
 //!   thread set-status migraines dormant
 //!   thread set-name --slug migraines --name Migraines
+//!   thread set-charter --slug migraines --charter "The headaches themselves. Out: ..."
 //!   thread distill migraines
 //!   thread inbox migraines
 //!   thread lint --fix-dormancy
@@ -92,6 +93,8 @@ enum Command {
     SetStatus { slug: String, status: String },
     /// Set name — the `name:` frontmatter field, in place.
     SetName(SetNameArgs),
+    /// Set the charter — the one line of scope a card is graded against.
+    SetCharter(SetCharterArgs),
     /// Move the distilled: watermark to today.
     Distill { slug: String },
     /// List cards tagged <slug> dated after the distilled: watermark.
@@ -108,6 +111,10 @@ struct OpenArgs {
     slug: String,
     #[arg(long)]
     name: String,
+    /// One line of scope — what belongs in this thread and what doesn't.
+    /// Required: a thread nobody can say the bounds of isn't judgeable.
+    #[arg(long)]
+    charter: String,
     /// Comma-separated front ids, e.g. health,job. First = primary.
     #[arg(long)]
     fronts: String,
@@ -166,6 +173,14 @@ struct SetNameArgs {
 }
 
 #[derive(Args)]
+struct SetCharterArgs {
+    #[arg(long)]
+    slug: String,
+    #[arg(long)]
+    charter: String,
+}
+
+#[derive(Args)]
 struct LintArgs {
     #[arg(long)]
     quiet: bool,
@@ -190,6 +205,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         Command::Remove { slug, reason } => run_remove(&cli, slug, reason),
         Command::SetStatus { slug, status } => run_set_status(&cli, slug, status),
         Command::SetName(a) => run_set_name(&cli, a),
+        Command::SetCharter(a) => run_set_charter(&cli, a),
         Command::Distill { slug } => run_distill(&cli, slug),
         Command::Inbox { slug } => run_inbox(&cli, slug),
         Command::Lint(a) => run_lint(&cli, a.quiet, a.fix_dormancy),
@@ -330,6 +346,16 @@ fn validate_thread_open(
         errs.push("`name` is required".to_string());
     }
 
+    // The nomination threshold already demands the proposer can name the thread
+    // in one line ("if it can't, it isn't a thread yet"). The charter IS that
+    // line, kept instead of discarded — so it costs a cricket nothing new and
+    // gives every later grader something to measure a card against.
+    let charter = payload::get_str(v, "charter").unwrap_or("").trim();
+    if charter.is_empty() {
+        errs.push("`charter` is required — one line of what belongs in this thread and what doesn't".to_string());
+    }
+    errs.extend(lint::charter_errors(charter));
+
     let fronts = payload::get_str_list(v, "fronts");
     if fronts.is_empty() {
         errs.push("`fronts` must have at least 1 entry".to_string());
@@ -457,6 +483,11 @@ fn validate_thread_link(
     let remove_parents = payload::get_str_list(v, "remove_parents");
     let add_people = payload::get_str_list(v, "add_people");
     let remove_people = payload::get_str_list(v, "remove_people");
+    // Optional on a link: a thread whose scope has drifted gets its charter
+    // re-cut through the same gate as its other membership edits — it's the
+    // same three questions again (threads-architecture.md §2).
+    let charter = payload::get_str(v, "charter").unwrap_or("").trim();
+    errs.extend(lint::charter_errors(charter));
 
     if add_fronts.is_empty()
         && remove_fronts.is_empty()
@@ -464,9 +495,10 @@ fn validate_thread_link(
         && remove_parents.is_empty()
         && add_people.is_empty()
         && remove_people.is_empty()
+        && charter.is_empty()
     {
         errs.push(
-            "at least one of add_fronts/remove_fronts/add_parents/remove_parents/add_people/remove_people must be non-empty"
+            "at least one of add_fronts/remove_fronts/add_parents/remove_parents/add_people/remove_people/charter must be non-empty"
                 .to_string(),
         );
     }
@@ -525,6 +557,9 @@ fn validate_thread_link(
     }
     for p in &remove_people {
         ops.push(format!("-person:{}", p));
+    }
+    if !charter.is_empty() {
+        ops.push("charter".to_string());
     }
     Ok(format!("Edit thread? \"{}\" — {}", slug, ops.join(" ")))
 }
@@ -591,6 +626,7 @@ fn run_open(cli: &Cli, a: &OpenArgs) -> Result<(), Box<dyn Error>> {
 
     let fm = FrontMatter {
         name: a.name.trim().to_string(),
+        charter: a.charter.trim().to_string(),
         aliases,
         fronts,
         parents,
@@ -606,6 +642,11 @@ fn run_open(cli: &Cli, a: &OpenArgs) -> Result<(), Box<dyn Error>> {
     let known_slugs = known_slugs_set(&threads_dir);
     let known_people = known_people_set(&content);
     let mut errs = lint::check_frontmatter(&a.slug, &fm, &known_fronts, &known_slugs, &known_people);
+    // check_frontmatter tolerates an empty charter (old files predate the
+    // field); birth doesn't. Nothing new opens without a stated scope.
+    if fm.charter.is_empty() {
+        errs.push("--charter is required — one line of what belongs in this thread and what doesn't".to_string());
+    }
     let graph = load_graph(&threads_dir)?;
     if let Some(cyc) = graph::would_create_cycle(&graph, &a.slug, &fm.parents) {
         errs.push(format!("parents introduce a cycle: {}", cyc.join(" -> ")));
@@ -890,6 +931,46 @@ fn run_set_name(cli: &Cli, a: &SetNameArgs) -> Result<(), Box<dyn Error>> {
         &format!("\"{}\" -> \"{}\"", old_name, new_name),
     )?;
     println!("Threads/{}.md: \"{}\" -> \"{}\"", a.slug, old_name, new_name);
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  set-charter — the backfill door for threads written before charters, and
+//  the way a scope gets re-cut when a thread turns out to be about something
+//  slightly different than it was born as.
+// ═══════════════════════════════════════════════════════════════════════════
+fn run_set_charter(cli: &Cli, a: &SetCharterArgs) -> Result<(), Box<dyn Error>> {
+    let (content, _data) = dirs(cli)?;
+    let threads_dir = util::threads_dir(&content);
+    let path = util::thread_path(&threads_dir, &a.slug);
+    if !path.exists() {
+        return Err(format!("unknown thread `{}` — no Threads/{}.md", a.slug, a.slug).into());
+    }
+    let charter = a.charter.trim();
+    let mut errs = lint::charter_errors(charter);
+    if charter.is_empty() {
+        errs.push("--charter is empty — a charter can be re-cut but not removed".to_string());
+    }
+    if !errs.is_empty() {
+        return Err(errs_to_err(errs));
+    }
+
+    let raw = fs::read_to_string(&path)?;
+    let tf = model::parse_thread_file(&raw);
+    let mut meta = tf.meta.clone();
+    let had_one = !meta.charter.trim().is_empty();
+    meta.charter = charter.to_string();
+
+    let out = model::render_file(&meta, &tf.raw_body);
+    util::atomic_write(&path, &out)?;
+
+    changelog::log_change(
+        &content,
+        "thread-charter",
+        &a.slug,
+        &format!("{} — {}", if had_one { "re-cut" } else { "set" }, charter),
+    )?;
+    println!("Threads/{}.md: charter {}", a.slug, if had_one { "re-cut" } else { "set" });
     Ok(())
 }
 

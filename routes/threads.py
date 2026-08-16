@@ -331,6 +331,10 @@ def parse_thread(path):
     return {
         "id": stem.lower(),
         "name": name,
+        # The thread's one line of scope — what belongs here and what doesn't.
+        # "" on files written before charters existed (`thread lint` warns about
+        # those); anything grading this thread's cards reads it from here.
+        "charter": _scalar_field("charter") or "",
         "file": path.relative_to(_vault()).as_posix(),
         "aliases": [a for a in aliases if a],
         "status": meta.get("status", ""),

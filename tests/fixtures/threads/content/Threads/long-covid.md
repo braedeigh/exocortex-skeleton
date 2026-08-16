@@ -1,5 +1,6 @@
 ---
 name: Long COVID
+charter: "The illness and its mechanics — PEM, POTS, triggers, levers. Out: migraine specifics."
 aliases: [long covid, LC]
 fronts: [health]
 parents: []

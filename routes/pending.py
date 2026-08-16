@@ -77,6 +77,7 @@ def _commit(change):
     data_dir = str(store.DATA_DIR)
     if kind == "thread_open":
         args = ["open", "--slug", payload["slug"], "--name", payload["name"],
+                "--charter", payload.get("charter", ""),
                 "--fronts", ",".join(payload.get("fronts") or []),
                 "--kind", payload.get("kind", "")]
         if payload.get("parents"):
@@ -116,7 +117,17 @@ def _commit(change):
             args += ["--add-person", p]
         for p in payload.get("remove_people") or []:
             args += ["--remove-person", p]
-        _run_thread(args)
+        # `link` is membership only, so a charter re-cut riding the same approval
+        # goes through its own command. Order is safe either way: set-charter
+        # overwrites, so if the membership edit below fails and the item stays
+        # queued, re-approving just writes the same charter again.
+        # `args` is ["link", "--slug", <slug>] when the payload is charter-only —
+        # nothing to link, so don't call it.
+        charter = (payload.get("charter") or "").strip()
+        if charter:
+            _run_thread(["set-charter", "--slug", payload["slug"], "--charter", charter])
+        if len(args) > 3:
+            _run_thread(args)
         return
     elif kind == "thread_retire":
         _run_thread(["set-status", payload["slug"], "retired"])

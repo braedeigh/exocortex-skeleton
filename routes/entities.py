@@ -76,7 +76,14 @@ def _parse_frontmatter(text):
             continue
         key, _, val = line.partition(":")
         val = val.strip()
-        if val.startswith("[") and val.endswith("]"):
+        if len(val) >= 2 and val[0] == '"' and val[-1] == '"':
+            # A quoted value is deliberately a scalar, never a list. This is how
+            # prose survives in frontmatter: a thread's `charter:` carries commas
+            # and colons, and the comma branch below would otherwise chop it into
+            # fragments. The thread CLI writes it quoted for exactly this reason
+            # (tools/thread/src/model.rs::quote_scalar) — unescape to match.
+            meta[key.strip().lower()] = val[1:-1].replace('\\"', '"').replace("\\\\", "\\")
+        elif val.startswith("[") and val.endswith("]"):
             inner = val[1:-1]
             items = [v.strip().strip('"\'') for v in inner.split(",")]
             meta[key.strip().lower()] = [v for v in items if v]

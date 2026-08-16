@@ -1,5 +1,6 @@
 ---
 name: Root Thread
+charter: "A root node in the parent graph fixture. Out: anything with a parent."
 aliases: []
 fronts: [health]
 parents: []

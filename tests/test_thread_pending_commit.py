@@ -62,6 +62,7 @@ def test_thread_open_with_cards_creates_a_file_that_lints(thread_client, thread_
         "id": "open1", "kind": "thread_open", "summary": "", "created": "",
         "payload": {
             "slug": "night-terrors",
+            "charter": "Waking in a panic mid-sleep. Out: ordinary insomnia.",
             "name": "Night Terrors",
             "fronts": ["health"],
             "parents": [],
@@ -96,6 +97,7 @@ def test_thread_open_passes_a_repeated_source_flag_per_list_entry(thread_client,
         "id": "open2", "kind": "thread_open", "summary": "", "created": "",
         "payload": {
             "slug": "multi-source-thread",
+            "charter": "A fixture thread with two sources on a card. Out: anything real.",
             "name": "Multi Source Thread",
             "fronts": ["health"],
             "kind": "standing",
@@ -121,6 +123,7 @@ def test_thread_open_failing_add_card_raises_and_leaves_item_queued(thread_clien
         "id": "open3", "kind": "thread_open", "summary": "", "created": "",
         "payload": {
             "slug": "bad-source-thread",
+            "charter": "A fixture thread citing a dead source. Out: anything real.",
             "name": "Bad Source Thread",
             "fronts": ["health"],
             "kind": "standing",
@@ -187,3 +190,86 @@ def test_approved_thread_item_leaves_the_queue(thread_client, thread_vault):
     }
     _approve(thread_client, change)
     assert store.read("pending_changes", {"pending": []})["pending"] == []
+
+
+# ── charter: the one line of scope, carried from nomination to file ──────────
+# A charter is prose in a YAML-ish header, so the interesting failure isn't
+# "did it save" — it's whether a comma in it survives the round-trip through
+# two hand-rolled frontmatter parsers (the Rust writer and _parse_frontmatter).
+
+TRICKY_CHARTER = 'Sleep itself: onset, waking, dreams. Out: the "tired all day" thread, and meds.'
+
+
+def test_thread_open_carries_the_charter_through_commas_colons_and_quotes(thread_client, thread_vault):
+    content, _data = thread_vault
+    change = {
+        "id": "open4", "kind": "thread_open", "summary": "", "created": "",
+        "payload": {
+            "slug": "sleep",
+            "name": "Sleep",
+            "charter": TRICKY_CHARTER,
+            "fronts": ["health"],
+            "kind": "standing",
+        },
+    }
+    res = _approve(thread_client, change)
+    assert res.status_code == 200
+
+    t = threads_routes.parse_thread(content / "Threads" / "sleep.md")
+    # Byte-for-byte, and a STRING — not a list chopped at the commas.
+    assert t["charter"] == TRICKY_CHARTER
+    assert isinstance(t["charter"], str)
+
+
+def test_thread_open_without_a_charter_is_refused_and_stays_queued(thread_client, thread_vault):
+    content, _data = thread_vault
+    store.write("pending_changes", {"pending": [{
+        "id": "open5", "kind": "thread_open", "summary": "", "created": "",
+        "payload": {
+            "slug": "uncharted", "name": "Uncharted",
+            "fronts": ["health"], "kind": "standing",
+        },
+    }]})
+    with pytest.raises(RuntimeError):
+        thread_client.post("/api/pending/approve", json={"id": "open5"})
+    assert not (content / "Threads" / "uncharted.md").exists()
+    assert store.read("pending_changes", {"pending": []})["pending"] != []
+
+
+def test_threads_without_a_charter_read_as_empty_string_not_missing(thread_vault):
+    # leaf-thread.md is the fixture deliberately left uncharted: files that
+    # predate the field must still parse, with "" rather than a KeyError.
+    content, _data = thread_vault
+    t = threads_routes.parse_thread(content / "Threads" / "leaf-thread.md")
+    assert t["charter"] == ""
+
+
+def test_thread_link_recuts_a_charter_on_its_own(thread_client, thread_vault):
+    content, _data = thread_vault
+    before = threads_routes.parse_thread(content / "Threads" / "long-covid.md")
+    change = {
+        "id": "link3", "kind": "thread_link", "summary": "", "created": "",
+        "payload": {"slug": "long-covid", "charter": TRICKY_CHARTER},
+    }
+    res = _approve(thread_client, change)
+    assert res.status_code == 200
+
+    after = threads_routes.parse_thread(content / "Threads" / "long-covid.md")
+    assert after["charter"] == TRICKY_CHARTER
+    # Charter-only: `link` isn't called at all, so membership is untouched.
+    assert after["fronts"] == before["fronts"]
+    assert after["parents"] == before["parents"]
+
+
+def test_thread_link_applies_a_charter_and_a_membership_edit_together(thread_client, thread_vault):
+    content, _data = thread_vault
+    change = {
+        "id": "link4", "kind": "thread_link", "summary": "", "created": "",
+        "payload": {"slug": "long-covid", "charter": TRICKY_CHARTER,
+                    "add_fronts": ["practice"]},
+    }
+    res = _approve(thread_client, change)
+    assert res.status_code == 200
+    t = threads_routes.parse_thread(content / "Threads" / "long-covid.md")
+    assert t["charter"] == TRICKY_CHARTER
+    assert "practice" in t["fronts"]

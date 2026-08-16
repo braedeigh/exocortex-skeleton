@@ -1,5 +1,6 @@
 ---
 name: Broken Thread
+charter: "A deliberately broken fixture. Out: anything that lints clean."
 aliases: []
 fronts: [nope]
 parents: [ghost-parent]

@@ -274,3 +274,29 @@ def test_person_stats_falls_back_to_day_when_no_mentions(vault):
         "date": "2026-06-01", "file": "Journal/Daily/2026-06-01.md",
         "label": "2026-06-01", "snippet": "",
     }
+
+
+# ── _parse_frontmatter: quoted values are scalars, never lists ───────────────
+# The parser splits an unquoted comma-bearing value into a list, which is right
+# for `aliases: a, b` and catastrophic for prose. A thread's `charter:` is prose
+# with commas and colons in it, so the thread CLI always writes it quoted; this
+# is the reading half of that contract.
+
+def test_quoted_frontmatter_value_stays_one_string_despite_commas():
+    meta, _body = entities._parse_frontmatter(
+        '---\ncharter: "Sleep itself: onset, waking, dreams. Out: meds."\n---\nbody\n'
+    )
+    assert meta["charter"] == "Sleep itself: onset, waking, dreams. Out: meds."
+
+
+def test_quoted_frontmatter_value_unescapes_inner_quotes_and_backslashes():
+    meta, _body = entities._parse_frontmatter(
+        '---\ncharter: "the \\"tired all day\\" thread, a back\\\\slash"\n---\n'
+    )
+    assert meta["charter"] == 'the "tired all day" thread, a back\\slash'
+
+
+def test_unquoted_comma_values_still_become_lists():
+    # The existing behaviour every people file depends on — unchanged.
+    meta, _body = entities._parse_frontmatter('---\naliases: landlady, my landlord\n---\n')
+    assert meta["aliases"] == ["landlady", "my landlord"]

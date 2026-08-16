@@ -1,5 +1,6 @@
 ---
 name: Mid Thread
+charter: "A middle node in the parent graph fixture. Out: leaves and roots."
 aliases: []
 fronts: [health]
 parents: [root-thread]

@@ -10,6 +10,14 @@ use crate::sources::{extract_tokens, extract_wikilinks};
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FrontMatter {
     pub name: String,
+    /// One line of scope: what belongs in this thread and what doesn't. This is
+    /// the only *judgment* stored in a thread file — everything else here is
+    /// identity, membership, or lifecycle. It exists so "is this thread
+    /// capturing what it's supposed to?" is a checkable question instead of a
+    /// matter of taste: a grader compares a card against this sentence. May be
+    /// empty on files written before charters existed; `lint` warns, and
+    /// `open` refuses to create a new thread without one.
+    pub charter: String,
     pub aliases: Vec<String>,
     pub fronts: Vec<String>,
     pub parents: Vec<String>,
@@ -119,6 +127,40 @@ fn format_list(items: &[String]) -> String {
     format!("[{}]", items.join(", "))
 }
 
+/// The charter is the one frontmatter value that is *prose* — it carries commas
+/// and colons, and both tiny frontmatter parsers that read these files (the one
+/// above, and `_parse_frontmatter` in routes/entities.py) would otherwise read a
+/// comma as a list separator. So it's always written double-quoted with inner
+/// quotes backslash-escaped, and unquoted again on the way in.
+fn quote_scalar(s: &str) -> String {
+    format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+fn unquote_scalar(v: &str) -> String {
+    let t = v.trim();
+    if t.len() < 2 || !t.starts_with('"') || !t.ends_with('"') {
+        return t.to_string();
+    }
+    let mut out = String::new();
+    let mut chars = t[1..t.len() - 1].chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('"') => out.push('"'),
+            Some('\\') => out.push('\\'),
+            Some(other) => {
+                out.push('\\');
+                out.push(other);
+            }
+            None => out.push('\\'),
+        }
+    }
+    out
+}
+
 /// Parse the full text of a `Threads/<slug>.md` file into a `ThreadFile`,
 /// collecting (not raising on) every rule violation so `lint` can report all
 /// of them in one pass. `known_slugs` and `known_fronts` are used for the
@@ -140,12 +182,13 @@ pub fn parse_thread_file(text: &str) -> ThreadFile {
                 let kv = parse_kv_block(&block);
                 let mut m = FrontMatter::default();
                 let known_keys = [
-                    "name", "aliases", "fronts", "parents", "people", "kind", "status",
-                    "opened", "retired", "distilled",
+                    "name", "charter", "aliases", "fronts", "parents", "people", "kind",
+                    "status", "opened", "retired", "distilled",
                 ];
                 for (k, v) in kv {
                     match k.as_str() {
                         "name" => m.name = v,
+                        "charter" => m.charter = unquote_scalar(&v),
                         "aliases" => m.aliases = parse_list(&v),
                         "fronts" => m.fronts = parse_list(&v),
                         "parents" => m.parents = parse_list(&v),
@@ -435,6 +478,11 @@ pub fn render_frontmatter(m: &FrontMatter) -> String {
     let mut out = String::new();
     out.push_str("---\n");
     out.push_str(&format!("name: {}\n", m.name));
+    if m.charter.trim().is_empty() {
+        out.push_str("charter:\n");
+    } else {
+        out.push_str(&format!("charter: {}\n", quote_scalar(&m.charter)));
+    }
     out.push_str(&format!("aliases: {}\n", format_list(&m.aliases)));
     out.push_str(&format!("fronts: {}\n", format_list(&m.fronts)));
     out.push_str(&format!("parents: {}\n", format_list(&m.parents)));
