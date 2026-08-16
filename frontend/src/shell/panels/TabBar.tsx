@@ -1,7 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSessionRoster } from '../../features/observatory/api';
 import { convIdOf, pageLabel, pathOf, sectionForUrl, sectionById, type Section } from './sections';
-import { isPinned, menuSections, pin, reorder, sectionsOf, unpin } from './tabSets';
+import {
+  createSet,
+  isPinned,
+  menuSections,
+  pin,
+  removeSet,
+  reorder,
+  sectionsOf,
+  unpin,
+} from './tabSets';
 import { buildBar, closeTab, pruneStale, touchTab, urlsOnBar, type BarItem, type OpenTab } from './panelTabs';
 import { useLiveSessions } from './useLiveSessions';
 import { urlForIntent } from './panelIntents';
@@ -49,9 +58,17 @@ import styles from './TabBar.module.css';
  * rather than named, so they're slots she fills rather than categories the app
  * decided for her.
  *
+ * SETS ARE HERS TO MAKE AND UNMAKE, from the ▾. A new one starts empty and the
+ * panel switches to it immediately — an empty bar says "nothing pinned, use the
+ * ▾", which is already the next thing to do, so there's nothing to name or
+ * configure first. Deleting is two clicks (the bin turns into "Sure?") rather
+ * than a dialog, because a modal that interrupts a dropdown is a worse
+ * interruption than the thing it's guarding. The last set has no bin at all:
+ * deleting it would leave no ▾ to make another from.
+ *
  * Touches: panelTabs.ts (what belongs on the bar), useLiveSessions.ts (the
- * live feed), sections.ts (what a tab means), tabSets.ts (pin/unpin/reorder),
- * PanelFrame.tsx (draws this in the header row).
+ * live feed), sections.ts (what a tab means), tabSets.ts (create/remove/pin/
+ * unpin/reorder), PanelFrame.tsx (draws this in the header row).
  *
  * Prompt that produced it: "i want tabs for open and running both. i want the
  * running ones to be purple but glow teal back and forth... the open ones that
@@ -85,6 +102,22 @@ export function TabBar({
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<{ from: number; over: number } | null>(null);
+  /* Which bin is currently asking "Sure?". One at a time, and it gives up on
+     its own after a few seconds — an armed delete left sitting there is a trap
+     for the next click. */
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const confirmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const armDelete = useCallback((id: string | null) => {
+    if (confirmTimer.current) clearTimeout(confirmTimer.current);
+    setConfirmDelete(id);
+    if (id) confirmTimer.current = setTimeout(() => setConfirmDelete(null), 4000);
+  }, []);
+  useEffect(
+    () => () => {
+      if (confirmTimer.current) clearTimeout(confirmTimer.current);
+    },
+    [],
+  );
 
   const activeIndex = Math.max(0, sets.findIndex((s) => s.id === setId));
   const active = sets[activeIndex];
@@ -149,6 +182,11 @@ export function TabBar({
     [roster],
   );
 
+  // A bin left armed behind a closed menu would fire on the next visit.
+  useEffect(() => {
+    if (!menuOpen) armDelete(null);
+  }, [menuOpen, armDelete]);
+
   useEffect(() => {
     if (!menuOpen) return;
     const onDown = (e: MouseEvent) => {
@@ -167,6 +205,33 @@ export function TabBar({
      what the open tabs beside the anchor are for — the anchor doesn't need to
      also be a memory, and being one made it ambiguous what a click would do. */
   const goToSection = (section: Section) => onNavigate(section.home);
+
+  /* A new set, and the panel wears it straight away — she asked for it from
+     this panel's ▾, so this panel is the one that wants it.
+
+     The id has to be unique across WINDOWS, not just within this one, since
+     it's about to be written to the vault where every window reads it; a plain
+     counter would collide the moment two windows made a set. The stored name is
+     bookkeeping — the menu shows position numbers, not names — but the server
+     requires a non-empty one, and "Set 4" is what she'd call it anyway. */
+  const onCreateSet = () => {
+    const id = `set-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`;
+    save(createSet(sets, id, `Set ${sets.length + 1}`));
+    onSetId(id);
+    setMenuOpen(false);
+  };
+
+  /* Deleting the set this panel is wearing moves it to the first one EXPLICITLY
+     rather than letting the fallback below (Math.max(0, findIndex)) handle it.
+     Same thing on screen, but it clears the dead id out of this window's saved
+     layout instead of leaving it there to be silently corrected forever. */
+  const onDeleteSet = (id: string) => {
+    const next = removeSet(sets, id);
+    if (next === sets) return;
+    save(next);
+    if (id === activeSetId) onSetId(next[0].id);
+    armDelete(null);
+  };
 
   /* An anchor she's standing in that isn't pinned to this set still gets a
      tab, or switching sets would leave the bar with nothing lit and no name
@@ -192,25 +257,53 @@ export function TabBar({
         {menuOpen ? (
           <div className={styles.menu} role="menu">
             <div className={styles.groupLabel}>Sets</div>
+            {/* Same shape as the pin rows below: the name flexes, a fixed
+                40×40 button sits at the end. One menu, one pattern. */}
             {sets.map((s, i) => (
-              <button
-                key={s.id}
-                type="button"
-                role="menuitemradio"
-                aria-checked={s.id === activeSetId}
-                className={styles.menuItem}
-                onClick={() => {
-                  onSetId(s.id);
-                  setMenuOpen(false);
-                }}
-              >
-                <span className={styles.radio}>{s.id === activeSetId ? '●' : '○'}</span>
-                {i + 1}
-                <span className={styles.setPreview}>
-                  {sectionsOf(sets, s.id).map((x) => x.label).join(' · ') || 'empty'}
-                </span>
-              </button>
+              <div key={s.id} className={styles.menuRow}>
+                <button
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={s.id === activeSetId}
+                  className={styles.menuItem}
+                  onClick={() => {
+                    onSetId(s.id);
+                    setMenuOpen(false);
+                  }}
+                >
+                  <span className={styles.radio}>{s.id === activeSetId ? '●' : '○'}</span>
+                  {i + 1}
+                  <span className={styles.setPreview}>
+                    {sectionsOf(sets, s.id).map((x) => x.label).join(' · ') || 'empty'}
+                  </span>
+                </button>
+                {/* No bin on the last set — there'd be no ▾ left to make
+                    another from. Nothing to disable, nothing to explain. */}
+                {sets.length > 1 ? (
+                  <button
+                    type="button"
+                    className={[styles.trash, confirmDelete === s.id ? styles.trashArmed : '']
+                      .filter(Boolean)
+                      .join(' ')}
+                    title={confirmDelete === s.id ? `Delete set ${i + 1}?` : `Delete set ${i + 1}`}
+                    aria-label={
+                      confirmDelete === s.id
+                        ? `Confirm delete set ${i + 1}`
+                        : `Delete set ${i + 1}`
+                    }
+                    onClick={() => (confirmDelete === s.id ? onDeleteSet(s.id) : armDelete(s.id))}
+                  >
+                    {confirmDelete === s.id ? 'Sure?' : '✕'}
+                  </button>
+                ) : null}
+              </div>
             ))}
+            <button type="button" role="menuitem" className={styles.menuItem} onClick={onCreateSet}>
+              <span className={styles.radio} aria-hidden="true">
+                +
+              </span>
+              New set
+            </button>
 
             <div className={styles.groupLabel}>Go, or pin to set {activeIndex + 1}</div>
             {menuSections().map((section) => {

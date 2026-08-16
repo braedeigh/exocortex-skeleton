@@ -1,13 +1,26 @@
 import { useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client';
-import { DEFAULT_SETS, isTabSetList, type TabSet } from './tabSets';
+import { DEFAULT_SETS, isTabSetList, removedBuiltIns, type TabSet } from './tabSets';
 
 /**
  * useTabSets.ts — loading and saving the pinned-tab sets.
  *
- * Kept in the vault (routes/tabsets.py) rather than the browser so both windows
- * and the phone see the same sets, and clearing browser data doesn't wipe them.
+ * Kept in the vault (routes/tabsets.py) rather than the browser so every window
+ * sees the same sets, and clearing browser data doesn't wipe them.
+ *
+ * EVERY SAVE SAYS WHAT'S DELETED. The server seeds back any built-in set it
+ * hasn't been told is gone, so a save that only sent the surviving sets would
+ * un-delete the others on the next page load. `removedBuiltIns` reads that
+ * straight off the list being saved — no second copy to keep in step.
+ *
+ * WHERE IT'S STILL THIN: two windows both hold their own copy, and the one
+ * that saves last wins the whole list. Refetching when a window is focused
+ * shrinks that to the moment before she touches it, rather than however long
+ * the window sat there — but a set deleted in one window and a tab pinned in
+ * another, fast enough, still resolves to whichever landed second. Closing it
+ * properly needs the save to carry the version it was based on, and the server
+ * to refuse one built on a stale read. Not built.
  *
  * WHY IT NEVER RETURNS NOTHING. Every panel's tab bar renders from this, so a
  * moment with no sets is a moment with no tabs — on every panel at once, on
@@ -34,7 +47,7 @@ export function useTabSets(): {
 } {
   const qc = useQueryClient();
 
-  const { data } = useQuery({
+  const { data, isSuccess } = useQuery({
     queryKey: KEY,
     queryFn: async ({ signal }) => {
       const res = await api.get<{ sets: unknown }>('/api/tabsets', signal);
@@ -43,12 +56,27 @@ export function useTabSets(): {
     // These change a handful of times ever; re-asking on every mount would be
     // a request per panel per page load for an answer that never moved.
     staleTime: 5 * 60_000,
+    // ...but DO re-ask when she comes back to a window. That's the moment a
+    // second window's copy is most likely to be out of date and about to be
+    // written back over a change she made in the first one.
+    refetchOnWindowFocus: true,
     // Never leave the bar without something to draw.
     placeholderData: DEFAULT_SETS,
   });
 
+  /* WHETHER WE'RE ENTITLED TO AN OPINION ON WHAT'S DELETED. `removedBuiltIns`
+     reads deletion off the list we're holding — sound only when that list came
+     from the server. Before the first answer arrives, or if it never does, what
+     we're holding is the DEFAULTS, in which nothing is deleted by definition;
+     saving from there would tell the server to undelete everything. So until a
+     load has actually succeeded we send no `removed` key at all, which the
+     route reads as "no opinion" and leaves the stored one alone. */
   const mutation = useMutation({
-    mutationFn: (next: TabSet[]) => api.put<{ sets: TabSet[] }>('/api/tabsets', { sets: next }),
+    mutationFn: (next: TabSet[]) =>
+      api.put<{ sets: TabSet[] }>('/api/tabsets', {
+        sets: next,
+        ...(isSuccess ? { removed: removedBuiltIns(next) } : {}),
+      }),
     onMutate: async (next) => {
       await qc.cancelQueries({ queryKey: KEY });
       const previous = qc.getQueryData<TabSet[]>(KEY);

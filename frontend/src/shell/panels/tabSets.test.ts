@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_SETS,
+  createSet,
   isPinned,
   isTabSetList,
   pin,
+  removeSet,
+  removedBuiltIns,
   reorder,
   sectionsOf,
   unpin,
@@ -31,6 +34,60 @@ describe('reading a set', () => {
 
   it('has nothing to show for a set that is not there', () => {
     expect(sectionsOf(sets(), 'nope')).toEqual([]);
+  });
+});
+
+describe('making a set', () => {
+  it('adds an empty one on the end, leaving the others alone', () => {
+    const next = createSet(sets(), 'set-x', 'Set 3');
+    expect(next.map((s) => s.id)).toEqual(['work', 'life', 'set-x']);
+    expect(next[2].sections).toEqual([]);
+    expect(next.slice(0, 2)).toEqual(sets());
+  });
+
+  it('refuses an id already in use, which would make every lookup ambiguous', () => {
+    const before = sets();
+    expect(createSet(before, 'work', 'Set 3')).toBe(before);
+  });
+
+  it('refuses a blank id', () => {
+    const before = sets();
+    expect(createSet(before, '', 'Set 3')).toBe(before);
+  });
+});
+
+describe('unmaking a set', () => {
+  it('removes the one it names', () => {
+    expect(removeSet(sets(), 'work').map((s) => s.id)).toEqual(['life']);
+  });
+
+  it('refuses the last one — no sets means no bar and no menu to rebuild from', () => {
+    const one: TabSet[] = [{ id: 'work', name: 'Work', sections: ['journal'] }];
+    expect(removeSet(one, 'work')).toBe(one);
+  });
+
+  it('removing something absent changes nothing', () => {
+    const before = sets();
+    expect(removeSet(before, 'nope')).toBe(before);
+  });
+});
+
+describe('telling the server what is deleted', () => {
+  // The server seeds back any built-in it is not told is gone, so this is the
+  // whole of the record — and it is read off the list rather than tracked, so
+  // there is no second copy to drift.
+  it('names the built-ins that are missing', () => {
+    expect(removedBuiltIns(sets())).toEqual(['spare']);
+  });
+
+  it('says nothing is deleted when they are all there', () => {
+    expect(removedBuiltIns(DEFAULT_SETS)).toEqual([]);
+  });
+
+  it('ignores sets she made herself — nothing seeds those back', () => {
+    const mine = [...DEFAULT_SETS, { id: 'set-x', name: 'Set 4', sections: [] }];
+    expect(removedBuiltIns(mine)).toEqual([]);
+    expect(removedBuiltIns(removeSet(mine, 'set-x'))).toEqual([]);
   });
 });
 

@@ -142,6 +142,43 @@
   color: var(--accent);
 }
 
+/* Deleting a set. Same 40×40 slot as the star so the two menu groups line up
+   down the right edge. Visible at rest rather than on hover — a control you
+   can't see isn't a control, and this one is the only way to undo a set. */
+.trash {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.15s, background-color 0.15s;
+}
+
+.trash:hover,
+.trash:focus-visible {
+  background: var(--bg);
+  color: var(--danger, #c0554d);
+}
+
+/* Armed: the word replaces the ✕, so the second click is a different-looking
+   target rather than the same one twice. Wider than 40px because "Sure?" is a
+   word, and it keeps the 40px height. */
+.trashArmed {
+  width: auto;
+  min-width: 56px;
+  padding: 0 10px;
+  font-size: 13px;
+  color: var(--danger, #c0554d);
+  background: var(--bg);
+}
+
 .tabs {
   display: flex;
   flex: 1;
