@@ -5,6 +5,7 @@ import { subscribeTheme } from '../../theme';
 import { TermNotesPanel } from '../../shell/TermNotesPanel';
 import { SchedulePanel } from '../../shell/SchedulePanel';
 import { openConversationInPane } from '../../shell/paneConversation';
+import { dispatchIntent } from '../../shell/panels/windowBus';
 import { useSessionPreview, useSessionRoster } from '../observatory/api';
 import { isUnread, openedMap } from '../observatory/readReceipts';
 import { cardState, type CardState } from '../observatory/sessionFilters';
@@ -587,17 +588,26 @@ export function TerrainPage() {
     };
   }, []);
 
-  // Tap. A FILE opens straight into its frosted code window over the map —
-  // one tap, not a sheet asking whether she'd like to see the code she just
-  // pointed at. An agent orb highlights its footprint immediately AND opens
-  // its sheet; empty canvas clears everything. (Repo/dir hubs are structure,
-  // not destinations — taps pass through.)
+  // Tap. A FILE goes to a code tile if one is watching — in this window or
+  // another browser window on another monitor (shell/panels/windowBus.ts),
+  // most recently touched tile winning — and with no code tile anywhere it
+  // opens straight into its frosted code window over the map, one tap, exactly
+  // as before. Same rule as the observatory's file lists (SessionCard), so
+  // code opens the same way from every surface. An agent orb highlights its
+  // footprint immediately AND opens its sheet; empty canvas clears everything.
+  // (Repo/dir hubs are structure, not destinations — taps pass through.)
+  //
+  // Prompt: "have the terrain tab open in one browser window on one screen,
+  // click a piece of code or an agent, and it opens on another screen".
   useEffect(() => {
     const engine = engineRef.current;
     if (!engine) return;
     engine.onTap = (node) => {
       if (node?.kind === 'file') {
-        if (node.path) setCodeFile(node);
+        if (node.path) {
+          if (dispatchIntent({ kind: 'code', repo: node.repoId, path: node.path }) !== 'none') return;
+          setCodeFile(node);
+        }
       } else if (node?.kind === 'session' && node.session) {
         setSelected(node);
         setFootprintSession(node.session.id);
