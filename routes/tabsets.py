@@ -24,17 +24,44 @@ import store
 
 FILE = "tab_sets.json"
 
-# What a fresh install gets: the two sets she described, work and life.
+# What a fresh install gets: the two sets she described, plus an empty third
+# that isn't about anything in particular -- somewhere to build a bar for
+# whatever she's doing this week without disturbing either of the other two.
 DEFAULT = {
     "sets": [
         {"id": "work", "name": "Work", "sections": ["observatory", "research", "terrain"]},
         {"id": "life", "name": "Life", "sections": ["journal", "dashboard", "pond"]},
+        {"id": "spare", "name": "Spare", "sections": []},
     ]
 }
 
 
 def load():
-    return store.read(FILE, DEFAULT)
+    """Stored sets, with any built-in set that isn't there yet added on the end.
+
+    Not just `store.read(FILE, DEFAULT)`: once anything has been saved, the
+    stored list is the whole answer, so a set added to DEFAULT later would
+    never reach an install that had already saved once -- which is every
+    install, since pinning a tab saves.
+
+    Seeding on READ rather than as a one-off fixup is deliberate. A client that
+    loaded before the new set existed still holds the old list, and the next
+    pin sends that list back, dropping the newcomer again; re-adding it here
+    means the next load quietly repairs it instead.
+
+    The tradeoff, stated plainly: a built-in set can't be deleted, only
+    emptied. There's no delete in the UI, so nothing can want that yet -- when
+    there is one, it needs to record the removal rather than rely on absence.
+    """
+    stored = store.read(FILE, None)
+    if not stored or not isinstance(stored.get("sets"), list):
+        return DEFAULT
+    sets = list(stored["sets"])
+    have = {s.get("id") for s in sets if isinstance(s, dict)}
+    for built_in in DEFAULT["sets"]:
+        if built_in["id"] not in have:
+            sets.append(dict(built_in))
+    return {"sets": sets}
 
 
 def _clean(payload):

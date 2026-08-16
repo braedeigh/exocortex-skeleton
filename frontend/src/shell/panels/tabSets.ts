@@ -35,6 +35,9 @@ export interface TabSet {
 export const DEFAULT_SETS: TabSet[] = [
   { id: 'work', name: 'Work', sections: ['observatory', 'research', 'terrain'] },
   { id: 'life', name: 'Life', sections: ['journal', 'dashboard', 'pond'] },
+  // Deliberately empty: a bar for whatever she's doing this week, that doesn't
+  // cost her either of the other two to set up.
+  { id: 'spare', name: 'Spare', sections: [] },
 ];
 
 /** The sections a set actually shows, with any ids that no longer exist

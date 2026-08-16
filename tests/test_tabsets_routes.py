@@ -26,11 +26,16 @@ def _put(client, payload):
                       content_type="application/json")
 
 
-def test_fresh_install_gets_the_two_default_sets(client):
+def test_fresh_install_gets_the_default_sets(client):
     r = client.get("/api/tabsets")
     assert r.status_code == 200
     names = [s["name"] for s in r.get_json()["sets"]]
-    assert names == ["Work", "Life"]
+    assert names == ["Work", "Life", "Spare"]
+
+
+def test_the_spare_set_starts_empty(client):
+    sets = client.get("/api/tabsets").get_json()["sets"]
+    assert next(s for s in sets if s["id"] == "spare")["sections"] == []
 
 
 def test_defaults_are_usable_without_saving_anything(client):
@@ -42,7 +47,26 @@ def test_defaults_are_usable_without_saving_anything(client):
 def test_put_round_trips(client):
     payload = {"sets": [{"id": "work", "name": "Work", "sections": ["journal"]}]}
     assert _put(client, payload).status_code == 200
-    assert client.get("/api/tabsets").get_json() == payload
+    saved = next(s for s in client.get("/api/tabsets").get_json()["sets"] if s["id"] == "work")
+    assert saved["sections"] == ["journal"]
+
+
+def test_a_built_in_set_added_later_reaches_an_install_that_already_saved(client):
+    # The state every real install is in: saved before "spare" existed.
+    _put(client, {"sets": [
+        {"id": "work", "name": "Work", "sections": ["observatory"]},
+        {"id": "life", "name": "Life", "sections": ["journal", "keeper"]},
+    ]})
+    sets = client.get("/api/tabsets").get_json()["sets"]
+    assert [s["id"] for s in sets] == ["work", "life", "spare"]
+    # ...and her own edits are untouched by the seeding.
+    assert next(s for s in sets if s["id"] == "life")["sections"] == ["journal", "keeper"]
+
+
+def test_seeding_repairs_a_stale_client_that_saved_without_the_new_set(client):
+    # A tab open since before the set existed sends the old list back.
+    _put(client, {"sets": [{"id": "work", "name": "Work", "sections": ["observatory"]}]})
+    assert [s["id"] for s in client.get("/api/tabsets").get_json()["sets"]] == ["work", "life", "spare"]
 
 
 def test_put_drops_malformed_sets_but_keeps_good_ones(client):

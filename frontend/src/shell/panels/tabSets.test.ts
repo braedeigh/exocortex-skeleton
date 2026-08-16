@@ -103,10 +103,17 @@ describe('trusting what the server sent', () => {
 });
 
 describe('the defaults match the server', () => {
-  it('seeds the two sets she asked for', () => {
-    expect(DEFAULT_SETS.map((s) => s.name)).toEqual(['Work', 'Life']);
+  it('seeds the two sets she asked for, plus an empty third', () => {
+    expect(DEFAULT_SETS.map((s) => s.name)).toEqual(['Work', 'Life', 'Spare']);
     expect(DEFAULT_SETS[0].sections).toEqual(['observatory', 'research', 'terrain']);
     expect(DEFAULT_SETS[1].sections).toEqual(['journal', 'dashboard', 'pond']);
+    expect(DEFAULT_SETS[2].sections).toEqual([]);
+  });
+
+  it('an empty set is a legitimate set, not a broken one', () => {
+    // The bar has to survive being switched to a set with nothing in it.
+    expect(isTabSetList(DEFAULT_SETS)).toBe(true);
+    expect(sectionsOf(DEFAULT_SETS, 'spare')).toEqual([]);
   });
 
   it('every seeded id is a real section', () => {
