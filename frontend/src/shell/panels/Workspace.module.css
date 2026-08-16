@@ -16,3 +16,49 @@
   z-index: 60;
   cursor: grabbing;
 }
+
+/* Inert layout glue around every panel's content — same box the content had —
+   existing only so the flash ring below has something to anchor to. */
+.flashHost {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* "It's right here": the conversation router's answer when the thing asked
+   for is already on screen. A double blink of the accent at the panel's edge,
+   then gone — enough to steer the eye, too brief to become chrome. */
+.flashRing {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  pointer-events: none;
+  border: 2px solid var(--accent);
+  animation: flashBlink 1.2s ease-out both;
+}
+
+@keyframes flashBlink {
+  0% {
+    opacity: 0.9;
+  }
+  35% {
+    opacity: 0.2;
+  }
+  55% {
+    opacity: 0.75;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flashRing {
+    animation: none;
+    opacity: 0.7;
+  }
+}

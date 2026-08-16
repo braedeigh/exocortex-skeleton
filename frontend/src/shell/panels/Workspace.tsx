@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate, useRouterState } from '@tanstack/react-router';
 import { TopTabs } from '../TopTabs';
 import { PanelTree } from './PanelTree';
@@ -18,6 +18,8 @@ import {
 } from './layoutTree';
 import { openTab, type OpenTab } from './panelTabs';
 import { newId, newRoutePanel, useLayout } from './panelStore';
+import { routeConversation, windowAcceptsConversations } from './conversationRouting';
+import { registerIntentTarget } from './windowBus';
 import styles from './Workspace.module.css';
 
 /**
@@ -138,24 +140,120 @@ export function Workspace({ children }: { children: ReactNode }) {
     [setLayout],
   );
 
+  /* WHERE A CONVERSATION OPENS is a decision about the whole window, so the
+     workspace registers ONE window-level catcher and rules with
+     conversationRouting.ts: already visible → flash it; a background tab →
+     switch to it; an observatory panel up → it takes the tab; none anywhere →
+     a new pane is born at half the window. Tiles stopped catching
+     conversations for themselves (panelIntents.ts) so nothing shadows this.
+
+     The catcher registers only when the window has observatory presence at
+     all — a pure watching window (terrain + flow, no observatory panel or
+     tab) stays quiet and the bus carries conversations to a window that
+     qualifies. And when a saved layout still holds the legacy reading room,
+     that pane keeps its own conversation seam (PaneStack) and this defers.
+
+     Prompt: "it will check if it's already an open pane in the window, and if
+     not, it opens another pane … it should open a new pane if there is no
+     observatory tab anywhere on that page". */
+  const [flashId, setFlashId] = useState<string | null>(null);
+  const flashTimer = useRef<number | null>(null);
+  const flashPanel = useCallback((panelId: string) => {
+    if (flashTimer.current !== null) window.clearTimeout(flashTimer.current);
+    setFlashId(panelId);
+    flashTimer.current = window.setTimeout(() => {
+      flashTimer.current = null;
+      setFlashId(null);
+    }, 1200);
+  }, []);
+  useEffect(
+    () => () => {
+      if (flashTimer.current !== null) window.clearTimeout(flashTimer.current);
+    },
+    [],
+  );
+
+  // The handler outlives renders (registration churn would drop cross-window
+  // announcements), so it reads the live tree and href through refs.
+  const latest = useRef({ layout, href });
+  latest.current = { layout, href };
+  const accepts = useMemo(() => windowAcceptsConversations(layout, href), [layout, href]);
+  useEffect(() => {
+    if (paneOpen || !accepts) return;
+    const { unregister } = registerIntentTarget(['conversation'], (intent) => {
+      if (intent.kind !== 'conversation') return;
+      const { layout: tree, href: primaryHref } = latest.current;
+      const action = routeConversation(tree, intent.convId, primaryHref);
+      if (!action) return;
+      if (action.kind === 'reveal') {
+        flashPanel(action.panelId);
+        return;
+      }
+      if (action.kind === 'show') {
+        if (action.isPrimary) void navigate({ to: action.url });
+        else onPick(action.panelId, action.url);
+        rememberArrival(action.panelId, action.url);
+        flashPanel(action.panelId);
+        return;
+      }
+      // 'split' — a new pane, born already on the conversation and carrying
+      // it as its open tab. Direction from the window's own shape: wide
+      // windows split beside, tall ones below — either way the newcomer takes
+      // half, which is what keeps "big enough to read all the text" true.
+      const panelId = newId('panel');
+      const dir = window.innerWidth >= window.innerHeight ? 'row' : 'col';
+      const from = listPanels(tree).find((p) => p.id === action.targetId);
+      setLayout((cur) =>
+        splitPanel(
+          cur,
+          action.targetId,
+          dir,
+          {
+            type: 'panel',
+            id: panelId,
+            kind: 'route',
+            url: action.url,
+            tabs: [{ url: action.url, at: Date.now() }],
+            ...(from?.setId ? { setId: from.setId } : {}),
+          },
+          newId('split'),
+        ),
+      );
+      flashPanel(panelId);
+    });
+    return unregister;
+  }, [paneOpen, accepts, navigate, onPick, rememberArrival, setLayout, flashPanel]);
+
   const renderContent = useCallback(
     (panel: PanelNode): ReactNode => {
+      let body: ReactNode;
       if (panel.kind === 'primary') {
         // The dashboard's own sub-tabs still belong to the dashboard, so they
         // ride above the content rather than in the panel header.
-        return (
+        body = (
           <>
             <TopTabs subRowOnly />
             {children}
           </>
         );
+      } else if (panel.kind === 'pane') {
+        body = pane.body;
+      } else {
+        body = (
+          <RoutePanel url={panel.url ?? '/'} onUrlChange={(url) => onPanelUrlChanged(panel.id, url)} />
+        );
       }
-      if (panel.kind === 'pane') return pane.body;
+      // The wrapper is inert layout glue except for one job: when the
+      // conversation router says "it's already right here", this is the panel
+      // that blinks — the answer to "open this" being a place, not an action.
       return (
-        <RoutePanel url={panel.url ?? '/'} onUrlChange={(url) => onPanelUrlChanged(panel.id, url)} />
+        <div className={styles.flashHost}>
+          {body}
+          {flashId === panel.id ? <div className={styles.flashRing} aria-hidden="true" /> : null}
+        </div>
       );
     },
-    [children, pane.body, onPanelUrlChanged],
+    [children, pane.body, onPanelUrlChanged, flashId],
   );
 
   /**

@@ -5,10 +5,16 @@ import type { Intent, IntentKind } from './windowBus';
  * tile.
  *
  * A route tile's job is decided by the page it's showing: a tile on the code
- * reader is where code files should open, a tile on the observatory is where
- * conversations should open. Nothing has to be configured — point a tile at
- * /code and it becomes the code tile. Point a second one there and the last
- * one you touched wins (windowBus.ts ranks them).
+ * reader is where code files should open. Nothing has to be configured —
+ * point a tile at /code and it becomes the code tile. Point a second one
+ * there and the last one you touched wins (windowBus.ts ranks them).
+ *
+ * CONVERSATIONS ARE NOT CAUGHT PER-TILE ANY MORE. Where a conversation opens
+ * is a decision about the whole WINDOW — is it already visible, is it a
+ * background tab, is there an observatory panel to take it, or does a pane
+ * need to be born — so the workspace registers one window-level catcher and
+ * decides with conversationRouting.ts. A tile catching for itself would
+ * shadow that rule.
  *
  * Kept apart from the component so both directions can be checked without
  * rendering anything (panelIntents.test.ts), and so there's ONE place that
@@ -16,17 +22,14 @@ import type { Intent, IntentKind } from './windowBus';
  * segment that entry points used to disagree about
  * (features/observatory/sessionLocation.ts).
  *
- * Touches: RoutePanel.tsx (registers with these), windowBus.ts (the kinds).
+ * Touches: RoutePanel.tsx (registers with these), windowBus.ts (the kinds),
+ * Workspace.tsx + conversationRouting.ts (the conversation side).
  */
 
 /** What a tile showing `url` is willing to catch. Empty = it's just a page. */
 export function intentKindsForUrl(url: string): IntentKind[] {
   const path = url.split('?')[0].replace(/\/$/, '') || '/';
   if (path === '/code') return ['code'];
-  // The roster and a conversation are the same tile as far as this is
-  // concerned — sending a conversation to a tile showing the roster should
-  // open it there rather than skip past to some other tile.
-  if (path === '/observatory' || path.startsWith('/observatory/')) return ['conversation'];
   return [];
 }
 

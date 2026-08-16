@@ -7,10 +7,12 @@ describe('what a tile catches, from the page it shows', () => {
     expect(intentKindsForUrl('/code?repo=skeleton&path=server.py')).toEqual(['code']);
   });
 
-  it('the roster and an open conversation both catch conversations', () => {
-    expect(intentKindsForUrl('/observatory')).toEqual(['conversation']);
-    expect(intentKindsForUrl('/observatory/session?conv=abc')).toEqual(['conversation']);
-    expect(intentKindsForUrl('/observatory/archive')).toEqual(['conversation']);
+  it('observatory tiles do NOT catch for themselves — the window rules on conversations', () => {
+    // Where a conversation opens is the workspace's window-level decision
+    // (conversationRouting.ts); a tile catching here would shadow that rule.
+    expect(intentKindsForUrl('/observatory')).toEqual([]);
+    expect(intentKindsForUrl('/observatory/session?conv=abc')).toEqual([]);
+    expect(intentKindsForUrl('/observatory/archive')).toEqual([]);
   });
 
   it('an ordinary page catches nothing', () => {
