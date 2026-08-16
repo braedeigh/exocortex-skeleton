@@ -52,6 +52,26 @@ export const TAB_META: Record<LegacyTab, TabMeta> = {
 };
 
 /**
+ * Where a note came from, in the words the page actually wears.
+ *
+ * A dev note is filed under a tab key (`today`, `map`), but the page she taps
+ * says "Today" and "Map" — and notes also come from surfaces that were never
+ * dashboard tabs at all (`journal`, `terminal`, `global`). So: the real label
+ * for a known tab, a capitalised fallback for everything else, and never the
+ * bare slug. Anything showing a note's origin uses these two, so the same page
+ * is named the same way everywhere it appears.
+ */
+export function tabLabel(tab: string): string {
+  if (isValidTab(tab)) return TAB_META[tab].label;
+  return tab.length ? tab.charAt(0).toUpperCase() + tab.slice(1) : tab;
+}
+
+/** The tab's glyph, or a neutral page mark for the non-tab surfaces. */
+export function tabIcon(tab: string): string {
+  return isValidTab(tab) ? TAB_META[tab].icon : '◈';
+}
+
+/**
  * Native SPA route for each dashboard tab. Every tab is now ported — the
  * /legacy/$tab iframe route remains only as a fallback for old deep links.
  */

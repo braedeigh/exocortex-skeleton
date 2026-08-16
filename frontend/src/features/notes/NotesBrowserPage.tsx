@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ToastStack } from '../../ui';
-import { TAB_META, VALID_TABS, isValidTab } from '../../shell/tabs';
+import { VALID_TABS, tabLabel } from '../../shell/tabs';
 import { useToasts } from '../todos/useTodayData';
 import { NotesPill } from '../todos/NotesPill';
 import { formatNoteAge, isLongNote, readStoredSort, sortNotesByCreated, writeStoredSort, type SortDir } from '../todos/noteHelpers';
@@ -19,11 +19,6 @@ const KIND_ICON: Record<NotesBrowserKind, string> = { dev: '📝', idea: '💡' 
 
 function isPublicMode(): boolean {
   return typeof window !== 'undefined' && window.VIEW_MODE === 'public';
-}
-
-function tabLabel(tab: string): string {
-  if (isValidTab(tab)) return TAB_META[tab].label;
-  return tab.length ? tab.charAt(0).toUpperCase() + tab.slice(1) : tab;
 }
 
 /** Known dashboard tabs first (in their usual order), then any other tab
