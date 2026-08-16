@@ -16,17 +16,28 @@ import { isLayoutNode, type LayoutNode, type PanelNode } from './layoutTree';
  * a fresh window starts from that copy and then goes its own way. Reload keeps
  * this window's layout; a new window inherits and diverges.
  *
- * WHAT IT OPENS ON. With nothing stored anywhere, the default is the reading
- * room beside the routed content — the exact two-box split the desktop had
- * before panels existed. Nothing about the app looks different until you
- * deliberately split something.
+ * WHAT IT OPENS ON. With nothing stored anywhere: the Observatory on the left
+ * and the routed content on the right, wearing the work and life tab sets
+ * respectively (see defaultLayout below).
+ *
+ * A saved arrangement is hers and normally outlives everything — which is
+ * exactly the problem when the DEFAULT changes, because the old one is already
+ * saved and would win forever. Hence VERSION: bumping it drops saved layouts
+ * once, so a new default actually reaches her.
  *
  * Touches: layoutTree.ts (the shape it stores), Workspace.tsx (the only
- * caller).
+ * caller), tabSets.ts (what the setIds mean).
  */
 
 const LIVE_KEY = 'exo-workspace'; // sessionStorage — this window's arrangement
 const SEED_KEY = 'exo-workspace-last'; // localStorage — what a new window starts from
+
+/* Bumped when the DEFAULT arrangement changes in a way she should actually
+   see. A saved layout is hers and normally survives everything, but a default
+   she asked for would otherwise never reach her — the old one is already
+   saved, so it wins forever. A version mismatch drops the saved layout once,
+   and only once. */
+const VERSION = 2;
 
 /* Ids only have to be unique within one window's tree, and they're generated
    one at a time by user gestures, so a counter is plenty — no need for uuid.
@@ -37,7 +48,16 @@ export function newId(prefix: string): string {
   return `${prefix}-${counter}-${Math.floor(Math.random() * 1e6).toString(36)}`;
 }
 
-/** The arrangement the desktop has always had: reading room | routed content. */
+/**
+ * What she opens on: the Observatory on the left, the routed content on the
+ * right, each wearing its own set of tabs — work on the left, life on the
+ * right.
+ *
+ * The left panel is an ordinary route panel rather than the old reading-room
+ * stack, because the reading room bundles the Observatory with a terminal she
+ * doesn't use and can't be opened twice. As a route panel it gets a tab bar
+ * like everything else, and she can have as many as she likes.
+ */
 export function defaultLayout(): LayoutNode {
   return {
     type: 'split',
@@ -45,8 +65,8 @@ export function defaultLayout(): LayoutNode {
     dir: 'row',
     sizes: [50, 50],
     children: [
-      { type: 'panel', id: newId('panel'), kind: 'pane' },
-      { type: 'panel', id: newId('panel'), kind: 'primary' },
+      { type: 'panel', id: newId('panel'), kind: 'route', url: '/observatory', setId: 'work' },
+      { type: 'panel', id: newId('panel'), kind: 'primary', setId: 'life' },
     ],
   };
 }
@@ -74,7 +94,12 @@ function read(store: Storage | undefined, key: string): LayoutNode | null {
     const raw = store?.getItem(key);
     if (!raw) return null;
     const parsed: unknown = JSON.parse(raw);
-    return usable(parsed) ? parsed : null;
+    // Versioned wrapper. Anything older (or from a different default) is
+    // dropped rather than migrated — see VERSION.
+    if (!parsed || typeof parsed !== 'object') return null;
+    const box = parsed as { v?: unknown; tree?: unknown };
+    if (box.v !== VERSION) return null;
+    return usable(box.tree) ? box.tree : null;
   } catch {
     // Unparseable, or storage denied — fall through to the default.
     return null;
@@ -104,7 +129,7 @@ export function useLayout(): [LayoutNode, (next: LayoutNode | ((cur: LayoutNode)
     pending.current = requestAnimationFrame(() => {
       pending.current = null;
       try {
-        const raw = JSON.stringify(latest.current);
+        const raw = JSON.stringify({ v: VERSION, tree: latest.current });
         window.sessionStorage.setItem(LIVE_KEY, raw);
         window.localStorage.setItem(SEED_KEY, raw);
       } catch {
@@ -126,7 +151,9 @@ export function useLayout(): [LayoutNode, (next: LayoutNode | ((cur: LayoutNode)
 
 /** A fresh route panel. New panels open on the terrain map rather than blank:
  *  an empty box gives you nothing to react to, and the map is the page most
- *  likely to be the reason you split in the first place. */
-export function newRoutePanel(url = '/terrain/map'): PanelNode {
-  return { type: 'panel', id: newId('panel'), kind: 'route', url };
+ *  likely to be the reason you split in the first place. It inherits the tab
+ *  set of the panel it was split off, since a panel you just made beside
+ *  another is almost always for the same kind of work. */
+export function newRoutePanel(setId?: string, url = '/terrain/map'): PanelNode {
+  return { type: 'panel', id: newId('panel'), kind: 'route', url, ...(setId ? { setId } : {}) };
 }

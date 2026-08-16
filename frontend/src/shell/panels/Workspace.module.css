@@ -7,29 +7,9 @@
   flex-direction: column;
 }
 
-/* The app's tab strip, living inside the primary tile's header row instead of
-   above it. It's one or two rows tall depending on the page, so it stacks and
-   the row grows to fit rather than the strip being squeezed into 40px. */
-.chrome {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-width: 0;
-}
-
-/* Room for the tile's split/close buttons, which are pinned over this first
-   row (see .headOverlay in PanelFrame.module.css). Only the first row pays:
-   the second row is the dashboard's own tabs, which need every pixel and
-   start dropping labels when they don't get them. */
-.chrome > :first-child {
-  padding-right: 80px;
-}
-
-/* Sits above every tile during a boundary drag so the pointer can't be
-   captured by an iframe or a page that tracks mouse moves. Above the tiles'
-   own overlays, below nothing that matters — a drag is modal for its duration.
-   Matches the cursor to the axis so the gesture doesn't flicker as it crosses
-   a tile border. */
+/* Sits above every panel during a boundary drag so the pointer can't be
+   captured by an iframe or a page that tracks mouse moves. A drag is modal for
+   its duration. */
 .dragOverlay {
   position: absolute;
   inset: 0;

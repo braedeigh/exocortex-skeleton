@@ -53,6 +53,11 @@ export interface PanelNode {
   /** Where a 'route' panel is pointed, e.g. "/code?repo=skeleton&path=server.py".
    *  Unused by the other two kinds. */
   url?: string;
+  /** Which set of pinned tabs this panel's bar wears (tabSets.ts). Per panel,
+   *  and saved with the layout, because that's the point of having two: the
+   *  monitor running sessions wants a different bar from the one running the
+   *  journal. Absent = the first set. */
+  setId?: string;
 }
 
 export interface SplitNode {
@@ -214,6 +219,13 @@ export function setPanelUrl(root: LayoutNode, id: string, url: string): LayoutNo
   const panel = findPanel(root, id);
   if (!panel || panel.url === url) return root;
   return replaceNode(root, id, { ...panel, url });
+}
+
+/** Swap which set of pinned tabs this panel's bar wears. */
+export function setPanelSet(root: LayoutNode, id: string, setId: string): LayoutNode {
+  const panel = findPanel(root, id);
+  if (!panel || panel.setId === setId) return root;
+  return replaceNode(root, id, { ...panel, setId });
 }
 
 /* ---------- helpers ---------- */

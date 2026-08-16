@@ -38,12 +38,11 @@ export interface PanelTreeProps {
   onResize: (splitId: string, boundary: number, deltaPct: number) => void;
   onDragChange: (dragging: boolean) => void;
   renderContent: (panel: PanelNode) => ReactNode;
-  /** A tile that supplies its own header content (the reading room's switcher). */
+  /** What fills the left of a panel's header row — its tab bar, or the
+   *  reading room's switcher. */
   renderHeaderLeft?: (panel: PanelNode) => ReactNode | undefined;
-  /** A tile that must not be closable (the primary). */
+  /** A panel that must not be closable (the primary). */
   isClosable: (panel: PanelNode) => boolean;
-  /** A tile whose header content is taller than one row — see PanelFrame. */
-  overlayActions?: (panel: PanelNode) => boolean;
 }
 
 export function PanelTree(props: PanelTreeProps) {
@@ -55,13 +54,10 @@ export function PanelTree(props: PanelTreeProps) {
 function PanelTile({ panel, ...p }: PanelTreeProps & { panel: PanelNode }) {
   return (
     <PanelFrame
-      url={panel.kind === 'route' ? (panel.url ?? '/') : undefined}
-      onPick={panel.kind === 'route' ? (url) => p.onPick(panel.id, url) : undefined}
       onSplitRight={() => p.onSplit(panel.id, 'row')}
       onSplitDown={() => p.onSplit(panel.id, 'col')}
       onClose={p.isClosable(panel) ? () => p.onClose(panel.id) : undefined}
       headerLeft={p.renderHeaderLeft?.(panel)}
-      overlayActions={p.overlayActions?.(panel)}
     >
       {p.renderContent(panel)}
     </PanelFrame>

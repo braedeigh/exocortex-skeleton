@@ -1,13 +1,18 @@
 import { useEffect, useState } from 'react';
 
 /**
- * chatSurface.ts — which surface the mobile Chat tab opens: the tmux
- * terminal (/chat, the default) or the Keeper bot's observatory
- * (/observatory/keeper — bot-surface-design, "wanting it to replace the
- * terminal"). A localStorage flag with a change event, same shape as
- * usageHeat's, so Settings can flip it and TopTabs re-renders without a
- * reload. The terminal itself stays reachable (More ▾ → Terminal) while the
- * flag is on — dev sessions still live there.
+ * chatSurface.ts — which surface the chat opens on: the observatory (the
+ * default) or the tmux terminal. A localStorage flag with a change event, same
+ * shape as usageHeat's, so Settings can flip it and the surfaces re-render
+ * without a reload. The terminal stays reachable either way — dev sessions
+ * still live there.
+ *
+ * It defaults to the OBSERVATORY, which is the reverse of how it started: the
+ * terminal was the original chat and the observatory the newcomer, so an unset
+ * flag used to mean terminal. It has since become the surface actually in use
+ * ("i just use observatory now not terminal"), and a default that opens onto a
+ * terminal she never wants is a default that's wrong on every fresh window and
+ * every new device.
  */
 
 export const CHAT_SURFACE_KEY = 'exo-chat-surface';
@@ -19,9 +24,11 @@ export const CHAT_SURFACE_EVENT = 'exo:chat-surface';
 // the rename.
 export function chatSurfaceIsObservatory(): boolean {
   try {
-    return localStorage.getItem(CHAT_SURFACE_KEY) === 'bots';
+    // Only an explicit 'terminal' turns this off — anything else, including
+    // never having chosen, means the observatory.
+    return localStorage.getItem(CHAT_SURFACE_KEY) !== 'terminal';
   } catch {
-    return false;
+    return true;
   }
 }
 

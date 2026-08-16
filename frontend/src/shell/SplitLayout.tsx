@@ -11,11 +11,10 @@ import styles from './SplitLayout.module.css';
  * - Mobile (under 769px): no split at all. The routed content fills the
  *   window, exactly as it always has.
  * - Desktop, signed in: the tiling workspace (panels/Workspace.tsx) — as many
- *   resizable tiles as you want, opening on the same two-box arrangement the
- *   desktop has always had, so nothing looks different until you split
- *   something. Everything the old left box did now lives in PaneStack.tsx, and
- *   the routed content passed in as `children` becomes the workspace's primary
- *   tile.
+ *   resizable panels as you want, each with its own tab bar, opening on the
+ *   Observatory beside the routed content. The routed content passed in as
+ *   `children` becomes the workspace's primary panel. `chrome` (the fixed tab
+ *   strip) is NOT used here: panels carry their own.
  * - Desktop, public visitor: the old fixed two-box split, kept here in full.
  *   A visitor gets the intro pane and the dashboard, and no reason to
  *   rearrange anything — so the workspace, its storage, and its chrome never
@@ -109,8 +108,10 @@ export function SplitLayout({ chrome, children }: { chrome: ReactNode; children:
   }
 
   if (!isPublic) {
-    // Signed in on a desktop: the tiling workspace owns the whole window.
-    return <Workspace chrome={chrome}>{children}</Workspace>;
+    // Signed in on a desktop: the tiling workspace owns the whole window, and
+    // builds its own chrome — every panel carries its own tab bar, so the
+    // fixed strip `chrome` holds is only for mobile and public visitors.
+    return <Workspace>{children}</Workspace>;
   }
 
   // Collapsed state of the public split — replaces the intro pane and its

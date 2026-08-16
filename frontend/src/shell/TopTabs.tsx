@@ -453,7 +453,15 @@ function DashboardTabRow({ pathname, isPublic = false }: { pathname: string; isP
   );
 }
 
-export function TopTabs() {
+/**
+ * `subRowOnly` renders JUST the dashboard's own tab row (To Do / Life Map /
+ * …), leaving out the Journal / Dashboard / Terrain bar above it. The desktop
+ * workspace passes it, because each panel now carries its own configurable tab
+ * bar in its header (panels/TabBar.tsx) and the fixed bar would say the same
+ * thing twice. Mobile and public visitors pass nothing and get both rows,
+ * which is what they've always had.
+ */
+export function TopTabs({ subRowOnly = false }: { subRowOnly?: boolean } = {}) {
   const location = useLocation();
   const navigate = useNavigate();
   const isDesktop = useMediaQuery(DESKTOP_QUERY);
@@ -485,6 +493,10 @@ export function TopTabs() {
         {dashboardActive ? <DashboardTabRow pathname={location.pathname} isPublic /> : null}
       </>
     );
+  }
+
+  if (subRowOnly) {
+    return dashboardActive ? <DashboardTabRow pathname={location.pathname} /> : null;
   }
 
   return (
