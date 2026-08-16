@@ -8,12 +8,16 @@ import { SECTIONS, sectionById, type Section } from './sections';
  * is the whole point: the screen where sessions run doesn't want the same tabs
  * as the screen where the journal lives.
  *
- * Everything here is a pure function over the list of sets: pin, unpin,
- * reorder. Each returns the SAME array when nothing changed, so a no-op can't
- * trigger a save or a re-render. That's also what lets the whole model be
- * checked without rendering anything (tabSets.test.ts) — and it matters more
- * than usual here, because these are saved to the vault and a bad write is a
- * bar with no tabs in it.
+ * Everything here is a pure function over the list of sets: create, remove,
+ * pin, unpin, reorder. Each returns the SAME array when nothing changed, so a
+ * no-op can't trigger a save or a re-render. That's also what lets the whole
+ * model be checked without rendering anything (tabSets.test.ts) — and it
+ * matters more than usual here, because these are saved to the vault and a bad
+ * write is a bar with no tabs in it.
+ *
+ * New ids are passed IN rather than minted here, the same way layoutTree.ts
+ * does it: a function that invents its own random id can't be checked against
+ * an expected result. TabBar.tsx mints them.
  *
  * Unknown section ids are SKIPPED rather than treated as an error. The server
  * stores ids without interpreting them (routes/tabsets.py), so a set saved
@@ -41,6 +45,39 @@ export const DEFAULT_SETS: TabSet[] = [
   // cost her either of the other two to set up.
   { id: 'spare', name: 'Spare', sections: [] },
 ];
+
+/* ---------- making and unmaking sets ---------- */
+
+/** A new, empty set on the end. Empty rather than a copy of anything: the bar
+ *  then says "nothing pinned — use the ▾", which is already the next
+ *  instruction. A duplicate or blank id is refused, since two sets answering to
+ *  one id would make every operation below ambiguous. */
+export function createSet(sets: TabSet[], id: string, name: string): TabSet[] {
+  if (!id || sets.some((s) => s.id === id)) return sets;
+  return [...sets, { id, name, sections: [] }];
+}
+
+/** Delete a set — except the last one. A workspace with no sets is a workspace
+ *  where no panel has a bar, and there'd be no ▾ left to make one from, so the
+ *  floor is here as well as on the server (routes/tabsets.py refuses a PUT that
+ *  leaves nothing). */
+export function removeSet(sets: TabSet[], setId: string): TabSet[] {
+  if (sets.length <= 1) return sets;
+  const next = sets.filter((s) => s.id !== setId);
+  return next.length === sets.length ? sets : next;
+}
+
+/**
+ * Which built-in sets are deleted, for the server to write down.
+ *
+ * There's no separate bookkeeping for this: a built-in missing from the list
+ * the server just sent us IS the deletion, because the server seeds back every
+ * built-in it hasn't been told about. So the answer is always derivable from
+ * what's in front of us, and there's no second copy to drift.
+ */
+export function removedBuiltIns(sets: TabSet[]): string[] {
+  return DEFAULT_SETS.filter((d) => !sets.some((s) => s.id === d.id)).map((d) => d.id);
+}
 
 /** The sections a set actually shows, with any ids that no longer exist
  *  quietly dropped (see the header). */

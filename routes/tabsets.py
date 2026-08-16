@@ -6,12 +6,23 @@ panels — usually two windows on two monitors — can wear different ones: a wo
 set on the screen where the sessions run, a life set on the screen where the
 journal and the dashboard live.
 
-Kept here rather than in the browser so both windows and the phone see the same
-sets, and so clearing browser data doesn't wipe them. Which set a given panel
-is wearing is NOT here: that's per window, and lives in the browser beside the
-panel layout (frontend/src/shell/panels/panelStore.ts).
+Kept here rather than in the browser so every window sees the same sets, and so
+clearing browser data doesn't wipe them. Which set a given panel is wearing is
+NOT here: that's per window, and lives in the browser beside the panel layout
+(frontend/src/shell/panels/panelStore.ts).
 
-Shape: {"sets": [{"id": str, "name": str, "sections": [str, ...]}, ...]}
+Desktop only, as it stands: the phone gets a fixed strip of tabs and never
+draws a panel bar at all (frontend/src/shell/SplitLayout.tsx), so nothing on a
+phone reads this yet.
+
+Shape: {"sets": [{"id": str, "name": str, "sections": [str, ...]}, ...],
+        "removed": [str, ...]}
+
+`removed` is the record of built-in sets she has deleted. It has to be written
+down, because this file re-seeds any built-in that isn't in the stored list
+(see load) and can't otherwise tell "she deleted it" from "an old browser tab
+sent back a list from before it existed". Without the record, a deleted set
+comes back on the next page load.
 
 The section ids are defined on the client (frontend/src/shell/panels/
 sections.ts) — this file stores whatever it's given and never interprets them,
@@ -39,7 +50,7 @@ DEFAULT = {
 
 
 def load():
-    """Stored sets, with any built-in set that isn't there yet added on the end.
+    """Stored sets, with any built-in she hasn't deleted added back on the end.
 
     Not just `store.read(FILE, DEFAULT)`: once anything has been saved, the
     stored list is the whole answer, so a set added to DEFAULT later would
@@ -51,19 +62,40 @@ def load():
     pin sends that list back, dropping the newcomer again; re-adding it here
     means the next load quietly repairs it instead.
 
-    The tradeoff, stated plainly: a built-in set can't be deleted, only
-    emptied. There's no delete in the UI, so nothing can want that yet -- when
-    there is one, it needs to record the removal rather than rely on absence.
+    Which is exactly why deleting one has to be WRITTEN DOWN. To this function
+    a missing built-in looks the same whether she deleted it or a stale client
+    dropped it, and the whole point of the seeding is to undo the second. So a
+    deletion is a positive fact in `removed`, and only a set that is neither
+    stored nor removed gets seeded back.
     """
     stored = store.read(FILE, None)
     if not stored or not isinstance(stored.get("sets"), list):
         return DEFAULT
     sets = list(stored["sets"])
     have = {s.get("id") for s in sets if isinstance(s, dict)}
+    removed = _clean_removed(stored, have)
     for built_in in DEFAULT["sets"]:
-        if built_in["id"] not in have:
+        if built_in["id"] not in have and built_in["id"] not in removed:
             sets.append(dict(built_in))
-    return {"sets": sets}
+    return {"sets": sets, "removed": removed}
+
+
+def _clean_removed(payload, present_ids):
+    """The deleted-set ids worth keeping: strings, and not the id of a set that
+    is right there in the list. An id in both places is a contradiction -- it
+    happens when she re-creates a set she'd deleted -- and the set existing is
+    the newer, louder fact, so the tombstone is dropped rather than left to
+    fight it."""
+    raw = (payload or {}).get("removed")
+    if not isinstance(raw, list):
+        return []
+    seen = set()
+    out = []
+    for x in raw:
+        if isinstance(x, str) and x and x not in seen and x not in present_ids:
+            seen.add(x)
+            out.append(x)
+    return out
 
 
 def _clean(payload):
@@ -103,9 +135,25 @@ def register(app):
 
     @app.route("/api/tabsets", methods=["PUT"])
     def put_tabsets():
-        sets = _clean(request.json)
+        payload = request.json
+        sets = _clean(payload)
         if not sets:
+            # A body nothing survives is a bug somewhere, not an instruction to
+            # leave her with no tabs at all. Refuse it and keep what's stored.
             return jsonify({"error": "no valid sets"}), 400
-        data = {"sets": sets}
+
+        present = {s["id"] for s in sets}
+        if isinstance((payload or {}).get("removed"), list):
+            removed = _clean_removed(payload, present)
+        else:
+            # NO `removed` KEY MEANS "I HAVE NO OPINION", NOT "NOTHING IS
+            # DELETED". A browser tab open since before deleting existed sends
+            # exactly this, and letting it clear the list would resurrect every
+            # set she's thrown away. Only a body that says `removed` outright
+            # gets to change it.
+            stored = store.read(FILE, None) or {}
+            removed = _clean_removed(stored, present)
+
+        data = {"sets": sets, "removed": removed}
         store.write(FILE, data)
         return jsonify(data)
