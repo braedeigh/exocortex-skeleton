@@ -59,6 +59,23 @@ function GrowthMotif() {
   );
 }
 
+/** Code lines mid-arrival — the newest brightest, a caret still writing. */
+function FlowMotif() {
+  return (
+    <svg viewBox="0 0 64 40" width="64" height="40" aria-hidden="true">
+      <g fill="currentColor">
+        <rect x="0" y="2" width="38" height="5" rx="2.5" opacity="0.9" />
+        <rect x="41" y="2" width="6" height="5" rx="1" opacity="0.9">
+          <animate attributeName="opacity" values="0.9;0.15;0.9" dur="1.6s" repeatCount="indefinite" />
+        </rect>
+        <rect x="0" y="13" width="52" height="5" rx="2.5" opacity="0.55" />
+        <rect x="0" y="24" width="26" height="5" rx="2.5" opacity="0.35" />
+        <rect x="0" y="35" width="44" height="5" rx="2.5" opacity="0.2" />
+      </g>
+    </svg>
+  );
+}
+
 /** A table of cells — rows and columns, the database's shape. */
 function DataMotif() {
   return (
@@ -127,6 +144,13 @@ const ROOMS: ReadonlyArray<{
     motif: PondMotif,
   },
   {
+    key: 'flow',
+    to: '/terrain/flow',
+    name: 'Flow',
+    line: 'Code as it’s being written, agent by agent, as it lands.',
+    motif: FlowMotif,
+  },
+  {
     key: 'growth',
     to: '/terrain/growth',
     name: 'Growth',
@@ -186,6 +210,19 @@ export function TerrainRoomsIndex({ open, onClose }: { open: boolean; onClose: (
             growth: `${compact(commits)} commits since ${monthLabel(first.slice(0, 7))}`,
           }));
         }
+      })
+      .catch(() => {});
+    fetch('/api/observatory/flow', { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((flow: { events: { conv: string }[] }) => {
+        if (!alive || !flow.events?.length) return;
+        const agents = new Set(flow.events.map((e) => e.conv)).size;
+        setFacts((f) => ({
+          ...f,
+          flow: `${flow.events.length} recent ${flow.events.length === 1 ? 'write' : 'writes'} · ${agents} ${
+            agents === 1 ? 'agent' : 'agents'
+          }`,
+        }));
       })
       .catch(() => {});
     fetch('/api/pond/threads', { credentials: 'include' })

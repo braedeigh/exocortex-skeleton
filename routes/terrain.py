@@ -1,9 +1,12 @@
 """Terrain API — a force-directed file-tree heatmap of where work has
 happened, fed by code history (coverage of everything) and bot_chats
-footprints (attribution of which session touched which file). Serves the two
-endpoints the map reads: GET /api/observatory/terrain (the payload) and GET
-/api/observatory/terrain/file (one file's text for the tap-a-node code
-modal). See scripts/extract_footprints.py for the footprints sidecar.
+footprints (attribution of which session touched which file). Serves the
+endpoints the map and its rooms read: GET /api/observatory/terrain (the
+payload), GET /api/observatory/terrain/file (one file's text for the
+tap-a-node code modal), and GET /api/observatory/flow (the live stream of
+code being written, for the Flow lane at /terrain/flow). See
+scripts/extract_footprints.py for the footprints sidecar and the flow
+harvest.
 
 Git heat comes from the code-history tables in exo.db (codestore.py), not
 from running `git log` per request. On every cache miss this module first
@@ -36,7 +39,7 @@ import time
 import codestore
 import store
 from routes import observatory
-from scripts.extract_footprints import harvest_conversation
+from scripts.extract_footprints import harvest_conversation, harvest_flow_events
 
 _TERRAIN_FILE_CAP = 350           # DEFAULT hottest files kept per repo (a phone
                                   # canvas force-sim drowns past the low
@@ -455,6 +458,153 @@ def _build_terrain(file_cap=_TERRAIN_FILE_CAP):
             "sessions": sessions_out}
 
 
+# --- the flow: code being written, as a stream of events ---------------------
+#
+# The map answers "where has work happened"; the flow answers "what is being
+# written RIGHT NOW" — every Edit/Write an agent makes, newest first, each
+# carrying the text it wrote, for the lane that sits under the map on a
+# watching monitor. Same raw material as the live-touch overlay above (the
+# bot_chats jsonls), but kept as EVENTS rather than tallied into files.
+#
+# Prompt that produced it: "another additional visual where I see what code is
+# being written in real time … the vertical screen will be the terrain UI and
+# code and information flows as it's happening".
+
+_FLOW_LOOKBACK_SEC = 12 * 3600    # events (and conversations) older than this
+                                  # don't feed the lane — it's a live surface,
+                                  # not an archive; the map owns history
+_FLOW_MAX_EVENTS = 60             # newest events kept in one payload
+_FLOW_SNIPPET_LINES = 24          # written text shown per card, whole lines...
+_FLOW_SNIPPET_CHARS = 2000        # ...and a byte-ish cap under that
+_FLOW_CACHE_TTL_SEC = 3           # one build serves a burst of polling clients
+
+# Per-conversation parse cache, keyed by (mtime_ns, size) of the jsonl — a
+# quiet conversation costs a stat per poll, not a re-parse. Pruned to the
+# recently-active set every build, so it can't grow with conversation count.
+_flow_conv_cache = {}
+_flow_cache = {"payload": None, "computed_at": 0.0}
+
+
+def _flow_recent_ids(index, running_ids):
+    """conv_ids that feed the lane: running now, or active within the
+    lookback window (same shape as _terrain_live_ids, wider horizon)."""
+    recent = set(running_ids)
+    for cid, meta in index.items():
+        if cid in recent or not isinstance(meta, dict):
+            continue
+        try:
+            last = datetime.fromisoformat(meta.get("last_at", ""))
+        except (TypeError, ValueError):
+            continue
+        if (datetime.now() - last).total_seconds() < _FLOW_LOOKBACK_SEC:
+            recent.add(cid)
+    return recent
+
+
+def _flow_repo_rel(abspath):
+    """(repo_id, repo-relative path) for an absolute path, or None when it
+    lives outside both Terrain repos — the same mapping _build_terrain does
+    for footprints, per event here."""
+    for repo in observatory._terrain_repos():
+        try:
+            rel = os.path.relpath(abspath, repo["root"])
+        except ValueError:
+            continue
+        if rel == os.curdir or rel.startswith(os.pardir):
+            continue
+        return repo["id"], rel.replace(os.sep, "/")
+    return None
+
+
+def _flow_trim_snippet(text):
+    """(snippet, total_lines) — the head of what was written, cut on whole
+    lines to lane-card size; total_lines keeps the cut honest so the card can
+    say "of 118 lines"."""
+    if not isinstance(text, str):
+        return None, 0
+    text = text.strip("\n")
+    if not text.strip():
+        return None, 0
+    lines = text.splitlines()
+    total = len(lines)
+    snippet = "\n".join(lines[:_FLOW_SNIPPET_LINES])
+    if len(snippet) > _FLOW_SNIPPET_CHARS:
+        snippet = snippet[:_FLOW_SNIPPET_CHARS].rsplit("\n", 1)[0] or snippet[:_FLOW_SNIPPET_CHARS]
+    return snippet, total
+
+
+def _build_flow():
+    """The flow payload: the newest write events across every recently-active
+    conversation, mapped into the Terrain repos. Events on secret-named paths
+    keep their place in the stream but lose their text (the same "hot is
+    public, contents are not" split the map makes); machine-churn paths are
+    dropped entirely, same denylist as the map."""
+    index = store.read("bot_chats/index", {})
+    if not isinstance(index, dict):
+        index = {}
+    gists = store.read("bot_chats/gists", {})
+    if not isinstance(gists, dict):
+        gists = {}
+    running_ids = _terrain_running_ids(index)
+    recent = _flow_recent_ids(index, running_ids)
+    for stale in set(_flow_conv_cache) - recent:
+        _flow_conv_cache.pop(stale, None)
+
+    now_epoch = time.time()
+    events_out = []
+    for cid in recent:
+        path = store.DATA_DIR / "bot_chats" / f"{cid}.jsonl"
+        try:
+            st = path.stat()
+        except OSError:
+            continue
+        sig = (st.st_mtime_ns, st.st_size)
+        meta = index.get(cid) if isinstance(index.get(cid), dict) else {}
+        slot = _flow_conv_cache.get(cid)
+        if slot is None or slot["sig"] != sig:
+            try:
+                slot = {"sig": sig, "events": harvest_flow_events(path, meta.get("cwd"))}
+            except OSError:
+                continue   # a torn/vanished log mustn't 500 the lane
+            _flow_conv_cache[cid] = slot
+        title = _terrain_session_title(cid, gists, index)
+        for idx, ev in enumerate(slot["events"]):
+            epoch = ev.get("epoch")
+            # An event this parser can't place in time can't claim to be
+            # recent — omitted rather than guessed.
+            if epoch is None or now_epoch - epoch > _FLOW_LOOKBACK_SEC:
+                continue
+            mapped = _flow_repo_rel(ev["path"])
+            if mapped is None:
+                continue
+            repo_id, relpath = mapped
+            if _terrain_denylisted(relpath):
+                continue
+            secret = any(fnmatch(relpath, pat) for pat in _TERRAIN_READ_DENYLIST)
+            snippet, total = (None, 0) if secret else _flow_trim_snippet(ev.get("snippet"))
+            events_out.append({
+                # Stable across polls: the log is append-only, so a parsed
+                # event keeps its position — the client dedups on this.
+                "id": f"{cid}:{idx}",
+                "conv": cid,
+                "title": title,
+                "bot": meta.get("bot"),
+                "running": cid in running_ids,
+                "repo": repo_id,
+                "path": relpath,
+                "kind": "create" if ev["created"] else ("write" if ev["tool"] == "Write" else "edit"),
+                "ts": ev.get("ts"),
+                "epoch": epoch,
+                "snippet": snippet,
+                "snippet_total_lines": total,
+            })
+    events_out.sort(key=lambda e: e["epoch"], reverse=True)
+    del events_out[_FLOW_MAX_EVENTS:]
+    return {"generated_at": datetime.now().isoformat(timespec="seconds"),
+            "lookback_sec": _FLOW_LOOKBACK_SEC,
+            "events": events_out}
+
+
 def register(app):
     @app.route("/api/observatory/terrain")
     def observatory_terrain():
@@ -488,6 +638,19 @@ def register(app):
             oldest = min(_terrain_cache, key=lambda k: _terrain_cache[k]["computed_at"])
             _terrain_cache.pop(oldest, None)
         _terrain_cache[file_cap] = {"payload": payload, "computed_at": now}
+        return jsonify(payload)
+
+    @app.route("/api/observatory/flow")
+    def observatory_flow():
+        """The Flow lane's data: recent write events with the text they
+        wrote, newest first (see _build_flow). Cached a few seconds — one
+        build serves however many windows are watching."""
+        now = time.monotonic()
+        if _flow_cache["payload"] is not None and now - _flow_cache["computed_at"] < _FLOW_CACHE_TTL_SEC:
+            return jsonify(_flow_cache["payload"])
+        payload = _build_flow()
+        _flow_cache["payload"] = payload
+        _flow_cache["computed_at"] = now
         return jsonify(payload)
 
     @app.route("/api/observatory/terrain/growth")

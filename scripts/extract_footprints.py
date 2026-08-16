@@ -260,6 +260,76 @@ def harvest_conversation(path, conv_cwd, fallback_last=None):
     return _aggregate(touches, creates, ts_index, fallback_last)
 
 
+# The written text per tool shape — what the flow lane shows as "the lines
+# being written". Edit carries its replacement text, Write the whole file
+# body, NotebookEdit the new cell source.
+_SNIPPET_KEYS = {"Edit": "new_string", "Write": "content", "NotebookEdit": "new_source"}
+
+
+def harvest_flow_events(path, conv_cwd):
+    """One conversation's jsonl -> its write events IN ORDER, each carrying the
+    text that was written — the event-level sibling of harvest_conversation's
+    per-file tallies, for the live "code being written" lane
+    (routes/terrain.py's /api/observatory/flow):
+
+        [{"line": i, "tool": "Edit"|"Write"|"NotebookEdit", "path": abs,
+          "snippet": str|None, "created": bool, "epoch": float|None,
+          "ts": iso|None}, ...]
+
+    Timestamps are the same best-effort nearest-timestamped-event stand-in the
+    footprint harvest uses. `created` comes from the Write tool_result's "File
+    created successfully" line; the result lands after its tool_use, so it
+    flips the latest still-unflagged event for that path. List position is
+    stable across re-parses (the log is append-only), so callers may use it as
+    an event id.
+
+    Prompt that produced it: "another additional visual where I see what code
+    is being written in real time"."""
+    events = _load_events(Path(path))
+    ts_index = []
+    out = []
+    for i, ev in enumerate(events):
+        if not isinstance(ev, dict):
+            continue
+        raw_ts = ev.get("ts") or ev.get("timestamp")
+        epoch = _parse_ts(raw_ts)
+        if epoch is not None:
+            ts_index.append((i, epoch, raw_ts))
+        msg = ev.get("message")
+        content = msg.get("content") if isinstance(msg, dict) else None
+        if not isinstance(content, list):
+            continue
+        for item in content:
+            if not isinstance(item, dict):
+                continue
+            itype = item.get("type")
+            if itype == "tool_use" and item.get("name") in WRITE_TOOLS:
+                name = item.get("name")
+                inp = item.get("input")
+                abspath = _normalize_path(_tool_path(name, inp), conv_cwd)
+                if abspath is None:
+                    continue
+                snippet = inp.get(_SNIPPET_KEYS[name]) if isinstance(inp, dict) else None
+                if not isinstance(snippet, str) or not snippet.strip():
+                    snippet = None
+                out.append({"line": i, "tool": name, "path": abspath,
+                            "snippet": snippet, "created": False})
+            elif itype == "tool_result":
+                created = _normalize_path(_created_path(item.get("content")), conv_cwd)
+                if created is None:
+                    continue
+                for evd in reversed(out):
+                    if evd["path"] == created and not evd["created"]:
+                        evd["created"] = True
+                        break
+    ts_line_nums = [t[0] for t in ts_index]
+    for evd in out:
+        epoch, raw = _nearest_ts(ts_index, ts_line_nums, evd["line"])
+        evd["epoch"] = epoch
+        evd["ts"] = raw
+    return out
+
+
 def _load_events(path):
     events = []
     with path.open(encoding="utf-8") as f:

@@ -44,6 +44,7 @@ export const SECTIONS: Section[] = [
   { id: 'research', label: 'Research', icon: '🔎', home: '/research', claims: ['/research'] },
   { id: 'terrain', label: 'Terrain', icon: '🗺', home: '/terrain/map', claims: ['/terrain'] },
   { id: 'pond', label: 'Pond', icon: '🐟', home: '/terrain/pond', claims: ['/terrain/pond'] },
+  { id: 'flow', label: 'Flow', icon: '🫧', home: '/terrain/flow', claims: ['/terrain/flow'] },
   { id: 'journal', label: 'Journal', icon: '📓', home: '/journal', claims: ['/journal'] },
   // The dashboard is fifteen routes wearing one name (tabs.ts), and its own
   // sub-tab row is how you move between them.

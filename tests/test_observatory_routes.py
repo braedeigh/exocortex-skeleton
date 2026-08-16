@@ -1087,10 +1087,13 @@ def _commit_file(repo, relpath, content):
 
 @pytest.fixture
 def terrain_client(data_dir, monkeypatch):
-    """Isolated data dir (no real footprints/gists/index) + a fresh terrain
-    cache — the module-level cache must not survive across tests. It's keyed
-    by resolved file cap now (one slot per distinct ?limit=)."""
+    """Isolated data dir (no real footprints/gists/index) + fresh module-level
+    caches — the terrain payload cache (keyed by resolved file cap, one slot
+    per distinct ?limit=) and the flow's payload + per-conversation parse
+    caches must not survive across tests."""
     monkeypatch.setattr(terrain, "_terrain_cache", {})
+    monkeypatch.setattr(terrain, "_flow_cache", {"payload": None, "computed_at": 0.0})
+    monkeypatch.setattr(terrain, "_flow_conv_cache", {})
     app = Flask(__name__)
     app.config.update(TESTING=True)
     terrain.register(app)
@@ -1324,6 +1327,112 @@ def test_terrain_ttl_shortens_while_a_session_is_running(terrain_client, tmp_pat
     _age_terrain_cache(terrain._TERRAIN_LIVE_TTL_SEC + 1)
     terrain_client.get("/api/observatory/terrain")
     assert len(calls) == 4   # served from cache
+
+
+# --- The Flow (GET /api/observatory/flow) ------------------------------------
+# The live "code being written" stream for the /terrain/flow lane: every
+# Edit/Write across recently-active conversations as its own event, newest
+# first, carrying the text it wrote. Same jsonl raw material as the map's
+# live-touch overlay, kept as events instead of tallies.
+
+def _write_conv_jsonl(conv_id, events):
+    chats = store.DATA_DIR / "bot_chats"
+    chats.mkdir(parents=True, exist_ok=True)
+    (chats / f"{conv_id}.jsonl").write_text(
+        "\n".join(json.dumps(e) for e in events) + "\n")
+
+
+def test_flow_streams_write_events_newest_first_with_snippets(terrain_client, tmp_path, monkeypatch):
+    skeleton = _make_git_repo(tmp_path / "skeleton")
+    _set_terrain_repos(monkeypatch, skeleton, tmp_path / "empty-vault")
+    now = datetime.now()
+    t0 = (now - timedelta(minutes=10)).isoformat(timespec="seconds")
+    t1 = (now - timedelta(minutes=5)).isoformat(timespec="seconds")
+    _write_conv_jsonl("conv-live", [
+        {"type": "user", "text": "go", "ts": t0},
+        {"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "name": "Edit",
+             "input": {"file_path": str(skeleton / "app.py"),
+                       "old_string": "a = 1", "new_string": "a = 2\nb = 3"}}]}},
+        {"type": "assistant"},   # spacer so each tool_use sits nearest its own clock
+        {"type": "user", "ts": t1},
+        {"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "name": "Write",
+             "input": {"file_path": str(skeleton / "fresh.py"),
+                       "content": "print('new')\n"}}]}},
+        {"type": "user", "message": {"content": [
+            {"type": "tool_result",
+             "content": f"File created successfully at: {skeleton / 'fresh.py'}"}]}},
+    ])
+    store.write("bot_chats/index", {"conv-live": {
+        "title": "Mid-flight work", "bot": "spark", "running": True,
+        "last_at": observatory._now(), "cwd": str(skeleton)}})
+
+    data = terrain_client.get("/api/observatory/flow").get_json()
+    assert [e["path"] for e in data["events"]] == ["fresh.py", "app.py"]
+
+    fresh, edit = data["events"]
+    assert fresh["kind"] == "create"          # the Write result said "created"
+    assert fresh["repo"] == "skeleton"
+    assert fresh["snippet"] == "print('new')"
+    assert fresh["running"] is True
+    assert fresh["title"] == "Mid-flight work"
+    assert edit["kind"] == "edit"
+    assert edit["snippet"] == "a = 2\nb = 3"  # the NEW text, not the old
+    assert edit["snippet_total_lines"] == 2
+    # position-stable ids are the client's dedup key across polls
+    assert {e["id"] for e in data["events"]} == {"conv-live:0", "conv-live:1"}
+
+
+def test_flow_drops_denylisted_paths_and_blanks_secret_snippets(terrain_client, tmp_path, monkeypatch):
+    skeleton = _make_git_repo(tmp_path / "skeleton")
+    _set_terrain_repos(monkeypatch, skeleton, tmp_path / "empty-vault")
+    ts = (datetime.now() - timedelta(minutes=1)).isoformat(timespec="seconds")
+    _write_conv_jsonl("conv-live", [
+        {"type": "user", "text": "go", "ts": ts},
+        {"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "name": "Edit",
+             "input": {"file_path": str(skeleton / "server.log"),
+                       "old_string": "x", "new_string": "y"}},
+            {"type": "tool_use", "name": "Edit",
+             "input": {"file_path": str(skeleton / ".env"),
+                       "old_string": "x", "new_string": "SECRET=hunter2"}},
+        ]}},
+    ])
+    store.write("bot_chats/index", {"conv-live": {
+        "title": "Work", "running": True, "last_at": observatory._now(),
+        "cwd": str(skeleton)}})
+
+    events = terrain_client.get("/api/observatory/flow").get_json()["events"]
+    # machine churn (*.log) vanishes entirely; the secret file keeps its place
+    # in the stream but loses its text — hot is public, contents are not
+    assert [e["path"] for e in events] == [".env"]
+    assert events[0]["snippet"] is None
+
+
+def test_flow_ignores_conversations_outside_the_lookback(terrain_client, tmp_path, monkeypatch):
+    skeleton = _make_git_repo(tmp_path / "skeleton")
+    _set_terrain_repos(monkeypatch, skeleton, tmp_path / "empty-vault")
+    stale = (datetime.now() - timedelta(seconds=terrain._FLOW_LOOKBACK_SEC + 3600))
+    _write_conv_jsonl("conv-old", [
+        {"type": "user", "text": "go", "ts": stale.isoformat(timespec="seconds")},
+        {"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "name": "Edit",
+             "input": {"file_path": str(skeleton / "app.py"),
+                       "old_string": "a", "new_string": "b"}}]}},
+    ])
+    store.write("bot_chats/index", {"conv-old": {
+        "title": "Last week", "running": False,
+        "last_at": stale.isoformat(timespec="seconds"), "cwd": str(skeleton)}})
+    assert terrain_client.get("/api/observatory/flow").get_json()["events"] == []
+
+
+def test_flow_snippet_cut_is_whole_lines_and_reports_the_total():
+    text = "\n".join(f"line {i}" for i in range(40))
+    snippet, total = terrain._flow_trim_snippet(text)
+    assert total == 40
+    assert snippet.splitlines() == [f"line {i}" for i in range(terrain._FLOW_SNIPPET_LINES)]
+    assert terrain._flow_trim_snippet("   \n  ") == (None, 0)
 
 
 # --- Terrain: the Growth room's series (GET .../terrain/growth) ---------------
@@ -2346,32 +2455,41 @@ def test_a_running_turn_stamps_last_at_while_it_works(bot_client, tmp_path, monk
     and in the `finally`, so a turn thinking for longer than ten minutes read as
     frozen to all three at once: the dispatcher failed it mid-flight and the
     one-turn-per-conversation guard fell open. It has to move DURING the turn.
+
+    Specifically it has to move while the turn is SILENT. The stub relays its
+    init event and then says nothing for four seconds, which is the shape that
+    matters: a long Bash step, a Task subagent, an extended think. The heartbeat
+    runs on its own wall clock, so the quiet stretch still stamps `last_at` — a
+    beat driven by arriving events would have nothing to beat on for exactly the
+    turns that are most expensive to lose.
     """
     import time as _t
     _install_slow_stub(tmp_path, monkeypatch)
     # A strictly-increasing clock so every individual write is visible; without
     # it the send door and the heartbeat land in the same wall-clock second.
     base = datetime(2026, 8, 10, 9, 0, 0)
-    seq = iter(range(1, 500))
+    seq = iter(range(1, 100000))
     monkeypatch.setattr(observatory, "_now",
                         lambda: (base + timedelta(seconds=next(seq))).isoformat(timespec="seconds"))
-    monkeypatch.setattr(observatory, "_HEARTBEAT_SEC", 0)
+    monkeypatch.setattr(observatory, "_HEARTBEAT_SEC", 0.05)
 
     resp = _send(bot_client, text="think about this for a while")
     it = resp.iter_encoded()
     conv_id = _first_frame_conv(it)
-    at_send = store.read("bot_chats/index", {})[conv_id]["last_at"]
     next(it)   # the init event has been relayed; the stub now sleeps 4s
+    # Baseline taken INSIDE the silence, so what follows can only have been
+    # written by a beat with no event behind it.
+    quiet_from = store.read("bot_chats/index", {})[conv_id]["last_at"]
 
     deadline = _t.time() + 3
     meta = {}
     while _t.time() < deadline:
         meta = store.read("bot_chats/index", {}).get(conv_id, {})
-        if meta.get("last_at") != at_send:
+        if meta.get("last_at") != quiet_from:
             break
         _t.sleep(0.05)
     assert meta.get("running") is True, "still mid-turn — that's the whole point"
-    assert meta.get("last_at") != at_send
+    assert meta.get("last_at") != quiet_from
 
     resp.close()
     _wait_not_running(conv_id)
