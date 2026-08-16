@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSessionRoster } from '../../features/observatory/api';
-import { convIdOf, pageLabel, sectionForUrl, sectionById, type Section } from './sections';
+import { convIdOf, pageLabel, pathOf, sectionForUrl, sectionById, type Section } from './sections';
 import { isPinned, menuSections, pin, reorder, sectionsOf, unpin } from './tabSets';
 import { buildBar, closeTab, pruneStale, touchTab, urlsOnBar, type BarItem, type OpenTab } from './panelTabs';
 import { useLiveSessions } from './useLiveSessions';
@@ -19,9 +19,17 @@ import styles from './TabBar.module.css';
  *            on their own and leave on their own.
  *   OPEN     what she opened, for as long as she keeps using it.
  *
- * A tab names its section, except the one she's inside, which names what she's
- * actually looking at. Clicking the active anchor takes her back up to that
- * section's front page; clicking another goes where she last was in it.
+ * AN ANCHOR ALWAYS SAYS ITS OWN NAME, and clicking it always goes to that
+ * room's front page. It used to rename itself to whatever she was looking at
+ * inside the section — which made sense when tabs were only destinations, and
+ * stopped making sense the moment open tabs existed: opening a session left
+ * the Observatory anchor reading the session's name while the session ALSO had
+ * its own tab beside it, saying the same thing twice and leaving nothing to
+ * click to get back to the roster.
+ *
+ * So the division is clean. The anchor is the room's front door. The tabs
+ * beside it are what's actually open in that room, and one of those is what
+ * says where she is.
  *
  * THE LIVE COLOURS. A running session is purple and breathes toward teal and
  * back; one waiting on her is amber and still. They sit in the same group,
@@ -88,13 +96,14 @@ export function TabBar({
 
   /* Live sessions belong to the panel that's ABOUT the observatory — the one
      with it pinned. Showing them on every bar sounds generous and isn't: the
-     journal panel's own anchors get squeezed until they truncate, to make room
-     for work that panel has nothing to do with. Pinning the Observatory (or
-     the Keeper, which lives inside it) is what opts a panel in. */
-  const watchesSessions = useMemo(
-    () => anchors.some((a) => a.id === 'observatory' || a.id === 'keeper'),
-    [anchors],
-  );
+     other panel's own anchors get squeezed until they truncate, to make room
+     for work it has nothing to do with.
+
+     Pinning the OBSERVATORY opts a panel in; pinning the Keeper does not. The
+     Keeper is a shortcut to one particular conversation, and wanting that one
+     to hand isn't the same as wanting every session in the house on your
+     journal bar. */
+  const watchesSessions = useMemo(() => anchors.some((a) => a.id === 'observatory'), [anchors]);
   const live = watchesSessions ? liveSessions : EMPTY_LIVE;
 
   // Rebuilt on every roster poll, which is what makes a starting session
@@ -126,16 +135,19 @@ export function TabBar({
     // change in a way she'd notice.
   }, [url, openTabs, spared]);
 
-  // A conversation's real title, from the roster the app already keeps warm —
-  // the url carries only an opaque id.
-  const convId = convIdOf(url);
+  /* What to call a tab. A conversation url carries only an opaque id, so the
+     roster the app already keeps warm supplies the name — without this an open
+     session tab would just read "Session", which is no help at all when three
+     of them are side by side. */
   const { data: roster } = useSessionRoster();
-  const convTitle = convId ? roster?.sessions.find((s) => s.id === convId)?.title : undefined;
-
-  const lastSeen = useRef<Record<string, string>>({});
-  useEffect(() => {
-    if (here) lastSeen.current[here.id] = url;
-  }, [here, url]);
+  const titleFor = useCallback(
+    (u: string): string => {
+      const id = convIdOf(u);
+      const found = id ? roster?.sessions.find((x) => x.id === id)?.title : undefined;
+      return found ?? pageLabel(u);
+    },
+    [roster],
+  );
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -151,13 +163,10 @@ export function TabBar({
     };
   }, [menuOpen]);
 
-  const goToSection = (section: Section) => {
-    if (here?.id === section.id) {
-      onNavigate(section.home); // already here — this is the way back up
-      return;
-    }
-    onNavigate(lastSeen.current[section.id] ?? section.home);
-  };
+  /* Always the front page. Getting back to where she was inside a room is
+     what the open tabs beside the anchor are for — the anchor doesn't need to
+     also be a memory, and being one made it ambiguous what a click would do. */
+  const goToSection = (section: Section) => onNavigate(section.home);
 
   /* An anchor she's standing in that isn't pinned to this set still gets a
      tab, or switching sets would leave the bar with nothing lit and no name
@@ -250,8 +259,7 @@ export function TabBar({
             item={item}
             index={i}
             currentUrl={url}
-            here={here}
-            convTitle={convTitle}
+            titleFor={titleFor}
             drag={drag}
             onDrag={setDrag}
             onGoSection={goToSection}
@@ -272,7 +280,7 @@ export function TabBar({
               onClick={() => here && onNavigate(here.home)}
             >
               <span className={styles.icon}>{here?.icon}</span>
-              <span className={styles.tabLabel}>{convTitle ?? pageLabel(url)}</span>
+              <span className={styles.tabLabel}>{here?.label}</span>
             </button>
           </div>
         ) : null}
@@ -290,8 +298,7 @@ function Tab({
   item,
   index,
   currentUrl,
-  here,
-  convTitle,
+  titleFor,
   drag,
   onDrag,
   onGoSection,
@@ -303,8 +310,7 @@ function Tab({
   item: BarItem;
   index: number;
   currentUrl: string;
-  here: Section | null;
-  convTitle?: string;
+  titleFor: (url: string) => string;
   drag: { from: number; over: number } | null;
   onDrag: (d: { from: number; over: number } | null) => void;
   onGoSection: (s: Section) => void;
@@ -318,15 +324,12 @@ function Tab({
   if (isAnchor && !section) return null;
 
   const url = isAnchor ? section!.home : item.url;
-  const selected = isAnchor ? here?.id === section!.id : currentUrl === url;
+  /* Exactly one tab is lit. An anchor lights only while she's on its front
+     page, not anywhere in its section — otherwise reading a session lit both
+     the Observatory anchor and the session's own tab at once. */
+  const selected = isAnchor ? pathOf(currentUrl) === pathOf(url) : currentUrl === url;
 
-  const label = isAnchor
-    ? here?.id === section!.id
-      ? (convTitle ?? pageLabel(currentUrl))
-      : section!.label
-    : item.kind === 'live'
-      ? item.title
-      : pageLabel(url);
+  const label = isAnchor ? section!.label : item.kind === 'live' ? item.title : titleFor(url);
 
   const running = item.kind === 'live' && item.running && !item.awaiting;
   const awaiting = item.kind === 'live' && item.awaiting;
