@@ -6,6 +6,7 @@ import { TermNotesPanel } from '../../shell/TermNotesPanel';
 import { SchedulePanel } from '../../shell/SchedulePanel';
 import { openConversationInPane } from '../../shell/paneConversation';
 import { dispatchIntent } from '../../shell/panels/windowBus';
+import { useFlow } from '../flow/api';
 import { useSessionPreview, useSessionRoster } from '../observatory/api';
 import { isUnread, openedMap } from '../observatory/readReceipts';
 import { cardState, type CardState } from '../observatory/sessionFilters';
@@ -699,6 +700,30 @@ export function TerrainPage() {
     const changed = changedFileIds(prev, data);
     if (changed.size > 0) engineRef.current?.flash(changed);
   }, [data]);
+
+  // Code-weather: the flow feed (the same one /terrain/flow reads) rains new
+  // writes onto the map — a few of the written lines rise off the file's node
+  // and fade. Rides the same live gate as the heat poll; the engine seeds on
+  // the first feed and only ever rains what's genuinely new, so this effect
+  // can simply hand over every payload. Files below the current Files-slider
+  // cut just have no node, and the engine skips them silently.
+  //
+  // Prompt: "This might be overlaid on the terrain visual though" (of the
+  // watch-code-being-written surface).
+  const flowData = useFlow(anyRunning && pageVisible).data;
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!engine || !flowData) return;
+    engine.weather(
+      flowData.events
+        .filter((e) => e.snippet !== null)
+        .map((e) => ({
+          key: e.id,
+          nodeId: `${e.repo}:file:${e.path}`,
+          lines: e.snippet!.split('\n'),
+        })),
+    );
+  }, [flowData]);
 
   // Data / lens / repo-visibility changes re-feed the sim (positions carry
   // over inside setGraph, so this re-warms rather than re-explodes).

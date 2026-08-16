@@ -9,7 +9,9 @@
  * Battery contract: the sim draws once per tick and goes fully quiet on
  * quiescence (d3-force's own 'end' event — no rAF loop ever idles). Pan/zoom
  * repaints without waking the sim; only a data change (lens, repo toggle,
- * fresh payload) re-warms it.
+ * fresh payload) re-warms it. The short-lived timers (flash halos, the
+ * code-weather fade, the running-orb pulse) each die with the thing they
+ * animate — none idles either.
  *
  * Heat encoding is redundant on purpose (dataviz skill): the heat ramp
  * carries recency AND node radius scales with the same normalized heat. The
@@ -153,6 +155,33 @@ interface SimNode extends SimulationNodeDatum {
 interface SimLink extends SimulationLinkDatum<SimNode> {
   kind?: 'tree' | 'session';
 }
+
+/** One write worth raining on the map — key is the flow event's stable id,
+ * nodeId the file node it rises from (`repo:file:path`). */
+export interface WeatherDrop {
+  key: string;
+  nodeId: string;
+  lines: string[];
+}
+
+/** One line of written code mid-flight above its file node. */
+interface WeatherFrag {
+  nodeId: string;
+  text: string;
+  /** Epoch-ms it starts rising — staggered within a drop, may be in the future. */
+  born: number;
+  /** Horizontal wander phase, so parallel fragments don't rise in lockstep. */
+  seed: number;
+}
+
+const WEATHER_LIFE_MS = 4200;
+const WEATHER_RISE_PX = 46;       // screen px risen over a lifetime
+const WEATHER_STAGGER_MS = 480;   // gap between one drop's lines
+const WEATHER_MAX_FRAGS = 36;     // cap on airborne fragments, map-wide
+const WEATHER_LINES_PER_DROP = 3;
+const WEATHER_MAX_CHARS = 44;     // a fragment is a glimpse, not a paragraph
+const WEATHER_PX = 12;            // screen-locked, the app's text floor
+const WEATHER_FONT = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
 
 /** Zoom floor. 0.2 was set when the map drew ~700 files; the Files dial now
  * reaches every file there is (~3,300), and that graph spreads far wider than
@@ -337,6 +366,19 @@ export class TerrainCanvas {
    * until the last flash fades (~1s) — never idles. */
   private flashes = new Map<string, number>();
   private flashTimer: number | null = null;
+  /**
+   * Code-weather: written lines rising off the file nodes as agents work —
+   * ambient fragments, not readable prose (the readable stream is the Flow
+   * lane, /terrain/flow; this is the same feed as atmosphere). Fragment list
+   * + its fade timer, which — like the flash timer — lives only while
+   * fragments are falling and never idles. `weatherSeen` keys off the flow
+   * feed's stable event ids so a poll can only ever rain NEW writes; the
+   * first feed after construction seeds it silently, so opening the map
+   * doesn't replay hours of history as a storm.
+   */
+  private weatherFrags: WeatherFrag[] = [];
+  private weatherTimer: number | null = null;
+  private weatherSeen: Set<string> | null = null;
   /** Breathing pulse for running session orbs: a slow ~10fps interval, alive
    * ONLY while a running orb exists AND the document is visible — the
    * no-idle-animation guarantee holds when nothing is running or the PWA is
@@ -480,6 +522,10 @@ export class TerrainCanvas {
     if (this.flashTimer !== null) {
       window.clearInterval(this.flashTimer);
       this.flashTimer = null;
+    }
+    if (this.weatherTimer !== null) {
+      window.clearInterval(this.weatherTimer);
+      this.weatherTimer = null;
     }
     this.canvas.removeEventListener('click', this.handleClick);
     this.canvas.removeEventListener('pointermove', this.handlePointerMove);
@@ -711,6 +757,63 @@ export class TerrainCanvas {
       }, 80);
     }
     this.requestDraw();
+  }
+
+  /**
+   * Feed the code-weather: the flow feed's current events (see WeatherDrop).
+   * New events — never-seen keys — shed their first few lines as fragments
+   * that rise off their file's node and fade; everything already seen is
+   * ignored, so calling this on every poll is free. The very first call
+   * only seeds the seen-set: history isn't weather.
+   */
+  weather(drops: WeatherDrop[]): void {
+    if (this.destroyed) return;
+    if (this.weatherSeen === null) {
+      this.weatherSeen = new Set(drops.map((d) => d.key));
+      return;
+    }
+    const now = Date.now();
+    let spawned = false;
+    for (const drop of drops) {
+      if (this.weatherSeen.has(drop.key)) continue;
+      this.weatherSeen.add(drop.key);
+      // A hidden page spawns nothing (the fragments would be long dead by the
+      // time she looked), but the key is still marked seen above — returning
+      // to the map resumes the present, it doesn't replay the absence.
+      if (document.visibilityState !== 'visible') continue;
+      const lines = drop.lines
+        .map((l) => l.trim())
+        .filter((l) => l.length > 1)
+        .slice(0, WEATHER_LINES_PER_DROP);
+      for (let i = 0; i < lines.length; i++) {
+        if (this.weatherFrags.length >= WEATHER_MAX_FRAGS) break;
+        this.weatherFrags.push({
+          nodeId: drop.nodeId,
+          text: lines[i].length > WEATHER_MAX_CHARS ? `${lines[i].slice(0, WEATHER_MAX_CHARS)}…` : lines[i],
+          born: now + i * WEATHER_STAGGER_MS,
+          seed: Math.random() * Math.PI * 2,
+        });
+        spawned = true;
+      }
+    }
+    // The seen-set tracks the feed's own window (server caps it): ids age out
+    // of the payload and never return, so mirroring the feed keeps it bounded.
+    const live = new Set(drops.map((d) => d.key));
+    for (const key of this.weatherSeen) if (!live.has(key)) this.weatherSeen.delete(key);
+
+    if (spawned && this.weatherTimer === null) {
+      // ~30fps is plenty for drifting text, and the timer dies with the last
+      // fragment — same never-idles contract as the flash timer above.
+      this.weatherTimer = window.setInterval(() => {
+        const cutoff = Date.now();
+        this.weatherFrags = this.weatherFrags.filter((f) => cutoff - f.born < WEATHER_LIFE_MS);
+        if (this.weatherFrags.length === 0 && this.weatherTimer !== null) {
+          window.clearInterval(this.weatherTimer);
+          this.weatherTimer = null;
+        }
+        this.requestDraw();
+      }, 33);
+    }
   }
 
   // -- pulse loop management (running orbs only, visible page only) --
@@ -1249,6 +1352,42 @@ export class TerrainCanvas {
       }
     }
     ctx.globalAlpha = 1;
+
+    // -- code-weather: written lines rising off their file nodes --
+    //
+    // Ambient by design: 12px screen-locked mono (the app's floor — it may be
+    // atmosphere but it's still text), the theme's secondary ink, never
+    // brighter than ~0.6. Quick fade-in, a decelerating rise (real things
+    // slow as they dissipate), a slow sinusoidal wander so parallel lines
+    // read as drift rather than a formation, and a fade-out over the back
+    // half. Position is world (it belongs to its node); size is screen.
+    if (this.weatherFrags.length > 0) {
+      const nodePos = new Map<string, SimNode>();
+      for (const n of this.simNodes) nodePos.set(n.id, n);
+      ctx.font = `${WEATHER_PX / transform.k}px ${WEATHER_FONT}`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillStyle = theme.textSecondary;
+      for (const f of this.weatherFrags) {
+        const age = now - f.born;
+        if (age < 0 || age >= WEATHER_LIFE_MS) continue; // staggered: not yet born
+        const n = nodePos.get(f.nodeId);
+        if (!n) continue;
+        const p = age / WEATHER_LIFE_MS;
+        const easeOut = 1 - (1 - p) * (1 - p);
+        const fadeIn = Math.min(p / 0.1, 1);
+        const fadeOut = p < 0.5 ? 1 : 1 - (p - 0.5) / 0.5;
+        ctx.globalAlpha = fadeIn * fadeOut * 0.6;
+        const rise = (easeOut * WEATHER_RISE_PX) / transform.k;
+        const wander = (Math.sin(f.seed + p * 4) * 5) / transform.k;
+        ctx.fillText(
+          f.text,
+          (n.x ?? 0) + wander,
+          (n.y ?? 0) - Math.max(n.radius, minR) - 4 / transform.k - rise,
+        );
+      }
+      ctx.globalAlpha = 1;
+    }
 
     // -- labels (screen space — never below the 12px floor at any zoom) --
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
