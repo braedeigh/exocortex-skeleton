@@ -461,9 +461,17 @@ function Card({
         </p>
       )}
 
-      {/* The why-row: opened by Clear/Discard, always offered on picked
-          cards. Optional by design — Skip costs nothing. */}
-      {(askingWhy || run.status === 'picked') && (
+      {/* The why-row: opened by Clear/Discard, and by arming "Not this" on a
+          picked card. Optional by design — Skip costs nothing.
+
+          It used to sit open on EVERY picked card. That was fine when the pile
+          was short and unreadable at forty, where the page became a wall of
+          identical text boxes with the cards lost between them. Now it appears
+          at the moment she actually has something to say: "Not this" already
+          arms before it fires, so the box opens on that first tap and her
+          answer rides the second. An approval needs no explanation — a reject
+          is the one that teaches the picker what she doesn't want. */}
+      {(askingWhy || rejectConfirming) && (
         <div className={styles.whyRow}>
           <input
             className={styles.whyInput}
@@ -568,72 +576,198 @@ function Card({
   );
 }
 
+/** What every card needs to act. Bundled because they're threaded through two
+ * layers now (lane → group → card) and seven separate props at each hop is a
+ * lot of noise for something that never varies per card. */
+interface CardHandlers {
+  onDismiss: (id: string) => void;
+  onMerge: (id: string) => Promise<string | null>;
+  onRevert: (id: string) => Promise<string | null>;
+  onFeedback: (id: string, note: string) => Promise<void>;
+  onPick: (id: string, verdict: 'approve' | 'reject', note: string) => Promise<string | null>;
+  onWake: (branch: string, message: string) => Promise<{ convId: string | null; error: string | null }>;
+  onOpenSession: (convId: string) => void;
+}
+
+/* THE STACK IS SORTED INTO PILES BY WHAT IT ASKS OF HER.
+
+   The page was one flat column of every live card. On her install that was 60
+   of them — 4 pieces of finished work sitting above 40 "would you want this?"
+   proposals and 16 attempts that died, all in the same card shell with no
+   heading between them. The server already ordered them by urgency; nothing on
+   screen said where one kind stopped and the next began, so the four cards that
+   actually wanted a decision were indistinguishable from the forty that wanted
+   a shrug.
+
+   These piles are not statuses — they're QUESTIONS. "Ready for you" asks for a
+   merge, "Worth building?" asks for a taste judgment, "Didn't land" asks for
+   nothing at all and is there to be read. Two statuses that ask the same thing
+   share a pile (failed and parked both mean it didn't happen and here's why).
+
+   Default open follows the same rule: the piles that want something from her
+   are open, the ones that are just the record are shut and say their size on
+   the header. Her hand overrides either way and it's remembered (useLaneOpen).
+
+   [prompt: "make the UI in there better to show what's going on and let me
+   interact with it all better"] */
+const GROUPS: {
+  key: string;
+  heading: string;
+  statuses: NightRun['status'][];
+  /** One line saying what this pile is FOR — the piles differ in what they
+   * want from her, which is invisible unless it's written down. */
+  blurb: string;
+  defaultOpen: boolean;
+  /** Warms the header when it isn't empty: this pile is waiting on her. */
+  wants?: boolean;
+}[] = [
+  {
+    key: 'ready',
+    heading: 'Ready for you',
+    statuses: ['ready'],
+    blurb: 'Built and tested overnight, sitting on a branch. Nothing merges without you.',
+    defaultOpen: true,
+    wants: true,
+  },
+  {
+    key: 'picked',
+    heading: 'Worth building?',
+    statuses: ['picked'],
+    blurb: 'Notes the crew would take next. Nothing has been built — this is a taste call, and it teaches the picker.',
+    defaultOpen: true,
+  },
+  {
+    key: 'working',
+    heading: 'Still building',
+    statuses: ['working'],
+    blurb: 'A session is on this right now.',
+    defaultOpen: true,
+  },
+  {
+    key: 'stalled',
+    heading: 'Didn’t land',
+    statuses: ['failed', 'parked'],
+    blurb: 'Attempts that stopped, and what beat them. Kept so the next worker on the note reads it.',
+    defaultOpen: false,
+  },
+  {
+    key: 'done',
+    heading: 'Done',
+    statuses: ['merged', 'reverted'],
+    blurb: 'Already taken, or taken back.',
+    defaultOpen: false,
+  },
+];
+
+/** How many of a pile are drawn before it offers the rest. Forty proposals in
+ * one scroll is not a queue she can work — it's a wall she closes. Eight is
+ * about a phone screen's worth: enough to get a run going, few enough that the
+ * end of it is visible from the top. Nothing is hidden silently — the button
+ * says the real number. */
+const PAGE = 8;
+
+function RunGroup({
+  group,
+  runs,
+  handlers,
+}: {
+  group: (typeof GROUPS)[number];
+  runs: NightRun[];
+  handlers: CardHandlers;
+}) {
+  const [open, toggleOpen] = useLaneOpen(`nightcrew:${group.key}`, group.defaultOpen);
+  const [all, setAll] = useState(false);
+  const shown = all ? runs : runs.slice(0, PAGE);
+  const hidden = runs.length - shown.length;
+
+  return (
+    <section className={styles.group} aria-label={group.heading}>
+      <LaneHead
+        heading={group.heading}
+        open={open}
+        onToggle={toggleOpen}
+        wanting={Boolean(group.wants)}
+      >
+        <span className={group.wants ? styles.groupCountWants : styles.groupCount}>
+          {runs.length}
+        </span>
+      </LaneHead>
+
+      {open && (
+        <>
+          <p className={styles.blurb}>{group.blurb}</p>
+          <div className={styles.rows}>
+            {shown.map((run) => (
+              <Card key={run.id} run={run} {...handlers} />
+            ))}
+          </div>
+          {hidden > 0 && (
+            <button type="button" className={styles.showAll} onClick={() => setAll(true)}>
+              Show the other {hidden} &darr;
+            </button>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+/**
+ * The night crew's stack, sorted into piles by what each card asks of her.
+ * Rendered by NightCrewPage at /observatory/nightcrew.
+ *
+ * The ORDER of the piles is the server's (routes/nightcrew.py sorts ready →
+ * picked → working → failed → parked, newest first inside each). This only
+ * draws the boundaries the sort already implies; it never re-sorts, so the two
+ * can't disagree about what's most urgent.
+ */
 export function NightCrewLane({
   runs,
   queued,
   spendUsd,
-  onDismiss,
-  onMerge,
-  onRevert,
-  onFeedback,
-  onPick,
-  onWake,
-  onOpenSession,
+  ...handlers
 }: {
   runs: NightRun[];
   /** How many notes are green-lit and would pass the gate tonight. */
   queued: number;
   spendUsd: number;
-  onDismiss: (id: string) => void;
-  /** Resolves to an error message to show on the card, or null on success. */
-  onMerge: (id: string) => Promise<string | null>;
-  /** Same contract as onMerge, for the regret tap on merged cards. */
-  onRevert: (id: string) => Promise<string | null>;
-  /** Saves one line of her judgment onto a run record. */
-  onFeedback: (id: string, note: string) => Promise<void>;
-  /** Judges a picked card (approve/reject + optional why). */
-  onPick: (id: string, verdict: 'approve' | 'reject', note: string) => Promise<string | null>;
-  /** Wakes the steward for a branch (the card's compose box). */
-  onWake: (branch: string, message: string) => Promise<{ convId: string | null; error: string | null }>;
-  /** Opens a worker's session (RosterPage's regular session door). */
-  onOpenSession: (convId: string) => void;
-}) {
+} & CardHandlers) {
   const live = runs.filter((r) => !r.dismissed);
+  const piles = GROUPS.map((group) => ({
+    group,
+    runs: live.filter((r) => group.statuses.includes(r.status)),
+  })).filter((p) => p.runs.length > 0);
+
   const ready = live.filter((r) => r.status === 'ready').length;
-  const [open, toggleOpen] = useLaneOpen('nightcrew');
-
-  // Collapses like every other room on the page (LaneHead.tsx), and for the
-  // same reason its siblings do: the census rides the HEADER, so a shut Night
-  // crew still says how many attempts are waiting on a verdict and what last
-  // night cost. Nothing that wants her is behind the fold.
-  const head = (
-    <LaneHead heading="Built for you" open={open} onToggle={toggleOpen} wanting={ready > 0}>
-      {/* Only ever one number in the heading, and it's the one that asks
-          something of her. Cost sits muted on the right — present so it can
-          never surprise her at the end of a month, quiet so it isn't the
-          first thing she reads at 6 AM. */}
-      {ready > 0 && <span className={styles.readyCount}>{ready} ready</span>}
-      <span className={styles.spend}>${spendUsd.toFixed(2)} last night</span>
-    </LaneHead>
-  );
-
-  if (!open) {
-    return <section className={styles.lane}>{head}</section>;
-  }
 
   return (
-    <section className={styles.lane}>
-      {head}
-      {/* One line, not six. Everything the old blurb explained — a worker's
-          questions, why one parked, what a merge would miss — is already ON the
-          card that needs it, where she'll actually read it. A paragraph of grey
-          text above the content is the room talking about itself. */}
-      <p className={styles.blurb}>
-        Finished work on a branch, waiting on you — the night crew&rsquo;s and
-        your daytime sessions&rsquo;. <strong>Nothing merges without you.</strong>
+    <>
+      {/* The state of the whole page, said once at the threshold — what's
+          waiting, what's queued for tonight, what last night cost. It's here
+          rather than repeated per pile because it answers "was the night any
+          good", which is the question she arrives with. */}
+      <p className={styles.summary}>
+        {live.length === 0 ? (
+          <span className={styles.summaryQuiet}>Nothing waiting.</span>
+        ) : (
+          <>
+            <strong className={ready > 0 ? styles.summaryReady : styles.summaryQuiet}>
+              {ready} ready for you
+            </strong>
+            <span className={styles.summaryQuiet}>
+              {' · '}
+              {live.length} card{live.length === 1 ? '' : 's'} in all
+            </span>
+          </>
+        )}
+        <span className={styles.summaryQuiet}>
+          {' · '}
+          {queued > 0 ? `${queued} teed up for tonight` : 'nothing green-lit for tonight'}
+        </span>
+        <span className={styles.summarySpend}>${spendUsd.toFixed(2)} last night</span>
       </p>
 
-      {live.length === 0 ? (
+      {piles.length === 0 ? (
         <div className={styles.idle}>
           <span className={styles.idleDot} aria-hidden />
           {queued > 0
@@ -641,14 +775,10 @@ export function NightCrewLane({
             : 'Nothing waiting, and nothing green-lit for tonight.'}
         </div>
       ) : (
-        <div className={styles.rows}>
-          {live.map((run) => (
-            <Card key={run.id} run={run} onDismiss={onDismiss} onMerge={onMerge}
-              onRevert={onRevert} onFeedback={onFeedback} onPick={onPick}
-              onWake={onWake} onOpenSession={onOpenSession} />
-          ))}
-        </div>
+        piles.map(({ group, runs: rows }) => (
+          <RunGroup key={group.key} group={group} runs={rows} handlers={handlers} />
+        ))
       )}
-    </section>
+    </>
   );
 }

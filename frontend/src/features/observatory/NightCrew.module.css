@@ -1,39 +1,10 @@
-/* Night crew — the Observatory's third room.
+/* Night crew's own styles: the page at /observatory/nightcrew (its piles, its
+   cards, its threshold line) and the door that leads there from the roster.
 
-   The other lanes are quiet-until-active. This one inverts it: nothing here is
-   ever live, everything is finished and holding for a verdict. So there is no
-   breathing, no pulse, no motion that suggests work in progress — the room is
-   still on purpose, and the only hierarchy is ready vs couldn't.
-
-   Shares the roster's tokens (--space-N, --radius-lg, --font-size-*) so it
-   reads as one surface with the two lanes above it. */
-
-.lane {
-  margin-bottom: var(--space-6);
-}
-
-/* The title line itself lives in LaneHead.module.css — shared with the session
+   The title line itself lives in LaneHead.module.css — shared with the session
    lanes, because the heading became the collapse control and that gesture has
-   to be identical in every room. What stays here is what THIS room reports on
-   that line. */
-
-/* The one number allowed in the heading — the count of cards that want
-   something from her. Everything else is muted. */
-.readyCount {
-  font-size: var(--font-size-sm);
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  color: var(--accent);
-}
-
-/* Cost lives at the far right, present but quiet: it must never be a surprise
-   at the end of a month, and it must never be the first thing she reads. */
-.spend {
-  margin-left: auto;
-  font-size: var(--font-size-sm);
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-}
+   to be identical everywhere. Each pile here wears one; what stays in this file
+   is what a pile reports ON that line, never the line. */
 
 .blurb {
   margin: 0 0 var(--space-3);
@@ -707,5 +678,93 @@
   }
   .door:hover .doorArrow {
     transform: none;
+  }
+}
+
+/* --- the piles: one section per question the stack is asking --- */
+/* Each pile wears the same title line as a room on the roster (LaneHead), so
+   "there is more behind this" is one gesture everywhere in the app. Spaced
+   generously apart — the whole failure being fixed here is that sixty cards ran
+   together with nothing saying where one kind ended and the next began. */
+.group {
+  margin-bottom: var(--space-6);
+}
+
+/* The size of the pile, on its header, so a shut one still reports itself.
+   Muted by default: a count is not news. */
+.groupCount {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ...except on a pile that's waiting for her, where the number IS the news. */
+.groupCountWants {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The rest of a long pile. Says the real number — a cap that didn't would read
+   as "that's all of them", which is the same lie the flat list told. */
+.showAll {
+  display: block;
+  width: 100%;
+  min-height: var(--tap-target);
+  margin-top: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md, 8px);
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: color 180ms ease, border-color 180ms ease;
+}
+
+.showAll:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* --- the threshold line: how the night went, said once --- */
+.summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0;
+  margin: 0 0 var(--space-5);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--font-size-md);
+  line-height: 1.5;
+}
+
+.summaryReady {
+  font-weight: 700;
+  color: var(--accent);
+}
+
+/* Hierarchy out of colour, not size — this stays as legible as the number
+   beside it, it just isn't the thing she reads first. */
+.summaryQuiet {
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.summarySpend {
+  margin-left: auto;
+  padding-left: var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .showAll {
+    transition: none;
   }
 }
