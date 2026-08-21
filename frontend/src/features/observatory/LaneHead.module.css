@@ -66,8 +66,46 @@
   color: var(--orange);
 }
 
+/* The room's own '+'. Sat at the far end of the line by its own auto margin,
+   away from the title block, which is the collapse control — an action pressed
+   up against it would get fat-fingered into shutting the room.
+
+   Quiet at rest, on purpose. A resting roster shouldn't have a bright button
+   per room shouting on it: colour on this page means STATE, and this is an
+   action. So it's ink — muted glyph, no border, no fill — until she reaches for
+   it, and only then does it warm to the accent and take a soft round pad. Full
+   40px of tap target the whole time; only the paint is shy, never the target.
+   The glyph itself stays 20px, so what's quiet is the contrast, not the size. */
+.new {
+  flex: none;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--tap-target);
+  height: var(--tap-target);
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 180ms ease, color 180ms ease;
+}
+
+.new:hover,
+.new:focus-visible {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .arrow {
+  .arrow,
+  .new {
     transition: none;
   }
 }

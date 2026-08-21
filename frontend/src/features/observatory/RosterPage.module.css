@@ -114,13 +114,20 @@
 .filterHueUnread { grid-area: 1 / 3; }
 .filterHueError { grid-area: 1 / 4; }
 
-/* At rest: a THIN wash of its own colour behind a full-strength outline. Only
-   the fill is see-through — the border, the dot and the count stay at full
-   opacity, so the rail reads clearly against whatever is behind it while still
-   letting the page show through. (Fading the whole button with `opacity` was
-   the wrong tool: it took the outline and the number down with the wash.)
+/* At rest: a wash of its own colour behind a full-strength outline. Only the
+   fill is see-through — the border, the dot and the count stay at full opacity,
+   so the rail reads clearly against whatever is behind it while still letting
+   the page show through. (Fading the whole button with `opacity` was the wrong
+   tool: it took the outline and the number down with the wash.)
+
+   The wash sits at 22%. It was 10%, which over a pale card left the button
+   reading as an outline floating on nothing — see-through had crossed into
+   insubstantial, and the orange and red ones especially looked broken rather
+   than quiet. Enough body now to read as an object; still transparent enough
+   that pressed (solid fill, white label) is unmistakably a different state.
    [prompt: "i also want them more transparent unless selected"; "dots numbers
-   and outlines need to be not transparent on them"] */
+   and outlines need to be not transparent on them"; "i want them to be a little
+   less transparent"] */
 .filterBtn {
   display: flex;
   align-items: center;
@@ -137,7 +144,7 @@
   justify-content: center;
   border: 2px solid var(--hue);
   border-radius: var(--radius-pill);
-  background: color-mix(in srgb, var(--hue) 10%, transparent);
+  background: color-mix(in srgb, var(--hue) 22%, transparent);
   color: var(--hue);
   font: inherit;
   font-size: var(--font-size-sm);
@@ -173,8 +180,10 @@
   --glow: color-mix(in srgb, var(--red) 70%, white);
 }
 
+/* Hover keeps its step up from the new resting 22% — the reach has to be
+   visible, and a 22 → 28 nudge no longer was. */
 .filterBtn:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--hue) 28%, transparent);
+  background: color-mix(in srgb, var(--hue) 40%, transparent);
 }
 
 /* Pressed: solid, and lit. The fill goes all the way to the colour and the
@@ -198,7 +207,10 @@
    the fill is ever see-through. Colour says "nothing here", never opacity. */
 .filterEmpty {
   border-color: var(--text-muted);
-  background: color-mix(in srgb, var(--text) 5%, transparent);
+  /* Same weight of fill as a live button, just grey — the rule on this rail is
+     that colour says "nothing here" and opacity never does, so the empty state
+     shouldn't also be the faintest thing on screen. */
+  background: color-mix(in srgb, var(--text) 12%, transparent);
   color: var(--text-muted);
   cursor: default;
 }
@@ -413,7 +425,12 @@
   font-size: var(--font-size-sm);
 }
 
+/* Lives in the Sheet's footer slot — a bar that stays put while the fields
+   scroll under it, so on a phone the button isn't at the end of a scroll she
+   has to go looking for. Full width because it's the only thing down there and
+   the one thing the sheet is for. */
 .dialogSave {
+  width: 100%;
   min-height: var(--tap-target);
   border: none;
   border-radius: var(--radius-md);
@@ -422,6 +439,21 @@
   font-size: var(--font-size-base);
   font-weight: 600;
   cursor: pointer;
+  transition: opacity 180ms ease;
+}
+
+/* Not yet nameable / not yet placed. Dimmed rather than greyed to a different
+   colour: it's the same button waiting on her, not a disabled feature. Its
+   tooltip says which field is still empty. */
+.dialogSave:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dialogSave {
+    transition: none;
+  }
 }
 
 .pageError {

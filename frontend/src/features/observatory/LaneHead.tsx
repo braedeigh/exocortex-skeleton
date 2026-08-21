@@ -23,9 +23,19 @@ import styles from './LaneHead.module.css';
  * Open/shut is remembered per room in localStorage — a layout preference, not
  * live state, so it should survive a reload the way the sort toggle does.
  *
+ * THE ROOM'S OWN '+'. A header can also carry a "start one here" button, sat
+ * at the far end of the line. The point is that the room is decided by WHERE
+ * she tapped rather than by a field she fills in afterwards — the thumb has
+ * already answered the question, so the sheet shouldn't ask it again. It's at
+ * the opposite end from the title block on purpose: the title IS the collapse
+ * control, and an action pressed up against it would get fat-fingered into
+ * shutting the room. Optional — a room with nothing to create (Night crew)
+ * simply doesn't pass one.
+ *
  * Used by SessionLane.tsx (Personal / Coding) and NightCrewLane.tsx.
  *
- * [prompt: "making all of the areas in general collapsible"]
+ * [prompt: "a way to easily create new chats in each section — a + button next
+ * to the word 'personal' or 'coding'"]
  */
 
 const OPEN_PREFIX = 'exo-observatory-open:';
@@ -68,6 +78,8 @@ export function LaneHead({
   /** Whether anything in this room is waiting on her. Tints the whole header,
    * so a SHUT room that wants her still says so. */
   wanting = false,
+  /** Start something in THIS room. Omit it and no '+' is drawn. */
+  onNew,
   /** The counts, in the room's own words ("2 need you", "1 running", "$0.40
    * last night"). Lives on the header rather than in the body precisely so it
    * survives being collapsed. */
@@ -77,6 +89,7 @@ export function LaneHead({
   open: boolean;
   onToggle: () => void;
   wanting?: boolean;
+  onNew?: () => void;
   children?: ReactNode;
 }) {
   return (
@@ -100,6 +113,20 @@ export function LaneHead({
         <h2 className={styles.heading}>{heading}</h2>
       </button>
       {children}
+      {/* Pushed to the far end of the line by its own auto margin, so it lands
+          in the same place in every room whether or not the census beside the
+          heading has anything to say that tick. */}
+      {onNew ? (
+        <button
+          type="button"
+          className={styles.new}
+          onClick={onNew}
+          title={`New session in ${heading}`}
+          aria-label={`New session in ${heading}`}
+        >
+          +
+        </button>
+      ) : null}
     </div>
   );
 }

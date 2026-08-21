@@ -6,7 +6,7 @@
  * rule the rail was built on.
  */
 import { describe, expect, it } from 'vitest';
-import { applyFilter, cardState, filterCounts, matchesFilter } from './sessionFilters';
+import { applyFilter, cardState, filterCounts, matchesFilter, roomRoster } from './sessionFilters';
 import type { SessionMeta } from './api';
 
 const NOW = Date.parse('2026-07-30T12:00:00Z');
@@ -186,5 +186,53 @@ describe('running', () => {
     expect(cardState(s, ago(0), NOW)).toBe('running');
     // ...while the merely-recent one gets the steady rung.
     expect(cardState(session('b', { last_at: ago(20 * MIN) }), ago(0), NOW)).toBe('recent');
+  });
+});
+
+/** The population the rail counts. The predicates above were always right; what
+ * broke was feeding them the raw payload, which carries sessions no room on the
+ * page draws. */
+describe('roomRoster', () => {
+  it('drops the pinned Keeper and every night-crew worker', () => {
+    const kept = roomRoster([
+      session('keeper', { pinned: true }),
+      session('worker', { origin: 'nightcrew' }),
+      session('mine'),
+    ]);
+    expect(kept.map((s) => s.id)).toEqual(['mine']);
+  });
+
+  it('keeps a session whose lane no longer has a room', () => {
+    // Retired-lane sessions still get drawn (they fall through to Coding), so
+    // they have to stay countable or the rail under-reports instead of over-.
+    const kept = roomRoster([session('orphan', { lane: 'orchestra' })]);
+    expect(kept.map((s) => s.id)).toEqual(['orphan']);
+  });
+
+  it('counts only what the rooms draw — the 32-unread / 3-error bug', () => {
+    // Her install, in miniature: one visible session, a pinned Keeper, and a
+    // pile of night-crew workers, three of which failed. Counting the raw
+    // payload claimed errors that lived in no room she could open, and unread
+    // sessions she had no card for.
+    const payload: SessionMeta[] = [
+      session('mine', { last_at: ago(5 * MIN) }),
+      session('keeper', { pinned: true }),
+      ...Array.from({ length: 6 }, (_, i) =>
+        session(`worker${i}`, { origin: 'nightcrew', last_error: i < 3 ? 'boom' : undefined }),
+      ),
+    ];
+
+    const raw = filterCounts(payload, {}, NOW);
+    expect(raw.unread).toBe(8);
+    expect(raw.error).toBe(3);
+
+    const counts = filterCounts(roomRoster(payload), {}, NOW);
+    expect(counts.unread).toBe(1);
+    expect(counts.error).toBe(0);
+
+    // ...and the list behind the button agrees with its face, which is the
+    // actual contract: a pressed red button must not empty the page.
+    expect(applyFilter(roomRoster(payload), {}, ['error'], NOW)).toHaveLength(counts.error);
+    expect(applyFilter(roomRoster(payload), {}, ['unread'], NOW)).toHaveLength(counts.unread);
   });
 });

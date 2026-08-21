@@ -15,7 +15,7 @@ import {
 } from './api';
 import { sessionLocation } from './sessionLocation';
 import { openedMap, setConversationRead } from './readReceipts';
-import { applyFilter, filterCounts, type StateFilter } from './sessionFilters';
+import { applyFilter, filterCounts, roomRoster, type StateFilter } from './sessionFilters';
 import { SessionDialog, type SessionDraft } from './SessionDialog';
 import { SessionLane } from './SessionLane';
 import { NightCrewLane, type NightRun } from './NightCrewLane';
@@ -204,10 +204,14 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
   // Bumped when she flips a card's read dot, so the render that reads
   // localStorage runs again immediately instead of waiting for the 5.5s poll.
   const [, bumpOpened] = useState(0);
-  // The create sheet, open or shut. It used to hold WHICH lane's '+' she
-  // tapped; with one floating '+' for both rooms, the room is a field in the
-  // sheet instead (SessionDialog), so this is just a boolean now.
-  const [creating, setCreating] = useState(false);
+  // The create sheet: shut (null), or open holding which room it's making into.
+  // Three states because there are two kinds of '+' on this page. A room's own
+  // '+' has already answered "which room" with her thumb, so it passes its room
+  // and the sheet opens agreeing with her. The rail's '+' floats beside the
+  // whole roster and genuinely can't know, so it opens 'unset' — and the sheet
+  // makes her pick rather than seeding one, because the room fixes where the
+  // session RUNS, permanently. Her call, 08-21: no guessing on that field.
+  const [creating, setCreating] = useState<Room | 'unset' | null>(null);
   const [editTarget, setEditTarget] = useState<SessionMeta | null>(null);
 
   const refresh = () => {
@@ -327,12 +331,17 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
 
   const ordered = useMemo(() => sortRoster(sessions, sortDir), [sessions, sortDir]);
   const opened = openedMap();
-  // Counts for the rail, over the WHOLE roster — the buttons stand above both
-  // rooms, so their numbers have to mean the same thing wherever a session
-  // lives. Recomputed every render, which is what keeps the hour window and
-  // the unread comparison honest as the poll ticks.
-  const counts = filterCounts(ordered, opened);
-  const shown = applyFilter(ordered, opened, filters);
+
+  // Everything below — the rail's numbers AND the rooms' contents — comes off
+  // ONE list, so a count can't describe a population the page doesn't draw.
+  // roomRoster (sessionFilters.ts) owns what's eligible and why; it's a function
+  // there rather than a line here precisely because the two used to disagree.
+  const roomable = roomRoster(ordered);
+
+  // Recomputed every render, which is what keeps the hour window and the unread
+  // comparison honest as the poll ticks.
+  const counts = filterCounts(roomable, opened);
+  const shown = applyFilter(roomable, opened, filters);
 
   // The come-and-go buttons (Running, Errors) vanish the moment their count
   // hits zero — so a pressed one has to let go too, or she'd be left narrowed
@@ -359,11 +368,11 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
   // promise the moment she used a filter.
   const keeper = ordered.filter((s) => s.pinned);
   // The lane is server-resolved (it derives one for every session that predates
-  // the field), so this is a straight split, not a guess. Pinned is excluded so
-  // the Keeper isn't drawn twice, and night-crew workers' sessions are excluded
-  // from every room — they belong to the Night crew section, reached through
-  // their run card's session door ("they showed up in orchestra rather than in
-  // night crew").
+  // the field), so this is a straight split, not a guess. What's eligible at all
+  // was already decided upstream by `roomable` — the Keeper isn't drawn twice
+  // and night-crew workers stay in the Night crew section ("they showed up in
+  // orchestra rather than in night crew"). Deciding it in one place is what
+  // keeps the rail's numbers and these rooms describing the same set.
   //
   // NOTHING FALLS THROUGH THE FLOOR. Orchestra was retired as a room (her 08-12
   // ask) but survives as a lane: the server still files anything it can't place
@@ -375,7 +384,6 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
   // drawn here still stops and asks.
   const byLane = (room: Room) =>
     shown.filter((s) => {
-      if (s.pinned || s.origin === 'nightcrew') return false;
       const lane = toLane(s.lane);
       return lane === room || (room === 'coding' && !isRoom(lane));
     });
@@ -417,7 +425,7 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
   const onCreate = (draft: SessionDraft) => {
     createSession(draft.name, draft.journal, draft.model, draft.lane)
       .then(({ id }) => {
-        setCreating(false);
+        setCreating(null);
         // An explicit asks-first choice is a second call: creation takes the
         // lane's default, and only a deliberate override gets written.
         if (draft.actGate !== null) {
@@ -505,6 +513,7 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
               opened={opened}
               emptyNote={emptyNote}
               onOpen={open}
+              onNew={() => setCreating(lane)}
               onSetRead={setRead}
               onRename={setEditTarget}
               onChanged={refresh}
@@ -533,19 +542,23 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
             <span className={styles.laterEm}>coming later</span>
           </div>
 
-          {/* Seeded to Coding — the narrower ground of the two rooms left, so a
-              session made without thinking about it stands in the app checkout
-              rather than one level up beside the vault. It used to seed to
-              Orchestra for the stronger reason that an accidental session should
-              stop and ask; that room is retired, and both rooms she can pick now
-              just act. The "Asks first" field in the sheet is where that's set
-              deliberately. */}
+          {/* Seeded from the '+' she actually pressed, and NOT seeded at all
+              from the rail's — that one gets a null lane, which makes the sheet
+              open on "Choose a room…" with its button dead until she picks.
+              No default there on purpose: the room fixes where the session runs
+              for good, and a sheet that pre-answers the one irreversible field
+              is making that choice for her. The heading follows suit — it only
+              names a room when there's a room to name. */}
           <SessionDialog
-            open={creating}
-            title="New session"
-            lane="coding"
+            open={creating !== null}
+            title={
+              creating && creating !== 'unset'
+                ? `New session in ${LANE_LABEL[creating]}`
+                : 'New session'
+            }
+            lane={creating === 'unset' ? null : creating}
             modelChoices={modelChoices}
-            onClose={() => setCreating(false)}
+            onClose={() => setCreating(null)}
             onSave={onCreate}
           />
           {/* The ✎ sheet seeds "Asks first" from `act_gate_set` — her PIN — not
@@ -582,12 +595,15 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
         <div className={styles.rail}>
           {/* New session — round, not a pill, and colourless: the three below
               it are STATES and this is an ACTION, so it can't be mistaken for a
-              fourth colour. One button for both rooms means the room is a field
-              in the sheet rather than something the button silently decided. */}
+              fourth colour. This one is the ROOMLESS '+': it floats beside the
+              whole roster and follows her down the page, so it can't know which
+              room she means — and it doesn't pretend to. It opens the sheet
+              with the room blank and makes her say. The per-room '+' on each
+              title line is the one that carries an answer with it. */}
           <button
             type="button"
             className={styles.railNew}
-            onClick={() => setCreating(true)}
+            onClick={() => setCreating('unset')}
             title="New session"
             aria-label="New session"
           >

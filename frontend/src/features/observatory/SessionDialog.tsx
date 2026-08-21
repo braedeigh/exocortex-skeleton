@@ -31,14 +31,30 @@ export interface SessionDraft {
  * diary switch.
  *
  * The room is a real picker in BOTH modes, but it doesn't mean the same thing
- * in each, so the blurb under it changes. On CREATE it's the live choice (there
- * used to be a '+' per lane that made it implicitly; now one floating '+' makes
- * it explicit) and it fixes `cwd` — where the session runs — permanently. On
- * EDIT it only re-scopes the safety nets from the next turn on; `cwd` is
- * already set and the backend can't move it.
+ * in each, so the blurb under it changes. On CREATE it fixes `cwd` — where the
+ * session runs — permanently. On EDIT it only re-scopes the safety nets from
+ * the next turn on; `cwd` is already set and the backend can't move it.
+ *
+ * THE ROOM IS NEVER GUESSED. `lane` can arrive null, and then the picker opens
+ * on "Choose a room…" and the button at the bottom stays dead until she picks
+ * one. That's the roomless '+' in the rail: it floats over the whole roster and
+ * genuinely cannot know which room she means, and the room decides where the
+ * session RUNS, for good — a default there is the sheet quietly making the one
+ * irreversible choice on it. So it asks. The per-room '+' on each title line
+ * passes its own room in and she never sees the empty state.
+ *
+ * SAVE IS PINNED TO THE BOTTOM, and says what it will do — "Start session" when
+ * creating, "Save changes" when editing. It rides the Sheet's footer slot (the
+ * same one the to-do form uses), so the fields scroll under a bar that doesn't:
+ * on a phone this sheet is taller than the screen, and a button at the end of a
+ * scroll is a button she has to go looking for.
  *
  * Journal defaults OFF: the diary is the pinned Keeper session's door. Model
  * defaults to '' = inherit the CLI default.
+ *
+ * [prompt: "make it such that i have to select a room. and then on the modal
+ * make it such that the save says 'start session' and floats at the bottom
+ * fixed"]
  */
 export function SessionDialog({
   open,
@@ -58,9 +74,11 @@ export function SessionDialog({
   initial?: string;
   initialJournal?: boolean;
   initialModel?: string;
-  /** The lane being created into, or the session's current one when editing. */
-  lane: Lane;
-  /** True when editing an existing session — unlocks the lane picker. */
+  /** The lane being created into, or the session's current one when editing.
+   * null = nothing chosen yet, so she has to choose before she can start. */
+  lane: Lane | null;
+  /** True when editing an existing session. The room picker is live either
+   * way; this switches what the line under it says the change will DO. */
   editable?: boolean;
   /** null = following the lane default. */
   initialActGate?: boolean | null;
@@ -71,7 +89,9 @@ export function SessionDialog({
   const [name, setName] = useState(initial);
   const [journal, setJournal] = useState(initialJournal);
   const [model, setModel] = useState(initialModel);
-  const [pickedLane, setPickedLane] = useState<Lane>(lane);
+  // '' is the un-chosen state, not a lane. Kept as a falsy sentinel so every
+  // gate below ("can she save", "what does the room blurb say") is one check.
+  const [pickedLane, setPickedLane] = useState<Lane | ''>(lane ?? '');
   const [actGate, setActGate] = useState<boolean | null>(initialActGate);
 
   useEffect(() => {
@@ -79,16 +99,22 @@ export function SessionDialog({
       setName(initial);
       setJournal(initialJournal);
       setModel(initialModel);
-      setPickedLane(lane);
+      setPickedLane(lane ?? '');
       setActGate(initialActGate);
     }
     // Re-seed when the sheet opens, not as parent state refreshes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
+  // Both things this sheet can't invent for her: a name, and a room. The
+  // button reads this rather than each check being restated at the call site.
+  const ready = name.trim().length > 0 && pickedLane !== '';
+
+  // `ready` carries the `pickedLane !== ''` narrowing with it, so bailing on it
+  // is also what proves to the type checker there's a real lane to hand back.
   const save = () => {
-    const clean = name.trim();
-    if (clean) onSave({ name: clean, journal, model, lane: pickedLane, actGate });
+    if (!ready) return;
+    onSave({ name: name.trim(), journal, model, lane: pickedLane, actGate });
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -109,10 +135,39 @@ export function SessionDialog({
   // has a room (a leftover Orchestra session). Without it the <select> would
   // sit on a value it doesn't list — showing blank, and quietly rewriting the
   // lane to whatever ended up selected the first time she saved something else.
-  const laneChoices: Lane[] = isRoom(pickedLane) ? [...ROOMS] : [...ROOMS, pickedLane];
+  // '' isn't a lane and never joins the list; it gets the placeholder option.
+  const laneChoices: Lane[] =
+    pickedLane === '' || isRoom(pickedLane) ? [...ROOMS] : [...ROOMS, pickedLane];
 
   return (
-    <Sheet open={open} title={title} onClose={onClose}>
+    <Sheet
+      open={open}
+      title={title}
+      onClose={onClose}
+      /* The footer slot turns the Sheet into a column: header pinned, fields
+         scrolling, this bar sitting still at the bottom. It already handles the
+         phone's home-bar inset, which is the whole reason to reuse it rather
+         than float a button of our own down there. */
+      footer={
+        <button
+          type="button"
+          className={styles.dialogSave}
+          onClick={save}
+          disabled={!ready}
+          /* Says what it will DO. A dead button with no reason next to it is
+             the sheet sulking at her, so the title tells her what's missing. */
+          title={
+            ready
+              ? undefined
+              : pickedLane === ''
+                ? 'Choose a room first'
+                : 'Give it a name first'
+          }
+        >
+          {editable ? 'Save changes' : 'Start session'}
+        </button>
+      }
+    >
       <div className={styles.dialogBody}>
         <input
           autoFocus
@@ -132,6 +187,14 @@ export function SessionDialog({
             value={pickedLane}
             onChange={(e) => setPickedLane(e.target.value as Lane)}
           >
+            {/* Only drawn while nothing is chosen, and it can't be chosen —
+                so the empty state is visible but not a thing she can come back
+                to and save. */}
+            {pickedLane === '' ? (
+              <option value="" disabled>
+                Choose a room…
+              </option>
+            ) : null}
             {laneChoices.map((l) => (
               <option key={l} value={l}>
                 {LANE_LABEL[l]}
@@ -139,10 +202,16 @@ export function SessionDialog({
             ))}
           </select>
           <span className={styles.dialogFieldDesc}>
-            {LANE_BLURB[pickedLane]}{' '}
-            {editable
-              ? 'Moving rooms changes that from the next turn on — it does not move where the session runs, which is fixed when it’s created.'
-              : 'This also fixes where the session runs, for good — that part can’t be changed later.'}
+            {pickedLane === '' ? (
+              'Where this session stands — which decides what it can reach. Pick one to start.'
+            ) : (
+              <>
+                {LANE_BLURB[pickedLane]}{' '}
+                {editable
+                  ? 'Moving rooms changes that from the next turn on — it does not move where the session runs, which is fixed when it’s created.'
+                  : 'This also fixes where the session runs, for good — that part can’t be changed later.'}
+              </>
+            )}
           </span>
         </label>
 
@@ -178,7 +247,14 @@ export function SessionDialog({
               setActGate(v === '' ? null : v === 'on');
             }}
           >
-            <option value="">Follow the room ({gateOn ? 'asks' : 'just acts'})</option>
+            {/* Names what "follow" actually resolves to — but only once there's
+                a room to follow. With none picked it can't know, and a label
+                that guesses is worse than one that waits. */}
+            <option value="">
+              {pickedLane === ''
+                ? 'Follow the room'
+                : `Follow the room (${gateOn ? 'asks' : 'just acts'})`}
+            </option>
             <option value="on">Always ask</option>
             <option value="off">Never ask</option>
           </select>
@@ -199,10 +275,6 @@ export function SessionDialog({
             </span>
           </span>
         </label>
-
-        <button type="button" className={styles.dialogSave} onClick={save}>
-          Save
-        </button>
       </div>
     </Sheet>
   );

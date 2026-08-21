@@ -125,8 +125,35 @@ export function cardState(
   return 'rest';
 }
 
+/** The sessions the ROOMS on the roster can actually draw — and therefore the
+ * only ones the rail is allowed to count.
+ *
+ * The payload carries more than the page shows. Two kinds of session are lifted
+ * out of the rooms on purpose:
+ *
+ *   pinned            the Keeper, hoisted above the rooms into its own slot and
+ *                     deliberately exempt from these colours — it's the door to
+ *                     her day, not something she's triaging
+ *   origin nightcrew  worker sessions, which belong to the Night crew section
+ *                     and are reached through their run card's session door
+ *
+ * WHY THIS IS A FUNCTION AND NOT A LINE IN THE PAGE. It used to be a line in
+ * the page — inside the room split only — while the counts were taken over the
+ * whole payload. The two drifted, which is the bug this file exists to prevent:
+ * on her install the rail read "32 unread" and "3 errors" over 3 sessions
+ * actually on screen, and all three red ones were night-crew workers, so the
+ * red button reported breakage that existed nowhere she could reach and
+ * pressing it emptied both rooms. Counting a population you don't render is
+ * always this bug. One list, one definition, here.
+ *
+ * [prompt: "why does the orange one say 32 when i don't have that many open and
+ * why does the red one say 3 when i don't see any"] */
+export function roomRoster(sessions: SessionMeta[]): SessionMeta[] {
+  return sessions.filter((s) => !s.pinned && s.origin !== 'nightcrew');
+}
+
 /** How many sessions sit under each button — the number on its face, and (for
- * red) whether it's drawn at all. */
+ * red) whether it's drawn at all. Feed it roomRoster(), never the raw payload. */
 export function filterCounts(
   sessions: SessionMeta[],
   opened: Record<string, string>,

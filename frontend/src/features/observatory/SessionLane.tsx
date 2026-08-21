@@ -29,6 +29,11 @@ import styles from './SessionLane.module.css';
  * the top with the ask in her face — a request she has to walk past can't be a
  * whisper, or the queue becomes a graveyard (Terra).
  *
+ * EACH ROOM STARTS ITS OWN. The title line carries a '+' at its far end, so a
+ * new session is made IN the room she tapped rather than made somewhere and
+ * assigned a room afterwards. LaneHead owns the button; this only says which
+ * room it means. The Keeper has no title line, so it has no '+'.
+ *
  * COLLAPSIBLE (her 08-03 ask). Rooms of cards make a long page on a phone,
  * so each one shuts to its title line and remembers that. The census stays on
  * the HEADER, so a shut room still reports what's running and what's waiting —
@@ -57,6 +62,7 @@ export function SessionLane({
   opened,
   emptyNote,
   onOpen,
+  onNew,
   onSetRead,
   onRename,
   onChanged,
@@ -84,6 +90,9 @@ export function SessionLane({
    * that case — she'd make a session to fill a room that isn't actually empty. */
   emptyNote?: string;
   onOpen: (convId: string) => void;
+  /** Start a session in THIS room — the '+' on the title line. Omitted for the
+   * Keeper, which has no title line to put it on. */
+  onNew?: () => void;
   /** Flip a card's read flag by hand (the dot button on the card). */
   onSetRead?: (convId: string, read: boolean) => void;
   onRename: (session: SessionMeta) => void;
@@ -121,7 +130,13 @@ export function SessionLane({
   // heading over a single card is a label telling her what she's already
   // looking at. The teal ring and the 🌙 badge on the card do that work.
   const head = keeper ? null : (
-    <LaneHead heading={heading} open={open} onToggle={toggleOpen} wanting={needing > 0}>
+    <LaneHead
+      heading={heading}
+      open={open}
+      onToggle={toggleOpen}
+      wanting={needing > 0}
+      onNew={onNew}
+    >
       {needing > 0 ? (
         <span className={styles.waitCount}>
           {needing} need{needing === 1 ? 's' : ''} you
@@ -158,7 +173,7 @@ export function SessionLane({
       {rows.length === 0 ? (
         <div className={styles.idle}>
           <span className={styles.idleDot} aria-hidden="true" />
-          {emptyNote ?? 'Nothing here yet — tap + at the top right to start one.'}
+          {emptyNote ?? 'Nothing here yet — tap + beside the heading to start one.'}
         </div>
       ) : (
         <div className={styles.rows}>
