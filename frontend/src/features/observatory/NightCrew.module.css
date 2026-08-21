@@ -607,3 +607,105 @@
   color: var(--text-secondary);
   word-break: break-all;
 }
+
+/* --- the door: night crew's entry on the roster page --- */
+/* The whole row is the control — a title with a chevron beside it would be a
+   second small target for one action, the same reasoning as LaneHead's heading.
+   Card-shaped rather than a link, because it stands where a whole section used
+   to and a bare line of text there would read as a footnote to Coding rather
+   than as its own place. */
+.door {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 64px;
+  margin-bottom: var(--space-6);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg, 14px);
+  background: var(--card-bg);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 180ms ease, transform 180ms ease, box-shadow 180ms ease;
+}
+
+.door:hover {
+  border-color: var(--accent);
+  /* transform + shadow only — nothing here touches layout, so it stays smooth
+     on the phone. */
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+}
+
+/* Something in there is finished and unjudged. The door warms so a room she
+   can't see into still reads as wanting her from across the page — the same
+   promise a collapsed room makes, for the same reason. */
+.doorWanting {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+}
+
+.doorMain {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  flex: 1;
+}
+
+.doorTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.doorReady {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--accent);
+}
+
+/* Hierarchy out of colour, not size — this stays as legible as the title. */
+.doorLine {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.doorSpend {
+  flex: none;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.doorArrow {
+  flex: none;
+  font-size: var(--font-size-lg);
+  color: var(--text-muted);
+  transition: color 180ms ease, transform 180ms ease;
+}
+
+.door:hover .doorArrow {
+  color: var(--accent);
+  transform: translateX(3px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .door,
+  .doorArrow {
+    transition: none;
+  }
+  .door:hover {
+    transform: none;
+  }
+  .door:hover .doorArrow {
+    transform: none;
+  }
+}

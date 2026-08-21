@@ -9,7 +9,6 @@ import {
   isRoom,
   toLane,
   updateConversation,
-  wakeSteward,
   type Room,
   type SessionMeta,
 } from './api';
@@ -18,7 +17,8 @@ import { openedMap, setConversationRead } from './readReceipts';
 import { applyFilter, filterCounts, roomRoster, type StateFilter } from './sessionFilters';
 import { SessionDialog, type SessionDraft } from './SessionDialog';
 import { SessionLane } from './SessionLane';
-import { NightCrewLane, type NightRun } from './NightCrewLane';
+import { NightCrewDoor } from './NightCrewDoor';
+import { fetchNightState, type NightState } from './NightCrewPage';
 import { MemoryMeter } from '../runqueue/MemoryMeter';
 import { useTerrain } from '../terrain/api';
 import { NotesPill } from '../todos/NotesPill';
@@ -104,13 +104,6 @@ const FILTERS: {
   },
 ];
 
-/** What GET /api/nightcrew hands back (routes/nightcrew.py). */
-interface NightState {
-  runs: NightRun[];
-  queue: { id: string; tab: string; text: string }[];
-  spend: { night_usd: number };
-}
-
 /** Each room's fuller introduction, in the page's own voice — headings come
  * from LANE_LABEL (api.ts), the shared single source, and the walk order from
  * ROOMS, so this page and the create dialog can't drift into offering
@@ -155,8 +148,17 @@ const LANE_INTRO: Record<Room, string> = {
  * and bringing the room back is adding 'orchestra' to ROOMS in api.ts.
  *
  * COLLAPSIBLE (same ask). Every room on this page shuts to its title line and
- * remembers it, Night crew included. The census stays on the header, so a shut
- * room can't hide something that wants her — LaneHead.tsx owns that rule.
+ * remembers it. The census stays on the header, so a shut room can't hide
+ * something that wants her — LaneHead.tsx owns that rule.
+ *
+ * NIGHT CREW LEFT (her 08-21 call: "make night crew into its own separate room
+ * ... i want it inside its own route inside of observatory, like you scroll
+ * down and can click into it from that location"). It was the tallest section
+ * here and the least like the rest: this page is for scanning what's live, and
+ * night crew is finished work read once in the morning off cards with diffs,
+ * screenshots and merge buttons. It's /observatory/nightcrew now, and what's
+ * left in its old spot is a door carrying its census (NightCrewDoor). This page
+ * still fetches /api/nightcrew — once, for that census, never polled.
  *
  * THE KEEPER STANDS OUTSIDE ALL OF IT (her 08-03 ask). The one pinned session
  * is hoisted above the rooms into a slot of its own: no lane, no heading, no
@@ -179,9 +181,10 @@ const LANE_INTRO: Record<Room, string> = {
  * (SessionLane) writes it through readReceipts' setConversationRead.
  *
  * The order down the page is the two rooms she's PRESENT for (Personal, then
- * Coding), then the one that runs underneath her (Night crew) — the things
+ * Coding), then the door to what ran underneath her (Night crew) — the things
  * she's doing above the things being done for her, which is the same instinct
- * as the 07-27 ordering call applied to a wider set.
+ * as the 07-27 ordering call applied to a wider set. The ordering survived
+ * night crew becoming a page: the door kept the spot the section held.
  *
  * DOCKED MODE (07-25): also the Sessions view of the desktop split's left
  * pane (shell/KeeperPane.tsx). `onOpenConversation` is the seam — opening a
@@ -234,94 +237,13 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // The night crew's state. Fetched once on mount and after a dismiss, NOT on
-  // the 5.5s poll: nothing in this room changes while she's looking at it —
-  // the crew ran hours ago and nothing merges without her — so polling it
-  // would be a request per tick to watch a stack that cannot move.
+  // The night crew's census, for the DOOR only — the page itself owns the runs
+  // and every action on them now (NightCrewPage). One fetch on mount, never
+  // polled: nothing over there changes while she's looking at this page.
   const [night, setNight] = useState<NightState | null>(null);
-  const loadNight = () => {
-    fetch('/api/nightcrew')
-      .then((r) => (r.ok ? r.json() : null))
-      .then(setNight)
-      .catch(() => setNight(null));
-  };
-  useEffect(loadNight, []);
-
-  const dismissNightRun = (id: string) => {
-    // Optimistic: the card leaves on the tap. A dismiss that can't fail in any
-    // way she'd care about shouldn't make her wait for a round-trip.
-    setNight((prev) =>
-      prev
-        ? { ...prev, runs: prev.runs.map((r) => (r.id === id ? { ...r, dismissed: true } : r)) }
-        : prev,
-    );
-    fetch(`/api/nightcrew/runs/${id}/dismiss`, { method: 'POST' }).catch(loadNight);
-  };
-
-  /** Merge/revert are NOT optimistic — they write to her real branch and can
-   * legitimately refuse (dirty tree, conflict), so the card waits for the
-   * server and shows whatever it says. Resolves to an error string, or null
-   * when it landed. Success also goes live in the background (~30s build +
-   * reload), so a couple of delayed refreshes catch the card's go-live line
-   * flipping to "live" without her mashing reload. */
-  const nightAction = (id: string, verb: 'merge' | 'revert'): Promise<string | null> =>
-    fetch(`/api/nightcrew/runs/${id}/${verb}`, { method: 'POST' })
-      .then((r) => r.json().then((body) => ({ ok: r.ok, body })))
-      .then(({ ok, body }) => {
-        if (!ok || !body?.ok) return body?.error || `Couldn't ${verb}.`;
-        loadNight();
-        [8000, 35000, 70000].forEach((ms) => setTimeout(loadNight, ms));
-        return null;
-      })
-      .catch(() => "Couldn't reach the server.");
-  const mergeNightRun = (id: string) => nightAction(id, 'merge');
-  const revertNightRun = (id: string) => nightAction(id, 'revert');
-
-  /** Her one-line why, filed onto the run record. Fire-and-forget — losing a
-   * note to a network blip isn't worth making her wait on a dismissal. */
-  const feedbackNightRun = (id: string, note: string): Promise<void> =>
-    fetch(`/api/nightcrew/runs/${id}/feedback`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ note }),
-    })
-      .then(() => undefined)
-      .catch(() => undefined);
-
-  /** Her reply on a finished card — wakes (or rejoins) the ONE steward for
-   * that branch. Waits for the server: waking cuts a worktree and can
-   * legitimately refuse (merged branch, live session), and the refusal
-   * belongs on the card in the server's plain words. On success the night
-   * stack reloads so the card grows its Session ↗ link. */
-  const wakeBranchSteward = (
-    branch: string,
-    message: string,
-  ): Promise<{ convId: string | null; error: string | null }> =>
-    wakeSteward(branch, message)
-      .then((body) => {
-        loadNight();
-        return { convId: body.conversation_id ?? null, error: null };
-      })
-      .catch((e: unknown) => ({
-        convId: null,
-        error: e instanceof Error ? e.message : "Couldn't wake it.",
-      }));
-
-  /** Judges a picked card (pick-only mode). Reject writes the permanent
-   * never-propose-again on the note, so this waits for the server. */
-  const pickNightRun = (id: string, verdict: 'approve' | 'reject', note: string): Promise<string | null> =>
-    fetch(`/api/nightcrew/runs/${id}/pick`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ verdict, note: note || undefined }),
-    })
-      .then((r) => r.json().then((body) => ({ ok: r.ok, body })))
-      .then(({ ok, body }) => {
-        if (!ok || !body?.ok) return body?.error || "Couldn't record that.";
-        loadNight();
-        return null;
-      })
-      .catch(() => "Couldn't reach the server.");
+  useEffect(() => {
+    void fetchNightState().then(setNight);
+  }, []);
 
   // ONE terrain poll for the whole page, passed down to both lanes — two
   // sections must not mean two pollers on the same endpoint. Live only while
@@ -521,20 +443,14 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
             />
           ))}
 
-          {/* The last room. Not a lane of sessions — a stack of finished
-              attempts waiting for a verdict, so it renders itself rather than
-              going through SessionLane. */}
-          <NightCrewLane
+          {/* Night crew is a PAGE now, and this is the way in — left exactly
+              where its section used to sit, because that's where she already
+              scrolls to look for it. The row carries the census so a place she
+              can't see into still says what's waiting on her. */}
+          <NightCrewDoor
             runs={night?.runs ?? []}
             queued={night?.queue?.length ?? 0}
             spendUsd={night?.spend?.night_usd ?? 0}
-            onDismiss={dismissNightRun}
-            onMerge={mergeNightRun}
-            onRevert={revertNightRun}
-            onFeedback={feedbackNightRun}
-            onPick={pickNightRun}
-            onWake={wakeBranchSteward}
-            onOpenSession={open}
           />
 
           <div className={styles.laterNote}>

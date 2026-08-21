@@ -8,12 +8,20 @@ import styles from './NightCrew.module.css';
  * NightCrewLane — "Built for you": everything an agent has finished and left on
  * a branch, waiting on her.
  *
+ * WHERE IT RENDERS. Its own page, /observatory/nightcrew (NightCrewPage.tsx),
+ * not the roster — it stacked there until 08-21. The roster keeps a door in the
+ * spot it used to occupy (NightCrewDoor.tsx). This component is unchanged by
+ * that move and still collapses like a room, because the page holds more than
+ * just this section; what changed is only which page it's a section OF.
+ *
  * FINISHED-AND-WAITING, not live (Sunflower). That is what defines this room,
- * and it's a different axis from its three siblings. Personal, Coding and
- * Orchestra are rooms for sessions that are HAPPENING, sorted by whether she's
- * watching. Nothing here is running — it's all done and holding for a verdict.
- * So the only hierarchy is what asks her for something: `ready` floats to the
- * top, then anything still being built, then the ones that couldn't.
+ * and it's a different axis from the roster's. Personal and Coding are rooms
+ * for sessions that are HAPPENING, sorted by whether she's watching. Nothing
+ * here is running — it's all done and holding for a verdict. That difference is
+ * what eventually moved it off the roster entirely: a page you scan and a page
+ * you read want different shapes. So the only hierarchy is what asks her for
+ * something: `ready` floats to the top, then anything still being built, then
+ * the ones that couldn't.
  *
  * WHY IT HOLDS TWO KINDS NOW. The night crew fills it while she sleeps — one
  * green-lit note per branch in a throwaway worktree, tests run, nothing merged

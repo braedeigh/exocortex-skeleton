@@ -1,0 +1,58 @@
+/* NightCrewPage — the page chrome for /observatory/nightcrew.
+
+   Deliberately the same bones as ArchivePage.module.css: both are pages that
+   hang off the roster and are reached by a door on it, so arriving at either
+   should feel like the same move. The threshold (back link, then the title),
+   the 720px column and the room at the end for the floating pills are all that
+   live here — the night crew's own content styles itself in
+   NightCrew.module.css. */
+
+.page {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--space-4) var(--space-3);
+  /* Room at the end so the last card clears the floating pills. */
+  padding-bottom: calc(var(--space-8) + 64px);
+}
+
+.inner {
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.back {
+  min-height: var(--tap-target);
+  padding: 0 var(--space-2) 0 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--font-size-base);
+  cursor: pointer;
+  transition: color 180ms ease;
+}
+
+.back:hover {
+  color: var(--accent);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-size-xl);
+  font-weight: 600;
+  color: var(--text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .back {
+    transition: none;
+  }
+}
