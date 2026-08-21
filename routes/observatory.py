@@ -43,7 +43,6 @@ from pathlib import Path
 import fcntl
 import json
 import os
-import queue
 import re
 import subprocess
 import sys
@@ -533,6 +532,122 @@ def _spawn(config, text, resume_sid, cwd_override=None):
     return proc, stderr_f
 
 
+# --- where a turn lives, and why it isn't here anymore -----------------------
+# A turn used to be run by a daemon thread inside whichever gunicorn worker
+# handled the send. That thread is the ONLY thing turning the agent's output
+# into a record, and `daemon=True` means it dies the instant its worker process
+# exits — no unwind, no `finally`, no error written down. The agent process
+# survived (orphaned, still thinking, still costing money) but nothing read its
+# stdout, so the transcript simply stopped and the card went GREY, exactly as
+# if the reply had finished normally.
+#
+# Measured on this install across every silent death still on disk: 10 of 11
+# landed within a second or two of a `Worker exiting` in the journal — 7 from a
+# `systemctl reload` (the documented deploy step) and 3 from gunicorn's own
+# `--max-requests` recycling, which fires on a request counter and so goes off
+# most often while the Observatory is being actively used. Two triggers, one
+# mechanism, and there will eventually be a third: a worker exiting is not an
+# event this app can design away.
+#
+# So the turn no longer lives in the worker. `_spawn_host` starts
+# scripts/turn_host.py in its own session (setsid), and THAT process owns the
+# agent, writes the transcript, and clears the `running` flag. A reload or a
+# recycle now takes out only the viewer. The web worker's job shrinks to:
+# stage the job, start the host, and tail the files like any other watcher.
+#
+# What still kills a turn, honestly: `systemctl restart`, because it empties
+# the whole service cgroup and the host is in it. That one is already covered
+# by scripts/live_turns.py refusing the deploy, and it's why restart stays
+# reserved for unit-file changes.
+#
+# Prompt that produced it: "just do c if it works to actually solve it in a
+# final way" — c being "move the turn out of the worker" over the two cheaper
+# patches that each covered only one trigger.
+
+def _live_path(conv_id):
+    """The current turn's token-delta sidecar.
+
+    The transcript deliberately holds no `stream_event` frames — token deltas
+    are transport, not record — but they're what makes a reply appear letter by
+    letter instead of paragraph by paragraph. With the turn hosted in another
+    process there's no in-memory queue to hand them over on, so they go in a
+    file beside the transcript: written by the host, tailed by every watcher,
+    and deleted the moment the turn ends.
+
+    Per-turn and short-lived by design. Nothing reads it as history, its
+    absence just means "no turn in flight", and losing it costs a typewriter
+    effect rather than a single word of the record.
+    """
+    return _chats_dir() / f"{conv_id}.live"
+
+
+def _turn_job_path(conv_id):
+    return _chats_dir() / ".turns" / f"{conv_id}.json"
+
+
+def _spawn_host(config, text, resume_sid, conv_id, log_path):
+    """Start this turn in its own process. True if it's away, False to fall back.
+
+    The prompt goes in a job FILE, not argv — same rule `_build_cmd` follows for
+    the same two reasons: no length limit, and nothing legible in `ps`. The host
+    deletes it as soon as it has read it.
+
+    A False here is not fatal. The caller drops back to running the turn in this
+    worker, which is what every turn did before — worse, but only in the way it
+    was already worse, and a bad interpreter path or a full disk shouldn't cost
+    her the reply.
+    """
+    host = Path(__file__).resolve().parents[1] / "scripts" / "turn_host.py"
+    if not host.exists():
+        return False
+    try:
+        job_path = _turn_job_path(conv_id)
+        job_path.parent.mkdir(parents=True, exist_ok=True)
+        job_path.write_text(json.dumps({
+            "conv_id": conv_id,
+            "config": config,
+            "text": text,
+            "resume_sid": resume_sid,
+            "log_path": str(log_path),
+            "live_path": str(_live_path(conv_id)),
+            # Told, not inherited. In production these arrive the same way
+            # either route — systemd's Environment= lines, passed down by
+            # Popen — but a host that reads its own environment is a host that
+            # writes to a different data dir than the worker that started it
+            # the moment anything resolves them differently. Naming them here
+            # makes the job self-describing and the path testable.
+            "data_dir": str(store.DATA_DIR),
+            "content_dir": str(store.CONTENT_DIR),
+            # Same reasoning one line up, and it's what lets a test drive the
+            # real host against a stub agent instead of the installed one.
+            "claude_bin": CLAUDE_BIN,
+        }), encoding="utf-8")
+    except (OSError, TypeError, ValueError):
+        return False
+    try:
+        # stderr goes to a file rather than a pipe for the same reason _spawn
+        # does it: nobody is on the other end, and a filled pipe would wedge
+        # the host. One rolling file per conversation, so a host that dies
+        # before it can write its own error still leaves the reason on disk.
+        err_path = job_path.with_suffix(".log")
+        with open(err_path, "ab") as errf:
+            subprocess.Popen(
+                [sys.executable, str(host), str(job_path)],
+                stdin=subprocess.DEVNULL, stdout=errf, stderr=errf,
+                # The whole point: its own session, so it is not in this
+                # worker's process group and outlives both a graceful reload
+                # and a --max-requests recycle.
+                start_new_session=True,
+            )
+    except (OSError, ValueError):
+        try:
+            job_path.unlink()
+        except OSError:
+            pass
+        return False
+    return True
+
+
 # Live turns, per worker: conv_id -> Popen. Only the explicit stop and close
 # endpoints ever kill a turn through this — a client disconnect never touches
 # it (the whole point: closing the phone's PWA must not shoot the reply
@@ -551,6 +666,11 @@ _RUNNING_STALE_SEC = 600
 # dispatcher's STALE_SEC, which is the same 600 — or the heartbeat can't
 # prevent the thing it exists to prevent.
 _HEARTBEAT_SEC = 30
+
+# How long token deltas may sit in the sidecar's buffer before they're flushed
+# to disk for watchers to see. Trades syscalls against how live the typing
+# looks; a tenth of a second reads as instant.
+_LIVE_FLUSH_SEC = 0.1
 
 
 def _effective_running(conv_id, entry):
@@ -588,12 +708,21 @@ def _stderr_tail(stderr_f):
         return ""
 
 
-def _run_turn(proc, stderr_f, conv_id, log_path, resume_sid, live_q):
-    """Own one turn end-to-end, detached from any HTTP connection: relay
-    events to the live viewer queue, keep the jsonl log, and persist the
-    resume id the moment it exists — so a turn interrupted by anything
-    (closed PWA, dropped proxy, worker recycle) is still resumable and its
-    finished text is still in the record.
+def _run_turn(proc, stderr_f, conv_id, log_path, resume_sid, live_q=None,
+              live_path=None):
+    """Own one turn end-to-end, detached from any HTTP connection: keep the
+    jsonl log, and persist the resume id the moment it exists — so a turn
+    interrupted by anything (closed PWA, dropped proxy, worker recycle) is
+    still resumable and its finished text is still in the record.
+
+    Runs in ONE of two places, and the difference is the two optional
+    arguments. Normally it runs inside scripts/turn_host.py — its own process,
+    outlives the web service — and hands token deltas over in `live_path`, a
+    file any watcher in any process can tail. The fallback, when the host can't
+    be started, is the old in-worker thread, which relays through the in-memory
+    `live_q` instead. Everything else about the turn is identical either way,
+    which is the point of it being one function: there is no second
+    implementation to drift.
 
     Every reply is logged, including the reply to an off-the-record turn.
     Journaling is decided at the send door, not here; dropping the reply too
@@ -646,6 +775,16 @@ def _run_turn(proc, stderr_f, conv_id, log_path, resume_sid, live_q):
     # stream and a line in the jsonl, so a turn that died with nobody watching
     # left a card that looked merely idle.
     turn_error = None
+    # The token-delta sidecar, opened fresh for this turn (see _live_path).
+    # Truncating rather than appending is deliberate: whatever a previous turn
+    # left behind is not this turn's typing.
+    live_f = None
+    last_flush = 0.0      # so the first delta flushes on sight — see below
+    if live_path:
+        try:
+            live_f = open(live_path, "w", encoding="utf-8")
+        except OSError:
+            live_f = None   # no typewriter; the transcript is untouched
     try:
         with open(log_path, "a", encoding="utf-8") as log:
             for line in proc.stdout:
@@ -676,7 +815,23 @@ def _run_turn(proc, stderr_f, conv_id, log_path, resume_sid, live_q):
                 if event.get("type") != "stream_event":
                     log.write(json.dumps(event) + "\n")
                     log.flush()   # the log is what a re-attaching client reads
-                live_q.put(event)
+                elif live_f is not None:
+                    # Deltas go to the sidecar, flushed on a short timer rather
+                    # than per token: flushing every token is tens of thousands
+                    # of syscalls across a long turn, and a tenth of a second is
+                    # still far below the point where an eye stops reading it as
+                    # typing.
+                    live_f.write(json.dumps(event) + "\n")
+                    # The FIRST delta goes out immediately (last_flush starts
+                    # at zero): that one is "it has started talking", and
+                    # holding it back for the timer is a tenth of a second of
+                    # dead air at the exact moment she's watching for a sign of
+                    # life. After that the timer takes over.
+                    if time.monotonic() - last_flush > _LIVE_FLUSH_SEC:
+                        live_f.flush()
+                        last_flush = time.monotonic()
+                if live_q is not None:
+                    live_q.put(event)
                 # A stop from the OTHER gunicorn worker lands as an index
                 # flag; check it per message-granular event, never per token
                 # delta (that would re-read the index thousands of times).
@@ -692,7 +847,8 @@ def _run_turn(proc, stderr_f, conv_id, log_path, resume_sid, live_q):
                 turn_error = err or f"claude exited {proc.returncode}"
                 ev = {"type": "error", "error": turn_error}
                 log.write(json.dumps(ev) + "\n")
-                live_q.put(ev)
+                if live_q is not None:
+                    live_q.put(ev)
     finally:
         beat_stop.set()   # before the index write below, so the two can't race
         _running_procs.pop(conv_id, None)
@@ -701,6 +857,19 @@ def _run_turn(proc, stderr_f, conv_id, log_path, resume_sid, live_q):
             stderr_f.close()
         except OSError:
             pass
+        # The sidecar dies with the turn: it is this turn's typing and nothing
+        # else. A watcher that loses it mid-read just falls back to the
+        # transcript, which has every committed word.
+        if live_f is not None:
+            try:
+                live_f.close()
+            except OSError:
+                pass
+        if live_path:
+            try:
+                os.unlink(live_path)
+            except OSError:
+                pass
         with store.mutate("bot_chats/index", {}) as index:
             entry = index.get(conv_id)
             if isinstance(entry, dict):
@@ -718,8 +887,9 @@ def _run_turn(proc, stderr_f, conv_id, log_path, resume_sid, live_q):
                 if cost is not None:
                     entry["cost_usd"] = round(
                         float(entry.get("cost_usd") or 0.0) + float(cost), 6)
-        live_q.put({"type": "done", "conversation_id": conv_id})
-        live_q.put(None)   # viewer sentinel — the stream is over
+        if live_q is not None:
+            live_q.put({"type": "done", "conversation_id": conv_id})
+            live_q.put(None)   # viewer sentinel — the stream is over
 
 
 # --- Terrain repo roots ------------------------------------------------------
@@ -745,20 +915,18 @@ def _sse(obj):
     return f"data: {json.dumps(obj)}\n\n"
 
 
-# --- following a turn this process does not own ------------------------------
-# The send route hands its client a live view of the turn thread's in-memory
-# queue, which only works when the turn is running in THIS process. Everything
-# else — the other gunicorn worker, a re-attaching phone, and (the reason this
-# exists) a turn hosted outside the web service entirely — has had to poll the
-# whole transcript and diff it. That is fine for a reconnect and much too heavy
-# to be the normal way of watching a reply arrive.
+# --- watching a turn, from anywhere ------------------------------------------
+# NOBODY owns a turn from inside the web app any more — it runs in its own
+# process (see _spawn_host) — so every watcher is in the same position: the tab
+# that sent it, the other gunicorn worker, a phone reconnecting an hour later.
+# They all read the same two files.
 #
-# So this reads the transcript the way `tail -f` does: remember a byte offset,
-# read what's new, hand over the whole lines, keep the partial one for next
-# time. The log is already flushed per event by _run_turn ("the log is what a
+# This reads them the way `tail -f` does: remember a byte offset, read what's
+# new, hand over the whole lines, keep the partial one for next time. The
+# transcript is already flushed per event by _run_turn ("the log is what a
 # re-attaching client reads"), so it is a live feed that happens to be durable
 # — and it does not care one bit which process, service or machine is doing
-# the writing.
+# the writing. _stream_events below is the reader; both doors use it.
 _FOLLOW_POLL_SEC = 0.4        # how often to look for new lines
 _FOLLOW_RUNNING_EVERY = 5     # ...and how many of those before re-asking the
                               # index whether the turn is still alive (that is
@@ -787,6 +955,126 @@ def _read_whole_lines(path, offset):
         return [], offset
     whole = chunk[: end + 1]
     return whole.decode("utf-8", "replace").splitlines(), offset + len(whole)
+
+
+def _stream_events(conv_id, skip_events=0, start_offset=0, first_frame=None,
+                   live_from_start=False):
+    """One live view of a turn, for every watcher there is.
+
+    Both doors onto a running turn come through here now — the send that
+    started it and a `/follow` from somewhere else — because with the turn
+    hosted in its own process, the sender has no privileged view of it either.
+    It's a watcher like any other, and one implementation means the phone that
+    reconnects can't render a turn differently from the tab that sent it.
+
+    Two files, tailed together. The transcript is the spine (every committed
+    event, durable, flushed per write) and the `.live` sidecar carries token
+    deltas. Interleaving between the two is best-effort on purpose: deltas only
+    ever paint a preview that the next authoritative `assistant` message
+    overwrites, so a delta arriving a beat late costs nothing, and paying for
+    strict ordering between two files would buy nothing back.
+
+    Where to start is asked two ways, because the two callers know two
+    different things. `skip_events` is a COUNT, for a client reconnecting with
+    the `?from=` the last stream reported. `start_offset` is a BYTE position,
+    for the send route, which just appended her message and knows exactly where
+    the file ended. Pass one or the other, never both.
+    """
+    path = _chats_dir() / f"{conv_id}.jsonl"
+    live = _live_path(conv_id)
+
+    def generate():
+        if first_frame is not None:
+            yield _sse(first_frame)
+        offset, sent = start_offset, 0
+        # WHERE TO PICK THE TYPING UP depends on whether this watcher was here
+        # when the turn began.
+        #
+        # The send that started it was: it wants the sidecar from byte zero, or
+        # it misses the opening words — and because the host truncates the file
+        # as it starts, "the end" at this moment is a moving target it would
+        # lose a race against.
+        #
+        # Anyone joining later was not. They already hold every committed word
+        # from history, so replaying a half-typed sentence would make the reply
+        # jump backwards and type itself out a second time. They start at the
+        # end and take only what comes next.
+        live_offset = 0
+        if not live_from_start:
+            try:
+                live_offset = live.stat().st_size
+            except OSError:
+                live_offset = 0
+        started = last_spoke = time.monotonic()
+        ticks = 0
+        running = True
+        while True:
+            # DELTAS BEFORE THE TRANSCRIPT, every cycle, and the order is
+            # load-bearing. A delta appends to the client's in-flight buffer;
+            # the `assistant` message that follows replaces it authoritatively.
+            # Read the other way round, a cycle that picks up both at once
+            # hands over the finished message FIRST and then the deltas that
+            # built it — which re-fills a buffer the message had just settled,
+            # and paints the tail of the reply twice on screen.
+            # The sidecar is truncated at the start of every turn. A watcher
+            # still holding an offset from the last one would be seeking past
+            # the end of the new file and would sit there reading nothing for
+            # the rest of the turn, so a file that has SHRUNK means "new turn"
+            # and the offset goes back to the top.
+            try:
+                if live.stat().st_size < live_offset:
+                    live_offset = 0
+            except OSError:
+                live_offset = 0   # deleted: the turn ended, or hasn't begun
+            deltas, live_offset = _read_whole_lines(live, live_offset)
+            for raw in deltas:
+                try:
+                    yield _sse(json.loads(raw))
+                except ValueError:
+                    continue
+                last_spoke = time.monotonic()
+            lines, offset = _read_whole_lines(path, offset)
+            for raw in lines:
+                sent += 1
+                if sent <= skip_events:
+                    continue      # catching up to where the client already is
+                try:
+                    yield _sse(json.loads(raw))
+                except ValueError:
+                    continue      # a torn historical line, same as elsewhere
+                last_spoke = time.monotonic()
+            # `running` is only ever set False after a read, so the events
+            # written between the last read and the flag clearing are always
+            # sent before this loop leaves.
+            if not running or time.monotonic() - started > _FOLLOW_MAX_SEC:
+                break
+            # Checked on the very first pass, not after the first interval:
+            # watching a turn that has already finished is the common case (a
+            # reconnect that missed the end) and it must return at once rather
+            # than sit here waiting to ask.
+            if ticks % _FOLLOW_RUNNING_EVERY == 0:
+                entry = store.read("bot_chats/index", {}).get(conv_id)
+                running = bool(isinstance(entry, dict)
+                               and _effective_running(conv_id, entry))
+                if not running:
+                    continue      # one last read, then out
+            ticks += 1
+            if time.monotonic() - last_spoke > _FOLLOW_KEEPALIVE_SEC:
+                # nginx gives up on a silent proxied stream at 60s, and a long
+                # tool stretch says nothing for longer than that.
+                yield ": keepalive\n\n"
+                last_spoke = time.monotonic()
+            time.sleep(_FOLLOW_POLL_SEC)
+        # `done` closes the turn for the send client (which used to get it off
+        # the in-process queue); `follow_end` tells a reconnecting one that the
+        # reply ENDED rather than that its connection died — the two are
+        # indistinguishable to an SSE reader otherwise. Both go to everyone:
+        # the reducer treats a second closer as a no-op, and one shape for all
+        # watchers is worth more than saving a frame.
+        yield _sse({"type": "done", "conversation_id": conv_id})
+        yield _sse({"type": "follow_end", "count": sent})
+
+    return generate
 
 
 # --- Keeper rollover control: let the UI fire (and poll) the same close/open
@@ -1901,57 +2189,18 @@ def register(app):
 
         Deliberately knows nothing about who is running the turn. That is the
         whole point: the same endpoint serves the other gunicorn worker, a
-        reconnecting phone, and a turn hosted in a different systemd service.
+        reconnecting phone, and a turn hosted in a different systemd service —
+        which, since the turn moved out of the web worker, is now every turn.
+        The reading itself lives in _stream_events, shared with the send route.
         """
         if not _CONV_ID_RE.match(conv_id or ""):
             return jsonify({"error": "bad conversation id"}), 400
-        path = _chats_dir() / f"{conv_id}.jsonl"
         try:
             already = max(0, int(request.args.get("from", 0)))
         except (TypeError, ValueError):
             already = 0
-
-        def generate():
-            offset, sent = 0, 0
-            started = last_spoke = time.monotonic()
-            ticks = 0
-            running = True
-            while True:
-                lines, offset = _read_whole_lines(path, offset)
-                for raw in lines:
-                    sent += 1
-                    if sent <= already:
-                        continue      # catching up to where the client already is
-                    try:
-                        yield _sse(json.loads(raw))
-                    except ValueError:
-                        continue      # a torn historical line, same as elsewhere
-                    last_spoke = time.monotonic()
-                # `running` is only ever set False after a read, so the events
-                # written between the last read and the flag clearing are
-                # always sent before this loop leaves.
-                if not running or time.monotonic() - started > _FOLLOW_MAX_SEC:
-                    break
-                # Checked on the very first pass, not after the first interval:
-                # following a turn that has already finished is the common
-                # case (a reconnect that missed the end) and it must return at
-                # once rather than sit here waiting to ask.
-                if ticks % _FOLLOW_RUNNING_EVERY == 0:
-                    entry = store.read("bot_chats/index", {}).get(conv_id)
-                    running = bool(isinstance(entry, dict)
-                                   and _effective_running(conv_id, entry))
-                    if not running:
-                        continue      # one last read, then out
-                ticks += 1
-                if time.monotonic() - last_spoke > _FOLLOW_KEEPALIVE_SEC:
-                    # nginx gives up on a silent proxied stream at 60s, and a
-                    # long tool stretch says nothing for longer than that.
-                    yield ": keepalive\n\n"
-                    last_spoke = time.monotonic()
-                time.sleep(_FOLLOW_POLL_SEC)
-            yield _sse({"type": "follow_end", "count": sent})
-
-        return Response(generate(), mimetype="text/event-stream",
+        return Response(_stream_events(conv_id, skip_events=already)(),
+                        mimetype="text/event-stream",
                         headers={"Cache-Control": "no-cache",
                                  "X-Accel-Buffering": "no"})
 
@@ -2172,8 +2421,8 @@ def register(app):
     def _send_to_conversation(conv_id_req, text, record, legacy_bot=None, decision=None,
                               operator=False):
         """Shared machinery behind both send routes above: one-turn-at-a-time
-        gating, capture-first journaling, jsonl logging, the detached
-        _run_turn thread, and the SSE relay.
+        gating, capture-first journaling, writing her line into the jsonl,
+        handing the turn to its own process, and returning a watcher's stream.
 
         `legacy_bot` is set only by the legacy per-bot route: it supplies the
         bot id/cwd used ONLY when minting a brand-new entry the old way (no
@@ -2383,49 +2632,52 @@ def register(app):
                     line["off_record"] = True
                 log.write(json.dumps(line) + "\n")
 
+        # Where her message ended. The stream below starts here, so the client
+        # is never handed back the line it just optimistically drew itself.
         try:
-            proc, stderr_f = _spawn(config, text, resume_sid, cwd_override=config.get("cwd"))
-        except OSError as e:
-            msg = f"could not start claude: {e}"
-            with store.mutate("bot_chats/index", {}) as index:
-                entry = index.get(conv_id)
-                if isinstance(entry, dict):
-                    entry["running"] = False
-                    entry["last_error"] = msg   # same reason as the memory floor above
-            return jsonify({"error": msg}), 502
+            start_offset = os.path.getsize(log_path)
+        except OSError:
+            start_offset = 0
 
-        # The turn now belongs to this thread, not this request: it logs,
-        # relays, and finishes whether or not anyone is watching. Closing the
-        # PWA mid-reply used to kill claude (the old generator's finally);
-        # now it just closes the window onto a turn that keeps writing.
-        live_q = queue.Queue()
-        _running_procs[conv_id] = proc
-        threading.Thread(
-            target=_run_turn,
-            args=(proc, stderr_f, conv_id, log_path, resume_sid, live_q),
-            daemon=True,
-        ).start()
+        # The turn goes to its OWN PROCESS, which is what makes it survive this
+        # worker (see the _spawn_host block up top for the measurements that
+        # forced this). This request's only remaining job is to watch it like
+        # anybody else.
+        if not _spawn_host(config, text, resume_sid, conv_id, log_path):
+            # Belt-and-braces, same shape spinoff_runner.py uses: if the host
+            # can't start, run the turn here rather than lose her reply. This
+            # is the old behaviour exactly — including its exposure to a worker
+            # exit — so a failure to launch degrades to what every turn used to
+            # do, and never to nothing.
+            try:
+                proc, stderr_f = _spawn(config, text, resume_sid,
+                                        cwd_override=config.get("cwd"))
+            except OSError as e:
+                msg = f"could not start claude: {e}"
+                with store.mutate("bot_chats/index", {}) as index:
+                    entry = index.get(conv_id)
+                    if isinstance(entry, dict):
+                        entry["running"] = False
+                        entry["last_error"] = msg   # same reason as the memory floor above
+                return jsonify({"error": msg}), 502
+            _running_procs[conv_id] = proc
+            threading.Thread(
+                target=_run_turn,
+                args=(proc, stderr_f, conv_id, log_path, resume_sid),
+                kwargs={"live_path": _live_path(conv_id)},
+                daemon=True,
+            ).start()
 
-        def generate():
-            # A pure viewer over the turn thread's queue. Ending (or dying —
-            # GeneratorExit on client disconnect) leaves the turn untouched;
-            # only /stop kills a turn now.
-            yield _sse({"type": "conv", "conversation_id": conv_id,
-                        "bot": bot_id, "journaled": journaled})
-            while True:
-                try:
-                    item = live_q.get(timeout=15)
-                except queue.Empty:
-                    # SSE comment keepalive: nginx's default proxy_read_timeout
-                    # is 60s, and a long tool stretch can be silent longer than
-                    # that — the comment keeps the pipe warm without touching
-                    # the event vocabulary.
-                    yield ": keepalive\n\n"
-                    continue
-                if item is None:
-                    break
-                yield _sse(item)
-
-        return Response(generate(), mimetype="text/event-stream",
-                        headers={"Cache-Control": "no-cache",
-                                 "X-Accel-Buffering": "no"})
+        # Same view every other watcher gets — the transcript plus the delta
+        # sidecar. Ending it (or dying on a client disconnect) leaves the turn
+        # completely untouched; only /stop kills a turn.
+        return Response(
+            _stream_events(conv_id, start_offset=start_offset,
+                           live_from_start=True,
+                           first_frame={"type": "conv",
+                                        "conversation_id": conv_id,
+                                        "bot": bot_id,
+                                        "journaled": journaled})(),
+            mimetype="text/event-stream",
+            headers={"Cache-Control": "no-cache",
+                     "X-Accel-Buffering": "no"})

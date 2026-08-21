@@ -1,10 +1,15 @@
-"""Following a turn from a process that doesn't own it.
+"""Following a turn from a process that doesn't own it — which is all of them.
 
-The send route hands its own client a view of an in-memory queue, which only
-works while the turn is running in that same process. This endpoint is the
-other way in: read the transcript as it is appended. It is what lets the other
-gunicorn worker, a reconnecting phone, and (the reason it exists) a turn hosted
-outside the web service entirely all watch the same reply arrive.
+A turn runs in its own process now (scripts/turn_host.py), so no watcher has a
+privileged view of it: the tab that sent it, the other gunicorn worker and a
+phone reconnecting an hour later all do the same thing, which is read the
+transcript as it's appended. This file covers that reading.
+
+Every stream closes with two frames, in this order: `done` (the turn ended) and
+`follow_end` (the stream ended). They answer different questions — an SSE
+reader can't otherwise tell a finished reply from a dropped connection — and
+both go to every watcher, because one shape for all of them is worth more than
+saving a frame.
 
 The case worth the most care is the torn line. Events are appended while this
 is reading, so a read can land mid-write — and handing a client half an event,
@@ -58,7 +63,7 @@ def test_follow_streams_the_events_already_on_disk(follow_client):
                      {"type": "assistant", "n": 1}])
     idle("c1")
     got = events_from(follow_client.get("/api/observatory/conversation/c1/follow"))
-    assert [e.get("type") for e in got] == ["user", "assistant", "follow_end"]
+    assert [e.get("type") for e in got] == ["user", "assistant", "done", "follow_end"]
 
 
 def test_from_skips_what_the_client_already_has(follow_client):
@@ -69,7 +74,7 @@ def test_from_skips_what_the_client_already_has(follow_client):
     idle("c1")
     got = events_from(follow_client.get(
         "/api/observatory/conversation/c1/follow?from=2"))
-    assert [e.get("type") for e in got] == ["assistant", "follow_end"]
+    assert [e.get("type") for e in got] == ["assistant", "done", "follow_end"]
     assert got[0]["n"] == 2
 
 
@@ -81,7 +86,7 @@ def test_a_half_written_event_is_never_handed_over(follow_client):
               partial='{"type": "assistant", "n": 2, "text": "half a th')
     idle("c1")
     got = events_from(follow_client.get("/api/observatory/conversation/c1/follow"))
-    assert [e.get("type") for e in got] == ["assistant", "follow_end"]
+    assert [e.get("type") for e in got] == ["assistant", "done", "follow_end"]
     assert got[0]["n"] == 1
     # ...and the count reported back excludes it, so the client's next `from`
     # picks the completed event up rather than stepping over it.
@@ -102,13 +107,14 @@ def test_a_torn_historical_line_costs_only_itself(follow_client):
         fh.write(json.dumps({"type": "assistant"}) + "\n")
     idle("c1")
     got = events_from(follow_client.get("/api/observatory/conversation/c1/follow"))
-    assert [e.get("type") for e in got] == ["user", "assistant", "follow_end"]
+    assert [e.get("type") for e in got] == ["user", "assistant", "done", "follow_end"]
 
 
 def test_a_conversation_with_no_log_yet_ends_cleanly(follow_client):
     idle("c1")
     got = events_from(follow_client.get("/api/observatory/conversation/c1/follow"))
-    assert got == [{"type": "follow_end", "count": 0}]
+    assert got == [{"type": "done", "conversation_id": "c1"},
+                   {"type": "follow_end", "count": 0}]
 
 
 def test_a_junk_conversation_id_is_refused(follow_client):

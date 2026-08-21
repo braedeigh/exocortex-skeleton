@@ -63,6 +63,20 @@ def bot_client(data_dir, tmp_path, monkeypatch):
     stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
     monkeypatch.setattr(observatory, "CLAUDE_BIN", str(stub))
     monkeypatch.setattr(store, "CONTENT_DIR", tmp_path / "content")
+    # RUN THE TURN IN-PROCESS FOR THESE TESTS. In production a send hands the
+    # turn to scripts/turn_host.py in its own process, which is what makes it
+    # survive a worker exit. That path is real and it is covered — end to end,
+    # against this same stub — in test_turn_host.py. Here it is switched off on
+    # purpose: these 150 tests are about the turn LOOP and the route contract
+    # (what lands in the transcript, the index, the stream), and _run_turn is
+    # the identical function either way. Letting each of them fork a Python
+    # process would buy no extra coverage and cost seconds apiece.
+    #
+    # Returning False is not a test-only trapdoor — it is the same answer
+    # _spawn_host gives in production when the host can't be launched, and the
+    # in-worker fallback it selects is a supported path, so this exercises real
+    # code rather than a mock.
+    monkeypatch.setattr(observatory, "_spawn_host", lambda *a, **k: False)
     # The roster asks recap_summary for card summaries — never let a test
     # kick off a real background Haiku call.
     monkeypatch.setattr(recap_summary, "_spawn", lambda fn: None)
@@ -135,10 +149,19 @@ def test_send_streams_events_and_writes_her_own_log(bot_client):
     assert resp.status_code == 200
     events = _sse_events(resp)
     conv_id = events[0]["conversation_id"]
-    # relay: conv header, then the stub's four events (deltas included), done
     types = [e["type"] for e in events]
-    assert types == ["conv", "system", "stream_event", "assistant", "result", "done"]
-    assert "echo: hi keeper" in json.dumps(events[3])
+    # The stream is now two files tailed together — the transcript, plus the
+    # `.live` sidecar carrying token deltas — so the sender sees exactly what a
+    # reconnecting phone sees, and both closers land: `done` (the turn ended)
+    # then `follow_end` (the stream ended).
+    assert types[0] == "conv"
+    assert types[-2:] == ["done", "follow_end"]
+    assert [t for t in types if t in ("system", "assistant", "result")] == [
+        "system", "assistant", "result"]
+    assert "echo: hi keeper" in json.dumps(
+        [e for e in events if e["type"] == "assistant"])
+    # (token deltas are asserted separately, against a stub that takes long
+    # enough to actually stream — see test_deltas_arrive_before_the_message)
     # her own record: user line + every claude event EXCEPT the token deltas
     # (stream_event is transport; the assistant message carries the text)
     log = _conv_log(conv_id)
@@ -917,6 +940,52 @@ def _install_slow_stub(tmp_path, monkeypatch):
     monkeypatch.setattr(observatory, "CLAUDE_BIN", str(stub))
 
 
+TYPING_STUB = """#!/usr/bin/env python3
+import sys, json, time
+text = sys.stdin.read()
+print(json.dumps({"type": "system", "subtype": "init", "session_id": "sid-1"}), flush=True)
+for word in ("thinking", " it", " over"):
+    print(json.dumps({"type": "stream_event", "event": {"type": "content_block_delta",
+        "delta": {"type": "text_delta", "text": word}}}), flush=True)
+    time.sleep(0.3)
+print(json.dumps({"type": "assistant", "message": {"role": "assistant",
+    "content": [{"type": "text", "text": "thinking it over"}]}}), flush=True)
+print(json.dumps({"type": "result", "subtype": "success",
+    "session_id": "sid-1", "total_cost_usd": 0.01}), flush=True)
+"""
+
+
+def test_deltas_arrive_before_the_message_they_built(bot_client, tmp_path, monkeypatch):
+    """The typewriter, and the ordering rule that keeps it honest.
+
+    Token deltas ride a sidecar file while the transcript carries committed
+    messages, so a watcher is tailing two files at once. Deltas must be handed
+    over FIRST in every cycle: each one appends to an in-flight buffer that the
+    `assistant` message then replaces wholesale, so a delta delivered after its
+    message re-opens a buffer that had just settled and paints the tail of the
+    reply on screen a second time.
+
+    Uses a stub that pauses between deltas — the fast stub finishes inside a
+    single poll and never streams at all, which is realistic for neither a real
+    turn nor this rule.
+    """
+    stub = tmp_path / "claude-typing"
+    stub.write_text(TYPING_STUB)
+    stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setattr(observatory, "CLAUDE_BIN", str(stub))
+
+    events = _sse_events(_send(bot_client, text="take your time"))
+    types = [e["type"] for e in events]
+    assert "stream_event" in types, "no typing reached the client"
+    assert types.index("stream_event") < types.index("assistant")
+    # every delta lands before the message settles it
+    assert max(i for i, t in enumerate(types) if t == "stream_event") \
+        < types.index("assistant")
+    # ...and none of them are in the durable record: transport, not record
+    conv_id = events[0]["conversation_id"]
+    assert "stream_event" not in [e["type"] for e in _conv_log(conv_id)]
+
+
 def _first_frame_conv(it):
     chunk = next(it).decode()
     return json.loads(chunk.split("data: ", 1)[1].split("\n\n")[0])["conversation_id"]
@@ -965,11 +1034,12 @@ def test_stop_ends_the_turn_without_an_error_event(bot_client, tmp_path, monkeyp
     conv_id = _first_frame_conv(it)
     assert bot_client.post(f"/api/observatory/conversation/{conv_id}/stop").status_code == 200
     rest = b"".join(it).decode()
-    # Her stop is not a failure: the viewer ends with done, and neither the
-    # stream nor the log carries an error event.
+    # Her stop is not a failure: the viewer closes cleanly — `done` for the
+    # turn, `follow_end` for the stream — and neither the stream nor the log
+    # carries an error event.
     frames = [json.loads(c[len("data: "):]) for c in rest.split("\n\n")
               if c.strip().startswith("data: ")]
-    assert frames and frames[-1]["type"] == "done"
+    assert [f["type"] for f in frames[-2:]] == ["done", "follow_end"]
     assert all(f["type"] != "error" for f in frames)
     assert _t.time() - t0 < 3   # the kill landed; nobody sat out the sleep
     meta = _wait_not_running(conv_id)
