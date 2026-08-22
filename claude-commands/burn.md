@@ -149,12 +149,14 @@ canopy closes, **too frequent and the seed bank is exhausted.** For this system 
 is the sharper risk, because a burn that keeps re-raising the same cold features will
 eventually get one past a tired owner. This is not a nightly job. Seasonal; quarterly at most.
 
-## Open — needs the owner's cuts before first use
+## Open — the owner's cuts still needed
 
-- The unit map: 35 feature directories exist; which are units, which merge, which are out of
-  scope entirely.
-- Whether the first pass covers `skeleton/` only or reaches `personal/scripts/` too.
-- Per-unit return intervals.
-- Per-feature gating: `features.py` currently defines three flags at three chokepoints.
-  Extending it to feature granularity is prerequisite work for the gate state to exist at
-  all — likely the first thing built, before anything is surveyed.
+The gate state exists: `features.py` reaches feature granularity, and the first unit
+(`research`) has been surveyed, marked, and executed — read `burn_units.json` for what
+happened and why. The practice is live; the map it walks is not drawn yet.
+
+- The unit map: ~43 feature directories exist; which are units, which merge, which are out
+  of scope entirely. Everything below waits on this.
+- Whether the rotation covers `skeleton/` only or reaches `personal/scripts/` too.
+- Per-unit return intervals. Only `research` has one (120 days); the rest are unset, and the
+  rotation cannot schedule itself without them.
