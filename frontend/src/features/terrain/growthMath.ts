@@ -10,6 +10,13 @@
  * must enter at its true height (everything before the window still exists),
  * which is the carry-forward rule in windowPoints below.
  *
+ * The velocity bars (files BORN per day/week/month) are a second read of the
+ * same deltas, not integrated: velocityBars bins `born` by time, widening the
+ * bin with the window (day → week → month) so a bar never gets so thin the
+ * eye can't resolve it — a day-wide bar over a year of history would be a
+ * sliver, so windowBars/velocityBinUnit pick the coarsest unit that still
+ * shows real texture.
+ *
  * Prompt that produced this file: "I want to build more UI like terrain and
  * make visualizations of my entire codebase/file system as it grows."
  */
@@ -82,6 +89,85 @@ export function sumSince(
     (sum, d) => (from === null || dayEpoch(d.date) >= from ? sum + pick(d) : sum),
     0,
   );
+}
+
+/** How wide a velocity bar's bin is, picked per window so a bar never gets
+ * too thin to read: 90 days as daily bars stays comfortable; the same daily
+ * bin over a year would be 365 slivers, so 1 year steps up to ISO weeks and
+ * "All" (which can span years) steps up again to calendar months. */
+export type BinUnit = 'day' | 'week' | 'month';
+
+export function velocityBinUnit(days: number | null): BinUnit {
+  if (days === 90) return 'day';
+  if (days === 365) return 'week';
+  return 'month';
+}
+
+/** A bin's start (UTC seconds) for one date, by unit. Weeks are ISO —
+ * Monday start — so a Sunday and the Monday before it land in the same bin,
+ * and a day on a week or month boundary lands in exactly one bin, never
+ * split across two or double-counted. */
+function binStart(date: string, unit: BinUnit): number {
+  if (unit === 'day') return dayEpoch(date);
+  const d = new Date(dayEpoch(date) * 1000);
+  if (unit === 'month') {
+    d.setUTCDate(1);
+    return d.getTime() / 1000;
+  }
+  const dow = d.getUTCDay(); // 0 = Sunday .. 6 = Saturday
+  d.setUTCDate(d.getUTCDate() - (dow === 0 ? 6 : dow - 1)); // walk back to Monday
+  return d.getTime() / 1000;
+}
+
+/** A bin's short label, by unit — day/week bins label their start date
+ * ('Jun 14'); month bins label the month, year on January, mirroring
+ * monthTicks below. */
+function binLabel(t: number, unit: BinUnit): string {
+  const d = new Date(t * 1000);
+  if (unit === 'month') {
+    const m = d.getUTCMonth();
+    return m === 0 ? `${MONTHS[m]} ${d.getUTCFullYear()}` : MONTHS[m];
+  }
+  return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
+}
+
+/** One binned bar: its start, a label, and each repo's `born` count for that
+ * bin keyed by repo id — generic over however many repos are in play, so a
+ * future facet (e.g. by vault place/tag) is more entries in `values`, not a
+ * different shape. */
+export interface VelocityBar {
+  t: number;
+  label: string;
+  values: Record<string, number>;
+}
+
+/** Bin every repo's `born` deltas together by time. Reads over ALL history,
+ * same as cumulative — the window only slices afterwards (windowBars), so
+ * flipping window presets never re-bins. */
+export function velocityBars(
+  repos: { id: string; days: GrowthDay[] }[],
+  unit: BinUnit,
+): VelocityBar[] {
+  const by = new Map<number, VelocityBar>();
+  for (const repo of repos) {
+    for (const d of repo.days) {
+      const t = binStart(d.date, unit);
+      const bar = by.get(t) ?? { t, label: binLabel(t, unit), values: {} };
+      bar.values[repo.id] = (bar.values[repo.id] ?? 0) + d.born;
+      by.set(t, bar);
+    }
+  }
+  return [...by.values()].sort((a, b) => a.t - b.t);
+}
+
+/** Slice binned bars to a window. Unlike windowPoints (a cumulative curve
+ * that must carry its pre-window height in), a bar's value is just its own
+ * bin's count — nothing to carry forward — so this is a plain boundary
+ * filter. The bin unit is chosen per window (velocityBinUnit) so at most one
+ * bin's worth ever falls just outside the edge. */
+export function windowBars(bars: VelocityBar[], from: number | null): VelocityBar[] {
+  if (from === null) return bars;
+  return bars.filter((b) => b.t >= from);
 }
 
 /**
@@ -157,16 +243,18 @@ export interface MonthRow {
   commits: number;
   files: number; // net born - died
   lines: number; // net added - removed
+  born: number; // files created, gross — the velocity panel's own number
 }
 
 export function monthlyRollup(days: GrowthDay[]): MonthRow[] {
   const by = new Map<string, MonthRow>();
   for (const d of days) {
     const key = d.date.slice(0, 7);
-    const row = by.get(key) ?? { month: key, commits: 0, files: 0, lines: 0 };
+    const row = by.get(key) ?? { month: key, commits: 0, files: 0, lines: 0, born: 0 };
     row.commits += d.commits;
     row.files += d.born - d.died;
     row.lines += d.added - d.removed;
+    row.born += d.born;
     by.set(key, row);
   }
   return [...by.values()].sort((a, b) => (a.month < b.month ? 1 : -1));

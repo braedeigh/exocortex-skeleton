@@ -180,6 +180,16 @@
   color: var(--text-secondary);
 }
 
+/* The velocity panel's own sub-caption, inside the Files figure — smaller
+   and muted vs the figure's own caption above it, so the pair reads as
+   curve (primary) then rate (its derivative, secondary) in one figure. */
+.velocityCaption {
+  margin: var(--space-2) 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
 .chartWrap {
   position: relative;
   width: 100%;

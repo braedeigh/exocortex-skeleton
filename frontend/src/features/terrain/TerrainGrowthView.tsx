@@ -12,9 +12,14 @@ import {
   shortDate,
   sumSince,
   valueAt,
+  velocityBars,
+  velocityBinUnit,
+  windowBars,
   windowPoints,
+  type BinUnit,
   type GrowthData,
   type SeriesPoint,
+  type VelocityBar,
 } from './growthMath';
 import styles from './TerrainGrowthView.module.css';
 
@@ -23,7 +28,8 @@ import styles from './TerrainGrowthView.module.css';
  *
  * The map shows the system in SPACE and the attention room ranks it by where
  * she goes; this room is the same organism along TIME — the codebase and the
- * vault as two curves that only ever accumulate. Reads
+ * vault as two curves that only ever accumulate, plus how fast files get
+ * created underneath that accumulation. Reads
  * GET /api/observatory/terrain/growth (per-day deltas from the code-history
  * tables, codestore.growth_series) and integrates them client-side, because
  * the date window decides what "so far" means (growthMath.windowPoints).
@@ -47,10 +53,24 @@ import styles from './TerrainGrowthView.module.css';
  *   nearest recorded day, one tooltip listing BOTH series (value leads, name
  *   follows, line-key strokes) — and nothing gates on it, because the table
  *   view holds every number reachable by tap.
+ * - **The velocity panel is the Files curve's derivative, so it sits directly
+ *   under it and shares its window control and x-extent** — the curve reads
+ *   as the running total, the bars directly below as the rate that produced
+ *   it, one object read top to bottom. Part-to-whole per bin (skeleton vs
+ *   vault) is a stacked bar, same categorical pair and legend as the curve
+ *   above it (one legend already names both series — a second box under the
+ *   bars would just repeat it). Stack segments are built from `fileSeries`
+ *   generically (an array, not two hardcoded fields), so a later facet that
+ *   splits a bar into more slices is more rows, not a rewrite. Bin width
+ *   widens with the window (growthMath.velocityBinUnit) so a bar never goes
+ *   thinner than the eye can resolve, and the panel title says which unit is
+ *   live ("files born / day|week|month") rather than leaving it implicit.
  *
  * Prompt that produced this file: "I want it to be able to let me build more
  * UI like terrain and make visualizations of my entire codebase/file system
- * as it grows."
+ * as it grows." Prompt that added the velocity panel: "in the growth charts
+ * show the velocity of files being created — how many files are generated on
+ * a given day, as bars."
  */
 
 const WINDOWS: readonly { days: number | null; label: string }[] = [
@@ -124,6 +144,28 @@ export function TerrainGrowthView() {
     [data, hues],
   );
 
+  // The velocity panel: files-BORN binned wide enough to read at this
+  // window (day/week/month — growthMath.velocityBinUnit), over ALL history
+  // like the curves above, sliced to the window afterwards.
+  const binUnit = velocityBinUnit(days);
+  const velocity = useMemo(
+    () => velocityBars((data?.repos ?? []).map((r) => ({ id: r.id, days: r.days })), binUnit),
+    [data, binUnit],
+  );
+  const velocityWindowed = useMemo(() => windowBars(velocity, from), [velocity, from]);
+
+  // The exact x-extent the Files LineChart below will compute for itself
+  // (same series, same `from`) — computed once here and handed to the bar
+  // chart too, so curve and bars line up on the same time axis instead of
+  // each independently rounding to its own data range.
+  const fileExtent = useMemo(() => {
+    const pts = fileSeries.flatMap((s) => windowPoints(s.points, from));
+    if (pts.length === 0) return null;
+    const t0 = from ?? Math.min(...pts.map((p) => p.t));
+    const t1 = Math.max(...pts.map((p) => p.t));
+    return { t0, t1 };
+  }, [fileSeries, from]);
+
   // The stat row describes the same slice the charts do — filters scope
   // everything, so the numbers always agree.
   const allDays = useMemo(() => (data?.repos ?? []).flatMap((r) => r.days), [data]);
@@ -192,6 +234,18 @@ export function TerrainGrowthView() {
           <figure className={styles.figure}>
             <figcaption className={styles.caption}>Files, over time</figcaption>
             <LineChart series={fileSeries} from={from} dark={dark} ariaLabel="Files over time" />
+            {/* The curve's derivative, directly below the curve it came from —
+                same window, same x-extent (fileExtent), so the pair reads as
+                one object: running total, then the rate that produced it. */}
+            <p className={styles.velocityCaption}>Files born / {binUnit}</p>
+            <VelocityChart
+              bars={velocityWindowed}
+              segments={fileSeries}
+              extent={fileExtent}
+              unit={binUnit}
+              dark={dark}
+              ariaLabel={`Files born per ${binUnit}`}
+            />
           </figure>
 
           <figure className={styles.figure}>
@@ -217,6 +271,9 @@ export function TerrainGrowthView() {
                         files ±
                       </th>
                       <th scope="col" className={styles.tNum}>
+                        files born
+                      </th>
+                      <th scope="col" className={styles.tNum}>
                         lines ±
                       </th>
                     </tr>
@@ -227,6 +284,7 @@ export function TerrainGrowthView() {
                         <td>{monthLabel(row.month)}</td>
                         <td className={styles.tNum}>{row.commits.toLocaleString('en-US')}</td>
                         <td className={styles.tNum}>{signed(row.files)}</td>
+                        <td className={styles.tNum}>{row.born.toLocaleString('en-US')}</td>
                         <td className={styles.tNum}>{signed(row.lines)}</td>
                       </tr>
                     ))}
@@ -449,4 +507,212 @@ function LineChart({
       ) : null}
     </div>
   );
+}
+
+const VELOCITY_HEIGHT = 120;
+const BAR_GAP = 2; // surface gap: between stacked segments AND between adjacent bars
+const BAR_CAP = 24; // mark spec: bars never fill their slot
+// Left/right match the LineChart's M exactly (same plotW → same x-extent in
+// pixels, not just in time); top/bottom are its own — this panel draws no
+// x-axis labels of its own (the Files chart directly above already carries
+// the shared time axis), so it doesn't reserve M's 24px label band.
+const BAR_M = { top: 8, right: M.right, bottom: 6, left: M.left };
+
+/** The generic shape a stacked segment needs — deliberately just id/label/
+ * color, not tied to "repo": today `segments` is `fileSeries` (two repos),
+ * but any list of this shape stacks, so a later facet (e.g. by vault place)
+ * is a longer list here, not a new render path. */
+interface VelocitySegment {
+  id: string;
+  label: string;
+  color: string;
+}
+
+/**
+ * Files-born velocity — stacked bars, one per bin. Reuses the LineChart's
+ * tooltip visual language (same CSS classes) rather than inventing a second
+ * one, and takes its x-extent as a prop instead of computing it, so this
+ * chart's time axis lines up pixel-for-pixel with the Files curve above it
+ * (see TerrainGrowthView's `fileExtent`).
+ */
+function VelocityChart({
+  bars,
+  segments,
+  extent,
+  unit,
+  dark,
+  ariaLabel,
+}: {
+  bars: VelocityBar[];
+  segments: VelocitySegment[];
+  extent: { t0: number; t1: number } | null;
+  unit: BinUnit;
+  dark: boolean;
+  ariaLabel: string;
+}) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => setWidth(entries[0]?.contentRect.width ?? 0));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+
+  const plotW = Math.max(0, width - BAR_M.left - BAR_M.right);
+  const plotH = VELOCITY_HEIGHT - BAR_M.top - BAR_M.bottom;
+
+  if (width === 0 || !extent || bars.length === 0) {
+    return (
+      <div ref={wrapRef} className={styles.chartWrap}>
+        {width > 0 && extent ? <p className={styles.note}>Nothing in this window.</p> : null}
+      </div>
+    );
+  }
+
+  const { t0, t1 } = extent;
+  const x = (t: number) => BAR_M.left + (t1 > t0 ? ((t - t0) / (t1 - t0)) * plotW : plotW / 2);
+
+  const totals = bars.map((b) => segments.reduce((sum, s) => sum + (b.values[s.id] ?? 0), 0));
+  const vMax = Math.max(...totals, 1);
+  const ticks = niceTicks(vMax);
+  const vTop = ticks[ticks.length - 1];
+  const y = (v: number) => BAR_M.top + plotH - (v / vTop) * plotH;
+  const baseline = BAR_M.top + plotH;
+
+  // A bin's nominal width in pixels, from its duration mapped through the
+  // same linear time scale as its position — bins are equal-length except
+  // month (28-31 days), a difference invisible at chart scale. The painted
+  // bar is capped and centered inside this slot; the slot itself (not the
+  // capped bar) is the hover/focus hit target, per the skill's "hit area
+  // at least as wide as the mark's column" rule.
+  const unitSeconds = unit === 'day' ? 86400 : unit === 'week' ? 7 * 86400 : 30 * 86400;
+  const slotW = Math.max(1, (unitSeconds / Math.max(1, t1 - t0)) * plotW);
+  const barW = Math.min(BAR_CAP, Math.max(1, slotW - BAR_GAP));
+
+  const gridStroke = dark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.12)';
+
+  const hoverBar = hoverIdx !== null ? bars[hoverIdx] : null;
+  const hoverTotal = hoverBar ? segments.reduce((sum, s) => sum + (hoverBar.values[s.id] ?? 0), 0) : 0;
+  const hoverX = hoverBar ? x(hoverBar.t) + slotW / 2 : 0;
+
+  return (
+    <div ref={wrapRef} className={styles.chartWrap}>
+      <svg width={width} height={VELOCITY_HEIGHT} role="img" aria-label={ariaLabel}>
+        {/* Gridlines: hairline, solid, recessive, y-axis anchored at zero —
+            same treatment as the LineChart above it. */}
+        {ticks.map((v) => (
+          <g key={v}>
+            <line
+              x1={BAR_M.left}
+              x2={BAR_M.left + plotW}
+              y1={y(v)}
+              y2={y(v)}
+              stroke={gridStroke}
+              strokeWidth={1}
+            />
+            {v > 0 ? (
+              <text x={BAR_M.left} y={y(v) - 4} className={styles.tickText}>
+                {compact(v)}
+              </text>
+            ) : null}
+          </g>
+        ))}
+
+        {bars.map((bar, i) => {
+          const slotX = x(bar.t);
+          const barX = slotX + (slotW - barW) / 2;
+          const nonZero = segments.filter((s) => (bar.values[s.id] ?? 0) > 0);
+          let cursorY = baseline;
+          return (
+            <g key={bar.t}>
+              {hoverIdx === i ? (
+                <rect
+                  x={slotX}
+                  y={BAR_M.top}
+                  width={slotW}
+                  height={plotH}
+                  fill="color-mix(in srgb, var(--text) 6%, transparent)"
+                />
+              ) : null}
+              {/* Stack bottom-up so the entity order matches the legend;
+                  every segment squares off at the baseline, only the one
+                  that ends up on top gets the mark spec's rounded cap; a
+                  2px surface gap separates touching segments. */}
+              {nonZero.map((s, si) => {
+                const v = bar.values[s.id] ?? 0;
+                const h = (v / vTop) * plotH;
+                const segTop = cursorY - h;
+                const isTop = si === nonZero.length - 1;
+                cursorY = segTop - BAR_GAP;
+                return isTop ? (
+                  <path key={s.id} d={roundedTopRectPath(barX, segTop, barW, h, 4)} fill={s.color} />
+                ) : (
+                  <rect key={s.id} x={barX} y={segTop} width={barW} height={h} fill={s.color} />
+                );
+              })}
+              {/* Hit target: the whole bin column (slotW), not the thinner
+                  painted bar — a thin bar over 90+ columns is otherwise a
+                  pinpoint nobody lands on. */}
+              <rect
+                x={slotX}
+                y={BAR_M.top}
+                width={slotW}
+                height={plotH}
+                fill="transparent"
+                tabIndex={0}
+                aria-label={`${bar.label}: ${segments
+                  .map((s) => `${s.label} ${compact(bar.values[s.id] ?? 0)}`)
+                  .join(', ')}, ${compact(totals[i])} total`}
+                onPointerEnter={() => setHoverIdx(i)}
+                onPointerLeave={() => setHoverIdx((h) => (h === i ? null : h))}
+                onFocus={() => setHoverIdx(i)}
+                onBlur={() => setHoverIdx((h) => (h === i ? null : h))}
+              />
+            </g>
+          );
+        })}
+      </svg>
+
+      {hoverBar ? (
+        <div
+          className={styles.tooltip}
+          style={{ left: Math.min(Math.max(hoverX, 70), Math.max(70, width - 90)) }}
+        >
+          <div className={styles.tooltipDate}>{hoverBar.label}</div>
+          {segments.map((s) => (
+            <div key={s.id} className={styles.tooltipRow}>
+              <span className={styles.legendKey} style={{ background: s.color }} />
+              <span className={styles.tooltipValue}>{compact(hoverBar.values[s.id] ?? 0)}</span>
+              <span className={styles.tooltipName}>{s.label}</span>
+            </div>
+          ))}
+          <div className={styles.tooltipRow}>
+            <span className={styles.tooltipValue}>{compact(hoverTotal)}</span>
+            <span className={styles.tooltipName}>total</span>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** A rect path rounded only at the top two corners, square at the baseline —
+ * the bar mark spec ("4px rounded data-end, square at the baseline")
+ * applied to whichever stacked segment ends up on top. */
+function roundedTopRectPath(x: number, y: number, w: number, h: number, r: number): string {
+  const rr = Math.min(r, w / 2, Math.max(0, h));
+  if (rr <= 0) return `M${x},${y + h} L${x},${y} L${x + w},${y} L${x + w},${y + h} Z`;
+  return [
+    `M${x},${y + h}`,
+    `L${x},${y + rr}`,
+    `Q${x},${y} ${x + rr},${y}`,
+    `L${x + w - rr},${y}`,
+    `Q${x + w},${y} ${x + w},${y + rr}`,
+    `L${x + w},${y + h}`,
+    'Z',
+  ].join(' ');
 }

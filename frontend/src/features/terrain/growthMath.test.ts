@@ -9,6 +9,9 @@ import {
   niceTicks,
   sumSince,
   valueAt,
+  velocityBars,
+  velocityBinUnit,
+  windowBars,
   windowPoints,
   type GrowthDay,
 } from './growthMath';
@@ -104,12 +107,113 @@ describe('monthlyRollup', () => {
     const rows = monthlyRollup([
       day('2026-06-01', { commits: 2, added: 100, removed: 30, born: 3 }),
       day('2026-06-20', { commits: 1, died: 1 }),
-      day('2026-07-02', { commits: 4, added: 10 }),
+      day('2026-07-02', { commits: 4, added: 10, born: 2 }),
     ]);
     expect(rows).toEqual([
-      { month: '2026-07', commits: 4, files: 0, lines: 10 },
-      { month: '2026-06', commits: 3, files: 2, lines: 70 },
+      { month: '2026-07', commits: 4, files: 2, lines: 10, born: 2 },
+      { month: '2026-06', commits: 3, files: 2, lines: 70, born: 3 },
     ]);
+  });
+
+  it('sums born separately from the net files column', () => {
+    // born (gross created) and files (net born - died) diverge whenever
+    // anything died — the velocity panel needs the gross number the net
+    // column can't reconstruct.
+    const rows = monthlyRollup([day('2026-06-01', { born: 5, died: 5 })]);
+    expect(rows).toEqual([{ month: '2026-06', commits: 0, files: 0, lines: 0, born: 5 }]);
+  });
+});
+
+describe('velocityBinUnit', () => {
+  it('picks the bin width per window preset', () => {
+    expect(velocityBinUnit(90)).toBe('day');
+    expect(velocityBinUnit(365)).toBe('week');
+    expect(velocityBinUnit(null)).toBe('month');
+  });
+});
+
+describe('velocityBars', () => {
+  it('bins one repo\'s born counts by day, one bar per date', () => {
+    const bars = velocityBars(
+      [{ id: 'skeleton', days: [day('2026-06-14', { born: 2 }), day('2026-06-15', { born: 3 })] }],
+      'day',
+    );
+    expect(bars).toEqual([
+      { t: dayEpoch('2026-06-14'), label: 'Jun 14', values: { skeleton: 2 } },
+      { t: dayEpoch('2026-06-15'), label: 'Jun 15', values: { skeleton: 3 } },
+    ]);
+  });
+
+  it('keys multiple repos into the same bar generically, by id', () => {
+    // Generic over however many repos are passed — a future facet is just
+    // more entries in `values`, not a different code path.
+    const bars = velocityBars(
+      [
+        { id: 'skeleton', days: [day('2026-06-14', { born: 2 })] },
+        { id: 'vault', days: [day('2026-06-14', { born: 5 })] },
+      ],
+      'day',
+    );
+    expect(bars).toEqual([{ t: dayEpoch('2026-06-14'), label: 'Jun 14', values: { skeleton: 2, vault: 5 } }]);
+  });
+
+  it('a Sunday and the Monday before it land in the same ISO week bin', () => {
+    // 2026-06-08 is a Monday, 2026-06-14 the Sunday that closes its week.
+    const bars = velocityBars(
+      [{ id: 'skeleton', days: [day('2026-06-08', { born: 1 }), day('2026-06-14', { born: 4 })] }],
+      'week',
+    );
+    expect(bars).toEqual([{ t: dayEpoch('2026-06-08'), label: 'Jun 8', values: { skeleton: 5 } }]);
+  });
+
+  it('a Monday starts its own week, not the one before', () => {
+    // 2026-06-15 is the Monday right after 2026-06-14's week closes.
+    const bars = velocityBars(
+      [{ id: 'skeleton', days: [day('2026-06-14', { born: 1 }), day('2026-06-15', { born: 1 })] }],
+      'week',
+    );
+    expect(bars.map((b) => b.t)).toEqual([dayEpoch('2026-06-08'), dayEpoch('2026-06-15')]);
+  });
+
+  it('the last day of a month and the first day of the next land in separate month bins', () => {
+    const bars = velocityBars(
+      [{ id: 'skeleton', days: [day('2026-05-31', { born: 1 }), day('2026-06-01', { born: 1 })] }],
+      'month',
+    );
+    expect(bars).toEqual([
+      { t: dayEpoch('2026-05-01'), label: 'May', values: { skeleton: 1 } },
+      { t: dayEpoch('2026-06-01'), label: 'Jun', values: { skeleton: 1 } },
+    ]);
+  });
+
+  it('labels January with its year', () => {
+    const bars = velocityBars([{ id: 'skeleton', days: [day('2026-01-15', { born: 1 })] }], 'month');
+    expect(bars[0].label).toBe('Jan 2026');
+  });
+
+  it('an empty repo list bins to nothing', () => {
+    expect(velocityBars([], 'day')).toEqual([]);
+    expect(velocityBars([{ id: 'skeleton', days: [] }], 'month')).toEqual([]);
+  });
+});
+
+describe('windowBars', () => {
+  const bars = [
+    { t: 100, label: 'a', values: { skeleton: 1 } },
+    { t: 200, label: 'b', values: { skeleton: 2 } },
+    { t: 300, label: 'c', values: { skeleton: 3 } },
+  ];
+
+  it('keeps bars at or after the window edge', () => {
+    expect(windowBars(bars, 200)).toEqual([bars[1], bars[2]]);
+  });
+
+  it('null window means every bar', () => {
+    expect(windowBars(bars, null)).toEqual(bars);
+  });
+
+  it('a window after every bar empties the result', () => {
+    expect(windowBars(bars, 1000)).toEqual([]);
   });
 });
 
