@@ -80,3 +80,44 @@ def test_non_shell_terminal_routes_survive_the_gate(gated_client, monkeypatch):
     resp = gated_client.get("/api/terminal/needs-input")
     assert resp.status_code == 200
     assert resp.get_json() == {"sessions": {}}
+
+
+@pytest.fixture
+def research_gated_client(data_dir):
+    """Minimal app with research routes registered and research_workers OFF —
+    the posture the 2026-08-21 burn rotation put this install in."""
+    (data_dir / "features.json").write_text(json.dumps({"research_workers": False}))
+    from routes import research
+    app = Flask(__name__)
+    app.config.update(TESTING=True)
+    research.register(app)
+    return app.test_client()
+
+
+def test_worker_endpoints_404_when_research_workers_off(research_gated_client):
+    for path in ["/api/research/send",
+                 "/api/research/topic/distill",
+                 "/api/research/annotation-batch",
+                 "/api/research/file-unfiled"]:
+        resp = research_gated_client.post(path, json={})
+        assert resp.status_code == 404, path
+
+
+def test_non_worker_research_routes_survive_the_gate(research_gated_client):
+    resp = research_gated_client.post("/api/research/topic/add", json={"name": "gate check"})
+    assert resp.status_code == 200
+    assert any(t["name"] == "gate check" for t in resp.get_json()["topics"])
+
+
+def test_vector_search_503s_when_research_vector_search_off(data_dir):
+    (data_dir / "features.json").write_text(json.dumps({"research_vector_search": False}))
+    from routes import research_search
+    app = Flask(__name__)
+    app.config.update(TESTING=True)
+    research_search.register(app)
+    client = app.test_client()
+    resp = client.get("/api/research/search?q=x&mode=vector")
+    assert resp.status_code == 503
+    # keyword mode is untouched by the gate
+    resp = client.get("/api/research/search?q=x&mode=keyword")
+    assert resp.status_code == 200

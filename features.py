@@ -25,6 +25,12 @@ Flags gate at exactly one chokepoint each (grep the flag name to find it):
     mcp_server    — the stdio MCP surface for LLM clients: startup check in
                     mcp_server.py (it is a separate process; the flag lets one
                     config file speak for the whole install).
+    research_workers — the research worker-crew pipeline (/api/research/send|
+                    topic/distill|annotation-batch|file-unfiled, i.e. every
+                    endpoint that spawns or queues a worker session):
+                    routes/research.py before_request gate.
+    research_vector_search — vector mode of /api/research/search: mode check
+                    in routes/research_search.py (keyword mode unaffected).
 """
 import json
 import os
@@ -35,6 +41,8 @@ DEFAULTS = {
     "web_terminal": True,
     "observatory": True,
     "mcp_server": True,
+    "research_workers": True,
+    "research_vector_search": True,
 }
 
 _TRUE = {"1", "true", "yes", "on"}

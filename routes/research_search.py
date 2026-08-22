@@ -33,6 +33,7 @@ from pathlib import Path
 
 from flask import request, jsonify
 
+import features
 import store
 import textsearch
 import embeddings
@@ -198,6 +199,11 @@ def register(app):
         docs, sidecars = _corpus()
 
         if mode == "vector":
+            # research_vector_search feature flag (features.py): a gated
+            # install answers exactly like an unconfigured one — the frontend
+            # already handles this 503 — while keyword mode stays untouched.
+            if not features.enabled("research_vector_search"):
+                return jsonify({"error": "Vector search unavailable"}), 503
             if not embeddings.configured():
                 return jsonify({"error": "Vector search unavailable"}), 503
             hits, err = _vector_hits(q, docs, sidecars, limit)

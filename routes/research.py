@@ -47,6 +47,7 @@ from pathlib import Path
 
 from flask import request, jsonify
 
+import features
 import store
 
 
@@ -165,6 +166,24 @@ def _kick_dispatcher():
 
 
 def register(app):
+
+    # research_workers feature flag (features.py): when off, every endpoint
+    # that spawns or queues a worker session — send-to-crew, distill,
+    # annotation-batch, file-unfiled — is inert behind one 404 gate, same
+    # pattern as routes/terminal.py's web_terminal gate. No code removed;
+    # reading/editing entries and topics stays available either way.
+    # (Burn rotation 2026-08-21: the crew hadn't run since 2026-07-07, so
+    # this install gates it in features.json — a one-line un-gate if reached
+    # for.)
+    _WORKER_PATHS = ("/api/research/send", "/api/research/topic/distill",
+                     "/api/research/annotation-batch",
+                     "/api/research/file-unfiled")
+
+    @app.before_request
+    def _research_workers_gate():
+        from flask import request as _rq
+        if _rq.path.startswith(_WORKER_PATHS) and not features.enabled("research_workers"):
+            return jsonify({"error": "research worker crew is gated off on this install"}), 404
 
     # --- Topics ---
 
