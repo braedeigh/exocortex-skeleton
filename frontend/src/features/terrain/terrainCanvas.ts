@@ -250,6 +250,13 @@ const POND_TILE_MIN_PX = 30;
  * slightly more room than its corners — which reads as a margin, not a bug. */
 const POND_TILE_COLLIDE_R = (POND_TILE_SIDE / 2) * Math.SQRT2 + 3;
 
+/** Is this sim node the pond tile? (The one file node carrying day buckets —
+ * see pondNodes.ts.) The physics treats it specially in three places: its
+ * collision radius, its mooring spring, and its ballast in the tick. */
+function isPondTile(n: SimNode): boolean {
+  return n.node.file?.days !== undefined;
+}
+
 function hexToRgbTuple(hex: string): [number, number, number] {
   const h = hex.replace('#', '');
   return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
@@ -1007,11 +1014,28 @@ export class TerrainCanvas {
           .distance((l) => {
             if (l.kind === 'session') return 55;
             const s = l.source as SimNode;
+            const t = l.target as SimNode;
+            // The pond tile's mooring rope reaches PAST its own shore. The
+            // ordinary 34-unit rest length is impossible against a ~130-unit
+            // collision body: the spring pulls in, the collision throws back
+            // out, forever — a strain that never settles, which is what made
+            // the tile wander the map as if chasing the other dots. Rest the
+            // rope just beyond the collision circle and the pair can actually
+            // reach equilibrium and go still.
+            if (isPondTile(s) || isPondTile(t)) return POND_TILE_COLLIDE_R + 24;
             return s.node.kind === 'repo' ? 70 : 34;
           })
           // Session tethers are weak on purpose: the orb drifts to sit amid
-          // its territory without dragging the tree out of shape.
-          .strength((l) => (l.kind === 'session' ? 0.06 : 0.7)),
+          // its territory without dragging the tree out of shape. The tile's
+          // mooring is nearly as slack — a body this size should be HELD near
+          // the cards hub, not sprung to it.
+          .strength((l) =>
+            l.kind === 'session'
+              ? 0.06
+              : isPondTile(l.source as SimNode) || isPondTile(l.target as SimNode)
+                ? 0.15
+                : 0.7,
+          ),
       )
       .force(
         'charge',
@@ -1023,7 +1047,19 @@ export class TerrainCanvas {
       .force('x', forceX<SimNode>((n) => anchorFor(n.node.repoId).x).strength((n) => (n.node.kind === 'session' ? 0 : 0.045)))
       .force('y', forceY<SimNode>((n) => anchorFor(n.node.repoId).y).strength((n) => (n.node.kind === 'session' ? 0 : 0.055)))
       .alpha(prev.size > 0 ? 0.35 : 1)
-      .on('tick', () => this.requestDraw())
+      .on('tick', () => {
+        // Ballast. d3-force has no mass — every node coasts equally — so the
+        // tile, the biggest body on the map, was being carried by every wave
+        // that passed through the crowd. Bleeding most of its velocity each
+        // tick makes it move like the heavy thing it is: nudges still land,
+        // drift doesn't.
+        for (const sn of this.simNodes) {
+          if (!isPondTile(sn)) continue;
+          sn.vx = (sn.vx ?? 0) * 0.3;
+          sn.vy = (sn.vy ?? 0) * 0.3;
+        }
+        this.requestDraw();
+      })
       // Quiescence = sleep. d3-force stops its own timer at alphaMin; one
       // final paint and nothing runs until the next setGraph.
       .on('end', () => this.requestDraw());
