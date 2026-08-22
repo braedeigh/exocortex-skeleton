@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   SPECIAL_KEYS,
   autosizeHeight,
+  needsAutoReset,
   swipeToScroll,
   terminalSrc,
   uploadedPathsMessage,
@@ -50,6 +51,28 @@ describe('autosizeHeight', () => {
 
   it('caps at 100px like phone.html', () => {
     expect(autosizeHeight(240)).toBe(100);
+  });
+});
+
+describe('needsAutoReset', () => {
+  it('skips the reset while plain typing grows the text', () => {
+    expect(needsAutoReset(5, 4)).toBe(false);
+  });
+
+  it('skips it on the very first character', () => {
+    expect(needsAutoReset(1, 0)).toBe(false);
+  });
+
+  it('resets on a delete, so a box that grew can shrink back', () => {
+    expect(needsAutoReset(4, 5)).toBe(true);
+  });
+
+  it('resets on a same-length replace, which can re-wrap shorter', () => {
+    expect(needsAutoReset(5, 5)).toBe(true);
+  });
+
+  it('resets when forced, whatever the lengths say', () => {
+    expect(needsAutoReset(99, 1, true)).toBe(true);
   });
 });
 

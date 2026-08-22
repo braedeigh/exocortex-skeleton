@@ -50,6 +50,29 @@ export function autosizeHeight(scrollHeight: number, max = 100): number {
   return Math.min(scrollHeight, max);
 }
 
+/**
+ * Before measuring a textarea, does its height need resetting to 'auto'?
+ *
+ * The reset is what lets a box SHRINK: scrollHeight can never report content
+ * shorter than the height already set, so without it a box that grew once
+ * never comes back down. It's also the expensive half of measuring — that
+ * write throws away the page's layout, so the scrollHeight read after it has
+ * to rebuild the layout synchronously before it can answer. On a page with a
+ * long transcript under the composer that stall is big enough to feel as
+ * typing lag.
+ *
+ * So: skip it while the text is strictly GROWING, which is what plain typing
+ * does — a taller box is something scrollHeight reports fine on its own. Reset
+ * whenever it isn't growing, which covers deletes and the same-length replace
+ * that re-wraps to fewer lines (rare, and cheap to be safe about).
+ *
+ * `force` is for the paths that write into the box themselves, where the
+ * previous length says nothing about what changed.
+ */
+export function needsAutoReset(length: number, lastLength: number, force = false): boolean {
+  return force || length <= lastLength;
+}
+
 /** Upload-overlay label — singular/plural exactly as phone.html spelled it. */
 export function uploadingLabel(count: number): string {
   return count === 1 ? 'Uploading photo…' : `Uploading ${count} photos…`;
