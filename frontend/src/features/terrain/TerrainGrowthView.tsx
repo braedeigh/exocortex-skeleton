@@ -4,20 +4,25 @@ import { readThemeInk } from './terrainCanvas';
 import {
   compact,
   cumulative,
+  facetVelocityBins,
+  frontChipLabel,
   monthLabel,
   monthTicks,
   monthlyRollup,
   nearestTime,
   niceTicks,
   shortDate,
+  splitVelocityBars,
   sumSince,
   valueAt,
   velocityBars,
-  velocityBinUnit,
   windowBars,
   windowPoints,
   type BinUnit,
+  type FacetSeries,
   type GrowthData,
+  type GrowthFacets,
+  type LitFacet,
   type SeriesPoint,
   type VelocityBar,
 } from './growthMath';
@@ -45,32 +50,61 @@ import styles from './TerrainGrowthView.module.css';
  *   #c8820c on the dark (CVD ΔE ≥ 25 on every pair). The amber's light-mode
  *   contrast warning is relieved the way the rules require: a legend, direct
  *   end labels, and the monthly table below carry identity and value without
- *   colour.
+ *   colour. The lit hue (teal #0d9488, HUES.*.lit below) was validated as a
+ *   THIRD member of the SAME trio, not a fresh pair —
+ *   `validate_palette.js "#6a7acc,#d4880a,#0d9488" --mode light` and the dark
+ *   trio swapping in #c8820c both read ALL CHECKS PASS, so a lit subject
+ *   reads as a genuinely distinct third identity, never a tint of either repo.
  * - **Marks per spec:** 2px round-capped lines, ≥8px end dots ringed in the
  *   surface colour, hairline solid gridlines, y-axis always anchored at zero —
  *   a growth curve read against a clipped baseline is the classic chart lie.
  * - **The hover layer is part of the chart:** a crosshair that snaps to the
- *   nearest recorded day, one tooltip listing BOTH series (value leads, name
- *   follows, line-key strokes) — and nothing gates on it, because the table
- *   view holds every number reachable by tap.
+ *   nearest recorded day, one tooltip listing every series on screen (value
+ *   leads, name follows, line-key strokes — the lit facet's own value included
+ *   whenever one is lit) — and nothing gates on it, because the table view
+ *   holds every number reachable by tap.
  * - **The velocity panel is the Files curve's derivative, so it sits directly
  *   under it and shares its window control and x-extent** — the curve reads
  *   as the running total, the bars directly below as the rate that produced
  *   it, one object read top to bottom. Part-to-whole per bin (skeleton vs
- *   vault) is a stacked bar, same categorical pair and legend as the curve
- *   above it (one legend already names both series — a second box under the
- *   bars would just repeat it). Stack segments are built from `fileSeries`
- *   generically (an array, not two hardcoded fields), so a later facet that
- *   splits a bar into more slices is more rows, not a rewrite. Bin width
- *   widens with the window (growthMath.velocityBinUnit) so a bar never goes
- *   thinner than the eye can resolve, and the panel title says which unit is
- *   live ("files born / day|week|month") rather than leaving it implicit.
+ *   vault, or lit vs rest once something's lit) is a stacked bar, same
+ *   categorical pair and legend as the curve above it. Stack segments are
+ *   built from a generic `{id,label,color}` list (fileSeries normally, a
+ *   two-entry lit/rest list once lit) rather than two hardcoded fields, which
+ *   is what let the facet split land as more rows, not a rewrite. Bin width
+ *   is a direct choice now, not window-derived: a small Day/Week/Month
+ *   control sits next to the panel title (default Day, independent of the
+ *   time-window preset, persisted separately — localStorage 'growth-bin').
+ *   growthMath.velocityBinUnit still exists and is still tested (a
+ *   window-driven default, in case something wants one again) but no longer
+ *   drives this panel — a daily bar over "All" can run thin, and that's hers
+ *   to choose now rather than a size the maths guessed for her. The panel
+ *   title still says which unit is live ("files born / day|week|month").
+ * - **A chip row lights ONE place or front at a time** (GET
+ *   .../growth/facets for the available chips with live file counts, GET
+ *   .../growth/facet?ns=&tag= for the lit one's own born/died series, both
+ *   routes/terrain.py) — emphasis, not a filter, the wiki-pond's own rule:
+ *   the two repo totals stay drawn, dimmed and thinner (same colours, lower
+ *   opacity — colour follows entity, this never repaints a line), while the
+ *   lit subset's own cumulative curve draws at full strength as a third line
+ *   in the validated teal. The velocity bars split the same total-per-bin
+ *   into lit vs rest through the same generic segment machinery the panel
+ *   already had. The lines (added/removed) chart has no facet data to show,
+ *   so it dims with an honest note ("lines don't facet — yet") instead of
+ *   quietly pretending to split. The lit selection persists to localStorage
+ *   ('growth-lit'), same try/catch pattern as 'growth-bin' and the Flow
+ *   lane's own 'flow-filters'. Fetches for both new endpoints stay plain
+ *   fetch/useEffect, matching how this room already loads its main series —
+ *   react-query never got introduced here just for the overlay.
  *
  * Prompt that produced this file: "I want it to be able to let me build more
  * UI like terrain and make visualizations of my entire codebase/file system
  * as it grows." Prompt that added the velocity panel: "in the growth charts
  * show the velocity of files being created — how many files are generated on
- * a given day, as bars."
+ * a given day, as bars." Prompt that added the lit layer: "some way to
+ * highlight subjects or like places in the growth curves." Prompt that
+ * changed the velocity bin control: "i want the velocity bars to be by day
+ * not month or like interchangeable."
  */
 
 const WINDOWS: readonly { days: number | null; label: string }[] = [
@@ -81,25 +115,106 @@ const WINDOWS: readonly { days: number | null; label: string }[] = [
 
 /** Series colours per theme mode — the validated pairs (see the docblock).
  * The indigo is the theme's own `evening` accent; the amber is `morning`,
- * darkened one step in dark mode to sit inside the validator's band. */
+ * darkened one step in dark mode to sit inside the validator's band. `lit` is
+ * the same teal in both modes — validated as a third trio member against
+ * BOTH surfaces at once, so it doesn't need a mode-specific darken the way
+ * the amber did. */
 const HUES = {
-  light: { skeleton: '#6a7acc', vault: '#d4880a' },
-  dark: { skeleton: '#6a7acc', vault: '#c8820c' },
+  light: { skeleton: '#6a7acc', vault: '#d4880a', lit: '#0d9488' },
+  dark: { skeleton: '#6a7acc', vault: '#c8820c', lit: '#0d9488' },
 } as const;
+
+/** The lit-vs-rest split's neutral: everything NOT the lit subject, in every
+ * chart it appears (bars, dimmed lines). One constant so "rest" always reads
+ * as the same muted grey rather than drifting per chart. */
+const REST_HUE = 'color-mix(in srgb, var(--text) 22%, transparent)';
+
+/** The velocity panel's bin width: a direct choice now (her call — see the
+ * docblock), not derived from the time window. Order is display order. */
+const BIN_UNITS: readonly { unit: BinUnit; label: string }[] = [
+  { unit: 'day', label: 'Day' },
+  { unit: 'week', label: 'Week' },
+  { unit: 'month', label: 'Month' },
+];
+
+const LIT_STORAGE_KEY = 'growth-lit';
+const BIN_STORAGE_KEY = 'growth-bin';
+
+/** Read/write pairs for the two bits of chip-row state that persist —
+ * same try/catch-and-swallow shape as flow/filters.ts's
+ * readFlowFilters/writeFlowFilters, kept local here rather than in
+ * growthMath.ts (that file is deliberately DOM-free; see its docblock). */
+function readLitFacet(): LitFacet | null {
+  try {
+    const raw = localStorage.getItem(LIT_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && (parsed.ns === 'place' || parsed.ns === 'front') && typeof parsed.tag === 'string') {
+      return { ns: parsed.ns, tag: parsed.tag };
+    }
+  } catch {
+    // storage blocked or malformed — nothing lit to start
+  }
+  return null;
+}
+
+function writeLitFacet(lit: LitFacet | null): void {
+  try {
+    if (lit) localStorage.setItem(LIT_STORAGE_KEY, JSON.stringify(lit));
+    else localStorage.removeItem(LIT_STORAGE_KEY);
+  } catch {
+    // storage full/blocked — the selection just won't persist
+  }
+}
+
+function readBinUnit(): BinUnit {
+  try {
+    const raw = localStorage.getItem(BIN_STORAGE_KEY);
+    if (raw === 'day' || raw === 'week' || raw === 'month') return raw;
+  } catch {
+    // storage blocked — fall through to the default
+  }
+  return 'day';
+}
+
+function writeBinUnit(unit: BinUnit): void {
+  try {
+    localStorage.setItem(BIN_STORAGE_KEY, unit);
+  } catch {
+    // storage full/blocked — the choice just won't persist
+  }
+}
 
 interface ChartSeries {
   id: string;
   label: string;
   color: string;
   points: SeriesPoint[]; // full-history cumulative; windowed inside the chart
+  dimmed?: boolean; // the lit overlay's "still drawn, just receding" state
+}
+
+/** The generic shape a stacked velocity segment needs (also VelocityChart's
+ * own prop type below) — id/label/color only, so both the two-repo default
+ * and the lit/rest split draw through the identical stacking code. */
+interface VelocitySegment {
+  id: string;
+  label: string;
+  color: string;
 }
 
 export function TerrainGrowthView() {
   const [data, setData] = useState<GrowthData | null>(null);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [days, setDays] = useState<number | null>(null); // All — growth is the long story
+  const [binUnit, setBinUnit] = useState<BinUnit>(() => readBinUnit()); // her call, not window-derived
   const dark = useMemo(() => readThemeInk().dark, []);
   const hues = dark ? HUES.dark : HUES.light;
+
+  // The chip row's contents (available places/fronts + live counts) and
+  // which one, if any, is lit — see the docblock's "chip row" bullet.
+  const [facets, setFacets] = useState<GrowthFacets | null>(null);
+  const [lit, setLit] = useState<LitFacet | null>(() => readLitFacet());
+  const [facetSeries, setFacetSeries] = useState<FacetSeries | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -117,6 +232,55 @@ export function TerrainGrowthView() {
       alive = false;
     };
   }, []);
+
+  // The chip row's own data — independent of the main growth fetch above, so
+  // a slow facets read never blocks the curves from drawing. Plain fetch/
+  // useEffect, matching how the room already loads growth (no react-query).
+  useEffect(() => {
+    let alive = true;
+    fetch('/api/observatory/terrain/growth/facets', { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((d: GrowthFacets) => {
+        if (alive) setFacets(d);
+      })
+      .catch(() => {
+        // the chip row just stays empty — the curves below don't depend on it
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    writeBinUnit(binUnit);
+  }, [binUnit]);
+
+  useEffect(() => {
+    writeLitFacet(lit);
+    if (!lit) {
+      setFacetSeries(null);
+      return;
+    }
+    let alive = true;
+    fetch(
+      `/api/observatory/terrain/growth/facet?ns=${encodeURIComponent(lit.ns)}&tag=${encodeURIComponent(lit.tag)}`,
+      { credentials: 'include' },
+    )
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((d: FacetSeries) => {
+        if (alive) setFacetSeries(d);
+      })
+      .catch(() => {
+        if (alive) setFacetSeries(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [lit]);
+
+  const toggleLit = (ns: LitFacet['ns'], tag: string) => {
+    setLit((cur) => (cur && cur.ns === ns && cur.tag === tag ? null : { ns, tag }));
+  };
 
   const nowSec = Date.now() / 1000;
   const from = days === null ? null : nowSec - days * 86400;
@@ -144,15 +308,65 @@ export function TerrainGrowthView() {
     [data, hues],
   );
 
-  // The velocity panel: files-BORN binned wide enough to read at this
-  // window (day/week/month — growthMath.velocityBinUnit), over ALL history
-  // like the curves above, sliced to the window afterwards.
-  const binUnit = velocityBinUnit(days);
+  // The lit chip's own display name: places carry a server-side label,
+  // fronts don't (frontChipLabel formats the raw tag instead).
+  const litLabel = useMemo(() => {
+    if (!lit) return null;
+    if (lit.ns === 'place') return facets?.places.find((p) => p.id === lit.tag)?.label ?? lit.tag;
+    return frontChipLabel(lit.tag);
+  }, [lit, facets]);
+
+  // The lit facet's own cumulative curve — same integration fileSeries uses,
+  // just over the facet's {date, born, died} rows instead of a repo's full
+  // GrowthDay ones (cumulative() is generic over both, see growthMath.ts).
+  const litPoints = useMemo(
+    () => (facetSeries ? cumulative(facetSeries.days, (d) => d.born - d.died) : []),
+    [facetSeries],
+  );
+
+  // What the Files LineChart actually draws: unlit, just fileSeries; lit,
+  // the two repo curves dim (same colour, lower opacity/weight — colour
+  // follows entity) and the lit curve joins at full strength as a third line.
+  const fileSeriesForChart: ChartSeries[] = useMemo(() => {
+    if (!lit) return fileSeries;
+    return [
+      ...fileSeries.map((s) => ({ ...s, dimmed: true })),
+      { id: `facet:${lit.ns}:${lit.tag}`, label: litLabel ?? lit.tag, color: hues.lit, points: litPoints },
+    ];
+  }, [lit, fileSeries, litPoints, litLabel, hues]);
+
+  // The legend names whatever the Files chart is actually drawing — the lit
+  // entry joins it at full strength too, since the legend is identity, not a
+  // chart mark (it doesn't dim). No `points` needed here — Legend only ever
+  // reads id/label/color.
+  const legendSeries = useMemo(
+    () => (lit ? [...fileSeries, { id: 'lit', label: litLabel ?? lit.tag, color: hues.lit }] : fileSeries),
+    [lit, fileSeries, litLabel, hues],
+  );
+
+  // The velocity panel: files-BORN binned by whichever unit the Day/Week/
+  // Month control picked (her call, not window-derived — see the docblock),
+  // over ALL history like the curves above, sliced to the window afterwards.
   const velocity = useMemo(
     () => velocityBars((data?.repos ?? []).map((r) => ({ id: r.id, days: r.days })), binUnit),
     [data, binUnit],
   );
-  const velocityWindowed = useMemo(() => windowBars(velocity, from), [velocity, from]);
+  // Lit: re-key each bin's total into {lit, rest} from the facet's own
+  // per-bin born counts, binned by the SAME unit so the bins line up.
+  const litBins = useMemo(
+    () => (facetSeries ? facetVelocityBins(facetSeries.days, binUnit) : null),
+    [facetSeries, binUnit],
+  );
+  const velocityWindowed = useMemo(() => {
+    const bars = lit && litBins ? splitVelocityBars(velocity, litBins) : velocity;
+    return windowBars(bars, from);
+  }, [velocity, lit, litBins, from]);
+  const velocitySegments: VelocitySegment[] = lit
+    ? [
+        { id: 'lit', label: litLabel ?? lit.tag, color: hues.lit },
+        { id: 'rest', label: 'rest', color: REST_HUE },
+      ]
+    : fileSeries;
 
   // The exact x-extent the Files LineChart below will compute for itself
   // (same series, same `from`) — computed once here and handed to the bar
@@ -229,18 +443,39 @@ export function TerrainGrowthView() {
             />
           </div>
 
-          <Legend series={fileSeries} />
+          <Legend series={legendSeries} />
+
+          {facets ? (
+            <FacetRow facets={facets} lit={lit} litColor={hues.lit} onToggle={toggleLit} />
+          ) : null}
 
           <figure className={styles.figure}>
             <figcaption className={styles.caption}>Files, over time</figcaption>
-            <LineChart series={fileSeries} from={from} dark={dark} ariaLabel="Files over time" />
+            <LineChart series={fileSeriesForChart} from={from} dark={dark} ariaLabel="Files over time" />
             {/* The curve's derivative, directly below the curve it came from —
                 same window, same x-extent (fileExtent), so the pair reads as
                 one object: running total, then the rate that produced it. */}
-            <p className={styles.velocityCaption}>Files born / {binUnit}</p>
+            <div className={styles.velocityHead}>
+              <p className={styles.velocityCaption}>Files born / {binUnit}</p>
+              <div className={styles.binToggle} role="group" aria-label="Velocity bar width">
+                {BIN_UNITS.map((b) => (
+                  <button
+                    key={b.unit}
+                    type="button"
+                    className={[styles.binOption, binUnit === b.unit ? styles.binOptionOn : '']
+                      .filter(Boolean)
+                      .join(' ')}
+                    aria-pressed={binUnit === b.unit}
+                    onClick={() => setBinUnit(b.unit)}
+                  >
+                    {b.label}
+                  </button>
+                ))}
+              </div>
+            </div>
             <VelocityChart
               bars={velocityWindowed}
-              segments={fileSeries}
+              segments={velocitySegments}
               extent={fileExtent}
               unit={binUnit}
               dark={dark}
@@ -248,8 +483,9 @@ export function TerrainGrowthView() {
             />
           </figure>
 
-          <figure className={styles.figure}>
+          <figure className={[styles.figure, lit ? styles.figureDimmed : ''].filter(Boolean).join(' ')}>
             <figcaption className={styles.caption}>Lines of code, over time</figcaption>
+            {lit ? <p className={styles.litNote}>Lines don&rsquo;t facet — yet.</p> : null}
             <LineChart series={lineSeries} from={from} dark={dark} ariaLabel="Lines of code over time" />
           </figure>
 
@@ -317,7 +553,7 @@ function Stat({ value, label }: { value: string; label: string }) {
 
 /** The identity key both charts share — line-keys (short strokes), because the
  * marks are lines; a filled box would mirror a mark these charts don't have. */
-function Legend({ series }: { series: ChartSeries[] }) {
+function Legend({ series }: { series: { id: string; label: string; color: string }[] }) {
   return (
     <div className={styles.legend} aria-hidden="true">
       {series.map((s) => (
@@ -326,6 +562,96 @@ function Legend({ series }: { series: ChartSeries[] }) {
           {s.label}
         </span>
       ))}
+    </div>
+  );
+}
+
+/** One chip, either a place or a front — active state is coloured with the
+ * lit hue directly (inline style, not a CSS class) since the colour is
+ * data-chosen (validated per theme mode), not a fixed design token. ~40px
+ * tall per the house tap-target rule. */
+function FacetChip({
+  label,
+  count,
+  active,
+  litColor,
+  onToggle,
+}: {
+  label: string;
+  count: number;
+  active: boolean;
+  litColor: string;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={[styles.facetChip, active ? styles.facetChipActive : ''].filter(Boolean).join(' ')}
+      style={
+        active
+          ? {
+              borderColor: litColor,
+              background: `color-mix(in srgb, ${litColor} 18%, var(--card-bg))`,
+              color: 'var(--text)',
+            }
+          : undefined
+      }
+      aria-pressed={active}
+      onClick={onToggle}
+    >
+      {label}
+      <span className={styles.facetChipCount}>{count}</span>
+    </button>
+  );
+}
+
+/** The chip row: places (fixed server order, hottest-first) then a divider
+ * then fronts, one lit at a time — tap again to unlight. Emphasis, never a
+ * filter: nothing here hides anything, it only picks what draws in full
+ * strength (see fileSeriesForChart/velocitySegments in TerrainGrowthView). */
+function FacetRow({
+  facets,
+  lit,
+  litColor,
+  onToggle,
+}: {
+  facets: GrowthFacets;
+  lit: LitFacet | null;
+  litColor: string;
+  onToggle: (ns: LitFacet['ns'], tag: string) => void;
+}) {
+  if (facets.places.length === 0 && facets.fronts.length === 0) return null;
+  return (
+    <div className={styles.facetRow} role="group" aria-label="Highlight a place or subject">
+      {facets.places.length > 0 ? (
+        <div className={styles.facetGroup}>
+          {facets.places.map((p) => (
+            <FacetChip
+              key={p.id}
+              label={p.label}
+              count={p.files}
+              active={lit?.ns === 'place' && lit.tag === p.id}
+              litColor={litColor}
+              onToggle={() => onToggle('place', p.id)}
+            />
+          ))}
+        </div>
+      ) : null}
+      {facets.places.length > 0 && facets.fronts.length > 0 ? <span className={styles.facetDivider} /> : null}
+      {facets.fronts.length > 0 ? (
+        <div className={styles.facetGroup}>
+          {facets.fronts.map((f) => (
+            <FacetChip
+              key={f.tag}
+              label={frontChipLabel(f.tag)}
+              count={f.files}
+              active={lit?.ns === 'front' && lit.tag === f.tag}
+              litColor={litColor}
+              onToggle={() => onToggle('front', f.tag)}
+            />
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -462,6 +788,10 @@ function LineChart({
           <line x1={hover.x} x2={hover.x} y1={M.top} y2={M.top + plotH} className={styles.crosshair} />
         ) : null}
 
+        {/* A dimmed series (the lit overlay's two repo totals) keeps its own
+            colour — colour follows entity, this never repaints a line — but
+            draws thinner and at reduced opacity, so the lit third line reads
+            as the one thing in focus without the totals disappearing. */}
         {windowed.map((s) =>
           s.points.length > 0 ? (
             <path
@@ -469,9 +799,10 @@ function LineChart({
               d={path(s.points)}
               fill="none"
               stroke={s.color}
-              strokeWidth={2}
+              strokeWidth={s.dimmed ? 1.5 : 2}
               strokeLinecap="round"
               strokeLinejoin="round"
+              opacity={s.dimmed ? 0.4 : 1}
             />
           ) : null,
         )}
@@ -479,7 +810,7 @@ function LineChart({
         {/* End dots ringed in the surface colour, and the value at the end —
             text in ink, identity from the dot beside it, never coloured text. */}
         {ends.map(({ s, last, ly }) => (
-          <g key={s.id}>
+          <g key={s.id} opacity={s.dimmed ? 0.4 : 1}>
             <circle cx={x(last.t)} cy={y(last.v)} r={4} fill={s.color} stroke={surface} strokeWidth={2} />
             <text x={x(last.t) + 10} y={ly + 4} className={styles.endText}>
               {compact(last.v)}
@@ -517,16 +848,6 @@ const BAR_CAP = 24; // mark spec: bars never fill their slot
 // x-axis labels of its own (the Files chart directly above already carries
 // the shared time axis), so it doesn't reserve M's 24px label band.
 const BAR_M = { top: 8, right: M.right, bottom: 6, left: M.left };
-
-/** The generic shape a stacked segment needs — deliberately just id/label/
- * color, not tied to "repo": today `segments` is `fileSeries` (two repos),
- * but any list of this shape stacks, so a later facet (e.g. by vault place)
- * is a longer list here, not a new render path. */
-interface VelocitySegment {
-  id: string;
-  label: string;
-  color: string;
-}
 
 /**
  * Files-born velocity — stacked bars, one per bin. Reuses the LineChart's

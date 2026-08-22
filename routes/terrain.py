@@ -41,6 +41,7 @@ import time
 import codestore
 import store
 from routes import observatory
+from routes.tags import _SLUG_RE as _GROWTH_TAG_SLUG_RE
 from scripts.extract_footprints import harvest_conversation, harvest_flow_events
 
 _TERRAIN_FILE_CAP = 350           # DEFAULT hottest files kept per repo (a phone
@@ -745,7 +746,139 @@ def _build_flow():
             "events": events_out}
 
 
+# --- growth facets: highlighting a place or front in the growth curves ------
+#
+# The Growth room's curves are two totals (skeleton, vault); this gives her a
+# way to see ONE slice of that total on its own — "how much of this is my
+# journal" or "how much of this is the health front" — without losing the
+# whole picture (emphasis, not a filter, same rule as the wiki-pond). Reuses
+# the Flow lane's own vocabulary and machinery rather than inventing a
+# parallel one: _flow_place for the seven broad places, the tags table +
+# tag_rules.json union for fronts, _flow_read_only_conn for the read door.
+#
+# Two endpoints: /growth/facets lists the available chips with live file
+# counts (what's lightable right now); /growth/facet?ns=&tag= answers one
+# chip's own born/died series, across both repos combined — a lit subject
+# (a front, a place) is one entity, not two per-repo halves.
+#
+# Prompt: "some way to highlight subjects or like places in the growth
+# curves".
+
+_GROWTH_PLACE_LABEL = {
+    "journal": "Journal", "threads": "Threads", "research": "Research",
+    "data": "Data", "docs": "Docs", "code": "Code", "other": "Other",
+}
+
+
+def _growth_front_tags_by_subject(conn):
+    """{subject: {front tag, ...}} for every file:-family subject carrying an
+    ns='front' row — ONE full-table query (no subject IN (...) list), because
+    the growth facets need every file's fronts at once, unlike the Flow
+    lane's small per-poll batch (_flow_fronts_from_tags), which parameterizes
+    by subject and would blow past SQLite's bound-variable limit against the
+    whole files table."""
+    out = {}
+    for subject, tag in conn.execute(
+        "SELECT subject, tag FROM tags WHERE ns = 'front' AND subject LIKE 'file:%'"
+    ):
+        out.setdefault(subject, set()).add(tag)
+    return out
+
+
 def register(app):
+    @app.route("/api/observatory/terrain/growth/facets")
+    def observatory_terrain_growth_facets():
+        """The chip row's contents: every place and front with at least one
+        LIVING file (deleted_at IS NULL) right now, sorted hottest-first.
+        Places come from _flow_place applied to every living (repo, path);
+        fronts from one tags-table query (_growth_front_tags_by_subject)
+        unioned with tag_rules.json's live prefix rules
+        (_flow_rule_fronts_by_repo/_flow_rule_fronts) — the same union the
+        Flow lane applies per-event, just batched over the whole table
+        instead of one poll's events. Any database trouble degrades to an
+        empty chip row, never a 500 — the room still draws without it."""
+        _terrain_refresh_history()
+        place_counts = {}
+        front_counts = {}
+        try:
+            with contextlib.closing(_flow_read_only_conn()) as conn:
+                tags_by_subject = _growth_front_tags_by_subject(conn)
+                rules_by_repo = _flow_rule_fronts_by_repo()
+                for repo, path in conn.execute(
+                    "SELECT repo, path FROM files WHERE deleted_at IS NULL"
+                ):
+                    place = _flow_place(repo, path)
+                    place_counts[place] = place_counts.get(place, 0) + 1
+                    subject = f"file:{repo}/{path}"
+                    fronts = set(tags_by_subject.get(subject, ()))
+                    fronts |= _flow_rule_fronts(repo, path, rules_by_repo)
+                    for front in fronts:
+                        front_counts[front] = front_counts.get(front, 0) + 1
+        except sqlite3.Error:
+            place_counts, front_counts = {}, {}
+
+        places_out = sorted(
+            ({"id": p, "label": _GROWTH_PLACE_LABEL.get(p, p), "files": c}
+             for p, c in place_counts.items() if c > 0),
+            key=lambda x: (-x["files"], x["id"]),
+        )
+        fronts_out = sorted(
+            ({"tag": t, "files": c} for t, c in front_counts.items() if c > 0),
+            key=lambda x: (-x["files"], x["tag"]),
+        )
+        return jsonify({"places": places_out, "fronts": fronts_out})
+
+    @app.route("/api/observatory/terrain/growth/facet")
+    def observatory_terrain_growth_facet():
+        """One lit chip's own born/died series, date-ascending, across BOTH
+        repos combined (a lit front or place is one entity, not a skeleton
+        half and a vault half). `ns` must be 'place' or 'front'; `tag` must
+        survive the same slug rule routes/tags.py enforces on a real tag —
+        either failure is a 400, not a guess. Matching membership mirrors
+        facets above: _flow_place for a place, the tags-table union
+        tag_rules.json fallback for a front — but over EVERY file (living or
+        dead), since a died file's death still belongs in the curve. One
+        query for the file rows plus (for ns='front') one for the tags table
+        — two passes at most, Python does the classification."""
+        ns = (request.args.get("ns") or "").strip().lower()
+        tag = (request.args.get("tag") or "").strip().lower()
+        if ns not in ("place", "front"):
+            return jsonify({"error": "unknown ns"}), 400
+        if not _GROWTH_TAG_SLUG_RE.match(tag):
+            return jsonify({"error": "bad tag"}), 400
+
+        _terrain_refresh_history()
+        days = {}
+
+        def _day(d):
+            return days.setdefault(d, {"date": d, "born": 0, "died": 0})
+
+        try:
+            with contextlib.closing(_flow_read_only_conn()) as conn:
+                tags_by_subject = (
+                    _growth_front_tags_by_subject(conn) if ns == "front" else {})
+                rules_by_repo = _flow_rule_fronts_by_repo() if ns == "front" else {}
+                for repo, path, born, died in conn.execute(
+                    "SELECT repo, path, date(first_seen), date(deleted_at) FROM files"
+                ):
+                    if ns == "place":
+                        match = _flow_place(repo, path) == tag
+                    else:
+                        subject = f"file:{repo}/{path}"
+                        fronts = set(tags_by_subject.get(subject, ()))
+                        fronts |= _flow_rule_fronts(repo, path, rules_by_repo)
+                        match = tag in fronts
+                    if not match:
+                        continue
+                    if born:
+                        _day(born)["born"] += 1
+                    if died:
+                        _day(died)["died"] += 1
+        except sqlite3.Error:
+            days = {}
+
+        return jsonify({"ns": ns, "tag": tag, "days": [days[d] for d in sorted(days)]})
+
     @app.route("/api/observatory/terrain")
     def observatory_terrain():
         """The heatmap's data layer: git heat + session attribution, merged
@@ -805,7 +938,11 @@ def register(app):
         lines added/removed, files born/died (codestore.growth_series). Raw
         daily deltas; the client integrates them into curves, because the date
         window decides what "so far" means. Tables are topped up first, same
-        as the map's own payload, so the curve ends at HEAD."""
+        as the map's own payload, so the curve ends at HEAD.
+
+        Beside this: /growth/facets and /growth/facet, the chip row's data —
+        highlight subjects or places in the growth curves — light a chip and
+        see that subset's own curve and its share of the velocity bars."""
         _terrain_refresh_history()
         repos_out = []
         for repo in observatory._terrain_repos():

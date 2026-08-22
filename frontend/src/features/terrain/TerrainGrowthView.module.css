@@ -182,11 +182,125 @@
 
 /* The velocity panel's own sub-caption, inside the Files figure — smaller
    and muted vs the figure's own caption above it, so the pair reads as
-   curve (primary) then rate (its derivative, secondary) in one figure. */
-.velocityCaption {
+   curve (primary) then rate (its derivative, secondary) in one figure.
+   .velocityHead pairs it with the Day/Week/Month bin control on one row. */
+.velocityHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-2);
   margin: var(--space-2) 0 0;
+}
+
+.velocityCaption {
+  margin: 0;
   font-size: 12px;
   font-weight: 600;
+  color: var(--text-muted);
+}
+
+/* Day/Week/Month — her direct choice, independent of the time-window preset
+   above. Small (not the ~40px house default): it sits inline with a caption,
+   not as a primary action, same "small until it needs to be big" logic as
+   the house's own edit-mode controls — but never under the 12px text floor. */
+.binToggle {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.binOption {
+  min-height: 28px;
+  padding: 0 var(--space-2);
+  border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.binOptionOn {
+  border-color: var(--accent);
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+/* --- the facet chip row --------------------------------------------------
+   Places then a divider then fronts, one lit at a time — same chip grammar
+   as the Flow lane's filter row (FlowLane.module.css), but a single active
+   state coloured with the lit hue (set inline, per theme mode) rather than
+   the accent, and this row EMPHASIZES rather than filters: nothing here
+   hides a chip or a data point. */
+.facetRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.facetGroup {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.facetDivider {
+  align-self: stretch;
+  width: 1px;
+  min-height: 24px;
+  background: var(--border-soft);
+}
+
+.facetChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-pill);
+  background: var(--card-bg);
+  color: var(--text-secondary);
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.facetChip:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+/* Active styling itself is inline (the lit colour is data-chosen, per theme
+   mode) — this class only exists so :hover doesn't fight the inline style. */
+.facetChipActive:hover {
+  border-color: inherit;
+}
+
+.facetChipCount {
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+  color: inherit;
+  opacity: 0.7;
+}
+
+/* The Lines chart while something's lit: still drawn, honestly recessive,
+   with the note explaining why rather than looking broken. */
+.figureDimmed {
+  opacity: 0.5;
+  transition: opacity 200ms ease;
+}
+
+.litNote {
+  margin: 0 0 var(--space-1);
+  font-size: 12px;
+  font-style: italic;
   color: var(--text-muted);
 }
 

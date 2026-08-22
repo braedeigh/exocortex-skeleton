@@ -11,11 +11,26 @@
  * which is the carry-forward rule in windowPoints below.
  *
  * The velocity bars (files BORN per day/week/month) are a second read of the
- * same deltas, not integrated: velocityBars bins `born` by time, widening the
- * bin with the window (day → week → month) so a bar never gets so thin the
- * eye can't resolve it — a day-wide bar over a year of history would be a
- * sliver, so windowBars/velocityBinUnit pick the coarsest unit that still
- * shows real texture.
+ * same deltas, not integrated: velocityBars bins `born` by whichever unit is
+ * asked for. That unit used to be picked automatically from the time window
+ * (velocityBinUnit, still here and still tested, in case anything wants a
+ * "sensible default for this window" again) — her call was to make it a
+ * direct choice instead ("I want the velocity bars to be by day not month or
+ * like interchangeable"), so TerrainGrowthView now reads it from its own
+ * Day/Week/Month control (default Day) rather than deriving it from `days`.
+ * A daily bar over "All" can run thin — that's hers to pick now, not a size
+ * the maths guesses for her.
+ *
+ * The facet helpers (facetVelocityBins, splitVelocityBars, frontChipLabel)
+ * are for the growth room's "highlight a place or front" chip row: GET
+ * .../growth/facet (routes/terrain.py) returns one lit subject's own
+ * born/died days, and these turn that into the same shapes the existing
+ * cumulative()/VelocityBar machinery already draws — a lit curve is just
+ * another cumulative() series, a lit velocity bar is an existing bar
+ * re-keyed into {lit, rest} instead of {skeleton, vault}. cumulative() itself
+ * is generic over any `{date}`-shaped day rather than GrowthDay specifically,
+ * so a facet's {date, born, died} rows integrate through the identical
+ * function repo days do.
  *
  * Prompt that produced this file: "I want to build more UI like terrain and
  * make visualizations of my entire codebase/file system as it grows."
@@ -41,6 +56,56 @@ export interface GrowthData {
   repos: GrowthRepo[];
 }
 
+/** GET /api/observatory/terrain/growth/facets — the chip row's contents. */
+export interface FacetPlace {
+  id: string;
+  label: string;
+  files: number;
+}
+
+export interface FacetFront {
+  tag: string;
+  files: number;
+}
+
+export interface GrowthFacets {
+  places: FacetPlace[];
+  fronts: FacetFront[];
+}
+
+/** One day of a lit facet's own history — GET .../growth/facet's shape,
+ * deliberately a subset of GrowthDay's fields (no commits/added/removed: a
+ * facet only ever answers "how many files", never "how many lines"). */
+export interface FacetDay {
+  date: string;
+  born: number;
+  died: number;
+}
+
+export interface FacetSeries {
+  ns: 'place' | 'front';
+  tag: string;
+  days: FacetDay[];
+}
+
+/** A lit chip's identity — which axis, which value. */
+export interface LitFacet {
+  ns: 'place' | 'front';
+  tag: string;
+}
+
+/** 'living-space' -> 'Living space' — the front chips have no server-side
+ * display name (unlike places, which carry one), so this is the one
+ * formatting rule: hyphens to spaces, sentence case. Good enough for the
+ * short front-tag vocabulary (docs/tags-architecture.md); a real display
+ * name would need fetching fronts.json, which would drag react-query into a
+ * room that deliberately doesn't use it (see TerrainGrowthView's docblock). */
+export function frontChipLabel(tag: string): string {
+  const words = tag.split('-').filter(Boolean);
+  if (words.length === 0) return tag;
+  return [words[0].charAt(0).toUpperCase() + words[0].slice(1), ...words.slice(1)].join(' ');
+}
+
 /** A cumulative curve point: unix seconds × running total. */
 export interface SeriesPoint {
   t: number;
@@ -53,10 +118,17 @@ export function dayEpoch(date: string): number {
   return Date.parse(`${date}T00:00:00Z`) / 1000;
 }
 
-/** Integrate one repo's days into a cumulative curve. `delta` picks what each
- * day contributes: d => d.born - d.died gives "files alive", d => d.added -
- * d.removed gives "lines of code". */
-export function cumulative(days: GrowthDay[], delta: (d: GrowthDay) => number): SeriesPoint[] {
+/** Integrate a repo's (or a lit facet's) days into a cumulative curve. `delta`
+ * picks what each day contributes: d => d.born - d.died gives "files alive",
+ * d => d.added - d.removed gives "lines of code". Generic over any
+ * `{date}`-shaped row rather than GrowthDay specifically, so a facet's
+ * {date, born, died} (no commits/added/removed) integrates through the same
+ * function a repo's full daily row does — one cumulative curve implementation
+ * for every line this room ever draws. */
+export function cumulative<T extends { date: string }>(
+  days: T[],
+  delta: (d: T) => number,
+): SeriesPoint[] {
   let running = 0;
   return days.map((d) => {
     running += delta(d);
@@ -168,6 +240,34 @@ export function velocityBars(
 export function windowBars(bars: VelocityBar[], from: number | null): VelocityBar[] {
   if (from === null) return bars;
   return bars.filter((b) => b.t >= from);
+}
+
+/** Bin a lit facet's own `born` counts by the SAME binStart the repo bars
+ * above use, so the bin keys line up exactly (same `t`) with whatever
+ * `velocityBars` already produced — that's what lets splitVelocityBars below
+ * just look a bin up by timestamp rather than re-deriving one. */
+export function facetVelocityBins(days: FacetDay[], unit: BinUnit): Map<number, number> {
+  const bins = new Map<number, number>();
+  for (const d of days) {
+    const t = binStart(d.date, unit);
+    bins.set(t, (bins.get(t) ?? 0) + d.born);
+  }
+  return bins;
+}
+
+/** Re-key each existing velocity bar's total into {lit, rest} using a lit
+ * facet's own per-bin born counts (facetVelocityBins) — same bars, same
+ * order, just a different `values` shape, so VelocityChart's generic
+ * segment-stacking draws the emphasis with no separate render path. A bin
+ * the facet never touched still appears, lit at 0. Clamped so a facet count
+ * can never read as more than the bar's own total (the facet is always a
+ * subset of it; the clamp is a defensive floor, not an expected case). */
+export function splitVelocityBars(bars: VelocityBar[], litBins: Map<number, number>): VelocityBar[] {
+  return bars.map((b) => {
+    const total = Object.values(b.values).reduce((sum, v) => sum + v, 0);
+    const lit = Math.min(litBins.get(b.t) ?? 0, total);
+    return { t: b.t, label: b.label, values: { lit, rest: total - lit } };
+  });
 }
 
 /**

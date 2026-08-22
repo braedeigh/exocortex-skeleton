@@ -1663,6 +1663,109 @@ def test_growth_serves_per_repo_daily_series(terrain_client, tmp_path, monkeypat
     assert data["repos"][1]["days"] == []
 
 
+# --- Terrain: the Growth room's facet chips (.../growth/facets|facet) -------
+# The chip row's data: available places/fronts with live file counts
+# (/growth/facets), and one lit chip's own born/died series across both repos
+# combined (/growth/facet) — reuses _flow_place and the tags-table +
+# tag_rules.json union rather than inventing a second vocabulary.
+
+def _delete_file(repo, relpath):
+    _git(repo, "rm", "-q", relpath)
+    _git(repo, "commit", "-q", "-m", f"remove {relpath}")
+
+
+def test_growth_facets_counts_places_and_fronts_with_live_counts(terrain_client, tmp_path, monkeypatch):
+    skeleton = _make_git_repo(tmp_path / "skeleton")
+    _commit_file(skeleton, "app.py", "print(1)\n")             # place=code
+    _commit_file(skeleton, "docs/notes.md", "# notes\n")       # place=docs
+    _set_terrain_repos(monkeypatch, skeleton, tmp_path / "empty-vault")
+    _seed_front_tag("file:skeleton/app.py", "exocortex")
+
+    data = terrain_client.get("/api/observatory/terrain/growth/facets").get_json()
+    places = {p["id"]: p for p in data["places"]}
+    assert places["code"] == {"id": "code", "label": "Code", "files": 1}
+    assert places["docs"] == {"id": "docs", "label": "Docs", "files": 1}
+    fronts = {f["tag"]: f for f in data["fronts"]}
+    assert fronts["exocortex"] == {"tag": "exocortex", "files": 1}
+
+
+def test_growth_facets_exclude_deleted_files(terrain_client, tmp_path, monkeypatch):
+    skeleton = _make_git_repo(tmp_path / "skeleton")
+    _commit_file(skeleton, "app.py", "print(1)\n")
+    _delete_file(skeleton, "app.py")
+    _set_terrain_repos(monkeypatch, skeleton, tmp_path / "empty-vault")
+
+    data = terrain_client.get("/api/observatory/terrain/growth/facets").get_json()
+    assert data["places"] == []
+    assert data["fronts"] == []
+
+
+def test_growth_facets_front_falls_back_to_tag_rules(terrain_client, tmp_path, monkeypatch):
+    # No tags-table row at all — only a rules-file prefix match — same
+    # fallback the Flow lane applies for a file written since the last
+    # backfill.
+    skeleton = _make_git_repo(tmp_path / "skeleton")
+    _commit_file(skeleton, "routes/health.py", "x = 1\n")
+    _set_terrain_repos(monkeypatch, skeleton, tmp_path / "empty-vault")
+    store.write("tag_rules.json", {"rules": [
+        {"repo": "skeleton", "prefix": "routes/health.py",
+         "tags": [{"ns": "front", "tag": "health"}]},
+    ]})
+
+    data = terrain_client.get("/api/observatory/terrain/growth/facets").get_json()
+    fronts = {f["tag"]: f for f in data["fronts"]}
+    assert fronts["health"] == {"tag": "health", "files": 1}
+
+
+def test_growth_facet_series_combines_both_repos_born_and_died(terrain_client, tmp_path, monkeypatch):
+    skeleton = _make_git_repo(tmp_path / "skeleton")
+    vault = _make_git_repo(tmp_path / "vault")
+    _commit_file(skeleton, "docs/a.md", "a\n")
+    _commit_file(vault, "docs/b.md", "b\n")
+    _delete_file(skeleton, "docs/a.md")
+    _set_terrain_repos(monkeypatch, skeleton, vault)
+
+    data = terrain_client.get(
+        "/api/observatory/terrain/growth/facet", query_string={"ns": "place", "tag": "docs"}
+    ).get_json()
+    assert data["ns"] == "place" and data["tag"] == "docs"
+    # A lit place is ONE entity — its series is not split per repo.
+    assert sum(d["born"] for d in data["days"]) == 2
+    assert sum(d["died"] for d in data["days"]) == 1
+    dates = [d["date"] for d in data["days"]]
+    assert dates == sorted(dates)   # date-ascending
+
+
+def test_growth_facet_front_series_uses_tag_rules_fallback(terrain_client, tmp_path, monkeypatch):
+    skeleton = _make_git_repo(tmp_path / "skeleton")
+    _commit_file(skeleton, "routes/health.py", "x = 1\n")
+    _set_terrain_repos(monkeypatch, skeleton, tmp_path / "empty-vault")
+    store.write("tag_rules.json", {"rules": [
+        {"repo": "skeleton", "prefix": "routes/health.py",
+         "tags": [{"ns": "front", "tag": "health"}]},
+    ]})
+
+    data = terrain_client.get(
+        "/api/observatory/terrain/growth/facet", query_string={"ns": "front", "tag": "health"}
+    ).get_json()
+    assert sum(d["born"] for d in data["days"]) == 1
+
+
+def test_growth_facet_unknown_ns_400s(terrain_client, tmp_path, monkeypatch):
+    _set_terrain_repos(monkeypatch, tmp_path / "a", tmp_path / "b")
+    resp = terrain_client.get(
+        "/api/observatory/terrain/growth/facet", query_string={"ns": "nope", "tag": "code"})
+    assert resp.status_code == 400
+
+
+def test_growth_facet_bad_tag_slug_400s(terrain_client, tmp_path, monkeypatch):
+    _set_terrain_repos(monkeypatch, tmp_path / "a", tmp_path / "b")
+    resp = terrain_client.get(
+        "/api/observatory/terrain/growth/facet",
+        query_string={"ns": "place", "tag": "not a slug!"})
+    assert resp.status_code == 400
+
+
 # --- Terrain: the Files slider (?limit=) -------------------------------------
 # The client's Files slider is the only thing that sets the hottest-N-per-repo
 # cut; "All" is ?limit=0. files_total always reports the uncapped truth so the

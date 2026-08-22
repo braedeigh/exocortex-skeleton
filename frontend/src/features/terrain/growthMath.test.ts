@@ -3,17 +3,22 @@ import {
   compact,
   cumulative,
   dayEpoch,
+  facetVelocityBins,
+  frontChipLabel,
   monthTicks,
   monthlyRollup,
   nearestTime,
   niceTicks,
+  splitVelocityBars,
   sumSince,
   valueAt,
   velocityBars,
   velocityBinUnit,
   windowBars,
   windowPoints,
+  type FacetDay,
   type GrowthDay,
+  type VelocityBar,
 } from './growthMath';
 
 const day = (date: string, over: Partial<GrowthDay> = {}): GrowthDay => ({
@@ -35,6 +40,18 @@ describe('cumulative', () => {
     const pts = cumulative(days, (d) => d.added - d.removed);
     expect(pts.map((p) => p.v)).toEqual([100, 130]);
     expect(pts[0].t).toBe(dayEpoch('2026-06-01'));
+  });
+
+  it('integrates a facet\'s own {date, born, died} rows through the same function', () => {
+    // Generic over any {date}-shaped row — a facet has no commits/added/
+    // removed, and must still integrate through the identical implementation
+    // a repo's full GrowthDay does.
+    const facetDays: FacetDay[] = [
+      { date: '2026-06-01', born: 2, died: 0 },
+      { date: '2026-06-02', born: 1, died: 1 },
+    ];
+    const pts = cumulative(facetDays, (d) => d.born - d.died);
+    expect(pts.map((p) => p.v)).toEqual([2, 2]);
   });
 });
 
@@ -229,5 +246,62 @@ describe('the crosshair maths', () => {
     ];
     expect(valueAt(pts, 200)).toBe(10); // between events the total hasn't moved
     expect(valueAt(pts, 50)).toBeNull(); // before the curve began: no claim
+  });
+});
+
+describe('frontChipLabel', () => {
+  it('title-cases a single-word tag', () => {
+    expect(frontChipLabel('health')).toBe('Health');
+  });
+
+  it('turns hyphens into spaces, capitalizing only the first word', () => {
+    expect(frontChipLabel('living-space')).toBe('Living space');
+  });
+
+  it('an empty tag falls back to itself rather than throwing', () => {
+    expect(frontChipLabel('')).toBe('');
+  });
+});
+
+describe('facetVelocityBins', () => {
+  it('bins a facet\'s born counts by the same bin unit the repo bars use', () => {
+    const days: FacetDay[] = [
+      { date: '2026-06-14', born: 2, died: 0 },
+      { date: '2026-06-15', born: 1, died: 0 },
+    ];
+    const bins = facetVelocityBins(days, 'day');
+    expect(bins.get(dayEpoch('2026-06-14'))).toBe(2);
+    expect(bins.get(dayEpoch('2026-06-15'))).toBe(1);
+  });
+
+  it('sums multiple days landing in the same bin (week/month)', () => {
+    const days: FacetDay[] = [
+      { date: '2026-06-08', born: 1, died: 0 }, // Monday
+      { date: '2026-06-14', born: 4, died: 0 }, // same ISO week
+    ];
+    const bins = facetVelocityBins(days, 'week');
+    expect(bins.get(dayEpoch('2026-06-08'))).toBe(5);
+  });
+});
+
+describe('splitVelocityBars', () => {
+  const bars: VelocityBar[] = [
+    { t: 100, label: 'a', values: { skeleton: 3, vault: 2 } },
+    { t: 200, label: 'b', values: { skeleton: 1, vault: 1 } },
+  ];
+
+  it('re-keys each bar\'s total into {lit, rest} from the facet\'s per-bin counts', () => {
+    const litBins = new Map([[100, 2]]);
+    const split = splitVelocityBars(bars, litBins);
+    expect(split).toEqual([
+      { t: 100, label: 'a', values: { lit: 2, rest: 3 } }, // total 5, lit 2
+      { t: 200, label: 'b', values: { lit: 0, rest: 2 } }, // facet never touched this bin
+    ]);
+  });
+
+  it('clamps a facet count that would otherwise exceed the bar\'s own total', () => {
+    const litBins = new Map([[100, 999]]);
+    const split = splitVelocityBars(bars, litBins);
+    expect(split[0].values).toEqual({ lit: 5, rest: 0 });
   });
 });
