@@ -62,8 +62,8 @@
   border-radius: var(--radius-xl);
   border: 1px solid rgba(124, 92, 191, 0.4);
   background: rgba(124, 92, 191, 0.04);
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: var(--frost-chip);
+  -webkit-backdrop-filter: var(--frost-chip);
   color: rgba(124, 92, 191, 0.9);
   font-size: 18px;
   cursor: pointer;

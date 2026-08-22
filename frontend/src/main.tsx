@@ -7,6 +7,7 @@ import { routeTree } from './routeTree.gen';
 import { installUsageBeacon } from './api/usageBeacon';
 import { installUsageTracker } from './api/usageTracker';
 import { installUsageHeat } from './ui/usageHeat';
+import { installEffects } from './ui/effects';
 import { installPresence } from './push/presence';
 import { initTheme } from './theme';
 
@@ -17,6 +18,12 @@ import { initTheme } from './theme';
 // documentElement, re-computes every 2 minutes, and handles cross-frame
 // 'theme-changed' messages.
 initTheme();
+
+// The "reduced effects" switch (Settings toggle) — stamps data-effects on
+// <html>, which turns theme.css's --frost-* tokens off. Runs beside initTheme
+// so the first paint is already correct: the backdrop blur is the app's most
+// expensive paint, and a reduced session shouldn't pay for a frame of it.
+installEffects();
 
 // split.html (the old shell) registered a service worker at /static/sw.js,
 // scope /static/. The SPA's own SW (vite-plugin-pwa) registers at / scope —

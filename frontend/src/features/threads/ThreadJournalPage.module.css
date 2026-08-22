@@ -181,8 +181,8 @@
   margin-top: auto;
   padding: var(--space-2) 0;
   background: color-mix(in srgb, var(--bg) 86%, transparent);
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: var(--frost-bar);
+  backdrop-filter: var(--frost-bar);
 }
 
 .composerRow {

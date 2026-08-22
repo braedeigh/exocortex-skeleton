@@ -566,8 +566,8 @@
   right: 0;
   bottom: 0;
   background: rgba(20, 20, 30, 0.45);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: var(--frost-veil);
+  -webkit-backdrop-filter: var(--frost-veil);
   z-index: 120;
   display: flex;
   align-items: center;

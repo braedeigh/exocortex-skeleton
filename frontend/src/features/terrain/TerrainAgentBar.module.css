@@ -184,8 +184,8 @@
   border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
   border-radius: var(--radius-md, 12px);
   background: color-mix(in srgb, var(--card-bg) 92%, transparent);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: var(--frost-chip);
+  -webkit-backdrop-filter: var(--frost-chip);
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
   pointer-events: auto;
   z-index: 5;

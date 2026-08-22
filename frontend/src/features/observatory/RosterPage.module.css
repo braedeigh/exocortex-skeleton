@@ -798,10 +798,22 @@
      shows through in colour and shape, it just stops competing with the number
      on top of it. Transparency kept, legibility back.
      The shadow lifts the button off the card underneath. */
-  backdrop-filter: blur(7px) saturate(1.15);
-  -webkit-backdrop-filter: blur(7px) saturate(1.15);
+  backdrop-filter: var(--frost-chip);
+  -webkit-backdrop-filter: var(--frost-chip);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
   pointer-events: auto;
+}
+
+/* Reduced effects turns --frost-chip off, and these are the buttons that were
+   leaning on it hardest: their fill is nearly clear (5% of --text), so with no
+   blur the card sentence underneath runs straight through the count again. The
+   trade the comment above declines is the only one left once the blur is gone,
+   so take it here and only here — an opaque fill, transparency spent to keep
+   the number readable. */
+:global(:root[data-effects='reduced']) .railNew,
+:global(:root[data-effects='reduced']) .filterBtn,
+:global(:root[data-effects='reduced']) .railUtil {
+  background: var(--card-bg);
 }
 
 .layoutRoomy .railNew {

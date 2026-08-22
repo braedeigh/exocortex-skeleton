@@ -53,6 +53,29 @@
   /* ---- touch-first ---- */
   --tap-target: 44px;
 
+  /* ---- frost (the backdrop blur behind translucent surfaces) ----
+   * Every `backdrop-filter` in the app reads one of these four, by the ROLE
+   * of the surface rather than by how strong it looks. Two reasons they live
+   * here instead of at each site:
+   *
+   * 1. Blur is the app's most expensive paint. It is not an animation — it
+   *    costs on every frame something repaints near it, standing still, and
+   *    it stops the browser caching that layer. Cost scales with the blurred
+   *    AREA and with the radius, which is why the full-viewport veil is the
+   *    weakest of the four and the small chips can afford more.
+   * 2. One control point. The reduced block below switches all of it off for
+   *    a machine that can't spend the fill rate, and that only works if no
+   *    site writes a raw blur() of its own. If you add a frosted surface,
+   *    pick the tier it belongs to — don't inline a radius.
+   *
+   * (This is not a theme/colour-mode block — sky-theme.js is still the only
+   * source of truth for the palette, per the note at the top of this file.
+   * These are structural, and it never touches them.) */
+  --frost-pane: blur(10px) saturate(1.15); /* panes floating over a live canvas */
+  --frost-bar: blur(8px); /* sticky docks, bars, floating chrome */
+  --frost-chip: blur(5px) saturate(1.15); /* small buttons sitting on text */
+  --frost-veil: blur(4px); /* full-viewport overlays — widest area, so the weakest */
+
   /* ---- canonical palette (style.css:1-47) — sky-theme.js overrides these
      inline at runtime; these are just the light/day defaults. ---- */
   --bg: #f5f0e8;
@@ -72,4 +95,23 @@
   --todo-1: #3a9e8c;
   --todo-2: #2e8a7c;
   --todo-3: #7f8c9d;
+}
+
+/* Effects: reduced — set by src/ui/effects.ts from the Settings toggle.
+ * Frost off entirely; `none` genuinely removes the backdrop root, where
+ * blur(0) would leave the browser still doing the work for no visible gain.
+ * Most surfaces need nothing else: their fill is already 82–92% opaque, so
+ * losing the blur costs a little depth and no legibility. The exception is the
+ * Roster rail buttons, whose fill is nearly clear and who were relying on the
+ * blur to stay readable over card text — they thicken their own fill under
+ * this selector, in RosterPage.module.css.
+ *
+ * Frost only. This block must never carry a colour: the palette above is the
+ * pre-JS fallback and belongs to :root alone, and sky-theme.js stays the one
+ * source of truth for anything theme-dependent. */
+:root[data-effects='reduced'] {
+  --frost-pane: none;
+  --frost-bar: none;
+  --frost-chip: none;
+  --frost-veil: none;
 }

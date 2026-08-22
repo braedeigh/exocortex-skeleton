@@ -14,8 +14,8 @@
   z-index: 10;
   padding: var(--space-2) 0;
   background: color-mix(in srgb, var(--bg) 82%, transparent);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: var(--frost-bar);
+  -webkit-backdrop-filter: var(--frost-bar);
 }
 
 .track {

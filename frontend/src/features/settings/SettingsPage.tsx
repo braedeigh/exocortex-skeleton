@@ -14,6 +14,7 @@ import {
   type ThemeMode,
 } from '../../theme';
 import { USAGE_HEAT_EVENT, USAGE_HEAT_STORAGE_KEY } from '../../ui/usageHeat';
+import { effectsReduced, setEffectsReduced } from '../../ui/effects';
 import { chatSurfaceIsObservatory, setChatSurfaceObservatory } from '../../shell/chatSurface';
 import { AccountSection } from './AccountSection';
 import { ClaudeAuthSection } from './ClaudeAuthSection';
@@ -94,6 +95,17 @@ export function SettingsPage() {
       // storage denied — the toggle still works for this page via the event
     }
     window.dispatchEvent(new CustomEvent(USAGE_HEAT_EVENT, { detail: { enabled: on } }));
+  }
+
+  // Reduced effects — same shape as the usage-heat toggle: localStorage, no
+  // Save, and the module's window event changes every open page over live.
+  // Initialised from effectsReduced() rather than storage directly, so an
+  // untouched install reflects the OS hint it's already following.
+  const [reducedFx, setReducedFx] = useState(effectsReduced);
+
+  function onReducedFxChange(on: boolean) {
+    setReducedFx(on);
+    setEffectsReduced(on);
   }
 
   // Chat tab surface: terminal (default) or the Keeper bot's observatory.
@@ -364,6 +376,28 @@ export function SettingsPage() {
               className={styles.toggleInput}
               checked={chatBots}
               onChange={(e) => onChatSurfaceChange(e.target.checked)}
+            />
+          </label>
+        </section>
+
+        <section className={styles.section}>
+          <h2 className={styles.heading}>Reduced effects</h2>
+          <label className={styles.toggleRow}>
+            <span>
+              <span className={styles.toggleLabel}>Turn off frosted glass</span>
+              <span className={styles.toggleDesc}>
+                Panels, docks and overlays stop blurring what&rsquo;s behind them and use a solid
+                tint instead. Blurring is the most expensive thing this app draws, and it costs
+                on every frame even when nothing is moving &mdash; so if the interface feels
+                laggy, especially on a big screen or an older laptop, turn this on. Nothing moves
+                or disappears; it just loses some depth.
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              className={styles.toggleInput}
+              checked={reducedFx}
+              onChange={(e) => onReducedFxChange(e.target.checked)}
             />
           </label>
         </section>

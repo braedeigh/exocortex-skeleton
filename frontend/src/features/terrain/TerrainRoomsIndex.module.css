@@ -22,8 +22,8 @@
   justify-content: center;
   padding: var(--space-4);
   background: color-mix(in srgb, var(--bg) 45%, transparent);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: var(--frost-veil);
+  -webkit-backdrop-filter: var(--frost-veil);
   pointer-events: auto;
   animation: hallwayIn 200ms ease-out both;
 }

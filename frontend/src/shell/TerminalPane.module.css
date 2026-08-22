@@ -31,8 +31,8 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: rgba(26, 26, 46, 0.85);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: var(--frost-bar);
+  -webkit-backdrop-filter: var(--frost-bar);
   overflow: hidden; /* clip segment hover fills to the rounded corners */
 }
 

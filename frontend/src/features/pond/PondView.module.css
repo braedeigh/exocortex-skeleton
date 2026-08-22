@@ -768,8 +768,8 @@
   border-radius: var(--radius-xl);
   border: 1px solid var(--border);
   background: color-mix(in srgb, var(--card-bg) 88%, transparent);
-  backdrop-filter: blur(18px) saturate(1.15);
-  -webkit-backdrop-filter: blur(18px) saturate(1.15);
+  backdrop-filter: var(--frost-pane);
+  -webkit-backdrop-filter: var(--frost-pane);
   box-shadow: 0 18px 44px rgb(0 0 0 / 0.26);
   pointer-events: none;
   animation: hoverCardIn 160ms cubic-bezier(0.32, 0.72, 0, 1);
