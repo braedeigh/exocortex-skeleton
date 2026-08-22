@@ -35,6 +35,8 @@ endpoints are that door, shaped for one drawing.
                             thumbnail, and pulling four thousand whole cards to
                             draw a shape the size of a postage stamp would cost
                             a third of a megabyte to throw almost all of away.
+                            With `?sizes=1` each day also carries HOW LONG each
+                            of its cards was, in order — lengths, never text.
 
 The working half comes from a DIFFERENT pipeline into the same database:
 agent conversations write transcripts into `bot_chats/`, an hourly cron
@@ -468,13 +470,37 @@ def register(app):
         end optional) and the same read-only connection, so the landmark and
         the pond can never disagree about which days exist.
 
+        WITH `?sizes=1` each day also carries `chars`: how long every one of its
+        cards was, in the order they were written. That is what lets the
+        landmark draw one rectangle PER CARD sized by how much was written in
+        it, instead of one column per day sized by how many there were — twenty
+        short entries and one long one have the same silhouette and must not
+        look the same.
+
+        It stays on this endpoint rather than becoming a fourth one because it
+        is the same question at more resolution, under the same window and the
+        same connection. Opt-in because it is fifteen times the bytes of the
+        bare silhouette (this vault: ~1.5 KB against ~22 KB) — still nothing
+        beside the 450 KB of card bodies `/api/pond/cards` would move to derive
+        the identical numbers in the browser, which is the whole reason this
+        endpoint exists.
+
+        LENGTH() counts the RAW body, where the pond's own words arrangement
+        measures the whitespace-collapsed excerpt (pondMath.cardHeight). They
+        differ by the few percent that indentation and blank lines account for,
+        which no drawing at this size can show. What matters is that both are
+        monotonic in how much was written, so the pane and the pond can never
+        disagree about which cards are the big ones.
+
         Prompt that produced it: "i want it to be small and poorly detailed and
         if you hover over it it gets big and then you can click on it to enter
-        it".
+        it" — plus, for the sizes: "little squares/rectangles in it like the
+        size of the amount that was written into it".
         """
         window, err = _window()
         if err:
             return jsonify({"error": err}), 400
+        sizes = (request.args.get("sizes") or "").strip() in ("1", "true", "yes")
 
         where, params = _window_sql(window)
         with closing(_read_only_conn()) as conn:
@@ -489,17 +515,43 @@ def register(app):
                 params,
             ).fetchall()
 
+            # One row per CARD, but only its length — the bodies never leave
+            # the database. Grouped in Python rather than with group_concat
+            # because the ordering inside an aggregate isn't guaranteed on
+            # older SQLite, and the order here IS the drawing: cards stack up
+            # a day in the sequence they were written.
+            chars = {}
+            truncated = False
+            if sizes:
+                size_rows = conn.execute(
+                    f"""SELECT c.day AS day, LENGTH(c.body) AS chars
+                          FROM cards c
+                         WHERE {where}
+                      ORDER BY c.day ASC, c.ts ASC, c.id ASC
+                         LIMIT ?""",
+                    params + [MAX_CARDS + 1],
+                ).fetchall()
+                truncated = len(size_rows) > MAX_CARDS
+                for r in size_rows[:MAX_CARDS]:
+                    chars.setdefault(r["day"], []).append(int(r["chars"] or 0))
+
         # `owner` comes back from SUM() as whatever SQLite made of it — coerce
         # here so the client is never handed a null for a day of pure Keeper.
-        days = [
-            {"day": r["day"], "cards": r["cards"], "owner": int(r["owner"] or 0)}
-            for r in rows
-        ]
+        days = []
+        for r in rows:
+            day = {"day": r["day"], "cards": r["cards"], "owner": int(r["owner"] or 0)}
+            if sizes:
+                # A day past the cap gets an empty list rather than a short
+                # one: half a day drawn as a whole day is the drawing lying,
+                # and `truncated` says so out loud.
+                day["chars"] = chars.get(r["day"], [])
+            days.append(day)
         return jsonify({
             "days": days,
             "cards": sum(d["cards"] for d in days),
             "from": window["from"],
             "to": window["to"],
+            "truncated": truncated,
         })
 
     @app.route("/api/pond/working")

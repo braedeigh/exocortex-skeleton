@@ -64,6 +64,55 @@ export function loadPondView(): PondSavedView {
   }
 }
 
+/**
+ * How the LANDMARK's words pane was left — its own key, deliberately.
+ *
+ * These are facts about a thumbnail on the map (how big she dragged it, how far
+ * she'd zoomed its marks, whether she steps by week or month), not about the
+ * pond itself. Folding them into PondSavedView would mean the pond's filter
+ * chips and the map's furniture shared one blob, and a stale field from one
+ * would read as a setting of the other.
+ *
+ * Not remembered on purpose: the scroll position. The pane opens at NOW every
+ * time, because the question it answers when she glances at the map is "what
+ * has the pond been doing lately" — landing three months back because that's
+ * where she left it a week ago would be the drawing answering a question
+ * nobody asked.
+ */
+export interface PondPaneView {
+  /** The drawing box she dragged it to, in CSS px. */
+  w?: number;
+  h?: number;
+  /** Rung of the pane's zoom ladder (pondPane.PANE_ZOOMS). */
+  zoom?: number;
+  /** What the step arrows move by, and the floor under the colour ramp. */
+  jump?: 'week' | 'month';
+}
+
+export const POND_PANE_KEY = 'pond-pane';
+
+/** Read the pane's settings, or an empty set. Never throws — a blocked or
+ * corrupt localStorage just means the pane opens at its defaults. */
+export function loadPondPane(): PondPaneView {
+  try {
+    const raw = localStorage.getItem(POND_PANE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === 'object' ? (parsed as PondPaneView) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Remember the pane's settings. Silent on failure for the same reason. */
+export function savePondPane(view: PondPaneView): void {
+  try {
+    localStorage.setItem(POND_PANE_KEY, JSON.stringify(view));
+  } catch {
+    /* a pane that can't remember its size still draws */
+  }
+}
+
 /** One labelled fact about how the pond is set. */
 export interface PondFacet {
   /** What kind of setting — the landmark uses it to give the lit thread its

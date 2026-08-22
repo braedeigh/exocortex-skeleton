@@ -63,7 +63,24 @@
   background: color-mix(in srgb, var(--card-bg) 86%, transparent);
   backdrop-filter: blur(16px) saturate(1.15);
   -webkit-backdrop-filter: blur(16px) saturate(1.15);
+  cursor: default;
+}
+
+/* Resting, the whole symbol is one target. Covers the box rather than sitting
+   in it, so the 40px house floor is met by the landmark's own size. */
+.reachTarget {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
   cursor: pointer;
+}
+
+.reachTarget:focus-visible {
+  outline: none;
 }
 
 /* The water fills the box and sits under everything else. */
@@ -82,16 +99,50 @@
   opacity: 0.9;
 }
 
-/* The name rides at the top-left, out of the water. */
+/* Name and chips are FLOW content in a padded column, not absolutely-placed
+   offsets. They used to be pinned to top and bottom of a 46px box, and at the
+   resting size a lit thread's chip landed on top of the name — "POND" with
+   "Ezra" sitting across it. Stacking them means the box can never collide with
+   itself at any size. */
+.stack {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  height: 100%;
+  padding: 5px 9px;
+  pointer-events: none;
+}
+
+/* Reached, the stack is the pane's whole layout: a header line, the drawing
+   taking every pixel that's left, and one row of controls on the floor. The
+   drawing is the only thing that flexes, which is what makes dragging the
+   corner buy TIME rather than chrome. */
+.reached .stack {
+  gap: 6px;
+  padding: 8px 10px 10px;
+  pointer-events: auto;
+}
+
 .name {
-  position: absolute;
-  top: 6px;
-  left: 10px;
-  right: 10px;
   display: flex;
   align-items: baseline;
   gap: var(--space-2);
-  pointer-events: none;
+}
+
+.reached .name {
+  align-self: stretch;
+}
+
+/* The stretch on screen. Pushed to the far end of the header so it reads as a
+   caption on the drawing rather than as part of the pond's name. */
+.caption {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .nameText {
@@ -113,30 +164,20 @@
 }
 
 .note {
-  position: absolute;
-  bottom: 8px;
-  left: 10px;
   font-size: 12px;
   color: var(--text-muted);
-  pointer-events: none;
 }
 
-/* The filter display. Resting it's one chip in the bottom-left corner; reached
-   it becomes the full set under the name. */
+/* The filter display — one chip at rest (the lit thread), the full set once
+   reached. Sits in the stack under the name, so it can never cover it. */
 .filters {
-  position: absolute;
-  left: 10px;
-  bottom: 7px;
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  max-width: calc(100% - 20px);
-  pointer-events: none;
+  max-width: 100%;
 }
 
 .reached .filters {
-  top: 32px;
-  bottom: auto;
   gap: 5px;
 }
 
@@ -161,15 +202,143 @@
   font-weight: 600;
 }
 
-/* The way in. ~40px of target, per the house rule, and it's the second tap on
-   a touch screen. */
-.enter {
+/* THE DRAWING. Every pixel the chrome didn't take — this is the only thing in
+   the stack that flexes, so dragging the corner buys time, not furniture.
+   `touch-action: none` because the gestures inside it are ours: without it the
+   browser claims the drag for its own scrolling and the pane never moves. */
+.draw {
+  position: relative;
+  flex: 1 1 auto;
+  align-self: stretch;
+  min-height: 0;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  touch-action: none;
+  cursor: grab;
+}
+
+.draw:active {
+  cursor: grabbing;
+}
+
+.canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* A day that stacked higher than the pane. A soft fade at the ceiling, not a
+   clipped edge — the water went over the rim, and pinching out is the answer.
+   Only drawn when it's actually happening. */
+.rim {
   position: absolute;
-  left: 10px;
-  right: 10px;
-  bottom: 12px;
+  inset: 0 0 auto 0;
+  height: 18px;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--card-bg) 80%, transparent),
+    transparent
+  );
+}
+
+/* The jump arrows. They live ON the drawing because they move the drawing —
+   40px of target with a small visible disc, quiet until she's near them, the
+   "small until edit" bargain applied to a picture. */
+.step {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
   display: flex;
   align-items: center;
+  justify-content: center;
+  width: var(--tap-target, 40px);
+  height: var(--tap-target, 40px);
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--card-bg) 82%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  color: var(--text);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 180ms ease, background-color 180ms ease;
+}
+
+.draw:hover .step,
+.step:focus-visible {
+  opacity: 1;
+}
+
+.step:disabled {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.step:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--pond-deep) 22%, var(--card-bg));
+}
+
+.stepBack { left: 4px; }
+.stepFwd { right: 4px; }
+
+/* A coarse pointer never hovers, so the arrows have to be standing there —
+   quietly, but there. */
+@media (hover: none) {
+  .step {
+    opacity: 0.75;
+  }
+}
+
+/* The floor: what a jump moves by, and the way in. */
+.footer {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.segmented {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+
+.seg,
+.segOn {
+  min-height: var(--tap-target, 40px);
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background-color 180ms ease, color 180ms ease;
+}
+
+.segOn {
+  background: color-mix(in srgb, var(--pond-deep) 26%, var(--card-bg));
+  color: var(--text);
+}
+
+.seg:hover {
+  background: color-mix(in srgb, var(--pond-deep) 12%, transparent);
+}
+
+/* The way in. ~40px of target, per the house rule, and the only thing that
+   navigates now — a click on the drawing itself belongs to time. */
+.enter {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   min-height: var(--tap-target, 40px);
   padding: 0 12px;
   border-radius: var(--radius-md);
@@ -178,20 +347,38 @@
   font-size: 13px;
   font-weight: 600;
   color: var(--text);
-  pointer-events: none;
+  cursor: pointer;
   animation: fadeUp 220ms cubic-bezier(0.32, 0.72, 0, 1);
+  transition: background-color 180ms ease;
 }
 
-.landmark:hover .enter {
+.enter:hover {
   background: color-mix(in srgb, var(--pond-deep) 22%, var(--card-bg));
+}
+
+/* The corner. Deliberately understated — it's a grip, not a control, and the
+   house rule about visible affordances is about things you'd go looking for. */
+.resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 22px;
+  height: 22px;
+  cursor: nwse-resize;
+  touch-action: none;
+  background: linear-gradient(
+    135deg,
+    transparent 55%,
+    color-mix(in srgb, var(--text-muted) 55%, transparent) 55% 62%,
+    transparent 62% 72%,
+    color-mix(in srgb, var(--text-muted) 55%, transparent) 72% 79%,
+    transparent 79%
+  );
 }
 
 /* Her voice against the Keeper's — a hairline, not a chart. */
 .ownBar {
-  position: absolute;
-  left: 10px;
-  right: 10px;
-  bottom: 6px;
+  align-self: stretch;
   height: 2px;
   border-radius: 2px;
   background: color-mix(in srgb, var(--text-muted) 35%, transparent);

@@ -149,6 +149,63 @@ def test_shape_is_empty_rather_than_erroring_on_an_empty_pond(pond_db, client):
     assert got["days"] == [] and got["cards"] == 0
 
 
+# --- per-card sizes, for the words pane ---------------------------------------
+
+def test_shape_omits_card_sizes_unless_asked(pond_db, client):
+    """The bare silhouette is what most callers want and it is fifteen times
+    smaller. Sizes are opt-in, so nobody pays for them by accident."""
+    pond_db("a", "2026-07-06", body="hello")
+
+    assert "chars" not in client.get("/api/pond/shape").get_json()["days"][0]
+    assert "chars" in client.get("/api/pond/shape?sizes=1").get_json()["days"][0]
+
+
+def test_sizes_report_each_card_separately_in_the_order_written(pond_db, client):
+    """THE POINT OF THE WHOLE PAYLOAD. Twenty short entries and one long one
+    have identical per-day counts, so a per-day total cannot tell them apart —
+    the pane draws a rectangle per card and sizes each one, which needs the
+    lengths kept separate. And the order is the drawing: cards stack up a day
+    in the sequence they were written."""
+    pond_db("noon", "2026-07-06", ts="12:00", body="x" * 300)
+    pond_db("dawn", "2026-07-06", ts="06:00", body="x" * 10)
+    pond_db("dusk", "2026-07-06", ts="20:00", body="x" * 50)
+
+    day = client.get("/api/pond/shape?sizes=1").get_json()["days"][0]
+    assert day["chars"] == [10, 300, 50]
+    assert day["cards"] == 3
+
+
+def test_sizes_never_carry_any_text(pond_db, client):
+    """A landmark on the map has no business moving card bodies. If this ever
+    regresses, the terrain page quietly starts shipping the journal."""
+    pond_db("a", "2026-07-06", body="a secret written in the pond")
+
+    payload = client.get("/api/pond/shape?sizes=1").get_data(as_text=True)
+    assert "secret" not in payload
+
+
+def test_sizes_honour_the_window_and_skip_deleted_like_every_other_read(pond_db, client):
+    """The lengths must describe exactly the cards `cards` counted, or a column
+    would be drawn from a different set of entries than the one it claims."""
+    pond_db("kept", "2026-07-06", body="x" * 40)
+    pond_db("gone", "2026-07-06", ts="10:00", body="x" * 999, deleted="2026-07-08")
+    pond_db("outside", "2026-07-09", body="x" * 77)
+
+    days = client.get("/api/pond/shape?sizes=1&to=2026-07-07").get_json()["days"]
+    assert days == [{"day": "2026-07-06", "cards": 1, "owner": 1, "chars": [40]}]
+
+
+def test_an_empty_card_still_gets_a_length_rather_than_vanishing(pond_db, client):
+    """A card she sent with no body is still a moment she wrote something. It
+    has to keep its place in the stack — the pane floors it to a visible mark
+    — so the list length must always match the day's card count."""
+    pond_db("empty", "2026-07-06", ts="09:00", body="")
+    pond_db("full", "2026-07-06", ts="10:00", body="x" * 20)
+
+    day = client.get("/api/pond/shape?sizes=1").get_json()["days"][0]
+    assert day["chars"] == [0, 20] and len(day["chars"]) == day["cards"]
+
+
 # --- the window ---------------------------------------------------------------
 
 def test_cards_are_filtered_to_the_window_inclusively(pond_db, client):

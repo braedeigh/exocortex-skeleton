@@ -58,13 +58,17 @@ export interface PondCardsPayload {
   truncated: boolean;
 }
 
-/** The pond drawn small: its per-day profile and nothing else. */
+/** The pond drawn small: its per-day profile, and — when asked — how long each
+ * of those cards was, so the landmark can draw one mark per card sized by how
+ * much was written rather than one column per day sized by how many. */
 export interface PondShapePayload {
-  days: ShapeDay[];
+  days: (ShapeDay & { chars?: number[] })[];
   /** Every card in the window — the landmark's one number. */
   cards: number;
   from: string | null;
   to: string | null;
+  /** The window held more cards than the server will send sizes for. */
+  truncated?: boolean;
 }
 
 export interface PondCardDetail extends PondCard {
@@ -133,13 +137,19 @@ export function usePondWorking(from: string | null, enabled: boolean) {
  * kilobytes of card bodies to draw a thumbnail: this payload is a couple of
  * hundred small rows and the server does the counting.
  *
+ * `sizes` asks for each day's per-card LENGTHS as well — what the words pane
+ * needs, and still only about a twentieth of what fetching the bodies to
+ * measure them in the browser would cost. It's a separate cache key rather
+ * than an argument to one, so the resting landmark's cheap silhouette never
+ * gets evicted by the reached pane's richer answer, and vice versa.
+ *
  * A long staleTime because a silhouette doesn't meaningfully change within a
  * session — a card or two added today moves one column by a pixel.
  */
-export function usePondShape(enabled = true) {
+export function usePondShape(enabled = true, sizes = false) {
   return useQuery({
-    queryKey: ['pond', 'shape'],
-    queryFn: () => api.get<PondShapePayload>('/api/pond/shape'),
+    queryKey: ['pond', 'shape', sizes ? 'sizes' : 'bare'],
+    queryFn: () => api.get<PondShapePayload>(`/api/pond/shape${sizes ? '?sizes=1' : ''}`),
     enabled,
     staleTime: 5 * 60_000,
   });
