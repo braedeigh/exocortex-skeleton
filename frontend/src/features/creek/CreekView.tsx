@@ -15,7 +15,11 @@ import {
   RIGHT_X,
   ROW_H,
   STAGE_W,
+  activeCollections,
+  aggregateCallers,
   buildRibbons,
+  buildTrafficRibbons,
+  callerDimmed,
   classifyDiffLine,
   codeHref,
   collectionDimmed,
@@ -25,6 +29,7 @@ import {
   fileReads,
   fileWrites,
   filesTouching,
+  layoutCallers,
   layoutCollections,
   layoutFiles,
   relativeDayTime,
@@ -35,10 +40,16 @@ import {
   sortMetricFor,
   sortedCallers,
   sortedCalls,
+  sortedTouches,
   toggleLayer,
+  trafficCountLabel,
+  trafficRowOpacity,
+  trafficSelectionSets,
   visibleRibbons,
+  writeState,
   type CreekSelection,
   type DiffLineKind,
+  type TrafficCaller,
 } from './creekMath';
 import styles from './CreekView.module.css';
 
@@ -79,16 +90,30 @@ import styles from './CreekView.module.css';
  * different collection or closing Changes resets which commit (if any) is
  * open.
  *
- * MODE: a two-position control, "14 days" (the original behavior above) or
- * "Today" — `/api/creek?days=1`, polled every 60s (react-query's own
- * `refetchIntervalInBackground: false` default already stops that poll in a
- * backgrounded tab, matching the house battery contract for free). In Today
- * mode, write ribbons and right-bank collection rows fade by
- * `creekMath.freshnessFactor(collection.last_write)` — an honest "how
- * recently did the journal actually see this" — floored so nothing ever
- * fades to invisible. Read ribbons/rows never fade: reads are today's
- * running totals, not individually timestamped events, and the legend says
- * so rather than implying a freshness it doesn't have.
+ * MODE: a two-position control, and it switches WHAT A RIBBON MEANS, not just
+ * the time window — the two are genuinely different pictures:
+ *
+ *   "Wiring" (`?days=14`) — the original map. Left bank is source files,
+ *   ribbon width is call sites. What the code CAN do.
+ *
+ *   "Traffic" (`?days=1`, polled every 60s — react-query's own
+ *   `refetchIntervalInBackground: false` default stops that poll in a
+ *   backgrounded tab, matching the house battery contract for free) — ribbon
+ *   width is writes that actually happened. The left bank becomes CALLERS
+ *   (`creekMath.aggregateCallers`), because telemetry knows the calling
+ *   process and never the source line; keeping files there would have been
+ *   drawing an attribution nobody measured. Collections with no traffic drop
+ *   off the drawing (`activeCollections`) and are counted aloud in the
+ *   subtitle instead.
+ *
+ * In traffic mode, right-bank rows carry a three-way state
+ * (`creekMath.writeState` → `trafficRowOpacity`) rather than one continuous
+ * fade: moved-and-timestamped fades by recency, moved-but-untimestamped draws
+ * full with the unknown said in words, and genuinely quiet draws at
+ * `QUIET_OPACITY`. Write ribbons still fade by
+ * `creekMath.freshnessFactor(collection.last_write)`; read ribbons never do —
+ * reads are running totals with no per-event timestamp, and the legend says so
+ * rather than implying a freshness they don't have.
  *
  * LAYERS: the Writes and Reads chips are independent — each can be off on
  * its own, but never both (`creekMath.toggleLayer`: killing the last lit
@@ -107,7 +132,11 @@ import styles from './CreekView.module.css';
  * write journal — all lazy, collapsed by default." Mode + layers were added
  * on: "creek Today mode — only the past day, ribbons more opaque by recency,
  * rolling/near-real-time; and independent writes/reads layer toggles so
- * reads can be viewed alone on their own scale."
+ * reads can be viewed alone on their own scale." Wiring/Traffic replaced that
+ * Today mode on: "the Today page doesn't make sense — why would it be writing
+ * to budget? Make it clearer": the ribbons were a static call-site scan that
+ * didn't change between modes, so a collection nothing had touched all day
+ * still drew a fat write ribbon.
  */
 
 const SAVE_KEY = 'creek-view';
@@ -122,13 +151,34 @@ interface WaterSections {
 
 const DEFAULT_WATER_SECTIONS: WaterSections = { now: false, changes: false, writes: false };
 
-/** The mode control: the original 14-day map, or the rolling "today" view
- * (`?days=1`, polled). */
-type CreekMode = '14days' | 'today';
+/** The mode control — see the MODE section of the block above. These two are
+ * different pictures, not two windows on one picture: `wiring` is the static
+ * call-site map over 14 days, `traffic` is measured activity today. */
+type CreekMode = 'wiring' | 'traffic';
+
+/** Reads a saved mode, including the two names this control used before the
+ * wiring/traffic split, so an existing localStorage blob doesn't silently
+ * bounce her back to the default. */
+function savedMode(raw: string | undefined): CreekMode {
+  return raw === 'traffic' || raw === 'today' ? 'traffic' : 'wiring';
+}
+
+/** A saved selection is only restored if the restored MODE can actually draw
+ * it — the two modes have different left banks, so a file lit in traffic mode
+ * (or a caller in wiring) would dim the whole creek and light nothing. A lit
+ * collection restores in either, the right bank being in both pictures. */
+function restorableSelection(
+  sel: CreekSelection | null | undefined,
+  mode: CreekMode,
+): CreekSelection | null {
+  if (!sel) return null;
+  if (sel.kind === 'collection') return sel;
+  return (mode === 'traffic') === (sel.kind === 'caller') ? sel : null;
+}
 
 interface SavedCreekView {
   sel?: CreekSelection | null;
-  mode?: CreekMode;
+  mode?: string;
   writesOn?: boolean;
   readsOn?: boolean;
   water?: Partial<WaterSections>;
@@ -142,16 +192,34 @@ function loadSaved(): SavedCreekView {
   }
 }
 
-/** The 14-day window's fixed length; Today mode is always 1. */
+/** Wiring mode's fixed window; traffic mode is always today. */
 const WINDOW_DAYS = 14;
-/** Today mode's poll interval — a rolling near-real-time view, not a live
+/** Traffic mode's poll interval — a rolling near-real-time view, not a live
  * one; react-query's own background-tab guard (see api.ts) does the rest. */
 const TODAY_POLL_MS = 60_000;
 
+/** A traffic row's tooltip: the same three states the opacity encodes, said
+ * in words — so "quiet" and "we can't timestamp it" are never left to be
+ * inferred from how grey something looks. */
+function trafficRowTitle(c: CreekCollection): string {
+  const state = writeState(c.writes, c.last_write);
+  if (state === 'quiet') {
+    return c.reads > 0
+      ? `read ${c.reads.toLocaleString()}× today, never written`
+      : 'nothing touched it today';
+  }
+  const n = `${c.writes.toLocaleString()} ${c.writes === 1 ? 'write' : 'writes'} today`;
+  return state === 'timeless'
+    ? `${n} — the write journal has no timestamp for it`
+    : `${n}, last at ${relativeDayTime(c.last_write as string)}`;
+}
+
 export function CreekView() {
   const [saved] = useState(loadSaved);
-  const [selection, setSelection] = useState<CreekSelection | null>(saved.sel ?? null);
-  const [mode, setMode] = useState<CreekMode>(saved.mode === 'today' ? 'today' : '14days');
+  const [mode, setMode] = useState<CreekMode>(() => savedMode(saved.mode));
+  const [selection, setSelection] = useState<CreekSelection | null>(() =>
+    restorableSelection(saved.sel, savedMode(saved.mode)),
+  );
   const [writesOn, setWritesOn] = useState(saved.writesOn !== false);
   const [readsOn, setReadsOn] = useState(saved.readsOn !== false);
   const [waterSections, setWaterSections] = useState<WaterSections>({
@@ -159,28 +227,49 @@ export function CreekView() {
     ...saved.water,
   });
 
-  const days = mode === 'today' ? 1 : WINDOW_DAYS;
-  const creek = useCreek(days, mode === 'today' ? { refetchInterval: TODAY_POLL_MS } : {});
+  const traffic = mode === 'traffic';
+  const days = traffic ? 1 : WINDOW_DAYS;
+  const creek = useCreek(days, traffic ? { refetchInterval: TODAY_POLL_MS } : {});
   const files = useMemo(() => creek.data?.files ?? [], [creek.data]);
   const collections = useMemo(() => creek.data?.collections ?? [], [creek.data]);
   const unresolved = creek.data?.unresolved ?? [];
   const journalSince = creek.data?.journal_since ?? null;
 
   const sortMetric = sortMetricFor(writesOn, readsOn);
+
+  // Traffic mode's two banks, both measured: callers inverted out of the
+  // payload, and only the collections that actually moved. Both are computed
+  // in either mode (they're cheap, and `traffic` gates what's drawn) so the
+  // hook order never depends on the mode.
+  const callers = useMemo(() => aggregateCallers(collections), [collections]);
+  const shownCollections = useMemo(
+    () => (traffic ? activeCollections(collections) : collections),
+    [traffic, collections],
+  );
+  const quietCount = collections.length - shownCollections.length;
+
   const fileBank = useMemo(() => layoutFiles(files, sortMetric), [files, sortMetric]);
+  const callerBank = useMemo(() => layoutCallers(callers, sortMetric), [callers, sortMetric]);
+  const leftBankHeight = traffic ? callerBank.height : fileBank.height;
   const collectionBank = useMemo(
-    () => layoutCollections(collections, sortMetric),
-    [collections, sortMetric],
+    () => layoutCollections(shownCollections, sortMetric),
+    [shownCollections, sortMetric],
   );
   const ribbons = useMemo(
-    () => buildRibbons(files, fileBank, collectionBank),
-    [files, fileBank, collectionBank],
+    () =>
+      traffic
+        ? buildTrafficRibbons(callers, callerBank, collectionBank)
+        : buildRibbons(files, fileBank, collectionBank),
+    [traffic, callers, callerBank, files, fileBank, collectionBank],
   );
   const shownRibbons = useMemo(
     () => visibleRibbons(ribbons, writesOn, readsOn),
     [ribbons, writesOn, readsOn],
   );
-  const sets = useMemo(() => selectionSets(selection, files), [selection, files]);
+  const sets = useMemo(
+    () => (traffic ? trafficSelectionSets(selection, callers) : selectionSets(selection, files)),
+    [traffic, selection, callers, files],
+  );
 
   // Reads-only mode: the Writes chip is off, so reads carry the width scale
   // and the accent-free color CreekView.module.css keys off `.ribbonReadOwn`.
@@ -193,8 +282,10 @@ export function CreekView() {
     [collections],
   );
 
-  const canvasHeight = Math.max(fileBank.height, collectionBank.height);
-  const hasData = files.length > 0 || collections.length > 0;
+  const canvasHeight = Math.max(leftBankHeight, collectionBank.height);
+  const hasData = traffic
+    ? callers.length > 0 || shownCollections.length > 0
+    : files.length > 0 || collections.length > 0;
 
   // How she left it — same house pattern as the pond's SAVE_KEY effect.
   useEffect(() => {
@@ -239,14 +330,37 @@ export function CreekView() {
     setSelection((cur) => (cur?.kind === 'file' && cur.path === path ? null : { kind: 'file', path }));
   }
 
+  function pickCaller(name: string) {
+    setSelection((cur) => (cur?.kind === 'caller' && cur.name === name ? null : { kind: 'caller', name }));
+  }
+
   function pickCollection(id: string) {
     setSelection((cur) =>
       cur?.kind === 'collection' && cur.id === id ? null : { kind: 'collection', id },
     );
   }
 
+  // The two modes draw different left banks, so a lit file has nothing to be
+  // lit ON in traffic mode (and a lit caller likewise in wiring). Rather than
+  // leave a selection that dims the whole creek and lights nothing, switching
+  // modes drops a selection the new mode can't show. A lit COLLECTION survives
+  // the switch — the right bank is in both pictures.
+  function changeMode(next: CreekMode) {
+    setMode(next);
+    setSelection((cur) => {
+      if (cur === null || cur.kind === 'collection') return cur;
+      return (next === 'traffic') === (cur.kind === 'caller') ? cur : null;
+    });
+  }
+
   const selectedFile =
-    selection?.kind === 'file' ? files.find((f) => f.path === selection.path) ?? null : null;
+    !traffic && selection?.kind === 'file'
+      ? files.find((f) => f.path === selection.path) ?? null
+      : null;
+  const selectedCaller =
+    traffic && selection?.kind === 'caller'
+      ? callers.find((c) => c.name === selection.name) ?? null
+      : null;
   const selectedCollection =
     selection?.kind === 'collection'
       ? collections.find((c) => c.id === selection.id) ?? null
@@ -260,33 +374,38 @@ export function CreekView() {
         <div className={styles.heading}>
           <h2 className={styles.title}>The creek</h2>
           <p className={styles.sub}>
-            {hasData
-              ? `${files.length} files · ${collections.length} collections · ${totalWrites.toLocaleString()} writes ${
-                  mode === 'today' ? 'today' : `over ${days} days`
-                }`
-              : 'Data moving between code and vault.'}
-            {selection?.kind === 'file' ? ` — ${selection.path} lit` : ''}
+            {!hasData
+              ? 'Data moving between code and vault.'
+              : traffic
+                ? `${callers.length} callers · ${shownCollections.length} collections moved today · ${totalWrites.toLocaleString()} writes${
+                    quietCount > 0 ? ` · ${quietCount} stayed quiet` : ''
+                  }`
+                : `${files.length} files · ${collections.length} collections · ${totalWrites.toLocaleString()} writes over ${days} days`}
+            {!traffic && selection?.kind === 'file' ? ` — ${selection.path} lit` : ''}
+            {traffic && selection?.kind === 'caller' ? ` — ${selection.name} lit` : ''}
             {selection?.kind === 'collection' ? ` — ${selection.id} lit` : ''}
           </p>
         </div>
 
         <div className={styles.controls}>
-          <div className={styles.modeGroup} role="group" aria-label="Time window">
+          <div className={styles.modeGroup} role="group" aria-label="What the ribbons mean">
             <button
               type="button"
-              className={mode === '14days' ? styles.modeBtnActive : styles.modeBtn}
-              aria-pressed={mode === '14days'}
-              onClick={() => setMode('14days')}
+              className={!traffic ? styles.modeBtnActive : styles.modeBtn}
+              aria-pressed={!traffic}
+              title="What the code can do — call sites in the source, over 14 days"
+              onClick={() => changeMode('wiring')}
             >
-              14 days
+              Wiring
             </button>
             <button
               type="button"
-              className={mode === 'today' ? styles.modeBtnActive : styles.modeBtn}
-              aria-pressed={mode === 'today'}
-              onClick={() => setMode('today')}
+              className={traffic ? styles.modeBtnActive : styles.modeBtn}
+              aria-pressed={traffic}
+              title="What actually happened today — measured reads and writes, by caller"
+              onClick={() => changeMode('traffic')}
             >
-              Today
+              Traffic · today
             </button>
           </div>
           <button
@@ -337,20 +456,22 @@ export function CreekView() {
                 aria-hidden="true"
               >
                 {shownRibbons.map((r) => {
-                  const dimmed = ribbonDimmed(selection, r.file, r.collection);
+                  const dimmed = ribbonDimmed(selection, r.source, r.collection);
                   const lit = selection !== null && !dimmed;
-                  // Today mode only, and only for WRITE ribbons — reads are
-                  // today's running totals with no per-event timestamp to
-                  // fade by, so they always get a freshness of 1 (the legend
-                  // says this outright).
+                  // Traffic mode only, and only for WRITE ribbons — reads are
+                  // running totals with no per-event timestamp to fade by, so
+                  // they always get a freshness of 1 (the legend says this
+                  // outright). A write with no journal timestamp gets 1 too,
+                  // not the floor: it definitely happened.
+                  const target = collectionById.get(r.collection);
                   const freshness =
-                    mode === 'today' && r.kind === 'write'
-                      ? freshnessFactor(collectionById.get(r.collection)?.last_write ?? null)
+                    traffic && r.kind === 'write' && target?.last_write
+                      ? freshnessFactor(target.last_write)
                       : 1;
                   const readColor = readsOwnScale ? styles.ribbonReadOwn : styles.ribbonRead;
                   return (
                     <path
-                      key={`${r.file} ${r.collection} ${r.kind}`}
+                      key={`${r.source} ${r.collection} ${r.kind}`}
                       d={r.d}
                       className={`${styles.ribbon} ${r.kind === 'write' ? styles.ribbonWrite : readColor}`}
                       style={{
@@ -362,38 +483,60 @@ export function CreekView() {
                 })}
               </svg>
 
-              {/* --- left bank: code files ------------------------------------ */}
-              {fileBank.headers.map((h) => (
+              {/* --- left bank: code files (wiring) or callers (traffic) ------ */}
+              {(traffic ? callerBank.headers : fileBank.headers).map((h) => (
                 <div
-                  key={`fh:${h.key}`}
+                  key={`lh:${h.key}`}
                   className={styles.groupHeader}
                   style={{ top: h.y, left: 0, width: LEFT_W, height: 20 }}
                 >
                   {h.label}
                 </div>
               ))}
-              {fileBank.rows.map((row) => {
-                const dimmed = fileDimmed(selection, sets, row.key);
-                const lit = selection?.kind === 'file' && selection.path === row.key;
-                return (
-                  <button
-                    key={`f:${row.key}`}
-                    type="button"
-                    className={[styles.row, lit ? styles.rowLit : '', dimmed ? styles.rowDimmed : '']
-                      .filter(Boolean)
-                      .join(' ')}
-                    style={{ top: row.y, left: 0, width: LEFT_W, height: ROW_H }}
-                    aria-pressed={lit}
-                    onClick={() => pickFile(row.key)}
-                    title={row.key}
-                  >
-                    <span className={styles.rowName}>{row.item.path}</span>
-                    <span className={styles.rowCount}>
-                      {sortMetric === 'reads' ? fileReads(row.item) : fileWrites(row.item)}
-                    </span>
-                  </button>
-                );
-              })}
+              {!traffic
+                ? fileBank.rows.map((row) => {
+                    const dimmed = fileDimmed(selection, sets, row.key);
+                    const lit = selection?.kind === 'file' && selection.path === row.key;
+                    return (
+                      <button
+                        key={`f:${row.key}`}
+                        type="button"
+                        className={[styles.row, lit ? styles.rowLit : '', dimmed ? styles.rowDimmed : '']
+                          .filter(Boolean)
+                          .join(' ')}
+                        style={{ top: row.y, left: 0, width: LEFT_W, height: ROW_H }}
+                        aria-pressed={lit}
+                        onClick={() => pickFile(row.key)}
+                        title={row.key}
+                      >
+                        <span className={styles.rowName}>{row.item.path}</span>
+                        <span className={styles.rowCount}>
+                          {sortMetric === 'reads' ? fileReads(row.item) : fileWrites(row.item)}
+                        </span>
+                      </button>
+                    );
+                  })
+                : callerBank.rows.map((row) => {
+                    const dimmed = callerDimmed(selection, sets, row.key);
+                    const lit = selection?.kind === 'caller' && selection.name === row.key;
+                    const n = sortMetric === 'reads' ? row.item.reads : row.item.writes;
+                    return (
+                      <button
+                        key={`p:${row.key}`}
+                        type="button"
+                        className={[styles.row, lit ? styles.rowLit : '', dimmed ? styles.rowDimmed : '']
+                          .filter(Boolean)
+                          .join(' ')}
+                        style={{ top: row.y, left: 0, width: LEFT_W, height: ROW_H }}
+                        aria-pressed={lit}
+                        onClick={() => pickCaller(row.key)}
+                        title={row.item.file ?? row.key}
+                      >
+                        <span className={styles.rowName}>{row.item.name}</span>
+                        <span className={styles.rowCount}>{n.toLocaleString()}</span>
+                      </button>
+                    );
+                  })}
 
               {/* --- right bank: vault collections ----------------------------- */}
               {collectionBank.headers.map((h) => (
@@ -408,12 +551,15 @@ export function CreekView() {
               {collectionBank.rows.map((row) => {
                 const dimmed = collectionDimmed(selection, sets, row.key);
                 const lit = selection?.kind === 'collection' && selection.id === row.key;
-                // Today mode's recency fade — right-bank rows only, since
-                // files carry no last-write timestamp. `collectionRowOpacity`
-                // itself already gives dimmed the final word, same rule as
-                // the ribbons.
-                const freshness =
-                  mode === 'today' ? freshnessFactor(row.item.last_write) : 1;
+                // Traffic mode says the row's state in three ways at once:
+                // opacity (by `writeState`), the count-or-"quiet" label, and
+                // the tooltip. Wiring mode has no state to say — its rows are
+                // call sites, which don't happen at a time — so it keeps the
+                // plain dimmed/full behaviour.
+                const state = writeState(row.item.writes, row.item.last_write);
+                const opacity = traffic
+                  ? trafficRowOpacity(state, dimmed, freshnessFactor(row.item.last_write))
+                  : collectionRowOpacity(dimmed, 1);
                 return (
                   <button
                     key={`c:${row.key}`}
@@ -424,18 +570,22 @@ export function CreekView() {
                       left: RIGHT_X,
                       width: RIGHT_W,
                       height: ROW_H,
-                      opacity: collectionRowOpacity(dimmed, freshness),
+                      opacity,
                     }}
                     aria-pressed={lit}
                     onClick={() => pickCollection(row.key)}
-                    title={row.item.id}
+                    title={traffic ? `${row.item.id} — ${trafficRowTitle(row.item)}` : row.item.id}
                   >
                     <span className={styles.backingGlyph} aria-hidden="true">
                       {row.item.backing === 'sql' ? '▦' : '▤'}
                     </span>
                     <span className={styles.rowName}>{row.item.id}</span>
                     <span className={styles.rowCount}>
-                      {sortMetric === 'reads' ? row.item.reads : row.item.writes}
+                      {traffic
+                        ? trafficCountLabel(row.item, sortMetric)
+                        : sortMetric === 'reads'
+                          ? row.item.reads
+                          : row.item.writes}
                     </span>
                   </button>
                 );
@@ -449,12 +599,18 @@ export function CreekView() {
                 file={selectedFile}
                 onClose={() => setSelection(null)}
               />
+            ) : selectedCaller ? (
+              <CallerDetail
+                caller={selectedCaller}
+                onClose={() => setSelection(null)}
+                onPickCollection={pickCollection}
+              />
             ) : selectedCollection ? (
               <CollectionDetail
                 collection={selectedCollection}
                 files={files}
                 days={days}
-                mode={mode}
+                traffic={traffic}
                 onClose={() => setSelection(null)}
                 onPickFile={pickFile}
                 water={waterSections}
@@ -464,7 +620,8 @@ export function CreekView() {
               <Legend
                 totalWrites={totalWrites}
                 unresolvedCount={unresolved.length}
-                mode={mode}
+                traffic={traffic}
+                quietCount={quietCount}
                 writesOn={writesOn}
                 readsOn={readsOn}
                 journalSince={journalSince}
@@ -521,6 +678,75 @@ function FileDetail({ file, onClose }: { file: CreekFile; onClose: () => void })
   );
 }
 
+/** What one CALLER says — traffic mode's left-bank panel. A caller is a
+ * process (`gunicorn`, `run_dispatcher`, a script's own name), so there's no
+ * call-site list to show the way FileDetail has one; what it has instead is
+ * the collections it actually moved today, each tapping through to that
+ * collection. Its source file gets a `/code` link only when the server could
+ * name one — for gunicorn and the Rust binaries there honestly isn't one. */
+function CallerDetail({
+  caller,
+  onClose,
+  onPickCollection,
+}: {
+  caller: TrafficCaller;
+  onClose: () => void;
+  onPickCollection: (id: string) => void;
+}) {
+  const touches = sortedTouches(caller);
+  return (
+    <>
+      <div className={styles.detailHead}>
+        <div>
+          <div className={styles.detailTitle}>{caller.name}</div>
+          <p className={styles.detailMeta}>
+            caller · {caller.writes.toLocaleString()} writes · {caller.reads.toLocaleString()} reads
+            today
+          </p>
+        </div>
+        <button type="button" className={styles.detailClose} onClick={onClose} aria-label="Close">
+          ×
+        </button>
+      </div>
+
+      {caller.file ? (
+        <p className={styles.detailLabel}>
+          <a
+            className={styles.callerName}
+            href={`/code?${new URLSearchParams({ repo: 'skeleton', path: caller.file }).toString()}`}
+          >
+            {caller.file}
+          </a>
+        </p>
+      ) : (
+        <p className={styles.detailCaveat}>
+          A process name, not a file — the counters record who ran, never which line.
+        </p>
+      )}
+
+      <p className={styles.detailLabel}>What it moved today</p>
+      <div className={styles.callerList}>
+        {touches.map((t) => (
+          <button
+            key={t.collection}
+            type="button"
+            className={styles.callerRow}
+            onClick={() => onPickCollection(t.collection)}
+          >
+            <span className={styles.callerName}>{t.collection}</span>
+            <span className={styles.callerCounts}>
+              {t.writes.toLocaleString()}w · {t.reads.toLocaleString()}r
+            </span>
+          </button>
+        ))}
+        {touches.length === 0 ? (
+          <p className={styles.detailCaveat}>It touched nothing in this window.</p>
+        ) : null}
+      </div>
+    </>
+  );
+}
+
 /** What a collection says: itself, the files that touch it (each a link that
  * SELECTS that file — staying on the creek, not navigating away), who
  * actually moved it in the window, and below that "the water" — three lazy
@@ -529,7 +755,7 @@ function CollectionDetail({
   collection,
   files,
   days,
-  mode,
+  traffic,
   onClose,
   onPickFile,
   water,
@@ -538,7 +764,7 @@ function CollectionDetail({
   collection: CreekCollection;
   files: readonly CreekFile[];
   days: number;
-  mode: CreekMode;
+  traffic: boolean;
   onClose: () => void;
   onPickFile: (path: string) => void;
   water: WaterSections;
@@ -553,7 +779,8 @@ function CollectionDetail({
         <div>
           <div className={styles.detailTitle}>{collection.id}</div>
           <p className={styles.detailMeta}>
-            {collection.backing} · {collection.writes} writes · {collection.reads} reads
+            {collection.backing} · {collection.writes.toLocaleString()} writes ·{' '}
+            {collection.reads.toLocaleString()} reads
           </p>
         </div>
         <button type="button" className={styles.detailClose} onClick={onClose} aria-label="Close">
@@ -561,13 +788,22 @@ function CollectionDetail({
         </button>
       </div>
 
+      {/* The same three-state honesty the row's opacity carries, spelled out
+          where there's room for a sentence. Traffic mode only — in wiring mode
+          the counts aren't what the picture is about. */}
+      {traffic ? (
+        <p className={styles.detailCaveat}>{trafficRowTitle(collection)}.</p>
+      ) : null}
+
       {collection.backing === 'sql' ? (
         <p className={styles.detailCaveat}>
           SQLite is the record here — the JSON file is a one-way mirror, never read back.
         </p>
       ) : null}
 
-      <p className={styles.detailLabel}>Files that touch it</p>
+      <p className={styles.detailLabel}>
+        {traffic ? 'Files that could touch it' : 'Files that touch it'}
+      </p>
       <div className={styles.fileList}>
         {touching.map((f) => (
           <button
@@ -586,7 +822,7 @@ function CollectionDetail({
       </div>
 
       <p className={styles.detailLabel}>
-        Who actually moved it ({mode === 'today' ? 'today' : `last ${days} days`})
+        Who actually moved it ({traffic ? 'today' : `last ${days} days`})
       </p>
       <div className={styles.callerList}>
         {callers.map((c) =>
@@ -875,14 +1111,16 @@ function WritesSection({ id, open, onToggle }: { id: string; open: boolean; onTo
 function Legend({
   totalWrites,
   unresolvedCount,
-  mode,
+  traffic,
+  quietCount,
   writesOn,
   readsOn,
   journalSince,
 }: {
   totalWrites: number;
   unresolvedCount: number;
-  mode: CreekMode;
+  traffic: boolean;
+  quietCount: number;
   writesOn: boolean;
   readsOn: boolean;
   journalSince: string | null;
@@ -893,9 +1131,39 @@ function Legend({
   const readsOnly = readsOn && !writesOn;
   return (
     <div className={styles.legend}>
+      {/* The mode paragraph comes FIRST and names what a ribbon means, because
+          that's the thing the drawing can't say for itself — and getting it
+          wrong is what made a collection nobody had touched all day look busy. */}
       <p>
-        <strong>Left bank</strong> is code — every file that reads or writes a
-        collection, grouped by where it lives (server, routes, scripts, tools).
+        {traffic ? (
+          <>
+            <strong>Traffic</strong> — what actually happened today. A ribbon is
+            reads and writes that really ran, counted.
+          </>
+        ) : (
+          <>
+            <strong>Wiring</strong> — what the code <em>can</em> do. A ribbon is
+            call sites in the source, not runs: a collection draws a write ribbon
+            because some file contains a line that writes it, even if nothing has
+            for months.
+          </>
+        )}
+      </p>
+      <p>
+        <strong>Left bank</strong> is{' '}
+        {traffic ? (
+          <>
+            who moved it — the processes the counters actually recorded
+            (gunicorn, the dispatchers, each script by name), split into those
+            that wrote and those that only read. They&rsquo;re processes, not
+            files: nothing here records which line ran.
+          </>
+        ) : (
+          <>
+            code — every file that reads or writes a collection, grouped by where
+            it lives (server, routes, scripts, tools).
+          </>
+        )}
       </p>
       <p>
         <strong>Right bank</strong> is the vault&rsquo;s own collections, grouped by
@@ -929,17 +1197,38 @@ function Legend({
           </span>
         </div>
       ) : null}
-      <p>Tap a file or a collection to follow its flow; tap again, or Esc, to clear it.</p>
-      <p>{totalWrites.toLocaleString()} writes tracked {mode === 'today' ? 'today' : 'in this window'}.</p>
-      {mode === 'today' ? (
-        <p>
-          In Today mode, ribbons and right-bank rows fade by how recently the write journal
-          actually saw them
-          {journalSince ? ` — it’s been capturing since ${relativeDayTime(journalSince)}` : ''}.
-          Read counts are today&rsquo;s running totals, refreshed about every minute, not
-          individual timestamped events — they don&rsquo;t fade, since there&rsquo;s no per-read
-          moment to fade from. The journal only sees writes that pass through the store seam.
-        </p>
+      <p>
+        Tap {traffic ? 'a caller' : 'a file'} or a collection to follow its flow; tap again, or
+        Esc, to clear it.
+      </p>
+      <p>
+        {totalWrites.toLocaleString()} writes tracked {traffic ? 'today' : 'in this window'}.
+      </p>
+      {traffic ? (
+        <>
+          {quietCount > 0 ? (
+            <p>
+              {quietCount} {quietCount === 1 ? 'collection' : 'collections'} nothing touched today
+              {' '}aren&rsquo;t drawn at all — they&rsquo;re on the Wiring map.
+            </p>
+          ) : null}
+          {/* The three row states, said plainly. This paragraph replaced a
+              single fade that painted "quiet" and "we can't tell" the same
+              grey, which is the ambiguity that made the page unreadable. */}
+          <p>
+            A right-bank row <strong>fades by how recently</strong> the write journal saw it
+            {journalSince ? `, which has been capturing since ${relativeDayTime(journalSince)}` : ''}.
+            A row that moved but has <strong>no timestamp</strong> stays at full strength and says
+            so on hover — it definitely happened, the journal just can&rsquo;t place it. A row
+            reading <strong>quiet</strong> was genuinely never written today.
+          </p>
+          <p>
+            The journal only sees writes through the store seam, so typed stores (habits,
+            expenses, cards) can move without ever getting a timestamp. Counts are running
+            totals refreshed about every minute; reads don&rsquo;t fade at all, having no
+            per-read moment to fade from.
+          </p>
+        </>
       ) : null}
       {unresolvedCount > 0 ? (
         <p className={styles.legendUnresolved}>

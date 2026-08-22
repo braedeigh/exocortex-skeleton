@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { CreekCollection, CreekFile } from './api';
+import type { CreekCaller, CreekCollection, CreekFile } from './api';
 import {
+  CALLER_ROLES,
   DIM_OPACITY,
   FRESHNESS_FLOOR,
+  QUIET_OPACITY,
   GROUP_GAP,
   HEADER_H,
   LEFT_X,
@@ -16,12 +18,17 @@ import {
   ROW_GAP,
   ROW_H,
   WRITE_BASE_OPACITY,
+  activeCollections,
+  aggregateCallers,
   buildRibbons,
+  buildTrafficRibbons,
+  callerDimmed,
   classifyDiffLine,
   codeHref,
   collectionDimmed,
   collectionRowOpacity,
   fileDimmed,
+  layoutCallers,
   fileReads,
   fileWrites,
   filesTouching,
@@ -39,8 +46,13 @@ import {
   sortMetricFor,
   sortedCalls,
   sortedCallers,
+  sortedTouches,
   toggleLayer,
+  trafficCountLabel,
+  trafficRowOpacity,
+  trafficSelectionSets,
   visibleRibbons,
+  writeState,
 } from './creekMath';
 
 function file(path: string, area: CreekFile['area'], calls: CreekFile['calls']): CreekFile {
@@ -330,7 +342,7 @@ describe('buildRibbons', () => {
     expect(ribbons).toHaveLength(2);
 
     const write = ribbons.find((r) => r.kind === 'write')!;
-    expect(write.file).toBe('routes/todos.py');
+    expect(write.source).toBe('routes/todos.py');
     expect(write.collection).toBe('todos');
     expect(write.count).toBe(2);
     expect(write.weight).toBeGreaterThan(0);
@@ -384,7 +396,7 @@ describe('buildRibbons', () => {
     const fBank = layoutFiles(heavy);
     const cBank = layoutCollections(collections);
     const ribbons = buildRibbons(heavy, fBank, cBank, LEFT_X, RIGHT_X);
-    const heavyRead = ribbons.find((r) => r.file === 'routes/cards.py' && r.kind === 'read')!;
+    const heavyRead = ribbons.find((r) => r.source === 'routes/cards.py' && r.kind === 'read')!;
     // 20 out of a 20-read cap should land at (or very near) the top of the
     // read ramp — nowhere close to how flattened it'd be against a 50-write cap.
     expect(heavyRead.weight).toBeCloseTo(1, 1);
@@ -393,8 +405,8 @@ describe('buildRibbons', () => {
 
 describe('visibleRibbons', () => {
   const ribbons = [
-    { file: 'a', collection: 'b', kind: 'write' as const, count: 1, weight: 1, d: '' },
-    { file: 'a', collection: 'b', kind: 'read' as const, count: 1, weight: 0, d: '' },
+    { source: 'a', collection: 'b', kind: 'write' as const, count: 1, weight: 1, d: '' },
+    { source: 'a', collection: 'b', kind: 'read' as const, count: 1, weight: 0, d: '' },
   ];
 
   it('drops read ribbons when the reads chip is off', () => {
@@ -542,5 +554,308 @@ describe('classifyDiffLine', () => {
   it('classifies a plain context line', () => {
     expect(classifyDiffLine('  unchanged line')).toBe('ctx');
     expect(classifyDiffLine('')).toBe('ctx');
+  });
+});
+
+// --- traffic mode ------------------------------------------------------------
+// The bug these cover: the creek drew one picture that meant two things. Ribbon
+// widths came from a static call-site scan and did NOT change between modes, so
+// a collection nothing had touched all day still drew a fat write ribbon and
+// read as busy. Traffic mode is the measured picture; these tests pin the seam
+// between the two so a count can never leak into the wiring map, nor a call
+// site into the traffic map.
+
+function caller(name: string, over: Partial<CreekCaller> = {}): CreekCaller {
+  return { name, reads: 0, writes: 0, file: null, ...over };
+}
+
+describe('writeState', () => {
+  it('calls zero writes quiet, whatever the journal says', () => {
+    expect(writeState(0, null)).toBe('quiet');
+    expect(writeState(0, '2026-08-21T22:00:00')).toBe('quiet');
+  });
+
+  it('separates "moved but untimestamped" from "moved"', () => {
+    expect(writeState(7, null)).toBe('timeless');
+    expect(writeState(7, '2026-08-21T22:00:00')).toBe('moved');
+  });
+});
+
+describe('trafficRowOpacity', () => {
+  it('lets dimmed win outright over every state', () => {
+    for (const s of ['moved', 'timeless', 'quiet'] as const) {
+      expect(trafficRowOpacity(s, true, 1)).toBe(DIM_OPACITY);
+    }
+  });
+
+  it('draws an untimestamped write at FULL strength, never faded', () => {
+    // It definitely happened — fading it would understate a known fact, which
+    // is precisely the conflation this state exists to end.
+    expect(trafficRowOpacity('timeless', false, 0.01)).toBe(1);
+  });
+
+  it('gives quiet its own opacity, distinct from any freshness value', () => {
+    expect(trafficRowOpacity('quiet', false, 1)).toBe(QUIET_OPACITY);
+    expect(QUIET_OPACITY).not.toBe(FRESHNESS_FLOOR);
+  });
+
+  it('fades a timestamped write by recency, floored', () => {
+    expect(trafficRowOpacity('moved', false, 0.8)).toBeCloseTo(0.8);
+    expect(trafficRowOpacity('moved', false, 0)).toBe(FRESHNESS_FLOOR);
+  });
+});
+
+describe('aggregateCallers', () => {
+  const collections = [
+    collection('run_queue', 'json', {
+      writes: 3333,
+      callers: [caller('run_dispatcher', { writes: 3333, reads: 1601 })],
+    }),
+    collection('scheduled_runs', 'json', {
+      writes: 1354,
+      callers: [
+        caller('run_dispatcher', { writes: 729, reads: 0 }),
+        caller('gunicorn', { writes: 625, reads: 1368, file: null }),
+      ],
+    }),
+  ];
+
+  it('inverts the payload: one row per caller, summed across collections', () => {
+    const out = aggregateCallers(collections);
+    const dispatcher = out.find((c) => c.name === 'run_dispatcher')!;
+    expect(dispatcher.writes).toBe(3333 + 729);
+    expect(dispatcher.reads).toBe(1601);
+    expect(dispatcher.touches).toHaveLength(2);
+  });
+
+  it('keeps totals equal to the sum of its own touches', () => {
+    for (const c of aggregateCallers(collections)) {
+      expect(c.writes).toBe(c.touches.reduce((n, t) => n + t.writes, 0));
+      expect(c.reads).toBe(c.touches.reduce((n, t) => n + t.reads, 0));
+    }
+  });
+
+  it('takes the first non-null file rather than the first touch’s null', () => {
+    const out = aggregateCallers([
+      collection('a', 'json', { callers: [caller('usage_rollup', { writes: 1 })] }),
+      collection('b', 'json', {
+        callers: [caller('usage_rollup', { writes: 1, file: 'scripts/usage_rollup.py' })],
+      }),
+    ]);
+    expect(out[0].file).toBe('scripts/usage_rollup.py');
+  });
+});
+
+describe('activeCollections', () => {
+  it('drops what nothing touched, keeps a read-only collection', () => {
+    const out = activeCollections([
+      collection('budget', 'sql'),
+      collection('recap_summaries', 'sql', { reads: 90768, writes: 370 }),
+      collection('food_guide', 'json', { reads: 4 }),
+    ]);
+    expect(out.map((c) => c.id)).toEqual(['recap_summaries', 'food_guide']);
+  });
+});
+
+describe('layoutCallers', () => {
+  const callers = aggregateCallers([
+    collection('x', 'json', {
+      callers: [
+        caller('gunicorn', { writes: 10, reads: 900 }),
+        caller('prompt_dispatcher', { writes: 0, reads: 1354 }),
+        caller('run_dispatcher', { writes: 4062, reads: 12 }),
+      ],
+    }),
+  ]);
+
+  it('puts writers above read-only callers, each ranked by the metric', () => {
+    const bank = layoutCallers(callers, 'writes');
+    expect(bank.headers.map((h) => h.key)).toEqual(CALLER_ROLES.map((r) => r.key));
+    expect(bank.rows.map((r) => r.key)).toEqual([
+      'run_dispatcher',
+      'gunicorn',
+      'prompt_dispatcher',
+    ]);
+  });
+
+  it('re-ranks within the groups when reads own the scale', () => {
+    const bank = layoutCallers(callers, 'reads');
+    // gunicorn out-reads run_dispatcher, but is still a writer — the group
+    // split is about role, not about which count is on screen.
+    expect(bank.rows.map((r) => r.key)).toEqual([
+      'gunicorn',
+      'run_dispatcher',
+      'prompt_dispatcher',
+    ]);
+  });
+});
+
+describe('buildTrafficRibbons', () => {
+  const collections = [
+    collection('run_queue', 'json', {
+      reads: 1601,
+      writes: 3333,
+      callers: [caller('run_dispatcher', { writes: 3333, reads: 1601 })],
+    }),
+    collection('token_usage', 'json', {
+      reads: 23,
+      writes: 23,
+      callers: [caller('usage_ledger', { writes: 23, reads: 23 })],
+    }),
+  ];
+  const callers = aggregateCallers(collections);
+  const callerBank = layoutCallers(callers);
+  const collectionBank = layoutCollections(collections);
+
+  it('carries the count that actually happened, not a call-site tally', () => {
+    const ribbons = buildTrafficRibbons(callers, callerBank, collectionBank, LEFT_X, RIGHT_X);
+    const write = ribbons.find((r) => r.source === 'run_dispatcher' && r.kind === 'write')!;
+    expect(write.count).toBe(3333);
+    expect(write.collection).toBe('run_queue');
+  });
+
+  it('lands its endpoints on the two banks’ own row centres', () => {
+    const ribbons = buildTrafficRibbons(callers, callerBank, collectionBank, LEFT_X, RIGHT_X);
+    const write = ribbons.find((r) => r.source === 'usage_ledger' && r.kind === 'write')!;
+    const cy1 = callerBank.rows.find((r) => r.key === 'usage_ledger')!.cy;
+    const cy2 = collectionBank.rows.find((r) => r.key === 'token_usage')!.cy;
+    expect(write.d).toContain(`${LEFT_X.toFixed(1)},${cy1.toFixed(1)}`);
+    expect(write.d).toContain(`${RIGHT_X.toFixed(1)},${cy2.toFixed(1)}`);
+  });
+
+  it('draws nothing toward a collection that isn’t on the bank', () => {
+    // A quiet collection is filtered off the right bank by definition, so a
+    // caller listed against it must not leave a dangling ribbon.
+    const bankWithoutRunQueue = layoutCollections([collections[1]]);
+    const ribbons = buildTrafficRibbons(
+      callers,
+      callerBank,
+      bankWithoutRunQueue,
+      LEFT_X,
+      RIGHT_X,
+    );
+    expect(ribbons.some((r) => r.collection === 'run_queue')).toBe(false);
+  });
+
+  it('scales reads against their own cap, never the write cap', () => {
+    const heavyWrite = [
+      collection('run_queue', 'json', {
+        reads: 5,
+        writes: 9000,
+        callers: [caller('run_dispatcher', { writes: 9000, reads: 5 })],
+      }),
+      collection('recaps', 'json', {
+        reads: 60,
+        writes: 0,
+        callers: [caller('gunicorn', { writes: 0, reads: 60 })],
+      }),
+    ];
+    const cs = aggregateCallers(heavyWrite);
+    const ribbons = buildTrafficRibbons(
+      cs,
+      layoutCallers(cs),
+      layoutCollections(heavyWrite),
+      LEFT_X,
+      RIGHT_X,
+    );
+    const topRead = ribbons.find((r) => r.source === 'gunicorn' && r.kind === 'read')!;
+    // 60 of a 60-read cap sits at the top of the read ramp — a 9000-write cap
+    // would have flattened it to nothing.
+    expect(topRead.weight).toBeCloseTo(1, 1);
+  });
+
+  it('is the whole point: a wired-but-untouched collection draws no traffic ribbon', () => {
+    // routes/money.py really does contain four `store.write("budget.json")`
+    // lines, so wiring draws a write ribbon into budget — correctly. Traffic
+    // must not, on a day nothing wrote it.
+    const files = [
+      file('routes/money.py', 'routes', [
+        { line: 34, verb: 'write', collection: 'budget', snippet: '' },
+        { line: 52, verb: 'write', collection: 'budget', snippet: '' },
+      ]),
+    ];
+    const budget = [collection('budget', 'sql')];
+    const wiring = buildRibbons(files, layoutFiles(files), layoutCollections(budget));
+    expect(wiring.filter((r) => r.kind === 'write')).toHaveLength(1);
+
+    const shown = activeCollections(budget);
+    expect(shown).toHaveLength(0);
+    const cs = aggregateCallers(budget);
+    const trafficRibbons = buildTrafficRibbons(cs, layoutCallers(cs), layoutCollections(shown));
+    expect(trafficRibbons).toHaveLength(0);
+  });
+});
+
+describe('trafficSelectionSets', () => {
+  const callers = aggregateCallers([
+    collection('run_queue', 'json', {
+      writes: 10,
+      callers: [caller('run_dispatcher', { writes: 10 })],
+    }),
+    collection('token_usage', 'json', {
+      writes: 2,
+      callers: [
+        caller('usage_ledger', { writes: 2 }),
+        caller('run_dispatcher', { writes: 0, reads: 0 }),
+      ],
+    }),
+  ]);
+
+  it('lights the collections a caller actually moved', () => {
+    const sel = { kind: 'caller' as const, name: 'run_dispatcher' };
+    const sets = trafficSelectionSets(sel, callers);
+    expect(sets.collections.has('run_queue')).toBe(true);
+    // Listed against token_usage but with no counts — not a link.
+    expect(sets.collections.has('token_usage')).toBe(false);
+    expect(callerDimmed(sel, sets, 'run_dispatcher')).toBe(false);
+    expect(callerDimmed(sel, sets, 'usage_ledger')).toBe(true);
+  });
+
+  it('lights the callers that moved a selected collection', () => {
+    const sel = { kind: 'collection' as const, id: 'token_usage' };
+    const sets = trafficSelectionSets(sel, callers);
+    expect(sets.callers.has('usage_ledger')).toBe(true);
+    expect(sets.callers.has('run_dispatcher')).toBe(false);
+    expect(collectionDimmed(sel, sets, 'run_queue')).toBe(true);
+  });
+
+  it('dims nothing with no selection', () => {
+    const sets = trafficSelectionSets(null, callers);
+    expect(callerDimmed(null, sets, 'run_dispatcher')).toBe(false);
+  });
+
+  it('returns empty sets for a file selection, which this bank cannot show', () => {
+    const sets = trafficSelectionSets({ kind: 'file', path: 'routes/money.py' }, callers);
+    expect(sets.callers.size).toBe(0);
+    expect(sets.collections.size).toBe(0);
+  });
+});
+
+describe('sortedTouches', () => {
+  it('orders a caller’s collections heaviest-write first, dropping empty ones', () => {
+    const [c] = aggregateCallers([
+      collection('a', 'json', { callers: [caller('x', { writes: 1 })] }),
+      collection('b', 'json', { callers: [caller('x', { writes: 9 })] }),
+      collection('c', 'json', { callers: [caller('x', { writes: 0, reads: 0 })] }),
+    ]);
+    expect(sortedTouches(c).map((t) => t.collection)).toEqual(['b', 'a']);
+  });
+});
+
+describe('trafficCountLabel', () => {
+  it('says the word quiet rather than a zero', () => {
+    expect(trafficCountLabel(collection('budget', 'sql'), 'writes')).toBe('quiet');
+  });
+
+  it('reads a collection that was only read as quiet on the writes metric', () => {
+    const c = collection('food_guide', 'json', { reads: 4 });
+    expect(trafficCountLabel(c, 'writes')).toBe('quiet');
+    expect(trafficCountLabel(c, 'reads')).toBe('4');
+  });
+
+  it('groups a big count so it stays readable', () => {
+    expect(trafficCountLabel(collection('run_queue', 'json', { writes: 3333 }), 'writes')).toBe(
+      (3333).toLocaleString(),
+    );
   });
 });

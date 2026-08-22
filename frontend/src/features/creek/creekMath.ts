@@ -56,6 +56,28 @@
  * however it's currently drawn — write scale, read hairline, or read-owns-the-
  * scale). `ribbonOpacity` and `buildRibbons` grew to carry freshness and a
  * read-side log-ramp weight respectively.
+ *
+ * TWO MODES, TWO MEANINGS — the "traffic mode" section at the bottom. The page
+ * was drawing one picture that meant two different things at once, and only the
+ * time window changed between them, so a collection nothing had touched all day
+ * still showed a fat write ribbon and read as busy. Now the mode picks what a
+ * ribbon MEANS:
+ *
+ *   WIRING (the 14-day map, everything above) — left bank is source files,
+ *   ribbon width is how many `store.write(...)` CALL SITES exist. It says what
+ *   the code CAN do. Nothing here is about a particular day.
+ *
+ *   TRAFFIC (today) — ribbon width is writes that actually HAPPENED. That
+ *   forces a different left bank: the telemetry records the calling PROCESS
+ *   (`gunicorn`, `run_dispatcher`, `turn_host`), never the source line, so a
+ *   truthful traffic view cannot keep files on the left. `aggregateCallers`
+ *   rebuilds the left bank out of `collection.callers[]` — real names, real
+ *   counts, real window — and `buildTrafficRibbons` draws caller→collection
+ *   with those counts. Collections nothing touched drop out entirely
+ *   (`activeCollections`), counted aloud rather than silently hidden.
+ *
+ * The other half of that fix is `writeState`, which replaces a single
+ * continuous fade that couldn't tell "quiet" apart from "we don't know."
  */
 
 import type { CreekCall, CreekCaller, CreekCollection, CreekFile } from './api';
@@ -347,10 +369,16 @@ export function ribbonPathD(x1: number, y1: number, x2: number, y2: number): str
 }
 
 export interface CreekRibbon {
-  file: string;
+  /** The left-bank row this ribbon leaves from — a file path in wiring mode, a
+   * caller name in traffic mode. Named `source` rather than `file` because
+   * both banks are real: in traffic mode no file is (or could honestly be)
+   * named, since telemetry only knows the calling process. */
+  source: string;
   collection: string;
   kind: 'read' | 'write';
-  /** How many calls of this kind this file makes to this collection. */
+  /** In wiring mode, how many calls of this kind this file makes to this
+   * collection (call sites in source). In traffic mode, how many actually
+   * happened in the window. */
   count: number;
   /** 0..1, meaningful for `write` ribbons only — reads are a fixed hairline. */
   weight: number;
@@ -418,7 +446,7 @@ export function buildRibbons(
     const d = ribbonPathD(leftX, y1, rightX, y2);
     if (e.writes > 0) {
       out.push({
-        file: e.file,
+        source: e.file,
         collection: e.collection,
         kind: 'write',
         count: e.writes,
@@ -428,7 +456,7 @@ export function buildRibbons(
     }
     if (e.reads > 0) {
       out.push({
-        file: e.file,
+        source: e.file,
         collection: e.collection,
         kind: 'read',
         count: e.reads,
@@ -474,36 +502,48 @@ export function toggleLayer(
 
 // --- selection: emphasis, never a filter --------------------------------------
 
-export type CreekSelection = { kind: 'file'; path: string } | { kind: 'collection'; id: string };
+export type CreekSelection =
+  | { kind: 'file'; path: string }
+  | { kind: 'caller'; name: string }
+  | { kind: 'collection'; id: string };
 
-/** The two sets a selection implies: which collections a selected file
- * touches, and which files touch a selected collection. Precomputed once per
- * selection so row/ribbon dimming is O(1) rather than re-scanning calls per
- * row drawn. */
+/** The sets a selection implies: which collections the selected left-bank row
+ * touches, and which left-bank rows touch a selected collection. Precomputed
+ * once per selection so row/ribbon dimming is O(1) rather than re-scanning
+ * calls per row drawn. `files` is filled in wiring mode and `callers` in
+ * traffic mode — the mode only ever draws one of the two banks, so the other
+ * set stays empty rather than being faked. */
 export interface SelectionSets {
   collections: ReadonlySet<string>;
   files: ReadonlySet<string>;
+  callers: ReadonlySet<string>;
 }
 
-export const EMPTY_SELECTION_SETS: SelectionSets = { collections: new Set(), files: new Set() };
+export const EMPTY_SELECTION_SETS: SelectionSets = {
+  collections: new Set(),
+  files: new Set(),
+  callers: new Set(),
+};
 
 export function selectionSets(
   sel: CreekSelection | null,
   files: readonly CreekFile[],
 ): SelectionSets {
   if (!sel) return EMPTY_SELECTION_SETS;
+  if (sel.kind === 'caller') return EMPTY_SELECTION_SETS; // not this mode's bank
   if (sel.kind === 'file') {
     const file = files.find((f) => f.path === sel.path);
     return {
       collections: new Set(file ? file.calls.map((c) => c.collection) : []),
       files: new Set([sel.path]),
+      callers: new Set(),
     };
   }
   const touching = new Set<string>();
   for (const f of files) {
     if (f.calls.some((c) => c.collection === sel.id)) touching.add(f.path);
   }
-  return { collections: new Set([sel.id]), files: touching };
+  return { collections: new Set([sel.id]), files: touching, callers: new Set() };
 }
 
 /** Is this file row dimmed — something's selected and it isn't this file, nor
@@ -521,14 +561,27 @@ export function collectionDimmed(
   return sel !== null && !sets.collections.has(id);
 }
 
-/** Is this exact ribbon (one file, one collection) part of the lit selection. */
+/** Is this caller row dimmed — traffic mode's left bank, same rule as
+ * `fileDimmed` against the other bank. */
+export function callerDimmed(
+  sel: CreekSelection | null,
+  sets: SelectionSets,
+  name: string,
+): boolean {
+  return sel !== null && !sets.callers.has(name);
+}
+
+/** Is this exact ribbon (one left-bank row, one collection) part of the lit
+ * selection. `source` is a file path in wiring mode, a caller name in
+ * traffic mode — whichever bank is currently drawn. */
 export function ribbonDimmed(
   sel: CreekSelection | null,
-  filePath: string,
+  source: string,
   collectionId: string,
 ): boolean {
   if (!sel) return false;
-  if (sel.kind === 'file') return sel.path !== filePath;
+  if (sel.kind === 'file') return sel.path !== source;
+  if (sel.kind === 'caller') return sel.name !== source;
   return sel.id !== collectionId;
 }
 
@@ -564,6 +617,242 @@ export function codeHref(path: string, line: number): string {
     lines: `${line}-${line}`,
   });
   return `/code?${params.toString()}`;
+}
+
+// --- traffic mode: what actually moved, and who moved it ----------------------
+// Everything above this line is WIRING — the static picture of what the code
+// can do. Everything below is TRAFFIC — what happened in the window. They are
+// deliberately separate: no function here derives a width, a row, or a fade
+// from a call site, and nothing above reads a telemetry count.
+
+/** A collection nothing touched in the window still draws a row, at this
+ * opacity — visibly asleep, but present and readable. Not the freshness floor:
+ * "nothing happened" is a fact worth stating, not a faded guess. */
+export const QUIET_OPACITY = 0.3;
+
+/**
+ * What a collection's write activity honestly is, in the window.
+ *
+ * The distinction that matters, and the whole reason a single 0..1 fade wasn't
+ * enough: the COUNTS come from store.py's own op counters (always on, so a
+ * zero really means zero), but the TIMESTAMPS come from the write journal,
+ * which is younger than the counters and doesn't cover typed stores at all. So
+ * "nothing wrote this" and "something wrote this but the journal can't say
+ * when" are different claims, and fading both to the same grey said neither.
+ *
+ *   'quiet'    — zero writes in the window. Known, not guessed.
+ *   'timeless' — real writes, but no journal timestamp to place them at.
+ *   'moved'    — real writes with a real timestamp; fade by recency.
+ */
+export type WriteState = 'moved' | 'timeless' | 'quiet';
+
+export function writeState(writes: number, lastWrite: string | null): WriteState {
+  if (!(writes > 0)) return 'quiet';
+  return lastWrite === null ? 'timeless' : 'moved';
+}
+
+/**
+ * A right-bank row's opacity in traffic mode, by state. Dimmed (a selection
+ * elsewhere) still wins outright, same rule as everywhere else. A 'timeless'
+ * row draws at FULL opacity on purpose — it definitely moved, so fading it
+ * would understate a fact we actually know; its unknown-ness is said in words
+ * on the row instead. Only 'moved' fades, and only by real recency.
+ */
+export function trafficRowOpacity(
+  state: WriteState,
+  dimmed: boolean,
+  freshness: number,
+): number {
+  if (dimmed) return DIM_OPACITY;
+  if (state === 'quiet') return QUIET_OPACITY;
+  if (state === 'timeless') return 1;
+  return Math.max(FRESHNESS_FLOOR, freshness);
+}
+
+/** One process that actually touched the vault in the window, with its
+ * per-collection breakdown — traffic mode's left-bank row. */
+export interface TrafficCaller {
+  name: string;
+  /** Its source file when the server could name one (`scripts/<name>.py`),
+   * null otherwise — gunicorn and the Rust binaries have no single file. */
+  file: string | null;
+  reads: number;
+  writes: number;
+  touches: { collection: string; reads: number; writes: number }[];
+}
+
+/**
+ * Traffic mode's left bank, inverted out of the payload: the API reports
+ * callers nested under each collection, and this regroups them into one row
+ * per caller with its own per-collection breakdown. A caller's totals are the
+ * sum of its touches — never a separate number that could drift from them.
+ */
+export function aggregateCallers(collections: readonly CreekCollection[]): TrafficCaller[] {
+  const byName = new Map<string, TrafficCaller>();
+  for (const c of collections) {
+    for (const caller of c.callers) {
+      let e = byName.get(caller.name);
+      if (!e) {
+        e = { name: caller.name, file: caller.file, reads: 0, writes: 0, touches: [] };
+        byName.set(caller.name, e);
+      }
+      // First non-null file wins — a caller reported with a file against one
+      // collection and without against another is still the same process.
+      if (e.file === null && caller.file !== null) e.file = caller.file;
+      e.reads += caller.reads;
+      e.writes += caller.writes;
+      e.touches.push({ collection: c.id, reads: caller.reads, writes: caller.writes });
+    }
+  }
+  return [...byName.values()];
+}
+
+/** The collections that actually saw traffic in the window — traffic mode's
+ * right bank. Quiet ones are dropped from the DRAWING (a ribbonless row in a
+ * flow map is noise), and CreekView says how many were dropped rather than
+ * letting them vanish silently. */
+export function activeCollections(
+  collections: readonly CreekCollection[],
+): CreekCollection[] {
+  return collections.filter((c) => c.reads > 0 || c.writes > 0);
+}
+
+/** The two groups traffic mode's left bank splits into — who wrote something,
+ * and who only ever looked. Worth separating: the heaviest reader on the page
+ * is usually the web server, and it would otherwise sit at the top of a bank
+ * that's meant to answer "what changed my data". */
+export const CALLER_ROLES: { key: 'writers' | 'readers'; label: string }[] = [
+  { key: 'writers', label: 'wrote' },
+  { key: 'readers', label: 'read only' },
+];
+
+/** The left bank in traffic mode: callers grouped by whether they wrote,
+ * ranked by `metric` within each group, ties broken by name so the order is
+ * stable between polls. */
+export function layoutCallers(
+  callers: readonly TrafficCaller[],
+  metric: CreekSortMetric = 'writes',
+): BankLayout<TrafficCaller> {
+  const rank = (c: TrafficCaller) => (metric === 'reads' ? c.reads : c.writes);
+  const groups = CALLER_ROLES.map((r) => ({
+    key: r.key,
+    label: r.label,
+    items: [...callers]
+      .filter((c) => (r.key === 'writers' ? c.writes > 0 : c.writes === 0))
+      .sort((x, y) => rank(y) - rank(x) || x.name.localeCompare(y.name)),
+  }));
+  return layoutGroups(groups, (c) => c.name);
+}
+
+/**
+ * Traffic mode's ribbons: caller → collection, one per kind, width from the
+ * counts that actually happened. Structurally the same log-ramp-with-floor as
+ * `buildRibbons` — including separate write and read caps, so the two never
+ * share an axis — but every number feeding it is measured rather than counted
+ * out of the source.
+ *
+ * Skips a touch whose collection isn't on the drawn bank (a quiet collection
+ * can't be, by definition) and one with no counts at all, so a caller listed
+ * against a collection it didn't move this window draws nothing.
+ */
+export function buildTrafficRibbons(
+  callers: readonly TrafficCaller[],
+  callerBank: BankLayout<TrafficCaller>,
+  collectionBank: BankLayout<CreekCollection>,
+  leftX: number = LEFT_X,
+  rightX: number = RIGHT_X,
+): CreekRibbon[] {
+  const callerY = new Map(callerBank.rows.map((r) => [r.key, r.cy]));
+  const colY = new Map(collectionBank.rows.map((r) => [r.key, r.cy]));
+
+  let writeCap = 1;
+  let readCap = 1;
+  for (const c of callers) {
+    for (const t of c.touches) {
+      if (!colY.has(t.collection)) continue;
+      if (t.writes > writeCap) writeCap = t.writes;
+      if (t.reads > readCap) readCap = t.reads;
+    }
+  }
+
+  const out: CreekRibbon[] = [];
+  for (const c of callers) {
+    const y1 = callerY.get(c.name);
+    if (y1 === undefined) continue;
+    for (const t of c.touches) {
+      const y2 = colY.get(t.collection);
+      if (y2 === undefined) continue;
+      const d = ribbonPathD(leftX, y1, rightX, y2);
+      if (t.writes > 0) {
+        out.push({
+          source: c.name,
+          collection: t.collection,
+          kind: 'write',
+          count: t.writes,
+          weight: ribbonWeight(t.writes, writeCap),
+          d,
+        });
+      }
+      if (t.reads > 0) {
+        out.push({
+          source: c.name,
+          collection: t.collection,
+          kind: 'read',
+          count: t.reads,
+          weight: ribbonWeight(t.reads, readCap),
+          d,
+        });
+      }
+    }
+  }
+  return out;
+}
+
+/** Traffic mode's counterpart to `selectionSets`: a lit caller lights the
+ * collections it moved; a lit collection lights the callers that moved it.
+ * Only touches with real counts count as a link — the same rule
+ * `buildTrafficRibbons` draws by, so lighting and ribbons can't disagree. */
+export function trafficSelectionSets(
+  sel: CreekSelection | null,
+  callers: readonly TrafficCaller[],
+): SelectionSets {
+  if (!sel) return EMPTY_SELECTION_SETS;
+  const moved = (t: { reads: number; writes: number }) => t.reads > 0 || t.writes > 0;
+  if (sel.kind === 'caller') {
+    const c = callers.find((x) => x.name === sel.name);
+    return {
+      collections: new Set(c ? c.touches.filter(moved).map((t) => t.collection) : []),
+      files: new Set(),
+      callers: new Set([sel.name]),
+    };
+  }
+  if (sel.kind === 'file') return EMPTY_SELECTION_SETS; // not this mode's bank
+  const touching = new Set<string>();
+  for (const c of callers) {
+    if (c.touches.some((t) => t.collection === sel.id && moved(t))) touching.add(c.name);
+  }
+  return { collections: new Set([sel.id]), files: new Set(), callers: touching };
+}
+
+/** A caller's own touches, heaviest first — what the caller detail panel
+ * lists, and the same "busiest hand first" order `sortedCallers` uses. */
+export function sortedTouches(caller: TrafficCaller): TrafficCaller['touches'] {
+  return [...caller.touches]
+    .filter((t) => t.reads > 0 || t.writes > 0)
+    .sort((a, b) => b.writes - a.writes || b.reads - a.reads || a.collection.localeCompare(b.collection));
+}
+
+/** The short label on a traffic-mode right-bank row's right edge: the count
+ * that's being ranked on, or the plain word "quiet" when nothing happened —
+ * a number and a state read differently, and "0" next to a faded row is
+ * exactly the ambiguity this mode exists to remove. */
+export function trafficCountLabel(
+  collection: CreekCollection,
+  metric: CreekSortMetric,
+): string {
+  const n = metric === 'reads' ? collection.reads : collection.writes;
+  if (n <= 0) return 'quiet';
+  return n.toLocaleString();
 }
 
 // --- the water: timestamps and diff lines --------------------------------
