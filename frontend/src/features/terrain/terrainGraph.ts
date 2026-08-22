@@ -492,10 +492,25 @@ interface BuildCtx {
 
 /** Emits `dir` (already collapsed) as a node under `parentId`, then recurses
  * into its files and child directories. Returns the emitted node's own heat
- * (max of children, decayed one level) so the caller can roll it further up. */
-function emitDir(ctx: BuildCtx, dir: TrieDir, parentId: string, depth: number): number {
-  const id = `${ctx.repo.id}:dir:${dir.segments.join('/')}`;
-  const label = dir.segments.join('/') || ctx.repo.name;
+ * (max of children, decayed one level) so the caller can roll it further up.
+ *
+ * `prefix` is the full path of the parent directory, '' at the repo root.
+ * The ID is built from the WHOLE path and the LABEL only from this node's
+ * collapsed chain, and those two have to stay different things. `segments`
+ * holds just the run merged into this node ('src', or 'routes/kitchen'), which
+ * is the right thing to show and a disastrous thing to identify by: every
+ * directory named `src` anywhere in the tree hashed to one id, so the graph
+ * handed back more nodes than it had distinct ids. Everything downstream
+ * assumes an id is one node — the edges for all four `src` folders resolved
+ * onto whichever was built last, orphaning the others, and setGraph's
+ * "nothing moved, just repaint" test (`nodes.length === prev.size`, prev being
+ * a Map) could never be true, so the force layout was rebuilt from scratch on
+ * every breath tick instead of holding still. */
+function emitDir(ctx: BuildCtx, dir: TrieDir, parentId: string, depth: number, prefix: string): number {
+  const chain = dir.segments.join('/');
+  const path = prefix ? `${prefix}/${chain}` : chain;
+  const id = `${ctx.repo.id}:dir:${path}`;
+  const label = chain || ctx.repo.name;
   const node: TerrainNode = {
     id,
     kind: 'dir',
@@ -531,7 +546,7 @@ function emitDir(ctx: BuildCtx, dir: TrieDir, parentId: string, depth: number): 
 
   for (const child of dir.dirs.values()) {
     const collapsedChild = collapse(child);
-    const childHeat = emitDir(ctx, collapsedChild, id, depth + 1);
+    const childHeat = emitDir(ctx, collapsedChild, id, depth + 1, path);
     maxChildHeat = Math.max(maxChildHeat, childHeat);
   }
 
@@ -597,7 +612,7 @@ export function buildTerrainGraph(
     }
     for (const child of trie.dirs.values()) {
       const collapsedChild = collapse(child);
-      const childHeat = emitDir(repoCtx, collapsedChild, repoId, 1);
+      const childHeat = emitDir(repoCtx, collapsedChild, repoId, 1, '');
       repoMaxHeat = Math.max(repoMaxHeat, childHeat);
     }
 
@@ -616,6 +631,50 @@ export function buildTerrainGraph(
   edges.push(...orbs.edges);
 
   return { nodes, edges };
+}
+
+/** One edge as a string, for set membership. Same shape on both sides of the
+ * comparison in graphUnchanged, which is the only thing that matters. */
+export function edgeKey(source: string, target: string): string {
+  return `${source}\n${target}`;
+}
+
+/**
+ * Is this rebuilt graph the SAME SHAPE as the one on screen — same bodies, same
+ * springs, only the heat moved?
+ *
+ * This is the question the whole breath rests on. The Observatory backdrop
+ * rebuilds the graph ~7 times a second so the heat lens can swell and settle,
+ * and every one of those rebuilds is meant to be a repaint and nothing more:
+ * same nodes, so the force layout is left alone and the map holds still while
+ * its glow moves. Answer it wrong in the false direction and the engine throws
+ * the layout away and re-runs the physics from scratch on every tick, which at
+ * a few thousand nodes is tens of milliseconds of main thread, forever — the
+ * page goes sluggish and the map never even settles, because it gets re-warmed
+ * before it can.
+ *
+ * It lives out here, and not inline in the engine, precisely because that
+ * happened: the test was one expression in terrainCanvas.ts, which needs a real
+ * canvas to run and so is untested by design, and it sat inverted for weeks
+ * with nothing able to catch it. Out here it is a pure function over two sets
+ * and two arrays, and the tests hold it to its promise.
+ *
+ * Comparison is against the id/key SETS of the live graph rather than the node
+ * list, so it costs one lookup per node instead of a scan per node. Duplicate
+ * ids in `nodes` therefore make it answer false — a lie in the safe direction:
+ * a full rebuild is correct and slow, where a wrong "unchanged" would update
+ * some bodies and silently strand others.
+ */
+export function graphUnchanged(
+  prevNodeIds: ReadonlySet<string>,
+  prevEdgeKeys: ReadonlySet<string>,
+  nodes: readonly TerrainNode[],
+  edges: readonly TerrainEdge[],
+): boolean {
+  if (nodes.length !== prevNodeIds.size || edges.length !== prevEdgeKeys.size) return false;
+  for (const n of nodes) if (!prevNodeIds.has(n.id)) return false;
+  for (const e of edges) if (!prevEdgeKeys.has(edgeKey(e.source, e.target))) return false;
+  return true;
 }
 
 export const SESSION_NODE_PREFIX = 'session:';

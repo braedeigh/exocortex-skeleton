@@ -21,9 +21,12 @@ import styles from './TerrainBackdrop.module.css';
  * step-back view that hands it the screen (see `revealed` below). Still not
  * built: the glass, and the featured agent.
  *
- * It's the same engine /terrain uses, at the same 350-file tier (her call:
- * the map should look like the map), running in the engine's `ambient` mode —
- * no gestures, and no labels unless the step-back view asks for them.
+ * It's the same engine /terrain uses (her call: the map should look like the
+ * map), running in the engine's `ambient` mode — no gestures, and no labels
+ * unless the step-back view asks for them. Not the same SIZE, though: /terrain
+ * opens at a 350-file tier and climbs as she drags its Files dial, while this
+ * takes every file the payload will give (BACKDROP_TIER below) — currently a
+ * few thousand nodes, several times what the map beside it is drawing.
  *
  * HOW THE WORDS WIN, since it isn't by dimming. The canvas used to sit at 0.62
  * opacity; it's at full colour now and carries a 2px blur instead. Reading is
@@ -46,9 +49,13 @@ import styles from './TerrainBackdrop.module.css';
  * It's driven straight into the engine on an interval rather than through
  * React state: the node SET never changes, only each node's heat, so
  * setGraph() takes its in-place path and the layout never re-warms — the map
- * holds perfectly still while its glow moves. Measured at 0.41ms per rebuild
- * for 373 nodes, so a rebuild per frame at this rate is cheaper than the
- * interpolation scheme it replaced.
+ * holds perfectly still while its glow moves. That in-place path is load-
+ * bearing at this size and is not free by default — see graphUnchanged in
+ * terrainGraph.ts, which is the thing that decides it, and has tests holding
+ * it to the promise after it silently stopped keeping it. Rebuilding the
+ * graph itself costs a few milliseconds per tick at a few thousand nodes;
+ * re-running the force layout instead would cost roughly ten times that, on
+ * every tick, forever.
  *
  * THE POND rides in here too: the journal's ~1,700 card dots are swapped for
  * the one pond-tile node (collapseToPondTile) before the graph is ever built,

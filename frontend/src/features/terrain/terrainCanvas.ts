@@ -84,7 +84,9 @@ import { select } from 'd3-selection';
 import { zoom, zoomIdentity, type ZoomBehavior, type ZoomTransform } from 'd3-zoom';
 import {
   CREATED_FRESH_WINDOW_SECONDS,
+  edgeKey,
   fileCreatedWithin,
+  graphUnchanged,
   normalizeHeat,
   sessionTouchRings,
   SESSION_NODE_PREFIX,
@@ -399,6 +401,15 @@ export class TerrainCanvas {
   private transform: ZoomTransform = zoomIdentity;
   private simNodes: SimNode[] = [];
   private simLinks: SimLink[] = [];
+  /**
+   * The shape of the graph currently laid out — every node id, and every edge
+   * as a key. Kept beside the sim purely so setGraph can ask "is this the same
+   * map with different heat?" in one pass of lookups. Rewritten only when the
+   * layout is actually rebuilt; the in-place path leaves both untouched,
+   * because by definition it changed neither.
+   */
+  private nodeIds: Set<string> = new Set();
+  private edgeKeys: Set<string> = new Set();
   private footprint: Set<string> | null = null;
   /**
    * The spotlit agent's files, ordered most-recently-touched first, and the
@@ -951,20 +962,35 @@ export class TerrainCanvas {
    * refetch that only advanced heats/labels/running flags, or a lens change
    * on the same files), the sim nodes update in place and the layout never
    * re-warms — the map holds still while its glow shifts.
+   *
+   * That last sentence is the expensive one to get wrong, and it was wrong for
+   * a while: the "unchanged" test compared a node COUNT against the size of a
+   * Map keyed by id, and the graph was handing back duplicate directory ids,
+   * so the two could never agree and the fast path never ran. Under the
+   * backdrop's breath that meant tearing down and re-running the force layout
+   * seven times a second over a few thousand bodies, which saturates a core
+   * and — because each rebuild re-warms alpha long before the previous one
+   * could settle — means the map never actually goes still or goes to sleep.
+   * The test now lives in terrainGraph.ts as graphUnchanged, where it is a
+   * pure function with tests on it, for exactly that reason.
    */
   setGraph(nodes: TerrainNode[], edges: TerrainEdge[]): void {
-    const prev = new Map(this.simNodes.map((n) => [n.id, n]));
-
-    const sameNodes = nodes.length === prev.size && nodes.every((n) => prev.has(n.id));
-    const prevEdgeKeys = new Set(
-      this.simLinks.map((l) => `${(l.source as SimNode).id}|${(l.target as SimNode).id}`),
-    );
-    const sameEdges =
-      edges.length === prevEdgeKeys.size && edges.every((e) => prevEdgeKeys.has(`${e.source}|${e.target}`));
-
-    if (sameNodes && sameEdges) {
+    // The shape test reads the id/key sets kept alongside the sim rather than
+    // re-deriving them from simNodes/simLinks each call — this runs ~7x a
+    // second under the backdrop's breath, and rebuilding two collections of a
+    // few thousand entries just to ask "did anything move" was most of the
+    // cost of asking. See graphUnchanged in terrainGraph.ts for why the test
+    // itself lives over there.
+    if (graphUnchanged(this.nodeIds, this.edgeKeys, nodes, edges)) {
+      // Same bodies, new heats: update in place, leave the layout alone. The
+      // lookup is a Map and not nodes.find() — find() inside this loop is a
+      // scan per node, which is the same O(n^2) the graph's duplicate-id bug
+      // was already hiding behind, and at a few thousand nodes it costs as
+      // much as the full rebuild it exists to avoid.
+      const byId = new Map(nodes.map((n) => [n.id, n]));
       for (const sn of this.simNodes) {
-        const node = nodes.find((n) => n.id === sn.id)!;
+        const node = byId.get(sn.id);
+        if (!node) continue;
         sn.node = node;
         sn.t = normalizeHeat(node.heat);
         sn.radius = nodeRadius(node, sn.t);
@@ -974,6 +1000,7 @@ export class TerrainCanvas {
       return;
     }
 
+    const prev = new Map(this.simNodes.map((n) => [n.id, n]));
     const repoIds = [...new Set(nodes.filter((n) => n.repoId).map((n) => n.repoId))];
     const anchorFor = (repoId: string): { x: number; y: number } => {
       const i = repoIds.indexOf(repoId);
@@ -1022,6 +1049,14 @@ export class TerrainCanvas {
     this.simLinks = edges
       .filter((e) => byId.has(e.source) && byId.has(e.target))
       .map((e): SimLink => ({ source: byId.get(e.source)!, target: byId.get(e.target)!, kind: e.kind }));
+
+    // Remember the shape we just laid out, so the next feed can be answered
+    // without touching the sim. Built from what was HANDED IN, not from the
+    // filtered simLinks — the next graph is compared against the same source,
+    // and an edge dropped here for a missing endpoint would otherwise read as
+    // a change forever.
+    this.nodeIds = new Set(nodes.map((n) => n.id));
+    this.edgeKeys = new Set(edges.map((e) => edgeKey(e.source, e.target)));
 
     this.refreshDerived(nodes);
 

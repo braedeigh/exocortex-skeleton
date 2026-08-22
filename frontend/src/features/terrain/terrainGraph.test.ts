@@ -20,6 +20,10 @@ import {
   LENS_HALF_LIFE_SECONDS,
   changedFileIds,
   breathHalfLife,
+  BREATH_PERIOD_MS,
+  BREATH_TICK_MS,
+  edgeKey,
+  graphUnchanged,
   bucketHeat,
   halfLifeSeconds,
   filterTerrainData,
@@ -122,6 +126,57 @@ describe('buildTerrainGraph', () => {
     expect(dirs).toHaveLength(1);
     expect(dirs[0].label).toBe('routes/kitchen');
     expect(dirs[0].parentId).toBe('repo:skeleton');
+  });
+
+  it('gives same-named directories in different parents different ids', () => {
+    // Two folders called `src`, in different places. Neither parent collapses
+    // (each holds a file of its own), so each `src` is emitted as its own node
+    // with the same one-segment chain — which used to mean the same id, and
+    // one id shared by two nodes breaks every downstream thing that assumes
+    // an id names exactly one body.
+    const data = makeData([
+      {
+        id: 'skeleton',
+        name: 'App code',
+        root: '/app',
+        files: [
+          file('frontend/src/app.ts', [NOW]),
+          file('frontend/README.md', [NOW]),
+          file('tools/src/main.ts', [NOW]),
+          file('tools/README.md', [NOW]),
+        ],
+      },
+    ]);
+    const g = buildTerrainGraph(data, 'week', NOW);
+    const srcDirs = g.nodes.filter((n) => n.kind === 'dir' && n.label === 'src');
+    expect(srcDirs).toHaveLength(2);
+    expect(new Set(srcDirs.map((d) => d.id)).size).toBe(2);
+    // The label is still the collapsed chain — the path went into the id only.
+    expect(srcDirs.map((d) => d.label)).toEqual(['src', 'src']);
+    expect(srcDirs.map((d) => d.id).sort()).toEqual([
+      'skeleton:dir:frontend/src',
+      'skeleton:dir:tools/src',
+    ]);
+  });
+
+  it('gives every node a unique id', () => {
+    const data = makeData([
+      {
+        id: 'skeleton',
+        name: 'App code',
+        root: '/app',
+        files: [
+          file('frontend/src/a.ts', [NOW]),
+          file('frontend/b.ts', [NOW]),
+          file('tools/src/c.ts', [NOW]),
+          file('tools/d.ts', [NOW]),
+          file('tools/src/nested/src/e.ts', [NOW]),
+        ],
+      },
+      { id: 'vault', name: 'Vault', root: '/vault', files: [file('src/notes.md', [NOW])] },
+    ]);
+    const g = buildTerrainGraph(data, 'week', NOW);
+    expect(new Set(g.nodes.map((n) => n.id)).size).toBe(g.nodes.length);
   });
 
   it('does not collapse a directory that branches into multiple children', () => {
@@ -1023,5 +1078,101 @@ describe('the pond tile riding through the graph (days → dayHeats)', () => {
     const kept = out.repos[0].files[0];
     expect(kept.days![0].touches).toEqual([]); // yesterday fell outside the range
     expect(kept.days![1].touches).toEqual([NOW]);
+  });
+});
+
+describe('graphUnchanged (the test that decides whether the map holds still)', () => {
+  /** A realistic little map: two repos, nested dirs, a running session. */
+  function sample(): TerrainData {
+    return makeData([
+      {
+        id: 'skeleton',
+        name: 'App code',
+        root: '/app',
+        files: [
+          file('frontend/src/a.ts', [NOW - 60], [{ id: 'c1', title: 'One', writes: 1, reads: 0, last: NOW - 60 }]),
+          file('frontend/b.ts', [NOW - 3600]),
+          file('tools/src/c.ts', [NOW - 86400]),
+          file('tools/d.ts', [NOW - 200000]),
+        ],
+      },
+      { id: 'vault', name: 'Vault', root: '/vault', files: [file('notes/today.md', [NOW - 30])] },
+    ]);
+  }
+
+  const shapeOf = (g: { nodes: TerrainNode[]; edges: { source: string; target: string }[] }) => ({
+    ids: new Set(g.nodes.map((n) => n.id)),
+    keys: new Set(g.edges.map((e) => edgeKey(e.source, e.target))),
+  });
+
+  it('says unchanged when only the heat lens moved — the breath, every tick', () => {
+    // This is the whole contract the Observatory backdrop rests on: it rebuilds
+    // the graph ~7x a second purely to re-light it, and every one of those has
+    // to come back "same shape" or the engine throws the layout away and
+    // re-runs the physics from scratch on each one.
+    const data = sample();
+    const a = buildTerrainGraph(data, 'day', NOW);
+    const b = buildTerrainGraph(data, 'month', NOW);
+    const prev = shapeOf(a);
+
+    expect(graphUnchanged(prev.ids, prev.keys, b.nodes, b.edges)).toBe(true);
+    // ...and it really is a re-lighting, not a no-op: the heats did move.
+    const heatsA = a.nodes.map((n) => n.heat);
+    const heatsB = b.nodes.map((n) => n.heat);
+    expect(heatsA).not.toEqual(heatsB);
+  });
+
+  it('says unchanged across the full swing of the breath', () => {
+    const data = sample();
+    const base = buildTerrainGraph(data, 'day', NOW);
+    const prev = shapeOf(base);
+    for (let ms = 0; ms < BREATH_PERIOD_MS; ms += BREATH_TICK_MS) {
+      const g = buildTerrainGraph(data, breathHalfLife(ms, BREATH_PERIOD_MS), NOW);
+      expect(graphUnchanged(prev.ids, prev.keys, g.nodes, g.edges)).toBe(true);
+    }
+  });
+
+  it('says changed when a file appears', () => {
+    const before = buildTerrainGraph(sample(), 'week', NOW);
+    const grown = sample();
+    grown.repos[0].files.push(file('frontend/src/new.ts', [NOW]));
+    const after = buildTerrainGraph(grown, 'week', NOW);
+    const prev = shapeOf(before);
+    expect(graphUnchanged(prev.ids, prev.keys, after.nodes, after.edges)).toBe(false);
+  });
+
+  it('says changed when a file disappears', () => {
+    const before = buildTerrainGraph(sample(), 'week', NOW);
+    const shrunk = sample();
+    shrunk.repos[0].files.pop();
+    const after = buildTerrainGraph(shrunk, 'week', NOW);
+    const prev = shapeOf(before);
+    expect(graphUnchanged(prev.ids, prev.keys, after.nodes, after.edges)).toBe(false);
+  });
+
+  it('says changed when the node count matches but an id differs', () => {
+    const before = buildTerrainGraph(sample(), 'week', NOW);
+    const renamed = sample();
+    renamed.repos[1].files = [file('notes/renamed.md', [NOW - 30])];
+    const after = buildTerrainGraph(renamed, 'week', NOW);
+    const prev = shapeOf(before);
+    expect(graphUnchanged(prev.ids, prev.keys, after.nodes, after.edges)).toBe(false);
+  });
+
+  it('says changed when only an edge moved', () => {
+    const g = buildTerrainGraph(sample(), 'week', NOW);
+    const prev = shapeOf(g);
+    const rewired = g.edges.map((e, i) => (i === 0 ? { ...e, target: 'nowhere' } : e));
+    expect(graphUnchanged(prev.ids, prev.keys, g.nodes, rewired)).toBe(false);
+  });
+
+  it('says changed — not unchanged — when the incoming nodes carry a duplicate id', () => {
+    // The safe direction. A duplicate means some body would silently not be
+    // updated by the in-place path, so a needless full rebuild is the right
+    // failure: correct and slow, rather than fast and wrong.
+    const g = buildTerrainGraph(sample(), 'week', NOW);
+    const prev = shapeOf(g);
+    const dupes = [...g.nodes, { ...g.nodes[0] }];
+    expect(graphUnchanged(prev.ids, prev.keys, dupes, g.edges)).toBe(false);
   });
 });
