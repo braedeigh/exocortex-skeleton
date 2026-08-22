@@ -29,6 +29,7 @@ import pytest
 from flask import Flask
 
 import recap_summary
+import sqlstore
 import store
 from routes import observatory, terminal
 # The heatmap's own module (split out of observatory 08-03) — its cache,
@@ -1503,6 +1504,146 @@ def test_flow_snippet_cut_is_whole_lines_and_reports_the_total():
     assert total == 40
     assert snippet.splitlines() == [f"line {i}" for i in range(terrain._FLOW_SNIPPET_LINES)]
     assert terrain._flow_trim_snippet("   \n  ") == (None, 0)
+
+
+# --- Flow: place + fronts (filterable-by chip data, terrain.py) ---------------
+# "place" is a pure prefix lookup (_flow_place); "fronts" is unioned live from
+# the tags table (docs/tags-architecture.md) and a live read of
+# tag_rules.json — see the module-level comment above _flow_read_only_conn.
+
+@pytest.mark.parametrize("repo,path,expected", [
+    ("vault", "tulku/Journal/2026-08-21.md", "journal"),
+    ("vault", "tulku/tulku-diary/entry.md", "journal"),
+    ("vault", "tulku/_system/data/cards/2026-08-21.0900.md", "journal"),
+    ("vault", "tulku/people/ezra.md", "journal"),
+    ("vault", "tulku/Health/log.md", "journal"),
+    ("vault", "tulku/Threads/long-covid.md", "threads"),
+    ("vault", "tulku/research/notes.md", "research"),
+    ("vault", "research/paper.md", "research"),
+    ("vault", "data/todos.json", "data"),
+    ("vault", "docs/RESTORE.md", "docs"),
+    ("vault", "reference/misc.md", "other"),
+    ("skeleton", "docs/tags-architecture.md", "docs"),
+    ("skeleton", "routes/terrain.py", "code"),
+    ("nonesuch", "whatever.txt", "other"),
+])
+def test_flow_place_maps_repo_and_prefix(repo, path, expected):
+    assert terrain._flow_place(repo, path) == expected
+
+
+def test_flow_place_first_match_wins_for_a_more_specific_prefix():
+    # tulku/Threads/ sits (deliberately) before the broader tulku/research/
+    # rule in _FLOW_PLACE_RULES; a path under a subfolder of Threads must
+    # still resolve to "threads", not fall through to "research" or "other".
+    assert terrain._flow_place("vault", "tulku/Threads/sub/notes.md") == "threads"
+
+
+def _seed_front_tag(subject, tag_):
+    conn = sqlstore.open_db()
+    try:
+        conn.execute(
+            "INSERT INTO tags (subject, ns, tag, source) VALUES (?,?,?,?)",
+            (subject, "front", tag_, "manual"),
+        )
+    finally:
+        conn.close()
+
+
+def test_flow_enriches_events_with_place_and_tags_table_fronts(terrain_client, tmp_path, monkeypatch):
+    skeleton = _make_git_repo(tmp_path / "skeleton")
+    _set_terrain_repos(monkeypatch, skeleton, tmp_path / "empty-vault")
+    ts = (datetime.now() - timedelta(minutes=1)).isoformat(timespec="seconds")
+    _write_conv_jsonl("conv-live", [
+        {"type": "user", "text": "go", "ts": ts},
+        {"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "name": "Edit",
+             "input": {"file_path": str(skeleton / "app.py"),
+                       "old_string": "a", "new_string": "b"}}]}},
+    ])
+    store.write("bot_chats/index", {"conv-live": {
+        "title": "Work", "running": True, "last_at": observatory._now(),
+        "cwd": str(skeleton)}})
+    _seed_front_tag("file:skeleton/app.py", "money")
+
+    events = terrain_client.get("/api/observatory/flow").get_json()["events"]
+    assert len(events) == 1
+    assert events[0]["place"] == "code"
+    assert events[0]["fronts"] == ["money"]
+
+
+def test_flow_fronts_fall_back_to_tag_rules_for_a_file_absent_from_tags(terrain_client, tmp_path, monkeypatch):
+    # No tags-table row for this file at all — only a rules-file prefix match —
+    # so a file written since the last backfill still gets a front.
+    skeleton = _make_git_repo(tmp_path / "skeleton")
+    _set_terrain_repos(monkeypatch, skeleton, tmp_path / "empty-vault")
+    ts = (datetime.now() - timedelta(minutes=1)).isoformat(timespec="seconds")
+    _write_conv_jsonl("conv-live", [
+        {"type": "user", "text": "go", "ts": ts},
+        {"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "name": "Edit",
+             "input": {"file_path": str(skeleton / "routes" / "health.py"),
+                       "old_string": "a", "new_string": "b"}}]}},
+    ])
+    store.write("bot_chats/index", {"conv-live": {
+        "title": "Work", "running": True, "last_at": observatory._now(),
+        "cwd": str(skeleton)}})
+    store.write("tag_rules.json", {"rules": [
+        {"repo": "skeleton", "prefix": "routes/health.py",
+         "tags": [{"ns": "front", "tag": "health"}]},
+        # a non-front rule on the same file must NOT leak into fronts
+        {"repo": "skeleton", "prefix": "routes/health.py",
+         "tags": [{"ns": "repo", "tag": "skeleton"}]},
+    ]})
+
+    events = terrain_client.get("/api/observatory/flow").get_json()["events"]
+    assert events[0]["fronts"] == ["health"]
+
+
+def test_flow_unions_and_dedups_fronts_from_both_sources(terrain_client, tmp_path, monkeypatch):
+    skeleton = _make_git_repo(tmp_path / "skeleton")
+    _set_terrain_repos(monkeypatch, skeleton, tmp_path / "empty-vault")
+    ts = (datetime.now() - timedelta(minutes=1)).isoformat(timespec="seconds")
+    _write_conv_jsonl("conv-live", [
+        {"type": "user", "text": "go", "ts": ts},
+        {"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "name": "Edit",
+             "input": {"file_path": str(skeleton / "routes" / "health.py"),
+                       "old_string": "a", "new_string": "b"}}]}},
+    ])
+    store.write("bot_chats/index", {"conv-live": {
+        "title": "Work", "running": True, "last_at": observatory._now(),
+        "cwd": str(skeleton)}})
+    _seed_front_tag("file:skeleton/routes/health.py", "health")   # same tag, source 1
+    store.write("tag_rules.json", {"rules": [
+        {"repo": "skeleton", "prefix": "routes/health.py",
+         "tags": [{"ns": "front", "tag": "health"}, {"ns": "front", "tag": "practice"}]},
+    ]})
+
+    events = terrain_client.get("/api/observatory/flow").get_json()["events"]
+    assert events[0]["fronts"] == ["health", "practice"]   # deduped union, sorted
+
+
+def test_flow_missing_tag_rules_file_never_500s(terrain_client, tmp_path, monkeypatch):
+    # data_dir is a fresh tmp_path — no tag_rules.json was ever written.
+    skeleton = _make_git_repo(tmp_path / "skeleton")
+    _set_terrain_repos(monkeypatch, skeleton, tmp_path / "empty-vault")
+    ts = (datetime.now() - timedelta(minutes=1)).isoformat(timespec="seconds")
+    _write_conv_jsonl("conv-live", [
+        {"type": "user", "text": "go", "ts": ts},
+        {"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "name": "Edit",
+             "input": {"file_path": str(skeleton / "app.py"),
+                       "old_string": "a", "new_string": "b"}}]}},
+    ])
+    store.write("bot_chats/index", {"conv-live": {
+        "title": "Work", "running": True, "last_at": observatory._now(),
+        "cwd": str(skeleton)}})
+
+    resp = terrain_client.get("/api/observatory/flow")
+    assert resp.status_code == 200
+    events = resp.get_json()["events"]
+    assert events[0]["fronts"] == []
+    assert events[0]["place"] == "code"
 
 
 # --- Terrain: the Growth room's series (GET .../terrain/growth) ---------------

@@ -32,8 +32,10 @@ from flask import request, jsonify
 from datetime import datetime
 from fnmatch import fnmatch
 from pathlib import Path
+import contextlib
 import os
 import re
+import sqlite3
 import time
 
 import codestore
@@ -466,9 +468,17 @@ def _build_terrain(file_cap=_TERRAIN_FILE_CAP):
 # watching monitor. Same raw material as the live-touch overlay above (the
 # bot_chats jsonls), but kept as EVENTS rather than tallied into files.
 #
+# Each event also carries "place" (which broad kind of file this is — journal,
+# threads, research, data, docs, code — from a pure prefix map, _flow_place)
+# and "fronts" (the life-domain tags for the file, unioned from the tags table
+# and a live read of tag_rules.json) so the lane's chip row can filter by
+# either without a second round trip.
+#
 # Prompt that produced it: "another additional visual where I see what code is
 # being written in real time … the vertical screen will be the terrain UI and
-# code and information flows as it's happening".
+# code and information flows as it's happening"; and later, "in flow, filter
+# by what kind of file is being written — journal, threads, research, data,
+# docs, code — and by front".
 
 _FLOW_LOOKBACK_SEC = 12 * 3600    # events (and conversations) older than this
                                   # don't feed the lane — it's a live surface,
@@ -483,6 +493,120 @@ _FLOW_CACHE_TTL_SEC = 3           # one build serves a burst of polling clients
 # recently-active set every build, so it can't grow with conversation count.
 _flow_conv_cache = {}
 _flow_cache = {"payload": None, "computed_at": 0.0}
+
+# Place: which broad kind of file a write landed in, for the lane's place
+# filter. One ordered table of (repo, path-prefix, place) — FIRST MATCH WINS,
+# top to bottom, so more specific vault prefixes (tulku/Threads/) are listed
+# before the broader ones (tulku/research/, data/) they'd otherwise be caught
+# by. A (repo, path) that matches nothing here falls to that repo's own
+# default in _FLOW_PLACE_DEFAULT; a repo id this table has never heard of
+# (shouldn't happen — _terrain_repos() only ever returns skeleton/vault)
+# falls to "other" too.
+_FLOW_PLACE_RULES = (
+    ("vault", "tulku/Journal/", "journal"),
+    ("vault", "tulku/tulku-diary/", "journal"),
+    ("vault", "tulku/_system/data/cards/", "journal"),
+    ("vault", "tulku/people/", "journal"),
+    ("vault", "tulku/Health/", "journal"),
+    ("vault", "tulku/Threads/", "threads"),
+    ("vault", "tulku/research/", "research"),
+    ("vault", "research/", "research"),
+    ("vault", "data/", "data"),
+    ("vault", "docs/", "docs"),
+    ("skeleton", "docs/", "docs"),
+)
+_FLOW_PLACE_DEFAULT = {"vault": "other", "skeleton": "code"}
+
+
+def _flow_place(repo, path):
+    """Which broad "place" a (repo, path) write belongs to — pure and
+    table-driven (_FLOW_PLACE_RULES) so it's testable without a request.
+    First matching rule wins; no match falls to the repo's own default,
+    an unrecognized repo to "other"."""
+    for rule_repo, prefix, place in _FLOW_PLACE_RULES:
+        if rule_repo == repo and path.startswith(prefix):
+            return place
+    return _FLOW_PLACE_DEFAULT.get(repo, "other")
+
+
+# Fronts: the same life-domain vocabulary as the rest of the app
+# (fronts.json / docs/tags-architecture.md), unioned from two sources per
+# file so a file written since the last scripts/backfill_tags.py run still
+# gets one:
+#   1. the tags table — ns='front' rows the backfill (or a manual tag) wrote,
+#      read in ONE batched query for every event in the payload;
+#   2. tag_rules.json's prefix rules, applied live (same union-not-longest-
+#      match semantics as backfill_tags.py's gather_files) — this is what
+#      keeps a brand-new file's fronts correct before the next backfill runs.
+# The rules file is optional and install-specific (EXOCORTEX_DATA_DIR); a
+# missing or unreadable one just leaves source 2 empty, never a 500.
+
+def _flow_read_only_conn():
+    """A connection SQLite itself won't let anything write through — same
+    belt-and-braces as routes/pond.py's _read_only_conn (mode=ro +
+    query_only). Always used via contextlib.closing, never a bare `with
+    conn:` (a transaction scope that would leak the connection/fd)."""
+    conn = sqlite3.connect(
+        f"file:{store.DATA_DIR / 'exo.db'}?mode=ro", uri=True, timeout=5)
+    conn.execute("PRAGMA query_only = ON")
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def _flow_fronts_from_tags(subjects):
+    """{subject: {front tag, ...}} for every subject in `subjects`, in one
+    batched query (WHERE subject IN (...)) rather than one per event. Any
+    database trouble — no exo.db yet, a torn file — degrades to {}: fronts
+    from the tags table are a nice-to-have layer, never a 500."""
+    if not subjects:
+        return {}
+    out = {}
+    try:
+        with contextlib.closing(_flow_read_only_conn()) as conn:
+            subjects = list(subjects)
+            placeholders = ",".join("?" for _ in subjects)
+            rows = conn.execute(
+                f"SELECT subject, tag FROM tags WHERE ns = 'front' "
+                f"AND subject IN ({placeholders})",
+                subjects,
+            ).fetchall()
+    except sqlite3.Error:
+        return {}
+    for row in rows:
+        out.setdefault(row["subject"], set()).add(row["tag"])
+    return out
+
+
+def _flow_rule_fronts_by_repo():
+    """tag_rules.json's rules grouped by repo — read fresh on every call, no
+    module-level cache, so an edited rules file takes effect on the very next
+    request; scoped to one _build_flow() call, which is what "per-request"
+    means here since the cache above already gates how often that runs.
+    Missing or malformed file -> {}, same defensive shape as
+    scripts/backfill_tags.py's own read of it."""
+    try:
+        rules = store.read("tag_rules.json", {"rules": []}).get("rules") or []
+    except Exception:
+        return {}
+    by_repo = {}
+    for rule in rules:
+        if isinstance(rule, dict):
+            by_repo.setdefault(rule.get("repo"), []).append(rule)
+    return by_repo
+
+
+def _flow_rule_fronts(repo, path, rules_by_repo):
+    """front-ns tags tag_rules.json's prefix rules produce for one file —
+    union of every matching rule (not longest-match), mirroring
+    scripts/backfill_tags.py's gather_files."""
+    fronts = set()
+    for rule in rules_by_repo.get(repo, []):
+        if not path.startswith(rule.get("prefix", "")):
+            continue
+        for tag_obj in rule.get("tags") or []:
+            if isinstance(tag_obj, dict) and tag_obj.get("ns") == "front" and tag_obj.get("tag"):
+                fronts.add(tag_obj["tag"])
+    return fronts
 
 
 def _flow_recent_ids(index, running_ids):
@@ -597,9 +721,25 @@ def _build_flow():
                 "epoch": epoch,
                 "snippet": snippet,
                 "snippet_total_lines": total,
+                # Pure prefix lookup — cheap enough to do for every candidate
+                # event, unlike fronts below which need a query.
+                "place": _flow_place(repo_id, relpath),
             })
     events_out.sort(key=lambda e: e["epoch"], reverse=True)
     del events_out[_FLOW_MAX_EVENTS:]
+
+    # Fronts, batched: one tags-table query covering every event actually
+    # being returned (post-trim, so a burst of history beyond the cap never
+    # grows the query), unioned per-event with tag_rules.json applied live.
+    subjects = {f"file:{e['repo']}/{e['path']}" for e in events_out}
+    tags_by_subject = _flow_fronts_from_tags(subjects)
+    rules_by_repo = _flow_rule_fronts_by_repo()
+    for e in events_out:
+        subject = f"file:{e['repo']}/{e['path']}"
+        fronts = set(tags_by_subject.get(subject, ()))
+        fronts |= _flow_rule_fronts(e["repo"], e["path"], rules_by_repo)
+        e["fronts"] = sorted(fronts)
+
     return {"generated_at": datetime.now().isoformat(timespec="seconds"),
             "lookback_sec": _FLOW_LOOKBACK_SEC,
             "events": events_out}
@@ -643,8 +783,14 @@ def register(app):
     @app.route("/api/observatory/flow")
     def observatory_flow():
         """The Flow lane's data: recent write events with the text they
-        wrote, newest first (see _build_flow). Cached a few seconds — one
-        build serves however many windows are watching."""
+        wrote, newest first (see _build_flow), each carrying "place" and
+        "fronts" so the lane's chip row can filter client-side — no
+        server-side filter params, since the whole small window is already
+        being sent. Cached a few seconds — one build serves however many
+        windows are watching.
+
+        Prompt: "in flow, filter by what kind of file is being written —
+        journal, threads, research, data, docs, code — and by front"."""
         now = time.monotonic()
         if _flow_cache["payload"] is not None and now - _flow_cache["computed_at"] < _FLOW_CACHE_TTL_SEC:
             return jsonify(_flow_cache["payload"])

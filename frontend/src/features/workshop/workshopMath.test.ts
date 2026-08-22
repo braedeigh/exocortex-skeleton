@@ -40,6 +40,8 @@ function event(over: Partial<FlowEvent> & { repo: string; path: string; epoch: n
     bot: null,
     running: true,
     kind: 'edit',
+    place: 'code',
+    fronts: [],
     ts: null,
     snippet: null,
     snippet_total_lines: 0,

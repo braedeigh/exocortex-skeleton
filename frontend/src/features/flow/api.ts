@@ -1,7 +1,9 @@
 /**
  * api.ts — typed poll of GET /api/observatory/flow (routes/terrain.py): the
  * live stream of code being written. Every Edit/Write an agent has made in
- * the recent window, newest first, each carrying the text it wrote. The lane
+ * the recent window, newest first, each carrying the text it wrote, plus
+ * "place" (which broad kind of file it is) and "fronts" (life-domain tags)
+ * so the lane can be filtered by either (see filters.ts). The lane
  * (FlowLane.tsx) is the only reader.
  */
 import { useQuery } from '@tanstack/react-query';
@@ -19,6 +21,14 @@ export interface FlowEvent {
   repo: string;
   path: string;
   kind: 'edit' | 'write' | 'create';
+  /** Which broad kind of file this is — journal, threads, research, data,
+   * docs, code, or other (terrain.py's _flow_place). Drives the chip row's
+   * left (place) group. */
+  place: string;
+  /** Life-domain tags for the file, unioned server-side from the tags table
+   * and a live read of tag_rules.json — may be empty. Drives the chip row's
+   * right (front) group. */
+  fronts: string[];
   ts: string | null;
   /** Unix seconds — the sort key and the age source. */
   epoch: number;

@@ -47,7 +47,7 @@ def db(data_dir):
         conn.execute(
             "INSERT INTO commits (sha, repo, authored_ts, authored_at, author,"
             " subject) VALUES (?,?,?,?,?,?)",
-            (sha, repo, 0, f"{day}T{ts}", "bradie", subject),
+            (sha, repo, 0, f"{day}T{ts}", "owner", subject),
         )
 
     def commit_file(sha, file_id, status="M"):
