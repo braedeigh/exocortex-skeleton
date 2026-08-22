@@ -7,7 +7,8 @@
    buttons, DOM over SVG the way the pond keeps its dots as real elements.
 
    Only ONE saturated colour carries meaning here: `--accent`, on whatever is
-   selected. Ribbons at rest are already `--accent` (writes) and `--text-muted`
+   selected, and on the write ribbons/write chip — writes own that colour
+   alone. Ribbons at rest are already `--accent` (writes) and `--text-muted`
    (reads) at low opacity — that's the one deliberate departure from "a lit
    thing is the only colour": the ribbons ARE the subject of the page, so they
    carry a whisper of colour even unselected, the way the terrain's own creek
@@ -20,7 +21,21 @@
    vs. removed, tinting a diff line's whole background via `color-mix`),
    because a diff without that contrast stops reading as a diff. Everything
    else about the water — headers, chevrons, rows — stays in the same
-   muted/accent/border vocabulary as the rest of the panel. */
+   muted/accent/border vocabulary as the rest of the panel.
+
+   Extended for: "creek Today mode — only the past day, ribbons more opaque by
+   recency, rolling/near-real-time; and independent writes/reads layer toggles
+   so reads can be viewed alone on their own scale." That added the mode
+   segmented control (`.modeGroup`/`.modeBtn`/`.modeBtnActive`, right by the
+   layer chips), renamed the old single reads chip's classes to the generic
+   `.layerChipOn`/`.layerChipOff` shared by both Writes and Reads, and — the
+   ONE new departure from "writes own `--accent`" — reads-only mode draws its
+   ribbons in `--text-secondary` (`.ribbonReadOwn`) instead of the resting
+   `--text-muted` hairline, since reads are the whole story there and need to
+   read as brighter, without ever touching `--accent` itself. Row/ribbon
+   opacity in Today mode is set inline from `creekMath`'s
+   `freshnessFactor`/`collectionRowOpacity`/`ribbonOpacity`, not from CSS —
+   this file only supplies the transition. */
 
 .view {
   flex: 1;
@@ -73,10 +88,12 @@
   flex-wrap: wrap;
 }
 
-/* The reads layer chip — quiet by default (on, but styled to recede), same
-   pill family as the pond's Keeper toggle. */
-.readsOn,
-.readsOff {
+/* The Writes/Reads layer chips — quiet by default (on, but styled to
+   recede), same pill family as the pond's Keeper toggle. Shared by both
+   chips; CreekView.tsx enforces that at least one always stays "on"
+   (`creekMath.toggleLayer`), this file just draws whichever state it's in. */
+.layerChipOn,
+.layerChipOff {
   min-height: var(--tap-target);
   padding: 0 var(--space-3);
   border: 1px solid var(--border-soft);
@@ -89,12 +106,46 @@
   transition: color 160ms ease, opacity 160ms ease;
 }
 
-.readsOn:hover,
-.readsOff:hover { color: var(--text); }
+.layerChipOn:hover,
+.layerChipOff:hover { color: var(--text); }
 
-.readsOff {
+.layerChipOff {
   text-decoration: line-through;
   opacity: 0.55;
+}
+
+/* The rolling-window mode control — "14 days" / "Today", one pill split into
+   two real ~40px segments (not a single toggle button, since it's a choice
+   between two named states rather than an on/off). The active segment gets
+   an inset accent ring, the same "selection lights, doesn't repaint" grammar
+   as `.rowLit`. */
+.modeGroup {
+  display: flex;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-pill);
+  background: var(--card-bg);
+  overflow: hidden;
+}
+
+.modeBtn,
+.modeBtnActive {
+  min-height: var(--tap-target);
+  padding: 0 var(--space-3);
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+.modeBtn:hover { color: var(--text); }
+
+.modeBtnActive {
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 
 .back {
@@ -153,11 +204,17 @@
   transition: opacity 160ms ease;
 }
 
-/* Width and opacity are both set inline per-ribbon (creekMath's ribbonWeight
-   / ribbonOpacity) — nothing here fixes them, since every ribbon carries its
-   own write count. */
+/* Width and opacity are both set inline per-ribbon (creekMath's
+   ribbonRenderWidth / ribbonOpacity) — nothing here fixes them, since every
+   ribbon carries its own write/read count and, in Today mode, its own
+   freshness. */
 .ribbonWrite { stroke: var(--accent); }
 .ribbonRead { stroke: var(--text-muted); }
+
+/* Reads-only mode (the Writes chip off): reads are the whole story, so they
+   draw brighter than their normal hairline muted colour — but still never
+   `--accent`, which belongs to writes alone even when writes aren't drawn. */
+.ribbonReadOwn { stroke: var(--text-secondary); }
 
 /* --- group headers: small uppercase labels above each shelf --------------- */
 
@@ -412,6 +469,7 @@
 
 .legendSwatchWrite { background: var(--accent); opacity: 0.7; }
 .legendSwatchRead { background: var(--text-muted); opacity: 0.5; }
+.legendSwatchReadOwn { background: var(--text-secondary); opacity: 0.8; }
 
 .legendUnresolved {
   padding-top: var(--space-2);

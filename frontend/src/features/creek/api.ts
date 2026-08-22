@@ -1,5 +1,5 @@
 /**
- * api.ts — typed reads for the creek: the overview (`GET /api/creek?days=14`)
+ * api.ts — typed reads for the creek: the overview (`GET /api/creek?days=N`)
  * plus four per-collection reads that back "the water" — the detail panel's
  * lazy Now/Changes/Writes sections. All five are coded exactly against the
  * contracts in the task brief, built in parallel against routes that don't
@@ -7,7 +7,13 @@
  *
  * The overview query is the whole creek in one payload: every collection with
  * its traffic and callers, every file with its calls into those collections,
- * and the calls the server couldn't statically resolve.
+ * and the calls the server couldn't statically resolve. `days=1` gives
+ * today-only telemetry — CreekView's Today mode — and each collection now
+ * carries its own `last_write` (the write journal's newest event for it, or
+ * null when the journal has nothing), which Today mode's recency fade
+ * (`creekMath.freshnessFactor`) reads directly. `journal_since` is the
+ * payload-wide version of the same honesty: when the write journal itself
+ * started capturing, shown verbatim in the Today-mode legend paragraph.
  *
  * The four water hooks (`useCollectionNow/History/Diff/Writes`) are each
  * `enabled` only while their section is open — a collapsed section costs
@@ -16,6 +22,14 @@
  * reach the server as two path segments, not one escaped one. Nothing here
  * writes anything; the creek is read-only, a map of flow and of the data
  * itself that already happened.
+ *
+ * Extended for: "creek Today mode — only the past day, ribbons more opaque by
+ * recency, rolling/near-real-time; and independent writes/reads layer toggles
+ * so reads can be viewed alone on their own scale." `useCreek` grew an
+ * optional `refetchInterval` for Today mode's 60s poll — react-query's own
+ * `refetchIntervalInBackground` default (false) already keeps that from
+ * firing in a backgrounded tab, which matches the house battery contract
+ * without any extra code here.
  */
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../api/client';
@@ -38,6 +52,10 @@ export interface CreekCollection {
   reads: number;
   writes: number;
   callers: CreekCaller[];
+  /** The write journal's newest event timestamp for this collection, or null
+   * when the journal has nothing for it yet. Today mode's per-collection
+   * recency fade (`creekMath.freshnessFactor`) is computed from this. */
+  last_write: string | null;
 }
 
 export type CreekVerb = 'read' | 'write' | 'mutate';
@@ -69,18 +87,24 @@ export interface CreekUnresolved {
 export interface CreekData {
   generated: string;
   days: number;
+  /** When the write journal started capturing, payload-wide; null if it has
+   * no events at all yet. Shown verbatim in Today mode's legend paragraph. */
+  journal_since: string | null;
   collections: CreekCollection[];
   files: CreekFile[];
   unresolved: CreekUnresolved[];
 }
 
 /** The one read the creek makes. 60s stale — this is a map of recent history,
- * not a live view; nothing on the page needs it fresher than a minute. */
-export function useCreek(days = 14) {
+ * not a live view; nothing on the page needs it fresher than a minute.
+ * `refetchInterval` is only set by CreekView's Today mode (60s) — 14-day mode
+ * passes nothing, so react-query never polls it. */
+export function useCreek(days = 14, opts: { refetchInterval?: number } = {}) {
   return useQuery({
     queryKey: ['creek', days] as const,
     queryFn: ({ signal }) => api.get<CreekData>(`/api/creek?days=${days}`, signal),
     staleTime: 60_000,
+    refetchInterval: opts.refetchInterval,
   });
 }
 

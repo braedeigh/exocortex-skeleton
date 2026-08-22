@@ -116,7 +116,12 @@ def test_creek_returns_200_with_contract_keys(client):
     r = client.get("/api/creek")
     assert r.status_code == 200
     body = r.get_json()
-    assert set(body.keys()) == {"generated", "days", "collections", "files", "unresolved"}
+    assert set(body.keys()) == {
+        "generated", "days", "journal_since", "collections", "files", "unresolved",
+    }
+    # Every collection carries a last_write slot (null when the journal has
+    # nothing for it) so Today mode can fade by freshness without guessing.
+    assert all("last_write" in c for c in body["collections"])
     assert body["days"] == 14
     assert isinstance(body["collections"], list)
     assert isinstance(body["files"], list)

@@ -9,14 +9,19 @@
  * React, no DOM and no fetching, so all three are testable directly:
  *
  *   WHERE does each row sit — grouped (server/routes/scripts/tools on the left;
- *   sql/json on the right), sorted heaviest-writer first within its group, at a
- *   FIXED row height, so a ribbon's endpoint is computed from the same numbers
- *   that placed the row rather than measured off the rendered DOM.
+ *   sql/json on the right), sorted by whichever count is currently on screen
+ *   (`sortMetricFor`: writes desc when writes are drawn, reads desc when
+ *   reads-only), at a FIXED row height, so a ribbon's endpoint is computed
+ *   from the same numbers that placed the row rather than measured off the
+ *   rendered DOM.
  *
- *   HOW WIDE is a ribbon — writes are the story and get the pond's own
- *   log-ramp-with-floor idiom (a flow that exists is never invisible); reads
- *   are context and stay hairline-thin on a completely different scale, never
- *   sharing an axis with writes.
+ *   HOW WIDE is a ribbon — writes are normally the story and get the pond's
+ *   own log-ramp-with-floor idiom (a flow that exists is never invisible);
+ *   reads are normally context and stay hairline-thin on a completely
+ *   different scale. In reads-only mode (the Writes chip off) reads BECOME
+ *   the story and get that same log-ramp idiom on their OWN cap — still never
+ *   sharing an axis with writes, still never drawn in `--accent` (writes own
+ *   that colour alone) — see `ribbonRenderWidth`.
  *
  *   WHAT lights and what dims when she taps a file or a collection — emphasis,
  *   never a filter: the rest of the creek stays drawn, just quieter, the same
@@ -39,6 +44,18 @@
  * "when a collection is selected, show what the data IS and WAS, not just
  * that it flows — current contents, git history with diffs, the write
  * journal — all lazy, collapsed by default."
+ *
+ * Extended for: "creek Today mode — only the past day, ribbons more opaque by
+ * recency, rolling/near-real-time; and independent writes/reads layer toggles
+ * so reads can be viewed alone on their own scale." That added: `freshnessFactor`
+ * (exp decay of a collection's write-recency, floored so nothing ever fully
+ * disappears), `collectionRowOpacity` (a right-bank row's opacity: dimmed wins
+ * outright, otherwise freshness), `toggleLayer` (the Writes/Reads chips'
+ * never-both-off rule), `sortMetricFor` (which count a bank sorts by, given
+ * which layers are on), and `ribbonRenderWidth` (a ribbon's stroke width for
+ * however it's currently drawn — write scale, read hairline, or read-owns-the-
+ * scale). `ribbonOpacity` and `buildRibbons` grew to carry freshness and a
+ * read-side log-ramp weight respectively.
  */
 
 import type { CreekCall, CreekCaller, CreekCollection, CreekFile } from './api';
@@ -84,6 +101,32 @@ export const READ_BASE_OPACITY = 0.12;
 export const DIM_OPACITY = 0.16;
 export const LIT_WRITE_OPACITY = 1;
 export const LIT_READ_OPACITY = 0.5;
+
+/** Today mode's recency fade: roughly how many hours until a write's
+ * freshness has decayed by half, and the floor it never decays past (the
+ * same "never fully invisible" idiom as the opacity floors above). */
+export const FRESHNESS_HALF_LIFE_HOURS = 6;
+export const FRESHNESS_FLOOR = 0.25;
+
+/**
+ * How recently a collection's write journal actually saw it, 0..1 — Today
+ * mode's per-collection recency fade. Exponential decay against
+ * `FRESHNESS_HALF_LIFE_HOURS` (so `hoursSince = 6` reads about half as fresh
+ * as `hoursSince = 0`), floored at `FRESHNESS_FLOOR` so a collection that's
+ * simply gone quiet for a while never fades to nothing — that would read as
+ * "this doesn't exist," which isn't what's true. `lastWrite === null` (the
+ * journal has never seen a write for this collection) reads as maximally
+ * stale — the same floor, not zero, since "no journal entry yet" isn't the
+ * same claim as "definitely nothing happened." An unparseable timestamp gets
+ * the same treatment rather than throwing. `now` is injectable for tests.
+ */
+export function freshnessFactor(lastWrite: string | null, now: Date = new Date()): number {
+  if (lastWrite === null) return FRESHNESS_FLOOR;
+  const d = new Date(lastWrite);
+  if (Number.isNaN(d.getTime())) return FRESHNESS_FLOOR;
+  const hoursSince = Math.max(0, (now.getTime() - d.getTime()) / 3_600_000);
+  return Math.max(FRESHNESS_FLOOR, Math.exp(-hoursSince / FRESHNESS_HALF_LIFE_HOURS));
+}
 
 // --- rows & banks -------------------------------------------------------------
 
@@ -157,29 +200,53 @@ function layoutGroups<T>(
   return { rows, headers, height: Math.max(y, TOP_PAD) };
 }
 
-/** The left bank: files grouped by area, heaviest writer first within each
- * group, ties broken by path so the order is stable between renders. */
-export function layoutFiles(files: readonly CreekFile[]): BankLayout<CreekFile> {
+/** Which count a bank is currently ranked by. */
+export type CreekSortMetric = 'writes' | 'reads';
+
+/**
+ * Which count a bank sorts by, given the two layer chips — follows what's
+ * actually visible rather than a fixed writes-first rule: writes drawn
+ * (Writes chip on, whatever Reads is) → writes desc, same as always. Writes
+ * hidden (reads-only mode) → reads desc, since reads are the whole story
+ * then. Falls back to `'writes'` if somehow both chips were off (shouldn't
+ * happen — `toggleLayer` guarantees at least one stays on).
+ */
+export function sortMetricFor(writesOn: boolean, readsOn: boolean): CreekSortMetric {
+  if (writesOn) return 'writes';
+  return readsOn ? 'reads' : 'writes';
+}
+
+/** The left bank: files grouped by area, ranked by `metric` within each
+ * group (writes by default), ties broken by path so the order is stable
+ * between renders. */
+export function layoutFiles(
+  files: readonly CreekFile[],
+  metric: CreekSortMetric = 'writes',
+): BankLayout<CreekFile> {
+  const rank = metric === 'reads' ? fileReads : fileWrites;
   const groups = FILE_AREAS.map((a) => ({
     key: a.key,
     label: a.label,
     items: [...files]
       .filter((f) => f.area === a.key)
-      .sort((x, y) => fileWrites(y) - fileWrites(x) || x.path.localeCompare(y.path)),
+      .sort((x, y) => rank(y) - rank(x) || x.path.localeCompare(y.path)),
   }));
   return layoutGroups(groups, (f) => f.path);
 }
 
-/** The right bank: collections grouped by backing, heaviest writer first. */
+/** The right bank: collections grouped by backing, ranked by `metric`
+ * (writes by default). */
 export function layoutCollections(
   collections: readonly CreekCollection[],
+  metric: CreekSortMetric = 'writes',
 ): BankLayout<CreekCollection> {
+  const rank = (c: CreekCollection) => (metric === 'reads' ? c.reads : c.writes);
   const groups = COLLECTION_BACKINGS.map((b) => ({
     key: b.key,
     label: b.label,
     items: [...collections]
       .filter((c) => c.backing === b.key)
-      .sort((x, y) => y.writes - x.writes || x.id.localeCompare(y.id)),
+      .sort((x, y) => rank(y) - rank(x) || x.id.localeCompare(y.id)),
   }));
   return layoutGroups(groups, (c) => c.id);
 }
@@ -209,15 +276,60 @@ export function ribbonStrokeWidth(weight: number): number {
 }
 
 /**
- * A ribbon's opacity for its current state: dimmed (something else is lit),
- * lit (this is the selection's own flow), or resting (nothing selected).
- * Reads and writes are held to different ceilings even when both are lit —
- * writes carry the ink, reads stay context.
+ * A ribbon's stroke width for however it's currently drawn. Write ribbons
+ * always use the write log-ramp (`weight` against the write cap). Read
+ * ribbons are normally a fixed hairline (`READ_STROKE`) — context, not the
+ * story — but when the Writes chip is off (reads-only mode) reads BECOME the
+ * story and get their own log-ramp width, computed from `weight` the exact
+ * same way writes are (`readsOwnScale` true). The two still never share a
+ * scale even then: `buildRibbons` computes read `weight` against a read-only
+ * cap, never the write cap.
  */
-export function ribbonOpacity(kind: 'read' | 'write', dimmed: boolean, lit: boolean): number {
+export function ribbonRenderWidth(
+  kind: 'read' | 'write',
+  weight: number,
+  readsOwnScale: boolean,
+): number {
+  if (kind === 'write') return ribbonStrokeWidth(weight);
+  return readsOwnScale ? ribbonStrokeWidth(weight) : READ_STROKE;
+}
+
+/**
+ * A ribbon's opacity for its current state: dimmed (something else is lit) —
+ * always wins outright, full stop — lit (this is the selection's own flow),
+ * or resting (nothing selected). Reads and writes are held to different
+ * ceilings even when both are lit — writes carry the ink, reads stay
+ * context. `freshness` (0..1, default 1) is Today mode's recency fade —
+ * CreekView passes a real value only for WRITE ribbons while in Today mode;
+ * reads have no per-event timestamps to fade by, so they always get 1.
+ */
+export function ribbonOpacity(
+  kind: 'read' | 'write',
+  dimmed: boolean,
+  lit: boolean,
+  freshness: number = 1,
+): number {
   if (dimmed) return DIM_OPACITY;
-  if (lit) return kind === 'write' ? LIT_WRITE_OPACITY : LIT_READ_OPACITY;
-  return kind === 'write' ? WRITE_BASE_OPACITY : READ_BASE_OPACITY;
+  const base = lit
+    ? kind === 'write'
+      ? LIT_WRITE_OPACITY
+      : LIT_READ_OPACITY
+    : kind === 'write'
+      ? WRITE_BASE_OPACITY
+      : READ_BASE_OPACITY;
+  return base * freshness;
+}
+
+/**
+ * A right-bank collection row's opacity in Today mode: dimmed (a selection
+ * elsewhere) always wins outright, same rule as ribbons; otherwise the row
+ * fades by `freshness` (see `freshnessFactor`). In 14-day mode CreekView
+ * always passes `freshness = 1`, which collapses this back to the old
+ * dimmed/full-opacity behavior — left-bank file rows never get this, since
+ * the payload carries no per-file write timestamp to fade by.
+ */
+export function collectionRowOpacity(dimmed: boolean, freshness: number): number {
+  return dimmed ? DIM_OPACITY : freshness;
 }
 
 // --- ribbon paths ---------------------------------------------------------
@@ -285,11 +397,18 @@ export function buildRibbons(
     }
   }
 
-  // The log ramp's ceiling: the heaviest single file→collection write flow on
-  // the page, so the busiest ribbon fills the scale rather than an arbitrary
-  // fixed cap flattening everything below a much smaller real maximum.
-  let cap = 1;
-  for (const e of agg.values()) if (e.writes > cap) cap = e.writes;
+  // The log ramp's ceiling for each kind: the heaviest single file→collection
+  // flow of that kind on the page, so the busiest ribbon fills its scale
+  // rather than an arbitrary fixed cap flattening everything below a much
+  // smaller real maximum. Writes and reads get SEPARATE caps — computing
+  // read weight here (even though it's only drawn wide in reads-only mode)
+  // means it's never derived against the write cap by accident.
+  let writeCap = 1;
+  let readCap = 1;
+  for (const e of agg.values()) {
+    if (e.writes > writeCap) writeCap = e.writes;
+    if (e.reads > readCap) readCap = e.reads;
+  }
 
   const out: CreekRibbon[] = [];
   for (const e of agg.values()) {
@@ -303,7 +422,7 @@ export function buildRibbons(
         collection: e.collection,
         kind: 'write',
         count: e.writes,
-        weight: ribbonWeight(e.writes, cap),
+        weight: ribbonWeight(e.writes, writeCap),
         d,
       });
     }
@@ -313,7 +432,7 @@ export function buildRibbons(
         collection: e.collection,
         kind: 'read',
         count: e.reads,
-        weight: 0,
+        weight: ribbonWeight(e.reads, readCap),
         d,
       });
     }
@@ -321,12 +440,36 @@ export function buildRibbons(
   return out;
 }
 
-/** The reads layer chip, applied — off means only write ribbons draw. */
+/** The Writes/Reads layer chips, applied — each kind draws only while its
+ * own chip is on. CreekView never lets both go off at once (`toggleLayer`),
+ * but this function itself doesn't assume that — pass both false and
+ * nothing draws, honestly. */
 export function visibleRibbons(
   ribbons: readonly CreekRibbon[],
+  writesOn: boolean,
   readsOn: boolean,
 ): CreekRibbon[] {
-  return readsOn ? [...ribbons] : ribbons.filter((r) => r.kind !== 'read');
+  return ribbons.filter((r) => (r.kind === 'write' ? writesOn : readsOn));
+}
+
+/**
+ * Toggling one of the Writes/Reads layer chips, with the "never a blank
+ * creek" rule: turning off the last lit chip turns the OTHER one on instead
+ * of leaving both dark, rather than just flipping the one that was tapped.
+ */
+export function toggleLayer(
+  writesOn: boolean,
+  readsOn: boolean,
+  layer: 'writes' | 'reads',
+): { writesOn: boolean; readsOn: boolean } {
+  if (layer === 'writes') {
+    const next = !writesOn;
+    if (!next && !readsOn) return { writesOn: false, readsOn: true };
+    return { writesOn: next, readsOn };
+  }
+  const next = !readsOn;
+  if (!next && !writesOn) return { writesOn: true, readsOn: false };
+  return { writesOn, readsOn: next };
 }
 
 // --- selection: emphasis, never a filter --------------------------------------

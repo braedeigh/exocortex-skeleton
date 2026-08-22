@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { CreekCollection, CreekFile } from './api';
 import {
   DIM_OPACITY,
+  FRESHNESS_FLOOR,
   GROUP_GAP,
   HEADER_H,
   LEFT_X,
@@ -10,6 +11,7 @@ import {
   MAX_STROKE,
   MIN_STROKE,
   READ_BASE_OPACITY,
+  READ_STROKE,
   RIGHT_X,
   ROW_GAP,
   ROW_H,
@@ -18,21 +20,26 @@ import {
   classifyDiffLine,
   codeHref,
   collectionDimmed,
+  collectionRowOpacity,
   fileDimmed,
   fileReads,
   fileWrites,
   filesTouching,
+  freshnessFactor,
   layoutCollections,
   layoutFiles,
   relativeDayTime,
   ribbonDimmed,
   ribbonOpacity,
   ribbonPathD,
+  ribbonRenderWidth,
   ribbonStrokeWidth,
   ribbonWeight,
   selectionSets,
+  sortMetricFor,
   sortedCalls,
   sortedCallers,
+  toggleLayer,
   visibleRibbons,
 } from './creekMath';
 
@@ -45,7 +52,7 @@ function collection(
   backing: CreekCollection['backing'],
   over: Partial<CreekCollection> = {},
 ): CreekCollection {
-  return { id, backing, reads: 0, writes: 0, callers: [], ...over };
+  return { id, backing, reads: 0, writes: 0, callers: [], last_write: null, ...over };
 }
 
 describe('fileWrites / fileReads', () => {
@@ -102,10 +109,26 @@ describe('layoutFiles', () => {
     // top pad + one header + one row + trailing group gap, at minimum
     expect(bank.height).toBeGreaterThanOrEqual(HEADER_H + ROW_H + GROUP_GAP);
   });
+
+  it('sorts by reads descending instead, when the metric is "reads"', () => {
+    const reads = (n: number) =>
+      Array.from({ length: n }, (_, i) => ({
+        line: i,
+        verb: 'read' as const,
+        collection: 'x',
+        snippet: '',
+      }));
+    const files = [
+      file('routes/b.py', 'routes', reads(1)),
+      file('routes/a.py', 'routes', reads(3)),
+    ];
+    const bank = layoutFiles(files, 'reads');
+    expect(bank.rows.map((r) => r.key)).toEqual(['routes/a.py', 'routes/b.py']);
+  });
 });
 
 describe('layoutCollections', () => {
-  it('groups sql before json and sorts by writes descending', () => {
+  it('groups sql before json and sorts by writes descending by default', () => {
     const cols = [
       collection('cache', 'json', { writes: 1 }),
       collection('todos', 'sql', { writes: 5 }),
@@ -114,6 +137,30 @@ describe('layoutCollections', () => {
     const bank = layoutCollections(cols);
     expect(bank.headers.map((h) => h.key)).toEqual(['sql', 'json']);
     expect(bank.rows.map((r) => r.key)).toEqual(['cards', 'todos', 'cache']);
+  });
+
+  it('sorts by reads descending instead, when the metric is "reads"', () => {
+    const cols = [
+      collection('cache', 'json', { writes: 9, reads: 1 }),
+      collection('todos', 'sql', { writes: 1, reads: 9 }),
+    ];
+    const bank = layoutCollections(cols, 'reads');
+    expect(bank.rows.map((r) => r.key)).toEqual(['todos', 'cache']);
+  });
+});
+
+describe('sortMetricFor', () => {
+  it('sorts by writes whenever writes are on, regardless of reads', () => {
+    expect(sortMetricFor(true, true)).toBe('writes');
+    expect(sortMetricFor(true, false)).toBe('writes');
+  });
+
+  it('sorts by reads only once writes are off (reads-only mode)', () => {
+    expect(sortMetricFor(false, true)).toBe('reads');
+  });
+
+  it('falls back to writes if somehow both are off, rather than throwing', () => {
+    expect(sortMetricFor(false, false)).toBe('writes');
   });
 });
 
@@ -149,10 +196,27 @@ describe('ribbonStrokeWidth', () => {
   });
 });
 
+describe('ribbonRenderWidth', () => {
+  it('writes always use the write log-ramp, whatever readsOwnScale is', () => {
+    expect(ribbonRenderWidth('write', 0.5, false)).toBe(ribbonStrokeWidth(0.5));
+    expect(ribbonRenderWidth('write', 0.5, true)).toBe(ribbonStrokeWidth(0.5));
+  });
+
+  it('reads stay a fixed hairline when writes are still visible', () => {
+    expect(ribbonRenderWidth('read', 0.9, false)).toBe(READ_STROKE);
+  });
+
+  it('reads get their own log-ramp width in reads-only mode', () => {
+    expect(ribbonRenderWidth('read', 0.9, true)).toBe(ribbonStrokeWidth(0.9));
+    expect(ribbonRenderWidth('read', 0.9, true)).not.toBe(READ_STROKE);
+  });
+});
+
 describe('ribbonOpacity', () => {
-  it('dimmed always wins, regardless of kind or lit', () => {
+  it('dimmed always wins, regardless of kind, lit, or freshness', () => {
     expect(ribbonOpacity('write', true, true)).toBe(DIM_OPACITY);
     expect(ribbonOpacity('read', true, false)).toBe(DIM_OPACITY);
+    expect(ribbonOpacity('write', true, true, 0.25)).toBe(DIM_OPACITY);
   });
 
   it('lit writes go fully saturated; lit reads stay well below full', () => {
@@ -165,6 +229,79 @@ describe('ribbonOpacity', () => {
     expect(ribbonOpacity('write', false, false)).toBe(WRITE_BASE_OPACITY);
     expect(ribbonOpacity('read', false, false)).toBe(READ_BASE_OPACITY);
     expect(WRITE_BASE_OPACITY).toBeGreaterThan(READ_BASE_OPACITY);
+  });
+
+  it('defaults freshness to 1 — unchanged behavior for callers that never pass it', () => {
+    expect(ribbonOpacity('write', false, false)).toBe(ribbonOpacity('write', false, false, 1));
+  });
+
+  it('multiplies freshness into a non-dimmed ribbon (Today mode’s recency fade)', () => {
+    expect(ribbonOpacity('write', false, false, 0.5)).toBeCloseTo(WRITE_BASE_OPACITY * 0.5, 5);
+    expect(ribbonOpacity('write', false, true, 0.5)).toBeCloseTo(LIT_WRITE_OPACITY * 0.5, 5);
+  });
+});
+
+describe('collectionRowOpacity', () => {
+  it('dimmed always wins outright, ignoring freshness', () => {
+    expect(collectionRowOpacity(true, 1)).toBe(DIM_OPACITY);
+    expect(collectionRowOpacity(true, 0.25)).toBe(DIM_OPACITY);
+  });
+
+  it('otherwise the row opacity IS the freshness', () => {
+    expect(collectionRowOpacity(false, 1)).toBe(1);
+    expect(collectionRowOpacity(false, 0.4)).toBe(0.4);
+  });
+});
+
+describe('freshnessFactor', () => {
+  const now = new Date(2026, 7, 21, 15, 0); // Aug 21 2026, 15:00 local
+
+  it('is 1 for a write that just happened', () => {
+    expect(freshnessFactor(now.toISOString(), now)).toBeCloseTo(1, 5);
+  });
+
+  it('decays across the half-life-ish window rather than jumping straight to the floor', () => {
+    const sixHoursAgo = new Date(now.getTime() - 6 * 3_600_000).toISOString();
+    const w = freshnessFactor(sixHoursAgo, now);
+    expect(w).toBeGreaterThan(FRESHNESS_FLOOR);
+    expect(w).toBeLessThan(1);
+    expect(w).toBeCloseTo(Math.exp(-1), 5);
+  });
+
+  it('floors at FRESHNESS_FLOOR for anything old enough, never fading to zero', () => {
+    const monthAgo = new Date(now.getTime() - 30 * 24 * 3_600_000).toISOString();
+    expect(freshnessFactor(monthAgo, now)).toBe(FRESHNESS_FLOOR);
+  });
+
+  it('reads null (journal has nothing for this collection) as the same floor, not zero', () => {
+    expect(freshnessFactor(null, now)).toBe(FRESHNESS_FLOOR);
+  });
+
+  it('treats an unparseable timestamp the same as null rather than throwing', () => {
+    expect(freshnessFactor('not-a-date', now)).toBe(FRESHNESS_FLOOR);
+  });
+
+  it('is monotonic — a more recent write never reads staler than an older one', () => {
+    const oneHourAgo = new Date(now.getTime() - 1 * 3_600_000).toISOString();
+    const twelveHoursAgo = new Date(now.getTime() - 12 * 3_600_000).toISOString();
+    expect(freshnessFactor(oneHourAgo, now)).toBeGreaterThan(freshnessFactor(twelveHoursAgo, now));
+  });
+});
+
+describe('toggleLayer', () => {
+  it('flips the tapped layer normally when the other one is already on', () => {
+    expect(toggleLayer(true, true, 'writes')).toEqual({ writesOn: false, readsOn: true });
+    expect(toggleLayer(true, true, 'reads')).toEqual({ writesOn: true, readsOn: false });
+  });
+
+  it('never lands on both off — killing the last lit chip lights the other one', () => {
+    expect(toggleLayer(true, false, 'writes')).toEqual({ writesOn: false, readsOn: true });
+    expect(toggleLayer(false, true, 'reads')).toEqual({ writesOn: true, readsOn: false });
+  });
+
+  it('turning ON a layer never touches the other one', () => {
+    expect(toggleLayer(false, true, 'writes')).toEqual({ writesOn: true, readsOn: true });
+    expect(toggleLayer(true, false, 'reads')).toEqual({ writesOn: true, readsOn: true });
   });
 });
 
@@ -201,6 +338,10 @@ describe('buildRibbons', () => {
     const read = ribbons.find((r) => r.kind === 'read')!;
     expect(read.collection).toBe('cards');
     expect(read.count).toBe(1);
+    // Only one read in the whole payload, so it IS the read cap — the
+    // read-side log ramp should already give it a real (non-zero) weight,
+    // even though 14-day/both-on mode never draws it wide.
+    expect(read.weight).toBeGreaterThan(0);
 
     const fileRow = fileBank.rows.find((r) => r.key === 'routes/todos.py')!;
     const colRow = collectionBank.rows.find((r) => r.key === 'todos')!;
@@ -215,6 +356,39 @@ describe('buildRibbons', () => {
     const ribbons = buildRibbons(orphan, layoutFiles(orphan), collectionBank, LEFT_X, RIGHT_X);
     expect(ribbons).toHaveLength(0);
   });
+
+  it('computes the read log-ramp against its OWN cap, never the write cap', () => {
+    // One file writes heavily to `todos` (busy write flow) and reads lightly
+    // from `cards`; another reads `cards` heavily. If reads borrowed the
+    // write cap, the heavy write flow would flatten the read weights near
+    // zero — they must not.
+    const heavy = [
+      file('routes/todos.py', 'routes', [
+        ...Array.from({ length: 50 }, (_, i) => ({
+          line: i,
+          verb: 'write' as const,
+          collection: 'todos',
+          snippet: '',
+        })),
+        { line: 100, verb: 'read' as const, collection: 'cards', snippet: '' },
+      ]),
+      file('routes/cards.py', 'routes', [
+        ...Array.from({ length: 20 }, (_, i) => ({
+          line: i,
+          verb: 'read' as const,
+          collection: 'cards',
+          snippet: '',
+        })),
+      ]),
+    ];
+    const fBank = layoutFiles(heavy);
+    const cBank = layoutCollections(collections);
+    const ribbons = buildRibbons(heavy, fBank, cBank, LEFT_X, RIGHT_X);
+    const heavyRead = ribbons.find((r) => r.file === 'routes/cards.py' && r.kind === 'read')!;
+    // 20 out of a 20-read cap should land at (or very near) the top of the
+    // read ramp — nowhere close to how flattened it'd be against a 50-write cap.
+    expect(heavyRead.weight).toBeCloseTo(1, 1);
+  });
 });
 
 describe('visibleRibbons', () => {
@@ -223,12 +397,20 @@ describe('visibleRibbons', () => {
     { file: 'a', collection: 'b', kind: 'read' as const, count: 1, weight: 0, d: '' },
   ];
 
-  it('drops read ribbons when the layer is off', () => {
-    expect(visibleRibbons(ribbons, false)).toEqual([ribbons[0]]);
+  it('drops read ribbons when the reads chip is off', () => {
+    expect(visibleRibbons(ribbons, true, false)).toEqual([ribbons[0]]);
   });
 
-  it('keeps everything when the layer is on', () => {
-    expect(visibleRibbons(ribbons, true)).toHaveLength(2);
+  it('drops write ribbons when the writes chip is off (reads-only mode)', () => {
+    expect(visibleRibbons(ribbons, false, true)).toEqual([ribbons[1]]);
+  });
+
+  it('keeps everything when both chips are on', () => {
+    expect(visibleRibbons(ribbons, true, true)).toHaveLength(2);
+  });
+
+  it('drops everything if both were somehow off, rather than assuming a default', () => {
+    expect(visibleRibbons(ribbons, false, false)).toHaveLength(0);
   });
 });
 

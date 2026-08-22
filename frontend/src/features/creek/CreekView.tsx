@@ -19,7 +19,9 @@ import {
   classifyDiffLine,
   codeHref,
   collectionDimmed,
+  collectionRowOpacity,
   fileDimmed,
+  freshnessFactor,
   fileReads,
   fileWrites,
   filesTouching,
@@ -28,10 +30,12 @@ import {
   relativeDayTime,
   ribbonDimmed,
   ribbonOpacity,
-  ribbonStrokeWidth,
+  ribbonRenderWidth,
   selectionSets,
+  sortMetricFor,
   sortedCallers,
   sortedCalls,
+  toggleLayer,
   visibleRibbons,
   type CreekSelection,
   type DiffLineKind,
@@ -68,11 +72,31 @@ import styles from './CreekView.module.css';
  * button (RetiredCountersCard's own row-toggle idiom), collapsed by default,
  * fetching nothing until opened (api.ts's four hooks are each `enabled` only
  * while its section is open). Open/closed state lives in the same
- * `creek-view` localStorage blob as selection/readsOn — one section's state
- * is shared across whichever collection happens to be selected, the same way
- * the reads toggle is shared rather than per-file. Picking a commit inside
- * Changes opens its diff inline directly under that row; picking a different
- * collection or closing Changes resets which commit (if any) is open.
+ * `creek-view` localStorage blob as selection/mode/layers — one section's
+ * state is shared across whichever collection happens to be selected, the
+ * same way the layer chips are shared rather than per-file. Picking a commit
+ * inside Changes opens its diff inline directly under that row; picking a
+ * different collection or closing Changes resets which commit (if any) is
+ * open.
+ *
+ * MODE: a two-position control, "14 days" (the original behavior above) or
+ * "Today" — `/api/creek?days=1`, polled every 60s (react-query's own
+ * `refetchIntervalInBackground: false` default already stops that poll in a
+ * backgrounded tab, matching the house battery contract for free). In Today
+ * mode, write ribbons and right-bank collection rows fade by
+ * `creekMath.freshnessFactor(collection.last_write)` — an honest "how
+ * recently did the journal actually see this" — floored so nothing ever
+ * fades to invisible. Read ribbons/rows never fade: reads are today's
+ * running totals, not individually timestamped events, and the legend says
+ * so rather than implying a freshness it doesn't have.
+ *
+ * LAYERS: the Writes and Reads chips are independent — each can be off on
+ * its own, but never both (`creekMath.toggleLayer`: killing the last lit
+ * chip turns the other one on, so the creek is never blank). Reads-only mode
+ * makes reads the story: they get their own log-ramp width scale (never the
+ * write scale — `creekMath.ribbonRenderWidth`), draw in `--text-secondary`
+ * (never `--accent`, which writes own alone), and the banks re-sort by reads
+ * instead of writes (`creekMath.sortMetricFor`).
  *
  * Prompt this was built against: "the terrain map is the creek — code files
  * on the left bank, data collections on the right bank, ribbons of flow
@@ -80,7 +104,10 @@ import styles from './CreekView.module.css';
  * clickable through to the real source line." The water sections were added
  * after, on: "when a collection is selected, show what the data IS and WAS,
  * not just that it flows — current contents, git history with diffs, the
- * write journal — all lazy, collapsed by default."
+ * write journal — all lazy, collapsed by default." Mode + layers were added
+ * on: "creek Today mode — only the past day, ribbons more opaque by recency,
+ * rolling/near-real-time; and independent writes/reads layer toggles so
+ * reads can be viewed alone on their own scale."
  */
 
 const SAVE_KEY = 'creek-view';
@@ -95,8 +122,14 @@ interface WaterSections {
 
 const DEFAULT_WATER_SECTIONS: WaterSections = { now: false, changes: false, writes: false };
 
+/** The mode control: the original 14-day map, or the rolling "today" view
+ * (`?days=1`, polled). */
+type CreekMode = '14days' | 'today';
+
 interface SavedCreekView {
   sel?: CreekSelection | null;
+  mode?: CreekMode;
+  writesOn?: boolean;
   readsOn?: boolean;
   water?: Partial<WaterSections>;
 }
@@ -109,30 +142,56 @@ function loadSaved(): SavedCreekView {
   }
 }
 
-const DAYS = 14;
+/** The 14-day window's fixed length; Today mode is always 1. */
+const WINDOW_DAYS = 14;
+/** Today mode's poll interval — a rolling near-real-time view, not a live
+ * one; react-query's own background-tab guard (see api.ts) does the rest. */
+const TODAY_POLL_MS = 60_000;
 
 export function CreekView() {
   const [saved] = useState(loadSaved);
   const [selection, setSelection] = useState<CreekSelection | null>(saved.sel ?? null);
+  const [mode, setMode] = useState<CreekMode>(saved.mode === 'today' ? 'today' : '14days');
+  const [writesOn, setWritesOn] = useState(saved.writesOn !== false);
   const [readsOn, setReadsOn] = useState(saved.readsOn !== false);
   const [waterSections, setWaterSections] = useState<WaterSections>({
     ...DEFAULT_WATER_SECTIONS,
     ...saved.water,
   });
 
-  const creek = useCreek(DAYS);
+  const days = mode === 'today' ? 1 : WINDOW_DAYS;
+  const creek = useCreek(days, mode === 'today' ? { refetchInterval: TODAY_POLL_MS } : {});
   const files = useMemo(() => creek.data?.files ?? [], [creek.data]);
   const collections = useMemo(() => creek.data?.collections ?? [], [creek.data]);
   const unresolved = creek.data?.unresolved ?? [];
+  const journalSince = creek.data?.journal_since ?? null;
 
-  const fileBank = useMemo(() => layoutFiles(files), [files]);
-  const collectionBank = useMemo(() => layoutCollections(collections), [collections]);
+  const sortMetric = sortMetricFor(writesOn, readsOn);
+  const fileBank = useMemo(() => layoutFiles(files, sortMetric), [files, sortMetric]);
+  const collectionBank = useMemo(
+    () => layoutCollections(collections, sortMetric),
+    [collections, sortMetric],
+  );
   const ribbons = useMemo(
     () => buildRibbons(files, fileBank, collectionBank),
     [files, fileBank, collectionBank],
   );
-  const shownRibbons = useMemo(() => visibleRibbons(ribbons, readsOn), [ribbons, readsOn]);
+  const shownRibbons = useMemo(
+    () => visibleRibbons(ribbons, writesOn, readsOn),
+    [ribbons, writesOn, readsOn],
+  );
   const sets = useMemo(() => selectionSets(selection, files), [selection, files]);
+
+  // Reads-only mode: the Writes chip is off, so reads carry the width scale
+  // and the accent-free color CreekView.module.css keys off `.ribbonReadOwn`.
+  const readsOwnScale = !writesOn;
+  // A quick lookup from collection id to its own row, for the Today-mode
+  // freshness fade (write ribbons need their TARGET collection's last_write,
+  // not the source file's).
+  const collectionById = useMemo(
+    () => new Map(collections.map((c) => [c.id, c])),
+    [collections],
+  );
 
   const canvasHeight = Math.max(fileBank.height, collectionBank.height);
   const hasData = files.length > 0 || collections.length > 0;
@@ -142,15 +201,29 @@ export function CreekView() {
     try {
       localStorage.setItem(
         SAVE_KEY,
-        JSON.stringify({ sel: selection, readsOn, water: waterSections }),
+        JSON.stringify({ sel: selection, mode, writesOn, readsOn, water: waterSections }),
       );
     } catch {
       // storage full or blocked — the creek just won't remember, which is fine
     }
-  }, [selection, readsOn, waterSections]);
+  }, [selection, mode, writesOn, readsOn, waterSections]);
 
   function toggleWaterSection(key: keyof WaterSections) {
     setWaterSections((cur) => ({ ...cur, [key]: !cur[key] }));
+  }
+
+  // Independent layer chips, with the "never a blank creek" rule lifted from
+  // creekMath (`toggleLayer`): turning off the last lit chip lights the
+  // other one instead of leaving nothing drawn.
+  function toggleWritesLayer() {
+    const next = toggleLayer(writesOn, readsOn, 'writes');
+    setWritesOn(next.writesOn);
+    setReadsOn(next.readsOn);
+  }
+  function toggleReadsLayer() {
+    const next = toggleLayer(writesOn, readsOn, 'reads');
+    setWritesOn(next.writesOn);
+    setReadsOn(next.readsOn);
   }
 
   // Esc clears the selection, same as the pond's card panel.
@@ -188,7 +261,9 @@ export function CreekView() {
           <h2 className={styles.title}>The creek</h2>
           <p className={styles.sub}>
             {hasData
-              ? `${files.length} files · ${collections.length} collections · ${totalWrites.toLocaleString()} writes over ${DAYS} days`
+              ? `${files.length} files · ${collections.length} collections · ${totalWrites.toLocaleString()} writes ${
+                  mode === 'today' ? 'today' : `over ${days} days`
+                }`
               : 'Data moving between code and vault.'}
             {selection?.kind === 'file' ? ` — ${selection.path} lit` : ''}
             {selection?.kind === 'collection' ? ` — ${selection.id} lit` : ''}
@@ -196,12 +271,39 @@ export function CreekView() {
         </div>
 
         <div className={styles.controls}>
+          <div className={styles.modeGroup} role="group" aria-label="Time window">
+            <button
+              type="button"
+              className={mode === '14days' ? styles.modeBtnActive : styles.modeBtn}
+              aria-pressed={mode === '14days'}
+              onClick={() => setMode('14days')}
+            >
+              14 days
+            </button>
+            <button
+              type="button"
+              className={mode === 'today' ? styles.modeBtnActive : styles.modeBtn}
+              aria-pressed={mode === 'today'}
+              onClick={() => setMode('today')}
+            >
+              Today
+            </button>
+          </div>
           <button
             type="button"
-            className={readsOn ? styles.readsOn : styles.readsOff}
+            className={writesOn ? styles.layerChipOn : styles.layerChipOff}
+            aria-pressed={writesOn}
+            aria-label={writesOn ? 'Hide the writes layer' : 'Show the writes layer'}
+            onClick={toggleWritesLayer}
+          >
+            Writes
+          </button>
+          <button
+            type="button"
+            className={readsOn ? styles.layerChipOn : styles.layerChipOff}
             aria-pressed={readsOn}
             aria-label={readsOn ? 'Hide the reads layer' : 'Show the reads layer'}
-            onClick={() => setReadsOn((v) => !v)}
+            onClick={toggleReadsLayer}
           >
             Reads
           </button>
@@ -237,14 +339,23 @@ export function CreekView() {
                 {shownRibbons.map((r) => {
                   const dimmed = ribbonDimmed(selection, r.file, r.collection);
                   const lit = selection !== null && !dimmed;
+                  // Today mode only, and only for WRITE ribbons — reads are
+                  // today's running totals with no per-event timestamp to
+                  // fade by, so they always get a freshness of 1 (the legend
+                  // says this outright).
+                  const freshness =
+                    mode === 'today' && r.kind === 'write'
+                      ? freshnessFactor(collectionById.get(r.collection)?.last_write ?? null)
+                      : 1;
+                  const readColor = readsOwnScale ? styles.ribbonReadOwn : styles.ribbonRead;
                   return (
                     <path
-                      key={`${r.file} ${r.collection} ${r.kind}`}
+                      key={`${r.file} ${r.collection} ${r.kind}`}
                       d={r.d}
-                      className={`${styles.ribbon} ${r.kind === 'write' ? styles.ribbonWrite : styles.ribbonRead}`}
+                      className={`${styles.ribbon} ${r.kind === 'write' ? styles.ribbonWrite : readColor}`}
                       style={{
-                        strokeWidth: r.kind === 'write' ? ribbonStrokeWidth(r.weight) : 1,
-                        opacity: ribbonOpacity(r.kind, dimmed, lit),
+                        strokeWidth: ribbonRenderWidth(r.kind, r.weight, readsOwnScale),
+                        opacity: ribbonOpacity(r.kind, dimmed, lit, freshness),
                       }}
                     />
                   );
@@ -277,7 +388,9 @@ export function CreekView() {
                     title={row.key}
                   >
                     <span className={styles.rowName}>{row.item.path}</span>
-                    <span className={styles.rowCount}>{fileWrites(row.item)}</span>
+                    <span className={styles.rowCount}>
+                      {sortMetric === 'reads' ? fileReads(row.item) : fileWrites(row.item)}
+                    </span>
                   </button>
                 );
               })}
@@ -295,14 +408,24 @@ export function CreekView() {
               {collectionBank.rows.map((row) => {
                 const dimmed = collectionDimmed(selection, sets, row.key);
                 const lit = selection?.kind === 'collection' && selection.id === row.key;
+                // Today mode's recency fade — right-bank rows only, since
+                // files carry no last-write timestamp. `collectionRowOpacity`
+                // itself already gives dimmed the final word, same rule as
+                // the ribbons.
+                const freshness =
+                  mode === 'today' ? freshnessFactor(row.item.last_write) : 1;
                 return (
                   <button
                     key={`c:${row.key}`}
                     type="button"
-                    className={[styles.row, lit ? styles.rowLit : '', dimmed ? styles.rowDimmed : '']
-                      .filter(Boolean)
-                      .join(' ')}
-                    style={{ top: row.y, left: RIGHT_X, width: RIGHT_W, height: ROW_H }}
+                    className={[styles.row, lit ? styles.rowLit : ''].filter(Boolean).join(' ')}
+                    style={{
+                      top: row.y,
+                      left: RIGHT_X,
+                      width: RIGHT_W,
+                      height: ROW_H,
+                      opacity: collectionRowOpacity(dimmed, freshness),
+                    }}
                     aria-pressed={lit}
                     onClick={() => pickCollection(row.key)}
                     title={row.item.id}
@@ -311,7 +434,9 @@ export function CreekView() {
                       {row.item.backing === 'sql' ? '▦' : '▤'}
                     </span>
                     <span className={styles.rowName}>{row.item.id}</span>
-                    <span className={styles.rowCount}>{row.item.writes}</span>
+                    <span className={styles.rowCount}>
+                      {sortMetric === 'reads' ? row.item.reads : row.item.writes}
+                    </span>
                   </button>
                 );
               })}
@@ -328,7 +453,8 @@ export function CreekView() {
               <CollectionDetail
                 collection={selectedCollection}
                 files={files}
-                days={DAYS}
+                days={days}
+                mode={mode}
                 onClose={() => setSelection(null)}
                 onPickFile={pickFile}
                 water={waterSections}
@@ -338,6 +464,10 @@ export function CreekView() {
               <Legend
                 totalWrites={totalWrites}
                 unresolvedCount={unresolved.length}
+                mode={mode}
+                writesOn={writesOn}
+                readsOn={readsOn}
+                journalSince={journalSince}
               />
             )}
           </aside>
@@ -399,6 +529,7 @@ function CollectionDetail({
   collection,
   files,
   days,
+  mode,
   onClose,
   onPickFile,
   water,
@@ -407,6 +538,7 @@ function CollectionDetail({
   collection: CreekCollection;
   files: readonly CreekFile[];
   days: number;
+  mode: CreekMode;
   onClose: () => void;
   onPickFile: (path: string) => void;
   water: WaterSections;
@@ -453,7 +585,9 @@ function CollectionDetail({
         ) : null}
       </div>
 
-      <p className={styles.detailLabel}>Who actually moved it (last {days} days)</p>
+      <p className={styles.detailLabel}>
+        Who actually moved it ({mode === 'today' ? 'today' : `last ${days} days`})
+      </p>
       <div className={styles.callerList}>
         {callers.map((c) =>
           c.file ? (
@@ -735,14 +869,28 @@ function WritesSection({ id, open, onToggle }: { id: string; open: boolean; onTo
 }
 
 /** Nothing selected: a short plain-English legend of what the drawing means,
- * said once rather than as a tooltip on every row. */
+ * said once rather than as a tooltip on every row. Reacts to the mode and
+ * the two layer chips rather than describing a fixed drawing — the swatches
+ * and the wording only show what's actually on screen right now. */
 function Legend({
   totalWrites,
   unresolvedCount,
+  mode,
+  writesOn,
+  readsOn,
+  journalSince,
 }: {
   totalWrites: number;
   unresolvedCount: number;
+  mode: CreekMode;
+  writesOn: boolean;
+  readsOn: boolean;
+  journalSince: string | null;
 }) {
+  // Reads-only: the Writes chip is off, so reads carry the width scale and
+  // the legend has to say so honestly rather than describing hairlines that
+  // aren't what's drawn right now.
+  const readsOnly = readsOn && !writesOn;
   return (
     <div className={styles.legend}>
       <p>
@@ -754,17 +902,45 @@ function Legend({
         how they&rsquo;re stored: <strong>▦ sql</strong> (the database of record) or{' '}
         <strong>▤ json</strong> (a plain file).
       </p>
-      <p>A ribbon&rsquo;s width is how much it writes — the busier the flow, the thicker the ribbon.</p>
-      <div className={styles.legendKey}>
-        <span className={`${styles.legendSwatch} ${styles.legendSwatchWrite}`} aria-hidden="true" />
-        <span>writes carry the ink</span>
-      </div>
-      <div className={styles.legendKey}>
-        <span className={`${styles.legendSwatch} ${styles.legendSwatchRead}`} aria-hidden="true" />
-        <span>reads are hairlines — context, not the story</span>
-      </div>
+      {readsOnly ? (
+        <p>
+          Writes are hidden — reads carry the ink here instead, on their{' '}
+          <strong>own</strong> scale, never comparable to write widths.
+        </p>
+      ) : (
+        <p>A ribbon&rsquo;s width is how much it writes — the busier the flow, the thicker the ribbon.</p>
+      )}
+      {writesOn ? (
+        <div className={styles.legendKey}>
+          <span className={`${styles.legendSwatch} ${styles.legendSwatchWrite}`} aria-hidden="true" />
+          <span>writes carry the ink</span>
+        </div>
+      ) : null}
+      {readsOn ? (
+        <div className={styles.legendKey}>
+          <span
+            className={`${styles.legendSwatch} ${readsOnly ? styles.legendSwatchReadOwn : styles.legendSwatchRead}`}
+            aria-hidden="true"
+          />
+          <span>
+            {readsOnly
+              ? 'reads on their own scale — never comparable to write widths'
+              : 'reads are hairlines — context, not the story'}
+          </span>
+        </div>
+      ) : null}
       <p>Tap a file or a collection to follow its flow; tap again, or Esc, to clear it.</p>
-      <p>{totalWrites.toLocaleString()} writes tracked in this window.</p>
+      <p>{totalWrites.toLocaleString()} writes tracked {mode === 'today' ? 'today' : 'in this window'}.</p>
+      {mode === 'today' ? (
+        <p>
+          In Today mode, ribbons and right-bank rows fade by how recently the write journal
+          actually saw them
+          {journalSince ? ` — it’s been capturing since ${relativeDayTime(journalSince)}` : ''}.
+          Read counts are today&rsquo;s running totals, refreshed about every minute, not
+          individual timestamped events — they don&rsquo;t fade, since there&rsquo;s no per-read
+          moment to fade from. The journal only sees writes that pass through the store seam.
+        </p>
+      ) : null}
       {unresolvedCount > 0 ? (
         <p className={styles.legendUnresolved}>
           {unresolvedCount} {unresolvedCount === 1 ? 'call' : 'calls'} couldn&rsquo;t be traced

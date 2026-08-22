@@ -406,6 +406,16 @@ def build_creek(repo_root, days_n):
     feature_usage = store.read("feature_usage", {"days": {}})
     telemetry = aggregate_telemetry(feature_usage, days_n)
 
+    # Per-collection write freshness from the journal, for Today mode's
+    # recency fade. Fail-open ({} / None) when the journal is off or absent —
+    # the creek still draws, it just can't fade by freshness.
+    try:
+        import writelog
+        journal_last = writelog.last_writes()
+        journal_since = writelog.capturing_since()
+    except Exception:
+        journal_last, journal_since = {}, None
+
     # Union, not intersection — a collection either side found still appears,
     # per the module docstring: neither view may hide the other.
     all_ids = sorted(static_collections | set(telemetry.keys()))
@@ -422,12 +432,14 @@ def build_creek(repo_root, days_n):
             "backing": "sql" if cid in SQL_COLLECTIONS else "json",
             "reads": t["reads"],
             "writes": t["writes"],
+            "last_write": journal_last.get(cid),
             "callers": callers_out,
         })
 
     return {
         "generated": datetime.now().isoformat(),
         "days": days_n,
+        "journal_since": journal_since,
         "collections": collections_out,
         "files": files_out,
         "unresolved": unresolved_out,

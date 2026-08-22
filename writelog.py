@@ -396,3 +396,22 @@ def capturing_since():
         return row[0] if row else None
     except Exception:
         return None
+
+
+def last_writes():
+    """Per-collection freshness: {collection: newest event ts}. The creek's
+    Today mode reads this to fade ribbons by how recently each pool was
+    actually written. Fail-open to {} — same rule as every reader here."""
+    try:
+        if _off():
+            return {}
+        conn = _connect()
+        try:
+            rows = conn.execute(
+                "SELECT collection, MAX(ts) FROM write_events GROUP BY collection"
+            ).fetchall()
+        finally:
+            conn.close()
+        return {r[0]: r[1] for r in rows if r[0] and r[1]}
+    except Exception:
+        return {}
