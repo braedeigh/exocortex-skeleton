@@ -15,6 +15,7 @@
     'lead'
     'infobox'
     'organized'
+    'pond'
     'fronts'
     'threads'
     'people'
@@ -33,6 +34,7 @@
       'title     title'
       'lead      infobox'
       'organized infobox'
+      'pond      infobox'
       'fronts    fronts'
       'threads   threads'
       'people    people'
@@ -117,6 +119,40 @@
 .infoValue {
   font-size: var(--font-size-base);
   color: var(--text);
+}
+
+/* --- The pond door: one prominent card into /wiki/pond --- */
+.pondRow {
+  grid-area: pond;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.pondCard {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: var(--tap-target);
+  padding: var(--space-3);
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  text-decoration: none;
+  box-sizing: border-box;
+}
+
+.pondCard:hover { border-color: var(--accent); }
+
+.pondCardTitle {
+  font-size: var(--font-size-base);
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.pondCardDesc {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
 }
 
 /* --- Section titles shared by Right now / By front / People --- */

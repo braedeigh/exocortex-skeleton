@@ -56,6 +56,18 @@ export function WikiHome() {
 
       {data.organizedBlurb ? <p className={styles.organizedBlurb}>{data.organizedBlurb}</p> : null}
 
+      {/* One prominent door into the wiki-pond (/wiki/pond) — the pond's
+          own drawing generalized to every tagged family. A single card
+          rather than folded into the threads list below: it's a whole
+          other way of reading the wiki, not one more thread. */}
+      <section className={styles.pondRow} aria-labelledby="wiki-pond">
+        <h2 id="wiki-pond" className={styles.sectionTitle}>See it as a place</h2>
+        <Link to="/wiki/pond" className={styles.pondCard}>
+          <span className={styles.pondCardTitle}>The pond</span>
+          <span className={styles.pondCardDesc}>everything tagged, drawn in place</span>
+        </Link>
+      </section>
+
       <section className={styles.frontsRow} aria-labelledby="wiki-fronts">
         <h2 id="wiki-fronts" className={styles.sectionTitle}>Her life, by front</h2>
         {data.fronts.length === 0 ? (

@@ -1,0 +1,601 @@
+/* WikiPond.module.css — everything tagged, drawn in the pond's own place.
+
+   Value-for-value modelled on features/pond/PondView.module.css: full-bleed
+   page, the same segmented controls, the same rail-and-stage-and-detail
+   three-column body, the same "one saturated colour belongs to what's lit"
+   restraint for the thread line. What's new here is the LANE axis — four
+   thin vertical bands inside every day column, each family its own muted
+   hue, because this page draws four different kinds of thing at once where
+   the pond only ever drew one.
+
+   The four hues come from the theme's own four accent tokens (morning,
+   evening, ongoing, accent — see theme/palettes.ts's ACCENT_KEYS), the only
+   colour tokens the theme engine actually re-points on every phase change
+   and light/dark switch. That symmetry — four lanes, four accents — is a
+   design call made here, not dictated by the doc: `build` gets `--ongoing`
+   on purpose, continuing PondView's own use of that hue for "an agent was
+   working" in its working lane. `todo` gets `--accent`, the app's own
+   action colour. Because `--accent` is ALSO the colour PondView uses for a
+   tapped/open card, a tapped todo row would otherwise vanish into its own
+   resting colour — so unlike the pond, "open" here is drawn as a ring
+   (box-shadow) rather than a colour swap, which has the added benefit of
+   never hiding which lane a row belongs to just because it's the one open. */
+
+.view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+  background: var(--bg);
+  overflow: hidden;
+  animation: pageIn 320ms cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+
+@keyframes pageIn {
+  from { opacity: 0; transform: translateX(28px); }
+  to { opacity: 1; transform: none; }
+}
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.heading { min-width: 0; }
+
+.title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--text);
+}
+
+.sub {
+  margin: 2px 0 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* --- the mode / range / zoom switches, same pill language as the pond ---- */
+
+.segmented {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--card-bg);
+  border: 1px solid var(--border-soft);
+}
+
+.seg,
+.segOn {
+  min-height: calc(var(--tap-target) - 8px);
+  min-width: 46px;
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.segOn {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.seg:hover { color: var(--text); }
+
+.seg:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.zoomPips {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 var(--space-1);
+}
+
+.pip,
+.pipOn {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  opacity: 0.35;
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.pipOn {
+  background: var(--accent);
+  opacity: 1;
+  transform: scale(1.5);
+}
+
+.back {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--card-bg);
+  border: 1px solid var(--border-soft);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  text-decoration: none;
+}
+
+.note {
+  margin: var(--space-3) 0 0;
+  font-size: var(--font-size-base);
+  color: var(--text-secondary);
+}
+
+/* --- the family legend ------------------------------------------------- */
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding: 0 var(--space-1);
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.legendSwatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  opacity: 0.8;
+}
+
+/* The four family hues, each a theme accent — see the file block for why
+   each family got the one it did. Set once here so every dot, word card,
+   lane band and legend swatch stays in lockstep with a single edit. */
+.laneJournal { background-color: var(--morning); }
+.laneResearch { background-color: var(--evening); }
+.laneBuild { background-color: var(--ongoing); }
+.laneTodo { background-color: var(--accent); }
+
+.body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+
+/* --- the rail: tag namespaces as shelves --------------------------------- */
+
+.rail {
+  flex: none;
+  width: 210px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.railList {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  overflow-y: auto;
+  padding-right: var(--space-1);
+}
+
+.railEmpty {
+  margin: var(--space-2) 0 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.railSection {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.railSectionLabel {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  color: var(--text-muted);
+  padding: var(--space-1) var(--space-2) 2px;
+}
+
+.tagRow,
+.tagRowOn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  /* House rule: ~40px of tappable height. */
+  min-height: var(--tap-target);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text-secondary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.tagRow:hover { background: var(--card-bg); }
+
+.tagRowOn {
+  background: var(--card-bg);
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.tagRowName {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.tagRowMeta {
+  flex: none;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* --- the drawing ---------------------------------------------------------- */
+
+.stage {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+  overflow: hidden;
+}
+
+.gutter {
+  flex: none;
+  width: 36px;
+  overflow: hidden;
+  position: relative;
+}
+
+.gutterInner { position: relative; }
+
+.hourLabel {
+  position: absolute;
+  right: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.scroller {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  overscroll-behavior-x: contain;
+}
+
+.canvas { position: relative; }
+
+.underlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.hourLine {
+  stroke: var(--border-soft);
+  stroke-width: 1;
+}
+
+/* The one saturated line on the page — same convention as the pond's own
+   threadLine: it belongs to whatever's lit, and lit rows keep their own
+   family colour underneath it. */
+.threadLine {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.75;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  opacity: 0.8;
+}
+
+/* A faint tint per lane so the four (or two, in words mode) vertical bands
+   read as lanes even with nothing lit and nothing drawn in them yet. Sits
+   under the grid/thread SVG and the rows themselves. */
+.laneBand {
+  position: absolute;
+  opacity: 0.06;
+  border-right: 1px solid var(--border-soft);
+  pointer-events: none;
+}
+
+.dayHeader {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  height: 22px;
+  background: var(--card-bg);
+  pointer-events: none;
+}
+
+.dayLabel {
+  position: absolute;
+  top: 3px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
+  pointer-events: none;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* --- the rows, in both arrangements --------------------------------------- */
+
+/* TIME: a small box at exactly its minute, coloured by family. Translucent
+   by design, same reasoning as the pond's dots: close entries overlap and
+   translucency turns a pile into a darker blot instead of a coin toss over
+   which one is on top. */
+.dot {
+  position: absolute;
+  padding: 0;
+  border: 5px solid transparent;
+  border-radius: 3px;
+  background-clip: padding-box;
+  box-sizing: content-box;
+  margin: -5px 0 0 -5px;
+  opacity: 0.6;
+  cursor: pointer;
+  transition: transform 140ms ease, opacity 140ms ease, box-shadow 140ms ease;
+}
+
+/* WORDS: the card itself is the target. No border at this density; the
+   family shows as a left rule instead, so the words stay the loudest thing
+   in the box. */
+.wordCard {
+  position: absolute;
+  display: block;
+  padding: 4px 5px 4px 7px;
+  border: none;
+  border-left: 2px solid transparent;
+  border-radius: var(--radius-sm, 5px);
+  background: var(--bg);
+  color: var(--text-secondary);
+  text-align: left;
+  overflow: hidden;
+  cursor: pointer;
+  transition: background 140ms ease, opacity 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+
+.wordCard.laneJournal { background-color: transparent; border-left-color: var(--morning); }
+.wordCard.laneResearch { background-color: transparent; border-left-color: var(--evening); }
+
+.wordText {
+  display: block;
+  line-height: 1.35;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+/* Emphasis, not a filter — the unlit pond stays drawn, just quieter, so a
+   lit tag is seen in the context of everything else that was happening.
+   Doubled selectors so this always outweighs a lane's own resting opacity. */
+.dot.dimmed,
+.wordCard.dimmed { opacity: 0.14; }
+
+.dot.onTag { transform: scale(1.6); opacity: 1; }
+.wordCard.onTag { opacity: 1; box-shadow: inset 0 0 0 1px var(--accent); }
+.onTag { color: var(--text); }
+
+/* Opened: a ring rather than a colour swap (see the file block) — the row's
+   own family colour stays visible even while it's the one open. */
+.dot.open { box-shadow: 0 0 0 2px var(--accent); transform: scale(1.7); opacity: 1; }
+.wordCard.open { background: var(--card-bg); box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 1px var(--accent); }
+.open { color: var(--text); }
+
+.wordCard:hover { color: var(--text); }
+
+/* --- the row she opened ---------------------------------------------------- */
+
+.detail {
+  flex: none;
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+  overflow-y: auto;
+}
+
+.detailHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.detailMeta {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.detailClose {
+  flex: none;
+  width: var(--tap-target);
+  height: var(--tap-target);
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text-secondary);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.detailClose:hover { background: var(--bg); color: var(--text); }
+
+.detailBody {
+  margin: 0;
+  font-size: var(--font-size-base);
+  line-height: 1.55;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
+/* --- tag chips: the correction surface ------------------------------------ */
+
+.detailTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.chipPair {
+  display: inline-flex;
+  align-items: stretch;
+}
+
+.tagChip {
+  min-height: var(--tap-target);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border-soft);
+  border-right: none;
+  border-radius: var(--radius-pill) 0 0 var(--radius-pill);
+  background: none;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.tagChipOn {
+  min-height: var(--tap-target);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--accent);
+  border-right: none;
+  border-radius: var(--radius-pill) 0 0 var(--radius-pill);
+  background: none;
+  color: var(--text);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+/* Armed on the first tap, done on the second — a stray touch near a chip
+   must never silently edit a tag. Comfortable ~40px targets throughout, per
+   the house rule for anything the owner corrects through. */
+.chipRemove,
+.chipRemoveArmed {
+  min-height: var(--tap-target);
+  min-width: 40px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border-soft);
+  border-radius: 0 var(--radius-pill) var(--radius-pill) 0;
+  background: none;
+  color: var(--text-secondary);
+  font-size: var(--font-size-base);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.chipRemove:hover { color: var(--text); }
+
+.chipRemoveArmed {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+  font-weight: 600;
+  font-size: var(--font-size-sm);
+}
+
+.addTag {
+  display: flex;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+}
+
+.addTagNs {
+  flex: none;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--font-size-sm);
+}
+
+.addTagInput {
+  flex: 1;
+  min-width: 90px;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--font-size-sm);
+}
+
+.addTagBtn {
+  flex: none;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.addTagBtn:hover:not(:disabled) { color: var(--text); }
+.addTagBtn:disabled { opacity: 0.4; cursor: default; }
+
+/* Phone: the rail becomes a strip above the drawing, the opened row sits
+   underneath rather than beside — same call PondView makes at the same
+   breakpoint. */
+@media (max-width: 780px) {
+  .body { flex-direction: column; }
+
+  .rail { width: auto; flex: none; max-height: 160px; }
+
+  .railList { flex-direction: row; overflow-x: auto; overflow-y: hidden; padding-bottom: var(--space-1); }
+
+  .railSection { flex: none; }
+
+  .stage { flex: 1; min-height: 260px; }
+
+  .detail { width: auto; max-height: 40vh; }
+}
