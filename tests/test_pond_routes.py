@@ -45,6 +45,14 @@ CREATE TABLE session_files (
   writes INTEGER NOT NULL DEFAULT 0, reads INTEGER NOT NULL DEFAULT 0,
   creates INTEGER NOT NULL DEFAULT 0, last TEXT,
   PRIMARY KEY (session_id, file_id));
+CREATE TABLE commits (
+  sha TEXT PRIMARY KEY, repo TEXT NOT NULL, authored_ts INTEGER NOT NULL,
+  authored_at TEXT NOT NULL, author TEXT NOT NULL DEFAULT '',
+  subject TEXT NOT NULL DEFAULT '');
+CREATE TABLE commit_files (
+  sha TEXT NOT NULL, file_id INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'M', added INTEGER, removed INTEGER,
+  PRIMARY KEY (sha, file_id));
 """
 
 
@@ -281,9 +289,29 @@ def working_db(pond_db, data_dir):
             " creates, last) VALUES (?,?,?,0,?,?)", (sid, fid, writes, creates, last_utc))
         conn.commit()
 
+    def event(status, authored_at, path="old.py", repo="skeleton",
+              subject="a commit"):
+        """One git-recorded file event: a commit whose diff carried this
+        status letter for this file. `authored_at` is LOCAL, matching what
+        codestore stores."""
+        fid = next_file[0]
+        next_file[0] += 1
+        conn.execute("INSERT INTO files (id, repo, path) VALUES (?,?,?)",
+                     (fid, repo, path))
+        sha = f"sha{fid}"
+        ts = int(time.mktime(time.strptime(authored_at, "%Y-%m-%dT%H:%M:%S")))
+        conn.execute(
+            "INSERT INTO commits (sha, repo, authored_ts, authored_at, subject)"
+            " VALUES (?,?,?,?,?)", (sha, repo, ts, authored_at, subject))
+        conn.execute(
+            "INSERT INTO commit_files (sha, file_id, status) VALUES (?,?,?)",
+            (sha, fid, status))
+        conn.commit()
+
     yield type("W", (), {"session": staticmethod(session),
                          "turn": staticmethod(turn),
-                         "write": staticmethod(write)})
+                         "write": staticmethod(write),
+                         "event": staticmethod(event)})
     conn.close()
 
 
@@ -371,10 +399,49 @@ def test_a_session_open_across_the_window_is_kept(working_db, client):
 
 
 def test_working_is_empty_not_broken_on_a_fresh_install(pond_db, client):
-    """No agent sessions yet — three empty lists and a 200, so the toggles
+    """No agent sessions yet — four empty lists and a 200, so the toggles
     render as 'nothing here' rather than as an error."""
     got = client.get("/api/pond/working").get_json()
     assert got["turns"] == [] and got["writes"] == [] and got["sessions"] == []
+    assert got["events"] == []
+
+
+# --- deletes and moves, read from git -----------------------------------------
+
+def test_deletes_and_moves_come_back_as_events(working_db, client):
+    """Git's D and R letters become kinds the drawing can speak; A and M
+    stay out — adds are the creates flag's job and modifications are already
+    the writes list."""
+    working_db.event("D", "2026-08-08T14:00:00", path="dead.py")
+    working_db.event("R", "2026-08-08T15:00:00", path="new_home.py",
+                     subject="moved it")
+    working_db.event("M", "2026-08-08T16:00:00", path="edited.py")
+    working_db.event("A", "2026-08-08T17:00:00", path="born.py")
+
+    events = client.get("/api/pond/working").get_json()["events"]
+    assert [(e["kind"], e["path"]) for e in events] == [
+        ("delete", "dead.py"), ("move", "new_home.py")]
+    assert events[1]["commit"] == "moved it"
+
+
+def test_events_respect_the_window(working_db, client):
+    working_db.event("D", "2026-08-05T10:00:00", path="early.py")
+    working_db.event("D", "2026-08-09T10:00:00", path="late.py")
+    got = client.get(
+        "/api/pond/working?from=2026-08-09&to=2026-08-09").get_json()
+    assert [e["path"] for e in got["events"]] == ["late.py"]
+
+
+def test_journal_churn_is_not_a_file_event(working_db, client):
+    """The card pool's own tide — stream.py compacting day files — is the
+    journal breathing, not her deleting code. Same rule the writes list
+    already applies."""
+    working_db.event("D", "2026-08-08T14:00:00", repo="vault",
+                     path="tulku/_system/data/cards/2026-07-01.0900b.md")
+    working_db.event("D", "2026-08-08T15:00:00", repo="vault",
+                     path="data/todos.json")
+    events = client.get("/api/pond/working").get_json()["events"]
+    assert [e["path"] for e in events] == ["data/todos.json"]
 
 
 # --- one thread at a time -----------------------------------------------------

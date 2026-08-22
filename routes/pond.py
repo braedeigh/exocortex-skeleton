@@ -26,9 +26,9 @@ endpoints are that door, shaped for one drawing.
                             which changes with no refetch.
     GET /api/pond/card/<id> one card, in full, when she taps it.
     GET /api/pond/working   the OTHER half of her days: when she was talking
-                            to an agent, when files were written, and how long
-                            each session sat open. Three lists, one window,
-                            one clock.
+                            to an agent, when files were written, when files
+                            were deleted or moved, and how long each session
+                            sat open. Four lists, one window, one clock.
     GET /api/pond/shape     ONE ROW PER DAY — how many cards, how many hers.
                             The pond's silhouette and nothing else, for drawing
                             it small: the landmark on the terrain map is a
@@ -558,7 +558,7 @@ def register(app):
     def pond_working():
         """The building half of her days, on the same clock as the journal.
 
-        Three lists, because they are three different KINDS of event and
+        Four lists, because they are four different KINDS of event and
         flattening them would be the lie the drawing has to avoid:
 
           turns    — a POINT. One row per message she sent to an agent. This
@@ -581,6 +581,14 @@ def register(app):
         dropped 577 messages in those rooms that never became journal entries
         at all. The test is what the THING is, not what room it happened in.
 
+          events   — a POINT, from git rather than from the sessions. One row
+                     per file deleted (D) or moved (R) per commit, read out of
+                     `commits` × `commit_files` — the code-history walk
+                     already keeps git's own status letters, so nothing new is
+                     synced for this. No session attribution: commits don't
+                     line up with sessions (the reason diffs were left off
+                     this page), so an event says WHAT happened and when, not
+                     which conversation did it.
           sessions — a SPAN. `started` → `last_at` is how long a conversation
                      sat OPEN, which is a different question from when work
                      happened in it; a third of them stay open past twelve
@@ -624,6 +632,21 @@ def register(app):
                 """SELECT id, title, lane, started, last_at FROM sessions
                     ORDER BY started ASC""",
             ).fetchall()
+            # Deletes and moves come from a THIRD pipeline into the same
+            # database: git. The footprints harvest can't see them (they
+            # happen through Bash — `rm`, `git mv` — and Bash is unharvestable
+            # by design), but the code-history walk (codestore.py) already
+            # records git's own letter per commit per file: D deleted,
+            # R renamed. This reads what's already there.
+            event_rows = conn.execute(
+                """SELECT c.authored_at AS ts, c.repo, c.subject,
+                          cf.status, f.path
+                     FROM commit_files cf
+                     JOIN commits c ON c.sha = cf.sha
+                     JOIN files f ON f.id = cf.file_id
+                    WHERE cf.status IN ('D', 'R')
+                    ORDER BY c.authored_ts ASC""",
+            ).fetchall()
 
         truncated = len(turn_rows) > MAX_WORKING
         turns = [
@@ -662,6 +685,33 @@ def register(app):
             truncated = True
             writes = writes[:MAX_WORKING]
 
+        # TWO HONEST LIMITS, both printed on the marks that carry them.
+        # The clock: an event is stamped at the COMMIT that recorded it, not
+        # the moment of the act. Skeleton commits are deliberate, so those are
+        # close; the vault auto-commits hourly, so a vault delete or move can
+        # lag the act by up to an hour. The path: `files.path` is the name the
+        # file wears NOW (or wore last), not necessarily its spelling at that
+        # commit — the tables keep identity across renames, not per-commit
+        # spellings. `authored_at` is already local ISO (sqlstore stores both
+        # clocks), so no conversion happens here.
+        events = []
+        for r in event_rows:
+            if _is_journal_file(r["repo"], r["path"]):
+                continue          # card-pool churn is the journal's own tide
+            ts = r["ts"]
+            if not ts or not _in_window(ts[:10], window):
+                continue
+            events.append({
+                "ts": ts,
+                "repo": r["repo"],
+                "path": r["path"],
+                "kind": "delete" if r["status"] == "D" else "move",
+                "commit": r["subject"],
+            })
+        if len(events) > MAX_WORKING:
+            truncated = True
+            events = events[:MAX_WORKING]
+
         # A session is kept when its open interval OVERLAPS the window, not
         # when one of its ends happens to land inside it. The difference is
         # the whole point of this layer: a session opened on Saturday and
@@ -691,6 +741,7 @@ def register(app):
         return jsonify({
             "turns": turns,
             "writes": writes,
+            "events": events,
             "sessions": sessions,
             "from": window["from"],
             "to": window["to"],

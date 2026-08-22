@@ -24,7 +24,7 @@ import {
   workingDays,
   writeWeight,
 } from './pondMath';
-import type { PondMode, PondSession, PondTurn, PondWrite } from './pondMath';
+import type { PondFileEvent, PondMode, PondSession, PondTurn, PondWrite } from './pondMath';
 import { loadPondView, POND_VIEW_KEY, type WorkLayer } from './savedView';
 import { FileCodeBody } from '../terrain/FileCodeBody';
 import styles from './PondView.module.css';
@@ -126,7 +126,7 @@ const RANGES = [
  */
 const WORK_LAYERS: { key: WorkLayer; label: string; hint: string }[] = [
   { key: 'turns', label: 'Messages', hint: 'When you were talking to an agent' },
-  { key: 'writes', label: 'Files', hint: 'When files were written' },
+  { key: 'writes', label: 'Files', hint: 'When files were written, deleted, or moved' },
   { key: 'sessions', label: 'Open', hint: 'How long each session sat open' },
 ];
 
@@ -184,6 +184,15 @@ function writeTitle(write: PondWrite, sessions: Map<string, PondSession>): strin
     + `\n${session?.title || write.session}`;
 }
 
+/** What a delete or move mark says. No session to name — commits don't line
+ * up with sessions — so the commit subject is the only context it has. */
+function eventTitle(event: PondFileEvent): string {
+  const clock = clockOf(event.ts) ?? '';
+  const verb = event.kind === 'delete' ? 'deleted' : 'moved to';
+  return `${clock} — ${verb} ${event.repo}/${event.path} (at commit time)`
+    + `\n${event.commit}`;
+}
+
 /**
  * WorkDetail — what one tap on the working lane opens.
  *
@@ -210,12 +219,52 @@ function WorkDetail({
   onClose,
   onPickFile,
 }: {
-  open: { kind: 'write'; write: PondWrite } | { kind: 'turn'; turn: PondTurn };
+  open:
+    | { kind: 'write'; write: PondWrite }
+    | { kind: 'turn'; turn: PondTurn }
+    | { kind: 'event'; event: PondFileEvent };
   sessions: Map<string, PondSession>;
   sessionFiles: Map<string, PondWrite[]>;
   onClose: () => void;
   onPickFile: (w: PondWrite) => void;
 }) {
+  if (open.kind === 'event') {
+    const e = open.event;
+    return (
+      <>
+        <div className={styles.detailHead}>
+          <span className={styles.detailMeta}>
+            {dayLabel(e.ts.slice(0, 10))}
+            {clockOf(e.ts) ? ` · ${clockOf(e.ts)}` : ''}
+            {` · file ${e.kind === 'delete' ? 'deleted' : 'moved'}`}
+          </span>
+          <button
+            type="button"
+            className={styles.detailClose}
+            onClick={onClose}
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+        <div className={styles.workFileLine}>
+          <span className={styles.workRepo}>{e.repo}</span>
+          <span className={styles.workPath}>
+            {e.kind === 'move' ? `now at ${e.path}` : e.path}
+          </span>
+        </div>
+        {e.commit ? <p className={styles.workCounts}>{e.commit}</p> : null}
+        {/* The two honest limits, printed where they apply — same policy as
+            the no-diff caveat below. */}
+        <p className={styles.workCaveat}>
+          Stamped at the commit that recorded it — the vault commits hourly, so
+          the act may be up to an hour earlier. No session is named: commits
+          don&apos;t line up with sessions.
+        </p>
+      </>
+    );
+  }
+
   const sessionId = open.kind === 'write' ? open.write.session : open.turn.session;
   const session = sessions.get(sessionId);
   const files = sessionFiles.get(sessionId) ?? [];
@@ -354,7 +403,10 @@ export function PondView() {
   // A tapped working mark. Mutually exclusive with an open card — one detail
   // panel, one subject, so a tap always replaces rather than stacking.
   const [openWork, setOpenWork] = useState<
-    { kind: 'write'; write: PondWrite } | { kind: 'turn'; turn: PondTurn } | null
+    | { kind: 'write'; write: PondWrite }
+    | { kind: 'turn'; turn: PondTurn }
+    | { kind: 'event'; event: PondFileEvent }
+    | null
   >(null);
   const [showAll, setShowAll] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
@@ -1153,6 +1205,38 @@ export function PondView() {
                         onClick={() => {
                           setOpenId(null);
                           setOpenWork({ kind: 'write', write: mark.item });
+                        }}
+                      />
+                    ))
+                  : null}
+
+                {/* Files deleted or moved — git's word, not the sessions'.
+                    Same lane, same teal, told apart by SHAPE: a delete is a
+                    HOLLOW tick (an absence, drawn as one), a move is a
+                    SLANTED tick (a thing shifted sideways). Rare events, so
+                    the slightly bigger boxes cost the page nothing. */}
+                {layers.writes
+                  ? work.events.map((mark) => (
+                      <button
+                        key={`${mark.item.ts}:${mark.item.repo}:${mark.item.path}:${mark.item.kind}`}
+                        type="button"
+                        className={
+                          mark.item.kind === 'delete'
+                            ? styles.eventDelete
+                            : styles.eventMove
+                        }
+                        style={{
+                          left: mark.x,
+                          top: mark.y,
+                          width: mark.w,
+                          height: mark.h,
+                          ['--hit' as string]: `${hitPad}px`,
+                        }}
+                        title={eventTitle(mark.item)}
+                        aria-label={eventTitle(mark.item)}
+                        onClick={() => {
+                          setOpenId(null);
+                          setOpenWork({ kind: 'event', event: mark.item });
                         }}
                       />
                     ))

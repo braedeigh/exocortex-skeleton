@@ -518,6 +518,20 @@ export interface PondWrite {
   creates: number;
 }
 
+/** A file deleted or moved, read from git rather than from the sessions —
+ * commits don't line up with sessions, so an event knows WHAT happened and
+ * when, never which conversation did it. `ts` is the commit's clock: close for
+ * the skeleton (deliberate commits), up to an hour late for the vault (the
+ * hourly auto-backup is what notices a vault delete). */
+export interface PondFileEvent {
+  ts: string;
+  repo: string;
+  path: string;
+  kind: 'delete' | 'move';
+  /** The commit subject — the only context an unattributed event has. */
+  commit: string;
+}
+
 /** A conversation: how long it was OPEN, and the part of that in which files
  * were actually written. The two are very different numbers. */
 export interface PondSession {
@@ -533,6 +547,7 @@ export interface PondSession {
 export interface PondWorking {
   turns: PondTurn[];
   writes: PondWrite[];
+  events: PondFileEvent[];
   sessions: PondSession[];
 }
 
@@ -561,6 +576,7 @@ export interface PlacedSpan {
 export interface WorkingLayout {
   turns: PlacedMark<PondTurn>[];
   writes: PlacedMark<PondWrite>[];
+  events: PlacedMark<PondFileEvent>[];
   spans: PlacedSpan[];
 }
 
@@ -582,6 +598,7 @@ export function workingDays(working: PondWorking | null | undefined): string[] {
   const days = new Set<string>();
   for (const t of working.turns) days.add(tsDay(t.ts));
   for (const w of working.writes) days.add(tsDay(w.ts));
+  for (const e of working.events ?? []) days.add(tsDay(e.ts));
   return [...days].sort();
 }
 
@@ -652,7 +669,7 @@ export function layoutWorking(
   options: Partial<PondLayoutOptions> = {},
 ): WorkingLayout {
   const opt = { ...DEFAULT_LAYOUT, ...options };
-  const empty: WorkingLayout = { turns: [], writes: [], spans: [] };
+  const empty: WorkingLayout = { turns: [], writes: [], events: [], spans: [] };
   if (!working || layout.mode !== 'clock') return empty;
 
   const columnX = new Map<string, number>();
@@ -697,6 +714,20 @@ export function layoutWorking(
     writes.push({ item: write, x: laneX(day) - w / 2, y: markY(minutes, h), w, h });
   }
 
+  // Deletes and moves share the writes' lane and clock but get a taller box:
+  // their shapes (a hollow tick, a slanted one) need a few pixels of height to
+  // read as shapes at all, and they're rare enough to afford the room.
+  const events: PlacedMark<PondFileEvent>[] = [];
+  for (const event of working.events ?? []) {
+    const day = tsDay(event.ts);
+    if (!columnX.has(day)) continue;
+    const minutes = parseMinutes(event.ts);
+    if (minutes === null) continue;
+    const w = Math.max(4, dot * 1.5);
+    const h = Math.max(4, dot * 0.8);
+    events.push({ item: event, x: laneX(day) - w / 2, y: markY(minutes, h), w, h });
+  }
+
   const spans: PlacedSpan[] = [];
   for (const session of working.sessions) {
     for (const day of layout.columns.map((c) => c.day)) {
@@ -718,7 +749,7 @@ export function layoutWorking(
     }
   }
 
-  return { turns, writes, spans };
+  return { turns, writes, events, spans };
 }
 
 /**

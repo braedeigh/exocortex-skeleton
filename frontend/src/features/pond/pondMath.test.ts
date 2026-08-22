@@ -21,6 +21,7 @@ import {
   workingDays,
   writeWeight,
   type PondCard,
+  type PondFileEvent,
   type PondSession,
   type PondTurn,
   type PondWorking,
@@ -593,8 +594,12 @@ function session(over: Partial<PondSession> = {}): PondSession {
   };
 }
 
+function fileEvent(ts: string, over: Partial<PondFileEvent> = {}): PondFileEvent {
+  return { ts, repo: 'skeleton', path: 'old.py', kind: 'delete', commit: 'a commit', ...over };
+}
+
 function working(over: Partial<PondWorking> = {}): PondWorking {
-  return { turns: [], writes: [], sessions: [], ...over };
+  return { turns: [], writes: [], events: [], sessions: [], ...over };
 }
 
 describe('layoutPond with a working lane', () => {
@@ -678,7 +683,7 @@ describe('layoutWorking', () => {
       working({ turns: [turn('2026-08-09T12:00:00')], sessions: [session()] }),
       { mode: 'words' },
     );
-    expect(w).toEqual({ turns: [], writes: [], spans: [] });
+    expect(w).toEqual({ turns: [], writes: [], events: [], spans: [] });
   });
 
   it('skips work on days the pond has no column for', () => {
@@ -693,6 +698,31 @@ describe('layoutWorking', () => {
     const layout = layoutPond([], { mode: 'clock' });
     expect(() => layoutWorking(layout, working({ turns: [turn('2026-08-09T12:00:00')] }),
       { mode: 'clock' })).not.toThrow();
+  });
+
+  it('places a delete or move at its own minute, like any other point', () => {
+    const layout = layoutPond(cards, { mode: 'clock' });
+    const w = layoutWorking(layout,
+      working({ events: [fileEvent('2026-08-09T12:00:00')] }), { mode: 'clock' });
+    const cardMid = layout.columns[0].cards[0].y + layout.columns[0].cards[0].h / 2;
+    expect(w.events[0].y + w.events[0].h / 2).toBeCloseTo(cardMid, 5);
+  });
+
+  it('skips events on days the pond has no column for', () => {
+    const layout = layoutPond(cards, { mode: 'clock' });
+    const w = layoutWorking(layout, working({
+      events: [fileEvent('2026-08-09T12:00:00'), fileEvent('2026-07-01T12:00:00')],
+    }), { mode: 'clock' });
+    expect(w.events).toHaveLength(1);
+  });
+
+  it('tolerates a payload with no events list at all', () => {
+    // The route ships one now, but a cached older payload may not — the
+    // drawing degrades to what it was, never to a crash.
+    const bare = { turns: [], writes: [], sessions: [] } as unknown as PondWorking;
+    const layout = layoutPond(cards, { mode: 'clock' });
+    expect(() => layoutWorking(layout, bare, { mode: 'clock' })).not.toThrow();
+    expect(workingDays(bare)).toEqual([]);
   });
 });
 
@@ -749,6 +779,11 @@ describe('sessionOnDay', () => {
 });
 
 describe('workingDays', () => {
+  it('counts a day whose only trace is a delete or a move', () => {
+    expect(workingDays(working({ events: [fileEvent('2026-08-07T12:00:00')] })))
+      .toEqual(['2026-08-07']);
+  });
+
   it('counts days work HAPPENED on, not days a window was left open', () => {
     // A conversation left open over a weekend shouldn't mint columns for two
     // days she never touched it.
