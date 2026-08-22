@@ -27,7 +27,7 @@ from routes import (
     devnotes, ideas, buildtodo, ecosystem, keeper, pending, housing, triage, decisions,
     entities, threads, person, shell, cards, archivals, research,
     research_search, research_sources, research_import, research_text,
-    annotations, spa, fronts, wiki, travel, profile, usage, streaks, spinoff,
+    annotations, spa, fronts, tags, wiki, travel, profile, usage, streaks, spinoff,
     observatory, terrain, automations, nightcrew, push, claude_auth, run_queue,
     branches, recordings,
     sqlab, sandbox, pond, tabsets,
@@ -1120,6 +1120,7 @@ media.register(app)
 movement.register(app)
 research.register(app)
 fronts.register(app)
+tags.register(app)
 research_search.register(app)
 research_sources.register(app)
 research_import.register(app)
