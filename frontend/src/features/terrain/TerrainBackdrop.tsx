@@ -52,10 +52,13 @@ import styles from './TerrainBackdrop.module.css';
  *
  * THE POND rides in here too: the journal's ~1,700 card dots are swapped for
  * the one pond-tile node (collapseToPondTile) before the graph is ever built,
- * so behind a conversation the journal is a small unlabeled square of water
- * with a collision body of its own. Because the breath rebuilds the graph
- * each tick, the tile's per-day heats ride the same swelling half-life — the
- * month inside the square visibly inhales and exhales with the map.
+ * so behind a conversation the journal is a cluster-sized unlabeled square of
+ * water with a collision body of its own. Because the breath rebuilds the
+ * graph each tick, the tile's per-day heats ride the same swelling half-life
+ * — the month inside the square visibly inhales and exhales with the map.
+ * The focus camera keeps it in frame on EVERY session (see
+ * computeFocusTransform): the agent's territory and the water, together,
+ * however far apart they sit on the map.
  */
 
 /* The breath's period and repaint rate are shared with /terrain's Dynamic heat

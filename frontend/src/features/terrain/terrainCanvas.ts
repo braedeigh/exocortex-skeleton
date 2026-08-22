@@ -237,10 +237,12 @@ const LABEL_PX = 12;
 
 /** The pond tile's square, in WORLD units — it scales with the territory like
  * any map object, unlike the DOM landmark (which is chrome). Sized like one
- * of the big file clusters on purpose: the journal is as large a territory as
- * any subsystem, and its body should say so. Her call: "a significant
- * presence on the map. Maybe like the size of one of the clusters". */
-const POND_TILE_SIDE = 180;
+ * of the biggest file clusters on purpose: the journal is as large a
+ * territory as any subsystem, and its body should say so. Her calls: "a
+ * significant presence on the map. Maybe like the size of one of the
+ * clusters", then "even bigger than it is now, but maybe not too much
+ * bigger" (180 → 230). */
+const POND_TILE_SIDE = 230;
 /** ...but never smaller than this many SCREEN pixels — the tile is the
  * journal's whole presence on the map now, and at the far zoom floor even a
  * cluster-sized square would vanish. Same idea as MIN_NODE_PX. */
@@ -762,7 +764,14 @@ export class TerrainCanvas {
   /** The transform that loosely centers the focused orb + its ringed files in
    * view, or null when there's nothing to frame yet (agent hasn't touched a
    * file, so it has no orb). Files keep their true tree positions — this only
-   * decides where the camera looks. */
+   * decides where the camera looks.
+   *
+   * The POND is always in the frame. A focused camera used to crop to the
+   * agent's own corner of the map, which put the water off-screen behind most
+   * sessions; the journal is a permanent landmark, so the frame now widens to
+   * hold the agent's territory AND the whole tile (its full square, not just
+   * its centre). Her ask: "make it show in the background on all of the
+   * sessions." */
   private computeFocusTransform(): { x: number; y: number; k: number } | null {
     if (!this.focusConv) return null;
     const wanted = new Set<string>([`${SESSION_NODE_PREFIX}${this.focusConv}`, ...this.focusRings.keys()]);
@@ -777,6 +786,16 @@ export class TerrainCanvas {
       found = true;
     }
     if (!found) return null;
+    // Only once the agent gives the camera something to frame — the tile
+    // alone must not conjure a focus frame on a session with no orb yet
+    // (that session already shows the whole map, pond included).
+    for (const n of this.simNodes) {
+      if (!isPondTile(n)) continue;
+      const x = n.x ?? 0;
+      const y = n.y ?? 0;
+      minX = Math.min(minX, x - n.radius); maxX = Math.max(maxX, x + n.radius);
+      minY = Math.min(minY, y - n.radius); maxY = Math.max(maxY, y + n.radius);
+    }
     const pad = 90;
     const w = Math.max(1, maxX - minX) + pad * 2;
     const h = Math.max(1, maxY - minY) + pad * 2;
