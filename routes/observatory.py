@@ -1851,38 +1851,25 @@ def register(app):
             worktrees.remove(reap)
         return jsonify({"ok": True})
 
-    @app.route("/api/observatory/conversation/<conv_id>/report", methods=["GET"])
-    def observatory_conv_report(conv_id):
-        """What an unattended session made, and what it actually changed.
+    @app.route("/api/observatory/conversation/<conv_id>/evidence", methods=["GET"])
+    def observatory_conv_evidence(conv_id):
+        """What an unattended session actually changed, read from git.
 
-        TWO HALVES, AND THEY MUST NOT BLUR. `report` is the session's own
-        prose — written to spinoffs/<slug>/REPORT.md as its last act, meant to
-        TEACH: what it built, how it fits, what it could affect. `evidence` is
-        read from git by worktrees.evidence(), and it's the only part that
-        isn't the agent's word for it. A well-written report about code that
-        doesn't work is the most convincing wrong thing this system can
-        produce, so the two travel separately and the surface says which is
-        which.
-
-        Missing report, present evidence is a normal answer, not an error: a
-        session that died before writing one still changed real files.
+        Only ever evidence. This endpoint used to carry a second half — the
+        session's own REPORT.md prose — travelling beside the numbers with the
+        surface labelling which was which, because a well-written explanation of
+        broken code reads exactly like a good outcome. The reports were removed
+        2026-08-22 (nobody read them; see claude-commands/spinoff.md), and what
+        survived is the half that was never the agent's word for it.
         """
         entry = store.read("bot_chats/index", {}).get(conv_id)
         if not isinstance(entry, dict):
             return jsonify({"error": "not found"}), 404
-        slug = entry.get("spinoff_slug")
-        report, path = None, None
-        if slug:
-            path = store.SPINOFF_DIR / slug / "REPORT.md"
-            try:
-                report = path.read_text(encoding="utf-8")
-            except OSError:
-                report = None
         ev = None
         if entry.get("worktree") and entry.get("branch"):
             ev = worktrees.evidence(entry["worktree"], entry["branch"])
-        return jsonify({"conversation_id": conv_id, "slug": slug,
-                        "report": report, "report_path": str(path) if path else None,
+        return jsonify({"conversation_id": conv_id,
+                        "slug": entry.get("spinoff_slug"),
                         "evidence": ev})
 
     @app.route("/api/observatory/conversations", methods=["POST"])

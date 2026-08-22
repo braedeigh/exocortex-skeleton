@@ -550,28 +550,6 @@
   color: var(--text);
 }
 
-/* Says "this is a claim" every time the prose is offered. Never styled to look
-   like a result — that distinction is the whole safety property. */
-.claimNote {
-  margin-left: var(--space-2);
-  font-size: var(--font-size-sm);
-  font-weight: 400;
-  color: var(--text-secondary);
-}
-
-.report {
-  margin: var(--space-2) 0 var(--space-3);
-  padding: var(--space-3);
-  border-radius: var(--radius-md, 8px);
-  background: color-mix(in srgb, var(--text) 5%, transparent);
-  font-family: var(--font-sans);
-  font-size: var(--font-size-base);
-  line-height: 1.55;
-  color: var(--text);
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
 /* Where a night run has its Merge button, a branch has the name to type. */
 .branchName {
   font-size: var(--font-size-sm);

@@ -119,17 +119,27 @@ sessions are the entire point here.
 
 ## Reporting back
 
-`/spinoff` hands work out as a `BRIEF.md`; an Orchestra session hands it back as
-a `REPORT.md` — what it built, how it fits, what it could affect, what it chose
-against, what it's unsure about. Written for someone who doesn't read code.
+`/spinoff` hands work out as a `BRIEF.md`. It comes back as a **message in the
+session**, not a document: what changed, what it could break, what the agent
+isn't sure about, and what it actually ran.
 
-The report is **teaching, not a verdict.** A well-written explanation of code
-that doesn't work is the most convincing wrong thing this system can produce.
-So the numbers — commits, files, diffstat — are read from git by
-`worktrees.evidence()` and served beside the prose by
-`GET /api/observatory/conversation/<id>/report`, kept visibly apart from the
-agent's own telling. Same doctrine as the night crew's "this script runs the
-tests, not the agent."
+**There used to be a `REPORT.md`** — ~2,000 words per spinoff, written as the
+session's last act, surfaced on the branch cards. Removed 2026-08-22 on her
+call, from a count: 8 written across 42 spinoffs, and she had read none of
+them. The same information was already reaching her in the closing chat
+message, which she does read, so the document was a second copy with no reader.
+What died with it was mostly "what I built" and "how it fits" — the parts an
+agent enjoys writing. What the closing message still has to carry is the blast
+radius and the honest uncertainty.
+
+**The doctrine that outlived it:** an agent's account of its own work is a
+claim, never a result. A well-written explanation of code that doesn't work is
+the most convincing wrong thing this system can produce. So the numbers —
+commits, files, diffstat — are read from git by `worktrees.evidence()` /
+`branch_evidence()` and surfaced on the branch cards by `routes/branches.py`,
+and they are now the *only* thing those cards say. Same doctrine as the night
+crew's "this script runs the tests, not the agent." Don't reintroduce a prose
+artifact that sits beside the evidence looking like more of it.
 
 Today that evidence answers *what changed*, not *does it work* — running the
 gates belongs with the merge tap, which isn't built yet.

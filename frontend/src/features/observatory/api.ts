@@ -569,16 +569,6 @@ export async function streamSend(
   return convIdOut;
 }
 
-/** A session's own written account of what it built, by branch
- * (routes/branches.py). Fetched only when she opens it on a card, and kept
- * apart from the measured facts: it's what the session SAYS it did. */
-export function getBranchReport(
-  branch: string,
-  signal?: AbortSignal,
-): Promise<{ branch: string; report: string | null; reason?: string }> {
-  return api.get(`/api/branches/report?branch=${encodeURIComponent(branch)}`, signal);
-}
-
 /** Replying to a finished branch's card is what wakes it: mints (or rejoins)
  * the ONE steward session standing on that existing branch, briefed with the
  * literal evidence plus her message (routes/branches.py). `existing` = a live

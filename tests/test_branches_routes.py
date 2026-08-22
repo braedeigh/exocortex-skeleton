@@ -134,9 +134,10 @@ def test_the_session_behind_a_branch_is_named(client, repo, data_dir):
     assert row["session"]["conversation_id"] == "2026-08-05.100000"
 
 
-def test_the_list_says_whether_a_report_exists_without_inlining_it(client, repo, data_dir):
-    """Opening the page must not read a dozen files off disk — and the prose
-    must not arrive blended into the numbers."""
+def test_a_branch_card_is_only_ever_git(client, repo, data_dir):
+    """Sessions used to write a REPORT.md of their own prose and the card said
+    so. Removed 2026-08-22 — nobody read them. This pins that no narrated half
+    creeps back into the row beside the measured one."""
     _, branch = _build_a_branch(repo)
     _index(data_dir, {"c1": {"branch": branch, "spinoff_slug": "thing"}})
     d = data_dir / "spinoffs" / "thing"
@@ -146,37 +147,9 @@ def test_the_list_says_whether_a_report_exists_without_inlining_it(client, repo,
     row = next(b for b in client.get("/api/branches").get_json()["branches"]
                if b["branch"] == branch)
 
-    assert row["has_report"] is True
-    assert "report" not in row
-
-
-def test_the_report_is_fetched_separately(client, repo, data_dir):
-    _, branch = _build_a_branch(repo)
-    _index(data_dir, {"c1": {"branch": branch, "spinoff_slug": "thing"}})
-    d = data_dir / "spinoffs" / "thing"
-    d.mkdir(parents=True)
-    (d / "REPORT.md").write_text("# What I built\n\nA thing.\n")
-
-    body = client.get(f"/api/branches/report?branch={branch}").get_json()
-
-    assert "A thing." in body["report"]
-
-
-def test_a_branch_with_no_report_says_so_rather_than_erroring(client, repo):
-    """A session that died before writing one still changed real files — the
-    numbers stand on their own."""
-    _, branch = _build_a_branch(repo)
-
-    r = client.get(f"/api/branches/report?branch={branch}")
-
-    assert r.status_code == 200
-    assert r.get_json()["report"] is None
-
-
-def test_the_report_door_refuses_anything_that_is_not_an_agent_branch(client, repo):
-    """It reads a path built from a slug, so the branch name is not trusted."""
-    assert client.get("/api/branches/report?branch=main").status_code == 400
-    assert client.get("/api/branches/report?branch=").status_code == 400
+    # Even with a stale report file sitting on disk, the card never mentions it.
+    assert "report" not in row and "has_report" not in row
+    assert client.get(f"/api/branches/report?branch={branch}").status_code == 404
 
 
 def test_a_night_crew_branch_carries_its_verdict(client, repo, data_dir):

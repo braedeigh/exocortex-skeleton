@@ -79,10 +79,10 @@ their system — you build WITH their input, never around it. In order:
    CLAUDE.md conventions (tests for behavior, restart/build steps, commit
    when the thing ships). Keep teaching as you go when something surprising
    turns up.
-7. **Report.** As your LAST act, write `<data dir>/spinoffs/<slug>/REPORT.md`
-   — the teaching document described below. Not a changelog: the owner
-   doesn't read code, and this is how they find out what now exists in their
-   app. Write it even if you parked or failed; especially then.
+7. **Say it in the room.** As your LAST act, tell the owner what you did — in
+   the conversation, not in a file. Short: what changed, what it could break,
+   and what you're not sure about. Do NOT claim your work passes; say what you
+   actually ran. Say it even if you parked or failed; especially then.
 An Orchestra session works in its OWN copy of the checkout (a git worktree, see
 worktrees.py) on branch `agent/<slug>-<date>`, so it can't collide with anything
 else running — but it also can't see its change in the running site, and its
@@ -90,35 +90,31 @@ work reaches the app only when the owner merges that branch. Commit to it early
 and name your commits.
 
 ## Result
-<Leave empty. One line at the end — outcome plus a pointer to REPORT.md, which
-is where the real account goes.>
+<Leave empty. One line at the end — the outcome, plainly.>
 ```
 
-### The REPORT.md the child writes back
+### No written report — say it in the room instead
 
-`/spinoff` hands work OUT as a brief; this is the same handoff coming home.
-Tell the child to write these sections, in this order:
+There used to be a REPORT.md here: the child wrote ~2,000 words of prose to
+`spinoffs/<slug>/REPORT.md` as its last act, and the branches room showed which
+branches had one. **Removed 2026-08-22, on her call, from a measurement.** Of 42
+spinoffs, 8 had ever produced a report, and she had read none of them — about
+15,000 words with no reader. Meanwhile the same information reliably reached her
+in the closing chat message, which she does read.
 
-- **What I built** — plain English, at the register `CLAUDE.md` sets for the
-  in-file layer: readable by someone who doesn't live deep in code.
-- **How it fits** — which existing seams it plugs into, which files and
-  functions, and *why there* rather than somewhere else.
-- **What it could affect** — blast radius. What else reads this data, what
-  calls this function, what breaks if it's wrong. This is the section the
-  owner most needs and the one an agent is likeliest to skimp: it means
-  looking *outward* from the change rather than admiring it.
-- **What I chose against** — the forks it hit and how it ruled, so the owner
-  doesn't inherit decisions without knowing they were decisions.
-- **What I'm unsure about** — named, so uncertainty has somewhere to go other
-  than being smoothed over.
+So the account is a MESSAGE now, not a document, and it's short. What the long
+form was actually good for — "what could break", "what I'm unsure about" — is
+what the closing message must still carry; the parts that died with it were the
+ones the agent most enjoyed writing ("what I built", "how it fits"), which is
+usually the tell.
 
-**Tell it not to claim its work passes.** The report exists to TEACH, and it is
-the most persuasive thing an agent can produce about code the owner can't check
-— a beautiful explanation of broken code reads exactly like a good outcome. The
-numbers (commits, files, diffstat) are read from git by `worktrees.evidence()`
-and served beside the prose by `GET /api/observatory/conversation/<id>/report`,
-deliberately kept apart from the agent's telling. Same doctrine as the night
-crew's "this script runs the tests, not the agent."
+The doctrine that outlived it: **an agent's account of its own work is a claim,
+never a result.** The numbers — commits, files, diffstat — are read from git by
+`worktrees.branch_evidence()` and surfaced on the branch cards by
+`routes/branches.py`, and they remain the only part that isn't the agent's word
+for it. Same reason `scripts/nightcrew_run.py` runs the tests itself rather than
+believing the worker. Don't reintroduce a prose artifact that sits beside the
+evidence pretending to be it.
 
 ## 3. Spawn — confirm, then stage the session
 

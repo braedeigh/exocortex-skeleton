@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { tabIcon, tabLabel } from '../../shell/tabs';
-import { getBranchReport } from './api';
 import { LaneHead, useLaneOpen } from './LaneHead';
 import styles from './NightCrew.module.css';
 
@@ -114,10 +113,9 @@ export interface NightRun {
   /** Files in the copy that never reached the branch — a merge would leave
    * these behind. The one thing on this card she can't learn anywhere else. */
   uncommitted?: string[];
-  has_report?: boolean;
   commits?: number;
-  /** The first few commit subjects — the face's degraded voice for a branch
-   * with no report: what the commits say is most of what's known of it. */
+  /** The first few commit subjects — the face's voice: what the commits say
+   * is most of what's known of a branch. */
   commit_lines?: string[];
   /** A live (non-archived) session still claims this branch — builder or an
    * already-woken steward. The compose box hides behind this: a branch with
@@ -146,13 +144,10 @@ function workVoice(run: NightRun): string | null {
     const n = run.commits ?? 0;
     if (!n) return 'Nothing was ever committed to me; there is nothing here to take.';
     const built = `${n} commit${n === 1 ? '' : 's'} went into me${stat ? ` — ${stat}` : ''}.`;
-    if (run.has_report) {
-      return `${built} No test gate has run against me. My builder left an account on this card — its word, not a result.`;
-    }
     const says = run.commit_lines?.length
       ? ` My commits say: ${run.commit_lines.join(' · ')}.`
       : '';
-    return `${built}${says} No test gate has run against me, and no account was written — this is all that is known of me.`;
+    return `${built}${says} No test gate has run against me — this is all that is known of me.`;
   }
   // A night run's ready card: the one place a real test result exists.
   if (run.status === 'ready') {
@@ -222,8 +217,6 @@ function Card({
   // Labelled as a claim wherever it shows: a well-written explanation of
   // broken code reads exactly like a good outcome, so it never sits where a
   // test result would.
-  const [report, setReport] = useState<string | null>(null);
-  const [loadingReport, setLoadingReport] = useState(false);
   // The steward composer. Replying is what wakes the work: the first send
   // mints a session standing on this card's branch (one per branch — the
   // server rejoins a live one instead of doubling it). Only a `ready` card
@@ -247,18 +240,6 @@ function Card({
       setWakeText('');
       if (convId) onOpenSession(convId);
     });
-  }
-
-  function toggleReport() {
-    if (report !== null) {
-      setReport(null);
-      return;
-    }
-    setLoadingReport(true);
-    getBranchReport(run.branch!)
-      .then((r) => setReport(r.report ?? ''))
-      .catch(() => setReport(''))
-      .finally(() => setLoadingReport(false));
   }
 
   function clearWithWhy(save: boolean) {
@@ -398,27 +379,6 @@ function Card({
                 ? (run.files ?? []).join('\n') || 'no files'
                 : run.test_tail || 'no test output recorded'}
             </pre>
-          )}
-        </>
-      )}
-
-      {/* The session's own account. Only ever offered, never auto-shown, and
-          always captioned as a claim. */}
-      {isBranch && run.has_report && (
-        <>
-          <button
-            type="button"
-            className={styles.diffToggle}
-            aria-expanded={report !== null}
-            onClick={toggleReport}
-          >
-            <span className={styles.chevron} data-open={report !== null || undefined}>›</span>
-            What it says it did
-            <span className={styles.claimNote}>its own account — not verified</span>
-          </button>
-          {loadingReport && <p className={styles.reason}>reading…</p>}
-          {report !== null && !loadingReport && (
-            <pre className={styles.report}>{report || 'It never wrote one.'}</pre>
           )}
         </>
       )}

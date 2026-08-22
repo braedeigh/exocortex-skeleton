@@ -4,17 +4,19 @@ Plain English: agents that build for you work in their own copy of the app
 (worktrees.py) and leave their work on a branch called `agent/…`. Nothing
 merges by itself, so those branches pile up and the only way to see them was
 `git worktree list` in a terminal. This page is that pile, made readable: one
-card per branch saying what it changed, who made it, whether anything is
-stranded, and — when the session wrote one — its own plain-English account of
-what it did and why.
+card per branch saying what it changed, who made it, and whether anything is
+stranded — all of it read from git rather than narrated by the agent.
 
-WHAT'S EVIDENCE AND WHAT'S A CLAIM. Every number here is read from git by
-worktrees.branch_evidence(). The `report` is the agent's own prose. They are
-returned as separate fields and the page keeps them visibly apart, because a
-well-written explanation of broken code reads exactly like a good outcome — the
+EVIDENCE ONLY — THERE IS NO CLAIM HALF ANY MORE. Every number here is read from
+git by worktrees.branch_evidence(). Sessions used to also write a REPORT.md of
+their own prose, returned as a separate field and kept visibly apart on the page
+because a well-written explanation of broken code reads exactly like a good
+outcome. Those were removed 2026-08-22 — nobody read them (8 written across 42
+spinoffs, 0 read), and the account moved into the session's closing message
+instead. What's left is the half that was never the agent's word for it, the
 same reason scripts/nightcrew_run.py runs the tests itself instead of believing
-the worker. Today the evidence answers "what changed", not "does it work":
-running the gates belongs with the merge tap, which isn't built.
+the worker. The evidence answers "what changed", not "does it work": running the
+gates belongs with the merge tap, which isn't built.
 
 Read-only, with ONE deliberate exception: the steward door (POST
 /api/branches/steward). Replying to a finished branch's card wakes a *steward*
@@ -29,7 +31,7 @@ lands with the ship-it card, where the gates can run first.
 
 Touches: worktrees.py (all the git, and adopt()), routes/spinoff.py (the spawn
 door the steward rides through), routes/observatory.py (the session behind
-a branch, and its own report endpoint), night_runs.json (the overnight crew's
+a branch, and its evidence endpoint), night_runs.json (the overnight crew's
 branches, which come from scripts/nightcrew_run.py rather than a spinoff).
 
 Prompt that produced it: "is there any way to make this into a visual UI that i
@@ -164,8 +166,7 @@ def collect():
     finished work waits, and two endpoints answering "what's waiting for me?"
     is how a surface starts lying by disagreeing with itself.
 
-    The report BODY is deliberately not included — it's fetched per branch, so
-    drawing the room doesn't read a dozen files off disk."""
+    Everything here is read from git — there is no second, narrated half."""
     index = store.read("bot_chats/index", {})
     merged = _merged_branches()
     live = _live_worktrees()
@@ -175,9 +176,6 @@ def collect():
     rows = []
     for name, date, subject in _branch_rows():
         session = sessions.get(name)
-        slug = (session or {}).get("slug")
-        has_report = bool(
-            slug and (store.SPINOFF_DIR / slug / "REPORT.md").is_file())
         ev = worktrees.branch_evidence(name)
         # Only a live worktree can hold work that never reached the branch —
         # the gap between what the session did and what a merge would get.
@@ -194,11 +192,10 @@ def collect():
             "worktree": live.get(name),
             "session": session,
             "night_run": nights.get(name),
-            "has_report": has_report,
             "commits": len(ev["commits"]),
             # The first few commit subjects, sha stripped — the card's face
-            # speaks in first person from literal evidence, and for a branch
-            # with no report these lines are most of what's known of it.
+            # speaks in first person from literal evidence, and these lines are
+            # most of what's known of a branch.
             "commit_lines": [c.split(" ", 1)[1] if " " in c else c
                              for c in ev["commits"][:5]],
             "diff_stat": ev["diff_stat"],
@@ -248,7 +245,6 @@ def as_card(row):
         "session_live": bool(session) and not session.get("archived"),
         "files": row["files"],
         "uncommitted": row["uncommitted"],
-        "has_report": row["has_report"],
         "worktree": row["worktree"],
         "commits": row["commits"],
         "commit_lines": row["commit_lines"],
@@ -275,7 +271,7 @@ def steward_slug(branch):
     return f"steward-{tail}"[:39].strip("-")
 
 
-def _steward_brief(branch, message, ev, night, report_path):
+def _steward_brief(branch, message, ev, night):
     """The steward's BRIEF.md: literal evidence + her message + the rails.
 
     Written fresh at every wake (a rejoin never gets this far), grounded in
@@ -287,9 +283,6 @@ def _steward_brief(branch, message, ev, night, report_path):
     tested = ("the overnight run recorded a real test result on its card"
               if (night or {}).get("tested")
               else "NO tests have been recorded against this branch")
-    report_line = (f"- The builder's own account (a claim, not a result): "
-                   f"{report_path}" if report_path
-                   else "- The builder never wrote an account of this work.")
     return f"""# Steward of `{branch}`
 
 You are the STEWARD of this branch — finished work waiting in the
@@ -298,7 +291,7 @@ message is below, and answering it is this session's job.
 
 ## What you are (the honesty rail — do not soften it)
 - You are NOT the session that built this branch. That session is gone.
-  You read the record — git, the report, the run log — and you never claim
+  You read the record — git and the run log — and you never claim
   to remember the building. If asked about intent the record doesn't show,
   say the record doesn't show it.
 - Your working directory IS a worktree standing on `{branch}`. Work there:
@@ -315,7 +308,7 @@ message is below, and answering it is this session's job.
 - Files it touches:
 {files}
 - Tests: {tested}
-{report_line}
+- There is no builder's narrative to lean on. Git is the whole record.
 
 ## Her message
 > {message}
@@ -361,15 +354,10 @@ def open_steward(branch, message):
     slug = steward_slug(branch)
     ev = worktrees.branch_evidence(branch)
     night = _night_runs_by_branch().get(branch)
-    report_slug = (live or {}).get("slug")   # the BUILDER's report, if any
-    report_path = None
-    if report_slug and (store.SPINOFF_DIR / report_slug / "REPORT.md").is_file():
-        report_path = str(store.SPINOFF_DIR / report_slug / "REPORT.md")
-
     d = store.SPINOFF_DIR / slug
     d.mkdir(parents=True, exist_ok=True)
     (d / "BRIEF.md").write_text(
-        _steward_brief(branch, message, ev, night, report_path),
+        _steward_brief(branch, message, ev, night),
         encoding="utf-8")
 
     # Import at call time, not module top: spinoff imports observatory, and
@@ -399,23 +387,3 @@ def register(app):
         return jsonify({"branches": collect(),
                         "worktree_root": str(worktrees.WORKTREE_ROOT)})
 
-    @app.route("/api/branches/report", methods=["GET"])
-    def branches_report():
-        """The session's own account, by branch. Separate from the numbers on
-        purpose — this is what it SAYS it did, and it's the half nothing
-        verifies."""
-        branch = (request.args.get("branch") or "").strip()
-        if not branch.startswith("agent/"):
-            return jsonify({"error": "not an agent branch"}), 400
-        index = store.read("bot_chats/index", {})
-        slug = (_sessions_by_branch(index).get(branch) or {}).get("slug")
-        if not slug:
-            return jsonify({"branch": branch, "report": None,
-                            "reason": "no spinoff behind this branch"}), 200
-        path = store.SPINOFF_DIR / slug / "REPORT.md"
-        try:
-            return jsonify({"branch": branch, "slug": slug,
-                            "report": path.read_text(encoding="utf-8")})
-        except OSError:
-            return jsonify({"branch": branch, "slug": slug, "report": None,
-                            "reason": "the session never wrote one"}), 200
