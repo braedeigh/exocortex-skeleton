@@ -2,7 +2,7 @@ import { FileCodeBody } from './FileCodeBody';
 import styles from './FileCodePage.module.css';
 
 /**
- * /code?repo=…&path=… — one file, read-only, as a whole page.
+ * /code?repo=…&path=…&lines=… — one file, read-only, as a whole page.
  *
  * WHY IT EXISTS (her 07-27 ask): "make it such that I can click a file in my
  * observatory in the files listed under the session and it opens that file on
@@ -16,8 +16,22 @@ import styles from './FileCodePage.module.css';
  * The contents are FileCodeBody, the same component the terrain map's
  * tap-a-node modal wears — this file is the page frame around it: a header
  * carrying the filename, which repo it's in, and nothing else.
+ *
+ * `lines` is the route's raw "140" / "140-162" search param (routes/code.tsx
+ * already validated its shape); `parseLineRange` turns it into the 1-based
+ * inclusive {start, end} FileCodeBody highlights and scrolls to on mount. A
+ * bare number highlights just that one line.
  */
-export function FileCodePage({ repo, path }: { repo?: string; path?: string }) {
+function parseLineRange(lines?: string): { start: number; end: number } | undefined {
+  if (!lines) return undefined;
+  const [a, b] = lines.split('-');
+  const start = Number(a);
+  if (!Number.isFinite(start) || start < 1) return undefined;
+  const end = b !== undefined ? Math.max(start, Number(b)) : start;
+  return { start, end: Number.isFinite(end) ? end : start };
+}
+
+export function FileCodePage({ repo, path, lines }: { repo?: string; path?: string; lines?: string }) {
   // Nothing asked for yet — a bare /code, or a link that lost its search.
   if (!repo || !path) {
     return (
@@ -45,9 +59,17 @@ export function FileCodePage({ repo, path }: { repo?: string; path?: string }) {
           {path}
         </span>
       </div>
-      {/* keyed on the file so switching files remounts clean rather than
-          showing the previous file's code under the new file's header */}
-      <FileCodeBody key={`${repo}:${path}`} repo={repo} path={path} fill />
+      {/* keyed on file + line range so switching files (or clicking a new
+          lines= link to the SAME file) remounts clean — otherwise the
+          scroll-once guard in FileCodeBody would fire for the first link and
+          never fire again for the second. */}
+      <FileCodeBody
+        key={`${repo}:${path}:${lines ?? ''}`}
+        repo={repo}
+        path={path}
+        fill
+        highlight={parseLineRange(lines)}
+      />
     </div>
   );
 }

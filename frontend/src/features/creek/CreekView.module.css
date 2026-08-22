@@ -1,0 +1,422 @@
+/* CreekView — data flow drawn as a place (CreekView.tsx).
+
+   Same house voice as the pond: full-bleed page, opaque on the theme's own
+   background, one short slide on entry. Two banks face each other — code on
+   the left, vault collections on the right — with ribbons of flow drawn
+   between them in an SVG underlay while the banks themselves are real
+   buttons, DOM over SVG the way the pond keeps its dots as real elements.
+
+   Only ONE saturated colour carries meaning here: `--accent`, on whatever is
+   selected. Ribbons at rest are already `--accent` (writes) and `--text-muted`
+   (reads) at low opacity — that's the one deliberate departure from "a lit
+   thing is the only colour": the ribbons ARE the subject of the page, so they
+   carry a whisper of colour even unselected, the way the terrain's own creek
+   sketch always has been. Selecting something doesn't add a colour, it turns
+   the volume up on the one already there and turns everything else down. */
+
+.view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+  background: var(--bg);
+  overflow: hidden;
+  animation: pageIn 320ms cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+
+@keyframes pageIn {
+  from { opacity: 0; transform: translateX(28px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .view { animation: none; }
+}
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.heading { min-width: 0; }
+
+.title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--text);
+}
+
+.sub {
+  margin: 2px 0 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* The reads layer chip — quiet by default (on, but styled to recede), same
+   pill family as the pond's Keeper toggle. */
+.readsOn,
+.readsOff {
+  min-height: var(--tap-target);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-pill);
+  background: var(--card-bg);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 160ms ease, opacity 160ms ease;
+}
+
+.readsOn:hover,
+.readsOff:hover { color: var(--text); }
+
+.readsOff {
+  text-decoration: line-through;
+  opacity: 0.55;
+}
+
+.back {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--card-bg);
+  border: 1px solid var(--border-soft);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  text-decoration: none;
+}
+
+.note {
+  margin: var(--space-3) 0 0;
+  font-size: var(--font-size-base);
+  color: var(--text-secondary);
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+
+/* --- the stage: one vertical scroller holding both banks + the ribbons ---- */
+
+.stage {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+  overflow-x: auto;
+  overflow-y: auto;
+}
+
+.canvas {
+  position: relative;
+}
+
+.underlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.ribbon {
+  fill: none;
+  stroke-linecap: round;
+  transition: opacity 160ms ease;
+}
+
+/* Width and opacity are both set inline per-ribbon (creekMath's ribbonWeight
+   / ribbonOpacity) — nothing here fixes them, since every ribbon carries its
+   own write count. */
+.ribbonWrite { stroke: var(--accent); }
+.ribbonRead { stroke: var(--text-muted); }
+
+/* --- group headers: small uppercase labels above each shelf --------------- */
+
+.groupHeader {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding: 0 var(--space-2);
+}
+
+/* --- bank rows: real buttons, positioned at creekMath's computed y --------- */
+
+.row {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text-secondary);
+  text-align: left;
+  cursor: pointer;
+  transition: opacity 160ms ease, color 160ms ease, background 160ms ease, border-color 160ms ease;
+}
+
+.row:hover { background: var(--bg); }
+
+.rowLit {
+  background: var(--bg);
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+/* Emphasis, not a filter — the rest of the creek stays drawn, just quieter. */
+.rowDimmed { opacity: 0.16; }
+
+.rowName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+.rowCount {
+  flex: none;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.rowLit .rowCount { color: var(--text-secondary); }
+
+.backingGlyph {
+  flex: none;
+  width: 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* --- the detail panel: pond's frosted-glass recipe, value for value ------- */
+
+.detail {
+  flex: none;
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: color-mix(in srgb, var(--card-bg) 88%, transparent);
+  backdrop-filter: blur(18px) saturate(1.15);
+  -webkit-backdrop-filter: blur(18px) saturate(1.15);
+  overflow-y: auto;
+}
+
+.detailHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.detailTitle {
+  min-width: 0;
+  font-size: var(--font-size-base);
+  font-weight: 700;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.detailMeta {
+  margin: 2px 0 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.detailClose {
+  flex: none;
+  width: var(--tap-target);
+  height: var(--tap-target);
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text-secondary);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.detailClose:hover { background: var(--bg); color: var(--text); }
+
+.detailCaveat {
+  margin: 0;
+  padding-left: var(--space-2);
+  border-left: 2px solid var(--border-soft);
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.detailLabel {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: var(--space-1) 0 0;
+}
+
+/* One call site, or one caller, or one touching file — the whole row is the
+   link/button (house pattern: a card's tap target is the row, not a chip
+   inside it). */
+.callRow {
+  display: block;
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  color: var(--text);
+  text-decoration: none;
+  cursor: pointer;
+  border: 1px solid var(--border-soft);
+}
+
+.callRow:hover { border-color: var(--accent); }
+
+.callHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.callVerb {
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.callSnippet {
+  margin-top: 2px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.callList,
+.fileList,
+.callerList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.fileRow,
+.callerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: var(--tap-target);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.fileRow:hover,
+.callerRow:hover { color: var(--text); border-color: var(--accent); }
+
+.callerName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.callerCounts {
+  flex: none;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- the legend: nothing selected ------------------------------------------ */
+
+.legend {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.legend p { margin: 0; }
+
+.legendKey {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.legendSwatch {
+  flex: none;
+  width: 20px;
+  height: 3px;
+  border-radius: 2px;
+}
+
+.legendSwatchWrite { background: var(--accent); opacity: 0.7; }
+.legendSwatchRead { background: var(--text-muted); opacity: 0.5; }
+
+.legendUnresolved {
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-soft);
+  color: var(--text-muted);
+}
+
+/* Phone: banks + ribbons stay side by side and scroll (they're the whole
+   point), the detail panel drops below — the pond's own mobile move. */
+@media (max-width: 780px) {
+  .body { flex-direction: column; }
+
+  .stage { flex: 1; min-height: 260px; }
+
+  .detail { width: auto; max-height: 40vh; }
+}

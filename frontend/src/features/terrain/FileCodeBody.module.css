@@ -1,6 +1,10 @@
-/* One file's contents (FileCodeBody), worn by both the map's tap-a-file modal
-   and the /code page. The code block is the only thing allowed to scroll
-   sideways; nothing around it ever does. */
+/* One file's contents (FileCodeBody), worn by the map's tap-a-file modal, the
+   frosted map window, and the /code page. The code block is the only thing
+   allowed to scroll sideways; nothing around it ever does.
+
+   Lines render one row per line (gutter number + text) instead of a single
+   <pre> blob, so /code?...&lines=140-162 has somewhere to hang a highlight —
+   pattern lifted from workshop/WorkshopPage.module.css's .line/.lineNo. */
 
 .body {
   display: flex;
@@ -56,7 +60,7 @@
 
 .code {
   margin: 0;
-  padding: var(--space-3);
+  padding: var(--space-2) 0;
   border-radius: var(--radius-lg);
   border: 1px solid var(--border);
   background: var(--code-bg, color-mix(in srgb, var(--text) 6%, var(--card-bg)));
@@ -71,11 +75,35 @@
   font-size: max(12px, 0.8125rem);
   line-height: 1.45;
   tab-size: 2;
+}
+
+/* One row per line — number gutter, then the text. white-space lives here
+   (not on .code) because each row needs it, not the scroll container. */
+.codeLine {
+  display: flex;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
   white-space: pre;
 }
 
-.code code {
-  font: inherit;
+.codeLineNo {
+  flex: none;
+  width: 3.2em;
+  text-align: right;
+  color: var(--text-muted);
+  opacity: 0.6;
+  user-select: none;
+}
+
+.codeLineText {
+  min-width: 0;
+}
+
+/* A /code?...&lines= highlighted line — same color-mix idiom as the summary
+   card above and PondView's active-state tints, just against --accent so it
+   reads as "pointed at", not "warning". */
+.codeLineHot {
+  background: color-mix(in srgb, var(--accent) 20%, var(--card-bg));
 }
 
 /* Page mode: no 55vh cap — there's no close button above it to protect, so the

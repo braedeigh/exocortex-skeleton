@@ -1,12 +1,14 @@
+import { useEffect, useMemo, useRef } from 'react';
 import { useTerrainFile } from './api';
 import styles from './FileCodeBody.module.css';
 
 /**
  * FileCodeBody — one file's actual contents, fetched from the terrain file
  * endpoint (GET /api/observatory/terrain/file) and laid out identically in
- * both places it's shown: the map's tap-a-node modal (FileCodeModal) and the
- * /code page a session card's file list opens into (FileCodePage). One fetch,
- * one layout, two frames around it.
+ * every place it's shown: the map's tap-a-node modal (FileCodeModal), the
+ * frosted map window (FileCodeWindow), and the /code page a session card's
+ * file list opens into (FileCodePage). One fetch, one layout, three frames
+ * around it.
  *
  * The summary above the code is the file's OWN leading docblock, lifted
  * server-side (routes/observatory.py `_terrain_file_summary`), not a generated
@@ -14,7 +16,15 @@ import styles from './FileCodeBody.module.css';
  * so the honest answer to "what is this" was already written; when a file
  * doesn't say, this says nothing rather than guessing.
  *
- * Three frames now wrap it, and two props tell them apart.
+ * Text files render line-by-line (gutter number + text, the pattern lifted
+ * from workshop/WorkshopPage.tsx's HeroPanel) rather than one bare `<pre>` —
+ * every text file gets numbered lines, and an optional `highlight` range
+ * lights a band of them and scrolls the first one to center once on mount.
+ * That's what makes /code?...&lines=140-162 (routes/code.tsx →
+ * FileCodePage.tsx) work: this component doesn't parse the URL, it just
+ * renders whatever range it's handed.
+ *
+ * Three frames now wrap it, and two layout props tell them apart.
  *
  * `fill` is PAGE mode, and it does two things:
  *
@@ -34,11 +44,19 @@ import styles from './FileCodeBody.module.css';
  * scroll region. It also drops the path line, because that frame prints the
  * path in its header rather than at the top of the body.
  */
+export interface LineHighlight {
+  /** 1-based, inclusive — matches how people say line numbers out loud and
+   * the /code?lines= URL contract, not array indices. */
+  start: number;
+  end: number;
+}
+
 export function FileCodeBody({
   repo,
   path,
   fill = false,
   uncapCode = false,
+  highlight,
 }: {
   repo: string | null;
   path: string | null;
@@ -46,8 +64,29 @@ export function FileCodeBody({
   fill?: boolean;
   /** Window mode: no vertical cap or scroll on the code — the frame scrolls. */
   uncapCode?: boolean;
+  /** Lines to highlight and scroll to on mount, 1-based inclusive. Optional —
+   * every existing caller that omits it looks exactly as it did before,
+   * apart from the line-number gutter that now always shows on text files. */
+  highlight?: LineHighlight;
 }) {
   const { data, isLoading, isError, error } = useTerrainFile(repo, path);
+
+  // Split once per fetch, not per render. null for binaries/no-content-yet —
+  // that's what tells the JSX below to fall back to nothing rendered rather
+  // than a stray empty code block.
+  const lines = useMemo(() => (data?.content != null ? data.content.split('\n') : null), [data?.content]);
+
+  // Scroll the first highlighted line to center ONCE per mount, guarded by a
+  // ref rather than keyed on data so a background refetch of the same file
+  // never yanks her scroll position back — same guard shape as the workshop
+  // hero panel, just without the "a new edit landed" trigger to re-arm it.
+  const hotRef = useRef<HTMLDivElement | null>(null);
+  const scrolledRef = useRef(false);
+  useEffect(() => {
+    if (scrolledRef.current || !hotRef.current) return;
+    hotRef.current.scrollIntoView({ block: 'center' });
+    scrolledRef.current = true;
+  }, [lines]);
 
   return (
     <div className={[styles.body, fill ? styles.bodyFill : ''].filter(Boolean).join(' ')}>
@@ -91,14 +130,27 @@ export function FileCodeBody({
 
       {data?.binary ? <div className={styles.hint}>Binary file — nothing to read here.</div> : null}
 
-      {data?.content ? (
-        <pre
+      {lines ? (
+        <div
           className={[styles.code, fill ? styles.codeFill : '', uncapCode ? styles.codeFlow : '']
             .filter(Boolean)
             .join(' ')}
         >
-          <code>{data.content}</code>
-        </pre>
+          {lines.map((line, i) => {
+            const n = i + 1; // 1-based, to match `highlight` and the URL.
+            const hot = highlight !== undefined && n >= highlight.start && n <= highlight.end;
+            return (
+              <div
+                key={i}
+                ref={hot && n === highlight?.start ? hotRef : undefined}
+                className={[styles.codeLine, hot ? styles.codeLineHot : ''].filter(Boolean).join(' ')}
+              >
+                <span className={styles.codeLineNo}>{n}</span>
+                <span className={styles.codeLineText}>{line === '' ? ' ' : line}</span>
+              </div>
+            );
+          })}
+        </div>
       ) : null}
 
       {data?.truncated ? (

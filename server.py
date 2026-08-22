@@ -30,7 +30,7 @@ from routes import (
     annotations, spa, fronts, tags, wiki, travel, profile, usage, streaks, spinoff,
     observatory, terrain, automations, nightcrew, push, claude_auth, run_queue,
     branches, recordings,
-    sqlab, sandbox, pond, tabsets,
+    sqlab, sandbox, pond, tabsets, creek,
 )
 from routes.shell import VALID_TABS
 
@@ -1181,6 +1181,7 @@ branches.register(app)
 recordings.register(app)
 sandbox.register(app)
 tabsets.register(app)
+creek.register(app)
 
 # --- Startup ---
 # Seed the journaling engine (stream.py + friends) into a fresh CONTENT_DIR — see
