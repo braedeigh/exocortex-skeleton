@@ -6,7 +6,15 @@
  * rule the rail was built on.
  */
 import { describe, expect, it } from 'vitest';
-import { applyFilter, cardState, filterCounts, matchesFilter, roomRoster } from './sessionFilters';
+import {
+  ALL_FILTERS,
+  applyFilter,
+  cardState,
+  filterCounts,
+  matchesFilter,
+  roomRoster,
+  sessionIs,
+} from './sessionFilters';
 import type { SessionMeta } from './api';
 
 const NOW = Date.parse('2026-07-30T12:00:00Z');
@@ -27,16 +35,29 @@ describe('active', () => {
   });
 
   it('takes an idle session used inside the hour and drops one outside it', () => {
-    expect(matchesFilter(session('a', { last_at: ago(59 * MIN) }), undefined, 'active', NOW)).toBe(
+    // Opened AFTER the activity in both cases — an unopened one would be
+    // unread, and unread is orange, not purple.
+    expect(matchesFilter(session('a', { last_at: ago(59 * MIN) }), ago(0), 'active', NOW)).toBe(
       true,
     );
-    expect(matchesFilter(session('b', { last_at: ago(61 * MIN) }), undefined, 'active', NOW)).toBe(
+    expect(matchesFilter(session('b', { last_at: ago(61 * MIN) }), ago(0), 'active', NOW)).toBe(
       false,
     );
   });
 
   it('drops a session with no usable stamp', () => {
-    expect(matchesFilter(session('a', { last_at: '' }), undefined, 'active', NOW)).toBe(false);
+    expect(matchesFilter(session('a', { last_at: '' }), ago(0), 'active', NOW)).toBe(false);
+  });
+
+  it('leaves a recent-but-unread session to the orange button', () => {
+    // The trade this rule makes. It's honestly both, but it can only WEAR one
+    // colour, and orange is the one it wears — so purple doesn't claim it.
+    const s = session('a', { last_at: ago(5 * MIN) });
+    expect(cardState(s, undefined, NOW)).toBe('unread');
+    expect(matchesFilter(s, undefined, 'unread', NOW)).toBe(true);
+    expect(matchesFilter(s, undefined, 'active', NOW)).toBe(false);
+    // ...and pressing both still reaches it, because filters union.
+    expect(applyFilter([s], {}, ['active', 'unread'], NOW)).toHaveLength(1);
   });
 });
 
@@ -69,11 +90,12 @@ describe('error', () => {
 });
 
 describe('counts', () => {
-  // The buckets overlap on purpose — a session that replied two minutes ago is
-  // both active and unread, and both buttons have to say so.
-  it('counts one session under every colour it truly matches', () => {
+  // A number on a button is how many cards she can SEE wearing that colour, so
+  // a session counts once, under the colour it actually wears. This one is
+  // broken, and broken outranks everything.
+  it('counts a session under the one colour it wears', () => {
     const s = [session('a', { last_at: ago(2 * MIN), last_error: 'boom' })];
-    expect(filterCounts(s, {}, NOW)).toEqual({ running: 0, active: 1, unread: 1, error: 1 });
+    expect(filterCounts(s, {}, NOW)).toEqual({ running: 0, active: 0, unread: 0, error: 1 });
   });
 
   it('reads the opened map per session id', () => {
@@ -170,12 +192,14 @@ describe('running', () => {
   });
 
   it('never counts more than active does', () => {
+    // Both read, so neither is orange — running and recent are the two halves
+    // of purple, and Running is the inner one.
     const s = [
       session('a', { running: true }),
       session('b', { last_at: ago(5 * MIN) }),
       session('c', { last_at: ago(300 * MIN) }),
     ];
-    const c = filterCounts(s, {}, NOW);
+    const c = filterCounts(s, { a: ago(0), b: ago(0), c: ago(0) }, NOW);
     expect(c.running).toBe(1);
     expect(c.active).toBe(2);
     expect(c.running).toBeLessThanOrEqual(c.active);
@@ -186,6 +210,52 @@ describe('running', () => {
     expect(cardState(s, ago(0), NOW)).toBe('running');
     // ...while the merely-recent one gets the steady rung.
     expect(cardState(session('b', { last_at: ago(20 * MIN) }), ago(0), NOW)).toBe('recent');
+  });
+});
+
+/** The contract the whole rail rests on: press a colour, get that colour. */
+describe('a button returns only cards wearing its colour', () => {
+  it('orange does not hand back the purple card underneath it', () => {
+    // Her 08-21 report, exactly: a running session she hasn't opened. It IS
+    // unread as a fact, and its card paints purple because running outranks
+    // unread — so the orange button used to return a purple card.
+    const runningUnread = session('a', { running: true, last_at: ago(1 * MIN) });
+    expect(sessionIs(runningUnread, undefined, 'unread', NOW)).toBe(true);
+    expect(cardState(runningUnread, undefined, NOW)).toBe('running');
+    expect(matchesFilter(runningUnread, undefined, 'unread', NOW)).toBe(false);
+    expect(applyFilter([runningUnread], {}, ['unread'], NOW)).toEqual([]);
+  });
+
+  it('every pressed colour returns cards of only that colour', () => {
+    const roster = [
+      session('broken', { last_error: 'boom' }),
+      session('live', { running: true }),
+      session('unopened', { last_at: ago(2 * MIN) }),
+      session('warm', { last_at: ago(20 * MIN) }),
+      session('cold', { last_at: ago(600 * MIN) }),
+    ];
+    const opened = { live: ago(0), warm: ago(0), cold: ago(0) };
+
+    for (const f of ALL_FILTERS) {
+      const got = applyFilter(roster, opened, [f], NOW);
+      // The list is exactly what the button's face promised...
+      expect(got).toHaveLength(filterCounts(roster, opened, NOW)[f]);
+      // ...and every card in it wears a colour that button means.
+      for (const s of got) {
+        const paint = cardState(s, opened[s.id as keyof typeof opened], NOW);
+        expect(f === 'active' ? ['running', 'recent'] : [f]).toContain(paint);
+      }
+    }
+  });
+
+  it('keeps Running nested inside Active — they are one colour', () => {
+    const live = session('a', { running: true });
+    expect(matchesFilter(live, ago(0), 'running', NOW)).toBe(true);
+    expect(matchesFilter(live, ago(0), 'active', NOW)).toBe(true);
+    // ...while the steady half of purple is Active only.
+    const warm = session('b', { last_at: ago(20 * MIN) });
+    expect(matchesFilter(warm, ago(0), 'running', NOW)).toBe(false);
+    expect(matchesFilter(warm, ago(0), 'active', NOW)).toBe(true);
   });
 });
 
@@ -222,8 +292,9 @@ describe('roomRoster', () => {
       ),
     ];
 
+    // 5 unread, not 8: the three failed workers wear red, not orange.
     const raw = filterCounts(payload, {}, NOW);
-    expect(raw.unread).toBe(8);
+    expect(raw.unread).toBe(5);
     expect(raw.error).toBe(3);
 
     const counts = filterCounts(roomRoster(payload), {}, NOW);

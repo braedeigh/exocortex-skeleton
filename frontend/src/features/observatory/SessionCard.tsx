@@ -26,7 +26,7 @@ import {
 import { resumeAfterDecision } from './resumeAfterDecision';
 import type { OrchestraRow } from './orchestra';
 import { cardMetaLine } from './sessionStatus';
-import { cardState, matchesFilter, type CardState } from './sessionFilters';
+import { cardState, sessionIs, type CardState } from './sessionFilters';
 import { SessionMemoryChip } from '../runqueue/SessionMemoryChip';
 import styles from './SessionLane.module.css';
 
@@ -374,14 +374,17 @@ export function SessionCard({
       .catch(() => setFork('error'));
   };
 
-  // What this card wears, decided by the SAME predicates as the rail's
-  // coloured buttons (sessionFilters.cardState) — so a purple dot on a card
-  // and the purple button's count are the one rule, written down once.
-  // `unread` is pulled out separately because two other things below key off
-  // it, and it must be the orange button's own definition, not a second one
-  // drifting beside it.
+  // What this card wears, decided by the SAME rule as the rail's coloured
+  // buttons (sessionFilters.cardState) — so a purple dot on a card and the
+  // purple button's count are one rule, written down once. The rail now
+  // filters BY this paint, which is what makes "press orange, get orange".
+  //
+  // `unread` is the bare FACT, not the paint, and deliberately so: a running
+  // session she hasn't read is still unread — it just wears purple, because
+  // running outranks unread. The accent below says "there's something here you
+  // haven't seen", which stays true under any colour.
   const state = cardState(meta, openedAt);
-  const unread = matchesFilter(meta, openedAt, 'unread');
+  const unread = sessionIs(meta, openedAt, 'unread');
 
   const files =
     row.files.length === 0 ? null : (

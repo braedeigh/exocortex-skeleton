@@ -13,16 +13,23 @@
  * RUNNING nests inside ACTIVE rather than competing with it — same colour, and
  * the breath is the difference, exactly as the cards already draw it.
  *
- * NOT a partition. A card wears ONE state (broken beats busy beats unread —
- * see SessionLane), but a session can honestly belong to two of these buckets
- * at once: a session that replied five minutes ago is both active and unread.
- * These buttons answer "show me all the X", so a session is counted under
- * every bucket it truly matches. Making them exclusive would empty the orange
- * button exactly when it matters most, because purple would have eaten it.
+ * A BUTTON MEANS ITS COLOUR — the cards wearing it, nothing else. Press orange
+ * and only orange cards come back. That's the whole contract, and it's why
+ * there are two layers here rather than one:
  *
- * The CARDS read from here too — cardState() below picks which of these three a
- * card wears, so a colour on the rail and the same colour on a card always mean
- * the identical thing. That tie is the point: the rule lives in one place.
+ *   sessionIs()     the raw fact — is this session unread / running / broken
+ *   cardState()     those facts ranked into the ONE colour a card can wear
+ *   matchesFilter() does that colour match the button she pressed
+ *
+ * The buttons used to ask sessionIs directly, which read as broken the moment
+ * anything was in two states at once: a running session she hadn't read is
+ * honestly unread, but its card paints purple, so the orange button handed back
+ * purple cards (her 08-21 report). Filtering by the paint is what makes the
+ * rail and the roster tell the same story. Full reasoning at FILTER_PAINT.
+ *
+ * They still UNION when several are pressed — purple and orange together is
+ * every card that's alive or unwatched, not the sliver that's somehow both.
+ * Nothing is unreachable; every card wears exactly one of these colours.
  *
  * `openedAt` comes from the same `exo-bot-opened` map as everything else —
  * passed in, never read here, so readReceipts.ts stays the only reader.
@@ -45,7 +52,12 @@ export const ALL_FILTERS: StateFilter[] = ['running', 'active', 'unread', 'error
  * purple ACTIVE button's idle half. */
 export const ACTIVE_WINDOW_MS = 60 * 60 * 1000;
 
-export function matchesFilter(
+/** Is this plainly TRUE of the session — regardless of what its card ends up
+ * painted. The raw facts; `cardState` ranks them into one colour and
+ * `matchesFilter` reads that colour back. Exported because the card needs the
+ * bare fact in one place (SessionCard's unread accent): a running session that
+ * she hasn't read is still unread, it just wears purple. */
+export function sessionIs(
   meta: SessionMeta,
   openedAt: string | undefined,
   filter: StateFilter,
@@ -116,13 +128,60 @@ export function cardState(
   openedAt: string | undefined,
   nowMs: number = Date.now(),
 ): CardState {
-  if (matchesFilter(meta, openedAt, 'error', nowMs)) return 'error';
-  if (matchesFilter(meta, openedAt, 'running', nowMs)) return 'running';
-  if (matchesFilter(meta, openedAt, 'unread', nowMs)) return 'unread';
+  if (sessionIs(meta, openedAt, 'error', nowMs)) return 'error';
+  if (sessionIs(meta, openedAt, 'running', nowMs)) return 'running';
+  if (sessionIs(meta, openedAt, 'unread', nowMs)) return 'unread';
   // Everything the purple button counts EXCEPT the running half, which already
   // has its own louder state above.
-  if (matchesFilter(meta, openedAt, 'active', nowMs)) return 'recent';
+  if (sessionIs(meta, openedAt, 'active', nowMs)) return 'recent';
   return 'rest';
+}
+
+/* WHICH PAINT EACH BUTTON MEANS — and why the buttons read this rather than the
+   raw facts above.
+
+   Her 08-21 report: "if I click the orange button it doesn't filter to only
+   orange." It didn't, and by the old design it couldn't. The buttons asked
+   `sessionIs` (is this session unread?) while the cards asked `cardState`
+   (which ONE colour does it wear?), and those two disagree constantly — a
+   running session she hasn't read is honestly unread AND painted purple,
+   because running outranks unread. So the orange button returned purple cards.
+   On her roster that isn't an edge case: two of five sessions were running.
+
+   Two ways out, and they can't both be had. Either a button keeps meaning the
+   raw fact and the page goes on contradicting itself, or a button means exactly
+   "the cards wearing this colour". She asked for the second and it's the right
+   one: the rail's text labels are screen-reader-only, so each button IS its
+   colour and nothing else. A colour that hands back another colour is wrong.
+
+   RUNNING AND ACTIVE STILL NEST, because they're the same colour. Purple is
+   worn both by a card running right now (breathing) and by one merely touched
+   inside the hour (steady); Active means both, Running means only the breathing
+   half. That's her original ask — "only those actually active" sitting inside
+   "active in the past hour" — and it costs nothing here precisely because
+   neither returns a card in a colour she didn't press.
+
+   WHAT IT GIVES UP: a session that's both recent and unread now answers to
+   ORANGE only, not purple, because orange is what it wears. Nothing becomes
+   unreachable — the buttons still UNION, so purple and orange together is every
+   card that's alive or unwatched. */
+const FILTER_PAINT: Record<StateFilter, CardState[]> = {
+  running: ['running'],
+  active: ['running', 'recent'],
+  unread: ['unread'],
+  error: ['error'],
+};
+
+/** Does this card wear a colour the pressed button means — what the rail
+ * filters and counts by, so the number on a button is the number of cards she
+ * can see wearing it. */
+export function matchesFilter(
+  meta: SessionMeta,
+  openedAt: string | undefined,
+  filter: StateFilter,
+  nowMs: number = Date.now(),
+): boolean {
+  return FILTER_PAINT[filter].includes(cardState(meta, openedAt, nowMs));
 }
 
 /** The sessions the ROOMS on the roster can actually draw — and therefore the
