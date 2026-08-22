@@ -117,6 +117,27 @@ function DataMotif() {
   );
 }
 
+/** Two banks with ribbons of flow between them — the creek's own drawing:
+ * code files on the left, collections on the right, write-weighted current. */
+function CreekMotif() {
+  return (
+    <svg viewBox="0 0 64 40" width="64" height="40" aria-hidden="true">
+      <g fill="currentColor">
+        <rect x="0" y="4" width="14" height="5" rx="2" opacity="0.9" />
+        <rect x="0" y="17" width="14" height="5" rx="2" opacity="0.55" />
+        <rect x="0" y="30" width="14" height="5" rx="2" opacity="0.35" />
+        <rect x="50" y="8" width="14" height="5" rx="2" opacity="0.9" />
+        <rect x="50" y="26" width="14" height="5" rx="2" opacity="0.45" />
+      </g>
+      <g fill="none" stroke="currentColor" strokeLinecap="round">
+        <path d="M16 6 C 33 6, 33 10, 48 10" strokeWidth="3" opacity="0.7" />
+        <path d="M16 19 C 33 19, 33 11, 48 11" strokeWidth="2" opacity="0.45" />
+        <path d="M16 32 C 33 32, 33 28, 48 28" strokeWidth="1.5" opacity="0.3" />
+      </g>
+    </svg>
+  );
+}
+
 /** Dots at their hours with one thread's line bouncing through them — the
  * pond's own drawing, in miniature. */
 function PondMotif() {
@@ -186,6 +207,13 @@ const ROOMS: ReadonlyArray<{
     name: 'Growth',
     line: 'The codebase and the vault along time, accumulating.',
     motif: GrowthMotif,
+  },
+  {
+    key: 'creek',
+    to: '/terrain/creek',
+    name: 'Creek',
+    line: 'Which code writes which data — every call clickable to its line.',
+    motif: CreekMotif,
   },
   {
     key: 'sql',
@@ -265,6 +293,16 @@ export function TerrainRoomsIndex({ open, onClose }: { open: boolean; onClose: (
         setFacts((f) => ({
           ...f,
           pond: `${data.threads.length} threads · ${widest.tag} spans ${widest.days} days`,
+        }));
+      })
+      .catch(() => {});
+    fetch('/api/creek?days=14', { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((creek: { files: unknown[]; collections: unknown[] }) => {
+        if (!alive || !creek.files?.length) return;
+        setFacts((f) => ({
+          ...f,
+          creek: `${creek.files.length} files feed ${creek.collections.length} collections`,
         }));
       })
       .catch(() => {});
