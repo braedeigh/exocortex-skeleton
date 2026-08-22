@@ -127,6 +127,50 @@ const LETTER_STAGGER_MS = 12;
 /** Cascade cap, so a big catch-up batch doesn't trail forever. */
 const STAGGER_MAX_MS = 600;
 
+/** One word in the warm band, with its letters as separate spans so each can
+ * ignite a beat after the one before.
+ *
+ * Memoised, and that's the point rather than a nicety. The tail re-renders
+ * every PACE_TICK_MS (20x a second) for as long as a turn is streaming, and
+ * the band holds COOL_DISTANCE_CHARS of text — so without this, React walks
+ * every letter span in the tail, twenty times a second, to discover that
+ * almost none of them changed. Heat is already quantized to HEAT_STEPS for
+ * exactly this reason; memoising here is what lets that quantization actually
+ * pay, because a word whose step hasn't moved is now skipped whole instead of
+ * re-reconciled letter by letter.
+ *
+ * Every prop is a primitive, so the default shallow compare is the right one.
+ * `base` comes from the caller's frozen delay map and never changes for a
+ * mounted word — a changed delay would restart the fade.
+ *
+ * Prompt that produced this shape: "the printing of text with the red from the
+ * bots is laggy" — the output is unchanged, only the work to arrive at it. */
+const EmberWord = memo(function EmberWord({
+  text,
+  heat,
+  base,
+  delayCap,
+}: {
+  text: string;
+  heat: number;
+  base: number;
+  delayCap: number;
+}) {
+  return (
+    <span className={styles.emberWord} style={{ '--heat': heat } as CSSProperties}>
+      {[...text].map((ch, j) => (
+        <span
+          key={j}
+          className={styles.fadeWord}
+          style={{ animationDelay: `${Math.min(base + j * LETTER_STAGGER_MS, delayCap)}ms` }}
+        >
+          {ch}
+        </span>
+      ))}
+    </span>
+  );
+});
+
 /** The turn currently being written, rendered through the word flow
  * (streamPacing.ts): only the first `shown` characters are visible.
  * Completed paragraphs settle into parsed markdown; the live tail renders
@@ -210,26 +254,18 @@ export function StreamingReply({
               const base = delayRef.current.get(w.key) ?? 0;
               // One heat for the whole word, stepped — letters inside a word
               // cooling at different rates would read as a gradient across the
-              // word rather than as the band moving over it.
+              // word rather than as the band moving over it. Stepped is also
+              // what makes EmberWord's memo bite: the value only moves a
+              // handful of times over a word's life, so most ticks skip it.
               const heat = quantizeHeat(wordHeat(w.key + w.text.length, frost));
               return (
-                <span
+                <EmberWord
                   key={w.key}
-                  className={styles.emberWord}
-                  style={{ '--heat': heat } as CSSProperties}
-                >
-                  {[...w.text].map((ch, j) => (
-                    <span
-                      key={j}
-                      className={styles.fadeWord}
-                      style={{
-                        animationDelay: `${Math.min(base + j * LETTER_STAGGER_MS, delayCap)}ms`,
-                      }}
-                    >
-                      {ch}
-                    </span>
-                  ))}
-                </span>
+                  text={w.text}
+                  heat={heat}
+                  base={base}
+                  delayCap={delayCap}
+                />
               );
             })}
           </div>
