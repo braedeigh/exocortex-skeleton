@@ -92,26 +92,50 @@
   border-left: 3px solid var(--orange);
   border-radius: var(--radius-lg);
   background: color-mix(in srgb, var(--orange) 9%, var(--card-bg));
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--orange) 30%, transparent),
-    0 6px 20px -10px color-mix(in srgb, var(--orange) 55%, transparent);
   font: inherit;
   cursor: pointer;
-  animation: awaitGlow 2.4s ease-in-out infinite;
+  position: relative;
+  z-index: 0; /* stacking context, so the ::before glow below stays inside */
 }
 
 /* A slow swell of the glow — present but calm; it says "waiting", not "alarm
-   bell". Only the shadow moves (cheap, and transform/opacity-safe siblings
-   stay put), and it stills entirely under reduced-motion. */
+   bell". It stills entirely under reduced-motion.
+
+   The glow lives on a ::before rather than on the card, and what breathes is
+   that layer's OPACITY. Animating box-shadow directly (which this used to do)
+   looks identical and costs enormously more: a shadow is a blur, so every
+   frame re-blurs and repaints the card at 60fps — on every waiting card at
+   once, forever, since these loop infinitely. Opacity is the one property the
+   compositor can animate on its own without repainting anything, so the same
+   breath becomes nearly free. Same reasoning as .cardLive below; if you add
+   another pulsing state, pulse a layer's opacity, never a shadow or a colour.
+
+   The ::before carries the PEAK of the old keyframes and the opacity floor
+   (0.65) reproduces the trough — 45%*0.65 ≈ 30% and 70%*0.65 ≈ 45%, which are
+   the old resting values. The one thing that no longer moves is the shadow's
+   geometry (it held at 20px/-10px at rest and grew to 26px/-8px); at this size
+   the swell reads as brightness, not as spread. */
 @keyframes awaitGlow {
   0%,
   100% {
-    box-shadow: 0 0 0 1px color-mix(in srgb, var(--orange) 30%, transparent),
-      0 6px 20px -10px color-mix(in srgb, var(--glow-orange) 45%, transparent);
+    opacity: 0.65;
   }
   50% {
-    box-shadow: 0 0 0 1px color-mix(in srgb, var(--orange) 45%, transparent),
-      0 8px 26px -8px color-mix(in srgb, var(--glow-orange) 70%, transparent);
+    opacity: 1;
   }
+}
+
+.awaiting::before,
+.approval::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--orange) 45%, transparent),
+    0 8px 26px -8px color-mix(in srgb, var(--glow-orange) 70%, transparent);
+  animation: awaitGlow 2.4s ease-in-out infinite;
+  pointer-events: none;
 }
 
 .awaitTop {
@@ -146,9 +170,8 @@
   border-left: 3px solid var(--orange);
   border-radius: var(--radius-lg);
   background: color-mix(in srgb, var(--orange) 9%, var(--card-bg));
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--orange) 30%, transparent),
-    0 6px 20px -10px color-mix(in srgb, var(--orange) 55%, transparent);
-  animation: awaitGlow 2.4s ease-in-out infinite;
+  position: relative;
+  z-index: 0; /* same ::before glow as .awaiting — see the keyframes above */
 }
 
 /* A quiet inline "open →" beside the title (the card body isn't the tap zone
@@ -494,24 +517,53 @@
    a box-shadow plus a faint accent wash, so nothing reflows as it breathes and
    the text underneath keeps its contrast.
 
+   Both the glow and the wash sit on a ::before whose OPACITY is what breathes.
+   They used to be animated directly on the card — a box-shadow and a
+   background-color, changing every frame. That looks the same and costs far
+   more: it repaints the card (and re-blurs a 14px shadow) 60 times a second,
+   on every running session at once, and it never stops, because these loop
+   infinitely. A card mid-turn is exactly when the page is busiest, so the
+   effect landed hardest at the worst moment. Opacity is the one property the
+   compositor animates without repainting, so the same breath is now nearly
+   free.
+
+   The ::before holds the bright end and opacity 0.33 reproduces the dim end
+   (9% wash * 0.33 ≈ 3%, the old trough). The glow's RADIUS no longer tightens
+   from 14px to 5px as it dims, only its intensity — at this size the breath
+   reads as brightness, and that's what the prompt below asked for.
+
+   z-index: -1 puts the layer above the card's own background but beneath its
+   text, so the wash tints the card and never the words on it.
+
    Prompt that produced it: "make any session that is running more obviously
    running. I want the entire card to glow the brighter purple and kind of glow
    up and down like the dots currently glow." */
 .cardLive {
+  position: relative;
+  z-index: 0; /* stacking context, so the ::before's -1 can't fall behind the lane */
   border-left-color: var(--accent);
   border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+.cardLive::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--accent) 34%, transparent);
   animation: cardBreathe 2s ease-in-out infinite;
+  pointer-events: none;
 }
 
 @keyframes cardBreathe {
   0%,
   100% {
-    box-shadow: var(--shadow-card), 0 0 14px color-mix(in srgb, var(--accent) 34%, transparent);
-    background: color-mix(in srgb, var(--accent) 9%, var(--card-bg));
+    opacity: 1;
   }
   50% {
-    box-shadow: var(--shadow-card), 0 0 5px color-mix(in srgb, var(--accent) 12%, transparent);
-    background: color-mix(in srgb, var(--accent) 3%, var(--card-bg));
+    opacity: 0.33;
   }
 }
 
@@ -921,16 +973,20 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .liveDot,
-  .awaiting,
-  .approval,
-  .cardLive {
+  .liveDot {
     animation: none;
   }
 
-  /* Still unmistakably live without the breath — the glow just holds still. */
-  .cardLive {
-    box-shadow: var(--shadow-card), 0 0 14px color-mix(in srgb, var(--accent) 34%, transparent);
-    background: color-mix(in srgb, var(--accent) 9%, var(--card-bg));
+  /* The breath lives on these ::before layers now, so stopping it means
+     stopping THEM — halting the card itself would leave the glow pulsing.
+     Nothing else is needed: each layer holds the bright end of its own
+     keyframes, so a stopped breath settles on exactly the state this block
+     used to have to restate by hand. Still unmistakably live; it just holds
+     still. (.awaiting/.approval rest slightly brighter than they used to,
+     since their floor was 0.65 rather than a separate resting shadow.) */
+  .cardLive::before,
+  .awaiting::before,
+  .approval::before {
+    animation: none;
   }
 }
