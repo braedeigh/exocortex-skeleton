@@ -111,6 +111,44 @@ def test_deleted_cards_are_excluded_everywhere(pond_db, client):
     assert client.get("/api/pond/threads").get_json()["threads"][0]["days"] == 1
 
 
+# --- the silhouette, for drawing the pond small -------------------------------
+
+def test_shape_counts_one_row_per_day_splitting_hers_from_the_keepers(pond_db, client):
+    """The landmark draws heights from `cards` and colours from `owner`, so the
+    split has to survive the GROUP BY."""
+    pond_db("a", "2026-07-06", ts="09:00", who="B")
+    pond_db("b", "2026-07-06", ts="10:00", who="K")
+    pond_db("c", "2026-07-06", ts="11:00", who="B")
+    pond_db("d", "2026-07-08", ts="09:00", who="K")
+
+    got = client.get("/api/pond/shape").get_json()
+    assert got["days"] == [
+        {"day": "2026-07-06", "cards": 3, "owner": 2},
+        {"day": "2026-07-08", "cards": 1, "owner": 0},
+    ]
+    # The total is the drawing's own scale — it must count cards, not days.
+    assert got["cards"] == 4
+
+
+def test_shape_excludes_deleted_and_honours_the_window(pond_db, client):
+    """Same two contracts every other endpoint here keeps — a thumbnail that
+    counted removed cards would draw a day that isn't in the pond."""
+    pond_db("kept", "2026-07-06")
+    pond_db("gone", "2026-07-06", ts="10:00", deleted="2026-07-08")
+    pond_db("outside", "2026-07-09")
+
+    got = client.get("/api/pond/shape?from=2026-07-06&to=2026-07-07").get_json()
+    assert got["days"] == [{"day": "2026-07-06", "cards": 1, "owner": 1}]
+
+
+def test_shape_is_empty_rather_than_erroring_on_an_empty_pond(pond_db, client):
+    """A vault with nothing in the pool yet still has to draw — the landmark
+    checks for an empty `days` and shows dry ground, so this must be [] and a
+    200, not an error."""
+    got = client.get("/api/pond/shape").get_json()
+    assert got["days"] == [] and got["cards"] == 0
+
+
 # --- the window ---------------------------------------------------------------
 
 def test_cards_are_filtered_to_the_window_inclusively(pond_db, client):

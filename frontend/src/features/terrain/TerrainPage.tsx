@@ -40,12 +40,14 @@ import { TerrainAgentBar } from './TerrainAgentBar';
 import { FileCodeWindow } from './FileCodeWindow';
 import { AgentHoverCard } from './AgentHoverCard';
 import { TerrainRoomsIndex } from './TerrainRoomsIndex';
+import { PondLandmark } from './PondLandmark';
 import {
   readThemeInk,
   TerrainCanvas,
   HEAT_RAMP_DARK,
   HEAT_RAMP_LIGHT,
   type AgentHover,
+  type PondAnchor,
   type ThemeInk,
 } from './terrainCanvas';
 import styles from './TerrainPage.module.css';
@@ -149,6 +151,14 @@ function usePageVisible(): boolean {
  * when it was last touched, and every agent that touched it — each row opens
  * that conversation in the Observatory, or rings its whole footprint on the
  * map. Tap an agent orb → a sheet, and its footprint rings at once.
+ *
+ * THE POND floats over the map's own journal country. The card pool and the
+ * diary are real vault files — the largest single cluster on the terrain — so
+ * a small, deliberately crude pond sits over that cluster; reaching for it
+ * grows it, resolves its silhouette, lights the water under the real dots, and
+ * shows which filters the pond is currently set to; clicking enters
+ * /terrain/pond. Coming back out lands on the map with those filters still on
+ * the landmark. See PondLandmark.tsx.
  *
  * HOVER an agent orb (mouse only) and its session card floats up beside it —
  * summary, last thing said, what it's waiting on (AgentHoverCard). That needs
@@ -549,6 +559,42 @@ export function TerrainPage() {
     () => (visible ? agentTouchRings(visible.nodes, ringSessionIds) : new Map<string, FileTouchKind>()),
     [visible, ringSessionIds],
   );
+
+  /**
+   * The nodes that ARE the journal — what the pond landmark anchors over.
+   *
+   * The prefixes are the server's, verbatim (routes/pond.py JOURNAL_PATHS):
+   * the card pool and the diary. Deliberately NOT all of `tulku/` — the vault
+   * also holds threads, people files and docs, which are written *about* the
+   * journal rather than being it, and the server already drew that line for
+   * the working/journal split. This is the same line, so the map and the pond
+   * can't disagree about where the water ends.
+   */
+  const pondNodeIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const n of visible?.nodes ?? []) {
+      if (n.kind !== 'file' || n.repoId !== 'vault' || !n.path) continue;
+      if (n.path.startsWith('tulku/_system/data/cards/') || n.path.startsWith('tulku/tulku-diary/')) {
+        ids.add(n.id);
+      }
+    }
+    return ids;
+  }, [visible]);
+
+  // Where that cluster is sitting on screen, reported from the paint — it
+  // moves with every pan, zoom and sim tick, none of which are React state.
+  //
+  // Assigned every render with no dep array, the same way onTap and
+  // onHoverAgent are: this block sits ABOVE the effect that constructs the
+  // engine, so a one-shot mount effect here would run against a null ref and
+  // the callback would never be attached at all.
+  const [pondAnchor, setPondAnchor] = useState<PondAnchor | null>(null);
+  useEffect(() => {
+    if (engineRef.current) engineRef.current.onPondMove = setPondAnchor;
+  });
+  useEffect(() => {
+    engineRef.current?.setPondNodes(pondNodeIds);
+  }, [pondNodeIds]);
 
 
   // "Nothing here" is now a statement about the chosen dials, not just the
@@ -1056,6 +1102,16 @@ export function TerrainPage() {
             dismissHover();
           }
         }}
+      />
+
+      {/* The pond, floating over the part of the terrain that is the journal —
+          small and crude at rest, resolving when she reaches for it, and
+          wearing whatever filters the pond itself is currently set to. Hidden
+          while an overlay is up, for the same reason the agent hovercard is:
+          it's anchored to a spot on a map she can no longer see. */}
+      <PondLandmark
+        anchor={roomsOpen || codeFile !== null || selected !== null ? null : pondAnchor}
+        onReach={(reached) => engineRef.current?.setPondLit(reached)}
       />
 
       {/* Notes + timer panels. They position themselves top-right against the

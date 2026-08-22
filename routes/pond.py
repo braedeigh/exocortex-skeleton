@@ -29,6 +29,12 @@ endpoints are that door, shaped for one drawing.
                             to an agent, when files were written, and how long
                             each session sat open. Three lists, one window,
                             one clock.
+    GET /api/pond/shape     ONE ROW PER DAY — how many cards, how many hers.
+                            The pond's silhouette and nothing else, for drawing
+                            it small: the landmark on the terrain map is a
+                            thumbnail, and pulling four thousand whole cards to
+                            draw a shape the size of a postage stamp would cost
+                            a third of a megabyte to throw almost all of away.
 
 The working half comes from a DIFFERENT pipeline into the same database:
 agent conversations write transcripts into `bot_chats/`, an hourly cron
@@ -439,6 +445,61 @@ def register(app):
             "to": window["to"],
             "tag": tag or None,
             "truncated": truncated,
+        })
+
+    @app.route("/api/pond/shape")
+    def pond_shape():
+        """The pond's silhouette: one row per day, counted in SQL.
+
+        This exists so the pond can be drawn SMALL somewhere else. The landmark
+        floating on the terrain map is a thumbnail of this page — at rest a
+        crude little water body, resolving as she approaches it — and a
+        thumbnail only ever needs the outline: how many cards each day holds,
+        and how many of those were hers rather than the Keeper's.
+
+        Counted here rather than in the browser on purpose. `/api/pond/cards`
+        carries every card's whole body, and the drawing that needs those is
+        the pond itself; a map that fetched them to derive per-day heights
+        would be moving hundreds of kilobytes to compute two numbers a day.
+        GROUP BY does it in the database and sends back a couple of hundred
+        rows.
+
+        Same window contract as every other endpoint here (`from`/`to`, either
+        end optional) and the same read-only connection, so the landmark and
+        the pond can never disagree about which days exist.
+
+        Prompt that produced it: "i want it to be small and poorly detailed and
+        if you hover over it it gets big and then you can click on it to enter
+        it".
+        """
+        window, err = _window()
+        if err:
+            return jsonify({"error": err}), 400
+
+        where, params = _window_sql(window)
+        with closing(_read_only_conn()) as conn:
+            rows = conn.execute(
+                f"""SELECT c.day AS day,
+                           COUNT(*) AS cards,
+                           SUM(CASE WHEN c.who = 'K' THEN 0 ELSE 1 END) AS owner
+                      FROM cards c
+                     WHERE {where}
+                  GROUP BY c.day
+                  ORDER BY c.day ASC""",
+                params,
+            ).fetchall()
+
+        # `owner` comes back from SUM() as whatever SQLite made of it — coerce
+        # here so the client is never handed a null for a day of pure Keeper.
+        days = [
+            {"day": r["day"], "cards": r["cards"], "owner": int(r["owner"] or 0)}
+            for r in rows
+        ]
+        return jsonify({
+            "days": days,
+            "cards": sum(d["cards"] for d in days),
+            "from": window["from"],
+            "to": window["to"],
         })
 
     @app.route("/api/pond/working")

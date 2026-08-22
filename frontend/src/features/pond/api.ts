@@ -13,6 +13,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client';
 import type { PondCard, PondWorking } from './pondMath';
+import type { ShapeDay } from './pondShape';
 
 /** Which shelf the vault filed a tag on — a file in `people/`, a file in
  * `Threads/`, or neither. The rail splits on this instead of listing ninety
@@ -55,6 +56,15 @@ export interface PondCardsPayload {
   tag: string | null;
   /** The window held more cards than the server will send at once. */
   truncated: boolean;
+}
+
+/** The pond drawn small: its per-day profile and nothing else. */
+export interface PondShapePayload {
+  days: ShapeDay[];
+  /** Every card in the window — the landmark's one number. */
+  cards: number;
+  from: string | null;
+  to: string | null;
 }
 
 export interface PondCardDetail extends PondCard {
@@ -112,6 +122,26 @@ export function usePondWorking(from: string | null, enabled: boolean) {
       ),
     enabled,
     staleTime: 30_000,
+  });
+}
+
+/**
+ * The pond's silhouette — one row per day, nothing else.
+ *
+ * What the landmark on the terrain map draws itself from. Kept separate from
+ * `usePondCards` because the map has no business pulling several hundred
+ * kilobytes of card bodies to draw a thumbnail: this payload is a couple of
+ * hundred small rows and the server does the counting.
+ *
+ * A long staleTime because a silhouette doesn't meaningfully change within a
+ * session — a card or two added today moves one column by a pixel.
+ */
+export function usePondShape(enabled = true) {
+  return useQuery({
+    queryKey: ['pond', 'shape'],
+    queryFn: () => api.get<PondShapePayload>('/api/pond/shape'),
+    enabled,
+    staleTime: 5 * 60_000,
   });
 }
 

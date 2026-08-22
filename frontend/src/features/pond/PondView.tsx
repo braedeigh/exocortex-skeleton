@@ -25,6 +25,7 @@ import {
   writeWeight,
 } from './pondMath';
 import type { PondMode, PondSession, PondTurn, PondWrite } from './pondMath';
+import { loadPondView, POND_VIEW_KEY, type WorkLayer } from './savedView';
 import { FileCodeBody } from '../terrain/FileCodeBody';
 import styles from './PondView.module.css';
 
@@ -123,8 +124,6 @@ const RANGES = [
  * SHAPE — dot, tick, hairline — the way the journal tells hers from the
  * Keeper's without a second colour.
  */
-type WorkLayer = 'turns' | 'writes' | 'sessions';
-
 const WORK_LAYERS: { key: WorkLayer; label: string; hint: string }[] = [
   { key: 'turns', label: 'Messages', hint: 'When you were talking to an agent' },
   { key: 'writes', label: 'Files', hint: 'When files were written' },
@@ -137,27 +136,9 @@ const WORK_DEFAULT: Record<WorkLayer, boolean> = {
   turns: true, writes: true, sessions: true,
 };
 
-/** How the pond was left, restored on the next visit (localStorage — same
- * house pattern as the collapsible cards remembering open/closed). */
-interface SavedView {
-  mode?: PondMode;
-  zoom?: number;
-  group?: PondKind | 'front';
-  hideKeeper?: boolean;
-  range?: string;
-  litKey?: string | null;
-  layers?: Partial<Record<WorkLayer, boolean>>;
-}
-
-const SAVE_KEY = 'pond-view';
-
-function loadSavedView(): SavedView {
-  try {
-    return JSON.parse(localStorage.getItem(SAVE_KEY) ?? '{}') as SavedView;
-  } catch {
-    return {};
-  }
-}
+// How the pond was left lives in savedView.ts, not here — the pond landmark
+// floating on the terrain map reads the same settings to label itself, and one
+// localStorage key read by hand in two places is two copies free to drift.
 
 /** What the hover popup needs from a card — a plain slice of PondCard. */
 interface PondCardHover {
@@ -336,7 +317,7 @@ function WorkDetail({
 export function PondView() {
   // Read once; the states below seed from it so the pond comes back up the
   // way she left it.
-  const [saved] = useState(loadSavedView);
+  const [saved] = useState(loadPondView);
   const [mode, setMode] = useState<PondMode>(saved.mode === 'words' ? 'words' : 'clock');
   const [zoom, setZoom] = useState(() =>
     saved.zoom != null ? Math.max(0, Math.min(ZOOMS.length - 1, saved.zoom)) : DEFAULT_ZOOM,
@@ -538,8 +519,16 @@ export function PondView() {
   useEffect(() => {
     try {
       localStorage.setItem(
-        SAVE_KEY,
-        JSON.stringify({ mode, zoom, group, hideKeeper, range, litKey: lit?.key ?? null, layers }),
+        POND_VIEW_KEY,
+        // The lit row's NAME rides along with its key, so the landmark on the
+        // terrain map can say "Long COVID" without fetching the whole thread
+        // rail just to translate `tag:long-covid` back into words.
+        JSON.stringify({
+          mode, zoom, group, hideKeeper, range,
+          litKey: lit?.key ?? null,
+          litLabel: lit?.label ?? null,
+          layers,
+        }),
       );
     } catch {
       // Storage full or blocked — the pond just won't remember, which is fine.

@@ -51,6 +51,20 @@
  * Prompt that produced the hover layer: "if you hover over an agent on
  * terrain, the other rings and lines become grayed out from the other agents
  * to focus on what is showing there."
+ *
+ * THE POND is the one landmark on this map that isn't a file or an agent. The
+ * journal — the card pool and the diary — is a real region of the vault, and a
+ * big one, so this engine reports where that cluster is sitting on screen
+ * (`onPondMove`) and the page floats a small pond over it (PondLandmark.tsx).
+ * The engine draws only the water tint, and only while she's looking at the
+ * landmark; the landmark itself is DOM, because it carries type and a map
+ * label should stay legible at every zoom rather than shrinking with the
+ * territory it names.
+ *
+ * Prompt that produced it: "i basically want the pond to be floating over the
+ * terrain dots map in the area where all the journal entries are" / "small and
+ * poorly detailed and if you hover over it it gets big and then you can click
+ * on it to enter it".
  */
 import {
   forceCollide,
@@ -139,6 +153,15 @@ export interface ThemeInk {
 export interface AgentHover {
   /** Conversation id — the same id the roster and the terrain payload use. */
   id: string;
+  x: number;
+  y: number;
+  r: number;
+}
+
+/** Where the journal cluster sits on screen: its CENTRE in client coordinates
+ * and the radius it covers there, so the landmark can float over the middle of
+ * the water and know how much of the map it's standing on. */
+export interface PondAnchor {
   x: number;
   y: number;
   r: number;
@@ -467,6 +490,23 @@ export class TerrainCanvas {
   /** An agent whose lighting is pinned on regardless of where the cursor is —
    * set while its hovercard is up. See holdHover. */
   private heldHover: string | null = null;
+  /**
+   * The nodes that ARE the journal — the card pool and the diary, by the same
+   * path prefixes routes/pond.py calls JOURNAL_PATHS. Their centroid is where
+   * the pond landmark anchors itself, so the little pond floats over the part
+   * of the terrain it's a picture of rather than at some fixed corner.
+   *
+   * A set of ids rather than a computed region: which files count as the
+   * journal is a decision the server already made, and re-deriving it here
+   * from paths would be a second copy of that rule free to drift from the
+   * first.
+   */
+  private pondIds: ReadonlySet<string> | null = null;
+  /** Whether to tint the water under those nodes — on only while she's
+   * actually looking at the landmark. */
+  private pondLit = false;
+  /** The last anchor reported, so a still map costs no React renders. */
+  private pondReport: PondAnchor | null = null;
 
   onTap: ((node: TerrainNode | null) => void) | null = null;
   /**
@@ -475,6 +515,17 @@ export class TerrainCanvas {
    * leaves the orb, or the map moves under it.
    */
   onHoverAgent: ((hover: AgentHover | null, hard?: boolean) => void) | null = null;
+  /**
+   * Where the journal cluster is sitting on screen right now, in client
+   * coordinates — what the pond landmark hangs off, the same way the agent
+   * hovercard hangs off `onHoverAgent`. null when no journal files are drawn
+   * (the vault hidden, or the Files dial cut below them).
+   *
+   * Reported from the paint rather than from React, because the position is a
+   * fact about the sim and the transform, and both move without any state
+   * changing. Throttled to a pixel of actual movement.
+   */
+  onPondMove: ((anchor: PondAnchor | null) => void) | null = null;
 
   constructor(canvas: HTMLCanvasElement, theme: ThemeInk, opts?: { ambient?: boolean }) {
     this.canvas = canvas;
@@ -1079,6 +1130,85 @@ export class TerrainCanvas {
   }
 
   /**
+   * Which drawn nodes are the journal. The page passes ids because the rule
+   * for what counts lives on the server (routes/pond.py JOURNAL_PATHS).
+   */
+  setPondNodes(ids: ReadonlySet<string> | null): void {
+    this.pondIds = ids && ids.size > 0 ? ids : null;
+    this.requestDraw();
+  }
+
+  /** Tint the water — on while she's looking at the landmark, off otherwise. */
+  setPondLit(lit: boolean): void {
+    if (this.pondLit === lit) return;
+    this.pondLit = lit;
+    this.requestDraw();
+  }
+
+  /**
+   * The journal cluster's centre and reach, in WORLD units.
+   *
+   * A plain mean, undamped, and that's deliberate: this is the centroid of
+   * something on the order of a thousand nodes, so the per-node jitter of a
+   * cooling sim averages away to nothing and the anchor sits still without
+   * any smoothing to keep alive. Damping it would need a rAF loop to finish
+   * the easing, which is exactly the idle animation this engine promises
+   * never to run.
+   *
+   * The reach is the RMS distance rather than the maximum, so one file flung
+   * to the edge of the cluster by the force layout can't inflate the water to
+   * swallow half the map.
+   */
+  private pondCentre(): { x: number; y: number; r: number } | null {
+    if (!this.pondIds) return null;
+    let n = 0;
+    let sx = 0;
+    let sy = 0;
+    for (const node of this.simNodes) {
+      if (!this.pondIds.has(node.id)) continue;
+      sx += node.x ?? 0;
+      sy += node.y ?? 0;
+      n += 1;
+    }
+    if (n === 0) return null;
+    const cx = sx / n;
+    const cy = sy / n;
+    let sq = 0;
+    for (const node of this.simNodes) {
+      if (!this.pondIds.has(node.id)) continue;
+      sq += ((node.x ?? 0) - cx) ** 2 + ((node.y ?? 0) - cy) ** 2;
+    }
+    // 1.5 RMS reaches past the bulk of a roughly gaussian blob without
+    // chasing its outliers.
+    return { x: cx, y: cy, r: Math.max(1, Math.sqrt(sq / n) * 1.5) };
+  }
+
+  /** Tell the page where the water is, if that answer has moved. */
+  private reportPond(): void {
+    const centre = this.pondCentre();
+    if (!centre) {
+      if (this.pondReport === null) return;
+      this.pondReport = null;
+      this.onPondMove?.(null);
+      return;
+    }
+    const rect = this.canvas.getBoundingClientRect();
+    const [sx, sy] = this.transform.apply([centre.x, centre.y]);
+    const next: PondAnchor = {
+      x: rect.left + sx,
+      y: rect.top + sy,
+      r: centre.r * this.transform.k,
+    };
+    const prev = this.pondReport;
+    if (prev && Math.abs(prev.x - next.x) < 1 && Math.abs(prev.y - next.y) < 1
+        && Math.abs(prev.r - next.r) < 1) {
+      return;
+    }
+    this.pondReport = next;
+    this.onPondMove?.(next);
+  }
+
+  /**
    * Pin the hover lighting to one agent (or release it with null). /terrain
    * holds it for exactly as long as that agent's hovercard is on screen: the
    * card sits off the canvas, so travelling into it takes the cursor off the
@@ -1144,6 +1274,23 @@ export class TerrainCanvas {
     const now = Date.now();
     // Breathing pulse phase for running orbs — ~2s period, gentle.
     const breathe = 1 + 0.16 * Math.sin((now % 2000) / 2000 * Math.PI * 2);
+
+    // -- the pond's water --
+    // Under everything, because it is GROUND, not a mark: the journal files
+    // sit IN it. Drawn only while the landmark is being looked at — at rest
+    // the map says nothing about it, and approaching the little pond is what
+    // shows you which part of the terrain it's the thumbnail OF.
+    const pond = this.pondCentre();
+    if (pond && this.pondLit) {
+      const grad = ctx.createRadialGradient(pond.x, pond.y, 0, pond.x, pond.y, pond.r);
+      grad.addColorStop(0, this.theme.dark ? 'rgba(124,180,214,0.20)' : 'rgba(70,130,180,0.16)');
+      grad.addColorStop(1, 'rgba(70,130,180,0)');
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(pond.x, pond.y, pond.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
 
     // -- edges --
     ctx.lineWidth = 1 / transform.k;
@@ -1475,6 +1622,9 @@ export class TerrainCanvas {
         ctx.fillText(n.node.label, sx, sy - n.radius * k - 4);
       }
     }
+
+    // Last, so the anchor it reports is the one this frame actually drew.
+    this.reportPond();
   }
 }
 
