@@ -283,9 +283,16 @@ def register(app):
         sidecars for code history; the vault's card pool + deletion cast for
         cards; the append-only day files for attention).
 
-        `job_runs` is deliberately absent and must stay that way: it is the
-        one table in exo.db that is not derived from anything, so a rebuild
-        there would delete history that exists nowhere else. See jobstore.py.
+        `job_runs`, `filer_nominations` and `filer_verdicts` are deliberately
+        absent and must stay that way: they are the tables in exo.db that are
+        not derived from anything, so a rebuild there would delete history that
+        exists nowhere else. Their backup is a JSON mirror per sealed day, not
+        a re-derivation. See jobstore.py and filerstore.py.
+
+        The filer tables are the sharper case of the two. A `job_runs` row is
+        telemetry; a `filer_verdicts` row is a decision the owner made once, by
+        hand, and is the ground truth a model is meant to be trained on later.
+        Nothing can regenerate it.
         """
         habits = habitstore.rebuild()
         expenses = expensestore.rebuild()

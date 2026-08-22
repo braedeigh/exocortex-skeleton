@@ -42,7 +42,7 @@ import time
 
 import store
 
-_SCHEMA_VERSION = 12
+_SCHEMA_VERSION = 13
 
 
 def _db_path():
@@ -138,6 +138,7 @@ _EXPECTED_TABLES = (
     "job_runs",
     "attention_segments",
     "tags",
+    "filer_nominations", "filer_verdicts",
 )
 
 
@@ -818,6 +819,116 @@ def _run_ladder(conn):
         )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS tags_by_subject ON tags (subject)"
+        )
+    if version < 13:
+        # Entity #9: what the FILER proposed and what she decided about it —
+        # the training record (see filerstore.py for what fills these).
+        #
+        # These join job_runs as the second and third tables here that are NOT
+        # derived, and the same two consequences follow: never add them to
+        # routes/sqlab.py's rebuild button, and filerstore.export_day() mirrors
+        # sealed days to JSON so the vault's hourly commit is the real backup.
+        # A nomination is an event; when it's over the row is the only evidence.
+        #
+        # Why TWO tables instead of a verdict column. The owner's stated use is
+        # to train a model on her filing decisions eventually, and for that the
+        # REJECTIONS and REDIRECTS carry more signal than the accepts: an
+        # accept-only record has no negative examples, so it cannot teach where
+        # the boundary is. A redirect is the richest row of all — it carries
+        # both the wrong answer and the right one. And a mind CHANGED later is
+        # signal too, so verdicts are append-only in their own table rather
+        # than a column that overwrites. `filer_nominations.verdict` is a
+        # denormalized copy of the latest verdict, kept for cheap querying;
+        # filer_verdicts is the record of authority.
+        #
+        # Prompt that produced these tables: "retain as much information about
+        # my decisions and what it does so that I can train ML on it
+        # eventually ... whatever best practices are that gets me the most and
+        # best organized data".
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS filer_nominations ("
+            "  id INTEGER PRIMARY KEY,"
+            # Which run produced it — joins straight to the job ledger, so
+            # "what did the filer do on the 4th" is one query.
+            "  run_id INTEGER REFERENCES job_runs(id) ON DELETE SET NULL,"
+            # The file's IDENTITY, not its location. codestore's files/
+            # file_paths pair already survives renames (path is an attribute,
+            # not identity), which is exactly what a filer needs: once she
+            # accepts a move, the nomination still points at the same file at
+            # its new home instead of orphaning.
+            "  file_id INTEGER REFERENCES files(id) ON DELETE SET NULL,"
+            # Where it lived WHEN NOMINATED. Kept alongside file_id because the
+            # question "what did it look like before we moved it" has to stay
+            # answerable even if the identity layer is rebuilt.
+            "  path TEXT NOT NULL,"
+            # Content identity. Survives a rename AND a re-upload of the same
+            # bytes under a new name — which is the shape of the duplicate
+            # problem in the archive (one photo, three uploads, three names).
+            "  sha256 TEXT,"
+            # LOCAL naive ISO, the same clock job_runs.started keeps. Stated
+            # here for the same reason it's stated there: session_files.last is
+            # UTC, and mixing them looks entirely plausible while being wrong.
+            "  observed TEXT NOT NULL,"
+            # Which model decided. A verdict is only training data if you know
+            # what produced the proposal it judged.
+            "  model TEXT,"
+            # The model's own description of what it saw, in its words. Not a
+            # label — the raw read, which is what makes a later disagreement
+            # diagnosable ("it misread the document" vs "it read it right and
+            # filed it wrong" are different failures).
+            "  saw TEXT,"
+            # JSON: {destination, front, action}. JSON rather than columns
+            # because the destination vocabulary will move and a schema change
+            # per new filing target is how this stops getting used.
+            "  proposal TEXT NOT NULL,"
+            "  reasoning TEXT,"
+            "  confidence REAL,"
+            # JSON array of the options it considered and DIDN'T pick, with
+            # their scores. The runner-up is where the decision boundary
+            # actually lives; it is free to record now and impossible later.
+            "  alternatives TEXT,"
+            # Denormalized copy of the latest filer_verdicts row (or 'pending'
+            # when she hasn't ruled yet), so the review queue is one cheap
+            # query. filer_verdicts stays the record of authority.
+            "  verdict TEXT NOT NULL DEFAULT 'pending'"
+            "    CHECK (verdict IN ('pending','accepted','rejected','redirected')),"
+            # Whether the file was actually MOVED, which is deliberately
+            # separate from whether she accepted: accepted-but-not-yet-applied
+            # is a real state, and conflating them is how a crash mid-apply
+            # becomes invisible.
+            "  applied INTEGER NOT NULL DEFAULT 0 CHECK (applied IN (0, 1)),"
+            "  applied_at TEXT"
+            ")"
+        )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS filer_verdicts ("
+            "  id INTEGER PRIMARY KEY,"
+            "  nomination_id INTEGER NOT NULL"
+            "    REFERENCES filer_nominations(id) ON DELETE CASCADE,"
+            "  verdict TEXT NOT NULL"
+            "    CHECK (verdict IN ('accepted','rejected','redirected')),"
+            "  at TEXT NOT NULL,"
+            # Who ruled. 'her' is the only value that counts as ground truth
+            # for training; anything else is a machine agreeing with itself and
+            # must be filterable out of the training set.
+            "  by TEXT NOT NULL DEFAULT 'her',"
+            "  note TEXT,"
+            # JSON, redirects only: where it SHOULD have gone. This is the
+            # single most valuable column in either table.
+            "  corrected TEXT"
+            ")"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS filer_nom_pending"
+            " ON filer_nominations (verdict, observed)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS filer_nom_by_file"
+            " ON filer_nominations (file_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS filer_verdicts_by_nom"
+            " ON filer_verdicts (nomination_id, at)"
         )
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")

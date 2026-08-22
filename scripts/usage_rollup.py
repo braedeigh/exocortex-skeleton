@@ -33,7 +33,7 @@ Meant for a daily cron tick; running it more often is harmless.
 import os
 import re
 import sys
-from datetime import date
+from datetime import date, timedelta
 
 # Make the skeleton root importable regardless of where the script is invoked
 # from (mirrors scripts/research_doctor.py's bootstrap).
@@ -43,6 +43,8 @@ if SKELETON not in sys.path:
     sys.path.insert(0, SKELETON)
 
 import store  # noqa: E402
+import jobstore  # noqa: E402
+import filerstore  # noqa: E402
 
 # One access-log line, new (dated) format only. Old dateless lines start with
 # a bare HH:MM:SS and simply don't match — that's the skip.
@@ -122,13 +124,57 @@ def write_days(counts_by_day, today):
     return written, skipped
 
 
+def seal_yesterday(day=None):
+    """Mirror yesterday's provenance to JSON, then — and only then — prune.
+
+    `job_runs`, `filer_nominations` and `filer_verdicts` are the tables in
+    exo.db that aren't derived from anything: re-walking git or the markdown
+    rebuilds every other table, but an event that happened once leaves only the
+    row it wrote. So each sealed day gets mirrored under the data dir, where the
+    vault's hourly git commit picks it up as a real backup.
+
+    **The ordering is the whole safety property.** `jobstore.prune()` drops runs
+    past RETENTION_DAYS, and that's only safe because the export already
+    happened. If an export raises, this returns without pruning — a database
+    that's grown too big is a nuisance; six months of deleted provenance is not
+    recoverable. The filer tables are never pruned at all: they're a training
+    set, and unlike operational telemetry they only get more valuable with age.
+    """
+    day = day or (date.today() - timedelta(days=1)).isoformat()
+    runs = jobstore.export_day(day)
+    filed = filerstore.export_day(day)
+    print(f"{day}: mirrored {runs} job runs, {filed} filer rows")
+    dropped = jobstore.prune()
+    if dropped:
+        print(f"pruned {dropped} job runs past retention")
+    return runs, filed, dropped
+
+
 def main():
-    lines = []
-    for name in ("access.log.1", "access.log"):  # oldest first, for tidy reading
-        path = store.BUILD_DIR / name
-        if path.exists():
-            lines.extend(path.read_text(errors="replace").splitlines())
-    write_days(parse_lines(lines), date.today().isoformat())
+    # The rollup runs under the ledger it maintains — the first job wired to
+    # jobstore, which is also the one that seals and backs the ledger up.
+    with jobstore.run("usage_rollup") as rec:
+        lines = []
+        for name in ("access.log.1", "access.log"):  # oldest first, for tidy reading
+            path = store.BUILD_DIR / name
+            if path.exists():
+                lines.extend(path.read_text(errors="replace").splitlines())
+        written, skipped = write_days(parse_lines(lines), date.today().isoformat())
+        rec.looked(len(written) + len(skipped))
+        rec.acted(len(written))
+
+        # Sealing is reported but never allowed to take the rollup down with
+        # it: the day's usage counts are already written by this point, and
+        # losing them to a mirror-write failure would be trading the thing that
+        # worked for the thing that didn't.
+        try:
+            runs, filed, dropped = seal_yesterday()
+            rec.acted(runs + filed)
+            rec.detail({"mirrored_runs": runs, "mirrored_filer_rows": filed,
+                        "pruned": dropped})
+        except Exception as e:
+            rec.failed(1, f"sealing yesterday failed: {e}")
+            print(f"seal_yesterday failed: {e}", file=sys.stderr)
 
 
 if __name__ == "__main__":

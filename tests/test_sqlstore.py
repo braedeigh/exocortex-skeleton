@@ -15,6 +15,7 @@ import sqlite3
 
 import pytest
 
+import sqlstore
 import store
 
 
@@ -140,3 +141,28 @@ def test_migrating_an_already_current_database_changes_nothing(data_dir):
     sqlstore.open_db().close()
     assert _tables(data_dir) == before
     assert store.read("car_maintenance") == {"entries": [{"id": "a"}]}
+
+
+def test_every_migrated_table_is_in_expected_tables(data_dir):
+    """_EXPECTED_TABLES is the self-heal's eyes: _migrate's fast path trusts the
+    version stamp only when every table in this tuple is really there, so a
+    table missing from it can never be noticed as missing from the database.
+
+    That is not hypothetical. Bumping _SCHEMA_VERSION and adding the rung are
+    two separate edits, and a cron connection that lands between them stamps the
+    new version having climbed only as far as the old ladder — after which the
+    fast path skips the new rung forever. The stamp lying is exactly what
+    _tables_present exists to catch, and it only catches it for tables listed
+    here. (Happened on the live database when rung 13 went in.)
+    """
+    conn = sqlstore.open_db()
+    try:
+        built = {r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+            " AND name NOT LIKE 'sqlite_%'")}
+    finally:
+        conn.close()
+    missing = built - set(sqlstore._EXPECTED_TABLES)
+    assert not missing, (
+        f"tables the ladder creates but _EXPECTED_TABLES doesn't list: "
+        f"{sorted(missing)} — the self-heal is blind to these")

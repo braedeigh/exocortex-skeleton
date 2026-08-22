@@ -23,10 +23,12 @@ consequences, both load-bearing:
 
   - `job_runs` must NEVER be added to routes/sqlab.py's rebuild button.
   - `export_day()` writes a JSON mirror per sealed day under `data/job_runs/`,
-    so the vault's hourly git commit is a real backup. (`usage_rollup.py`
-    calls it at 02:30 for yesterday. Today's rows live only in SQLite until
-    then — a disk loss before 02:30 costs up to one day of provenance. That
-    gap is deliberate and cheap; it is not an oversight.)
+    so the vault's hourly git commit is a real backup. (`usage_rollup.py`'s
+    `seal_yesterday()` calls it at 02:30 for yesterday, and only prunes if that
+    export returned — the ordering is what makes RETENTION_DAYS safe rather
+    than a six-month fuse. Today's rows live only in SQLite until then: a disk
+    loss before 02:30 costs up to one day of provenance. That gap is deliberate
+    and cheap; it is not an oversight.)
 
 **Recording can never break the job.** Every database call here is wrapped and
 swallowed, the same rule store.py's op counters follow (store.py:313-329) and
@@ -51,9 +53,17 @@ which is `skipped` — deliberately NOT a failure.
 
 Touches: `sqlstore.py` (owns the schema — the v10 rung — and the connection
 factory), `store.py` (DATA_DIR for the mirror, and the scheduled_runs.json
-registry), `routes/jobs.py` (the read API), `routes/automations.py` (reads the
-registry this keeps current), `scripts/job_run.py` (the CLI the five shell-
-script jobs call), and every wired job under `scripts/`.
+registry), `routes/automations.py` (serves the registry `_touch_registry` keeps
+current), and `filerstore.py`, which follows the same not-derived/mirror-or-lose-it
+rules for the filer's provenance tables.
+
+**What is wired, honestly.** `scripts/usage_rollup.py` is the first and so far
+the ONLY job that runs under this ledger, and it is also the one that seals the
+day (`seal_yesterday`: mirror, then prune — in that order). The other ~18
+scheduled jobs still write text logs nothing parses; each is a two-line change
+to bring in, and until then `job_runs` speaks only for the rollup. There is no
+read API and no shell-script CLI yet — a job written in bash has no door into
+this table at present.
 
 Prompt that produced this file: "most of the system's judgments leave no trace
 of having been made — build one table: what ran, when, what it looked at, what
