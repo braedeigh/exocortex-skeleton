@@ -4,6 +4,7 @@ import { uploadedPathsMessage } from '../phone/phoneLogic';
 import { TermNotesPanel } from '../../shell/TermNotesPanel';
 import { SchedulePanel } from '../../shell/SchedulePanel';
 import { TerrainBackdrop } from '../terrain/TerrainBackdrop';
+import { setTerrainBackdropOn, useTerrainBackdropOn } from '../terrain/backdropPref';
 import { createSession, getConversation, getSessions, isOutOfMemory, journalOutput, stopConversation, streamSend } from './api';
 import { MemoryPrompt } from '../runqueue/MemoryPrompt';
 import { enqueueConversation, fetchHeadroom } from '../runqueue/api';
@@ -65,6 +66,13 @@ import styles from './ObservatoryPage.module.css';
  * strip, and the word flow's releases ignite scattered rather than in reading
  * order, so the block fills in like a fire taking. See useStepBack.ts and
  * EMBER_SPREAD_MS.
+ *
+ * THE MAP IS OPTIONAL (▦ in the composer toolbar): one switch, remembered, for
+ * every room and every window at once — turn it off here and the other windows
+ * go quiet too, and it stays off until she presses it again. Off means the
+ * backdrop unmounts, so nothing is drawing or polling behind the page, and the
+ * step-back gesture stands down with it (there'd be nothing under it to see).
+ * See features/terrain/backdropPref.ts.
  *
  * OPEN-AT-UNREAD ANCHOR (07-24): opening a conversation normally lands at
  * the bottom, like reopening a terminal — but if it's carrying activity she
@@ -242,10 +250,15 @@ export function ObservatoryPage({
   // carrying scroll logic of its own — the strip wants exactly what a terminal
   // wants, the newest line held at the bottom while text prints into it.
   const pageRef = useRef<HTMLDivElement>(null);
+  // The ▦ toolbar button below turns the map off for every room and every
+  // window at once (backdropPref.ts). With no map behind the page, stepping
+  // back would uncover a blank screen — so the gesture goes away with it.
+  const backdropOn = useTerrainBackdropOn();
   const stepBack = useStepBack({
     scrollRef: scrollContract.scrollRef,
     pageRef,
     pinToBottom: scrollContract.pinToBottom,
+    enabled: backdropOn,
   });
   const stepBackDismiss = useStepBackDismiss(stepBack.exit);
   // Closes the loop opened at emberRef's declaration: the word flow's cool-down
@@ -662,8 +675,10 @@ export function ObservatoryPage({
     >
       {/* The terrain map behind the conversation, and the step-back view that
           hands it the screen. The glass and the featured agent are separate
-          steps and land separately — see TerrainBackdrop.tsx. */}
-      <TerrainBackdrop focusConv={convId} revealed={stepBack.active} />
+          steps and land separately — see TerrainBackdrop.tsx. Unmounted rather
+          than hidden when she's turned it off, so the canvas, the breath and
+          the terrain polling all stop with it. */}
+      {backdropOn ? <TerrainBackdrop focusConv={convId} revealed={stepBack.active} /> : null}
 
       <div ref={scrollContract.scrollRef} className={styles.scroll}>
         <div ref={scrollContract.columnRef} className={styles.column}>
@@ -907,6 +922,22 @@ export function ObservatoryPage({
               {offRecord ? '◌' : '●'}
             </button>
           ) : null}
+          {/* The map behind the page, on or off. One switch for every room and
+              every window (backdropPref.ts), so turning it off here quiets the
+              other windows too rather than only this one. */}
+          <button
+            type="button"
+            className={[styles.toolBtn, backdropOn ? '' : styles.toolBtnPaused].filter(Boolean).join(' ')}
+            title={backdropOn ? 'Hide the terrain map' : 'Show the terrain map'}
+            aria-label={backdropOn ? 'Hide the terrain map' : 'Show the terrain map'}
+            aria-pressed={!backdropOn}
+            onClick={() => setTerrainBackdropOn(!backdropOn)}
+          >
+            {/* Filled/hollow, the same on-off idiom the journal pause uses
+                above — and geometric rather than an emoji map, so the muted
+                colour of the off state actually lands on the glyph. */}
+            {backdropOn ? '▦' : '▢'}
+          </button>
           <button
             ref={notesBtnRef}
             type="button"

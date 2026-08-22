@@ -59,8 +59,13 @@ export function useStepBack(args: {
    * transition: entering, because the strip is a different height than the
    * page she was reading, and leaving, for the same reason in reverse. */
   pinToBottom: () => void;
+  /** False when there's no map behind the page to step back to — she's turned
+   * the backdrop off (features/terrain/backdropPref.ts). The gesture stops
+   * being bound at all, and a view that's already up closes, because the whole
+   * of what it uncovers is the terrain. */
+  enabled?: boolean;
 }): { active: boolean; exit: () => void } {
-  const { scrollRef, pageRef, pinToBottom } = args;
+  const { scrollRef, pageRef, pinToBottom, enabled = true } = args;
   const [active, setActive] = useState(false);
 
   // The pull lives in a ref and is written straight to a CSS custom property
@@ -112,10 +117,16 @@ export function useStepBack(args: {
     return () => window.removeEventListener('keydown', onKey);
   }, [active, exit]);
 
+  // Map turned off mid-view: put the conversation back rather than leaving her
+  // holding a strip of text over nothing.
+  useEffect(() => {
+    if (!enabled && activeRef.current) exit();
+  }, [enabled, exit]);
+
   // The pull itself, bound to the scroller.
   useEffect(() => {
     const el = scrollRef.current;
-    if (!el) return;
+    if (!el || !enabled) return;
 
     const atEnd = () => el.scrollHeight - el.scrollTop - el.clientHeight < BOTTOM_SLOP_PX;
 
@@ -178,7 +189,7 @@ export function useStepBack(args: {
       el.removeEventListener('touchend', onTouchEnd);
       el.removeEventListener('touchcancel', onTouchEnd);
     };
-  }, [scrollRef, setPull, commit]);
+  }, [scrollRef, setPull, commit, enabled]);
 
   return { active, exit };
 }
