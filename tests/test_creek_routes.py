@@ -101,6 +101,41 @@ def test_aggregate_telemetry_sums_window_and_normalizes_names():
     assert totals["todos"]["callers"]["gunicorn"] == {"reads": 5, "writes": 1}
 
 
+def test_last_write_day_is_the_newest_day_in_window_that_actually_wrote():
+    """The counters are bucketed by day, so a day is the finest honest 'when'
+    they can give — and for anything older than the write journal it's the
+    only one. A later day with only READS must not move it."""
+    from datetime import date
+    feature_usage = {"days": {
+        "2026-08-18": {"store": {"gunicorn": {"todos": {"reads": 1, "writes": 4}}}},
+        "2026-08-19": {"store": {"gunicorn": {"todos": {"reads": 1, "writes": 2}}}},
+        "2026-08-20": {"store": {"gunicorn": {"todos": {"reads": 9, "writes": 0}}}},
+    }}
+    totals = creek.aggregate_telemetry(feature_usage, 7, today=date(2026, 8, 20))
+    assert totals["todos"]["last_write_day"] == "2026-08-19"
+
+
+def test_last_write_day_stays_none_for_a_read_only_collection():
+    from datetime import date
+    feature_usage = {"days": {
+        "2026-08-20": {"store": {"gunicorn": {"food_guide": {"reads": 12, "writes": 0}}}},
+    }}
+    totals = creek.aggregate_telemetry(feature_usage, 7, today=date(2026, 8, 20))
+    assert totals["food_guide"]["reads"] == 12
+    assert totals["food_guide"]["last_write_day"] is None
+
+
+def test_last_write_day_ignores_a_write_outside_the_window():
+    """A collection written before the window opened is quiet IN THE WINDOW —
+    the date must not leak in from an older day the sum already excluded."""
+    from datetime import date
+    feature_usage = {"days": {
+        "2026-07-01": {"store": {"gunicorn": {"budget": {"reads": 0, "writes": 40}}}},
+    }}
+    totals = creek.aggregate_telemetry(feature_usage, 7, today=date(2026, 8, 20))
+    assert "budget" not in totals
+
+
 # --- the HTTP contract -----------------------------------------------------------
 
 @pytest.fixture
@@ -119,9 +154,12 @@ def test_creek_returns_200_with_contract_keys(client):
     assert set(body.keys()) == {
         "generated", "days", "journal_since", "collections", "files", "unresolved",
     }
-    # Every collection carries a last_write slot (null when the journal has
-    # nothing for it) so Today mode can fade by freshness without guessing.
+    # Every collection carries BOTH "when" slots — `last_write` (exact, from
+    # the journal) and `last_write_day` (coarse, from the counters, reaching
+    # as far back as they do). Either may be null; the client prefers the
+    # exact one and falls back, so neither may go missing.
     assert all("last_write" in c for c in body["collections"])
+    assert all("last_write_day" in c for c in body["collections"])
     assert body["days"] == 14
     assert isinstance(body["collections"], list)
     assert isinstance(body["files"], list)

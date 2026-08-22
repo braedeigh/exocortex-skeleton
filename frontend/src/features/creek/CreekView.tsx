@@ -25,13 +25,15 @@ import {
   collectionDimmed,
   collectionRowOpacity,
   fileDimmed,
-  freshnessFactor,
+  freshnessAt,
+  halfLifeForWindow,
   fileReads,
   fileWrites,
   filesTouching,
   layoutCallers,
   layoutCollections,
   layoutFiles,
+  relativeDay,
   relativeDayTime,
   ribbonDimmed,
   ribbonOpacity,
@@ -96,24 +98,29 @@ import styles from './CreekView.module.css';
  *   "Wiring" (`?days=14`) — the original map. Left bank is source files,
  *   ribbon width is call sites. What the code CAN do.
  *
- *   "Traffic" (`?days=1`, polled every 60s — react-query's own
- *   `refetchIntervalInBackground: false` default stops that poll in a
- *   backgrounded tab, matching the house battery contract for free) — ribbon
- *   width is writes that actually happened. The left bank becomes CALLERS
+ *   "Traffic" (`?days=` the chosen window — 1, 7 or 30; the today window is
+ *   polled every 60s, the longer ones aren't, since a 30-day sum doesn't move
+ *   in a minute. React-query's own `refetchIntervalInBackground: false`
+ *   default stops that poll in a backgrounded tab, matching the house battery
+ *   contract for free) — ribbon width is writes that actually happened over
+ *   that window. The left bank becomes CALLERS
  *   (`creekMath.aggregateCallers`), because telemetry knows the calling
  *   process and never the source line; keeping files there would have been
  *   drawing an attribution nobody measured. Collections with no traffic drop
  *   off the drawing (`activeCollections`) and are counted aloud in the
  *   subtitle instead.
  *
- * In traffic mode, right-bank rows carry a three-way state
+ * In traffic mode, right-bank rows carry a four-way state
  * (`creekMath.writeState` → `trafficRowOpacity`) rather than one continuous
- * fade: moved-and-timestamped fades by recency, moved-but-untimestamped draws
- * full with the unknown said in words, and genuinely quiet draws at
- * `QUIET_OPACITY`. Write ribbons still fade by
- * `creekMath.freshnessFactor(collection.last_write)`; read ribbons never do —
- * reads are running totals with no per-event timestamp, and the legend says so
- * rather than implying a freshness they don't have.
+ * fade, ordered by how much is actually known: an exact journal timestamp and
+ * a counter-derived DAY both fade by recency (`creekMath.freshnessAt` prefers
+ * the exact one), a write with no "when" at all draws full with the unknown
+ * said in words, and genuinely quiet draws at `QUIET_OPACITY`. The fade's
+ * half-life scales to the window (`creekMath.halfLifeForWindow`) so a month's
+ * worth of writes doesn't collapse onto the floor together. Write ribbons fade
+ * the same way; read ribbons never do — reads are running totals with no
+ * per-event timestamp, and the legend says so rather than implying a freshness
+ * they don't have.
  *
  * LAYERS: the Writes and Reads chips are independent — each can be off on
  * its own, but never both (`creekMath.toggleLayer`: killing the last lit
@@ -136,7 +143,11 @@ import styles from './CreekView.module.css';
  * Today mode on: "the Today page doesn't make sense — why would it be writing
  * to budget? Make it clearer": the ribbons were a static call-site scan that
  * didn't change between modes, so a collection nothing had touched all day
- * still drew a fat write ribbon.
+ * still drew a fat write ribbon. The 1/7/30 window followed on "can we scrape
+ * it from GitHub?" — no scraping needed: `feature_usage` already held ~33 days
+ * of per-caller counts, so the longer windows were a parameter, not a
+ * backfill. `last_write_day` came with them, since over any window longer than
+ * the write journal's own life it's the only "when" there is.
  */
 
 const SAVE_KEY = 'creek-view';
@@ -179,6 +190,7 @@ function restorableSelection(
 interface SavedCreekView {
   sel?: CreekSelection | null;
   mode?: string;
+  trafficDays?: number;
   writesOn?: boolean;
   readsOn?: boolean;
   water?: Partial<WaterSections>;
@@ -192,26 +204,41 @@ function loadSaved(): SavedCreekView {
   }
 }
 
-/** Wiring mode's fixed window; traffic mode is always today. */
+/** Wiring mode's fixed window. */
 const WINDOW_DAYS = 14;
-/** Traffic mode's poll interval — a rolling near-real-time view, not a live
- * one; react-query's own background-tab guard (see api.ts) does the rest. */
+/** Traffic mode's poll interval, used for the today window only — a rolling
+ * near-real-time view, not a live one; react-query's own background-tab guard
+ * (see api.ts) does the rest. The longer windows barely move minute to
+ * minute, so they aren't polled at all. */
 const TODAY_POLL_MS = 60_000;
 
-/** A traffic row's tooltip: the same three states the opacity encodes, said
- * in words — so "quiet" and "we can't timestamp it" are never left to be
- * inferred from how grey something looks. */
-function trafficRowTitle(c: CreekCollection): string {
-  const state = writeState(c.writes, c.last_write);
+/**
+ * The windows traffic mode can look through. All three are served by the same
+ * endpoint and the same counters — `feature_usage` keeps a rolling ~33 days of
+ * per-caller, per-collection buckets, so 7 and 30 cost nothing extra to ask
+ * for. `phrase` is the wording every sentence about the window reuses, so the
+ * subtitle, the tooltips and the legend can't drift apart from each other.
+ */
+const TRAFFIC_WINDOWS: { days: number; label: string; phrase: string }[] = [
+  { days: 1, label: 'Today', phrase: 'today' },
+  { days: 7, label: '7d', phrase: 'in the last 7 days' },
+  { days: 30, label: '30d', phrase: 'in the last 30 days' },
+];
+
+/** A traffic row's tooltip: the states the opacity encodes, said in words —
+ * so "quiet", "last written on this day" and "we can't place it at all" are
+ * never left to be inferred from how grey something looks. */
+function trafficRowTitle(c: CreekCollection, phrase: string): string {
+  const state = writeState(c.writes, c.last_write, c.last_write_day);
   if (state === 'quiet') {
     return c.reads > 0
-      ? `read ${c.reads.toLocaleString()}× today, never written`
-      : 'nothing touched it today';
+      ? `read ${c.reads.toLocaleString()}× ${phrase}, never written`
+      : `nothing wrote it ${phrase}`;
   }
-  const n = `${c.writes.toLocaleString()} ${c.writes === 1 ? 'write' : 'writes'} today`;
-  return state === 'timeless'
-    ? `${n} — the write journal has no timestamp for it`
-    : `${n}, last at ${relativeDayTime(c.last_write as string)}`;
+  const n = `${c.writes.toLocaleString()} ${c.writes === 1 ? 'write' : 'writes'} ${phrase}`;
+  if (state === 'moved') return `${n}, last at ${relativeDayTime(c.last_write as string)}`;
+  if (state === 'dated') return `${n}, last written ${relativeDay(c.last_write_day as string)}`;
+  return `${n} — nothing recorded when`;
 }
 
 export function CreekView() {
@@ -219,6 +246,9 @@ export function CreekView() {
   const [mode, setMode] = useState<CreekMode>(() => savedMode(saved.mode));
   const [selection, setSelection] = useState<CreekSelection | null>(() =>
     restorableSelection(saved.sel, savedMode(saved.mode)),
+  );
+  const [trafficDays, setTrafficDays] = useState<number>(() =>
+    TRAFFIC_WINDOWS.some((w) => w.days === saved.trafficDays) ? (saved.trafficDays as number) : 1,
   );
   const [writesOn, setWritesOn] = useState(saved.writesOn !== false);
   const [readsOn, setReadsOn] = useState(saved.readsOn !== false);
@@ -228,8 +258,12 @@ export function CreekView() {
   });
 
   const traffic = mode === 'traffic';
-  const days = traffic ? 1 : WINDOW_DAYS;
-  const creek = useCreek(days, traffic ? { refetchInterval: TODAY_POLL_MS } : {});
+  const days = traffic ? trafficDays : WINDOW_DAYS;
+  const windowPhrase =
+    TRAFFIC_WINDOWS.find((w) => w.days === trafficDays)?.phrase ?? `in the last ${trafficDays} days`;
+  // Only the today window is a rolling view worth re-asking for; a 30-day sum
+  // doesn't visibly move in a minute.
+  const creek = useCreek(days, traffic && trafficDays === 1 ? { refetchInterval: TODAY_POLL_MS } : {});
   const files = useMemo(() => creek.data?.files ?? [], [creek.data]);
   const collections = useMemo(() => creek.data?.collections ?? [], [creek.data]);
   const unresolved = creek.data?.unresolved ?? [];
@@ -292,12 +326,12 @@ export function CreekView() {
     try {
       localStorage.setItem(
         SAVE_KEY,
-        JSON.stringify({ sel: selection, mode, writesOn, readsOn, water: waterSections }),
+        JSON.stringify({ sel: selection, mode, trafficDays, writesOn, readsOn, water: waterSections }),
       );
     } catch {
       // storage full or blocked — the creek just won't remember, which is fine
     }
-  }, [selection, mode, writesOn, readsOn, waterSections]);
+  }, [selection, mode, trafficDays, writesOn, readsOn, waterSections]);
 
   function toggleWaterSection(key: keyof WaterSections) {
     setWaterSections((cur) => ({ ...cur, [key]: !cur[key] }));
@@ -377,7 +411,7 @@ export function CreekView() {
             {!hasData
               ? 'Data moving between code and vault.'
               : traffic
-                ? `${callers.length} callers · ${shownCollections.length} collections moved today · ${totalWrites.toLocaleString()} writes${
+                ? `${callers.length} callers · ${shownCollections.length} collections moved ${windowPhrase} · ${totalWrites.toLocaleString()} writes${
                     quietCount > 0 ? ` · ${quietCount} stayed quiet` : ''
                   }`
                 : `${files.length} files · ${collections.length} collections · ${totalWrites.toLocaleString()} writes over ${days} days`}
@@ -402,12 +436,32 @@ export function CreekView() {
               type="button"
               className={traffic ? styles.modeBtnActive : styles.modeBtn}
               aria-pressed={traffic}
-              title="What actually happened today — measured reads and writes, by caller"
+              title="What actually happened — measured reads and writes, by caller"
               onClick={() => changeMode('traffic')}
             >
-              Traffic · today
+              Traffic
             </button>
           </div>
+
+          {/* The window only exists in traffic mode: wiring is a static map of
+              call sites, which don't happen at a time, so a window over it
+              would mean nothing. */}
+          {traffic ? (
+            <div className={styles.modeGroup} role="group" aria-label="How far back">
+              {TRAFFIC_WINDOWS.map((w) => (
+                <button
+                  key={w.days}
+                  type="button"
+                  className={trafficDays === w.days ? styles.modeBtnActive : styles.modeBtn}
+                  aria-pressed={trafficDays === w.days}
+                  title={`What moved ${w.phrase}`}
+                  onClick={() => setTrafficDays(w.days)}
+                >
+                  {w.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
           <button
             type="button"
             className={writesOn ? styles.layerChipOn : styles.layerChipOff}
@@ -465,8 +519,8 @@ export function CreekView() {
                   // not the floor: it definitely happened.
                   const target = collectionById.get(r.collection);
                   const freshness =
-                    traffic && r.kind === 'write' && target?.last_write
-                      ? freshnessFactor(target.last_write)
+                    traffic && r.kind === 'write' && target && (target.last_write || target.last_write_day)
+                      ? freshnessAt(target, new Date(), halfLifeForWindow(days))
                       : 1;
                   const readColor = readsOwnScale ? styles.ribbonReadOwn : styles.ribbonRead;
                   return (
@@ -556,9 +610,13 @@ export function CreekView() {
                 // the tooltip. Wiring mode has no state to say — its rows are
                 // call sites, which don't happen at a time — so it keeps the
                 // plain dimmed/full behaviour.
-                const state = writeState(row.item.writes, row.item.last_write);
+                const state = writeState(row.item.writes, row.item.last_write, row.item.last_write_day);
                 const opacity = traffic
-                  ? trafficRowOpacity(state, dimmed, freshnessFactor(row.item.last_write))
+                  ? trafficRowOpacity(
+                      state,
+                      dimmed,
+                      freshnessAt(row.item, new Date(), halfLifeForWindow(days)),
+                    )
                   : collectionRowOpacity(dimmed, 1);
                 return (
                   <button
@@ -574,7 +632,9 @@ export function CreekView() {
                     }}
                     aria-pressed={lit}
                     onClick={() => pickCollection(row.key)}
-                    title={traffic ? `${row.item.id} — ${trafficRowTitle(row.item)}` : row.item.id}
+                    title={
+                      traffic ? `${row.item.id} — ${trafficRowTitle(row.item, windowPhrase)}` : row.item.id
+                    }
                   >
                     <span className={styles.backingGlyph} aria-hidden="true">
                       {row.item.backing === 'sql' ? '▦' : '▤'}
@@ -602,6 +662,7 @@ export function CreekView() {
             ) : selectedCaller ? (
               <CallerDetail
                 caller={selectedCaller}
+                windowPhrase={windowPhrase}
                 onClose={() => setSelection(null)}
                 onPickCollection={pickCollection}
               />
@@ -611,6 +672,7 @@ export function CreekView() {
                 files={files}
                 days={days}
                 traffic={traffic}
+                windowPhrase={windowPhrase}
                 onClose={() => setSelection(null)}
                 onPickFile={pickFile}
                 water={waterSections}
@@ -621,6 +683,7 @@ export function CreekView() {
                 totalWrites={totalWrites}
                 unresolvedCount={unresolved.length}
                 traffic={traffic}
+                windowPhrase={windowPhrase}
                 quietCount={quietCount}
                 writesOn={writesOn}
                 readsOn={readsOn}
@@ -686,10 +749,12 @@ function FileDetail({ file, onClose }: { file: CreekFile; onClose: () => void })
  * name one — for gunicorn and the Rust binaries there honestly isn't one. */
 function CallerDetail({
   caller,
+  windowPhrase,
   onClose,
   onPickCollection,
 }: {
   caller: TrafficCaller;
+  windowPhrase: string;
   onClose: () => void;
   onPickCollection: (id: string) => void;
 }) {
@@ -700,8 +765,8 @@ function CallerDetail({
         <div>
           <div className={styles.detailTitle}>{caller.name}</div>
           <p className={styles.detailMeta}>
-            caller · {caller.writes.toLocaleString()} writes · {caller.reads.toLocaleString()} reads
-            today
+            caller · {caller.writes.toLocaleString()} writes ·{' '}
+            {caller.reads.toLocaleString()} reads {windowPhrase}
           </p>
         </div>
         <button type="button" className={styles.detailClose} onClick={onClose} aria-label="Close">
@@ -724,7 +789,7 @@ function CallerDetail({
         </p>
       )}
 
-      <p className={styles.detailLabel}>What it moved today</p>
+      <p className={styles.detailLabel}>What it moved {windowPhrase}</p>
       <div className={styles.callerList}>
         {touches.map((t) => (
           <button
@@ -756,6 +821,7 @@ function CollectionDetail({
   files,
   days,
   traffic,
+  windowPhrase,
   onClose,
   onPickFile,
   water,
@@ -765,6 +831,7 @@ function CollectionDetail({
   files: readonly CreekFile[];
   days: number;
   traffic: boolean;
+  windowPhrase: string;
   onClose: () => void;
   onPickFile: (path: string) => void;
   water: WaterSections;
@@ -792,7 +859,7 @@ function CollectionDetail({
           where there's room for a sentence. Traffic mode only — in wiring mode
           the counts aren't what the picture is about. */}
       {traffic ? (
-        <p className={styles.detailCaveat}>{trafficRowTitle(collection)}.</p>
+        <p className={styles.detailCaveat}>{trafficRowTitle(collection, windowPhrase)}.</p>
       ) : null}
 
       {collection.backing === 'sql' ? (
@@ -1112,6 +1179,7 @@ function Legend({
   totalWrites,
   unresolvedCount,
   traffic,
+  windowPhrase,
   quietCount,
   writesOn,
   readsOn,
@@ -1120,6 +1188,7 @@ function Legend({
   totalWrites: number;
   unresolvedCount: number;
   traffic: boolean;
+  windowPhrase: string;
   quietCount: number;
   writesOn: boolean;
   readsOn: boolean;
@@ -1202,14 +1271,14 @@ function Legend({
         Esc, to clear it.
       </p>
       <p>
-        {totalWrites.toLocaleString()} writes tracked {traffic ? 'today' : 'in this window'}.
+        {totalWrites.toLocaleString()} writes tracked {traffic ? windowPhrase : 'in this window'}.
       </p>
       {traffic ? (
         <>
           {quietCount > 0 ? (
             <p>
-              {quietCount} {quietCount === 1 ? 'collection' : 'collections'} nothing touched today
-              {' '}aren&rsquo;t drawn at all — they&rsquo;re on the Wiring map.
+              {quietCount} {quietCount === 1 ? 'collection' : 'collections'} nothing touched{' '}
+              {windowPhrase} aren&rsquo;t drawn at all — they&rsquo;re on the Wiring map.
             </p>
           ) : null}
           {/* The three row states, said plainly. This paragraph replaced a

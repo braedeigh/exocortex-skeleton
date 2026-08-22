@@ -12,7 +12,10 @@ of the same ground, stitched together:
   - a TELEMETRY view: store.py's own op counters (folded into the
     `feature_usage` collection roughly once a minute — see store.py's
     "Per-collection op counters" section) summed over the trailing `days`
-    calendar days, per (caller, collection).
+    calendar days, per (caller, collection). Because those counters are
+    bucketed by calendar day, this view can also date each collection's most
+    recent write to the day (`last_write_day`) across the whole window — the
+    only "when" available for anything older than the write journal.
 
 Both views are joined into one `collections` list, but neither view is
 allowed to hide the other: a collection the static scanner found but that
@@ -365,11 +368,24 @@ def _window_dates(days_n, today=None):
 
 def aggregate_telemetry(feature_usage, days_n, today=None):
     """Sum feature_usage's days[<date>]["store"][<caller>][<collection>] over
-    the trailing `days_n` days into {collection: {reads, writes, callers:
-    {caller: {reads, writes}}}}, normalizing collection names so a caller
-    that (mis)spells "todos.json" merges with one that wrote "todos"."""
+    the trailing `days_n` days into {collection: {reads, writes,
+    last_write_day, callers: {caller: {reads, writes}}}}, normalizing
+    collection names so a caller that (mis)spells "todos.json" merges with one
+    that wrote "todos".
+
+    `last_write_day` is the newest date IN THE WINDOW on which this collection
+    was written at all — the counters are bucketed by calendar day, so a day is
+    the finest "when" they can honestly give. It exists because the write
+    journal (writelog.py, which does carry exact timestamps) only started
+    capturing recently and doesn't cover typed stores: over any window longer
+    than the journal's own life, it's the only answer to "when was this last
+    touched" that isn't a shrug. Stays None for a collection with no writes in
+    the window — that's the difference between "quiet" and "we can't say."
+    """
     days_data = feature_usage.get("days", {}) if isinstance(feature_usage, dict) else {}
     totals = {}
+    # Oldest first (see _window_dates), so a later day simply overwrites the
+    # last_write_day of an earlier one and the newest wins without a compare.
     for d in _window_dates(days_n, today):
         day = days_data.get(d)
         if not day:
@@ -377,11 +393,15 @@ def aggregate_telemetry(feature_usage, days_n, today=None):
         for caller, colls in day.get("store", {}).items():
             for raw_name, counts in colls.items():
                 cid = normalize_collection(raw_name)
-                bucket = totals.setdefault(cid, {"reads": 0, "writes": 0, "callers": {}})
+                bucket = totals.setdefault(
+                    cid, {"reads": 0, "writes": 0, "last_write_day": None, "callers": {}}
+                )
                 r = counts.get("reads", 0) or 0
                 w = counts.get("writes", 0) or 0
                 bucket["reads"] += r
                 bucket["writes"] += w
+                if w > 0:
+                    bucket["last_write_day"] = d
                 cb = bucket["callers"].setdefault(caller, {"reads": 0, "writes": 0})
                 cb["reads"] += r
                 cb["writes"] += w
@@ -421,7 +441,9 @@ def build_creek(repo_root, days_n):
     all_ids = sorted(static_collections | set(telemetry.keys()))
     collections_out = []
     for cid in all_ids:
-        t = telemetry.get(cid, {"reads": 0, "writes": 0, "callers": {}})
+        t = telemetry.get(
+            cid, {"reads": 0, "writes": 0, "last_write_day": None, "callers": {}}
+        )
         callers_out = [
             {"name": caller, "reads": c["reads"], "writes": c["writes"],
              "file": _caller_file(repo_root, caller)}
@@ -432,7 +454,13 @@ def build_creek(repo_root, days_n):
             "backing": "sql" if cid in SQL_COLLECTIONS else "json",
             "reads": t["reads"],
             "writes": t["writes"],
+            # Two different "when"s, deliberately both: `last_write` is exact
+            # but only exists for what the journal has seen, `last_write_day`
+            # is coarse but reaches back as far as the counters do. The client
+            # prefers the exact one and falls back, rather than either being
+            # made to stand in for the other.
             "last_write": journal_last.get(cid),
+            "last_write_day": t.get("last_write_day"),
             "callers": callers_out,
         })
 

@@ -7,13 +7,15 @@
  *
  * The overview query is the whole creek in one payload: every collection with
  * its traffic and callers, every file with its calls into those collections,
- * and the calls the server couldn't statically resolve. `days=1` gives
- * today-only telemetry — CreekView's Today mode — and each collection now
- * carries its own `last_write` (the write journal's newest event for it, or
- * null when the journal has nothing), which Today mode's recency fade
- * (`creekMath.freshnessFactor`) reads directly. `journal_since` is the
- * payload-wide version of the same honesty: when the write journal itself
- * started capturing, shown verbatim in the Today-mode legend paragraph.
+ * and the calls the server couldn't statically resolve. `days` is the window
+ * CreekView's traffic mode picks (1, 7 or 30), and each collection carries two
+ * different "when"s for its last write — `last_write` (exact, from the write
+ * journal, but only as far back as the journal has existed) and
+ * `last_write_day` (day-coarse, from the op counters, reaching as far back as
+ * they do). Neither stands in for the other; `creekMath.freshnessAt` prefers
+ * the exact one and falls back. `journal_since` is the payload-wide version of
+ * the same honesty: when the write journal itself started capturing, shown
+ * verbatim in the traffic legend.
  *
  * The four water hooks (`useCollectionNow/History/Diff/Writes`) are each
  * `enabled` only while their section is open — a collapsed section costs
@@ -53,9 +55,15 @@ export interface CreekCollection {
   writes: number;
   callers: CreekCaller[];
   /** The write journal's newest event timestamp for this collection, or null
-   * when the journal has nothing for it yet. Today mode's per-collection
-   * recency fade (`creekMath.freshnessFactor`) is computed from this. */
+   * when the journal has nothing for it yet — exact to the second, but only
+   * reaches back as far as the journal itself. */
   last_write: string | null;
+  /** The newest calendar DAY in the window on which this collection was
+   * written (`YYYY-MM-DD`), from the op counters, or null if it wasn't
+   * written at all in the window. Coarse, but it reaches back as far as the
+   * counters do — which over a 7- or 30-day window is the only "when" there
+   * is. `creekMath.freshnessAt` prefers `last_write` and falls back to this. */
+  last_write_day: string | null;
 }
 
 export type CreekVerb = 'read' | 'write' | 'mutate';

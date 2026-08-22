@@ -124,30 +124,70 @@ export const DIM_OPACITY = 0.16;
 export const LIT_WRITE_OPACITY = 1;
 export const LIT_READ_OPACITY = 0.5;
 
-/** Today mode's recency fade: roughly how many hours until a write's
- * freshness has decayed by half, and the floor it never decays past (the
- * same "never fully invisible" idiom as the opacity floors above). */
+/** The recency fade's default half-life — how many hours until a write reads
+ * as half as fresh — and the floor it never decays past (the same "never fully
+ * invisible" idiom as the opacity floors above). The default is tuned for a
+ * one-day window; longer windows scale it via `halfLifeForWindow`. */
 export const FRESHNESS_HALF_LIFE_HOURS = 6;
 export const FRESHNESS_FLOOR = 0.25;
 
 /**
- * How recently a collection's write journal actually saw it, 0..1 — Today
- * mode's per-collection recency fade. Exponential decay against
- * `FRESHNESS_HALF_LIFE_HOURS` (so `hoursSince = 6` reads about half as fresh
- * as `hoursSince = 0`), floored at `FRESHNESS_FLOOR` so a collection that's
- * simply gone quiet for a while never fades to nothing — that would read as
- * "this doesn't exist," which isn't what's true. `lastWrite === null` (the
- * journal has never seen a write for this collection) reads as maximally
- * stale — the same floor, not zero, since "no journal entry yet" isn't the
- * same claim as "definitely nothing happened." An unparseable timestamp gets
- * the same treatment rather than throwing. `now` is injectable for tests.
+ * The half-life to fade by, for a window of `days`. A fixed 6 hours is right
+ * for today and useless for a month: everything but the last few hours would
+ * sit on the floor together, so a thing written yesterday and a thing written
+ * four weeks ago would look identical. Scaling it to a quarter of the window
+ * keeps the ramp spread across whatever span is actually on screen, and lands
+ * exactly on the tuned 6 hours at `days = 1`.
  */
-export function freshnessFactor(lastWrite: string | null, now: Date = new Date()): number {
-  if (lastWrite === null) return FRESHNESS_FLOOR;
-  const d = new Date(lastWrite);
+export function halfLifeForWindow(days: number): number {
+  return Math.max(1, days) * 6;
+}
+
+/**
+ * How recently a write happened, 0..1 — the per-collection recency fade.
+ * Exponential decay against `halfLifeHours` (so a gap of one half-life reads
+ * about half as fresh as no gap at all), floored at `FRESHNESS_FLOOR` so
+ * something that's simply gone quiet for a while never fades to nothing —
+ * that would read as "this doesn't exist," which isn't what's true.
+ * `ts === null` reads as maximally stale — the same floor, not zero, since
+ * "nothing recorded" isn't the same claim as "definitely nothing happened."
+ * An unparseable timestamp gets the same treatment rather than throwing.
+ * `now` is injectable for tests.
+ */
+export function freshnessFactor(
+  ts: string | null,
+  now: Date = new Date(),
+  halfLifeHours: number = FRESHNESS_HALF_LIFE_HOURS,
+): number {
+  if (ts === null) return FRESHNESS_FLOOR;
+  const d = new Date(ts);
   if (Number.isNaN(d.getTime())) return FRESHNESS_FLOOR;
   const hoursSince = Math.max(0, (now.getTime() - d.getTime()) / 3_600_000);
-  return Math.max(FRESHNESS_FLOOR, Math.exp(-hoursSince / FRESHNESS_HALF_LIFE_HOURS));
+  return Math.max(FRESHNESS_FLOOR, Math.exp(-hoursSince / Math.max(1e-9, halfLifeHours)));
+}
+
+/**
+ * A collection's freshness from whichever "when" it actually has: the write
+ * journal's exact timestamp first, the counters' calendar day as a fallback.
+ *
+ * A day-only value is read as that day's MIDNIGHT — its earliest possible
+ * moment — so the fade errs toward looking older than the truth rather than
+ * younger. That direction is deliberate: overstating how fresh something is
+ * would be the drawing claiming to know more than it does, which is the whole
+ * failure this mode was built to end.
+ */
+export function freshnessAt(
+  collection: Pick<CreekCollection, 'last_write' | 'last_write_day'>,
+  now: Date = new Date(),
+  halfLifeHours: number = FRESHNESS_HALF_LIFE_HOURS,
+): number {
+  if (collection.last_write !== null) {
+    return freshnessFactor(collection.last_write, now, halfLifeHours);
+  }
+  if (collection.last_write_day !== null) {
+    return freshnessFactor(`${collection.last_write_day}T00:00:00`, now, halfLifeHours);
+  }
+  return FRESHNESS_FLOOR;
 }
 
 // --- rows & banks -------------------------------------------------------------
@@ -635,20 +675,33 @@ export const QUIET_OPACITY = 0.3;
  *
  * The distinction that matters, and the whole reason a single 0..1 fade wasn't
  * enough: the COUNTS come from store.py's own op counters (always on, so a
- * zero really means zero), but the TIMESTAMPS come from the write journal,
- * which is younger than the counters and doesn't cover typed stores at all. So
- * "nothing wrote this" and "something wrote this but the journal can't say
+ * zero really means zero), but the exact TIMESTAMPS come from the write
+ * journal, which is younger than the counters and doesn't cover typed stores
+ * at all. So "nothing wrote this" and "something wrote this but we can't say
  * when" are different claims, and fading both to the same grey said neither.
  *
+ * Between those two sits `last_write_day`, which the counters CAN always give
+ * for a write inside the window — the day, not the moment. Four states, in
+ * descending order of how much is known:
+ *
+ *   'moved'    — real writes, exact timestamp. Fade by recency.
+ *   'dated'    — real writes, the day but not the moment. Fade by recency too,
+ *                from that day's midnight (see `freshnessAt`).
+ *   'timeless' — real writes and no "when" at all. Defensive: with counter
+ *                data this shouldn't arise, since a counted write always lands
+ *                in some day's bucket. Draws full rather than guessing.
  *   'quiet'    — zero writes in the window. Known, not guessed.
- *   'timeless' — real writes, but no journal timestamp to place them at.
- *   'moved'    — real writes with a real timestamp; fade by recency.
  */
-export type WriteState = 'moved' | 'timeless' | 'quiet';
+export type WriteState = 'moved' | 'dated' | 'timeless' | 'quiet';
 
-export function writeState(writes: number, lastWrite: string | null): WriteState {
+export function writeState(
+  writes: number,
+  lastWrite: string | null,
+  lastWriteDay: string | null = null,
+): WriteState {
   if (!(writes > 0)) return 'quiet';
-  return lastWrite === null ? 'timeless' : 'moved';
+  if (lastWrite !== null) return 'moved';
+  return lastWriteDay !== null ? 'dated' : 'timeless';
 }
 
 /**
@@ -656,7 +709,8 @@ export function writeState(writes: number, lastWrite: string | null): WriteState
  * elsewhere) still wins outright, same rule as everywhere else. A 'timeless'
  * row draws at FULL opacity on purpose — it definitely moved, so fading it
  * would understate a fact we actually know; its unknown-ness is said in words
- * on the row instead. Only 'moved' fades, and only by real recency.
+ * on the row instead. 'moved' and 'dated' both fade by real recency, differing
+ * only in how precisely `freshnessAt` could place them.
  */
 export function trafficRowOpacity(
   state: WriteState,
@@ -878,6 +932,22 @@ export function relativeDayTime(ts: string, now: Date = new Date()): string {
   if (diffDays === 0) return `Today ${time}`;
   if (diffDays === 1) return `Yesterday ${time}`;
   return `${MONTH_NAMES[d.getMonth()]} ${d.getDate()} ${time}`;
+}
+
+/** A `YYYY-MM-DD` → "today" / "yesterday" / "Aug 9". The day-only sibling of
+ * `relativeDayTime`, for `last_write_day`: the counters know the day and not
+ * the moment, so this deliberately has no clock in it — printing "Aug 9 00:00"
+ * would invent a precision nobody measured. Parsed as local (not UTC) midnight
+ * so the day never slides by one in a negative-offset timezone. An
+ * unparseable value comes back as-is rather than throwing. */
+export function relativeDay(day: string, now: Date = new Date()): string {
+  const d = new Date(`${day}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return day;
+  const dayStart = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diffDays = Math.round((dayStart(now) - dayStart(d)) / 86_400_000);
+  if (diffDays === 0) return 'today';
+  if (diffDays === 1) return 'yesterday';
+  return `${MONTH_NAMES[d.getMonth()]} ${d.getDate()}`;
 }
 
 export type DiffLineKind = 'add' | 'del' | 'hunk' | 'meta' | 'ctx';

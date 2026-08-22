@@ -4,6 +4,7 @@ import {
   CALLER_ROLES,
   DIM_OPACITY,
   FRESHNESS_FLOOR,
+  FRESHNESS_HALF_LIFE_HOURS,
   QUIET_OPACITY,
   GROUP_GAP,
   HEADER_H,
@@ -28,6 +29,8 @@ import {
   collectionDimmed,
   collectionRowOpacity,
   fileDimmed,
+  freshnessAt,
+  halfLifeForWindow,
   layoutCallers,
   fileReads,
   fileWrites,
@@ -35,6 +38,7 @@ import {
   freshnessFactor,
   layoutCollections,
   layoutFiles,
+  relativeDay,
   relativeDayTime,
   ribbonDimmed,
   ribbonOpacity,
@@ -64,7 +68,16 @@ function collection(
   backing: CreekCollection['backing'],
   over: Partial<CreekCollection> = {},
 ): CreekCollection {
-  return { id, backing, reads: 0, writes: 0, callers: [], last_write: null, ...over };
+  return {
+    id,
+    backing,
+    reads: 0,
+    writes: 0,
+    callers: [],
+    last_write: null,
+    last_write_day: null,
+    ...over,
+  };
 }
 
 describe('fileWrites / fileReads', () => {
@@ -857,5 +870,105 @@ describe('trafficCountLabel', () => {
     expect(trafficCountLabel(collection('run_queue', 'json', { writes: 3333 }), 'writes')).toBe(
       (3333).toLocaleString(),
     );
+  });
+});
+
+// --- the traffic window (1 / 7 / 30 days) ------------------------------------
+// The counters keep ~33 days of per-day buckets, so a longer window costs a
+// query parameter and nothing else. What it DOES cost is meaning: a 6-hour
+// half-life over a month puts everything on the floor together, and the write
+// journal can only timestamp what it has seen since it started. These cover
+// both seams.
+
+describe('halfLifeForWindow', () => {
+  it('lands exactly on the tuned 6 hours for a one-day window', () => {
+    expect(halfLifeForWindow(1)).toBe(FRESHNESS_HALF_LIFE_HOURS);
+  });
+
+  it('stretches with the window so a month doesn’t collapse onto the floor', () => {
+    const now = new Date('2026-08-22T12:00:00');
+    const tenDaysAgo = '2026-08-12T12:00:00';
+    // On today's ramp a 10-day-old write is indistinguishable from ancient.
+    expect(freshnessFactor(tenDaysAgo, now, halfLifeForWindow(1))).toBe(FRESHNESS_FLOOR);
+    // On the 30-day ramp it still carries real signal.
+    expect(freshnessFactor(tenDaysAgo, now, halfLifeForWindow(30))).toBeGreaterThan(
+      FRESHNESS_FLOOR,
+    );
+  });
+
+  it('never returns a zero or negative half-life, whatever it’s handed', () => {
+    expect(halfLifeForWindow(0)).toBeGreaterThan(0);
+    expect(halfLifeForWindow(-5)).toBeGreaterThan(0);
+  });
+});
+
+describe('freshnessAt', () => {
+  const now = new Date('2026-08-22T12:00:00');
+
+  it('prefers the journal’s exact timestamp over the counters’ day', () => {
+    const exact = freshnessAt(
+      { last_write: '2026-08-22T11:00:00', last_write_day: '2026-08-01' },
+      now,
+    );
+    expect(exact).toBeCloseTo(freshnessFactor('2026-08-22T11:00:00', now), 6);
+  });
+
+  it('falls back to the day when the journal has nothing', () => {
+    const c = { last_write: null, last_write_day: '2026-08-21' };
+    expect(freshnessAt(c, now)).toBeCloseTo(freshnessFactor('2026-08-21T00:00:00', now), 6);
+  });
+
+  it('reads a day as its MIDNIGHT, erring older rather than fresher', () => {
+    // Today's date, but the day carries no clock — it must not be treated as
+    // "just now". Overstating freshness is the one direction this may not err.
+    const dayOnly = freshnessAt({ last_write: null, last_write_day: '2026-08-22' }, now);
+    const rightNow = freshnessAt({ last_write: '2026-08-22T12:00:00', last_write_day: null }, now);
+    expect(dayOnly).toBeLessThan(rightNow);
+  });
+
+  it('floors when it has no "when" at all', () => {
+    expect(freshnessAt({ last_write: null, last_write_day: null }, now)).toBe(FRESHNESS_FLOOR);
+  });
+});
+
+describe('writeState with a counter-derived day', () => {
+  it('is "dated" when the counters know the day but the journal has no moment', () => {
+    expect(writeState(12, null, '2026-08-09')).toBe('dated');
+  });
+
+  it('still prefers "moved" when an exact timestamp exists', () => {
+    expect(writeState(12, '2026-08-21T22:30:00', '2026-08-21')).toBe('moved');
+  });
+
+  it('stays quiet on zero writes even with a day from an earlier window', () => {
+    expect(writeState(0, null, '2026-08-09')).toBe('quiet');
+  });
+
+  it('keeps "timeless" for writes with no "when" from either source', () => {
+    expect(writeState(12, null, null)).toBe('timeless');
+  });
+
+  it('fades a dated row by recency rather than pinning it full like timeless', () => {
+    expect(trafficRowOpacity('dated', false, 0.7)).toBeCloseTo(0.7);
+    expect(trafficRowOpacity('timeless', false, 0.7)).toBe(1);
+  });
+});
+
+describe('relativeDay', () => {
+  const now = new Date('2026-08-22T09:00:00');
+
+  it('names today and yesterday', () => {
+    expect(relativeDay('2026-08-22', now)).toBe('today');
+    expect(relativeDay('2026-08-21', now)).toBe('yesterday');
+  });
+
+  it('prints an older day with no clock, since no clock was measured', () => {
+    const out = relativeDay('2026-08-09', now);
+    expect(out).toBe('Aug 9');
+    expect(out).not.toMatch(/\d\d:\d\d/);
+  });
+
+  it('returns an unparseable value as-is rather than throwing', () => {
+    expect(relativeDay('not-a-day', now)).toBe('not-a-day');
   });
 });
