@@ -50,6 +50,40 @@
   box-shadow: 0 16px 40px rgb(0 0 0 / 0.30);
 }
 
+/* At rest the landmark is not the drawing any more — the canvas paints the
+   pond tile itself (terrainCanvas.ts), and this box is a transparent reach
+   target sitting over it, with the name hung beneath. No border, no glass, no
+   shadow: chrome over the tile would cover the exact thing it names. Overflow
+   is visible because the name lives OUTSIDE the box now. */
+.atRest {
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+  overflow: visible;
+}
+
+.atRest:hover,
+.atRest:focus-visible {
+  box-shadow: none;
+}
+
+/* The name (and the lit-thread chip) beneath the square, centred — a map
+   caption under its symbol, like the directory hubs name themselves. */
+.atRest .stack {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  height: auto;
+  width: max-content;
+  max-width: 200px;
+  align-items: center;
+  padding: 2px 0 0;
+}
+
 .landmark:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
@@ -81,22 +115,6 @@
 
 .reachTarget:focus-visible {
   outline: none;
-}
-
-/* The water fills the box and sits under everything else. */
-.water {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  display: block;
-}
-
-.surface {
-  stroke: var(--pond-bright);
-  stroke-width: 1.5;
-  stroke-linecap: round;
-  opacity: 0.9;
 }
 
 /* Name and chips are FLOW content in a padded column, not absolutely-placed

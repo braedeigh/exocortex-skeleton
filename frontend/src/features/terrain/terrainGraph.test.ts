@@ -20,6 +20,7 @@ import {
   LENS_HALF_LIFE_SECONDS,
   changedFileIds,
   breathHalfLife,
+  bucketHeat,
   halfLifeSeconds,
   filterTerrainData,
   terrainEarliestTouch,
@@ -971,5 +972,56 @@ describe('agentTouchRings (every shown agent at once)', () => {
 
   it('rings nothing when no agents are shown', () => {
     expect(agentTouchRings(graph().nodes, new Set()).size).toBe(0);
+  });
+});
+
+describe('the pond tile riding through the graph (days → dayHeats)', () => {
+  const tile: TerrainFile = {
+    path: 'tulku/_system/data/cards/pond',
+    touches: [NOW, NOW - DAY],
+    sessions: [],
+    days: [
+      { day: '2026-08-20', touches: [NOW - DAY] },
+      { day: '2026-08-21', touches: [NOW] },
+    ],
+  };
+
+  it('attaches a heat per day, on the same lens as the node itself', () => {
+    const graph = buildTerrainGraph(
+      makeData([{ id: 'v', name: 'V', root: '/', files: [tile] }]),
+      'day',
+      NOW,
+    );
+    const node = graph.nodes.find((n) => n.kind === 'file')!;
+    expect(node.dayHeats).toHaveLength(2);
+    expect(node.dayHeats![0]).toBeCloseTo(0.5, 6); // one touch, one half-life old
+    expect(node.dayHeats![1]).toBeCloseTo(1, 6);
+  });
+
+  it('leaves ordinary files without dayHeats', () => {
+    const graph = buildTerrainGraph(
+      makeData([{ id: 'v', name: 'V', root: '/', files: [file('a.py', [NOW])] }]),
+      'day',
+      NOW,
+    );
+    expect(graph.nodes.find((n) => n.kind === 'file')!.dayHeats).toBeUndefined();
+  });
+
+  it('bucketHeat matches computeFileHeat for bare touches', () => {
+    expect(bucketHeat([NOW - DAY], 'day', NOW)).toBeCloseTo(
+      computeFileHeat(file('x', [NOW - DAY]), 'day', NOW),
+      6,
+    );
+  });
+
+  it('filterTerrainData cuts the date dial into the day buckets too', () => {
+    const out = filterTerrainData(
+      makeData([{ id: 'v', name: 'V', root: '/', files: [tile] }]),
+      { from: NOW - DAY / 2, to: NOW, count: null },
+      NOW,
+    );
+    const kept = out.repos[0].files[0];
+    expect(kept.days![0].touches).toEqual([]); // yesterday fell outside the range
+    expect(kept.days![1].touches).toEqual([NOW]);
   });
 });

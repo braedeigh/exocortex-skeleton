@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { subscribeTheme } from '../../theme';
 import { useTerrain, type TerrainData } from './api';
+import { collapseToPondTile, localDayISO } from './pondNodes';
 import {
   breathHalfLife,
   buildTerrainGraph,
@@ -48,6 +49,13 @@ import styles from './TerrainBackdrop.module.css';
  * holds perfectly still while its glow moves. Measured at 0.41ms per rebuild
  * for 373 nodes, so a rebuild per frame at this rate is cheaper than the
  * interpolation scheme it replaced.
+ *
+ * THE POND rides in here too: the journal's ~1,700 card dots are swapped for
+ * the one pond-tile node (collapseToPondTile) before the graph is ever built,
+ * so behind a conversation the journal is a small unlabeled square of water
+ * with a collision body of its own. Because the breath rebuilds the graph
+ * each tick, the tile's per-day heats ride the same swelling half-life — the
+ * month inside the square visibly inhales and exhales with the map.
  */
 
 /* The breath's period and repaint rate are shared with /terrain's Dynamic heat
@@ -97,10 +105,17 @@ export function TerrainBackdrop({
   const engineRef = useRef<TerrainCanvas | null>(null);
   const fittedRef = useRef(false);
 
+  // The journal collapsed to the pond tile once per payload, not per breath
+  // tick — parsing ~1,700 card filenames at 7fps would be pure waste.
+  const collapsed = useMemo(
+    () => (data ? collapseToPondTile(data, localDayISO()).data : undefined),
+    [data],
+  );
+
   // The payload lives in a ref because the breath rebuilds the graph on its
   // own clock, outside React's render cycle.
   const dataRef = useRef<TerrainData | undefined>(undefined);
-  dataRef.current = data;
+  dataRef.current = collapsed;
 
   // The focused conversation, in a ref for the same reason — the breath's paint
   // loop (empty-dep effect) reads it to keep the focused agent in the active
@@ -229,15 +244,17 @@ export function TerrainBackdrop({
     };
   }, []);
 
+  // Flashes compare the COLLAPSED payloads, so a new journal card advances
+  // the pond tile's newest touch and the square itself blinks.
   const prevDataRef = useRef<TerrainData | null>(null);
   useEffect(() => {
-    if (!data) return;
+    if (!collapsed) return;
     const prev = prevDataRef.current;
-    prevDataRef.current = data;
+    prevDataRef.current = collapsed;
     if (!prev) return;
-    const changed = changedFileIds(prev, data);
+    const changed = changedFileIds(prev, collapsed);
     if (changed.size > 0) engineRef.current?.flash(changed);
-  }, [data]);
+  }, [collapsed]);
 
   return (
     <div ref={wrapRef} className={styles.backdrop} aria-hidden="true">

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { usePondShape } from '../pond/api';
-import { bucketShape, shapePath } from '../pond/pondShape';
+import { bucketShape } from '../pond/pondShape';
 import {
   JUMP_DAYS,
   PANE_ZOOMS,
@@ -33,16 +33,19 @@ import styles from './PondLandmark.module.css';
  *
  * TWO STATES, one object:
  *
- *   RESTING   small and deliberately crude — twelve buckets, a blurred blob of
- *             water. It's a map SYMBOL here, and its whole job is to be findable
- *             out of the corner of an eye; at this size it should read as
- *             "there's a pond over there" and nothing more.
- *   REACHED   hover, focus, or a first tap: it eases up into a real pane, the
- *             blob is replaced by a miniature of the pond's WORDS arrangement,
- *             the filter display appears, and the water under the real dots
- *             lights on the canvas so she can see WHICH part of the map this is
- *             a picture of. The way in is the "Open the pond" button — a click
- *             on the drawing itself belongs to time now, not to navigation.
+ *   RESTING   invisible chrome. The map now draws the pond itself — the card
+ *             cluster is collapsed to one tile node the canvas paints as a
+ *             month-of-days square with a real collision body (pondNodes.ts /
+ *             terrainCanvas.ts) — so a second water drawing floating over it
+ *             would just cover the thing it stands for. At rest this is only
+ *             the name beneath the square, the lit-thread chip, and a
+ *             transparent reach target sized to the tile.
+ *   REACHED   hover, focus, or a first tap: it eases up into a real pane, a
+ *             miniature of the pond's WORDS arrangement, the filter display
+ *             appears, and the water under the tile lights on the canvas so
+ *             she can see WHICH part of the map this is a picture of. The way
+ *             in is the "Open the pond" button — a click on the drawing
+ *             itself belongs to time now, not to navigation.
  *
  * THE PANE is the reached drawing: one small rectangle per card, as tall as
  * that card had words in it, stacked up a column per day with a gap between
@@ -88,13 +91,16 @@ import styles from './PondLandmark.module.css';
  * by scrolling or pinching inside of it for the size of the dots to grow".
  */
 
-/** How many buckets the resting silhouette draws. Crude on purpose. */
+/** How many buckets the whole-pond silhouette is reduced to for the
+ * owner-share hairline. Crude on purpose. */
 const CRUDE_COLUMNS = 12;
 
-/** The resting box, in CSS px. Small enough to read as a map symbol, and tall
- * enough for the name AND a lit-thread chip stacked under it — at 46px they
- * overlapped and "Ezra" printed straight across "POND". */
-const RESTING = { w: 92, h: 58 };
+/** The resting reach target's bounds, in CSS px. It tracks the tile's own
+ * on-screen size (see below) between these: never under the 44px house floor
+ * for a touch target, never so large that hovering the map's middle reads as
+ * hovering the pond. */
+const REST_MIN = 44;
+const REST_MAX = 200;
 
 /** Where the pane opens before she has ever dragged it, and the floor it can be
  * dragged to.
@@ -175,16 +181,14 @@ export function PondLandmark({
     if (!reached) setScrollX(0);
   }, [reached]);
 
-  const box = reached ? { w: pane.w, h: pane.h } : RESTING;
+  // At rest the box is the reach target over the canvas-drawn tile, sized to
+  // the anchor the engine reports (the tile's reach, already in screen px).
+  const restSide = clamp((anchor?.r ?? REST_MIN) * 1.4, REST_MIN, REST_MAX);
+  const box = reached ? { w: pane.w, h: pane.h } : { w: restSide, h: restSide };
 
-  // --- the resting silhouette ----------------------------------------------
   const columns = useMemo(
     () => bucketShape(shape.data?.days ?? [], CRUDE_COLUMNS),
     [shape.data?.days],
-  );
-  const path = useMemo(
-    () => (reached ? '' : shapePath(columns, box.w, box.h)),
-    [columns, box.w, box.h, reached],
   );
 
   // Her share of the pond, for the hairline — a pond that's mostly Keeper reads
@@ -411,7 +415,7 @@ export function PondLandmark({
 
   return (
     <div
-      className={[styles.landmark, reached ? styles.reached : ''].filter(Boolean).join(' ')}
+      className={[styles.landmark, reached ? styles.reached : styles.atRest].join(' ')}
       style={{ left, top, width: box.w, height: box.h }}
       aria-label={
         reached
@@ -432,38 +436,10 @@ export function PondLandmark({
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) reach(false);
       }}
     >
-      {/* RESTING: the water. One filled body rather than bars — at this size a
-          bar chart is an unreadable smear, but a blob still reads as a pond,
-          which is exactly what a map symbol should look like. */}
-      {!reached ? (
-        <svg
-          className={styles.water}
-          width={box.w}
-          height={box.h}
-          viewBox={`0 0 ${box.w} ${box.h}`}
-          aria-hidden="true"
-        >
-          <defs>
-            <linearGradient id="pond-surface" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="var(--pond-bright)" stopOpacity={0.85} />
-              <stop offset="100%" stopColor="var(--pond-deep)" stopOpacity={0.55} />
-            </linearGradient>
-          </defs>
-          {path ? (
-            <>
-              <path d={path} fill="url(#pond-surface)" />
-              {/* The surface line, a shade brighter than the body — this is
-                  what makes it read as water with a top rather than as a
-                  filled area chart. */}
-              <path d={path} className={styles.surface} fill="none" />
-            </>
-          ) : null}
-        </svg>
-      ) : null}
-
-      {/* RESTING: the whole symbol is one big target. A mouse never notices —
-          hovering already reached it — but a touch needs somewhere to tap, and
-          the house floor is 40px. */}
+      {/* RESTING: the drawing is the canvas tile underneath — this is only the
+          way to reach it. A mouse never notices the target (hovering already
+          reached it), but a touch needs somewhere to tap, and the house floor
+          is 40px. */}
       {!reached ? (
         <button
           type="button"

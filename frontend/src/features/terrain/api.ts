@@ -34,6 +34,11 @@ export interface TerrainFile {
   /** Unix seconds, newest first. */
   touches: number[];
   sessions: TerrainSession[];
+  /** Synthetic only — the server never sends this. The pond tile
+   * (pondNodes.ts) carries the last month of the journal here, bucketed per
+   * day and oldest first, so the canvas can draw the month inside its square
+   * and terrainGraph can light each day with the live heat lens. */
+  days?: { day: string; touches: number[] }[];
 }
 
 export interface TerrainRepo {

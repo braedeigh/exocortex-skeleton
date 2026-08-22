@@ -41,6 +41,7 @@ import { FileCodeWindow } from './FileCodeWindow';
 import { AgentHoverCard } from './AgentHoverCard';
 import { TerrainRoomsIndex } from './TerrainRoomsIndex';
 import { PondLandmark } from './PondLandmark';
+import { collapseToPondTile, localDayISO, parseCardPath, POND_TILE_PATH } from './pondNodes';
 import {
   readThemeInk,
   TerrainCanvas,
@@ -381,13 +382,29 @@ export function TerrainPage() {
   const engineRef = useRef<TerrainCanvas | null>(null);
   const fittedRef = useRef(false);
 
-  // The dials narrow the payload first (time, then count), and the graph is
-  // built from what survives — so heat, ages and session lists all describe
-  // the chosen span rather than all time.
+  /**
+   * The journal collapsed BEFORE anything else looks at the payload: every
+   * card file (~1,700 anonymous dots, the biggest and least readable
+   * structure on the map) is swapped for ONE synthetic node — the pond tile,
+   * a month of journal bucketed per day that the canvas draws as a small
+   * square of water with a real collision body. See pondNodes.ts.
+   *
+   * Collapse first, then the dials: the tile is one whole thing, so the
+   * Files dial's hottest-N cut can't land in the middle of the journal and
+   * quietly under-count it — and the date dial still reaches inside
+   * (filterTerrainData filters the tile's day buckets too).
+   */
+  const collapsed = useMemo(() => (data ? collapseToPondTile(data, localDayISO()) : null), [data]);
+
+  // The dials narrow the payload (time, then count), and the graph is built
+  // from what survives — so heat, ages and session lists all describe the
+  // chosen span rather than all time.
   const filtered = useMemo(
     () =>
-      data ? filterTerrainData(data, { from: range.from, to: range.to, count: effectiveCount }, now) : null,
-    [data, range.from, range.to, effectiveCount, now],
+      collapsed
+        ? filterTerrainData(collapsed.data, { from: range.from, to: range.to, count: effectiveCount }, now)
+        : null,
+    [collapsed, range.from, range.to, effectiveCount, now],
   );
 
   /**
@@ -651,6 +668,10 @@ export function TerrainPage() {
     if (!engine) return;
     engine.onTap = (node) => {
       if (node?.kind === 'file') {
+        // The pond tile isn't a code file — the landmark floating over it
+        // owns the pond's interactions (its reach target catches most taps;
+        // this catches the hit-slop ring around the square).
+        if (node.path === POND_TILE_PATH) return;
         if (node.path) {
           if (dispatchIntent({ kind: 'code', repo: node.repoId, path: node.path }) !== 'none') return;
           setCodeFile(node);
@@ -737,15 +758,17 @@ export function TerrainPage() {
 
   // Live-mode flashes: any file whose newest touch advanced since the
   // previous payload glows for a second — the "watch it work" effect.
+  // Compared on the COLLAPSED payload, so a new journal card advances the
+  // pond tile's newest touch and the square itself flashes.
   const prevDataRef = useRef<TerrainData | null>(null);
   useEffect(() => {
-    if (!data) return;
+    if (!collapsed) return;
     const prev = prevDataRef.current;
-    prevDataRef.current = data;
+    prevDataRef.current = collapsed.data;
     if (!prev) return;
-    const changed = changedFileIds(prev, data);
+    const changed = changedFileIds(prev, collapsed.data);
     if (changed.size > 0) engineRef.current?.flash(changed);
-  }, [data]);
+  }, [collapsed]);
 
   // Code-weather: the flow feed (the same one /terrain/flow reads) rains new
   // writes onto the map — a few of the written lines rise off the file's node
@@ -765,7 +788,11 @@ export function TerrainPage() {
         .filter((e) => e.snippet !== null)
         .map((e) => ({
           key: e.id,
-          nodeId: `${e.repo}:file:${e.path}`,
+          // Card files aren't nodes any more — the tile stands for all of
+          // them, so a written card's lines rise off the pond itself.
+          nodeId: parseCardPath(e.path)
+            ? `${e.repo}:file:${POND_TILE_PATH}`
+            : `${e.repo}:file:${e.path}`,
           lines: e.snippet!.split('\n'),
         })),
     );

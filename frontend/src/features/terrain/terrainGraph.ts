@@ -266,6 +266,13 @@ export function filterTerrainData(
         return last === null || inRange(last, from, to);
       });
       if (touches.length === 0 && sessions.length === 0) continue;
+      const kept: TerrainFile = { ...file, touches, sessions };
+      // Synthetic sub-buckets (the pond tile's days) obey the date dial too —
+      // a range narrowed to one week should empty the tile's other columns,
+      // not keep drawing a month the dial just excluded.
+      if (file.days) {
+        kept.days = file.days.map((d) => ({ ...d, touches: d.touches.filter((ts) => inRange(ts, from, to)) }));
+      }
       // Rank against the range's own end, not the wall clock: inside a
       // historical window the "hottest" files are the ones busiest then.
       const ref = Math.min(nowSeconds, to);
@@ -275,7 +282,7 @@ export function filterTerrainData(
         const last = sessionLastSeconds(s.last);
         if (last !== null) rank += Math.pow(2, -(ref - last) / COUNT_RANK_HALF_LIFE_SECONDS);
       }
-      ranked.push({ repoIndex, file: { ...file, touches, sessions }, rank });
+      ranked.push({ repoIndex, file: kept, rank });
     }
   });
 
@@ -347,6 +354,10 @@ export interface TerrainNode {
   heat: number;
   /** The file payload, for file nodes only (sessions, touches). */
   file?: TerrainFile;
+  /** Heat per synthetic sub-bucket, parallel to `file.days` — only ever on
+   * the pond tile. Computed with the SAME lens as everything else, so the
+   * days inside the tile breathe with the map. */
+  dayHeats?: number[];
   /** The session payload, for session orb nodes only. */
   session?: OrbSession;
 }
@@ -410,6 +421,20 @@ export function computeFileHeat(file: TerrainFile, lens: HeatSpan, nowSeconds: n
 export function normalizeHeat(heat: number): number {
   if (heat <= 0) return 0;
   return 1 - Math.pow(2, -heat);
+}
+
+/** The same decayed-touch sum for one of a file's synthetic sub-buckets (the
+ * pond tile's days) — kept identical to computeFileHeat's decay so a day
+ * inside the tile breathes on exactly the lens the rest of the map is on. */
+export function bucketHeat(touches: number[], lens: HeatSpan, nowSeconds: number): number {
+  const halfLife = halfLifeSeconds(lens);
+  if (halfLife <= 0) return 0;
+  let heat = 0;
+  for (const ts of touches) {
+    const age = nowSeconds - ts;
+    if (Number.isFinite(age)) heat += Math.pow(2, -age / halfLife);
+  }
+  return heat;
 }
 
 // ---- directory-chain collapsing ------------------------------------------------
@@ -498,6 +523,7 @@ function emitDir(ctx: BuildCtx, dir: TrieDir, parentId: string, depth: number): 
       path: file.path,
       heat,
       file,
+      dayHeats: file.days?.map((d) => bucketHeat(d.touches, ctx.lens, ctx.nowSeconds)),
     });
     ctx.edges.push({ source: id, target: fileId });
     maxChildHeat = Math.max(maxChildHeat, heat);
@@ -564,6 +590,7 @@ export function buildTerrainGraph(
         path: file.path,
         heat,
         file,
+        dayHeats: file.days?.map((d) => bucketHeat(d.touches, lens, nowSeconds)),
       });
       repoCtx.edges.push({ source: repoId, target: fileId });
       repoMaxHeat = Math.max(repoMaxHeat, heat);

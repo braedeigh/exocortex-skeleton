@@ -52,19 +52,22 @@
  * terrain, the other rings and lines become grayed out from the other agents
  * to focus on what is showing there."
  *
- * THE POND is the one landmark on this map that isn't a file or an agent. The
- * journal — the card pool and the diary — is a real region of the vault, and a
- * big one, so this engine reports where that cluster is sitting on screen
- * (`onPondMove`) and the page floats a small pond over it (PondLandmark.tsx).
- * The engine draws only the water tint, and only while she's looking at the
- * landmark; the landmark itself is DOM, because it carries type and a map
- * label should stay legible at every zoom rather than shrinking with the
- * territory it names.
+ * THE POND is the one thing on this map that isn't a dot. The card pool used
+ * to arrive as ~1,700 anonymous dots; pondNodes.ts now swaps them for ONE
+ * synthetic file node carrying the last month bucketed per day, and this
+ * engine draws that node as a small square of water — one column per day,
+ * each lit by its own dayHeat on the map's live lens, so the breath visibly
+ * moves through the month. The tile is a real sim body with a collision
+ * radius, so the rest of the terrain bumps around it rather than being
+ * covered by it. It draws no text at any zoom: on the backdrop it's
+ * wallpaper, and on /terrain the DOM landmark (PondLandmark.tsx) hangs its
+ * name and its hover-pane off `onPondMove`, the same way the agent hovercard
+ * hangs off `onHoverAgent`. The engine also tints the water under the pond
+ * nodes, but only while she's looking at the landmark (`setPondLit`).
  *
- * Prompt that produced it: "i basically want the pond to be floating over the
- * terrain dots map in the area where all the journal entries are" / "small and
- * poorly detailed and if you hover over it it gets big and then you can click
- * on it to enter it".
+ * Prompt that produced it: "I want the pond UI to display in the background
+ * of my sessions ... in a square without any labels ... it needs to bump
+ * around the other dots and not cover them".
  */
 import {
   forceCollide,
@@ -232,6 +235,19 @@ const FOOTPRINT_LABEL_CAP = 12;
  * drawn in screen space, so they never shrink below this at any zoom. */
 const LABEL_PX = 12;
 
+/** The pond tile's square, in WORLD units — it scales with the territory like
+ * any map object, unlike the DOM landmark (which is chrome). Small on
+ * purpose: it's a month of journal as a map symbol, not a chart to read. */
+const POND_TILE_SIDE = 64;
+/** ...but never smaller than this many SCREEN pixels — the tile is the
+ * journal's whole presence on the map now, and at the far zoom floor a
+ * 64-world square would vanish into two pixels. Same idea as MIN_NODE_PX. */
+const POND_TILE_MIN_PX = 22;
+/** Collision reach: the circle through the square's corners plus a little
+ * margin. d3's colliders are circles, so dots clear the square's edges with
+ * slightly more room than its corners — which reads as a margin, not a bug. */
+const POND_TILE_COLLIDE_R = (POND_TILE_SIDE / 2) * Math.SQRT2 + 3;
+
 function hexToRgbTuple(hex: string): [number, number, number] {
   const h = hex.replace('#', '');
   return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
@@ -262,6 +278,9 @@ function nodeRadius(node: TerrainNode, t: number): number {
   if (node.kind === 'repo') return 11;
   if (node.kind === 'session') return 9; // orbs: fixed — identity, not magnitude
   if (node.kind === 'dir') return 5.5 + 4.5 * t;
+  // The pond tile: a body the size of its square, so the sim keeps the rest
+  // of the map out from under it.
+  if (node.file?.days) return POND_TILE_COLLIDE_R;
   return 4 + 9 * t; // file: heat visibly scales size — the redundant channel
 }
 
@@ -1164,10 +1183,12 @@ export class TerrainCanvas {
     let n = 0;
     let sx = 0;
     let sy = 0;
+    let maxR = 0;
     for (const node of this.simNodes) {
       if (!this.pondIds.has(node.id)) continue;
       sx += node.x ?? 0;
       sy += node.y ?? 0;
+      maxR = Math.max(maxR, node.radius);
       n += 1;
     }
     if (n === 0) return null;
@@ -1179,8 +1200,76 @@ export class TerrainCanvas {
       sq += ((node.x ?? 0) - cx) ** 2 + ((node.y ?? 0) - cy) ** 2;
     }
     // 1.5 RMS reaches past the bulk of a roughly gaussian blob without
-    // chasing its outliers.
-    return { x: cx, y: cy, r: Math.max(1, Math.sqrt(sq / n) * 1.5) };
+    // chasing its outliers. The max member radius matters now that the pond
+    // is mostly ONE body (the tile): a lone node has zero spread, and the
+    // anchor should still say how much map the square is standing on.
+    return { x: cx, y: cy, r: Math.max(1, Math.sqrt(sq / n) * 1.5, maxR) };
+  }
+
+  /**
+   * The pond tile: a month of journal as a small square of water, drawn in
+   * world space at the tile node's sim position.
+   *
+   * One column per day, oldest at the left. A column's HEIGHT is how much was
+   * written that day (touch count against the window's busiest day, with a
+   * floor so a one-card day still shows above the water); its COLOUR is that
+   * day's own heat on the map's live lens — which is what makes the tile
+   * breathe on the backdrop: the exhale (one-day half-life) lights only the
+   * newest columns, the inhale (one-month) warms the whole square. A quiet
+   * day draws nothing and reads as bare water.
+   *
+   * The water body itself is the same blue family as the pondLit tint, kept
+   * quiet — the tile is wallpaper on the backdrop and a map symbol on
+   * /terrain; the DOM landmark carries anything textual.
+   */
+  private drawPondTile(n: SimNode, ramp: readonly string[], now: number): void {
+    const { ctx, theme, transform } = this;
+    const days = n.node.file?.days ?? [];
+    if (days.length === 0) return;
+    const heats = n.node.dayHeats ?? [];
+    const side = Math.max(POND_TILE_SIDE, POND_TILE_MIN_PX / transform.k);
+    const half = side / 2;
+    const x0 = (n.x ?? 0) - half;
+    const y0 = (n.y ?? 0) - half;
+
+    // The water: a soft rounded square, filled and edged in the pond's blue.
+    ctx.beginPath();
+    ctx.roundRect(x0, y0, side, side, side * 0.09);
+    ctx.fillStyle = theme.dark ? 'rgba(124,180,214,0.16)' : 'rgba(70,130,180,0.13)';
+    ctx.fill();
+    ctx.strokeStyle = theme.dark ? 'rgba(142,199,230,0.45)' : 'rgba(47,107,143,0.4)';
+    ctx.lineWidth = 1 / transform.k;
+    ctx.stroke();
+
+    // The days, filling from the bottom like water.
+    const pad = side * 0.08;
+    const innerW = side - pad * 2;
+    const innerH = side - pad * 2;
+    const colW = innerW / days.length;
+    let cMax = 1;
+    for (const d of days) cMax = Math.max(cMax, d.touches.length);
+    for (let i = 0; i < days.length; i += 1) {
+      const count = days[i].touches.length;
+      if (count === 0) continue;
+      const h = innerH * (0.12 + 0.88 * (count / cMax));
+      ctx.fillStyle = heatColor(normalizeHeat(heats[i] ?? 0), ramp);
+      ctx.fillRect(x0 + pad + i * colW, y0 + pad + innerH - h, Math.max(colW * 0.78, 0.4), h);
+    }
+
+    // One-shot flash — a new card just landed in the pool. Same swell-and-fade
+    // as a file dot's, ringed around the square's corners.
+    const expiry = this.flashes.get(n.id);
+    if (expiry !== undefined && expiry > now) {
+      const p = 1 - (expiry - now) / 1000;
+      const base = ctx.globalAlpha;
+      ctx.globalAlpha = base * (1 - p) * 0.85;
+      ctx.strokeStyle = ramp[ramp.length - 1];
+      ctx.lineWidth = 2.5 / transform.k;
+      ctx.beginPath();
+      ctx.arc(n.x ?? 0, n.y ?? 0, half * Math.SQRT2 + (3 + 10 * p) / transform.k, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.globalAlpha = base;
+    }
   }
 
   /** Tell the page where the water is, if that answer has moved. */
@@ -1421,6 +1510,13 @@ export class TerrainCanvas {
         ctx.arc(n.x ?? 0, n.y ?? 0, r + 4 / transform.k, 0, Math.PI * 2);
         ctx.stroke();
         ctx.globalAlpha = inPrint ? 1 : 0.22;
+        continue;
+      }
+
+      if (n.node.kind === 'file' && n.node.file?.days) {
+        // The pond tile — the journal's one body on the map. Drawn as a
+        // square of water rather than a dot, and never labeled by the engine.
+        this.drawPondTile(n, ramp, now);
         continue;
       }
 
