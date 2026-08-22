@@ -14,6 +14,7 @@ from pathlib import Path
 from contextlib import contextmanager
 from datetime import datetime
 import atexit
+import copy
 import json
 import os
 import re
@@ -378,6 +379,58 @@ atexit.register(_stats_flush)
 # --- end op counters ---------------------------------------------------------
 
 
+# --- Write journal hooks (writelog.py) ----------------------------------------
+# write()/mutate() feed every persisted change to writelog.record(), which
+# journals it (timestamp, caller, collection, verb, a structural diff) into
+# its own SQLite db — see writelog.py for the full contract. Same fail-open
+# rule as the op counters above: capture must NEVER break or slow a real
+# write beyond negligibly, so every hook here is its own guarded no-op on
+# failure, and the kill switch (EXOCORTEX_WRITE_LOG_OFF=1, checked inside
+# writelog itself) is read again before doing any work that isn't free.
+_WRITELOG_MISSING = object()  # sentinel: "collection didn't exist" vs. "read failed"
+
+
+def _writelog_enabled():
+    try:
+        import writelog
+        return not writelog._off()
+    except Exception:
+        return False
+
+
+def _writelog_snapshot(name):
+    """Best-effort read of the current value for the before-image, using the
+    same internal path mutate() uses (no telemetry double-count). None means
+    'nothing there yet' (a real signal to the journal) OR 'the read itself
+    failed' (fail-open) — both are safe to treat the same way here, since a
+    write() that can't even be read from is not one whose diff is worth
+    blocking on."""
+    try:
+        val = _read(name, _WRITELOG_MISSING)
+        return None if val is _WRITELOG_MISSING else val
+    except Exception:
+        return None
+
+
+def _writelog_snapshot_copy(data):
+    """Deep-copy `data` for mutate()'s before-image. On failure, ok=False —
+    the caller skips journaling THIS call rather than let a bad value break
+    the mutate itself."""
+    try:
+        return copy.deepcopy(data), True
+    except Exception:
+        return None, False
+
+
+def _writelog_capture(name, verb, before, after):
+    try:
+        import writelog
+        writelog.record(_key(name), verb, before, after)
+    except Exception:
+        pass
+# --- end write journal hooks --------------------------------------------------
+
+
 def read(name, default=None):
     """Read a collection. SQL-backed collections read from SQLite — what the
     app displays is what's in the database. Everything else reads its JSON
@@ -446,9 +499,19 @@ def write_text_file(path, content):
 
 def write(name, data):
     """Write a collection. SQL-backed collections commit to SQLite first, then
-    export the JSON mirror; everything else writes its JSON file atomically."""
+    export the JSON mirror; everything else writes its JSON file atomically.
+
+    Also feeds the write journal (writelog.py): a before-snapshot is taken
+    BEFORE the real write and the event is recorded AFTER it succeeds — both
+    steps are best-effort and skipped entirely when the journal's kill switch
+    is on, so they can never slow or break the real write.
+    """
     _stats_count(name, "writes")
+    wl_on = _writelog_enabled()
+    before = _writelog_snapshot(name) if wl_on else None
     _write(name, data)
+    if wl_on:
+        _writelog_capture(name, "write", before, data)
 
 
 def _write(name, data):
@@ -476,28 +539,37 @@ def mutate(name, default=None):
     exception inside the block writes nothing.
     """
     _stats_count(name, "writes")
+    wl_on = _writelog_enabled()
     if _sql_backed(name):
         import sqlstore
         import schemas
         with sqlstore.mutate(_key(name), default) as data:
+            wl_before, wl_ok = _writelog_snapshot_copy(data) if wl_on else (None, False)
             _stats_enter_mutate()
             try:
                 yield data
             finally:
                 _stats_exit_mutate()
             schemas.validate(_key(name), data)
+        # Reached only if the block above didn't raise — same "no exception
+        # inside the block -> nothing written" contract the journal mirrors.
+        if wl_on and wl_ok:
+            _writelog_capture(name, "mutate", wl_before, data)
         return
     path = _path(name)
     lock_path = path.with_suffix(path.suffix + ".lock")
     with open(lock_path, "w") as lock_file:
         fcntl.flock(lock_file, fcntl.LOCK_EX)
         data = _read(name, default)
+        wl_before, wl_ok = _writelog_snapshot_copy(data) if wl_on else (None, False)
         _stats_enter_mutate()
         try:
             yield data
         finally:
             _stats_exit_mutate()
         _write(name, data)
+    if wl_on and wl_ok:
+        _writelog_capture(name, "mutate", wl_before, data)
 
 
 # --- Backward-compatible aliases ---

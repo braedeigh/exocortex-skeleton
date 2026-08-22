@@ -1,5 +1,6 @@
 """The Creek — a data-flow map of the app: which files touch which store
-collections, and how much traffic each collection actually carries.
+collections, how much traffic each one carries, and (this module's "water"
+half) what the data actually IS or WAS.
 
 GET /api/creek?days=<n, default 14> returns one JSON document with two views
 of the same ground, stitched together:
@@ -22,7 +23,31 @@ tree) still appears too. Same rule for `unresolved`: a first argument to
 store.read/write/mutate that isn't a string literal or a resolvable same-file
 UPPERCASE constant is recorded there rather than guessed at.
 
-Everything here is read-only — this module never calls store.write/mutate.
+Four "water" endpoints answer WHAT the data is/was, not just that it flows,
+for one collection id at a time (ids may contain slashes, e.g.
+`bot_chats/index` — routes use `<path:cid>` and every one validates cid
+through `_valid_cid` before touching a file):
+
+  - GET /api/creek/collection/<path:cid>/now — current contents via
+    `store.read`, pretty-printed and size-capped.
+  - GET /api/creek/collection/<path:cid>/history?limit= — git history of the
+    collection's JSON mirror `data/<cid>.json`, read from the private vault
+    repo at `Path(store.DATA_DIR).parent` (the vault auto-commits hourly, so
+    this is real but coarse-grained history) via read-only `git log`.
+  - GET /api/creek/collection/<path:cid>/diff/<sha> — one commit's diff for
+    that file, via `git show` (falling back to `git diff <sha>^ <sha>` when
+    `show` comes back empty — see the note on `_diff_for_sha` about why both
+    are tried).
+  - GET /api/creek/collection/<path:cid>/writes?limit= — recent write events
+    from `writelog.py` (a sibling module instrumenting the store seam),
+    imported lazily so this route degrades honestly if that module isn't
+    present yet or raises.
+
+All four are read-only, git and writelog access included: nothing in this
+module ever calls store.write/mutate, `git` is invoked with read-only
+subcommands only, and any git/writelog failure degrades to an honest empty
+result rather than a 500 — tests run with no git repo and no writelog module
+at all, and that has to stay a 200, not a crash.
 
 The analyzer half (scan_source, _discover_source_files, analyze_repo, ...)
 is plain functions with no Flask dependency, so it's unit-testable directly
@@ -36,9 +61,21 @@ trailing .json so "todos" and "todos.json" merge); mark each collection's
 backing sql/json via store.SQL_COLLECTIONS; join in feature_usage's
 per-caller/per-collection read/write telemetry for the trailing N days;
 union both sides rather than hiding either; never guess at a dynamic first
-argument — record it in `unresolved` instead.
+argument — record it in `unresolved` instead. Then add three more
+"water" endpoints (now/history/diff, plus a writes endpoint reading a
+parallel-built writelog.py) showing what the data is/was, not just that it
+flows: cid may contain slashes (`<path:cid>`), validated against
+`^[a-z0-9][a-z0-9_/.-]*$`, no `..`, and the resolved path must stay inside
+its base dir; /now returns pretty-printed current contents capped at 100k
+chars; /history and /diff shell out read-only to git against the vault repo
+at DATA_DIR's parent, degrading to tracked=False / empty diff rather than
+500ing when there's no repo; /writes reads writelog.recent()/
+capturing_since(), imported lazily so an absent or raising writelog module
+degrades to an honest empty result instead of breaking the route.
 """
+import json
 import re
+import subprocess
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -397,6 +434,148 @@ def build_creek(repo_root, days_n):
     }
 
 
+# --- water: what the data IS/WAS, per collection --------------------------------
+
+# A collection id: lowercase, starts alnum, then alnum/underscore/slash/dot/
+# hyphen — loose enough for ids like "bot_chats/index" but not loose enough
+# to open a shell-arg or path-traversal door on its own (that's `_valid_cid`'s
+# job, this regex is only the first, cheapest gate).
+_CID_RE = re.compile(r"^[a-z0-9][a-z0-9_/.-]*$")
+_SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
+_GIT_TIMEOUT = 10  # seconds; a hung git must never hang the request
+
+
+def _valid_cid(cid):
+    """Gate for every /collection/<cid>/... route below: charset, no literal
+    '..' anywhere (belt), and the resolved on-disk JSON path must land inside
+    store.DATA_DIR (suspenders — catches an escape the charset/'..' checks
+    miss, e.g. a same-charset symlink planted inside DATA_DIR that points
+    elsewhere). store.file_path() is the same resolver store.read/write use,
+    so "safe according to this check" and "what store would actually touch"
+    can't drift apart."""
+    if not cid or not _CID_RE.match(cid) or ".." in cid:
+        return False
+    try:
+        base = Path(store.DATA_DIR).resolve()
+        target = store.file_path(cid).resolve()
+    except (OSError, RuntimeError, ValueError):
+        return False
+    return target == base or base in target.parents
+
+
+def _run_git(args, cwd):
+    """Run a read-only git subcommand with a hard timeout; (True, stdout) on
+    a clean exit, (False, "") for anything else — no git binary, cwd isn't a
+    repo, a bad ref, a timeout. Callers turn that into an honest "not
+    tracked" / empty response rather than a 500: the vault repo doesn't
+    exist at all in the test sandbox, and that has to stay a 200."""
+    try:
+        result = subprocess.run(
+            ["git", *args], cwd=str(cwd), capture_output=True,
+            text=True, timeout=_GIT_TIMEOUT,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False, ""
+    if result.returncode != 0:
+        return False, ""
+    return True, result.stdout[:5_000_000]  # defensive cap before parsing
+
+
+# Record/field separators for the git-log format string below: 0x1e (RS) opens
+# each commit so a message body containing a stray blank line can't be mistaken
+# for the boundary between commits, 0x09 (tab) splits sha/date/subject.
+_LOG_FORMAT = "%x1e%H%x09%aI%x09%s"
+
+
+def _parse_history_out(out):
+    """Turn `git log --numstat --format=<_LOG_FORMAT>` output for ONE
+    followed file into the commit list the /history contract wants. Each
+    block (split on the 0x1e record separator) is a commit's header line
+    (sha, ISO author date, subject) optionally followed by its numstat line
+    for this file — "optionally" because a merge or an empty commit can carry
+    no numstat line at all, and a binary file's numstat columns are literally
+    "-" rather than a number, which is where added/removed go through as
+    null instead of an int."""
+    commits = []
+    for block in out.split("\x1e"):
+        block = block.strip("\n")
+        if not block:
+            continue
+        lines = block.split("\n")
+        header = lines[0].split("\t", 2)
+        if len(header) < 3:
+            continue
+        sha, ts, subject = header
+        added = removed = None
+        for line in lines[1:]:
+            line = line.strip()
+            if not line:
+                continue
+            cols = line.split("\t")
+            if len(cols) >= 3:
+                a, r, _path = cols[0], cols[1], cols[2]
+                added = None if a == "-" else int(a)
+                removed = None if r == "-" else int(r)
+            break  # only one file is ever being followed
+        commits.append({"sha": sha, "ts": ts, "subject": subject,
+                         "added": added, "removed": removed})
+    return commits
+
+
+def _history_for_file(vault_root, file_rel, limit):
+    """Commit list for `file_rel` (repo-relative), oldest info never
+    guessed: None means git itself failed (no repo, no git, timeout) — the
+    route turns that into tracked=False same as an empty-but-successful log,
+    since either way there's nothing honest to show."""
+    ok, out = _run_git(
+        ["log", "--follow", "--numstat", f"--format={_LOG_FORMAT}",
+         f"-n{limit}", "--", file_rel],
+        vault_root,
+    )
+    if not ok:
+        return None
+    return _parse_history_out(out)
+
+
+def _diff_for_sha(vault_root, file_rel, sha):
+    """`git show <sha> -- file` is the natural read, but it comes back empty
+    for a commit where --follow (used by /history, above) tracked this file
+    under an OLDER name — `show` takes the path literally, so a commit that
+    only touched the file's old name shows nothing for the new one. `git diff
+    <sha>^ <sha> -- file` has the same literal-path limitation, so it doesn't
+    universally fix this either; it's tried as a second honest attempt, not a
+    guaranteed cure. Whichever produces real output wins; if neither does,
+    the diff is legitimately empty for this sha/path pair and that's what's
+    returned — not an error."""
+    ok, out = _run_git(["show", sha, "--", file_rel], vault_root)
+    if ok and out.strip():
+        return out
+    ok2, out2 = _run_git(["diff", f"{sha}^", sha, "--", file_rel], vault_root)
+    if ok2 and out2.strip():
+        return out2
+    return out if ok else out2 if ok2 else ""
+
+
+_HISTORY_NOTE = (
+    "history is batched by an hourly auto-commit, so several writes can "
+    "collapse into one diff and the committer is the cron, not the writer"
+)
+_WRITES_NOTE = (
+    "captures writes through the store seam only — typed stores (cards, "
+    "habits, expenses...) are not instrumented"
+)
+
+# store.read(name, None) does NOT round-trip a missing collection as None —
+# store._read/sqlstore.get both special-case a None default into {} ("return
+# {} if default is None else default"), so a literal `store.read(cid, None)`
+# can never come back None and "exists" could never go False. A private
+# sentinel default sidesteps that substitution (it's not None, so store hands
+# it straight back untouched) while keeping the same read path. Flagged here
+# because the brief asked for `store.read(cid, None)` specifically — this is
+# a deliberate, minimal deviation from that literal call, not an oversight.
+_ABSENT = object()
+
+
 def register(app):
 
     @app.route("/api/creek")
@@ -409,3 +588,88 @@ def register(app):
         if days_n < 1:
             return jsonify({"error": '"days" must be a positive integer'}), 400
         return jsonify(build_creek(REPO_ROOT, days_n))
+
+    @app.route("/api/creek/collection/<path:cid>/now")
+    def creek_collection_now(cid):
+        if not _valid_cid(cid):
+            return jsonify({"error": "invalid collection id"}), 400
+        backing = "sql" if normalize_collection(cid) in SQL_COLLECTIONS else "json"
+        value = store.read(cid, _ABSENT)
+        if value is _ABSENT:
+            return jsonify({
+                "id": cid, "backing": backing, "exists": False,
+                "bytes": 0, "truncated": False, "pretty": None,
+            })
+        raw = json.dumps(value, indent=2, ensure_ascii=False)
+        return jsonify({
+            "id": cid,
+            "backing": backing,
+            "exists": True,
+            "bytes": len(raw.encode("utf-8")),
+            "truncated": len(raw) > 100_000,
+            "pretty": raw[:100_000],
+        })
+
+    @app.route("/api/creek/collection/<path:cid>/history")
+    def creek_collection_history(cid):
+        if not _valid_cid(cid):
+            return jsonify({"error": "invalid collection id"}), 400
+        try:
+            limit = int(request.args.get("limit", "30"))
+        except (TypeError, ValueError):
+            limit = 30
+        limit = max(1, min(limit, 200))
+        file_rel = f"data/{normalize_collection(cid)}.json"
+        vault_root = Path(store.DATA_DIR).parent
+        commits = _history_for_file(vault_root, file_rel, limit)
+        return jsonify({
+            "id": cid,
+            "file": file_rel,
+            "tracked": bool(commits),
+            "note": _HISTORY_NOTE,
+            "commits": commits or [],
+        })
+
+    @app.route("/api/creek/collection/<path:cid>/diff/<sha>")
+    def creek_collection_diff(cid, sha):
+        if not _valid_cid(cid):
+            return jsonify({"error": "invalid collection id"}), 400
+        if not _SHA_RE.match(sha):
+            return jsonify({"error": "invalid sha"}), 400
+        file_rel = f"data/{normalize_collection(cid)}.json"
+        vault_root = Path(store.DATA_DIR).parent
+        diff_text = _diff_for_sha(vault_root, file_rel, sha)
+        return jsonify({
+            "id": cid,
+            "sha": sha,
+            "diff": diff_text[:200_000],
+            "truncated": len(diff_text) > 200_000,
+        })
+
+    @app.route("/api/creek/collection/<path:cid>/writes")
+    def creek_collection_writes(cid):
+        if not _valid_cid(cid):
+            return jsonify({"error": "invalid collection id"}), 400
+        try:
+            limit = int(request.args.get("limit", "50"))
+        except (TypeError, ValueError):
+            limit = 50
+        limit = max(1, min(limit, 500))
+        # Lazy, defensive import: writelog.py is being built in parallel with
+        # this route, so "not there yet" has to behave exactly like "there,
+        # but broken" — an honest empty result, never a 500 either way.
+        try:
+            import writelog
+            events = writelog.recent(collection=normalize_collection(cid), limit=limit)
+            capturing_since = writelog.capturing_since()
+        except Exception:
+            return jsonify({
+                "id": cid, "capturing_since": None, "events": [],
+                "note": "write journal not capturing",
+            })
+        return jsonify({
+            "id": cid,
+            "capturing_since": capturing_since,
+            "events": events,
+            "note": _WRITES_NOTE,
+        })

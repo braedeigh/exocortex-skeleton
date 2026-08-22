@@ -26,10 +26,19 @@
  * these coordinates, with one full-height `<svg>` underlay for the ribbons
  * themselves (DOM over SVG, the pond's own layering).
  *
+ * Also holds two small pure helpers for "the water" — the collapsible
+ * Now/Changes/Writes sections under a selected collection: `relativeDayTime`
+ * (Today/Yesterday/"Mon D" + HH:MM, for commit and write-event timestamps)
+ * and `classifyDiffLine` (which of add/del/hunk/meta/ctx a unified-diff line
+ * is, so CreekView can tint it without re-deriving the rule in JSX).
+ *
  * Prompt this was built against: "the terrain map is the creek — code files on
  * the left bank, data collections on the right bank, ribbons of flow between
  * them. Tap anything and the rest dims, never hides; every call is clickable
- * through to the real source line."
+ * through to the real source line." The water sections were added after, on:
+ * "when a collection is selected, show what the data IS and WAS, not just
+ * that it flows — current contents, git history with diffs, the write
+ * journal — all lazy, collapsed by default."
  */
 
 import type { CreekCall, CreekCaller, CreekCollection, CreekFile } from './api';
@@ -412,4 +421,51 @@ export function codeHref(path: string, line: number): string {
     lines: `${line}-${line}`,
   });
   return `/code?${params.toString()}`;
+}
+
+// --- the water: timestamps and diff lines --------------------------------
+
+const MONTH_NAMES = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+];
+
+/** An ISO timestamp → "Today 14:32" / "Yesterday 09:15" / "Aug 18 09:15" —
+ * the commit/write-event row label. Compares calendar days (not a 24h
+ * window), so a commit at 00:05 today reads "Today" even minutes after
+ * midnight. `now` is injectable for tests; defaults to the real clock. An
+ * unparseable timestamp is returned as-is rather than thrown on — a bad date
+ * from the server shouldn't blank a whole row. */
+export function relativeDayTime(ts: string, now: Date = new Date()): string {
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return ts;
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  const time = `${hh}:${mm}`;
+  const dayStart = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diffDays = Math.round((dayStart(now) - dayStart(d)) / 86_400_000);
+  if (diffDays === 0) return `Today ${time}`;
+  if (diffDays === 1) return `Yesterday ${time}`;
+  return `${MONTH_NAMES[d.getMonth()]} ${d.getDate()} ${time}`;
+}
+
+export type DiffLineKind = 'add' | 'del' | 'hunk' | 'meta' | 'ctx';
+
+/** What kind of unified-diff line this is, for CreekView's per-line tinting.
+ * Order matters: a `+++`/`---` file header starts with the same character as
+ * an added/removed line, so header lines (and `diff --git` / `index …`) must
+ * be caught as `meta` BEFORE the single-character add/del check, or every
+ * diff would render its own file headers as a bogus add+del pair. */
+export function classifyDiffLine(line: string): DiffLineKind {
+  if (line.startsWith('@@')) return 'hunk';
+  if (
+    line.startsWith('+++') ||
+    line.startsWith('---') ||
+    line.startsWith('diff ') ||
+    line.startsWith('index ')
+  ) {
+    return 'meta';
+  }
+  if (line.startsWith('+')) return 'add';
+  if (line.startsWith('-')) return 'del';
+  return 'ctx';
 }

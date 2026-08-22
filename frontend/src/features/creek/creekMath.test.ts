@@ -15,6 +15,7 @@ import {
   ROW_H,
   WRITE_BASE_OPACITY,
   buildRibbons,
+  classifyDiffLine,
   codeHref,
   collectionDimmed,
   fileDimmed,
@@ -23,6 +24,7 @@ import {
   filesTouching,
   layoutCollections,
   layoutFiles,
+  relativeDayTime,
   ribbonDimmed,
   ribbonOpacity,
   ribbonPathD,
@@ -304,5 +306,59 @@ describe('codeHref', () => {
     expect(codeHref('routes/todos.py', 42)).toBe(
       '/code?repo=skeleton&path=routes%2Ftodos.py&lines=42-42',
     );
+  });
+});
+
+describe('relativeDayTime', () => {
+  const now = new Date(2026, 7, 21, 15, 30); // Aug 21 2026, 15:30 local
+
+  it('labels a timestamp from today as "Today HH:MM"', () => {
+    const ts = new Date(2026, 7, 21, 9, 5).toISOString();
+    expect(relativeDayTime(ts, now)).toBe('Today 09:05');
+  });
+
+  it('labels a timestamp just after midnight today as "Today", not yesterday', () => {
+    const ts = new Date(2026, 7, 21, 0, 5).toISOString();
+    expect(relativeDayTime(ts, now)).toBe('Today 00:05');
+  });
+
+  it('labels yesterday by calendar day, not a rolling 24h window', () => {
+    const ts = new Date(2026, 7, 20, 23, 50).toISOString();
+    expect(relativeDayTime(ts, now)).toBe('Yesterday 23:50');
+  });
+
+  it('falls back to "Mon D HH:MM" for anything older', () => {
+    const ts = new Date(2026, 7, 18, 9, 15).toISOString();
+    expect(relativeDayTime(ts, now)).toBe('Aug 18 09:15');
+  });
+
+  it('returns the raw string for an unparseable timestamp rather than throwing', () => {
+    expect(relativeDayTime('not-a-date', now)).toBe('not-a-date');
+  });
+});
+
+describe('classifyDiffLine', () => {
+  it('classifies an added line', () => {
+    expect(classifyDiffLine('+new content')).toBe('add');
+  });
+
+  it('classifies a removed line', () => {
+    expect(classifyDiffLine('-old content')).toBe('del');
+  });
+
+  it('classifies a hunk header', () => {
+    expect(classifyDiffLine('@@ -1,3 +1,4 @@')).toBe('hunk');
+  });
+
+  it('classifies file headers as meta, not add/del, despite the leading +/-', () => {
+    expect(classifyDiffLine('+++ b/data/todos.json')).toBe('meta');
+    expect(classifyDiffLine('--- a/data/todos.json')).toBe('meta');
+    expect(classifyDiffLine('diff --git a/x b/x')).toBe('meta');
+    expect(classifyDiffLine('index abc123..def456 100644')).toBe('meta');
+  });
+
+  it('classifies a plain context line', () => {
+    expect(classifyDiffLine('  unchanged line')).toBe('ctx');
+    expect(classifyDiffLine('')).toBe('ctx');
   });
 });

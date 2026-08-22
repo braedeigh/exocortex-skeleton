@@ -59,6 +59,12 @@ if _FIRST_PASS:
 # not even at interpreter exit (store's atexit flush checks this env too).
 # tests/test_store_stats.py re-enables it per test via monkeypatch.
 os.environ["EXOCORTEX_STORE_STATS_OFF"] = "1"
+# Same idea for the write journal (writelog.py): the suite should never
+# capture write events. setdefault (not a direct assignment, unlike the stats
+# line above) so a value the environment already carries wins — writelog
+# re-checks the env on every call, so tests/test_writelog.py can still turn
+# it on per test with monkeypatch.setenv regardless of this default.
+os.environ.setdefault("EXOCORTEX_WRITE_LOG_OFF", "1")
 
 import store  # noqa: E402
 
