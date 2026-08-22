@@ -1841,6 +1841,7 @@ def register(app):
                 entry["stop_requested"] = _now()
             entry["archived"] = _now()
             reap = entry.get("worktree")
+            filed = entry.get("spinoff_slug")
         # Outside the lock (git is slow, every send wants this lock). Closing is
         # the ONE moment a worktree can be removed safely: it's the session's
         # cwd, and a conversation can only ever be resumed from the directory it
@@ -1849,6 +1850,14 @@ def register(app):
         # where the work is until it's merged.
         if reap:
             worktrees.remove(reap)
+        # Closing is also when the brief stops being live work and becomes a
+        # record. It is MOVED, never deleted — the brief is the only thing that
+        # says what this session was asked to do, and git can show what changed
+        # but never what was wanted. Import here, not at module top: spinoff
+        # imports this module.
+        if filed:
+            from routes.spinoff import archive_spinoff
+            archive_spinoff(filed)
         return jsonify({"ok": True})
 
     @app.route("/api/observatory/conversation/<conv_id>/evidence", methods=["GET"])

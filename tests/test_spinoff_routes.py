@@ -13,6 +13,7 @@ unless the caller names one. The room decides the child's cwd and (via the
 absent act_gate/guard_docs fields) whether it stops to ask.
 """
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -501,3 +502,59 @@ def test_a_rejoin_never_re_adopts(spinoff_client, monkeypatch, data_dir):
     assert again["newly_spawned"] is False
     assert again["conversation_id"] == first["conversation_id"]
     assert adoptions == [("steward-again", "agent/x")]
+
+
+# --- briefs are filed on close, never dropped ---------------------------------
+
+def test_closing_a_session_files_its_brief_instead_of_deleting_it(data_dir, monkeypatch):
+    """A brief is the ONE record of what a session was asked to do — git shows
+    what changed, never what was wanted. So closing moves it; it must still be
+    readable afterwards, with its text intact."""
+    monkeypatch.setattr(store, "SPINOFF_ARCHIVE_DIR", data_dir / "spinoff_archive")
+    _write_brief(store.SPINOFF_DIR, "finished-thing")
+    (store.SPINOFF_DIR / "finished-thing" / "BRIEF.md").write_text("the actual ask")
+
+    filed = spinoff.archive_spinoff("finished-thing")
+
+    assert not (store.SPINOFF_DIR / "finished-thing").exists()
+    assert (filed / "BRIEF.md").read_text() == "the actual ask"
+
+
+def test_filing_the_same_slug_twice_keeps_both_records(data_dir, monkeypatch):
+    """Slugs get reused — the spawn door rejoins them, and a later spinoff can
+    fairly take the same name. The older record must not be clobbered."""
+    monkeypatch.setattr(store, "SPINOFF_ARCHIVE_DIR", data_dir / "spinoff_archive")
+    _write_brief(store.SPINOFF_DIR, "reused")
+    (store.SPINOFF_DIR / "reused" / "BRIEF.md").write_text("first ask")
+    spinoff.archive_spinoff("reused")
+    _write_brief(store.SPINOFF_DIR, "reused")
+    (store.SPINOFF_DIR / "reused" / "BRIEF.md").write_text("second ask")
+
+    spinoff.archive_spinoff("reused")
+
+    filed = sorted(p.name for p in (data_dir / "spinoff_archive").iterdir())
+    assert filed == ["reused", "reused-2"]
+    assert (data_dir / "spinoff_archive" / "reused" / "BRIEF.md").read_text() == "first ask"
+
+
+def test_filing_a_slug_that_was_never_spun_off_is_a_quiet_no_op(data_dir, monkeypatch):
+    """Tidying up must never be able to fail a session close."""
+    monkeypatch.setattr(store, "SPINOFF_ARCHIVE_DIR", data_dir / "spinoff_archive")
+    assert spinoff.archive_spinoff("never-existed") is None
+    assert spinoff.archive_spinoff("../escape") is None
+    assert spinoff.archive_spinoff("") is None
+
+
+def test_kickoff_paperwork_is_pruned_but_recent_diagnostics_survive(data_dir):
+    """The .log is the only trace of a spawn that never woke up, so pruning is
+    by AGE, not on sight. Briefs are never touched by this."""
+    kick = store.SPINOFF_DIR / ".kickoffs"
+    kick.mkdir(parents=True)
+    old, new = kick / "2026-01-01.old.log", kick / "2026-08-22.new.log"
+    old.write_text("stale")
+    new.write_text("fresh")
+    os.utime(old, (0, 0))
+
+    spinoff._prune_kickoffs()
+
+    assert not old.exists() and new.exists()

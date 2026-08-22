@@ -717,6 +717,29 @@ def test_close_hides_the_session_but_deletes_nothing(bot_client):
     assert store.read("bot_chats/index", {})[conv_id]["archived"]
 
 
+def test_closing_a_spinoff_files_its_brief_out_of_the_live_folder(bot_client, monkeypatch):
+    """Closing is when a brief stops being live work and becomes a record. It
+    MOVES — the brief is the only thing that says what the session was asked to
+    do, so `ls spinoffs/` can go back to meaning "what is in flight" without
+    anything being lost."""
+    monkeypatch.setattr(store, "SPINOFF_ARCHIVE_DIR",
+                        store.DATA_DIR / "spinoff_archive")
+    conv_id = bot_client.post("/api/observatory/keeper/conversations",
+                              json={"title": "spun"}).get_json()["id"]
+    with store.mutate("bot_chats/index", {}) as index:
+        index[conv_id]["spinoff_slug"] = "some-work"
+    live = store.SPINOFF_DIR / "some-work"
+    live.mkdir(parents=True, exist_ok=True)
+    (live / "BRIEF.md").write_text("what she actually asked for")
+
+    assert bot_client.post(
+        f"/api/observatory/conversation/{conv_id}/close").status_code == 200
+
+    assert not live.exists()
+    filed = store.SPINOFF_ARCHIVE_DIR / "some-work" / "BRIEF.md"
+    assert filed.read_text() == "what she actually asked for"
+
+
 class _FakeProc:
     """Stand-in for a live turn's Popen: alive until killed."""
     def __init__(self):

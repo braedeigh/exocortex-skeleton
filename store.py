@@ -67,6 +67,16 @@ TRIAGE_DIR = Path(os.environ.get("EXOCORTEX_TRIAGE_DIR", DATA_DIR.parent / "tria
 # SPINOFF_DIR/<slug>/BRIEF.md. Under DATA_DIR (not a sibling like TRIAGE_DIR):
 # briefs are personal data and should ride the vault's hourly git backup.
 SPINOFF_DIR = Path(os.environ.get("EXOCORTEX_SPINOFF_DIR", DATA_DIR / "spinoffs"))
+# Where a brief goes when its session is closed. Briefs are KEPT, never deleted
+# — a brief is the only record of what a session was actually asked to do, and
+# git can show what changed but never what was wanted. They just stop cluttering
+# the live folder, so `ls spinoffs/` answers "what is in flight" instead of
+# "everything ever spun off". A SIBLING of SPINOFF_DIR rather than a folder
+# inside it, because everything inside is a slug and an archive is not one.
+# Env-overridable like the rest: point it at the vault's own `reference/` shelf
+# if that's where retired things live in a given install.
+SPINOFF_ARCHIVE_DIR = Path(os.environ.get(
+    "EXOCORTEX_SPINOFF_ARCHIVE_DIR", DATA_DIR / "spinoff_archive"))
 # Person pages: the "regenerate impression" button opens a Claude session here
 # (its CLAUDE.md is the skill) to draft a person's ## Impression with her, live.
 # Same idea as TRIAGE_DIR — sibling of the data dir, override via env.

@@ -143,3 +143,32 @@ artifact that sits beside the evidence looking like more of it.
 
 Today that evidence answers *what changed*, not *does it work* — running the
 gates belongs with the merge tap, which isn't built yet.
+
+## What a brief's life looks like
+
+The `BRIEF.md` is the opposite case to the report, and the reasoning that
+removed the report deliberately does **not** transfer to it. A report was
+output with no reader. A brief is *input*, with a guaranteed reader: the child
+session, at spawn, every time — `routes/spinoff.py` won't even mint a session
+without one.
+
+- **Written** by `/spinoff` in the sending session, to `SPINOFF_DIR/<slug>/`.
+- **Read once**, at the kickoff. Nothing in the app reads it after that; the
+  content lives in the session's transcript from then on. A live or resumed
+  session can still go back to the file, which is why it isn't consumed.
+- **Filed on close.** `archive_spinoff()` moves it to `SPINOFF_ARCHIVE_DIR`,
+  hung off the same moment the worktree is reaped. **Keyed on the conversation
+  being archived, never on a clock** — same rule, same reason as `sweep()`: a
+  timer can delete a brief out from under a session that is still standing on
+  it. Slugs get reused, so a collision numbers the incoming one rather than
+  clobbering the record already there.
+- **Never deleted.** A brief is the only thing that records what a session was
+  *asked* to do, including which forks the owner had already ruled on. Git can
+  reconstruct what changed and never what was wanted.
+
+The `.kickoffs/` folder beside them is the opposite again: pure plumbing. The
+`.txt` is one fixed sentence handed across a process boundary so the brief path
+never touches a shell, and `spinoff_runner.py` deletes it the moment it's read.
+The `.log` catches a detached runner's stderr and is the only trace when a spawn
+fails to wake — every one on disk has been zero bytes, which argues for pruning
+them by age (`KICKOFF_KEEP_DAYS`, on each spawn), not for removing the channel.

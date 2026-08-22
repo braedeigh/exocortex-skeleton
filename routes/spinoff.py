@@ -39,8 +39,10 @@ send into a running conversation is refused with a 409.
 """
 import os
 import re
+import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from flask import jsonify, request
@@ -52,6 +54,75 @@ from routes.observatory import (_BUILDER_TOOLS, _DEFAULT_LANE, _LANES,
                                 _lane_profile, _new_conv_id, _now)
 
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,38}$")
+
+# How long a kickoff's paperwork sticks around. The .txt is the brief-reading
+# sentence handed to the runner and is deleted the moment it's been read; the
+# .log is where a detached runner's stderr lands, and it is the ONLY trace when
+# a spawn fails to start. Every log on disk here has been zero bytes — which is
+# the argument for pruning them, not for removing the channel: a fortnight is
+# long enough to still be diagnosing a spawn that never woke up.
+KICKOFF_KEEP_DAYS = 14
+
+
+def archive_spinoff(slug):
+    """Move a finished session's brief out of the live folder. Never deletes.
+
+    A brief is the one record of what a session was ASKED to do. Git shows what
+    changed; nothing else shows what was wanted, or which forks the owner had
+    already ruled on before the work started. So closing a session files the
+    brief rather than dropping it, and `ls spinoffs/` goes back to meaning
+    "what is in flight".
+
+    Slugs get REUSED — the spawn door rejoins an existing slug, and a later
+    spinoff can legitimately take the same name — so an archive collision is a
+    real case and it must not clobber the older record. The incoming one takes
+    a numbered suffix instead.
+
+    Best-effort and never raises: failing to tidy up must not fail a close.
+    Returns the path it filed to, or None if there was nothing to file.
+    """
+    if not SLUG_RE.match(slug or ""):
+        return None
+    src = store.SPINOFF_DIR / slug
+    if not src.is_dir():
+        return None
+    try:
+        store.SPINOFF_ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
+        dest = store.SPINOFF_ARCHIVE_DIR / slug
+        n = 2
+        while dest.exists():
+            dest = store.SPINOFF_ARCHIVE_DIR / f"{slug}-{n}"
+            n += 1
+        # rename first: same filesystem in every normal install, and atomic.
+        # shutil covers an archive dir pointed at another disk by env.
+        try:
+            src.rename(dest)
+        except OSError:
+            shutil.move(str(src), str(dest))
+        return dest
+    except (OSError, ValueError):
+        return None
+
+
+def _prune_kickoffs():
+    """Drop kickoff paperwork older than KICKOFF_KEEP_DAYS.
+
+    Runs on each spawn rather than on a clock: the folder only grows when
+    something is spawned, so the thing that dirties it is the right thing to
+    tidy it. Unlike a brief this carries no record — the .txt is one fixed
+    sentence pointing at the brief, and the .log is empty unless a spawn broke.
+    """
+    kick_dir = store.SPINOFF_DIR / ".kickoffs"
+    cutoff = time.time() - KICKOFF_KEEP_DAYS * 86400
+    try:
+        for path in kick_dir.glob("*"):
+            try:
+                if path.is_file() and path.stat().st_mtime < cutoff:
+                    path.unlink()
+            except OSError:
+                continue
+    except OSError:
+        pass
 
 
 def _inherit_lane(index):
@@ -263,6 +334,7 @@ def _launch_runner(conv_id, kickoff):
     try:
         kick_dir = store.SPINOFF_DIR / ".kickoffs"
         kick_dir.mkdir(parents=True, exist_ok=True)
+        _prune_kickoffs()
         kick_path = kick_dir / f"{conv_id}.txt"
         kick_path.write_text(kickoff, encoding="utf-8")
         log_path = kick_dir / f"{conv_id}.log"
