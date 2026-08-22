@@ -236,13 +236,15 @@ const FOOTPRINT_LABEL_CAP = 12;
 const LABEL_PX = 12;
 
 /** The pond tile's square, in WORLD units — it scales with the territory like
- * any map object, unlike the DOM landmark (which is chrome). Small on
- * purpose: it's a month of journal as a map symbol, not a chart to read. */
-const POND_TILE_SIDE = 64;
+ * any map object, unlike the DOM landmark (which is chrome). Sized like one
+ * of the big file clusters on purpose: the journal is as large a territory as
+ * any subsystem, and its body should say so. Her call: "a significant
+ * presence on the map. Maybe like the size of one of the clusters". */
+const POND_TILE_SIDE = 180;
 /** ...but never smaller than this many SCREEN pixels — the tile is the
- * journal's whole presence on the map now, and at the far zoom floor a
- * 64-world square would vanish into two pixels. Same idea as MIN_NODE_PX. */
-const POND_TILE_MIN_PX = 22;
+ * journal's whole presence on the map now, and at the far zoom floor even a
+ * cluster-sized square would vanish. Same idea as MIN_NODE_PX. */
+const POND_TILE_MIN_PX = 30;
 /** Collision reach: the circle through the square's corners plus a little
  * margin. d3's colliders are circles, so dots clear the square's edges with
  * slightly more room than its corners — which reads as a margin, not a bug. */

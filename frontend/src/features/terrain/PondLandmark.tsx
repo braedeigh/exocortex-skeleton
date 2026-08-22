@@ -97,10 +97,11 @@ const CRUDE_COLUMNS = 12;
 
 /** The resting reach target's bounds, in CSS px. It tracks the tile's own
  * on-screen size (see below) between these: never under the 44px house floor
- * for a touch target, never so large that hovering the map's middle reads as
- * hovering the pond. */
+ * for a touch target, and capped so that even zoomed far into a now
+ * cluster-sized tile, the hover zone stays the pond rather than the whole
+ * viewport. */
 const REST_MIN = 44;
-const REST_MAX = 200;
+const REST_MAX = 320;
 
 /** Where the pane opens before she has ever dragged it, and the floor it can be
  * dragged to.
