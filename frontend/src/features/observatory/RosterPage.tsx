@@ -5,10 +5,12 @@ import {
   ROOMS,
   closeConversation,
   createSession,
+  getHelpers,
   getSessions,
   isRoom,
   toLane,
   updateConversation,
+  type HelpersState,
   type Room,
   type SessionMeta,
 } from './api';
@@ -18,6 +20,7 @@ import { applyFilter, filterCounts, roomRoster, type StateFilter } from './sessi
 import { SessionDialog, type SessionDraft } from './SessionDialog';
 import { SessionLane } from './SessionLane';
 import { NightCrewDoor } from './NightCrewDoor';
+import { HelpersDoor } from './HelpersDoor';
 import { fetchNightState, type NightState } from './NightCrewPage';
 import { MemoryMeter } from '../runqueue/MemoryMeter';
 import { useTerrain } from '../terrain/api';
@@ -245,6 +248,13 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
     void fetchNightState().then(setNight);
   }, []);
 
+  // The Helpers door's census — same one-fetch-on-mount shape as the night
+  // crew's; the page behind the door owns the list.
+  const [helpersState, setHelpersState] = useState<HelpersState | null>(null);
+  useEffect(() => {
+    void getHelpers().then(setHelpersState).catch(() => setHelpersState(null));
+  }, []);
+
   // ONE terrain poll for the whole page, passed down to both lanes — two
   // sections must not mean two pollers on the same endpoint. Live only while
   // something is actually running; an idle page needs no file ticking.
@@ -453,10 +463,10 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
             spendUsd={night?.spend?.night_usd ?? 0}
           />
 
-          <div className={styles.laterNote}>
-            System agents (triage, research, crons) —{' '}
-            <span className={styles.laterEm}>coming later</span>
-          </div>
+          {/* The button-fired jobs (triage, recipe/receipt parses, person
+              impressions) — a door like the night crew's, carrying a census,
+              where the "System agents — coming later" note used to sit. */}
+          <HelpersDoor state={helpersState} />
 
           {/* Seeded from the '+' she actually pressed, and NOT seeded at all
               from the rail's — that one gets a null lane, which makes the sheet

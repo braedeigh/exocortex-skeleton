@@ -12,6 +12,7 @@ from flask import request, jsonify
 from data_helpers import RECEIPTS_DIR
 import store
 from . import shared
+from routes import helpers
 
 GROCERY_RECEIPTS_DIR = RECEIPTS_DIR / "grocery"
 
@@ -53,19 +54,23 @@ def register(app):
         shared.chmod_for_claude(GROCERY_RECEIPTS_DIR)
         shared.chmod_for_claude(target)
 
-        # Path Claude will see (relative to receipts/ — which is the cwd of the receipts session)
-        rel_path = f"grocery/{fname}"
 
-        newly_spawned = shared.ensure_claude_session("receipts", RECEIPTS_DIR, dirs=(RECEIPTS_DIR,))
-        prompt = f"new grocery receipt uploaded: {rel_path} — please parse it per CLAUDE.md and append the result to data/grocery_trips.json"
-        shared.send_prompt("receipts", prompt, delay=(6.0 if newly_spawned else 1.5))
-
-        return jsonify({
-            "ok": True,
-            "filename": fname,
-            "session": "receipts",
-            "newly_spawned": newly_spawned,
-        })
+        # One Reading Room session per receipt (routes/helpers.py) — a
+        # fire-and-forget job, its own card in the Helpers room. Absolute
+        # paths: the session stands at the root of both repos, not here.
+        brief = (
+            "# Receipt parse\n\n## Protocol\n\n"
+            f"1. Read `{RECEIPTS_DIR / 'CLAUDE.md'}` — it is the skill; follow it.\n"
+            f"2. Job: transcribe the grocery receipt photo at `{target}` and write "
+            f"`{target.with_suffix('')}.parsed.json` beside it, the way the skill "
+            "says. Then stop — nobody is waiting to chat.\n"
+        )
+        payload, status = helpers.mint_helper(
+            "receipt", f"receipt-{date_part}-{ts}"[:39], brief,
+            f"Receipt: {store_slug} {date_part}")
+        if status != 200:
+            return jsonify(payload), status
+        return jsonify(dict(payload, filename=fname))
 
     # --- Rules-based grocery receipt parser (consumes Claude's transcription) ---
 

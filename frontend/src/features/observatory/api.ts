@@ -580,3 +580,31 @@ export function wakeSteward(
 ): Promise<{ ok: boolean; conversation_id: string; existing?: boolean; note?: string }> {
   return api.post('/api/branches/steward', { branch, message });
 }
+
+/** One button-fired Claude job (routes/helpers.py): a triage chat, a recipe
+ * or receipt parse, a person impression. `archived` set = already closed;
+ * `last_error` set = its last turn failed. */
+export interface HelperRun {
+  id: string;
+  kind: string;
+  label: string;
+  title: string;
+  started: string;
+  last_at: string;
+  archived: string | null;
+  running: boolean;
+  last_error: string | null;
+  tokens?: { output: number; cost_usd: number };
+}
+
+export interface HelpersState {
+  runs: HelperRun[];
+  running: number;
+  failed: number;
+}
+
+/** GET /api/helpers — every helper session ever minted, archived included,
+ * newest first. Drawn by HelpersDoor (census) and HelpersPage (the list). */
+export function getHelpers(signal?: AbortSignal): Promise<HelpersState> {
+  return api.get('/api/helpers', signal);
+}

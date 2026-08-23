@@ -130,10 +130,9 @@ export function KitchenPage() {
   async function uploadReceipt(file: File) {
     try {
       const res = await scanReceipt(file);
-      const msg = res.newly_spawned
-        ? `Receipt sent to Claude in the 'receipts' terminal tab. New session — give Claude ~5s to start, then it'll parse ${res.filename}.`
-        : `Receipt sent to Claude (${res.filename}). Switch to the 'receipts' terminal tab to watch.`;
-      push(msg, 'info');
+      // Each receipt is its own Reading Room helper run now (routes/helpers.py);
+      // the parsed result shows up in the import list below when it lands.
+      push(`Receipt sent to Claude (${res.filename}). It'll appear below once parsed — or watch it under Helpers in the Observatory.`, 'info');
       setReceiptDismissed(true); // hide banner after scan
     } catch (e) {
       push(e instanceof Error ? e.message : 'Upload failed');

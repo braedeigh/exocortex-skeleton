@@ -52,3 +52,11 @@ def test_second_open_rejoins_the_live_conversation(triage_client):
     assert second["conversation_id"] == first["conversation_id"]
     assert second["newly_spawned"] is False
     assert len(store.read("bot_chats/index", {})) == 1
+
+
+def test_open_tags_the_session_as_a_helper(triage_client):
+    body = triage_client.post("/api/triage/open", json={}).get_json()
+    entry = store.read("bot_chats/index", {})[body["conversation_id"]]
+    assert entry["origin"] == "helper" and entry["helper"] == "triage"
+    assert entry["title"] == "Triage"
+    assert body["kind"] == "triage"

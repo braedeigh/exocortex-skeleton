@@ -24,7 +24,7 @@ import proxy_auth
 from routes import (
     kitchen, habits, todos, places, health, inventory, money, car,
     meditation, media, movement, reminders, food_test, terminal, settings,
-    devnotes, ideas, buildtodo, ecosystem, keeper, pending, housing, triage, decisions,
+    devnotes, ideas, buildtodo, ecosystem, keeper, pending, housing, triage, helpers, decisions,
     entities, threads, person, shell, cards, archivals, research,
     research_search, research_sources, research_import, research_text,
     annotations, spa, fronts, tags, wiki, travel, profile, usage, streaks, spinoff,
@@ -1164,6 +1164,7 @@ keeper.register(app)
 pending.register(app)
 profile.register(app)
 triage.register(app)
+helpers.register(app)
 spinoff.register(app)
 decisions.register(app)
 entities.register(app)

@@ -19,7 +19,7 @@ export function savePersonFacts(slug: string, facts: Record<string, string>): Pr
 }
 
 /**
- * POST /api/person/<slug>/summarize — spawns (or reuses) the "person" tmux
+ * POST /api/person/<slug>/summarize — mints (or rejoins) the person's Reading Room helper
  * Claude session server-side and types the impression-drafting prompt into
  * it. Slow: ensure_claude_session boots Claude Code and send_prompt waits a
  * settle delay before returning — the caller must show a pending state.

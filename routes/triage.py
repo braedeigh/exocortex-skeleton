@@ -10,7 +10,9 @@ Observatory conversation in the PERSONAL room (rooted at the parent of both
 repos, acting without the ask-gate, because editing todos.json in the vault
 is exactly its job) and starts it working; the Todos page then navigates to
 it. Opening triage twice rejoins the same live conversation instead of
-minting a second one — open_spinoff does that by slug.
+minting a second one — open_spinoff does that by slug. The walk through the
+door is routes/helpers.py's mint_helper, shared with the other helper
+buttons, which also tags the session so it shows in the Helpers room.
 
 History in one line: this used to spawn `claude` in a tmux pane and deep-link
 to the /phone terminal. The tmux path was retired 2026-07-24 (the Keeper moved
@@ -26,7 +28,7 @@ longer exists; re-door it through the spinoff machinery.
 from flask import jsonify, request
 
 import store
-from routes.spinoff import open_spinoff
+from routes.helpers import mint_helper
 
 SLUG = "triage"
 
@@ -56,17 +58,10 @@ def register(app):
     @app.route("/api/triage/open", methods=["POST"])
     def triage_open():
         data = request.json or {}
-        # The brief is rewritten on every open so it always names the current
-        # TRIAGE_DIR; a stale brief from a moved vault would point the session
-        # at a skill file that isn't there.
-        brief_dir = store.SPINOFF_DIR / SLUG
-        brief_dir.mkdir(parents=True, exist_ok=True)
-        (brief_dir / "BRIEF.md").write_text(_brief_text())
-        # Personal room on purpose: the session must edit todos.json in the
-        # vault without stopping at the ask-gate, and the owner is the one
-        # talking to it, so nobody unwatched gets that autonomy.
-        payload, status = open_spinoff(
-            SLUG, lane="personal",
+        # The brief is rewritten on every open (mint_helper does that) so it
+        # always names the current TRIAGE_DIR.
+        payload, status = mint_helper(
+            "triage", SLUG, _brief_text(), "Triage",
             model=(data.get("model") or "").strip() or None,
         )
         return jsonify(payload), status

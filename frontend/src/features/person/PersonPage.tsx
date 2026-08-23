@@ -1,10 +1,9 @@
+import { sessionLocation } from '../observatory/sessionLocation';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useEffect } from 'react';
 import { ToastStack } from '../../ui';
 import { entityHue, mdToHtml } from '../journal/markdown';
 import { useToasts } from '../journal/useJournalData';
-import { useSessionsContext } from '../../shell/SessionsContext';
-import { DESKTOP_QUERY, useMediaQuery } from '../../shell/useMediaQuery';
 import { FactsSection } from './FactsSection';
 import { Heatmap } from './Heatmap';
 import { ReceiptsSection } from './ReceiptsSection';
@@ -27,8 +26,6 @@ export function PersonPage({ slug }: PersonPageProps) {
   const { data, isLoading, isError } = usePerson(slug);
   const { toasts, push, dismiss } = useToasts();
   const navigate = useNavigate();
-  const isDesktop = useMediaQuery(DESKTOP_QUERY);
-  const sessions = useSessionsContext();
 
   const person = data?.person ?? null;
 
@@ -46,17 +43,13 @@ export function PersonPage({ slug }: PersonPageProps) {
   const summarize = useSummarize(
     slug,
     (result) => {
-      const session = result.session || 'person';
-      if (!isDesktop) {
-        // Old mobile fallback was /phone?session=person — the SPA equivalent
-        // is making that session active and opening the Chat view on it.
-        sessions.setActive(session);
-        void navigate({ to: '/chat' });
+      // The impression is drafted in a Reading Room helper session now (no
+      // tmux pane to switch to) — go straight to it; the talk-through
+      // happens there.
+      if (result.conversation_id) {
+        void navigate(sessionLocation(result.conversation_id));
       } else {
-        // Desktop's docked terminal pane owns its own session switcher — we
-        // can't drive it from here (same stopgap class as todos triage), so
-        // say where the session is instead of yanking her off the page.
-        push(`Claude is drafting in the "${session}" terminal session — switch the terminal over to talk it through.`, {
+        push('Claude is drafting — find it under Helpers in the Observatory.', {
           tone: 'info',
           duration: 8000,
         });

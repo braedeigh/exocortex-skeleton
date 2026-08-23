@@ -596,16 +596,6 @@
 
 /* The deferred headless fleet — flagged, not built. Lives on the page now
    rather than inside a lane: it belongs to neither room. */
-.laterNote {
-  margin-top: var(--space-5);
-  font-size: var(--font-size-sm);
-  color: var(--text-muted);
-}
-
-.laterEm {
-  font-style: italic;
-}
-
 .sectionLabel {
   font-size: var(--font-size-sm);
   font-weight: 600;

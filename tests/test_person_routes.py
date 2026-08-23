@@ -79,30 +79,29 @@ def test_person_page_unknown_slug_404(client):
     assert client.get("/person/nobody").status_code == 404
 
 
-def test_summarize_spawns_session_and_sends_prompt(client, monkeypatch):
-    calls = {}
-
-    def fake_ensure(name, cwd, dirs=()):
-        calls["ensure"] = (name, cwd, dirs)
-        return True
-
-    def fake_send(session, text, delay=4.0):
-        calls["send"] = (session, text)
-
-    monkeypatch.setattr(person.shared, "ensure_claude_session", fake_ensure)
-    monkeypatch.setattr(person.shared, "send_prompt", fake_send)
+def test_summarize_mints_a_personal_helper_session(client, monkeypatch, data_dir):
+    """No tmux any more: the button writes a brief naming the person's file
+    (absolute, via store.CONTENT_DIR) and mints a Personal-room helper
+    session through routes/helpers.py. The runner launch is recorded, not run."""
+    from routes import spinoff
+    monkeypatch.setattr(store, "SPINOFF_DIR", data_dir / "spinoffs")
+    launches = []
+    monkeypatch.setattr(spinoff.subprocess, "Popen",
+                        lambda argv, **kw: launches.append(argv) or object())
+    monkeypatch.delenv("EXOCORTEX_CONV_ID", raising=False)
 
     resp = client.post("/api/person/sage/summarize")
     data = resp.get_json()
 
-    assert data == {"ok": True, "session": "person", "newly_spawned": True}
-    assert calls["ensure"][0] == "person"
-    assert calls["ensure"][1] == store.PERSON_SKILL_DIR
-    assert calls["send"][0] == "person"
-    assert "Sage" in calls["send"][1]
-    # The prompt must carry the file's ABSOLUTE path (via store.CONTENT_DIR) —
-    # the person-summary session's cwd is the skill dir, not the vault root.
-    assert str(store.CONTENT_DIR / "people/sage.md") in calls["send"][1]
+    assert resp.status_code == 200
+    assert data["ok"] is True and data["newly_spawned"] is True
+    assert data["kind"] == "person" and data["lane"] == "personal"
+    brief = (data_dir / "spinoffs" / "person-sage" / "BRIEF.md").read_text()
+    assert "Sage" in brief
+    assert str(store.CONTENT_DIR / "people/sage.md") in brief
+    entry = store.read("bot_chats/index", {})[data["conversation_id"]]
+    assert entry["origin"] == "helper" and entry["helper"] == "person"
+    assert len(launches) == 1
 
 
 def test_summarize_unknown_slug_404(client):

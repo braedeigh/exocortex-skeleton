@@ -12,6 +12,7 @@ from flask import request, jsonify
 from data_helpers import RECIPES_DIR
 import store
 from . import shared
+from routes import helpers
 
 RECIPES_URLS_DIR = RECIPES_DIR / "urls"
 RECIPES_IMAGES_DIR = RECIPES_DIR / "images"
@@ -48,6 +49,19 @@ def _ing_store_category(ing):
     return cat or "other"
 
 
+def _recipe_brief(job, out_path):
+    """The brief hands the session to the recipe skill (RECIPES_DIR/CLAUDE.md,
+    in the vault) and names the one job and the one output file."""
+    return (
+        "# Recipe parse\n\n## Protocol\n\n"
+        f"1. Read `{RECIPES_DIR / 'CLAUDE.md'}` — it is the skill; follow its "
+        "parsing rules and output format exactly.\n"
+        f"2. Job: {job}.\n"
+        f"3. Write the result to `{out_path}`, then stop. Nobody is waiting to "
+        "chat — if the source can't be parsed, write nothing and say why.\n"
+    )
+
+
 def register(app):
 
     @app.route("/api/kitchen/parse-recipe-url", methods=["POST"])
@@ -66,16 +80,18 @@ def register(app):
         shared.chmod_for_claude(RECIPES_PARSED_DIR)
         shared.chmod_for_claude(target)
 
-        newly_spawned = shared.ensure_claude_session("recipes", RECIPES_DIR, dirs=RECIPES_ALL_DIRS)
-        prompt = f"new recipe URL submitted: urls/{fname} — please fetch and parse it per CLAUDE.md, then write parsed/{ts}-{slug}.parsed.json"
-        shared.send_prompt("recipes", prompt, delay=(6.0 if newly_spawned else 1.5))
-
-        return jsonify({
-            "ok": True,
-            "filename": fname,
-            "session": "recipes",
-            "newly_spawned": newly_spawned,
-        })
+        # One Reading Room session per submission (routes/helpers.py): the
+        # job is fire-and-forget, and a fresh session per job is what makes
+        # each parse its own card in the Helpers room. Paths are ABSOLUTE —
+        # the session stands at the root of both repos, not in RECIPES_DIR.
+        payload, status = helpers.mint_helper(
+            "recipe", f"recipe-{ts}"[:39],
+            _recipe_brief(f"fetch and parse the recipe URL in `{target}`",
+                          RECIPES_PARSED_DIR / f"{ts}-{slug}.parsed.json"),
+            f"Recipe: {slug}")
+        if status != 200:
+            return jsonify(payload), status
+        return jsonify(dict(payload, filename=fname))
 
     @app.route("/api/kitchen/scan-recipe", methods=["POST"])
     def scan_recipe():
@@ -96,16 +112,14 @@ def register(app):
         shared.chmod_for_claude(RECIPES_PARSED_DIR)
         shared.chmod_for_claude(target)
 
-        newly_spawned = shared.ensure_claude_session("recipes", RECIPES_DIR, dirs=RECIPES_ALL_DIRS)
-        prompt = f"new recipe image uploaded: images/{fname} — please parse it per CLAUDE.md, then write parsed/{fname}.parsed.json"
-        shared.send_prompt("recipes", prompt, delay=(6.0 if newly_spawned else 1.5))
-
-        return jsonify({
-            "ok": True,
-            "filename": fname,
-            "session": "recipes",
-            "newly_spawned": newly_spawned,
-        })
+        payload, status = helpers.mint_helper(
+            "recipe", f"recipe-{ts}"[:39],
+            _recipe_brief(f"parse the recipe photo at `{target}`",
+                          RECIPES_PARSED_DIR / f"{fname}.parsed.json"),
+            f"Recipe photo {ts}")
+        if status != 200:
+            return jsonify(payload), status
+        return jsonify(dict(payload, filename=fname))
 
     @app.route("/api/kitchen/parsed-recipes/list")
     def list_parsed_recipes():

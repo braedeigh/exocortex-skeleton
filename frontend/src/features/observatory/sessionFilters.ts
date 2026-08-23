@@ -195,6 +195,9 @@ export function matchesFilter(
  *                     her day, not something she's triaging
  *   origin nightcrew  worker sessions, which belong to the Night crew section
  *                     and are reached through their run card's session door
+ *   origin helper     button-fired jobs (triage, recipe/receipt parses, person
+ *                     impressions), which belong to the Helpers room at the
+ *                     bottom of the roster and are reached through its door
  *
  * WHY THIS IS A FUNCTION AND NOT A LINE IN THE PAGE. It used to be a line in
  * the page — inside the room split only — while the counts were taken over the
@@ -208,7 +211,7 @@ export function matchesFilter(
  * [prompt: "why does the orange one say 32 when i don't have that many open and
  * why does the red one say 3 when i don't see any"] */
 export function roomRoster(sessions: SessionMeta[]): SessionMeta[] {
-  return sessions.filter((s) => !s.pinned && s.origin !== 'nightcrew');
+  return sessions.filter((s) => !s.pinned && s.origin !== 'nightcrew' && s.origin !== 'helper');
 }
 
 /** How many sessions sit under each button — the number on its face, and (for

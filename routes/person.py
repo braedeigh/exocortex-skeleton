@@ -18,6 +18,7 @@ from flask import jsonify, request
 
 import config
 import store
+from routes.helpers import mint_helper
 from routes import entities
 from routes.kitchen import shared
 
@@ -73,22 +74,24 @@ def register(app):
         person = entities.resolve_person(slug)
         if person is None:
             return jsonify({"error": "not found"}), 404
-        # Same session-spawning pattern as triage: a named tmux session running
-        # Claude Code, cwd'd into the skill folder so it boots with the right
-        # CLAUDE.md loaded; the frontend deep-links to /phone?session=person.
-        newly = shared.ensure_claude_session(
-            "person", store.PERSON_SKILL_DIR, dirs=(store.PERSON_SKILL_DIR,),
-        )
+        # One Reading Room session per person, rejoined on a second press —
+        # it's a conversation ("talk it through before saving"), not a job.
+        # Walks through routes/helpers.py like the other helper buttons; the
+        # skill stays in PERSON_SKILL_DIR/CLAUDE.md in the vault.
         owner = config.get_profile().get("owner_name") or "the owner"
-        prompt = (
-            f"Update the Impression for {person['name']} — their file is "
-            f"{store.CONTENT_DIR / person['file']}. Read it and all their journal mentions, "
+        skill = store.PERSON_SKILL_DIR / "CLAUDE.md"
+        brief = (
+            f"# Impression: {person['name']}\n\n## Protocol\n\n"
+            f"1. Read `{skill}` — it is the skill for this job; follow it.\n"
+            f"2. Update the Impression for {person['name']} — their file is "
+            f"`{store.CONTENT_DIR / person['file']}`. Read it and all their journal mentions, "
             f"draft the ## Impression section as a biographical fact-sheet "
             f"(dated facts about who they are — not what {owner} feels about them), "
-            f"and talk it through with {owner} before saving."
+            f"and talk it through with {owner} before saving.\n"
         )
-        shared.send_prompt("person", prompt)
-        return jsonify({"ok": True, "session": "person", "newly_spawned": newly})
+        payload, status = mint_helper(
+            "person", f"person-{slug}"[:39], brief, f"Impression: {person['name']}")
+        return jsonify(payload), status
 
     @app.route("/api/person/<slug>/facts", methods=["POST"])
     def person_facts(slug):

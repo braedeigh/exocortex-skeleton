@@ -71,9 +71,11 @@ export interface FactsResponse {
   facts: Record<string, string>;
 }
 
-/** POST /api/person/<slug>/summarize (routes/person.py person_summarize). */
+/** POST /api/person/<slug>/summarize (routes/person.py person_summarize) —
+ * mints or rejoins the person's Reading Room helper session. */
 export interface SummarizeResponse {
   ok: boolean;
-  session: string;
+  conversation_id: string;
   newly_spawned: boolean;
+  kind?: string;
 }

@@ -1,0 +1,122 @@
+/* HelpersPage — the list of button-fired Claude runs. Page chrome (back
+   link, title, column) is borrowed from NightCrewPage.module.css so the two
+   pages off the roster feel like the same move; only the rows live here. */
+
+.intro {
+  margin: 0 0 var(--space-4);
+  font-size: var(--font-size-base);
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.empty {
+  padding: var(--space-5) var(--space-3);
+  color: var(--text-muted);
+  font-size: var(--font-size-base);
+  text-align: center;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* A row is a ~56px tap target: whole thing is the button. */
+.row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 56px;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg, 12px);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 180ms ease;
+}
+
+.row:hover {
+  border-color: var(--accent);
+}
+
+.row_closed {
+  opacity: 0.72;
+}
+
+.row_failed {
+  border-color: color-mix(in srgb, var(--danger, #d9534f) 55%, var(--border));
+}
+
+.row_running {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+}
+
+.rowMain {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.rowTitle {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.kind {
+  font-weight: 600;
+}
+
+.title {
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.rowLine {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.status_running {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.status_failed {
+  color: var(--danger, #d9534f);
+  font-weight: 600;
+}
+
+.err {
+  color: var(--danger, #d9534f);
+}
+
+.cost {
+  flex: none;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.arrow {
+  flex: none;
+  font-size: var(--font-size-lg);
+  color: var(--text-muted);
+}
+
+.row:hover .arrow {
+  color: var(--accent);
+}

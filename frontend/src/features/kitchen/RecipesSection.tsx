@@ -72,7 +72,7 @@ export function RecipesSection({
       return;
     }
     setUrl('');
-    setStatus('Parsing in the recipes tmux session… check the left pane. A "Review" banner will appear here when done.');
+    setStatus('Claude is parsing it in a Helpers session (Observatory → Helpers). A "Review" banner will appear here when done.');
     scheduleParsedRefetches();
   }
 
@@ -90,7 +90,7 @@ export function RecipesSection({
       onError(`Upload failed: ${e instanceof Error ? e.message : e}`);
       return;
     }
-    setStatus('Parsing in the recipes tmux session… check the left pane.');
+    setStatus('Claude is parsing it in a Helpers session (Observatory → Helpers). A "Review" banner will appear here when done.');
     scheduleParsedRefetches();
   }
 
