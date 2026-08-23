@@ -35,6 +35,7 @@ import {
   withFocusFront,
 } from './todoHelpers';
 import type { AddTodoPayload } from '../../api/endpoints';
+import { openTriage } from '../../api/endpoints';
 import { isFrosted } from './types';
 import type { TodoItem } from './types';
 import {
@@ -134,6 +135,22 @@ export function TodosPage() {
   const [streakId, setStreakId] = useState<string | null>(null);
   const streakParam = useSearch({ from: '/todos', select: (s: { streak?: string }) => s.streak });
   const navigate = useNavigate();
+  // 🧭 Triage: one tap mints (or rejoins) the Reading Room session that
+  // reorders the list by conversation, then lands on it. The server rejoins
+  // by slug, so a double-tap can't open two; `triageOpening` just keeps the
+  // button honest while the mint runs (~1s).
+  const [triageOpening, setTriageOpening] = useState(false);
+  const openTriageSession = async () => {
+    setTriageOpening(true);
+    try {
+      const { conversation_id } = await openTriage();
+      void navigate({ to: '/observatory/$botId', params: { botId: 'session' }, search: { conv: conversation_id } });
+    } catch (e) {
+      push(e instanceof Error ? e.message : 'Could not open Triage');
+    } finally {
+      setTriageOpening(false);
+    }
+  };
   useEffect(() => {
     const list = data?.streaks;
     if (!streakParam || !Array.isArray(list)) return;
@@ -456,6 +473,16 @@ export function TodosPage() {
                 <Link to="/todos/editor" className={styles.editorLink} data-track="todo-edit-all">
                   &#9998; Edit all
                 </Link>
+                <button
+                  type="button"
+                  className={styles.headerBtn}
+                  disabled={triageOpening}
+                  onClick={() => void openTriageSession()}
+                  title="Talk through your day with Triage — it reorders the list as you chat"
+                  data-track="todo-triage-open"
+                >
+                  {triageOpening ? '🧭 Opening…' : '🧭 Triage'}
+                </button>
               </div>
             ) : null}
           </div>

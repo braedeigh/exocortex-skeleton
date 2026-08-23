@@ -110,6 +110,13 @@ export function addTodo(payload: AddTodoPayload): Promise<AddTodoResponse> {
   return api.post('/api/todos/add', payload);
 }
 
+/** 🧭 Triage: mint (or rejoin) the Reading Room session that reorders the
+ * todos by conversation — routes/triage.py. Returns the conversation to
+ * navigate to. */
+export function openTriage(): Promise<{ conversation_id: string; newly_spawned: boolean }> {
+  return api.post('/api/triage/open', {});
+}
+
 export function toggleTodo(id: string): Promise<OkResponse> {
   return api.post('/api/todos/toggle', { id });
 }
