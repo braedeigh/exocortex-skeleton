@@ -10,7 +10,32 @@
   display: flex;
   flex-direction: column;
   position: relative;
-  background: var(--bg);
+  /* THE GROUND of this room — the colour the whole session sits on, and what
+     shows between the terrain's dots.
+
+     It is --card-bg and not --bg on purpose. Everywhere else in the app the
+     page colour is only ever glimpsed BETWEEN cards; here there are no cards,
+     so a whole screen of it lies behind the map. At the dark palette that is
+     the difference between reading as the app's indigo (--card-bg #1e1830)
+     and reading as flat black (--bg #14101e) — and this is a room she sits in
+     for hours. Named, because five other things have to agree with it.
+
+     Prompt that produced it: "return the background to the indigo color of
+     the rest of the app instead of black."
+
+     WHAT MUST FOLLOW IT, and why. The column's halo and the step-back
+     captions' halo are this exact colour — that is the entire trick of a halo
+     (see .column), and pointing one at a colour the ground isn't turns every
+     word into a visible smudge. The step-back strip's gradient dissolves from
+     the ground into the map. The highlight veil is the ground at 55%. And the
+     off-record composer is documented as "drops to the page". Six sites, one
+     token: change it here and they all move together.
+
+     WHAT DELIBERATELY DOESN'T. .chip, .thumb, .input and .highlightNote keep
+     --bg, which is now a step DARKER than the ground rather than equal to it
+     — they read as recessed wells, which is what a control wants anyway. */
+  --room-bg: var(--card-bg);
+  background: var(--room-bg, var(--card-bg));
   /* Makes this a stacking context so TerrainBackdrop's z-index:-1 is scoped
      HERE rather than escaping to the app shell. Paint order inside a stacking
      context is: this background, then negative-z children, then in-flow
@@ -80,7 +105,7 @@
   left: var(--space-4);
   right: var(--space-4);
   text-align: center;
-  text-shadow: 0 0 4px var(--bg), 0 0 10px var(--bg), 0 0 20px var(--bg);
+  text-shadow: 0 0 4px var(--room-bg, var(--card-bg)), 0 0 10px var(--room-bg, var(--card-bg)), 0 0 20px var(--room-bg, var(--card-bg));
   opacity: 0;
   transition: opacity 240ms ease 120ms;
 }
@@ -118,7 +143,7 @@
    under the words, which print downward — and it fades out at the bottom edge
    where it meets the terrain. */
 .pageStepBack .scroll {
-  background: linear-gradient(to bottom, var(--bg) 62%, transparent 100%);
+  background: linear-gradient(to bottom, var(--room-bg, var(--card-bg)) 62%, transparent 100%);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -140,12 +165,13 @@
   /* A clearing of calm ground around every letter, so the terrain watermark
      behind the conversation (TerrainBackdrop) never has to be dimmed for the
      words to win. Not a shadow — nothing here is meant to read as depth. It's
-     a halo, and the colour that reads as calm ground is the page's own
-     background, which is why this is var(--bg) and not a fixed grey: the sky
+     a halo, and the colour that reads as calm ground is THE GROUND ITSELF —
+     which is why this is --room-bg (see .page) and not a fixed grey: the sky
      theme runs seven palettes from near-black to near-white, so any literal
-     colour would be a smudge in half of them and a glow in the rest. At
-     var(--bg) it follows the blend and stays invisible — you never see the
-     halo, only that the text got easier.
+     colour would be a smudge in half of them and a glow in the rest. Matched
+     exactly to what .page paints, it follows the blend and stays invisible —
+     you never see the halo, only that the text got easier. Point it at
+     anything else and every word wears a visible blob.
      Zero offset (an offset would read as a drop shadow) and three blurs
      stacked rather than one large one, which builds density at the glyph and
      falls off smoothly without leaving a ring. Widening is done by ADDING an
@@ -158,7 +184,7 @@
      it covers each message automatically; the exception is below.
      Prompt that produced it: "maybe put a shadow behind the words? like idk
      what color, gray? something that contrasts?" then "increase the width". */
-  text-shadow: 0 0 4px var(--bg), 0 0 10px var(--bg), 0 0 20px var(--bg);
+  text-shadow: 0 0 4px var(--room-bg, var(--card-bg)), 0 0 10px var(--room-bg, var(--card-bg)), 0 0 20px var(--room-bg, var(--card-bg));
 }
 
 /* The column's padding is the gap; the last block inside it shouldn't add a
@@ -398,7 +424,7 @@
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  background: color-mix(in srgb, var(--room-bg, var(--card-bg)) 55%, transparent);
   backdrop-filter: var(--frost-veil);
   animation: highlightVeilIn 200ms ease-out;
 }
@@ -734,7 +760,7 @@
 /* Off the record: the accent drains out — background drops to the page,
    borders go dashed, the send button hollows. Felt, not badged. */
 .composerOff {
-  background: var(--bg);
+  background: var(--room-bg, var(--card-bg));
   border-top-style: dashed;
 }
 
