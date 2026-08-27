@@ -28,6 +28,7 @@ import type { OrchestraRow } from './orchestra';
 import { cardMetaLine } from './sessionStatus';
 import { cardState, sessionIs, type CardState } from './sessionFilters';
 import { SessionMemoryChip } from '../runqueue/SessionMemoryChip';
+import { ProposalBadge, ProposalsOnRow } from '../approvals/ProposalsOnRow';
 import styles from './SessionLane.module.css';
 
 /* The card's whole visual vocabulary, in two tables. cardState says WHICH state
@@ -471,6 +472,7 @@ export function SessionCard({
             </span>
           ) : null}
           {meta.draft ? <span className={styles.badge}>staged</span> : null}
+          <ProposalBadge convId={row.id} />
           {row.running ? (
             <span className={styles.fileCount}>
               {row.fileCount === 0
@@ -558,6 +560,10 @@ export function SessionCard({
           </button>
         ) : null}
       </div>
+      {/* Proposals this session's agent staged (a to-do, a note, a field
+          change): who, what, where-from, and Open — decided in the room,
+          never here. features/approvals/ProposalsOnRow. */}
+      <ProposalsOnRow convId={row.id} onOpen={onOpen} />
 
       {/* What she asked, then what it made of it — cause above effect. Shown
           for the life of the session, not just while it works: she reads back
