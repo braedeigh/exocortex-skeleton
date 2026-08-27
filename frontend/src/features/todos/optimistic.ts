@@ -55,6 +55,23 @@ export function applySubtaskToggle(data: TodayData, id: string, subId: string): 
   );
 }
 
+/** Drop one agent note (by + at) off an item, optimistically — the mirror of
+ * routes/todos.py's agent_note/remove. */
+export function applyAgentNoteRemove(data: TodayData, id: string, by: string, at: string): TodayData {
+  return withSections(data, (sections) =>
+    sections.map((sec) => ({
+      ...sec,
+      items: sec.items.map((it) => {
+        if (it.id !== id) return it;
+        const remaining = (it.agent_notes || []).filter((n) => !(n.by === by && n.at === at));
+        if (remaining.length) return { ...it, agent_notes: remaining };
+        const { agent_notes: _drop, ...rest } = it;
+        return rest as TodoItem;
+      }),
+    })),
+  );
+}
+
 export function applySubtaskRemove(data: TodayData, id: string, subId: string): TodayData {
   return withSections(data, (sections) =>
     sections.map((sec) => ({

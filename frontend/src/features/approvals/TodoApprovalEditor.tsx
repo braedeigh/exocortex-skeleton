@@ -9,6 +9,8 @@ import { useRef, useState } from 'react';
 import { Button } from '../../ui';
 import { FRONT_EMOJI, useFronts } from '../fronts/useFronts';
 import { LADDER_LABELS } from '../todos/todoHelpers';
+import { AgentNotes } from '../todos/AgentNotes';
+import { agentLabel } from '../todos/provenance';
 import { addTodo, removeTodo } from './api';
 import { payloadRecord } from './shared';
 import { buildTodoAdd, todoDraftFromPayload, todoFinalForLedger } from './todoApproval';
@@ -135,6 +137,18 @@ export function TodoApprovalEditor({ change, busy, onApprove, onDeny }: Approval
           onChange={(e) => set('notes', e.target.value)}
         />
       </div>
+
+      {/* Provenance: who proposed this and what they cited. Read-only — the
+          note commits as an agent note beside (never inside) her Description,
+          so what she reads here is exactly what the item will show. */}
+      {draft.by || draft.agentNote ? (
+        <div className={styles.field}>
+          <span className={styles.label}>Proposed by {draft.by ? agentLabel(draft.by) : 'an agent'}</span>
+          {draft.agentNote ? (
+            <AgentNotes notes={[{ by: draft.by || 'agent', at: change.created || change.created_at || '', ...draft.agentNote }]} />
+          ) : null}
+        </div>
+      ) : null}
 
       <div className={styles.field}>
         <span className={styles.label}>Fronts</span>

@@ -82,6 +82,11 @@
   overflow-wrap: anywhere;
 }
 
+.agentMark {
+  font-size: var(--font-size-sm);
+  color: var(--accent);
+}
+
 .chips {
   display: flex;
   flex-wrap: wrap;

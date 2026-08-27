@@ -61,6 +61,14 @@ export function TodoRow({
         {item.notes ? (
           <span className={styles.notesPreview}>{item.notes.split('\n')[0].trim()}</span>
         ) : null}
+        {/* An agent left something here — shown as a marker, never as the
+            text itself, so the row stays hers. Open the item to read it with
+            its author and citation. */}
+        {item.agent_notes?.length ? (
+          <span className={styles.agentMark}>
+            ✦ {item.agent_notes.length === 1 ? '1 agent note' : `${item.agent_notes.length} agent notes`}
+          </span>
+        ) : null}
         {item.due_by || itemFronts(item).length ? (
           <span className={styles.chips}>
             {item.due_by ? (

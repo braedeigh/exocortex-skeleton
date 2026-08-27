@@ -42,7 +42,7 @@ import time
 
 import store
 
-_SCHEMA_VERSION = 13
+_SCHEMA_VERSION = 14
 
 
 def _db_path():
@@ -134,7 +134,7 @@ _EXPECTED_TABLES = (
     "files", "file_paths", "commits", "commit_files",
     "sessions", "session_files", "session_turns",
     "cards", "card_tags",
-    "todos", "fronts", "todo_fronts", "todo_subtasks",
+    "todos", "fronts", "todo_fronts", "todo_subtasks", "todo_agent_notes",
     "job_runs",
     "attention_segments",
     "tags",
@@ -929,6 +929,32 @@ def _run_ladder(conn):
         conn.execute(
             "CREATE INDEX IF NOT EXISTS filer_verdicts_by_nom"
             " ON filer_verdicts (nomination_id, at)"
+        )
+    if version < 14:
+        # Provenance on to-dos (todo_provenance.py): who created each item
+        # and, for agent-left notes, who said it and what it cites. Three
+        # columns on `todos` — added with ALTER so the rung is re-runnable
+        # (a replayed ladder hits "duplicate column", which is the one
+        # error we swallow) — plus one row per agent note. `refs` is a JSON
+        # list; the citation is the whole point of the note, so it is never
+        # dropped in the mirror even though SQLite can't index into it.
+        for col in ("origin_by TEXT", "origin_at TEXT", "origin_conv TEXT"):
+            try:
+                conn.execute(f"ALTER TABLE todos ADD COLUMN {col}")
+            except sqlite3.OperationalError as e:
+                if "duplicate column" not in str(e):
+                    raise
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS todo_agent_notes ("
+            "  todo_id TEXT NOT NULL REFERENCES todos(id) ON DELETE CASCADE,"
+            "  position INTEGER NOT NULL,"
+            "  by TEXT NOT NULL,"
+            "  at TEXT,"
+            "  text TEXT NOT NULL,"
+            "  refs TEXT NOT NULL DEFAULT '[]',"
+            "  conv TEXT,"
+            "  PRIMARY KEY (todo_id, position)"
+            ")"
         )
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")

@@ -7,6 +7,7 @@ import store
 import subprocess
 import sys
 import uuid
+import todo_provenance as prov
 
 
 def _load_apps():
@@ -113,6 +114,24 @@ def register(app):
         key = find_section_key(data["section"])
         if not key:
             return jsonify({"error": "Section not found"}), 404
+        # Provenance (todo_provenance.py). Every new to-do gets an `origin`.
+        # The browser's own form sends none -> "owner". The approval sheet,
+        # committing a cricket's staged proposal, forwards the proposer as
+        # `origin: {"by": "cricket:todos", "conv": ...}` so the item remembers
+        # which agent nominated it even though the owner pressed Approve. A
+        # staged `agent_note` ({by, text, refs}) rides the same way and is
+        # validated here — over the cap or uncited -> 400, nothing written.
+        try:
+            origin_in = data.get("origin") if isinstance(data.get("origin"), dict) else {}
+            origin = prov.make_origin(origin_in.get("by"), origin_in.get("conv"))
+            note_in = data.get("agent_note")
+            agent_note = None
+            if isinstance(note_in, dict) and (note_in.get("text") or "").strip():
+                agent_note = prov.make_agent_note(
+                    note_in.get("by") or origin.get("by"), note_in.get("text"),
+                    note_in.get("refs"), note_in.get("conv") or origin.get("conv"))
+        except prov.ProvenanceError as e:
+            return jsonify({"error": str(e)}), 400
         new_id = uuid.uuid4().hex[:8]
         dup = False
         with store.mutate("todos", {}) as todos:
@@ -124,7 +143,10 @@ def register(app):
                 new_item = {
                     "id": new_id, "text": item_text, "done": False,
                     "created": datetime.now().strftime("%Y-%m-%d"),
+                    "origin": origin,
                 }
+                if agent_note:
+                    prov.append_agent_note(new_item, agent_note)
                 due_by = (data.get("due_by") or "").strip()
                 if due_by:
                     new_item["due_by"] = due_by
@@ -615,6 +637,33 @@ def register(app):
         return jsonify({"ok": True})
 
     # --- Applications ---
+
+    @app.route("/api/todos/agent_note/remove", methods=["POST"])
+    def remove_agent_note():
+        """The owner dismisses one agent note off a to-do. Identity is the
+        note's `at` stamp plus `by` (an agent leaves at most one note per
+        minute per item in practice; both together are as close to a key as
+        the shape has). There is deliberately NO edit route: an agent note is
+        the agent's words with its citation — if she wants to keep the gist,
+        she writes it into `notes` in her own words and dismisses this."""
+        data = request.json or {}
+        ident = data.get("id") or ""
+        at, by = (data.get("at") or ""), (data.get("by") or "")
+        removed = False
+        with store.mutate("todos", {}) as todos:
+            target = next((it for sec in todos.values() if isinstance(sec, dict)
+                           for it in sec.get("items", []) if _match(it, ident)), None)
+            if target is not None:
+                notes = target.get("agent_notes") or []
+                keep = [n for n in notes if not (n.get("at") == at and n.get("by") == by)]
+                removed = len(keep) != len(notes)
+                if keep:
+                    target["agent_notes"] = keep
+                else:
+                    target.pop("agent_notes", None)
+        if not removed:
+            return jsonify({"error": "Agent note not found"}), 404
+        return jsonify({"ok": True})
 
     @app.route("/api/applications/add", methods=["POST"])
     def add_application():

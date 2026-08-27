@@ -16,6 +16,27 @@ export interface SubTask {
   done: boolean;
 }
 
+/** Who created this to-do (TS twin of todo_provenance.py). `by` is 'owner'
+ * or an agent name ('triage', 'cricket:todos'); `conv` is the Observatory
+ * conversation it came out of, when there was one. Items from before
+ * 2026-08-27 have no origin at all — the UI says "unrecorded", never guesses. */
+export interface TodoOrigin {
+  by: string;
+  at: string;
+  conv?: string | null;
+}
+
+/** A short, cited line an agent left on a to-do. Never mixed into `notes`
+ * (the owner's own words); capped server-side at 240 chars; every note
+ * carries at least one `<kind>:<value>` ref the UI turns into a link. */
+export interface AgentNote {
+  by: string;
+  at: string;
+  text: string;
+  refs: string[];
+  conv?: string | null;
+}
+
 export interface TodoItem {
   id: string;
   text: string;
@@ -47,6 +68,8 @@ export interface TodoItem {
   after_id?: string | null;
   /** Small checkable items under this to-do. Absent = none (see routes/todos.py subtask endpoints). */
   subtasks?: SubTask[] | null;
+  origin?: TodoOrigin | null;
+  agent_notes?: AgentNote[] | null;
 }
 
 export interface TodoSection {

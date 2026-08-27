@@ -18,9 +18,33 @@ function draft(overrides: Partial<TodoDraft> = {}): TodoDraft {
     fronts: [],
     placeId: '',
     durationMin: '',
+    by: '',
+    agentNote: null,
     ...overrides,
   };
 }
+
+describe('provenance passthrough', () => {
+  it('reads the proposer and its cited note off the staged payload', () => {
+    const d = todoDraftFromPayload({
+      text: 'x',
+      by: 'cricket:todos',
+      agent_note: { text: 'said in the morning entry', refs: ['card:2026-08-26.0912a'] },
+    });
+    expect(d.by).toBe('cricket:todos');
+    expect(d.agentNote).toEqual({ text: 'said in the morning entry', refs: ['card:2026-08-26.0912a'] });
+  });
+
+  it('forwards origin + agent_note to /api/todos/add, and omits both for a plain payload', () => {
+    const r = buildTodoAdd(
+      draft({ by: 'cricket:todos', agentNote: { text: 'n', refs: ['card:c'] } }),
+    );
+    expect(r.ok && r.value.origin).toEqual({ by: 'cricket:todos' });
+    expect(r.ok && r.value.agent_note).toEqual({ by: 'cricket:todos', text: 'n', refs: ['card:c'] });
+    const plain = buildTodoAdd(draft());
+    expect(plain.ok && 'origin' in plain.value).toBe(false);
+  });
+});
 
 describe('bucketToLabel', () => {
   it('maps bucket keys to the labels /api/todos/add resolves sections by', () => {
@@ -56,6 +80,8 @@ describe('todoDraftFromPayload', () => {
       fronts: ['health', 'connection'],
       placeId: 'p1',
       durationMin: '30',
+      by: '',
+      agentNote: null,
     });
   });
 

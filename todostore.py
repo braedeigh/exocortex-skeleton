@@ -54,6 +54,8 @@ Prompt that produced this file: "i was thinking about doing more architecture
 backend stuff for pre existing stuff that i use, like to-dos or my journal. i
 want them to be sql backed to help with organization."
 """
+import json
+
 import sqlstore
 import store
 
@@ -172,6 +174,7 @@ def rebuild():
         # Children first — the FKs point this way, and clearing a parent out
         # from under live rows is what ON DELETE CASCADE would otherwise
         # silently paper over.
+        conn.execute("DELETE FROM todo_agent_notes")
         conn.execute("DELETE FROM todo_subtasks")
         conn.execute("DELETE FROM todo_fronts")
         conn.execute("DELETE FROM todos")
@@ -183,7 +186,7 @@ def rebuild():
             _front_rows(fronts_blob, used_fronts),
         )
 
-        seen, skipped, subtasks, links = set(), [], 0, 0
+        seen, skipped, subtasks, links, agent_notes = set(), [], 0, 0, 0
         for bucket, items in buckets:
             for position, item in enumerate(items):
                 todo_id = (item.get("id") or "").strip()
@@ -200,12 +203,17 @@ def rebuild():
                     duration = int(item.get("duration_min") or 0) or None
                 except (TypeError, ValueError):
                     duration = None
+                # Provenance (todo_provenance.py). Items from before the
+                # stamp existed have no `origin` and get NULLs — never a
+                # guessed 'owner'.
+                origin = item.get("origin") if isinstance(item.get("origin"), dict) else {}
                 conn.execute(
                     "INSERT INTO todos (id, text, bucket, position, done,"
                     "  created, finished_on, finished_time, finished_source,"
                     "  finished_note, notes, due_by, due_time, duration_min,"
-                    "  place_id, after_date, after_id, status)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "  place_id, after_date, after_id, status,"
+                    "  origin_by, origin_at, origin_conv)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         todo_id,
                         (item.get("text") or "").strip(),
@@ -217,8 +225,21 @@ def rebuild():
                         fields["due_by"], fields["due_time"], duration,
                         fields["place_id"], fields["after_date"],
                         fields["after_id"], fields["status"],
+                        _text(origin, "by"), _text(origin, "at"), _text(origin, "conv"),
                     ),
                 )
+                for n_pos, note in enumerate(item.get("agent_notes") or []):
+                    if not isinstance(note, dict) or not _text(note, "text"):
+                        continue
+                    conn.execute(
+                        "INSERT INTO todo_agent_notes (todo_id, position, by,"
+                        "  at, text, refs, conv) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (todo_id, n_pos, _text(note, "by") or "unknown",
+                         _text(note, "at"), _text(note, "text"),
+                         json.dumps(list(note.get("refs") or [])),
+                         _text(note, "conv")),
+                    )
+                    agent_notes += 1
                 for front in dict.fromkeys(item.get("fronts") or []):
                     if isinstance(front, str) and front.strip():
                         conn.execute(
@@ -245,7 +266,8 @@ def rebuild():
     finally:
         conn.close()
     return {"todos": len(seen), "fronts": len(_front_rows(fronts_blob, used_fronts)),
-            "front_links": links, "subtasks": subtasks, "skipped": len(skipped)}
+            "front_links": links, "subtasks": subtasks, "agent_notes": agent_notes,
+            "skipped": len(skipped)}
 
 
 def _rows(sql, params=()):

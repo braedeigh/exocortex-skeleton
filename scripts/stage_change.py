@@ -75,6 +75,7 @@ KNOWN_KINDS = frozenset((
     "todo",
     "life_todo",
     "life_remove",
+    "todo_done",
     "profile",
 ))
 

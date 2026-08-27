@@ -94,6 +94,13 @@
   color: var(--text-muted);
 }
 
+.metaLink {
+  color: var(--accent);
+  text-decoration: none;
+  display: inline-block;
+  padding: var(--space-2) 0;
+}
+
 .subtaskList {
   display: flex;
   flex-direction: column;

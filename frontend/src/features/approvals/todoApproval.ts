@@ -43,6 +43,11 @@ export interface TodoDraft {
   fronts: string[];
   placeId: string;
   durationMin: string;
+  /** Provenance, carried from the staged payload and forwarded untouched
+   * (todo_provenance.py): which agent proposed this, and its short cited
+   * note. Not editable in the sheet — the owner's edits go in `notes`. */
+  by: string;
+  agentNote: { text: string; refs: string[] } | null;
 }
 
 /** Staged front ids. Current payloads (Rust add-todo tool) carry
@@ -67,7 +72,21 @@ export function todoDraftFromPayload(payload: Record<string, JsonValue>): TodoDr
     fronts: frontsFromPayload(payload),
     placeId: asString(payload.place_id),
     durationMin: asString(payload.duration_min),
+    by: asString(payload.by),
+    agentNote: agentNoteFromPayload(payload),
   };
+}
+
+/** The proposer's `agent_note: {text, refs}` if the staged payload has a
+ * usable one. Refs are kept as-is; the server validates them on commit. */
+function agentNoteFromPayload(payload: Record<string, JsonValue>): { text: string; refs: string[] } | null {
+  const raw = payload.agent_note;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const rec = raw as Record<string, JsonValue>;
+  const text = asString(rec.text).trim();
+  if (!text) return null;
+  const refs = Array.isArray(rec.refs) ? rec.refs.filter((r): r is string => typeof r === 'string' && r !== '') : [];
+  return { text, refs };
 }
 
 /**
@@ -91,6 +110,10 @@ export function buildTodoAdd(draft: TodoDraft): BuildResult<AddTodoPayload> {
   };
   const duration = draft.durationMin.trim();
   if (duration !== '') body.duration_min = Number(duration);
+  // Provenance rides through to /api/todos/add: the item remembers which
+  // agent proposed it even though the owner pressed Approve.
+  if (draft.by) body.origin = { by: draft.by };
+  if (draft.agentNote) body.agent_note = { by: draft.by || undefined, ...draft.agentNote };
   return { ok: true, value: body };
 }
 

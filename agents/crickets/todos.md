@@ -29,14 +29,30 @@ than via a CLI tool because no such tool here can set Focus/Category.)*
     "theme": "health",
     "category": "body",
     "due_by": "",
-    "notes": ""
+    "by": "cricket:todos",
+    "agent_note": {
+      "text": "Named in the morning entry — \"gotta book the dentist before the insurance year rolls\"",
+      "refs": ["card:<the card id the line came from>"]
+    }
   },
   "created": "<YYYY-MM-DD HH:MM>"
 }
 ```
 
-Only `text` + `bucket` are required; add `theme`/`category`/`due_by`/`notes` when you
-can. Put `due_by` (YYYY-MM-DD) only if a real deadline was named.
+Only `text` + `bucket` are required; add `theme`/`category`/`due_by` when you can.
+Put `due_by` (YYYY-MM-DD) only if a real deadline was named.
+
+**Provenance rules (todo_provenance.py) — these are enforced at commit:**
+
+- **Never write `notes`.** That field is the owner's own words. Anything you want to
+  say goes in `agent_note` and shows up labelled as yours, beside — not inside —
+  their description.
+- `by` is always `"cricket:todos"` — the item remembers who proposed it.
+- `agent_note.text` is **capped at 240 characters** and **must cite at least one
+  ref** — `card:<id>` for the journal card the task came from (always available to
+  you: the card ids are in the day file), or `journal:<YYYY-MM-DD>`. A note with no
+  ref fails the whole add. If there's nothing worth saying beyond the quote, still
+  include the quote with its card — it's how the owner sees *where this came from*.
 
 ## Sort it — Focus (always) + Category (when clear)
 

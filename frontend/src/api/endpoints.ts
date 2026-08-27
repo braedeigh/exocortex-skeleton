@@ -95,6 +95,13 @@ export interface AddTodoPayload {
   duration_min?: number;
   after_date?: string;
   after_id?: string;
+  /** Approval-sheet only: the agent that proposed this item, forwarded so
+   * the created to-do remembers it (routes/todos.py add -> todo_provenance).
+   * The owner's own form never sends this; the route stamps 'owner'. */
+  origin?: { by: string; conv?: string | null };
+  /** Approval-sheet only: the proposer's short cited note, validated
+   * server-side (cap + at least one ref) — a bad one fails the whole add. */
+  agent_note?: { by?: string; text: string; refs: string[]; conv?: string | null };
 }
 
 export interface OkResponse {
@@ -156,6 +163,11 @@ export type TodoDetailsPatch = Partial<
 
 export function todoDetails(id: string, patch: TodoDetailsPatch): Promise<OkResponse> {
   return api.post('/api/todos/details', { id, ...patch });
+}
+
+/** Dismiss one agent-left note off a to-do (identity = by + at stamp). */
+export function removeAgentNote(id: string, by: string, at: string): Promise<OkResponse> {
+  return api.post('/api/todos/agent_note/remove', { id, by, at });
 }
 
 export interface AddSubtaskResponse extends OkResponse {

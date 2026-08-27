@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
+import { Link } from '@tanstack/react-router';
 import { Button, Checkbox, IconButton, Sheet } from '../../ui';
+import { AgentNotes } from './AgentNotes';
+import { originLine } from './provenance';
 import { BlockerPicker } from './BlockerPicker';
 import { LADDER_LABELS, fmtAddedDate, fmtTime, isWaiting, waitingReason } from './todoHelpers';
 import { emptyDraft, draftFromItem, draftToAddPayload, diffDraftForSave } from './todoDraft';
@@ -15,7 +18,15 @@ import styles from './TodoFormSheet.module.css';
  * instead of the fire-and-forget `add`). */
 export type TodoFormActions = Pick<
   ReturnType<typeof useTodoActions>,
-  'addAsync' | 'rename' | 'details' | 'move' | 'remove' | 'subtaskAdd' | 'subtaskToggle' | 'subtaskRemove'
+  | 'addAsync'
+  | 'rename'
+  | 'details'
+  | 'move'
+  | 'remove'
+  | 'subtaskAdd'
+  | 'subtaskToggle'
+  | 'subtaskRemove'
+  | 'agentNoteRemove'
 >;
 
 export interface TodoFormSheetProps {
@@ -217,6 +228,16 @@ export function TodoFormSheet({
           placeholder="Any details…"
         />
       </div>
+
+      {/* 3b. From agents (edit only) — notes an agent left, each with its
+          author, minute, and citation links; dismiss-only, never editable.
+          Kept visibly apart from the Description above: hers vs theirs. */}
+      {mode === 'edit' && item?.agent_notes?.length ? (
+        <div className={styles.field}>
+          <span className={styles.label}>From agents</span>
+          <AgentNotes notes={item.agent_notes} onDismiss={(n) => actions.agentNoteRemove(item.id, n.by, n.at)} />
+        </div>
+      ) : null}
 
       {/* 4. Sub-tasks (edit only — they commit instantly against the item's
           id, so an unsaved add has nothing to attach them to) — always reads
@@ -437,9 +458,20 @@ export function TodoFormSheet({
         </div>
       ) : null}
 
-      {/* 10. Added meta (edit only) */}
-      {mode === 'edit' && item?.created ? (
-        <div className={styles.meta}>Added {fmtAddedDate(item.created)}</div>
+      {/* 10. Added meta (edit only) — who and when (provenance.originLine);
+          an agent-made item links to the conversation it came out of. */}
+      {mode === 'edit' && item && (item.created || item.origin) ? (
+        <div className={styles.meta}>
+          {originLine(item.origin, item.created, fmtAddedDate)}
+          {item.origin?.conv ? (
+            <>
+              {' · '}
+              <Link to="/observatory/$botId" params={{ botId: item.origin.conv }} className={styles.metaLink}>
+                open conversation ↗
+              </Link>
+            </>
+          ) : null}
+        </div>
       ) : null}
     </Sheet>
   );

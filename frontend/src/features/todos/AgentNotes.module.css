@@ -1,0 +1,75 @@
+/* Agent-left notes: deliberately a different texture from the owner's
+   Description — a tinted card with a left rule, so a glance says "not my
+   words". Tap targets: the × is a 40px IconButton; ref links get 40px of
+   height via padding. */
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.note {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm, 6px);
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+}
+
+.body {
+  flex: 1;
+  min-width: 0;
+}
+
+.who {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  font-size: var(--font-size-sm);
+}
+
+.by {
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.when {
+  color: var(--text-muted);
+}
+
+.text {
+  margin-top: 2px;
+  color: var(--text-primary, inherit);
+  overflow-wrap: anywhere;
+}
+
+.refs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+.ref,
+.refText {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  text-decoration: none;
+}
+
+.ref {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.refText {
+  overflow-wrap: anywhere;
+}

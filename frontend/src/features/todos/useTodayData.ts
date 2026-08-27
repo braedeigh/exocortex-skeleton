@@ -26,6 +26,7 @@ import {
   removeGrowthNote,
   removeStreak,
   removeSubtask,
+  removeAgentNote,
   removeTodo,
   renameTodo,
   reorderTodos,
@@ -61,6 +62,7 @@ import {
   applyStreakRetire,
   applySubtaskAdd,
   applySubtaskRemove,
+  applyAgentNoteRemove,
   applySubtaskToggle,
   applySymptomLog,
   applyToggle,
@@ -205,8 +207,14 @@ export function useTodoActions(onError: (message: string) => void) {
     (data, vars) => applySubtaskRemove(data, vars.id, vars.subId),
     onError,
   );
+  const agentNoteRemove = useOptimisticMutation(
+    (vars: { id: string; by: string; at: string }) => removeAgentNote(vars.id, vars.by, vars.at),
+    (data, vars) => applyAgentNoteRemove(data, vars.id, vars.by, vars.at),
+    onError,
+  );
 
   return {
+    agentNoteRemove: (id: string, by: string, at: string) => agentNoteRemove.mutate({ id, by, at }),
     toggle: (id: string) => toggle.mutate(id),
     remove: (id: string) => remove.mutate(id),
     rename: (id: string, text: string) => rename.mutate({ id, text }),
