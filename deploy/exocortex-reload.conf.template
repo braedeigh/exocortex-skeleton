@@ -1,0 +1,19 @@
+# Drop-in that gives exocortex.service a `reload` verb.
+#
+# Install:
+#   sudo mkdir -p /etc/systemd/system/exocortex.service.d
+#   sudo cp deploy/exocortex-reload.conf.template /etc/systemd/system/exocortex.service.d/reload.conf
+#   sudo systemctl daemon-reload        # re-reads unit files; does NOT touch the running service
+#   sudo systemctl reload exocortex.service
+#
+# Why: `systemctl restart` SIGTERMs the whole service cgroup, and every agent
+# turn spawned by the app lives in that cgroup — a routine deploy kills every
+# session on the box. SIGHUP to the gunicorn master instead makes it boot fresh
+# workers on the new code and drain the old ones; the master and the turn
+# processes are untouched. Without this drop-in systemd answers
+# "Job type reload is not applicable for unit exocortex.service".
+#
+# No sudo at hand? The service runs as the owner's user, so this is equivalent:
+#   kill -HUP "$(systemctl show -p MainPID --value exocortex.service)"
+[Service]
+ExecReload=/bin/kill -HUP $MAINPID
