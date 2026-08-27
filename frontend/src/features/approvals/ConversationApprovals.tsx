@@ -1,24 +1,27 @@
 /**
- * ConversationApprovals — the approval sheet drawn INSIDE one Observatory
- * pane, for the changes that conversation's agent proposed.
+ * ConversationApprovals — an agent's proposals, drawn INSIDE the chat
+ * transcript of the session that made them.
  *
- * What it does: reads the same 3s /api/pending poll as the global host,
- * keeps only the entries whose `conv` is this pane's conversation, and pops
- * them as a panel over the chat — a scrim covering just this tile, the
- * panel at the bottom where the eye already is (the composer). Approve /
- * edit / Deny are the exact same editors and decision logic as the
- * window-wide sheet (useApprovalDecisions); only where it appears differs.
- * While mounted it claims the conversation in openConvs so the global host
- * doesn't show the same change center-screen.
+ * What it does: reads the same 3s /api/pending poll as the window-wide
+ * host, keeps only the entries whose `conv` is this conversation, and
+ * renders each one as a card in the message column — after the agent's
+ * latest reply, where its words are, in the same left-ruled card language
+ * the transcript already uses for decisions. Every card carries the kind's
+ * own editor (the native to-do form for an add, the note-with-citation for
+ * a note, the field list for a patch) and its Approve / Deny. The decision
+ * logic is useApprovalDecisions, shared with the global sheet; only where
+ * it's drawn differs. While mounted it claims the conversation in openConvs
+ * so the global host doesn't also show these center-screen.
  *
- * Closing without deciding collapses it to a pill in the pane's corner;
- * tap to reopen. Nothing touches the list until Approve.
+ * All of this conversation's proposals show at once (they're a batch from
+ * one agent, not a queue to page through). Nothing touches the list until
+ * Approve; a decided card leaves the transcript and the ledger keeps it.
  *
- * Prompt distilled: "i want it to pop up over THIS pane. the observatory
- * pane where this agent is talking specifically."
+ * Prompt distilled: "I want it to show explicitly over the session that
+ * made it, inside the chat window, not just observatory."
  */
 import { useEffect } from 'react';
-import { Button, ToastStack } from '../../ui';
+import { ToastStack } from '../../ui';
 import { GenericApprovalEditor } from './GenericApprovalEditor';
 import { usePendingQueue } from './hooks';
 import { itemsForConv, registerOpenConv } from './openConvs';
@@ -33,56 +36,39 @@ export function ConversationApprovals({ convId }: { convId: string }) {
   const { data } = usePendingQueue();
   const items = itemsForConv(data?.pending ?? [], convId);
   const d = useApprovalDecisions(items);
-  const { active, busy, toasts } = d;
+  const { busy, toasts } = d;
 
-  if (!items.length && !active && !toasts.length) return null;
-
-  const entry = active ? getApprovalEditor(active.kind) : undefined;
-  const Editor = entry?.Editor ?? GenericApprovalEditor;
-  const title = entry?.title ?? 'Approve change?';
-  const who = active?.by ? agentLabel(active.by) : 'This agent';
+  if (!items.length && !toasts.length) return null;
 
   return (
     <>
-      {!active && items.length > 0 ? (
-        <button type="button" className={styles.pill} onClick={d.reopen}>
-          <span className={styles.badge}>{items.length}</span>
-          {items.length === 1 ? 'proposal from this agent' : 'proposals from this agent'} · Review
-        </button>
-      ) : null}
-
-      {active ? (
-        <div className={styles.scrim} role="dialog" aria-modal="false" aria-label={title}>
-          <div className={styles.panel}>
+      {items.map((change) => {
+        const entry = getApprovalEditor(change.kind);
+        const Editor = entry?.Editor ?? GenericApprovalEditor;
+        const title = entry?.title ?? 'Approve change?';
+        const who = change.by ? agentLabel(change.by) : 'This agent';
+        return (
+          <div key={change.id} className={styles.card} role="group" aria-label={`${who}: ${title}`}>
             <div className={styles.head}>
-              <div>
-                <div className={styles.eyebrow}>{who} proposes</div>
-                <div className={styles.title}>{title}</div>
-              </div>
-              <Button variant="secondary" type="button" onClick={d.dismiss} disabled={busy} aria-label="Later">
-                Later
-              </Button>
+              <span className={styles.eyebrow}>✦ {who} proposes</span>
+              <span className={styles.title}>{title}</span>
+              {change.created ? <span className={styles.when}>{change.created.slice(11, 16)}</span> : null}
             </div>
-            {items.length > 1 ? (
-              <div className={styles.more}>+{items.length - 1} more waiting after this one</div>
-            ) : null}
             <div className={styles.body}>
               <Editor
-                key={active.id}
-                change={active}
+                change={change}
                 busy={busy}
                 onApprove={(plan) => {
-                  void d.runApprove(active, plan);
+                  void d.runApprove(change, plan);
                 }}
                 onDeny={() => {
-                  void d.runDeny(active);
+                  void d.runDeny(change);
                 }}
               />
             </div>
           </div>
-        </div>
-      ) : null}
-
+        );
+      })}
       <ToastStack toasts={toasts} onDismiss={d.dismissToast} />
     </>
   );

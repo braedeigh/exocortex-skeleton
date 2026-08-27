@@ -681,11 +681,6 @@ export function ObservatoryPage({
           the terrain polling all stop with it. */}
       {backdropOn ? <TerrainBackdrop focusConv={convId} revealed={stepBack.active} /> : null}
 
-      {/* Proposals THIS conversation's agent staged (to-dos, notes, field
-          changes) pop here, over this pane, while it's still talking — not
-          as the window-wide sheet. See features/approvals/ConversationApprovals. */}
-      {convId ? <ConversationApprovals convId={convId} /> : null}
-
       <div ref={scrollContract.scrollRef} className={styles.scroll}>
         <div ref={scrollContract.columnRef} className={styles.column}>
           {turns.length === 0 ? (
@@ -773,6 +768,11 @@ export function ObservatoryPage({
               {scrollContract.parkArmed ? ' · turning pages for you' : ''}
             </div>
           ) : null}
+          {/* Proposals THIS conversation's agent staged (a to-do, a note, a
+              field change) land here as cards in the transcript, after its
+              latest words — Approve / edit / Deny in place. Not the
+              window-wide sheet: features/approvals/ConversationApprovals. */}
+          {convId ? <ConversationApprovals convId={convId} /> : null}
           {messageQueue.queued.map((q, i) => (
             <div key={i} className={styles.queuedRow}>
               <span className={styles.queuedTag}>queued</span>
