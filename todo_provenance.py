@@ -152,6 +152,39 @@ def make_agent_note(by, text, refs, conv=None, at=None):
     return note
 
 
+# The few fields an agent may propose changing on an existing to-do through
+# a `life_patch`. Scheduling and placement only — never the text, never the
+# owner's notes, never done. An empty value clears the field.
+PATCH_FIELDS = ("bucket", "due_by", "due_time", "snoozed_until", "after_date",
+                "duration_min")
+BUCKETS = ("now", "up_next", "later", "someday")
+
+
+def clean_patch(fields):
+    """A validated `{field: value}` patch for life_patch, or ProvenanceError.
+    Only PATCH_FIELDS get through; a bucket must be one of the four live
+    ones; duration is a positive int or '' (clear)."""
+    if not isinstance(fields, dict) or not fields:
+        raise ProvenanceError("a patch needs at least one field to change")
+    out = {}
+    for k, v in fields.items():
+        if k not in PATCH_FIELDS:
+            raise ProvenanceError(
+                f"agents may not change {k!r}; allowed: " + ", ".join(PATCH_FIELDS))
+        v = "" if v is None else str(v).strip()
+        if k == "bucket" and v not in BUCKETS:
+            raise ProvenanceError(f"bucket must be one of {', '.join(BUCKETS)}")
+        if k == "duration_min" and v:
+            try:
+                v = int(v)
+                if v <= 0:
+                    raise ValueError
+            except ValueError:
+                raise ProvenanceError("duration_min must be a positive whole number")
+        out[k] = v
+    return out
+
+
 def append_agent_note(item, note):
     """Attach a made note to a to-do dict in place. Kept tiny so the two
     writers can't diverge on the field name."""

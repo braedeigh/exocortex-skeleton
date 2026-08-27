@@ -4,6 +4,7 @@ import { uploadedPathsMessage } from '../phone/phoneLogic';
 import { TermNotesPanel } from '../../shell/TermNotesPanel';
 import { SchedulePanel } from '../../shell/SchedulePanel';
 import { TerrainBackdrop } from '../terrain/TerrainBackdrop';
+import { ConversationApprovals } from '../approvals/ConversationApprovals';
 import { setTerrainBackdropOn, useTerrainBackdropOn } from '../terrain/backdropPref';
 import { createSession, getConversation, getSessions, isOutOfMemory, journalOutput, stopConversation, streamSend } from './api';
 import { MemoryPrompt } from '../runqueue/MemoryPrompt';
@@ -679,6 +680,11 @@ export function ObservatoryPage({
           than hidden when she's turned it off, so the canvas, the breath and
           the terrain polling all stop with it. */}
       {backdropOn ? <TerrainBackdrop focusConv={convId} revealed={stepBack.active} /> : null}
+
+      {/* Proposals THIS conversation's agent staged (to-dos, notes, field
+          changes) pop here, over this pane, while it's still talking — not
+          as the window-wide sheet. See features/approvals/ConversationApprovals. */}
+      {convId ? <ConversationApprovals convId={convId} /> : null}
 
       <div ref={scrollContract.scrollRef} className={styles.scroll}>
         <div ref={scrollContract.columnRef} className={styles.column}>

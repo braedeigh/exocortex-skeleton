@@ -111,16 +111,27 @@ def test_dismissing_a_missing_agent_note_404s(client, seed):
 
 # --- the CLI door --------------------------------------------------------------------
 
-def test_cli_appends_a_cited_note_with_the_session(data_dir, monkeypatch, capsys):
+def test_cli_direct_appends_a_cited_note_with_the_session(data_dir, monkeypatch, capsys):
     from scripts import todo_note
     store.write("todos", {"now": {"items": [{"id": "t1", "text": "X", "done": False, "notes": "hers"}]}})
     monkeypatch.setenv("EXOCORTEX_CONV_ID", "conv9")
     assert todo_note.main(["--id", "t1", "--by", "triage", "--text", "wait for the letter",
-                           "--ref", "conv:conv9"]) == 0
+                           "--ref", "conv:conv9", "--direct"]) == 0
     item = read_todos()["now"]["items"][0]
     assert item["notes"] == "hers"                       # the owner's field is untouched
     assert item["agent_notes"][0]["conv"] == "conv9"
     assert item["agent_notes"][0]["text"] == "wait for the letter"
+
+
+def test_cli_default_stages_for_approval_tagged_with_the_conversation(data_dir, monkeypatch):
+    from scripts import todo_note
+    store.write("todos", {"now": {"items": [{"id": "t1", "text": "X", "done": False}]}})
+    monkeypatch.setenv("EXOCORTEX_CONV_ID", "conv9")
+    assert todo_note.main(["--id", "t1", "--by", "triage", "--text", "wait", "--ref", "conv:conv9"]) == 0
+    assert "agent_notes" not in read_todos()["now"]["items"][0]   # nothing landed yet
+    q = store.read("pending_changes", {})["pending"]
+    assert len(q) == 1 and q[0]["kind"] == "agent_note" and q[0]["conv"] == "conv9"
+    assert q[0]["by"] == "triage" and q[0]["created"] and "X" in q[0]["summary"]
 
 
 def test_cli_refuses_an_uncited_note_and_writes_nothing(data_dir, capsys):
@@ -160,3 +171,64 @@ def test_mirror_carries_origin_and_notes_and_never_invents_an_author(data_dir):
         assert note[0] == "triage" and json.loads(note[2]) == ["card:a", "url:https://b"]
     finally:
         conn.close()
+
+
+# --- the approval gate (routes/pending.py) ------------------------------------------
+
+@pytest.fixture
+def gate(data_dir):
+    from flask import Flask
+    from routes import pending
+    app = Flask(__name__)
+    app.config.update(TESTING=True)
+    pending.register(app)
+    return app.test_client()
+
+
+def _stage(kind, payload, **kw):
+    from scripts.stage_change import stage_change
+    return stage_change(kind, payload, **kw)
+
+
+def test_approving_an_agent_note_lands_it_on_the_item(gate):
+    store.write("todos", {"now": {"items": [{"id": "t1", "text": "X", "done": False}]}})
+    e = _stage("agent_note", {"id": "t1", "by": "triage", "text": "n", "refs": ["card:c"]}, conv="c1")
+    r = _post(gate, "/api/pending/approve", {"id": e["id"]})
+    assert r.status_code == 200
+    item = read_todos()["now"]["items"][0]
+    assert item["agent_notes"][0]["text"] == "n" and item["agent_notes"][0]["conv"] == "c1"
+    assert store.read("pending_changes", {})["pending"] == []
+
+
+def test_staging_refuses_an_uncited_note_before_it_reaches_the_queue(data_dir):
+    from scripts.stage_change import StageError
+    with pytest.raises(StageError):
+        _stage("agent_note", {"id": "t1", "by": "triage", "text": "n", "refs": []})
+    assert store.read("pending_changes", {"pending": []})["pending"] == []
+
+
+def test_approving_a_patch_moves_and_dates_the_item_and_keeps_the_why(gate):
+    store.write("todos", {"now": {"items": [{"id": "t1", "text": "X", "done": False, "notes": "hers"}]},
+                          "later": {"items": []}})
+    e = _stage("life_patch", {"id": "t1", "by": "triage",
+                              "fields": {"bucket": "later", "due_by": "2026-09-01"},
+                              "why": "you said not this week", "refs": ["conv:c1"]}, conv="c1")
+    assert _post(gate, "/api/pending/approve", {"id": e["id"]}).status_code == 200
+    todos = read_todos()
+    assert todos["now"]["items"] == []
+    item = todos["later"]["items"][0]
+    assert item["due_by"] == "2026-09-01" and item["notes"] == "hers"
+    assert item["agent_notes"][0]["text"] == "you said not this week"
+
+
+def test_a_patch_may_not_touch_text_or_notes(data_dir):
+    from scripts.stage_change import StageError
+    with pytest.raises(StageError):
+        _stage("life_patch", {"id": "t1", "by": "triage", "fields": {"notes": "mine now"}})
+
+
+def test_owner_edits_in_the_sheet_win_over_the_proposal(gate):
+    store.write("todos", {"now": {"items": [{"id": "t1", "text": "X", "done": False}]}})
+    e = _stage("agent_note", {"id": "t1", "by": "triage", "text": "long version", "refs": ["card:c"]})
+    _post(gate, "/api/pending/approve", {"id": e["id"], "payload": {"text": "her shorter version"}})
+    assert read_todos()["now"]["items"][0]["agent_notes"][0]["text"] == "her shorter version"

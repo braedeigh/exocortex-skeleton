@@ -21,6 +21,12 @@ touched by this script; agent notes live beside it under `agent_notes` and
 the app shows them as the agent's words, with the citation, and a way to
 dismiss them.
 
+**By default the note is PROPOSED, not written.** It goes into the approval
+queue tagged with the conversation, and the approval sheet pops over that
+Observatory pane while the agent is still talking; the note lands only on
+Approve. `--direct` writes immediately — for unattended callers (cron), not
+for a session the owner is sitting in.
+
 `--show` prints an item's current notes and agent notes, for an agent that
 wants to check before it writes twice.
 
@@ -67,12 +73,35 @@ def show(ident):
     return 0
 
 
-def add(ident, by, text, refs, conv=None):
+def add(ident, by, text, refs, conv=None, direct=False):
     try:
         note = prov.make_agent_note(by, text, refs, conv)
     except prov.ProvenanceError as e:
         print(f"todo_note: {e}", file=sys.stderr)
         return 2
+    if not direct:
+        # The normal path: stage it. The proposal is tagged with this
+        # conversation, so the approval sheet pops over the pane the agent
+        # is talking in; the note lands only when the owner taps Approve.
+        from scripts.stage_change import stage_change, StageError
+        item = _find(store.read("todos", {}), ident)
+        if item is None:
+            print(f"todo_note: no to-do with id {ident!r}", file=sys.stderr)
+            return 2
+        payload = {"id": ident, "item_text": item.get("text") or "", "by": note["by"],
+                   "text": note["text"], "refs": note["refs"]}
+        if note.get("conv"):
+            payload["conv"] = note["conv"]
+        try:
+            entry = stage_change("agent_note", payload,
+                                 summary=f"{note['by']} wants to note on “{payload['item_text']}”",
+                                 by=note["by"], conv=note.get("conv"))
+        except StageError as e:
+            print(f"todo_note: {e}", file=sys.stderr)
+            return 2
+        print(f"proposed note on [{ident}] by {note['by']} — awaiting approval"
+              f"{' in conversation ' + entry['conv'] if entry.get('conv') else ''}")
+        return 0
     found = False
     with store.mutate("todos", {}) as todos:
         item = _find(todos, ident)
@@ -98,12 +127,14 @@ def main(argv=None):
     p.add_argument("--ref", action="append", default=[],
                    help="where it came from; repeatable. kinds: " + ", ".join(prov.REF_KINDS))
     p.add_argument("--conv", help="override the conversation id (default: EXOCORTEX_CONV_ID)")
+    p.add_argument("--direct", action="store_true",
+                   help="write immediately instead of staging for approval (cron/crickets only)")
     a = p.parse_args(argv)
     if a.show:
         return show(a.id)
     if not a.by or not a.text:
         p.error("--by and --text are required (or use --show)")
-    return add(a.id, a.by, a.text, a.ref, a.conv)
+    return add(a.id, a.by, a.text, a.ref, a.conv, direct=a.direct)
 
 
 if __name__ == "__main__":

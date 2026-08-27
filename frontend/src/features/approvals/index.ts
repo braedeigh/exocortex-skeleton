@@ -6,6 +6,7 @@
  */
 export { ApprovalsHost, ApprovalsHost as default } from './ApprovalsHost';
 export type { ApprovalsHostProps, ApprovalsToast } from './ApprovalsHost';
+export { ConversationApprovals } from './ConversationApprovals';
 
 export { getApprovalEditor, registerApprovalEditor, registeredApprovalKinds } from './registry';
 export type {

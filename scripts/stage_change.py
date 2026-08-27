@@ -52,6 +52,7 @@ import json
 import os
 import sys
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 # Make the skeleton root importable regardless of where the script is
@@ -76,6 +77,12 @@ KNOWN_KINDS = frozenset((
     "life_todo",
     "life_remove",
     "todo_done",
+    # Agent doors onto an existing to-do (todo_provenance.py): a short cited
+    # note, or a patch of a few scheduling fields. Both land in the queue
+    # tagged with the conversation that proposed them, so the sheet pops over
+    # THAT Observatory pane rather than center-screen.
+    "agent_note",
+    "life_patch",
     "profile",
 ))
 
@@ -110,10 +117,17 @@ def _validate_profile_payload(payload):
         raise StageError("profile payload failed validation: " + "; ".join(violations))
 
 
-def stage_change(kind, payload):
-    """Validate `kind`/`payload` and append {"id", "kind", "payload"} to the
-    pending queue. Returns the staged entry. Raises StageError (a ValueError)
-    on any validation failure -- nothing is written in that case."""
+def stage_change(kind, payload, summary=None, by=None, conv=None):
+    """Validate `kind`/`payload` and append an entry to the pending queue.
+    Returns the staged entry. Raises StageError (a ValueError) on any
+    validation failure -- nothing is written in that case.
+
+    The entry carries the same envelope the Rust stager writes (`summary`,
+    `created`) plus two provenance fields: `by` (which agent proposed it) and
+    `conv` (the Observatory conversation it came out of -- defaults to
+    EXOCORTEX_CONV_ID, which the turn host sets, so a script an agent runs
+    from a session is tagged without the agent knowing the id). The
+    frontend uses `conv` to pop the approval over that conversation's pane."""
     if kind not in KNOWN_KINDS:
         raise StageError(
             "unknown change kind {!r}; valid kinds: {}".format(
@@ -125,8 +139,33 @@ def stage_change(kind, payload):
 
     if kind == "profile":
         _validate_profile_payload(payload)
+    if kind in ("agent_note", "life_patch"):
+        # Fail at propose time, not approve time: the commit handler
+        # (routes/pending.py) re-validates, but an agent should hear "no"
+        # now, while it can still fix the note.
+        import todo_provenance as prov
+        try:
+            if kind == "agent_note":
+                prov.make_agent_note(payload.get("by") or by, payload.get("text"),
+                                     payload.get("refs"), payload.get("conv") or conv)
+            else:
+                prov.clean_patch(payload.get("fields"))
+                if payload.get("why"):
+                    prov.clean_refs(payload.get("refs"))
+        except prov.ProvenanceError as exc:
+            raise StageError(str(exc))
+        if not payload.get("id"):
+            raise StageError("payload needs the target to-do's `id`")
 
-    entry = {"id": str(uuid.uuid4()), "kind": kind, "payload": payload}
+    conv = conv or os.environ.get("EXOCORTEX_CONV_ID") or None
+    entry = {"id": str(uuid.uuid4()), "kind": kind, "payload": payload,
+             "created": datetime.now().strftime("%Y-%m-%d %H:%M")}
+    if summary:
+        entry["summary"] = summary
+    if by:
+        entry["by"] = by
+    if conv:
+        entry["conv"] = conv
     # A fresh literal each call -- NOT a shared module-level default -- since
     # data.setdefault(...).append() below mutates the list in place; reusing
     # one default object across calls would leak entries between an
@@ -148,6 +187,10 @@ def main(argv=None):
         "--data-dir", default=None,
         help="override store.DATA_DIR (defaults to $EXOCORTEX_DATA_DIR, see store.py)",
     )
+    parser.add_argument("--summary", default=None, help="one line the owner reads in the sheet")
+    parser.add_argument("--by", default=None, help="which agent is proposing (e.g. triage)")
+    parser.add_argument("--conv", default=None,
+                        help="Observatory conversation id (default: $EXOCORTEX_CONV_ID)")
     args = parser.parse_args(argv)
 
     if args.data_dir:
@@ -161,7 +204,7 @@ def main(argv=None):
         return 1
 
     try:
-        entry = stage_change(args.kind, payload)
+        entry = stage_change(args.kind, payload, summary=args.summary, by=args.by, conv=args.conv)
     except StageError as exc:
         print(json.dumps({"error": str(exc)}), file=sys.stderr)
         return 1

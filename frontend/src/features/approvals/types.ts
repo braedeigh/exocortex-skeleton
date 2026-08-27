@@ -33,6 +33,12 @@ export interface PendingChange {
   summary?: string | null;
   /** Stamped by tools/add-todo (`YYYY-MM-DD HH:MM`). */
   created?: string | null;
+  /** Which agent proposed it (scripts/stage_change.py `--by`). */
+  by?: string | null;
+  /** The Observatory conversation it came out of. When that conversation is
+   * open in this window, ConversationApprovals pops the sheet over THAT pane
+   * and the global host leaves it alone (see openConvs.ts). */
+  conv?: string | null;
   // Vendored lifecycle fields (src/api/types/PendingChange.ts) — not written
   // by today's stager; kept optional so richer stagers keep type-checking.
   proposer?: string | null;

@@ -154,6 +154,67 @@ def _commit_todo_done(payload):
     _rerender_days(*rerender_days)
 
 
+# ── agent_note / life_patch: an agent's proposals about an EXISTING to-do ──
+# Both are staged by scripts/todo_note.py / scripts/todo_propose.py from
+# inside an Observatory session and re-validated here through
+# todo_provenance.py, so the cap and the citation rule hold at the commit
+# even if a hand-written queue entry skipped the stager.
+
+def _find_todo(todos, ident):
+    from routes.todos import _match
+    for sec in todos.values():
+        if not isinstance(sec, dict):
+            continue
+        for it in sec.get("items", []):
+            if _match(it, ident):
+                return sec, it
+    return None, None
+
+
+def _commit_agent_note(payload):
+    import todo_provenance as prov
+    note = prov.make_agent_note(payload.get("by"), payload.get("text"),
+                                payload.get("refs"), payload.get("conv"))
+    with store.mutate("todos", {}) as todos:
+        _, item = _find_todo(todos, payload.get("id") or "")
+        if item is None:
+            raise RuntimeError(f"agent_note: to-do not found: {payload.get('id')!r}")
+        prov.append_agent_note(item, note)
+
+
+def _commit_life_patch(payload):
+    """Apply an agent's field patch (bucket / due / snooze / after / duration)
+    to one to-do. A bucket change moves the item to the top of the new
+    bucket, same as the move route. If the proposal carried a `why` + refs,
+    that lands as an agent note beside the change so the reason survives."""
+    import todo_provenance as prov
+    fields = prov.clean_patch(payload.get("fields"))
+    why = (payload.get("why") or "").strip()
+    note = None
+    if why:
+        note = prov.make_agent_note(payload.get("by"), why, payload.get("refs"),
+                                    payload.get("conv"))
+    with store.mutate("todos", {}) as todos:
+        sec, item = _find_todo(todos, payload.get("id") or "")
+        if item is None:
+            raise RuntimeError(f"life_patch: to-do not found: {payload.get('id')!r}")
+        for k, v in fields.items():
+            if k == "bucket":
+                continue
+            if v == "" or v is None:
+                item.pop(k, None)
+            else:
+                item[k] = v
+        if "bucket" in fields:
+            target = todos.setdefault(fields["bucket"], {"items": []})
+            target.setdefault("items", [])
+            if target is not sec:
+                sec["items"].remove(item)
+                target["items"].insert(0, item)
+        if note:
+            prov.append_agent_note(item, note)
+
+
 def _card_sources(card):
     """A card's `source` may be a single string or a list — always give back
     a list, so the caller can pass one `--source` flag per entry."""
@@ -249,6 +310,17 @@ def _commit(change):
                "--data-dir", data_dir]
     elif kind == "todo_done":
         _commit_todo_done(payload)
+        return
+    elif kind in ("agent_note", "life_patch"):
+        # The conversation tag lives on the queue ENTRY (stage_change.py
+        # stamps it there so the frontend can route the sheet); the note
+        # that lands on the item should carry it too.
+        if change.get("conv") and not payload.get("conv"):
+            payload = {**payload, "conv": change["conv"]}
+        if kind == "agent_note":
+            _commit_agent_note(payload)
+        else:
+            _commit_life_patch(payload)
         return
     elif kind == "profile":
         # Conversational door for the owner profile (docs/PERSONALIZE.md) —
