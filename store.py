@@ -547,10 +547,52 @@ def mutate(name, default=None):
     transaction (sqlstore.mutate). File-backed collections serialize under an
     flock. Either way: two simultaneous updates can't lose each other, and an
     exception inside the block writes nothing.
+
+    THE UNCHANGED-WRITE GUARD (file-backed only): a block that leaves `data`
+    exactly as it found it writes nothing at all. Pollers routinely open a
+    mutate just to LOOK — the run dispatcher opens the queue every tick to see
+    whether anything running has died — and when the answer is "no", the old
+    behaviour still serialized and atomically replaced the whole file with
+    byte-identical content. Measured over 23h on this install: 2,756 of the
+    dispatcher's 2,796 queue writes changed nothing, and the guard drops ~23%
+    of all writes and ~72 MB/day of pointless disk traffic.
+
+    Consequences worth knowing:
+
+      - A skipped write is not counted in the op counters either, so the usage
+        telemetry (and the creek's traffic map, which is built from it) reports
+        writes that really happened rather than mutates that were merely
+        opened. That is a deliberate change in what the number means.
+      - The file's mtime therefore stops moving on a no-op. Nothing in this
+        repo reads a collection's mtime as a liveness signal (the only st_mtime
+        readers are transcript files, source files and recordings), which was
+        checked before this went in — but a NEW caller must not start treating
+        "the queue file was touched" as proof the dispatcher is alive.
+      - If the before-copy can't be taken (a value deepcopy chokes on), the
+        guard fails OPEN and writes, exactly as before. It never skips a write
+        it isn't certain is redundant.
+      - A MISSING file is always written, even by a block that changed nothing.
+        That is the one thing these redundant writes were quietly doing: a
+        no-op mutate against an absent collection used to materialize it with
+        its default, and something that only ever polls (the dispatcher against
+        an empty queue) is exactly what would otherwise leave the file
+        non-existent forever. No reader depends on it — they all pass defaults —
+        but the file appearing on disk is long-standing behaviour and costs one
+        write per collection, ever, so the guard preserves it rather than
+        quietly changing it.
+
+    Note it does NOT repair a corrupt file, and never did: _read raises on
+    unparseable JSON before the block is even entered, with or without this
+    guard.
+
+    SQL-backed collections are deliberately NOT guarded: their write is a
+    transaction commit inside sqlstore.mutate rather than a call here, and
+    measurement found no no-op writes on that path anyway (feature_usage, the
+    busiest SQL collection by far, is 0% redundant).
     """
-    _stats_count(name, "writes")
     wl_on = _writelog_enabled()
     if _sql_backed(name):
+        _stats_count(name, "writes")
         import sqlstore
         import schemas
         with sqlstore.mutate(_key(name), default) as data:
@@ -571,15 +613,21 @@ def mutate(name, default=None):
     with open(lock_path, "w") as lock_file:
         fcntl.flock(lock_file, fcntl.LOCK_EX)
         data = _read(name, default)
-        wl_before, wl_ok = _writelog_snapshot_copy(data) if wl_on else (None, False)
+        # One before-image serves both the guard and the journal — the journal
+        # was already paying for this copy whenever it's on, so the guard adds
+        # a copy only when capture is off.
+        before, before_ok = _writelog_snapshot_copy(data)
         _stats_enter_mutate()
         try:
             yield data
         finally:
             _stats_exit_mutate()
+        if before_ok and before == data and path.exists():
+            return  # nothing changed — no write, no count, no journal entry
+        _stats_count(name, "writes")
         _write(name, data)
-    if wl_on and wl_ok:
-        _writelog_capture(name, "mutate", wl_before, data)
+    if wl_on and before_ok:
+        _writelog_capture(name, "mutate", before, data)
 
 
 # --- Backward-compatible aliases ---

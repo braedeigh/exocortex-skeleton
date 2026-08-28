@@ -35,7 +35,7 @@ The repo is written to guide you (and your AI) through its own setup:
 - `agents/` — the agent layer: nightly **crickets**, the **research pipeline** roles,
   app-embedded workspaces (person-summary, triage, receipts, recipes), and
   **mailclaude** (a privilege-separated email-answering bot)
-- `claude-commands/` — `/journalstart`, `/endsession`, `/thread`, `/spark`, `/thistle`
+- `claude-commands/` — `/journalstart`, `/endsession`, `/thread`, `/spark`, `/thistle`, `/burn`, `/shed`
   (+ example personas), auto-linked as project commands
 - `content-scaffold/` — the journaling engine + seed keeper persona, self-seeded into
   your data dir on first boot
