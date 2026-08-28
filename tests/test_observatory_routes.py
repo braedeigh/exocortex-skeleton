@@ -1216,7 +1216,8 @@ def test_terrain_returns_200_with_missing_sidecars(terrain_client, tmp_path, mon
     resp = terrain_client.get("/api/observatory/terrain")
     assert resp.status_code == 200
     data = resp.get_json()
-    assert set(data.keys()) == {"generated_at", "window_days", "file_cap", "repos", "sessions"}
+    assert set(data.keys()) == {"generated_at", "window_days", "file_cap",
+                                "pond_days", "repos", "sessions"}
     assert data["window_days"] is None   # whole history — no server-side horizon
     assert [r["id"] for r in data["repos"]] == ["skeleton", "vault"]
     assert all(r["files"] == [] for r in data["repos"])
@@ -2844,3 +2845,82 @@ def test_the_heartbeat_does_not_resurrect_a_stopped_turn(bot_client, tmp_path, m
     b"".join(it)
     meta = _wait_not_running(conv_id)
     assert meta["running"] is False
+
+
+# --- the pond tile's month ---------------------------------------------------
+# The map draws the journal as one square of water, a bar per day. Those bars
+# used to be counted from the card FILES in the payload, which is cut to the
+# hottest N per repo — so most of the pool never arrived and the month drew
+# short, with holes on days she had written on. The counts come from the card
+# table now; these pin that down.
+
+def _seed_cards(rows):
+    """A minimal `cards` table in the isolated data dir — just the columns
+    _pond_days reads."""
+    import sqlite3 as _sqlite3
+    conn = _sqlite3.connect(store.DATA_DIR / "exo.db")
+    with conn:
+        conn.execute("""CREATE TABLE IF NOT EXISTS cards
+                        (id TEXT PRIMARY KEY, day TEXT, ts TEXT, deleted_at TEXT)""")
+        conn.executemany("INSERT INTO cards (id, day, ts, deleted_at) VALUES (?,?,?,?)", rows)
+    conn.close()
+
+
+def test_pond_days_counts_the_journal_not_the_capped_card_files(terrain_client, tmp_path, monkeypatch):
+    today = datetime.now().date()
+    day = today.isoformat()
+    yesterday = (today - timedelta(days=1)).isoformat()
+    _seed_cards([
+        ("a", day, "09:00", None),
+        ("b", day, "12:00", None),
+        ("c", yesterday, "22:32", None),
+    ])
+    _set_terrain_repos(monkeypatch, tmp_path / "a", tmp_path / "b")
+
+    days = terrain_client.get("/api/observatory/terrain").get_json()["pond_days"]
+    assert len(days) == terrain._POND_TILE_DAYS
+    assert [d["day"] for d in days] == sorted(d["day"] for d in days)   # oldest first
+    assert days[-1]["day"] == day
+    by_day = {d["day"]: d["touches"] for d in days}
+    assert len(by_day[day]) == 2
+    assert len(by_day[yesterday]) == 1
+    # Real times on the local clock, so the heat lens can compare them against
+    # git's unix seconds.
+    assert by_day[yesterday][0] == int(
+        datetime.strptime(f"{yesterday} 22:32", "%Y-%m-%d %H:%M").timestamp())
+
+
+def test_pond_days_is_dense_so_a_quiet_day_is_never_a_missing_one(terrain_client, tmp_path, monkeypatch):
+    today = datetime.now().date()
+    _seed_cards([("a", today.isoformat(), "09:00", None)])
+    _set_terrain_repos(monkeypatch, tmp_path / "a", tmp_path / "b")
+
+    days = terrain_client.get("/api/observatory/terrain").get_json()["pond_days"]
+    assert sum(1 for d in days if d["touches"] == []) == terrain._POND_TILE_DAYS - 1
+
+
+def test_pond_days_excludes_deleted_cards(terrain_client, tmp_path, monkeypatch):
+    day = datetime.now().date().isoformat()
+    _seed_cards([("a", day, "09:00", None), ("b", day, "10:00", "2026-08-01T00:00:00")])
+    _set_terrain_repos(monkeypatch, tmp_path / "a", tmp_path / "b")
+
+    days = terrain_client.get("/api/observatory/terrain").get_json()["pond_days"]
+    assert len(days[-1]["touches"]) == 1
+
+
+def test_pond_days_degrades_rather_than_500ing_without_a_journal_mirror(terrain_client, tmp_path, monkeypatch):
+    """An install with no vault has no card table to read. The map still
+    builds; the client falls back to counting card files."""
+    with pytest.MonkeyPatch.context() as no_db:
+        no_db.setattr(store, "DATA_DIR", tmp_path / "no-such-dir")
+        assert terrain._pond_days() == []
+
+    # And through the route, where the isolated data dir does have an exo.db
+    # (sqlstore makes one) but nothing has ever written a card into it: a full
+    # month of empty days, which is the truth, not a hole.
+    _set_terrain_repos(monkeypatch, tmp_path / "a", tmp_path / "b")
+    resp = terrain_client.get("/api/observatory/terrain")
+    assert resp.status_code == 200
+    days = resp.get_json()["pond_days"]
+    assert len(days) == terrain._POND_TILE_DAYS
+    assert all(d["touches"] == [] for d in days)

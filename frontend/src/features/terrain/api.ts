@@ -85,6 +85,15 @@ export interface TerrainData {
   /** Optional until the backend half lands — session orbs degrade to the
    * file-level sessions data when absent. */
   sessions?: TerrainLiveSession[];
+  /**
+   * The journal's last month for the pond tile: one DENSE row per day, oldest
+   * first, each carrying the unix-second times of the cards written that day.
+   * Counted in the card table rather than in `repos[].files`, which is cut to
+   * the hottest N and so under-draws the pond badly (routes/terrain.py
+   * `_pond_days`). Optional: an install with no journal mirror sends [], and
+   * pondNodes.ts falls back to counting card files.
+   */
+  pond_days?: { day: string; touches: number[] }[];
 }
 
 export const TERRAIN_KEY = ['terrain'] as const;

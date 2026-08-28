@@ -29,7 +29,7 @@ routes.observatory reach this module too. One-directional: observatory never
 imports terrain.
 """
 from flask import request, jsonify
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from fnmatch import fnmatch
 from pathlib import Path
 import contextlib
@@ -274,6 +274,103 @@ def _terrain_refresh_history():
         pass
 
 
+# --- the pond tile's month, read from the journal itself ---------------------
+#
+# The map draws the card pool as ONE body: a little square of water holding the
+# last month, a bar per day (frontend: pondNodes.ts, terrainCanvas.drawPondTile).
+# Those bars used to be counted from the card FILES in this payload — which is
+# wrong, and visibly so, because `files` is cut to the hottest N per repo. On
+# this vault that cut left 265 of 2,240 cards standing: every day drew short,
+# the day-to-day ranking scrambled (the heaviest day in the month drew as a
+# stub), and three days she had written on drew as bare water. A picture of the
+# journal that loses two thirds of it isn't a thumbnail, it's a different shape.
+#
+# So the counts come from the journal instead. `cards` in exo.db is cardstore's
+# one-way mirror of the pool — the same table routes/pond.py draws the real
+# pond from — and one GROUP-BY-shaped read over a month is cheap enough to ride
+# along with a payload that's already cached for five minutes. Sending one
+# timestamp per card (rather than a count) is what keeps the tile BREATHING:
+# terrainGraph runs those through the live heat lens, so each day's colour is
+# its own heat on the map's clock, exactly as a real file's is.
+#
+# Prompt that produced it: "look at the bars on my pond UI that's a collapse of
+# my journal. it's buggy. it doesn't show the full month on the small view and
+# the bars aren't spaced properly."
+
+# Keep in step with POND_TILE_DAYS in frontend/src/features/terrain/pondNodes.ts
+# — the client draws whatever window this sends, so the two only have to agree
+# on the story ("a month"), not on the number.
+_POND_TILE_DAYS = 31
+
+
+def _card_epoch(day, ts):
+    """A card's "2026-08-21" + "22:32" as unix seconds, on the LOCAL clock.
+
+    The pool stamps a card with the wall time she wrote it, and the rest of
+    this payload is git's unix seconds, so the two have to be put on one clock
+    before the heat lens can compare them. A card with no usable time lands at
+    midday rather than at midnight — the day is what's being drawn, and
+    midnight would hand it to the wrong day the moment anything rounds."""
+    for clock, fmt in ((ts or "", "%Y-%m-%d %H:%M:%S"),
+                       ((ts or "")[:5], "%Y-%m-%d %H:%M")):
+        try:
+            return int(datetime.strptime(f"{day} {clock}", fmt).timestamp())
+        except ValueError:
+            continue
+    try:
+        return int(datetime.strptime(f"{day} 12:00", "%Y-%m-%d %H:%M").timestamp())
+    except ValueError:
+        return 0
+
+
+def _pond_days(days=_POND_TILE_DAYS, today=None):
+    """The journal's last month: one DENSE row per day, oldest first, each
+    carrying the times of the cards written that day.
+
+    Dense on purpose — a day she wrote nothing comes back as an empty list
+    rather than being missing, so the client can't confuse "quiet" with "not
+    in the payload" and draw the month with a hole in it.
+
+    Deleted cards are excluded, matching routes/pond.py: the pool keeps its
+    tombstones so a card can never be silently lost, but a drawing of where her
+    writing SITS shouldn't be drawing what she removed.
+
+    Every failure path returns [] rather than raising. The journal mirror is an
+    optional thing for this map (an install may have no vault, no exo.db, or a
+    schema that predates the `cards` table), and the client falls back to
+    counting card files when this is empty — worse, but never a 500."""
+    end = today or date.today()
+    window = [(end - timedelta(days=i)).isoformat() for i in range(days - 1, -1, -1)]
+    buckets = {day: [] for day in window}
+
+    path = store.DATA_DIR / "exo.db"
+    if not path.is_file():
+        return []
+    conn = None
+    try:
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
+        conn.execute("PRAGMA query_only = ON")
+        rows = conn.execute(
+            """SELECT day, ts FROM cards
+                WHERE deleted_at IS NULL AND day >= ? AND day <= ?""",
+            (window[0], window[-1]),
+        ).fetchall()
+    except sqlite3.Error:
+        return []
+    finally:
+        if conn is not None:
+            with contextlib.suppress(sqlite3.Error):
+                conn.close()
+
+    for day, ts in rows:
+        bucket = buckets.get(day)
+        if bucket is not None:
+            bucket.append(_card_epoch(day, ts))
+    # Newest first inside a day, matching what the payload guarantees for a
+    # real file's touches.
+    return [{"day": day, "touches": sorted(buckets[day], reverse=True)} for day in window]
+
+
 def _terrain_session_title(conv_id, gists, index):
     gist = gists.get(conv_id) if isinstance(gists, dict) else None
     if isinstance(gist, dict) and gist.get("title"):
@@ -457,6 +554,9 @@ def _build_terrain(file_cap=_TERRAIN_FILE_CAP):
             # What this payload was cut to, so the client's Files slider knows
             # whether it already holds every file or must refetch to grow.
             "file_cap": file_cap,
+            # The pond tile's month, counted in the journal rather than in
+            # this payload's (capped) card files. See _pond_days.
+            "pond_days": _pond_days(),
             "repos": repos_out,
             "sessions": sessions_out}
 
