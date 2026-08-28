@@ -33,6 +33,27 @@ import styles from './TerrainRoomsIndex.module.css';
  * describing what's inside each one. I'll be building more features out too."
  */
 
+/** A slash with its bars — the skills room: commands ranked, one gone cold. */
+function SkillsMotif() {
+  return (
+    <svg viewBox="0 0 64 40" width="64" height="40" aria-hidden="true">
+      <path
+        d="M14 36 L24 4"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="4"
+        strokeLinecap="round"
+        opacity="0.9"
+      />
+      <g fill="currentColor">
+        <rect x="30" y="5" width="30" height="6" rx="3" opacity="0.9" />
+        <rect x="30" y="17" width="18" height="6" rx="3" opacity="0.5" />
+        <rect x="30" y="29" width="7" height="6" rx="3" opacity="0.22" />
+      </g>
+    </svg>
+  );
+}
+
 /** Ranked bars — the attention room's own chart, in miniature. */
 function AttentionMotif() {
   return (
@@ -181,6 +202,13 @@ const ROOMS: ReadonlyArray<{
     motif: AttentionMotif,
   },
   {
+    key: 'commands',
+    to: '/terrain/commands',
+    name: 'Skills',
+    line: 'Every / command you’ve run — and the ones you haven’t.',
+    motif: SkillsMotif,
+  },
+  {
     key: 'pond',
     to: '/terrain/pond',
     name: 'Pond',
@@ -253,6 +281,19 @@ export function TerrainRoomsIndex({ open, onClose }: { open: boolean; onClose: (
             usage: `${places.length} places · ${formatDwell(total)} this week`,
           }));
         }
+      })
+      .catch(() => {});
+    fetch('/api/usage/commands', { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((data: { commands: { name: string }[]; cold: string[] }) => {
+        if (!alive || !data.commands?.length) return;
+        // The door names the top skill and how much of the set is live —
+        // "13 of 18" is the fact the room exists to deliver.
+        const total = data.commands.length + (data.cold?.length ?? 0);
+        setFacts((f) => ({
+          ...f,
+          commands: `${data.commands.length} of ${total} used · /${data.commands[0].name} leads`,
+        }));
       })
       .catch(() => {});
     fetch('/api/observatory/terrain/growth', { credentials: 'include' })

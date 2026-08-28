@@ -1,0 +1,330 @@
+/* TerrainCommandsView — the skills ranking as one of the terrain's rooms
+   (TerrainCommandsView.tsx).
+
+   A whole page, worn honestly: full-bleed, opaque on the theme's own page
+   background, no border, no shadow, no rounding. It used to be an inset glass
+   panel floating over the live map — everything about that costume (the
+   margin, the float, the frost) is the grammar of a modal, and the owner asked
+   these rooms to stop being modals. The map isn't behind this any more; it
+   unmounted when you walked in.
+
+   The entrance is the page's whole gesture: a short horizontal slide
+   (~320ms, eased, transform/opacity only) — "you went somewhere" — where the
+   map's own overlays lift and fade in place. Same easing family as the rest
+   of the surface, different direction of travel, so what kind of thing is
+   arriving reads before it lands. */
+
+.view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+  background: var(--bg);
+  overflow: hidden;
+  animation: pageIn 320ms cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+
+/* Opacity and transform only — nothing here touches layout. */
+@keyframes pageIn {
+  from {
+    opacity: 0;
+    transform: translateX(28px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.heading {
+  min-width: 0;
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--text);
+}
+
+.sub {
+  margin: 2px 0 0;
+  font-size: var(--font-size-md);
+  color: var(--text-muted);
+}
+
+/* A way back, not a dismissal — the destination is named because it's a route. */
+.back {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--text) 22%, transparent);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--card-bg) 55%, transparent);
+  color: var(--text-secondary);
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.back:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+/* --- the window presets — same pill vocabulary as the heat bar next door --- */
+.windows {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+}
+
+.window {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 var(--space-2);
+  border: 1px solid color-mix(in srgb, var(--text) 22%, transparent);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--card-bg) 55%, transparent);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: var(--font-size-md);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.windowOn {
+  border-color: var(--accent);
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 18%, var(--card-bg));
+}
+
+/* --- the table ----------------------------------------------------------
+
+   One line per place now that there's width for it: name, bar, then the three
+   numbers in their own columns. The bar takes every pixel the fixed columns
+   don't, so comparisons stay easy to read as the panel resizes. */
+
+.columns,
+.row {
+  display: grid;
+  grid-template-columns: minmax(7rem, 12rem) 1fr 4rem 4rem 5rem;
+  align-items: center;
+  column-gap: var(--space-2);
+}
+
+.columns {
+  padding-bottom: var(--space-1);
+  border-bottom: 1px solid var(--border-soft);
+  font-size: var(--font-size-md);
+  color: var(--text-muted);
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* Rows breathe here in a way they couldn't in a panel — the extra width bought
+   legibility, not more encodings. */
+.row {
+  padding: var(--space-2) 0;
+}
+
+.row + .row {
+  border-top: 1px solid color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+.label {
+  font-size: var(--font-size-md);
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Thin: it's a comparison, not a block of paint. Rounded at the data end,
+   anchored flush left so length reads off a shared baseline. */
+.track {
+  position: relative;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  overflow: hidden;
+}
+
+.fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  transform-origin: left center;
+  animation: growIn 320ms cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+
+@keyframes growIn {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fill,
+  .view {
+    animation: none;
+  }
+}
+
+.num {
+  font-size: var(--font-size-md);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* Runs is the ranked measure, so it keeps full ink weight; the other two
+   recede. Hierarchy from colour and weight — nothing shrinks below readable. */
+.runs {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.muted {
+  color: var(--text-muted);
+}
+
+.note {
+  margin: var(--space-2) 0;
+  font-size: var(--font-size-md);
+  color: var(--text-secondary);
+}
+
+.foot {
+  margin: 0;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-soft);
+  font-size: var(--font-size-md);
+  color: var(--text-muted);
+}
+
+/* --- narrow ------------------------------------------------------------
+
+   Five columns don't survive a phone. The row folds to two lines — name and
+   dwell up top, bar and the two secondary counts beneath — and the page's
+   padding tightens so the list keeps the width it has. */
+@media (max-width: 560px) {
+  .view {
+    padding: var(--space-2) var(--space-2) calc(var(--space-2) + env(safe-area-inset-bottom, 0px));
+  }
+
+  .columns {
+    display: none;
+  }
+
+  .row {
+    grid-template-columns: 1fr auto auto;
+    row-gap: 4px;
+  }
+
+  .label {
+    grid-column: 1 / 3;
+  }
+
+  .runs {
+    grid-column: 3;
+  }
+
+  .track {
+    grid-column: 1 / 2;
+    grid-row: 2;
+  }
+
+  .muted {
+    grid-row: 2;
+  }
+}
+
+/* A command that has never run keeps its full row — same height, same hit
+   area — and recedes in ink alone. Hiding it, or shrinking it, would defeat
+   the point of listing it: these are the ones worth noticing. */
+.cold .label,
+.cold .runs {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+/* --- the hour strip ------------------------------------------------------
+
+   Twenty-four bars on their own scale, above the table. It answers "when",
+   which the table can't, and it is deliberately small and unlabelled — shape
+   at a glance, with the exact numbers on hover. The one named number, the
+   peak, is written out in words beside it rather than left to be read off
+   the bars. */
+.when {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  padding-bottom: var(--space-1);
+}
+
+.clock {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 34px;
+  flex: 1;
+  min-width: 12rem;
+  max-width: 26rem;
+}
+
+.tick {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  height: 100%;
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.tickFill {
+  display: block;
+  width: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+}
+
+.whenLine {
+  margin: 0;
+  font-size: var(--font-size-md);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.whenLine strong {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}

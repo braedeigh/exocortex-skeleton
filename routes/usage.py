@@ -38,6 +38,13 @@ id in the url yet is real Observatory time attributable to no conversation.
 That gap is honest and is left visible rather than smeared across the
 conversations to make the arithmetic tidy.
 
+GET /api/usage/commands is the odd one out: it doesn't touch this
+collection at all. Slash-command runs are read back out of the Claude Code
+transcripts by commandstore.py into exo.db, not counted live by a beacon —
+see that module for why. It's served from here because it answers the same
+question ("what actually gets used") and the Terrain usage room already
+looks under /api/usage.
+
 GET /api/usage/export packages the collection as a downloadable JSON bundle
 (schema "usage-export/1"). Exports are read-only snapshots — nothing in the
 collection changes. The consent model is deliberate: the file lands on the
@@ -52,6 +59,7 @@ from datetime import date, datetime, timedelta
 from flask import request, jsonify
 
 import attentionstore
+import commandstore
 import store
 
 _TAB_RE = re.compile(r"^[a-z0-9_-]{1,40}$")
@@ -169,6 +177,46 @@ def register(app):
     @app.route("/api/usage")
     def usage_get():
         return jsonify(store.read("feature_usage.json", {"days": {}}))
+
+    @app.route("/api/usage/commands")
+    def usage_commands():
+        """The slash-command ledger — which skills get used, and when.
+
+        A different source from everything else in this file: the counters
+        above are written live by the frontend, while this is read back out
+        of the Claude Code transcripts by commandstore.py. It's served from
+        here anyway because it answers the same question the rest of the
+        usage surface does — what actually gets used — and the Terrain usage
+        room already knows to look under /api/usage.
+
+        `days=N` windows the whole payload (default all time); `kind=any`
+        includes the harness's own commands, which are otherwise left out
+        because /clear and /compact would outrank every real skill.
+        """
+        raw_days = request.args.get("days")
+        window = None
+        if raw_days is not None:
+            try:
+                window = int(raw_days)
+            except (TypeError, ValueError):
+                return jsonify({"error": '"days" must be a positive integer'}), 400
+            if window < 1:
+                return jsonify({"error": '"days" must be a positive integer'}), 400
+
+        kind = None if request.args.get("kind") == "any" else "skill"
+        rows = commandstore.summary(days=window, kind=kind)
+        used = {r["name"] for r in rows}
+        return jsonify({
+            "commands": rows,
+            "by_day": commandstore.by_day(days=window or 90, kind=kind),
+            "by_hour": commandstore.by_hour(days=window, kind=kind),
+            # Installed but never run in this window — a skill with no runs
+            # has no row above, so without this list it just isn't there,
+            # which reads as "doesn't exist" rather than "never used".
+            "cold": [n for n in commandstore.installed() if n not in used],
+            "days": window,
+            "kind": kind or "any",
+        })
 
     @app.route("/api/usage/export")
     def usage_export():

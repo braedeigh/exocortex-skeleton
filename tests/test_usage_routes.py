@@ -284,3 +284,55 @@ def test_export_empty_collection_has_null_range(client):
     body = client.get("/api/usage/export").get_json()
     assert body["days"] == {}
     assert body["range"] == {"from": None, "to": None}
+
+
+# --- /api/usage/commands -----------------------------------------------------
+# The slash-command ledger. Unlike every other route in this file it reads
+# exo.db (filled by commandstore.py from the Claude Code transcripts), not the
+# feature_usage collection — so these tests plant a fake transcript tree and
+# ingest it rather than seeding a JSON blob.
+
+@pytest.fixture
+def transcripts(tmp_path, data_dir, monkeypatch):
+    import commandstore
+    root = tmp_path / "projects" / "-opt-exocortex"
+    root.mkdir(parents=True)
+    monkeypatch.setenv("CLAUDE_PROJECTS_DIR", str(tmp_path / "projects"))
+
+    def _write(*commands):
+        import json
+        lines = []
+        for i, name in enumerate(commands):
+            lines.append(json.dumps({
+                "type": "user", "uuid": f"u{i}", "isSidechain": False,
+                "timestamp": f"2026-08-01T1{i % 10}:00:00.000Z",
+                "sessionId": "s1", "cwd": "/opt/exocortex",
+                "message": {"content": f"<command-name>/{name}</command-name>"},
+            }))
+        (root / "a.jsonl").write_text("\n".join(lines) + "\n")
+        commandstore.ingest()
+    return _write
+
+
+def test_commands_route_reports_skill_runs(client, transcripts):
+    transcripts("spark", "spark", "terra")
+    body = client.get("/api/usage/commands").get_json()
+    assert [(c["name"], c["runs"]) for c in body["commands"]] == [
+        ("spark", 2), ("terra", 1)]
+    assert len(body["by_hour"]) == 24
+
+
+def test_commands_route_hides_builtins_by_default(client, transcripts):
+    """/clear and /compact would outrank every real skill, so they're out
+    unless explicitly asked for."""
+    transcripts("spark", "compact", "clear")
+    assert [c["name"] for c in
+            client.get("/api/usage/commands").get_json()["commands"]] == ["spark"]
+    everything = client.get("/api/usage/commands?kind=any").get_json()
+    assert {c["name"] for c in everything["commands"]} == {"spark", "compact", "clear"}
+
+
+def test_commands_route_rejects_a_bad_window(client, transcripts):
+    transcripts("spark")
+    assert client.get("/api/usage/commands?days=0").status_code == 400
+    assert client.get("/api/usage/commands?days=soon").status_code == 400

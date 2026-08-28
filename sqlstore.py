@@ -42,7 +42,7 @@ import time
 
 import store
 
-_SCHEMA_VERSION = 14
+_SCHEMA_VERSION = 15
 
 
 def _db_path():
@@ -139,6 +139,7 @@ _EXPECTED_TABLES = (
     "attention_segments",
     "tags",
     "filer_nominations", "filer_verdicts",
+    "command_runs", "command_sources",
 )
 
 
@@ -954,6 +955,45 @@ def _run_ladder(conn):
             "  refs TEXT NOT NULL DEFAULT '[]',"
             "  conv TEXT,"
             "  PRIMARY KEY (todo_id, position)"
+            ")"
+        )
+    if version < 15:
+        # Which slash commands the owner actually runs (commandstore.py).
+        # DERIVED, like the habit tables and unlike job_runs: every row is
+        # re-readable from the Claude Code transcripts on disk, so this pair
+        # can be dropped and rebuilt without losing anything. `uuid` is the
+        # transcript message's own id, which is what makes ingest idempotent
+        # — the same line read twice inserts once.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS command_runs ("
+            "  uuid TEXT PRIMARY KEY,"
+            "  at TEXT NOT NULL,"
+            "  day TEXT NOT NULL,"
+            "  hour INTEGER NOT NULL,"
+            "  name TEXT NOT NULL,"
+            "  kind TEXT NOT NULL,"
+            "  session_id TEXT,"
+            "  cwd TEXT,"
+            "  arg_chars INTEGER NOT NULL DEFAULT 0"
+            ")"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS command_runs_by_day ON command_runs (day)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS command_runs_by_name"
+            " ON command_runs (name, at)"
+        )
+        # The incremental watermark: how far into each transcript we have
+        # already read. Transcripts are append-only JSONL, so a file whose
+        # size is unchanged has nothing new, and one that grew is re-opened
+        # at `size` rather than from the top. Without this every rollup
+        # re-read 1.7 GB to find a handful of new lines.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS command_sources ("
+            "  path TEXT PRIMARY KEY,"
+            "  size INTEGER NOT NULL,"
+            "  scanned_at TEXT NOT NULL"
             ")"
         )
     if version < _SCHEMA_VERSION:
