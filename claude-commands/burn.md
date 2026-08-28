@@ -101,6 +101,9 @@ stated reason.
 
 One unit. The skill refuses to sprawl across units even when it looks easy.
 
+0. **Look in the shed first.** `skeleton/shed/README.md` (see `/shed`) lists what has already
+   been set down and when. A folder un-restored for a full season is cured fuel — the most
+   honest burn candidate there is, and it's already inactive, so the survey is short.
 1. **Read the record.** Report the rotation state in one or two lines: units done, units
    remaining, what is next and why it is next.
 2. **Survey the fuel.** For this unit only: pull its zero-traffic entries, then establish
