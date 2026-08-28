@@ -39,7 +39,7 @@ const PRIMARY_TABS: ReadonlyArray<{ key: 'today' | LegacyTab; label: string }> =
 
 // Order matches the optional (.tab-opt) tabs in templates/index.html:32-38.
 const OPTIONAL_TABS: readonly LegacyTab[] = (
-  ['ideas', 'body', 'money', 'meditation', 'media', 'movement', 'ecosystem'] as const
+  ['ideas', 'body', 'money', 'media', 'ecosystem'] as const
 ).filter(isValidTab);
 
 // Public visitors get exactly To Do / Life Map / Kitchen (the PRIMARY_TABS,
@@ -49,14 +49,11 @@ const OPTIONAL_TABS: readonly LegacyTab[] = (
 // row on purpose.
 const PUBLIC_OPTIONAL_TABS: readonly LegacyTab[] = (['ecosystem'] as const).filter(isValidTab);
 
-// Always-in-More legacy tabs, in the order given in the spec (templates/index.html
+// Always-in-More legacy tabs (Travel / Housing / Car are in shed/compost-pile-2026-08-27), in the order given in the spec (templates/index.html
 // more-menu order differs slightly; this is the order the owner asked for).
 const ALWAYS_MORE_TABS: ReadonlyArray<{ tab: LegacyTab; label: string }> = [
   { tab: 'people', label: 'People' },
   { tab: 'inventory', label: 'Inventory' },
-  { tab: 'travel', label: 'Travel' },
-  { tab: 'housing', label: 'Housing' },
-  { tab: 'car', label: 'Car Maintenance' },
 ].filter((entry): entry is { tab: LegacyTab; label: string } => isValidTab(entry.tab));
 
 // Native standalone pages in the More menu (Keeper is covered by the Files

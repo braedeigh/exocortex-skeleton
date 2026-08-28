@@ -104,8 +104,8 @@ def test_root_injects_app_meta():
     "/todos", "/todos/editor", "/journal", "/research", "/settings", "/files",
     "/threads", "/threads/some-slug",
     # native dashboard tabs (ported from /tab/<name>)
-    "/map", "/kitchen", "/inventory", "/money", "/car", "/meditation", "/media",
-    "/movement", "/body", "/ideas", "/ecosystem", "/housing", "/people", "/travel",
+    "/map", "/kitchen", "/inventory", "/money", "/media",
+    "/body", "/ideas", "/ecosystem", "/people",
     # native standalone pages (ported from their Flask templates)
     "/person/some-slug", "/personality", "/scratchpad", "/vscode", "/food-map", "/about",
     # session-visualization surfaces (born native)

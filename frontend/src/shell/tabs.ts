@@ -1,5 +1,7 @@
 /**
- * The 15 dashboard tabs — all native SPA routes (see TAB_ROUTES). Order
+ * The 10 dashboard tabs — five more (Car, Meditation, Movement, Housing, Travel)
+ * sit in shed/compost-pile-2026-08-27; `/shed restore` puts them back. All native
+ * SPA routes (see TAB_ROUTES). Order
  * matches the old dashboard's tab order; "Legacy" in the type names is
  * historical (the Flask /tab/<name> pages are gone).
  */
@@ -9,16 +11,11 @@ export const VALID_TABS = [
   'kitchen',
   'inventory',
   'money',
-  'car',
-  'meditation',
   'media',
-  'movement',
   'body',
   'ideas',
   'ecosystem',
-  'housing',
   'people',
-  'travel',
 ] as const;
 
 export type LegacyTab = (typeof VALID_TABS)[number];
@@ -39,16 +36,11 @@ export const TAB_META: Record<LegacyTab, TabMeta> = {
   kitchen: { key: 'kitchen', label: 'Kitchen', icon: '🍳' },
   inventory: { key: 'inventory', label: 'Inventory', icon: '📦' },
   money: { key: 'money', label: 'Money', icon: '💰' },
-  car: { key: 'car', label: 'Car', icon: '🚗' },
-  meditation: { key: 'meditation', label: 'Meditation', icon: '🧘' },
   media: { key: 'media', label: 'Media', icon: '🎬' },
-  movement: { key: 'movement', label: 'Movement', icon: '🏃' },
   body: { key: 'body', label: 'Body', icon: '🩺' },
   ideas: { key: 'ideas', label: 'Ideas', icon: '💡' },
   ecosystem: { key: 'ecosystem', label: 'Ecosystem', icon: '🌱' },
-  housing: { key: 'housing', label: 'Housing', icon: '🏠' },
   people: { key: 'people', label: 'People', icon: '👥' },
-  travel: { key: 'travel', label: 'Travel', icon: '🧳' },
 };
 
 /**
@@ -81,16 +73,11 @@ export const TAB_ROUTES: Record<LegacyTab, string> = {
   kitchen: '/kitchen',
   inventory: '/inventory',
   money: '/money',
-  car: '/car',
-  meditation: '/meditation',
   media: '/media',
-  movement: '/movement',
   body: '/body',
   ideas: '/ideas',
   ecosystem: '/ecosystem',
-  housing: '/housing',
   people: '/people',
-  travel: '/travel',
 };
 
 export function tabForPath(pathname: string): LegacyTab | null {

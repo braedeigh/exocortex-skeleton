@@ -22,12 +22,12 @@ import config
 import features
 import proxy_auth
 from routes import (
-    kitchen, habits, todos, places, health, inventory, money, car,
-    meditation, media, movement, reminders, food_test, terminal, settings,
-    devnotes, ideas, buildtodo, ecosystem, keeper, pending, housing, triage, helpers, decisions,
+    kitchen, habits, todos, places, health, inventory, money,
+    media, reminders, food_test, terminal, settings,
+    devnotes, ideas, buildtodo, ecosystem, keeper, pending, triage, helpers, decisions,
     entities, threads, person, shell, cards, archivals, research,
     research_search, research_sources, research_import, research_text,
-    annotations, spa, fronts, tags, wiki, travel, profile, usage, streaks, spinoff,
+    annotations, spa, fronts, tags, wiki, profile, usage, streaks, spinoff,
     observatory, terrain, automations, nightcrew, push, claude_auth, run_queue,
     branches, recordings,
     sqlab, sandbox, pond, tabsets, creek,
@@ -442,32 +442,13 @@ def _common_data():
     }
 
 
-def _load_car():
-    return store.read("car_maintenance.json", {"entries": []})
-
-
-def _load_car_notes():
-    return store.read("car_notes.json", {"text": ""})
-
-
-def _load_meditation():
-    return store.read("meditation_log.json", {"entries": []})
-
-
-def _load_deity_profiles():
-    return store.read("deity_profiles.json", {"profiles": []})
-
-
-def _load_meditation_notes():
-    return store.read("meditation_notes.json", {"text": ""})
+# Set down in the shed (shed/compost-pile-2026-08-27): the Car, Housing, Meditation, Movement and
+# Travel routes, their /api/data/<tab> payload endpoints and _load_* helpers
+# used to live here. `/shed restore compost-pile-2026-08-27` brings them back.
 
 
 def _load_media():
     return store.read("media.json", {"items": []})
-
-
-def _load_movement():
-    return store.read("movement.json", {"routines": []})
 
 
 def _load_research():
@@ -726,37 +707,6 @@ def get_data_money():
     return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/data/car")
-def get_data_car():
-  try:
-    data = _common_data()
-    data.update({
-        "car_maintenance": _load_car(),
-        "car_notes": _load_car_notes(),
-    })
-    data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("car", [])
-    data["idea_notes"] = _load_idea_notes().get("tabs", {}).get("car", [])
-    data["tab_todos"] = todos_for_tab("car")
-    return jsonify(filter_for_view(data, request.view_mode))
-  except Exception as e:
-    app.logger.error(f"/api/data/car failed: {e}\n{traceback.format_exc()}")
-    return jsonify({"error": str(e)}), 500
-
-
-@app.route("/api/data/housing")
-def get_data_housing():
-  try:
-    data = _common_data()
-    data["housing"] = store.read("housing.json", {"entries": [], "notes": ""})
-    data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("housing", [])
-    data["idea_notes"] = _load_idea_notes().get("tabs", {}).get("housing", [])
-    data["tab_todos"] = todos_for_tab("housing")
-    return jsonify(filter_for_view(data, request.view_mode))
-  except Exception as e:
-    app.logger.error(f"/api/data/housing failed: {e}\n{traceback.format_exc()}")
-    return jsonify({"error": str(e)}), 500
-
-
 @app.route("/api/data/people")
 def get_data_people():
   try:
@@ -800,24 +750,6 @@ def get_data_body():
     return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/data/meditation")
-def get_data_meditation():
-  try:
-    data = _common_data()
-    data.update({
-        "meditation_log": _load_meditation(),
-        "meditation_notes": _load_meditation_notes(),
-        "deity_profiles": _load_deity_profiles(),
-    })
-    data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("meditation", [])
-    data["idea_notes"] = _load_idea_notes().get("tabs", {}).get("meditation", [])
-    data["tab_todos"] = todos_for_tab("meditation")
-    return jsonify(filter_for_view(data, request.view_mode))
-  except Exception as e:
-    app.logger.error(f"/api/data/meditation failed: {e}\n{traceback.format_exc()}")
-    return jsonify({"error": str(e)}), 500
-
-
 @app.route("/api/data/media")
 def get_data_media():
   try:
@@ -831,22 +763,6 @@ def get_data_media():
     return jsonify(filter_for_view(data, request.view_mode))
   except Exception as e:
     app.logger.error(f"/api/data/media failed: {e}\n{traceback.format_exc()}")
-    return jsonify({"error": str(e)}), 500
-
-
-@app.route("/api/data/movement")
-def get_data_movement():
-  try:
-    data = _common_data()
-    data.update({
-        "movement": _load_movement(),
-    })
-    data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("movement", [])
-    data["idea_notes"] = _load_idea_notes().get("tabs", {}).get("movement", [])
-    data["tab_todos"] = todos_for_tab("movement")
-    return jsonify(filter_for_view(data, request.view_mode))
-  except Exception as e:
-    app.logger.error(f"/api/data/movement failed: {e}\n{traceback.format_exc()}")
     return jsonify({"error": str(e)}), 500
 
 
@@ -1113,11 +1029,7 @@ health.register(app)
 inventory.register(app)
 archivals.register(app)
 money.register(app)
-car.register(app)
-housing.register(app)
-meditation.register(app)
 media.register(app)
-movement.register(app)
 research.register(app)
 fronts.register(app)
 tags.register(app)
@@ -1172,7 +1084,6 @@ threads.register(app)
 person.register(app)
 cards.register(app)
 wiki.register(app)
-travel.register(app)
 usage.register(app)
 push.register(app)
 claude_auth.register(app)
