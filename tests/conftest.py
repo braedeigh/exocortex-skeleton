@@ -65,6 +65,15 @@ os.environ["EXOCORTEX_STORE_STATS_OFF"] = "1"
 # re-checks the env on every call, so tests/test_writelog.py can still turn
 # it on per test with monkeypatch.setenv regardless of this default.
 os.environ.setdefault("EXOCORTEX_WRITE_LOG_OFF", "1")
+# ...and the runtime-utilization sensor (runtime_sensor.py). server.py starts it
+# at import, and three test modules import server — which without this leaves a
+# background thread running for the rest of the suite, writing a sidecar nobody
+# asked for, and quietly makes every later `start()` a no-op that returns True
+# while still watching the SKELETON dir. That last one is the nasty half: a test
+# that starts the sensor on its own tmp root would look like it succeeded and
+# then see none of its own hits. tests/test_runtime_sensor.py re-enables it per
+# test with monkeypatch.setenv.
+os.environ["EXOCORTEX_RUNTIME_SENSOR"] = "0"
 
 import store  # noqa: E402
 
@@ -73,7 +82,8 @@ import store  # noqa: E402
 # to start: a collection error is cheap, and discovering it from a clobbered
 # vault is not. (Only on the first pass — see the sentinel above.)
 if _FIRST_PASS:
-    for _name in ("DATA_DIR", "CONTENT_DIR", "UPLOAD_DIR", "RECEIPTS_DIR", "RECIPES_DIR",
+    for _name in ("DATA_DIR", "CONTENT_DIR", "UPLOAD_DIR", "UPLOAD_ARCHIVE_DIR",
+                  "RECEIPTS_DIR", "RECIPES_DIR",
                   "ARCHIVALS_DIR", "RECORDINGS_DIR",
                   "TRIAGE_DIR", "SPINOFF_DIR", "PERSON_SKILL_DIR",
                   "RESEARCH_DIR", "RESEARCH_FILER_DIR", "RESEARCH_RUNNER_DIR",
@@ -125,6 +135,11 @@ def data_dir(tmp_path, monkeypatch):
     """
     monkeypatch.setattr(store, "DATA_DIR", tmp_path)
     monkeypatch.setattr(store, "UPLOAD_DIR", tmp_path / "uploads")
+    # The uploads archive is the one root where a leak would be silent AND
+    # permanent: the sweep only ever moves files INTO it, so a test that
+    # resolved the real one would file its fixtures among the owner's photos
+    # and still pass. Re-pointed here as well as asserted above.
+    monkeypatch.setattr(store, "UPLOAD_ARCHIVE_DIR", tmp_path / "uploads-archive")
     monkeypatch.setattr(store, "RECORDINGS_DIR", tmp_path / "recordings")
     return tmp_path
 

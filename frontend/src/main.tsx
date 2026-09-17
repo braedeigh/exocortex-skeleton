@@ -6,6 +6,7 @@ import './index.css';
 import { routeTree } from './routeTree.gen';
 import { installUsageBeacon } from './api/usageBeacon';
 import { installUsageTracker } from './api/usageTracker';
+import { installJourney } from './api/journey';
 import { installUsageHeat } from './ui/usageHeat';
 import { installEffects } from './ui/effects';
 import { installPresence } from './push/presence';
@@ -54,6 +55,11 @@ installUsageBeacon(router);
 
 // Dwell clock + [data-track] click counter, batched to POST /api/usage/batch.
 installUsageTracker(router);
+
+// The browser's half of a trace: while a journey is armed, every fetch carries
+// its id and every tap/route change is reported with the component it hit.
+// Idle otherwise (src/api/journey.ts).
+installJourney(router);
 
 // The "usage heat view" overlay (Settings toggle) — tints tracked controls
 // on /journal and /todos by how often they're actually used.

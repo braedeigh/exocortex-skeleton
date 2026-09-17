@@ -109,6 +109,25 @@ def main():
     if job.get("claude_bin"):
         observatory.CLAUDE_BIN = job["claude_bin"]
 
+    # Measure this process too (runtime_sensor.py). A turn spends most of its
+    # life here rather than in the web worker, so a sensor that only watched
+    # gunicorn would report the send path and then go blind for the whole
+    # reply — `_run_turn`, the transcript writes, the index mutates all happen
+    # in THIS process. Started after the data dir is settled above, so its
+    # sidecar lands in the same place everything else this host writes does.
+    import runtime_sensor
+    runtime_sensor.start()
+
+    # If the send that spawned us was being traced, continue it here under the
+    # same id (runtime_trace.py). This is the only action in the app that
+    # crosses a process boundary, so without this the trace would end at the
+    # spawn — one row short of the whole reply.
+    import runtime_trace
+    traced = job.get("trace_id")
+    if traced:
+        runtime_trace.begin(f"{traced}.turn", entry=f"turn {conv_id}",
+                            kind="turn", parent_id=traced)
+
     try:
         proc, stderr_f = observatory._spawn(
             config, text, resume_sid, cwd_override=config.get("cwd"))
@@ -142,6 +161,13 @@ def main():
                               live_path=live_path)
     finally:
         done.set()
+        # Write the last window down before the process goes. The sensor's
+        # background thread is a daemon and dies with `main` returning, so a
+        # turn shorter than one cycle would otherwise leave no trace of having
+        # run at all — which is exactly the short turn most worth seeing.
+        runtime_sensor.stop()
+        if runtime_trace.current() is not None:
+            runtime_trace.finish()
     return 0
 
 

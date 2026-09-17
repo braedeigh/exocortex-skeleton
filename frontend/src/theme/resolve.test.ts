@@ -30,18 +30,18 @@ describe('resolveSkyConfig', () => {
 
   it('a disabled phase inherits the next enabled phase (day order)', () => {
     const cfg = resolveSkyConfig({ phasesEnabled: { dawn: false } });
-    expect(cfg.themes.dawn).toEqual(SKY_DEFAULT_THEMES.postDawn);
+    expect(cfg.runwayThemes.dawn).toEqual(SKY_DEFAULT_THEMES.postDawn);
   });
 
   it('consecutive disabled phases chain to the first enabled one', () => {
     const cfg = resolveSkyConfig({ phasesEnabled: { dawn: false, postDawn: false } });
-    expect(cfg.themes.dawn).toEqual(SKY_DEFAULT_THEMES.morning);
-    expect(cfg.themes.postDawn).toEqual(SKY_DEFAULT_THEMES.morning);
+    expect(cfg.runwayThemes.dawn).toEqual(SKY_DEFAULT_THEMES.morning);
+    expect(cfg.runwayThemes.postDawn).toEqual(SKY_DEFAULT_THEMES.morning);
   });
 
   it('disabling the last phase wraps around to the first', () => {
     const cfg = resolveSkyConfig({ phasesEnabled: { twilight: false } });
-    expect(cfg.themes.twilight).toEqual(SKY_DEFAULT_THEMES.night);
+    expect(cfg.runwayThemes.twilight).toEqual(SKY_DEFAULT_THEMES.night);
   });
 
   it('inheritance uses the overridden colors of the inherited phase', () => {
@@ -49,7 +49,12 @@ describe('resolveSkyConfig', () => {
       phasesEnabled: { dawn: false },
       themes: { postDawn: { bg: '#123456' } },
     });
-    expect(cfg.themes.dawn.bg).toBe('#123456');
+    expect(cfg.runwayThemes.dawn.bg).toBe('#123456');
+  });
+
+  it('disabling a phase leaves the un-inherited palettes alone', () => {
+    const cfg = resolveSkyConfig({ phasesEnabled: { dawn: false } });
+    expect(cfg.themes.dawn).toEqual(SKY_DEFAULT_THEMES.dawn);
   });
 
   it('enabled false comes through; anything else means enabled', () => {
@@ -67,8 +72,8 @@ describe('currentThemeMode', () => {
     expect(currentThemeMode({}, 'auto')).toBe('auto');
   });
 
-  it('defaults to sky when enabled, off when master-disabled', () => {
-    expect(currentThemeMode({}, null)).toBe('sky');
+  it('defaults to auto when enabled, off when master-disabled', () => {
+    expect(currentThemeMode({}, null)).toBe('auto');
     expect(currentThemeMode({ enabled: false }, null)).toBe('off');
   });
 });
@@ -193,5 +198,32 @@ describe('computeRunwayTheme', () => {
     const cfgNoDay = resolveSkyConfig({ phasesEnabled: { day: false } });
     const hour = (sunrise + o.morningEnd + sunset + o.goldenStart) / 2;
     expect(computeRunwayTheme(cfgNoDay, hour, day)).toEqual(cfg.themes.golden);
+  });
+});
+
+// Regression: per-phase disabling is a runway-only idea. It used to be baked
+// into the single shared palette set, so turning off postDawn/morning/day made
+// Light and daytime Auto render the golden (brown) palette instead of lavender.
+describe('phase disabling stays out of the fixed modes', () => {
+  const brownMaker = resolveSkyConfig({
+    phasesEnabled: { postDawn: false, morning: false, day: false },
+  });
+  const noonDay = 239;
+  const { sunrise } = sunTimesFromDay(noonDay);
+
+  it('light mode keeps lavender when postDawn is disabled', () => {
+    expect(computeModeTheme(brownMaker, 'light', sunrise + 4, noonDay)).toEqual(
+      SKY_DEFAULT_THEMES.postDawn,
+    );
+  });
+
+  it('auto by day keeps lavender when postDawn is disabled', () => {
+    expect(computeModeTheme(brownMaker, 'auto', sunrise + 4, noonDay)).toEqual(
+      SKY_DEFAULT_THEMES.postDawn,
+    );
+  });
+
+  it('the runway still slides past the disabled window', () => {
+    expect(brownMaker.runwayThemes.postDawn).toEqual(SKY_DEFAULT_THEMES.golden);
   });
 });

@@ -171,6 +171,31 @@ export function breathHalfLife(elapsedMs: number, periodMs = 10_000): number {
   return Math.exp(lo + (hi - lo) * u);
 }
 
+/**
+ * The breath, turned inside out: the lens the ACCESS channel rides while heat
+ * rides the normal one.
+ *
+ * Derived from the current half-life rather than clocked separately, and the
+ * identity is why this is one line instead of a second breath loop. The breath
+ * interpolates in LOG space between `day` and `month` — half = exp(lo + (hi-lo)u)
+ * — so the value at `1 - u` is exp(lo + hi) / half, i.e. day*month/half. The two
+ * channels are geometric mirrors about sqrt(day*month), and they can never
+ * drift apart or disagree about where in the cycle they are, because there is
+ * still only ONE clock.
+ *
+ * What it looks like: gold and red trade places. At the top of the inhale, when
+ * red has widened to a month and the whole map remembers, gold has narrowed to
+ * a day and shows only what was opened just now. At the bottom they swap. The
+ * map never stops saying something — it alternates which thing it says.
+ *
+ * Prompt that produced it: "I also want the yellow to light up at the opposite
+ * timeline of the red."
+ */
+export function mirrorHalfLife(halfLifeSeconds: number): number {
+  if (!(halfLifeSeconds > 0)) return LENS_HALF_LIFE_SECONDS.day;
+  return (LENS_HALF_LIFE_SECONDS.day * LENS_HALF_LIFE_SECONDS.month) / halfLifeSeconds;
+}
+
 /** Slight per-level decay applied when a directory's heat is rolled up from
  * its hottest child — a directory two hubs above a hot file glows dimmer than
  * one right above it. */
@@ -191,6 +216,9 @@ export interface TerrainFilter {
   to: number;
   /** How many file nodes to keep, globally across repos. null = every file. */
   count: number | null;
+  /** Files kept whatever the dials say, as `<repo>:file:<path>` ids — the dots
+   * a journey replay needs on the map even if nothing else would show them. */
+  pinned?: ReadonlySet<string>;
 }
 
 /** Every file the payload holds, before any client-side dial — the
@@ -248,13 +276,14 @@ export function filterTerrainData(
   filter: TerrainFilter,
   nowSeconds = Date.now() / 1000,
 ): TerrainData {
-  const { from, to, count } = filter;
+  const { from, to, count, pinned } = filter;
 
-  interface Ranked { repoIndex: number; file: TerrainFile; rank: number }
+  interface Ranked { repoIndex: number; file: TerrainFile; rank: number; pin: boolean }
   const ranked: Ranked[] = [];
 
   data.repos.forEach((repo, repoIndex) => {
     for (const file of repo.files) {
+      const pin = pinned?.has(`${repo.id}:file:${file.path}`) ?? false;
       const touches = file.touches.filter((ts) => inRange(ts, from, to));
       // Session stamps are ISO strings; sessionLastSeconds is what makes them
       // comparable to the numeric touches above. A session with no usable
@@ -265,7 +294,7 @@ export function filterTerrainData(
         const last = sessionLastSeconds(s.last);
         return last === null || inRange(last, from, to);
       });
-      if (touches.length === 0 && sessions.length === 0) continue;
+      if (touches.length === 0 && sessions.length === 0 && !pin) continue;
       const kept: TerrainFile = { ...file, touches, sessions };
       // Synthetic sub-buckets (the pond tile's days) obey the date dial too —
       // a range narrowed to one week should empty the tile's other columns,
@@ -282,17 +311,18 @@ export function filterTerrainData(
         const last = sessionLastSeconds(s.last);
         if (last !== null) rank += Math.pow(2, -(ref - last) / COUNT_RANK_HALF_LIFE_SECONDS);
       }
-      ranked.push({ repoIndex, file: kept, rank });
+      ranked.push({ repoIndex, file: kept, rank, pin });
     }
   });
 
   let kept = ranked;
   if (count !== null && count < ranked.length) {
     // Stable within equal rank (sort by path) so the same N files survive
-    // across refetches instead of shuffling under her.
+    // across refetches instead of shuffling under her. Pinned files ride
+    // along outside the count — they're there because a replay asked.
     kept = [...ranked]
       .sort((a, b) => b.rank - a.rank || a.file.path.localeCompare(b.file.path))
-      .slice(0, count);
+      .filter((r, i) => i < count || r.pin);
   }
 
   const byRepo = new Map<number, TerrainFile[]>();
@@ -352,6 +382,11 @@ export interface TerrainNode {
   /** Raw decayed-touch sum for this node's own lens/heat calc. Always 0 for
    * session orbs — identity, not magnitude. */
   heat: number;
+  /** The same decayed sum, but over AGENT ACCESS rather than edits — every
+   * session that read or wrote this file, decayed on the same lens. Drives the
+   * yellow body: "something passed through here". Absent on nodes with no
+   * session footprint at all, which is most of the map. */
+  accessHeat?: number;
   /** The file payload, for file nodes only (sessions, touches). */
   file?: TerrainFile;
   /** Heat per synthetic sub-bucket, parallel to `file.days` — only ever on
@@ -485,6 +520,10 @@ function collapse(dir: TrieDir): TrieDir {
 interface BuildCtx {
   repo: TerrainRepo;
   lens: HeatSpan;
+  /** The lens the ACCESS (gold) channel is drawn on — normally the same as
+   * `lens`, but the breathing surfaces hand it the mirror so the two channels
+   * light on opposite halves of the cycle. See mirrorHalfLife. */
+  accessLens: HeatSpan;
   nowSeconds: number;
   nodes: TerrainNode[];
   edges: TerrainEdge[];
@@ -537,6 +576,7 @@ function emitDir(ctx: BuildCtx, dir: TrieDir, parentId: string, depth: number, p
       repoId: ctx.repo.id,
       path: file.path,
       heat,
+      accessHeat: computeAccessHeat(file, ctx.accessLens, ctx.nowSeconds),
       file,
       dayHeats: file.days?.map((d) => bucketHeat(d.touches, ctx.lens, ctx.nowSeconds)),
     });
@@ -568,10 +608,18 @@ export function buildTerrainGraph(
   data: TerrainData,
   lens: HeatSpan,
   nowSeconds = Date.now() / 1000,
-  opts?: { orbSessionIds?: Set<string> | null; alwaysOrbIds?: Set<string> | null },
+  opts?: {
+    orbSessionIds?: Set<string> | null;
+    alwaysOrbIds?: Set<string> | null;
+    /** Lens for the gold access channel. Omitted = the same lens heat is on,
+     * which is what a FIXED preset wants; the breathing surfaces pass
+     * mirrorHalfLife(lens) so gold and red light on opposite halves. */
+    accessLens?: HeatSpan;
+  },
 ): TerrainGraph {
   const nodes: TerrainNode[] = [];
   const edges: TerrainEdge[] = [];
+  const accessLens = opts?.accessLens ?? lens;
 
   for (const repo of data.repos) {
     const repoId = `repo:${repo.id}`;
@@ -587,7 +635,7 @@ export function buildTerrainGraph(
     nodes.push(repoNode);
 
     const trie = buildTrie(repo.files);
-    const repoCtx: BuildCtx = { repo, lens, nowSeconds, nodes: [], edges: [] };
+    const repoCtx: BuildCtx = { repo, lens, accessLens, nowSeconds, nodes: [], edges: [] };
 
     // The repo root's own files (rare — files sitting directly at repo root)
     // and its top-level directories both hang straight off the repo hub.
@@ -604,6 +652,7 @@ export function buildTerrainGraph(
         repoId: repo.id,
         path: file.path,
         heat,
+        accessHeat: computeAccessHeat(file, accessLens, nowSeconds),
         file,
         dayHeats: file.days?.map((d) => bucketHeat(d.touches, lens, nowSeconds)),
       });
@@ -896,6 +945,89 @@ export function sessionFileTouch(file: TerrainFile, sessionId: string): FileTouc
   if (!s) return null;
   if ((s.creates ?? 0) > 0) return 'created';
   return (s.writes ?? 0) > 0 ? 'modified' : 'read';
+}
+
+/**
+ * Agent ACCESS heat: the same exponential decay computeFileHeat runs, but over
+ * the sessions that touched this file rather than over git's commits. Reads and
+ * writes both count — the question this answers is "did anything pass through
+ * here", not "did it change".
+ *
+ * Kept as its own sum rather than folded into computeFileHeat because the two
+ * say different things and the map now draws them in different colours: heat is
+ * the red ramp (this file was EDITED, per git), access is the yellow one (an
+ * agent OPENED it). A file can be hot on one and cold on the other, and that
+ * contrast is the whole point of the second channel.
+ */
+export function computeAccessHeat(
+  file: TerrainFile,
+  lens: HeatSpan,
+  nowSeconds: number,
+): number {
+  const halfLife = halfLifeSeconds(lens);
+  if (halfLife <= 0) return 0;
+  let heat = 0;
+  for (const s of file.sessions) {
+    const last = sessionLastSeconds(s.last);
+    if (last === null) continue;
+    const age = nowSeconds - last;
+    if (Number.isFinite(age)) heat += Math.pow(2, -age / halfLife);
+  }
+  return heat;
+}
+
+/** How long an agent's write stays at FULL strength before it starts fading —
+ * her call: "an hour is the brightest". */
+export const WRITE_PEAK_SECONDS = 3600;
+
+/** ...and when it has faded out entirely: "by 24 it's dark like the rest".
+ * Same 24h the created-green window uses, so the map has one freshness day. */
+export const WRITE_FRESH_WINDOW_SECONDS = 24 * 3600;
+
+/**
+ * Seconds since an agent last WROTE this file, or null if none ever did.
+ *
+ * Honesty note, and it is load-bearing: the footprints sidecar stamps ONE
+ * `last` per (session, file) — the session's most recent touch of that file of
+ * ANY kind, read or write (see scripts/extract_footprints.py's `_aggregate`).
+ * So this is "a session that wrote this file last touched it N seconds ago",
+ * and the error runs one way only: a write can look FRESHER than it was, never
+ * staler, bounded by the length of the conversation. Sessions with no writes
+ * are skipped outright, so a pure reader never counts here.
+ */
+export function fileLastAgentWrite(
+  file: TerrainFile,
+  nowSeconds: number = Date.now() / 1000,
+): number | null {
+  let newest: number | null = null;
+  for (const s of file.sessions) {
+    if ((s.writes ?? 0) <= 0) continue;
+    const last = sessionLastSeconds(s.last);
+    if (last === null) continue;
+    if (newest === null || last > newest) newest = last;
+  }
+  return newest === null ? null : Math.max(0, nowSeconds - newest);
+}
+
+/**
+ * A write's freshness, 1 → 0: full for the first hour, then falling away to
+ * nothing at 24h.
+ *
+ * The falloff is LOGARITHMIC over that span, not linear, for the same reason
+ * breathHalfLife interpolates in log space — an hour matters far more against
+ * the hour before it than hour 23 does against hour 22, so equal slices of the
+ * curve are equal *ratios* of age. Linear would hold the mark near-full through
+ * most of the day and then drop it off a cliff; this reads as a thing cooling.
+ */
+export function writeFreshness(
+  ageSeconds: number | null,
+  peak: number = WRITE_PEAK_SECONDS,
+  window: number = WRITE_FRESH_WINDOW_SECONDS,
+): number {
+  if (ageSeconds === null || !Number.isFinite(ageSeconds)) return 0;
+  if (ageSeconds <= peak) return 1;
+  if (ageSeconds >= window) return 0;
+  return 1 - Math.log(ageSeconds / peak) / Math.log(window / peak);
 }
 
 /** One day, the window a "freshly created" file glows green in its own dot. */

@@ -42,7 +42,7 @@ import time
 
 import store
 
-_SCHEMA_VERSION = 15
+_SCHEMA_VERSION = 17
 
 
 def _db_path():
@@ -63,9 +63,22 @@ def _connect() -> sqlite3.Connection:
     the file safely.
     """
     conn = sqlite3.connect(_db_path(), timeout=_BUSY_MS / 1000, isolation_level=None)
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=NORMAL")
     conn.execute(f"PRAGMA busy_timeout={_BUSY_MS}")
+    # ASK BEFORE SETTING. journal_mode is a persistent property of the FILE, so
+    # after the first ever connection the answer is already 'wal' and this is a
+    # read that takes no lock at all — which is the whole point, because SETTING
+    # it does take one, and does NOT honour busy_timeout: against a database
+    # another connection is mid-write on, `PRAGMA journal_mode=WAL` fails
+    # instantly with "database is locked" rather than waiting its 250ms.
+    #
+    # That only bites on a FRESH database — one still in `delete` mode while
+    # several connections open it at once and one of them is climbing the
+    # migration ladder. It sat here latent until the ladder grew long enough
+    # (the code-graph and trace rungs) for the window to be worth hitting, and
+    # then it failed about two runs in five.
+    if (conn.execute("PRAGMA journal_mode").fetchone() or ("",))[0].lower() != "wal":
+        _set_wal(conn)
+    conn.execute("PRAGMA synchronous=NORMAL")
     conn.execute("PRAGMA foreign_keys=ON")
     _migrate(conn)
     return conn
@@ -125,6 +138,28 @@ def begin_immediate(conn, budget=_LOCK_WAIT_BUDGET):
             delay = min(delay * 2, _LOCK_BACKOFF_MAX)
 
 
+def _set_wal(conn, budget=_LOCK_WAIT_BUDGET):
+    """Switch a fresh database into WAL, waiting out a competing writer.
+
+    Same shape as `begin_immediate` above and for the same reason: the waiting
+    has to happen up in Python, where it can be retried and (under gevent)
+    yields, rather than inside a C-level busy handler that this particular
+    pragma doesn't consult anyway. Safe to retry — the pragma is idempotent,
+    and a connection that loses the race simply finds the winner's 'wal' on the
+    next pass."""
+    deadline = time.monotonic() + budget
+    delay = _LOCK_BACKOFF_START
+    while True:
+        try:
+            conn.execute("PRAGMA journal_mode=WAL").fetchall()
+            return
+        except sqlite3.OperationalError as exc:
+            if not _is_locked(exc) or time.monotonic() >= deadline:
+                raise
+            time.sleep(min(delay, _LOCK_BACKOFF_MAX) * (0.5 + random.random()))
+            delay = min(delay * 2, _LOCK_BACKOFF_MAX)
+
+
 # Every table a fully-migrated database must have. This is the cross-check that
 # makes the version stamp trustworthy — see _migrate.
 _EXPECTED_TABLES = (
@@ -140,6 +175,8 @@ _EXPECTED_TABLES = (
     "tags",
     "filer_nominations", "filer_verdicts",
     "command_runs", "command_sources",
+    "code_files", "code_edges",
+    "traces", "trace_spans",
 )
 
 
@@ -995,6 +1032,128 @@ def _run_ladder(conn):
             "  size INTEGER NOT NULL,"
             "  scanned_at TEXT NOT NULL"
             ")"
+        )
+    if version < 16:
+        # The codebase's own SHAPE — every code file, and every dependency
+        # between them (codegraph.py). DERIVED, like the habit tables: every
+        # row is re-readable by re-parsing the source, so this pair can be
+        # dropped and rebuilt without losing anything.
+        #
+        # Deliberately keyed by (repo, path) STRINGS rather than joined to
+        # files(id). The two tables answer different questions and disagree on
+        # purpose: `files` is git's view (identity that survives renames, and
+        # every file git has ever seen, including deleted ones), while this is
+        # the view of the code as it stands on disk RIGHT NOW — including files
+        # git has never seen. Giving this one its own key means neither can
+        # corrupt the other's answer; join on (repo, path) when a query wants
+        # both.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS code_files ("
+            "  repo TEXT NOT NULL,"
+            "  path TEXT NOT NULL,"
+            # 'python' | 'ts' | 'tsx' | 'js' | 'jsx' | 'css' — what the parser
+            # treated it as, which is also which resolver drew its edges.
+            "  lang TEXT NOT NULL,"
+            "  lines INTEGER NOT NULL DEFAULT 0,"
+            # How many edges leave and arrive. Denormalized on purpose: "what
+            # is a hub" and "what is dead" are the two questions this table
+            # exists to answer instantly, without a GROUP BY over the edges.
+            "  out_degree INTEGER NOT NULL DEFAULT 0,"
+            "  in_degree INTEGER NOT NULL DEFAULT 0,"
+            "  parsed_at TEXT NOT NULL,"
+            # Set when the file could not be parsed — kept as a ROW with a
+            # reason rather than dropped, so "every piece of code" stays
+            # literally true and a parser gap is visible instead of silent.
+            "  parse_error TEXT,"
+            "  PRIMARY KEY (repo, path)"
+            ")"
+        )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS code_edges ("
+            "  repo TEXT NOT NULL,"
+            "  src TEXT NOT NULL,"
+            # The destination's repo — '' means EXTERNAL (a third-party
+            # package: flask, react, d3-force). Those edges are kept rather
+            # than dropped: "what does this file reach out to" is the same
+            # question whether the answer is in the repo or not, and a caller
+            # that only wants internal flow filters on dst_repo != ''.
+            "  dst_repo TEXT NOT NULL,"
+            "  dst TEXT NOT NULL,"
+            # 'import' — a static dependency read out of the source.
+            "  kind TEXT NOT NULL,"
+            # JSON array of the names crossing this edge ('mutate', 'DATA_DIR',
+            # 'useState'). This is the part that makes an edge readable rather
+            # than merely present: not just "server.py touches store.py" but
+            # which of store's surface it actually uses.
+            "  symbols TEXT NOT NULL DEFAULT '[]',"
+            "  PRIMARY KEY (repo, src, dst_repo, dst, kind)"
+            ")"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS code_edges_by_dst"
+            " ON code_edges (dst_repo, dst)"
+        )
+    if version < 17:
+        # One captured request, followed through the code in order
+        # (runtime_trace.py). NOT derived and NOT re-derivable: a trace is a
+        # recording of a moment that has passed, which is the opposite of
+        # code_files/code_edges beside it. It is bounded by retention instead —
+        # runtime_trace.KEEP_TRACES newest survive, the rest are dropped on
+        # write, because a debugging artifact that grows forever becomes the
+        # thing it was meant to diagnose.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS traces ("
+            "  id TEXT PRIMARY KEY,"
+            "  label TEXT NOT NULL DEFAULT '',"
+            # 'http' | 'turn' | 'manual' — where the trace was taken. A send
+            # produces both an http trace and a turn trace SHARING one id, so
+            # the two processes' halves read as one path.
+            "  kind TEXT NOT NULL,"
+            # What was being done: 'POST /api/observatory/conversation/x/send'.
+            "  entry TEXT NOT NULL DEFAULT '',"
+            "  started_at TEXT NOT NULL,"
+            "  duration_us INTEGER NOT NULL DEFAULT 0,"
+            "  span_count INTEGER NOT NULL DEFAULT 0,"
+            # Set when the trace hit MAX_SPANS. A truncated trace is still
+            # useful, but it must never be mistaken for a complete one.
+            "  truncated INTEGER NOT NULL DEFAULT 0,"
+            "  pid INTEGER,"
+            # A trace that continues in ANOTHER PROCESS is its own row pointing
+            # back here, not more spans on this one. It has to be: the two
+            # processes have independent perf_counter origins, so their t0_us
+            # columns are not on the same clock and laying them end to end
+            # would draw a timeline that never happened. Parent + parts is the
+            # honest shape — "this request, and the turn it spawned".
+            "  parent_id TEXT"
+            ")"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS traces_by_parent ON traces (parent_id)"
+        )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS trace_spans ("
+            "  trace_id TEXT NOT NULL REFERENCES traces(id) ON DELETE CASCADE,"
+            "  seq INTEGER NOT NULL,"
+            "  depth INTEGER NOT NULL,"
+            # NULL src = the call came from outside our code entirely (Flask
+            # dispatch, the interpreter). That is an ENTRY POINT, and it is the
+            # row that answers "where does this actually get in".
+            "  src_repo TEXT,"
+            "  src TEXT,"
+            "  src_func TEXT,"
+            "  dst_repo TEXT NOT NULL,"
+            "  dst TEXT NOT NULL,"
+            "  dst_func TEXT NOT NULL,"
+            # Microseconds from the start of the trace, so spans are comparable
+            # without anyone having to parse a timestamp.
+            "  t0_us INTEGER NOT NULL,"
+            "  t1_us INTEGER,"
+            "  PRIMARY KEY (trace_id, seq)"
+            ")"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS trace_spans_by_dst"
+            " ON trace_spans (dst_repo, dst)"
         )
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")

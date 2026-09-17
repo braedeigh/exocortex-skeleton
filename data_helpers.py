@@ -61,6 +61,7 @@ def remove_item_from_file(item, filepath):
 
 # --- Uploads hygiene ---
 
+import shutil as _shutil
 import time as _time
 import store as _store
 
@@ -68,34 +69,91 @@ _UPLOAD_SWEEP_INTERVAL = 3600   # throttle: sweep at most once an hour
 _last_upload_sweep = 0.0
 
 
-def sweep_uploads(max_age_hours=24, upload_dir=None):
-    """Delete terminal-upload files (pasted photos/text dumps) older than
-    `max_age_hours`. They're transient hand-offs into the terminal session —
-    anything worth keeping gets moved out by whoever consumed it. Returns the
-    number of files removed."""
-    target = Path(upload_dir) if upload_dir else _store.UPLOAD_DIR
+def _file_into(src, archive_dir):
+    """Move one file into `archive_dir` without ever clobbering what's there.
+
+    Same shape as routes/spinoff.archive_spinoff, deliberately: numbered suffix
+    on collision, rename first (atomic, and the same filesystem in every normal
+    install because both roots derive from DATA_DIR), shutil as the fallback for
+    an archive env-pointed at another disk. Returns where it filed to. Raises on
+    failure — the caller decides whether a failed file is fatal.
+    """
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    dest = archive_dir / src.name
+    n = 2
+    while dest.exists():
+        dest = archive_dir / f"{src.stem}-{n}{src.suffix}"
+        n += 1
+    try:
+        src.rename(dest)
+    except OSError:
+        _shutil.move(str(src), str(dest))
+    return dest
+
+
+def sweep_uploads(upload_dir, archive_dir, max_age_hours=24):
+    """FILE terminal uploads older than `max_age_hours`. Never deletes.
+
+    Prompt this came from: "the sweep should FILE, not DELETE: move aged uploads
+    into the archive instead of unlink. uploads/ becomes a 24h inbox; the archive
+    is complete by construction."
+
+    `uploads/` is an inbox, not a wastebasket. This used to unlink, on the stated
+    premise that "anything worth keeping gets moved out by whoever consumed it" —
+    but there is no whoever. Nothing in the system consumes an upload, so that
+    premise was false and the sweep was the only thing that ever touched them:
+    it deleted 100% of what came through. Filing them instead is what makes the
+    archive total — everything ever handed to the terminal is in it, because
+    nothing else was ever a possible destination.
+
+    BOTH DIRECTORIES ARE REQUIRED and neither is resolved from the store here.
+    That is a safety property, not ceremony: with a default, a test that passes
+    only `upload_dir` still resolves a real archive and quietly moves its fixture
+    files into it — and every assertion still passes, because "the file left the
+    temp folder" stays true. A green test doing that is worse than a red one, so
+    the signature makes it impossible to leave the destination unsaid. The live
+    roots get resolved in exactly one place, sweep_uploads_throttled below.
+
+    Returns the number of files filed.
+    """
+    target = Path(upload_dir)
     if not target.is_dir():
         return 0
+    archive = Path(archive_dir)
     cutoff = _time.time() - max_age_hours * 3600
-    removed = 0
+    filed = 0
     for f in target.iterdir():
         try:
             if f.is_file() and f.stat().st_mtime < cutoff:
-                f.unlink()
-                removed += 1
+                _file_into(f, archive)
+                filed += 1
         except OSError:
-            continue   # vanished mid-sweep or unreadable — never break a request over cleanup
-    return removed
+            # Vanished mid-sweep, unreadable, or the archive is unwritable —
+            # never break a request over housekeeping. Failure now leaves the
+            # file sitting in the inbox, which is the safe direction: a failed
+            # move loses nothing, where a failed unlink already had.
+            continue
+    return filed
 
 
 def sweep_uploads_throttled():
-    """Hourly-throttled sweep, cheap enough to hang off a hot request path."""
+    """The one production door. Hourly-throttled, cheap enough for a hot path.
+
+    Both call sites (the dashboard's /api/data/today and the upload route) come
+    through here, so the live roots are resolved in exactly one place — and
+    resolved AT CALL TIME off the `_store` module, not bound at import, so a test
+    that re-points store.UPLOAD_DIR is honoured.
+
+    Note `_last_upload_sweep` lives in memory and starts at zero, so the first
+    call after any restart sweeps immediately: the throttle is a ceiling on how
+    OFTEN this runs, never a guarantee of how long a file has to sit.
+    """
     global _last_upload_sweep
     now = _time.time()
     if now - _last_upload_sweep < _UPLOAD_SWEEP_INTERVAL:
         return 0
     _last_upload_sweep = now
-    return sweep_uploads()
+    return sweep_uploads(_store.UPLOAD_DIR, _store.UPLOAD_ARCHIVE_DIR)
 
 
 # --- Health data ---

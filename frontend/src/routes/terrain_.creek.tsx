@@ -16,6 +16,9 @@ import { useDeactivateFrames } from '../shell/useIframeView';
  * of public view like everything else under /terrain.
  */
 export const Route = createFileRoute('/terrain_/creek')({
+  // `?journey=<id>` opens the creek in Journey mode on that capture.
+  validateSearch: (raw: Record<string, unknown>): { journey?: string } =>
+    typeof raw.journey === 'string' && raw.journey ? { journey: raw.journey } : {},
   beforeLoad: () => {
     if (typeof window === 'undefined') return;
     if (window.VIEW_MODE === 'public') throw redirect({ to: '/' });

@@ -1,0 +1,120 @@
+/* Theme mode tiles — a 2-up grid on phones, 4-up from 640px. Each tile is a
+ * card with a miniature screen on top, so the eye picks the mode before the
+ * text is read. Spacing sits on the 4/8/12/16 scale; the only accent in the
+ * block is the selected ring, so it lands. */
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-3);
+}
+
+@media (min-width: 640px) {
+  .grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-2) var(--space-3);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xl);
+  background: var(--card-bg);
+  box-shadow: var(--shadow-card);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  /* transform/opacity only — cheap on the PWA */
+  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
+}
+
+.tile:hover {
+  transform: translateY(-1px);
+}
+
+.tile:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.tileSelected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent), var(--shadow-card);
+}
+
+/* The miniature. 16:10-ish so it reads as a screen, not a swatch. */
+.preview {
+  position: relative;
+  display: block;
+  height: 62px;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+}
+
+.mini {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+
+.miniCard {
+  position: absolute;
+  left: 12%;
+  right: 12%;
+  top: 26%;
+  bottom: 20%;
+  border-radius: 4px;
+  border: 1px solid;
+  padding: 5px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-sizing: border-box;
+}
+
+.miniLine {
+  display: block;
+  height: 3px;
+  border-radius: 2px;
+  width: 100%;
+  opacity: 0.9;
+}
+
+.miniLineShort {
+  width: 62%;
+}
+
+/* Auto: two screens, diagonal cut. The B half is clipped over the A half. */
+.splitHalf {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+
+.splitHalfB {
+  clip-path: polygon(100% 0, 100% 100%, 38% 100%);
+}
+
+.runway {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+
+.label {
+  font-size: var(--font-size-md);
+  font-weight: 700;
+  color: var(--text);
+  margin-top: var(--space-1);
+}
+
+.desc {
+  font-size: var(--font-size-sm);
+  line-height: 1.35;
+  color: var(--text-muted);
+}

@@ -5,6 +5,7 @@ import { TAB_META, TAB_ROUTES, VIEW_META, isValidTab, tabForPath, type LegacyTab
 import { useMediaQuery, DESKTOP_QUERY } from './useMediaQuery';
 import { useSessionsContext } from './SessionsContext';
 import { useChatSurfaceObservatory } from './chatSurface';
+import { useMenuFit } from './menuFit';
 import styles from './TopTabs.module.css';
 
 /**
@@ -258,10 +259,16 @@ function DashboardTabRow({ pathname, isPublic = false }: { pathname: string; isP
 
   const rowRef = useRef<HTMLDivElement | null>(null);
   const moreWrapRef = useRef<HTMLDivElement | null>(null);
+  // The dropdown hangs off this button and is clipped by whatever box the row
+  // is sitting in — in the tiled desktop that's a panel, not the window. See
+  // menuFit.ts: without this the menu's bottom items are cut off rather than
+  // scrolled to.
+  const [moreBtn, setMoreBtn] = useState<HTMLButtonElement | null>(null);
   const optionalRefs = useRef<Partial<Record<LegacyTab, HTMLAnchorElement | null>>>({});
 
   const activeKey = useActiveKey(pathname);
   const closeMore = useCallback(() => setMoreOpen(false), []);
+  const moreFit = useMenuFit(moreBtn, moreOpen && isDesktop);
 
   // Port of layoutTabs (static/js/core.js:2615) — measure with all optional
   // tabs visible, then hide from the end (skipping the active tab until
@@ -415,6 +422,7 @@ function DashboardTabRow({ pathname, isPublic = false }: { pathname: string; isP
         <div className={styles.moreWrap} ref={moreWrapRef}>
           <button
             type="button"
+            ref={setMoreBtn}
             className={joinClass(styles.tab, moreActive && styles.active)}
             onClick={() => setMoreOpen((v) => !v)}
             aria-expanded={moreOpen}
@@ -423,7 +431,11 @@ function DashboardTabRow({ pathname, isPublic = false }: { pathname: string; isP
             {moreLabel} &#9662;
           </button>
           {isDesktop && moreOpen ? (
-            <div className={styles.dropdown} role="menu">
+            <div
+              className={joinClass(styles.dropdown, moreFit?.flipUp && styles.dropdownUp)}
+              role="menu"
+              style={moreFit ? { maxHeight: moreFit.maxHeight } : undefined}
+            >
               <MoreMenuContent
                 overflowed={overflowed}
                 activeKey={activeKey}

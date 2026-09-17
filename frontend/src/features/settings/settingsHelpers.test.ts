@@ -14,11 +14,11 @@ import {
 } from './settingsHelpers';
 
 describe('draftFromOverrides', () => {
-  it('fills every group and defaults enabled/mode', () => {
+  it('fills every group and defaults mode to auto', () => {
     const draft = draftFromOverrides({});
     expect(draft).toEqual({
       enabled: true,
-      mode: 'sky',
+      mode: 'auto',
       themes: {},
       offsets: {},
       phasesEnabled: {},
@@ -58,7 +58,7 @@ describe('buildSavePayload', () => {
     const payload = buildSavePayload(draft);
     expect(payload).toEqual({
       enabled: true,
-      mode: 'sky',
+      mode: 'auto',
       themes: { night: { bg: '#111111' } },
       offsets: { dawnStart: 0 },
       phasesEnabled: { day: false },

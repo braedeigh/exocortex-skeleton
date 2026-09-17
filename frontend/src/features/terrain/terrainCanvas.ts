@@ -86,14 +86,17 @@ import {
   CREATED_FRESH_WINDOW_SECONDS,
   edgeKey,
   fileCreatedWithin,
+  fileLastAgentWrite,
   graphUnchanged,
   normalizeHeat,
+  writeFreshness,
   sessionTouchRings,
   SESSION_NODE_PREFIX,
   type FileTouchKind,
   type TerrainEdge,
   type TerrainNode,
 } from './terrainGraph';
+import type { TerrainThread } from './terrainThreads';
 
 /**
  * Terminal-red heat ramps — 5 steps cold→hot, per the owner's spec: cold =
@@ -112,6 +115,49 @@ import {
  *    here and were removed 07-27 (they read as arbitrary), so radius now
  *    carries that load alone on the light surface.
  */
+/**
+ * The ACCESS ramp — the map's second channel, in GOLD: not "this file was
+ * edited" (that's the red ramp below) but "an agent OPENED this file". Built to
+ * the same 5 steps, the same normalizeHeat, the same decay, so the two channels
+ * are one language in two hues and a dot reads the same way in either.
+ *
+ * Gold rather than the lemon yellow this started as — her call, and it sits
+ * better beside the terminal reds: #ffd700 is a warm hue-51 gold, a few degrees
+ * off the ramp's own warmth rather than the greenish hue-95 of a pure yellow,
+ * so the map reads as one fire in two temperatures instead of two unrelated
+ * signals. Cold end is a dark gold-brown, bottoming out near black the way the
+ * red ramp does: an old access fades into the dark like an old edit.
+ *
+ * Checked with the dataviz validator, not eyeballed. #ffd700 keeps the write
+ * core legible on top of it (3.58:1, near-identical to the lemon's 3.71) and
+ * scores the best tritan separation of the golds tried. The pair this ramp
+ * CANNOT carry on hue alone is the core-green against a red dot elsewhere on
+ * the map — ΔE 2.8 protan, indistinguishable — which is why the core is a small
+ * concentric dot inside a gold body rather than a colour swap: a protanope
+ * tells them apart by structure, a ring inside a disc vs a plain disc, and that
+ * structural difference is load-bearing, not decoration.
+ */
+export const ACCESS_RAMP_LIGHT = ['#201804', '#4d3a0a', '#8f6d10', '#c9a015', '#ffd700'] as const;
+export const ACCESS_RAMP_DARK = ['#241b06', '#4d3a0a', '#8f6d10', '#c9a015', '#ffd700'] as const;
+
+/**
+ * The write core: a small filled dot at the centre of an accessed file's body,
+ * saying an agent WROTE here — full strength for the first hour, faded out by
+ * 24 (see writeFreshness).
+ *
+ * A DEEP green, not the git-add green CREATED_GREEN wears, and the number is
+ * the reason: #22c55e on the yellow body measures 1.69:1 — invisible. This one
+ * measures 3.71:1 against the same yellow. The core's contrast partner is the
+ * body it sits inside, not the page behind it, which is why it can't just reuse
+ * the brighter green that works fine against a dark map.
+ *
+ * A filled core rather than the cross she first reached for: same idea, but a
+ * cross is two thin strokes, and thin strokes are the first thing to dissolve
+ * as a mark shrinks. A cold file's dot is 4px; a cross inside it is mush, while
+ * a filled circle keeps its identity all the way down.
+ */
+const WRITE_CORE_GREEN = '#15803d';
+
 export const HEAT_RAMP_LIGHT = ['#271513', '#681b1b', '#9b2425', '#cd3131', '#f14c4c'] as const;
 export const HEAT_RAMP_DARK = ['#341816', '#681b1b', '#9b2425', '#cd3131', '#f14c4c'] as const;
 
@@ -177,6 +223,9 @@ interface SimNode extends SimulationNodeDatum {
   node: TerrainNode;
   /** 0..1 normalized heat, precomputed once per setGraph. */
   t: number;
+  /** 0..1 normalized ACCESS heat (the yellow channel), same cadence as `t`.
+   * 0 for everything the agents have never opened, which is most of the map. */
+  a: number;
   radius: number;
 }
 
@@ -429,6 +478,17 @@ export class TerrainCanvas {
   /** One-shot flash halos: node id → expiry epoch-ms. The timer lives only
    * until the last flash fades (~1s) — never idles. */
   private flashes = new Map<string, number>();
+  /** Writer-to-reader threads between file dots, already lit (see
+   * terrainThreads.ts). Empty until the page hands them over — the map draws
+   * perfectly well without them. */
+  private threads: readonly TerrainThread[] = [];
+  /** The FILE dot under the cursor, when it has threads. Asking about one
+   * file's wiring is a different question from asking about an agent, so it
+   * gets its own hover rather than sharing hoverAgent's. */
+  private hoverFile: string | null = null;
+  /** Everything the hovered file is wired to, itself included — recomputed
+   * only when the hover changes, not per frame. */
+  private hoverFileKin: Set<string> = new Set();
   private flashTimer: number | null = null;
   /**
    * Code-weather: written lines rising off the file nodes as agents work —
@@ -844,6 +904,52 @@ export class TerrainCanvas {
   }
 
   /**
+   * Hand over the file-to-file threads, already heated on the page's live lens.
+   * Cheap to call every breath tick: this only stores the array and asks for a
+   * repaint, and the sim never sees these at all — a thread is a thing drawn
+   * BETWEEN two dots, never a force pulling them together. Letting them into
+   * the physics would drag unrelated directories into each other and quietly
+   * destroy the one thing the tree layout is for.
+   */
+  setThreads(threads: readonly TerrainThread[]): void {
+    this.threads = threads;
+    // The breath re-lights these ~7x/s. If she's hovering while that happens,
+    // the kin set has to be rebuilt against the new array or the highlight
+    // would go on pointing at threads that no longer exist.
+    if (this.hoverFile !== null) this.recomputeHoverKin();
+    this.requestDraw();
+  }
+
+  /** Which nodes the hovered file is threaded to. Recomputed on a hover change
+   * or a thread refeed — never in the draw loop, which runs far more often. */
+  private recomputeHoverKin(): void {
+    const kin = new Set<string>();
+    const id = this.hoverFile;
+    if (id !== null) {
+      kin.add(id);
+      for (const th of this.threads) {
+        if (th.sourceId === id) kin.add(th.targetId);
+        else if (th.targetId === id) kin.add(th.sourceId);
+      }
+    }
+    this.hoverFileKin = kin;
+  }
+
+  /** Point the thread highlight at a file dot, or clear it. Only files that
+   * actually have threads take the hover — lighting up a dot with nothing
+   * wired to it would dim the whole map to say nothing. */
+  private setHoverFile(id: string | null): void {
+    let next = id;
+    if (next !== null && !this.threads.some((th) => th.sourceId === next || th.targetId === next)) {
+      next = null;
+    }
+    if (next === this.hoverFile) return;
+    this.hoverFile = next;
+    this.recomputeHoverKin();
+    this.requestDraw();
+  }
+
+  /**
    * One-shot ~1s flash on the given node ids (live mode: files whose newest
    * touch advanced since the previous payload). A short interval repaints
    * the fade and clears itself when the last flash expires.
@@ -993,6 +1099,7 @@ export class TerrainCanvas {
         if (!node) continue;
         sn.node = node;
         sn.t = normalizeHeat(node.heat);
+        sn.a = normalizeHeat(node.accessHeat ?? 0);
         sn.radius = nodeRadius(node, sn.t);
       }
       this.refreshDerived(nodes);
@@ -1037,6 +1144,7 @@ export class TerrainCanvas {
         id: node.id,
         node,
         t,
+        a: normalizeHeat(node.accessHeat ?? 0),
         radius: nodeRadius(node, t),
         x: old?.x ?? seedX + (Math.random() - 0.5) * 60,
         y: old?.y ?? seedY + (Math.random() - 0.5) * 60,
@@ -1195,10 +1303,14 @@ export class TerrainCanvas {
   private handlePointerMove = (ev: PointerEvent): void => {
     if (ev.pointerType !== 'mouse') return;
     const hit = this.nodeAt(ev, true);
+    const any = this.nodeAt(ev);
     // The cursor still turns into a pointer over any tappable node — files
     // open their sheet as well — even though only orbs drive the hover dim.
-    this.canvas.style.cursor = hit || this.nodeAt(ev)?.node.kind === 'file' ? 'pointer' : '';
+    this.canvas.style.cursor = hit || any?.node.kind === 'file' ? 'pointer' : '';
     this.setHoverAgent(hit?.node.session?.id ?? null);
+    // A file under the cursor lights its own threads. An orb wins if both are
+    // under it — the agent hover is the older, louder question.
+    this.setHoverFile(hit === null && any?.node.kind === 'file' ? any.id : null);
     this.reportHover(hit);
   };
 
@@ -1206,6 +1318,7 @@ export class TerrainCanvas {
     if (ev.pointerType !== 'mouse') return;
     this.canvas.style.cursor = '';
     this.setHoverAgent(null);
+    this.setHoverFile(null);
     this.reportHover(null);
   };
 
@@ -1302,9 +1415,12 @@ export class TerrainCanvas {
    * The pond tile: a month of journal as a small square of water, drawn in
    * world space at the tile node's sim position.
    *
-   * One column per day, oldest at the left. A column's HEIGHT is how much was
-   * written that day (touch count against the window's busiest day, with a
-   * floor so a one-card day still shows above the water); its COLOUR is that
+   * One column per day, oldest at the left, every day in the month drawn
+   * whether or not she wrote in it. A column's HEIGHT is how many cards that
+   * day holds, against the window's busiest day, with a floor so a one-card
+   * day still shows above the water — the counts come from the journal itself
+   * (pondNodes.ts / routes/terrain.py `_pond_days`), not from how many card
+   * files this payload happened to carry. Its COLOUR is that
    * day's own heat on the map's live lens — which is what makes the tile
    * breathe on the backdrop: the exhale (one-day half-life) lights only the
    * newest columns, the inhale (one-month) warms the whole square. A quiet
@@ -1441,6 +1557,7 @@ export class TerrainCanvas {
     const { ctx, theme, transform } = this;
     const dpr = window.devicePixelRatio || 1;
     const ramp = theme.dark ? HEAT_RAMP_DARK : HEAT_RAMP_LIGHT;
+    const accessRamp = theme.dark ? ACCESS_RAMP_DARK : ACCESS_RAMP_LIGHT;
     const dimmed = this.footprint !== null;
     // The agent under the cursor, if the tap-spotlight isn't already speaking.
     // Everything it changes is an ALPHA: the other agents' tethers and rings
@@ -1471,6 +1588,68 @@ export class TerrainCanvas {
       ctx.beginPath();
       ctx.arc(pond.x, pond.y, pond.r, 0, Math.PI * 2);
       ctx.fill();
+    }
+
+    // -- threads: what one file makes, another one eats --
+    //
+    // Drawn UNDER the tree edges and the dots, because a thread is a current
+    // running beneath the structure rather than part of it. Gold, on the same
+    // ramp the access channel wears, because a thread IS data passing through —
+    // the exact thing gold means everywhere else on this map.
+    //
+    // Bowed, not straight. Two files often sit near each other and several
+    // threads can share a pair of endpoints' neighbourhood; a straight line
+    // between close dots disappears under them, and parallel straight lines
+    // between the same region stack into one thick smear. A consistent
+    // perpendicular bow gives each its own arc and makes the direction of the
+    // current legible.
+    //
+    // Nothing here is capped or culled by count: cold threads simply arrive
+    // with t near zero and draw at an alpha that rounds to nothing. The heat IS
+    // the filter, so what's on screen is what's actually moving.
+    if (this.threads.length > 0) {
+      const byId = new Map(this.simNodes.map((n) => [n.id, n]));
+      const held = this.hoverFile;
+      for (const th of this.threads) {
+        const mine = held !== null && (th.sourceId === held || th.targetId === held);
+        // Off-hover a cold thread is skipped as invisible. ON hover the
+        // hovered file's own threads are drawn however cold they are: the
+        // question being asked is "what is this wired to", and a pipe that
+        // hasn't moved in a month is still a pipe. Cold ones stay legibly
+        // cold — the floor below lifts them into view, it doesn't repaint
+        // them as fresh.
+        if (!mine && th.t <= 0.02) continue;
+        if (held !== null && !mine && th.t <= 0.25) continue;
+        const a = byId.get(th.sourceId);
+        const b = byId.get(th.targetId);
+        if (!a || !b) continue; // one end filtered off the map by a dial
+        const ax = a.x ?? 0;
+        const ay = a.y ?? 0;
+        const bx = b.x ?? 0;
+        const by = b.y ?? 0;
+        const mx = (ax + bx) / 2;
+        const my = (ay + by) / 2;
+        const dx = bx - ax;
+        const dy = by - ay;
+        const len = Math.hypot(dx, dy) || 1;
+        // Bow perpendicular to the run, proportional to it, so long threads
+        // arc gently and short ones don't loop absurdly.
+        const bow = Math.min(len * 0.16, 60);
+        // Hovering a file is asking one question, so the answer gets the
+        // canvas: its own threads go to full opacity with a colour floor that
+        // guarantees a cold one is actually visible, and every other thread
+        // drops to a trace. Same shape as the agent hover one rung along —
+        // the map recedes around what she pointed at rather than clearing.
+        const lit = held === null ? th.t : mine ? Math.max(th.t, 0.42) : th.t;
+        ctx.globalAlpha = held === null ? 0.16 + 0.54 * th.t : mine ? 0.95 : 0.05;
+        ctx.strokeStyle = heatColor(lit, accessRamp);
+        ctx.lineWidth = (0.6 + 1.5 * lit) / transform.k * (mine ? 1.6 : 1);
+        ctx.beginPath();
+        ctx.moveTo(ax, ay);
+        ctx.quadraticCurveTo(mx - (dy / len) * bow, my + (dx / len) * bow, bx, by);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
     }
 
     // -- edges --
@@ -1506,6 +1685,11 @@ export class TerrainCanvas {
         ctx.lineWidth = 1 / transform.k;
         ctx.setLineDash([]);
       }
+      // The structure recedes under a file hover as well. Without this the
+      // tree stays at full strength while the dots fall away, and the map
+      // reads as a skeleton with the flesh removed rather than as one thing
+      // stepping back.
+      if (this.hoverFile !== null) ctx.globalAlpha *= 0.22;
       ctx.beginPath();
       ctx.moveTo(s.x ?? 0, s.y ?? 0);
       ctx.lineTo(t.x ?? 0, t.y ?? 0);
@@ -1515,9 +1699,15 @@ export class TerrainCanvas {
 
     // -- nodes --
     const minR = MIN_NODE_PX / transform.k;   // world units for a screen-px floor
+    const threadHover = this.hoverFile;
     for (const n of this.simNodes) {
       const inPrint = !dimmed || this.footprint!.has(n.id);
-      ctx.globalAlpha = inPrint ? 1 : 0.22;
+      // A file hover pulls the whole map down around the thread it lit: the
+      // hovered dot and everything wired to it stay full, everything else
+      // recedes. Multiplied into the footprint alpha rather than replacing it,
+      // so a spotlit agent's dimming still holds underneath.
+      const kinAlpha = threadHover === null || this.hoverFileKin.has(n.id) ? 1 : 0.15;
+      ctx.globalAlpha = (inPrint ? 1 : 0.22) * kinAlpha;
       // Never let a node shrink below a visible dot, however far out we are.
       const nr = Math.max(n.radius, minR);
 
@@ -1559,6 +1749,8 @@ export class TerrainCanvas {
               : inPrint
                 ? 1
                 : 0.22;
+        // An orb is a dot too, as far as "everything else dims" goes.
+        const orbKinAlpha = orbAlpha * kinAlpha;
 
         // Sonar. Two of them, same ring, different things to say — and, more
         // to the point, different clocks:
@@ -1589,14 +1781,14 @@ export class TerrainCanvas {
           }
         }
 
-        ctx.globalAlpha = orbAlpha;
+        ctx.globalAlpha = orbKinAlpha;
         ctx.strokeStyle = this.orbStroke;
         ctx.lineWidth = (isFocusOrb || sessionId === hover ? 3.25 : 2.5) / transform.k;
         ctx.beginPath();
         ctx.arc(n.x ?? 0, n.y ?? 0, r, 0, Math.PI * 2);
         ctx.stroke();
         // Halo: a second, fainter ring — the "orb" read.
-        ctx.globalAlpha = orbAlpha * (running ? 0.45 : 0.25);
+        ctx.globalAlpha = orbKinAlpha * (running ? 0.45 : 0.25);
         ctx.lineWidth = 1.5 / transform.k;
         ctx.beginPath();
         ctx.arc(n.x ?? 0, n.y ?? 0, r + 4 / transform.k, 0, Math.PI * 2);
@@ -1613,12 +1805,27 @@ export class TerrainCanvas {
       }
 
       if (n.node.kind === 'file') {
-        // Freshly created (within 24h, any agent) fills the dot green;
-        // otherwise it glows ember by recency like every other file.
+        // Three ways a file dot can be filled, in priority order.
+        //
+        //   1. Freshly created (within 24h, any agent) — git-add green. The
+        //      loudest thing a file can be is new, so it still wins outright.
+        //   2. Touched by an agent — the YELLOW access ramp: something passed
+        //      through this file, whether or not it changed. Only the handful
+        //      of files the sessions have actually opened light this way.
+        //   3. Everything else — the red heat ramp, exactly as before: how
+        //      recently this file was EDITED, per git.
+        //
+        // So the map now answers two questions in two hues. Red is the work's
+        // history; yellow is what the agents are currently moving through, and
+        // the two are routinely different files.
         const fresh = n.node.file
           ? fileCreatedWithin(n.node.file, CREATED_FRESH_WINDOW_SECONDS, now / 1000)
           : false;
-        ctx.fillStyle = fresh ? CREATED_GREEN : heatColor(n.t, ramp);
+        ctx.fillStyle = fresh
+          ? CREATED_GREEN
+          : n.a > 0
+            ? heatColor(n.a, accessRamp)
+            : heatColor(n.t, ramp);
       } else {
         // Hubs: structural, mostly surface-toned (bg pushed toward ink),
         // warmed by rolled-up heat so a hot subtree's spine reads warm too.
@@ -1629,6 +1836,29 @@ export class TerrainCanvas {
       ctx.beginPath();
       ctx.arc(n.x ?? 0, n.y ?? 0, nr, 0, Math.PI * 2);
       ctx.fill();
+      // The write core — an agent WROTE here, and how long ago. Full green for
+      // the first hour, then shrinking and dimming until it's gone at 24h, so
+      // "just now" and "yesterday morning" are the same mark at two strengths
+      // rather than two things to learn. Drawn inside the body, so it only ever
+      // appears on a dot the access ramp has already claimed.
+      //
+      // It is skipped below ~7px: at a cold dot's 4px there is no room for a
+      // centre that still reads as a centre, and a smudge that says "written"
+      // is worse than no mark at all.
+      if (n.node.kind === 'file' && n.a > 0 && n.node.file && nr * transform.k >= 7) {
+        const fresh = writeFreshness(fileLastAgentWrite(n.node.file, now / 1000));
+        if (fresh > 0) {
+          // Multiply into whatever alpha the dimming rules already set rather
+          // than overwriting it — a dimmed dot's core has to dim with it.
+          const base = ctx.globalAlpha;
+          ctx.globalAlpha = base * (0.35 + 0.65 * fresh);
+          ctx.fillStyle = WRITE_CORE_GREEN;
+          ctx.beginPath();
+          ctx.arc(n.x ?? 0, n.y ?? 0, nr * (0.22 + 0.24 * fresh), 0, Math.PI * 2);
+          ctx.fill();
+          ctx.globalAlpha = base;
+        }
+      }
       if (n.node.kind !== 'file') {
         ctx.strokeStyle = theme.border;
         ctx.lineWidth = 1.5 / transform.k;

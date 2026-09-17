@@ -731,3 +731,11 @@
 
   .detail { width: auto; max-height: 40vh; }
 }
+
+/* Journey mode: the waterfall under the banks. */
+.downstream {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+  overflow-x: auto;
+}

@@ -13,6 +13,12 @@ export default defineConfig({
   // the entire point here. Project-root-relative, so each worktree gets its
   // own automatically.
   cacheDir: '.vite-cache',
+  // Keep function names through minification. api/journey.ts names the React
+  // component a tap landed in by reading `type.name` off the fiber, and a
+  // minified build would call every component `t`. Costs a few KB of bundle.
+  // This is Vite 8 (rolldown), so it's the bundler's output option, not
+  // esbuild's — `esbuild.keepNames` only reaches the dep optimizer here.
+  build: { rollupOptions: { output: { keepNames: true } } },
   plugins: [
     // must run before @vitejs/plugin-react — generates src/routeTree.gen.ts
     // from the file-based routes in src/routes/.

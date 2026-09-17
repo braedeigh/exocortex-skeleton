@@ -24,7 +24,13 @@ import {
 import { sunTimesFromDay } from './solar';
 
 export interface SkyConfig {
+  /** The seven palettes as edited — saved overrides merged over the defaults.
+   * The fixed modes (light/dark/auto) read these, so a runway-only setting
+   * can't reach in and repaint them. */
   themes: Record<PhaseName, PhaseColors>;
+  /** The same palettes with per-phase disabling applied (a disabled phase
+   * wears its successor's colors). Runway mode only. */
+  runwayThemes: Record<PhaseName, PhaseColors>;
   offsets: Record<OffsetKey, number>;
   accents: Accents;
   /** The master "Enable sky theme" toggle (only consulted in 'sky' mode). */
@@ -39,6 +45,14 @@ export function resolveSkyConfig(overrides: ThemeOverrides = {}): SkyConfig {
   }
   // Per-phase disable: a disabled phase inherits the next phase's colors so
   // its window is visually transparent. Order matches the day cycle.
+  //
+  // This lands in `runwayThemes`, a copy — NOT in `themes`. Disabling is a
+  // runway concept ("slide past this window"), and it used to be baked into
+  // the one shared palette set, so Light and Auto — which read the postDawn
+  // palette directly — inherited whatever the disable chain landed on. With
+  // postDawn/morning/day all off, that chain ran postDawn → morning → day →
+  // golden, and Light and daytime Auto rendered brown.
+  const runwayThemes = { ...themes };
   const enabled = overrides.phasesEnabled ?? {};
   for (let i = 0; i < PHASE_ORDER.length; i++) {
     const p = PHASE_ORDER[i];
@@ -47,7 +61,7 @@ export function resolveSkyConfig(overrides: ThemeOverrides = {}): SkyConfig {
       for (let j = 1; j <= PHASE_ORDER.length; j++) {
         const next = PHASE_ORDER[(i + j) % PHASE_ORDER.length];
         if (enabled[next] !== false) {
-          themes[p] = themes[next];
+          runwayThemes[p] = themes[next];
           break;
         }
       }
@@ -63,13 +77,15 @@ export function resolveSkyConfig(overrides: ThemeOverrides = {}): SkyConfig {
     const v = overrides.accents?.[key];
     if (v !== undefined) accents[key] = v;
   }
-  return { themes, offsets, accents, enabled: overrides.enabled !== false };
+  return { themes, runwayThemes, offsets, accents, enabled: overrides.enabled !== false };
 }
 
 /**
  * Which theme mode is active: explicit override wins, then the mode the
  * browser remembered (localStorage 'themeMode' — passed in so this stays
- * pure), then 'off'/'sky' depending on the master toggle.
+ * pure), then the default. The default is 'auto' — lavender by day, indigo
+ * at night — except on an install that had turned the old master sky toggle
+ * off, which still means 'off' (leave the stylesheet alone).
  */
 export function currentThemeMode(
   overrides: ThemeOverrides = {},
@@ -77,7 +93,7 @@ export function currentThemeMode(
 ): ThemeMode {
   if (overrides.mode) return overrides.mode;
   if (storedMode) return storedMode as ThemeMode;
-  return overrides.enabled === false ? 'off' : 'sky';
+  return overrides.enabled === false ? 'off' : 'auto';
 }
 
 /**
@@ -91,7 +107,7 @@ export function computeRunwayTheme(
   dayOfYear: number,
 ): PhaseColors {
   const { sunrise, sunset } = sunTimesFromDay(dayOfYear);
-  const themes = cfg.themes;
+  const themes = cfg.runwayThemes;
 
   // Phase boundaries (decimal hours) — offsets are relative to sunrise/sunset
   const o = cfg.offsets;

@@ -8,6 +8,14 @@ code being written, for the Flow lane at /terrain/flow). See
 scripts/extract_footprints.py for the footprints sidecar and the flow
 harvest.
 
+Also the trace doors (runtime_trace.py): arm one request or a whole journey
+(POST .../trace/arm), list and read captures (GET .../trace[/<id>]), and take
+in the browser's half of a journey (POST .../trace/<id>/browser — taps and
+fetches with the React component chain, resolved to files through the code
+graph). A turn part of a trace is joined to the agent's own tool calls from
+the transcript (`_agent_calls_for`), so one capture reaches from the tap to
+what the agent read and edited.
+
 Git heat comes from the code-history tables in exo.db (codestore.py), not
 from running `git log` per request. On every cache miss this module first
 asks codestore.update() to catch the tables up to both repos' HEADs — cheap
@@ -33,16 +41,21 @@ from datetime import date, datetime, timedelta
 from fnmatch import fnmatch
 from pathlib import Path
 import contextlib
+import math
 import os
 import re
 import sqlite3
 import time
 
+import codegraph
 import codestore
+import runtime_sensor
+import runtime_trace
 import store
 from routes import observatory
 from routes.tags import _SLUG_RE as _GROWTH_TAG_SLUG_RE
-from scripts.extract_footprints import harvest_conversation, harvest_flow_events
+from scripts.extract_footprints import (_load_events, _parse_ts, _tool_path,
+                                        harvest_conversation, harvest_flow_events)
 
 _TERRAIN_FILE_CAP = 350           # DEFAULT hottest files kept per repo (a phone
                                   # canvas force-sim drowns past the low
@@ -63,6 +76,27 @@ _TERRAIN_LIVE_TTL_SEC = 5         # ...but a mid-turn session must read fresh:
 _TERRAIN_LIVE_WINDOW_SEC = 15 * 60   # how recently-active a conversation must
                                      # be for a live jsonl re-parse (the batch
                                      # sidecar may lag it)
+_TERRAIN_GRAPH_TTL_SEC = 300      # how long a parsed code graph stays warm.
+                                  # The parse is ~1.5s over ~1300 files, so
+                                  # this is a miss-cost, not a tap-cost.
+
+# When the code graph was last parsed. A dict rather than a module global so a
+# test can reset it the way the payload caches above are reset.
+_graph_cache = {"built_at": 0.0}
+
+
+def _graph_relpath(abspath, roots):
+    """An absolute path from the runtime sensor to the (repo, repo-relative)
+    pair the code graph is keyed by, or None if it belongs to neither repo.
+    The one place the two stores' path vocabularies are reconciled."""
+    for repo_id, root in roots:
+        try:
+            rel = os.path.relpath(abspath, root)
+        except ValueError:
+            continue
+        if rel != os.curdir and not rel.startswith(os.pardir):
+            return (repo_id, rel.replace(os.sep, "/"))
+    return None
 
 # Machine-churn denylist: the vault gets hourly auto-backup commits, so
 # app-state files (databases, logs, session sidecars, build output) would
@@ -885,7 +919,477 @@ def _growth_front_tags_by_subject(conn):
     return out
 
 
+def _trace_tree(spans):
+    """The flat span list rebuilt into the call tree it came from.
+
+    `depth` is the shadow-stack depth at the moment the hop was recorded, so
+    the tree is reconstructible without storing parent ids: walk in order,
+    keeping the last span seen at each depth, and a span's parent is the last
+    one strictly shallower than it. Anything at depth 0 — or orphaned because
+    its parent fell off a truncated trace — becomes a root rather than being
+    dropped."""
+    roots, by_depth = [], {}
+    for span in spans:
+        node = {**span, "children": []}
+        parent = None
+        for d in range(node["depth"] - 1, -1, -1):
+            if d in by_depth:
+                parent = by_depth[d]
+                break
+        (parent["children"] if parent else roots).append(node)
+        by_depth[node["depth"]] = node
+        # Nothing deeper than this span can be its sibling's child, so the
+        # deeper entries are stale the moment we descend past them.
+        for d in [d for d in by_depth if d > node["depth"]]:
+            del by_depth[d]
+    return roots
+
+
+def _graph_refresh():
+    """Keep the code-graph tables warm, on the same lazy-TTL shape the map's
+    own payload uses: parse on a cache miss, serve from the tables otherwise.
+
+    The whole parse is ~1300 files in about 1.5s, which is too slow for a tap
+    and fine for a five-minute miss — the same trade `_terrain_refresh_history`
+    already makes for git. A failure here degrades to whatever the tables
+    already hold (an empty graph on a cold install), never to a 500."""
+    now_ts = time.time()
+    if now_ts - _graph_cache["built_at"] < _TERRAIN_GRAPH_TTL_SEC:
+        return
+    try:
+        # The repos come from observatory._terrain_repos(), NOT from
+        # codegraph's own default. Every other endpoint in this module resolves
+        # its roots that way, and a graph built over a different pair of roots
+        # than the map beside it would disagree with that map about which files
+        # exist — the two are meant to be read together.
+        codegraph.rebuild(observatory._terrain_repos())
+        _graph_cache["built_at"] = now_ts
+    except Exception:
+        _graph_cache["built_at"] = now_ts - _TERRAIN_GRAPH_TTL_SEC / 2   # retry sooner
+
+
+_JOURNEY_GRACE_SEC = 30
+
+
+def _valid_int(raw, default, upper):
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        return default
+    return max(1, min(n, upper))
+
+
+def _component_resolver():
+    """name -> (repo, path) for a React component, via the code graph: the
+    file some other file imports that name FROM, restricted to ts/tsx so a
+    Python symbol of the same name can't win. Built once per request and
+    memoised inside. A name found in two different files is ambiguous and
+    resolves to None — the browser part then says `browser` rather than
+    picking one."""
+    by_name = {}
+    try:
+        edges = codegraph.graph(internal_only=True)["edges"]
+    except Exception:
+        return lambda name: None
+    for e in edges:
+        if not e["dst"].endswith((".tsx", ".ts", ".jsx", ".js")):
+            continue
+        for sym in e.get("symbols") or ():
+            hit = (e["dst_repo"], e["dst"])
+            prev = by_name.get(sym)
+            if prev is None:
+                by_name[sym] = hit
+            elif prev != hit:
+                by_name[sym] = False        # ambiguous
+    # A route component is imported by nobody (the router plugin wires it), so
+    # fall back to a file whose basename IS the component name, if unique.
+    try:
+        files = codegraph.graph(internal_only=True)["files"]
+    except Exception:
+        files = []
+    by_base = {}
+    for f in files:
+        base = f["path"].rsplit("/", 1)[-1].rsplit(".", 1)[0]
+        if f["path"].endswith((".tsx", ".ts")):
+            by_base[base] = False if base in by_base else (f["repo"], f["path"])
+
+    def resolve(name):
+        hit = by_name.get(name)
+        if hit is None:
+            hit = by_base.get(name)
+        return hit or None
+    return resolve
+
+
+def _agent_calls_for(part):
+    """The agent's tool calls inside one turn part, from the conversation's
+    transcript: [{seq, name, path, ts, t0_us}]. `entry` is "turn <conv_id>",
+    and the window is the part's start plus its duration.
+
+    Read-only, and honest about its edges: a transcript line carries the
+    agent's own clock, which is not the part's perf_counter, so `t0_us` here
+    is the wall-clock offset from the part's `started_at` — close enough to
+    place a beat on a timeline, and labelled as an estimate by being the only
+    field named that way."""
+    entry = str(part.get("entry") or "")
+    if not entry.startswith("turn "):
+        return []
+    conv_id = entry[5:].strip()
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", conv_id):
+        return []
+    path = store.DATA_DIR / "bot_chats" / f"{conv_id}.jsonl"
+    try:
+        t_start = datetime.fromisoformat(part["started_at"]).timestamp()
+    except (ValueError, TypeError, KeyError):
+        return []
+    t_end = t_start + (part.get("duration_us") or 0) / 1e6 + 1.0
+    try:
+        events = _load_events(path)
+    except OSError:
+        return []
+    roots = [(r["id"], str(Path(r["root"]).resolve())) for r in observatory._terrain_repos()]
+
+    def _where(p):
+        for rid, root in roots:
+            if p.startswith(root + "/"):
+                return rid, p[len(root) + 1:]
+        return None, None
+
+    out = []
+    for ev in events:
+        if not isinstance(ev, dict):
+            continue
+        ts = _parse_ts(ev.get("ts") or ev.get("timestamp"))
+        if ts is None or ts < t_start - 1.0 or ts > t_end:
+            continue
+        msg = ev.get("message")
+        content = msg.get("content") if isinstance(msg, dict) else None
+        if not isinstance(content, list):
+            continue
+        for item in content:
+            if not isinstance(item, dict) or item.get("type") != "tool_use":
+                continue
+            name = str(item.get("name") or "")
+            inp = item.get("input") if isinstance(item.get("input"), dict) else {}
+            tpath = _tool_path(name, inp)
+            if not tpath and name == "Bash":
+                tpath = str(inp.get("command") or "")[:120]
+            repo, rel = _where(str(tpath or ""))
+            out.append({"seq": len(out), "name": name,
+                        "path": str(tpath or "")[:300], "repo": repo, "rel": rel,
+                        "ts": ts, "t0_us": int(max(0.0, ts - t_start) * 1e6)})
+    return out
+
+
+def _trace_window(trace):
+    """(t_start, t_end) epoch seconds covering the root and every part —
+    a journey root's duration is its window, but a one-shot trace's turn
+    part can run long past the request that spawned it."""
+    try:
+        t0 = datetime.fromisoformat(trace["started_at"]).timestamp()
+    except (ValueError, TypeError, KeyError):
+        return None
+    t1 = t0 + (trace.get("duration_us") or 0) / 1e6
+    for part in trace.get("parts", ()):
+        try:
+            p0 = datetime.fromisoformat(part["started_at"]).timestamp()
+        except (ValueError, TypeError, KeyError):
+            continue
+        t1 = max(t1, p0 + (part.get("duration_us") or 0) / 1e6)
+    return t0, t1
+
+
+def _writes_in_window(trace, limit=500):
+    """Write-journal events (writelog.py) whose timestamp falls inside the
+    trace's window, oldest first, without their patches (the creek's own
+    Writes section shows those per collection). Imported lazily and
+    fail-open, same as routes/creek.py — no writelog, no events."""
+    window = _trace_window(trace)
+    if window is None:
+        return []
+    t0, t1 = window
+    try:
+        import writelog
+        events = writelog.recent(limit=limit)
+    except Exception:
+        return []
+    out = []
+    for ev in events:
+        ts = _parse_ts(ev.get("ts"))
+        # Same host clock on both sides, but the journal stamps to the
+        # SECOND while the trace starts on the millisecond — so the window
+        # opens at the start of the trace's second, and closes a little
+        # after its end for a write that lands as the request tears down.
+        if ts is None or ts < math.floor(t0) or ts > t1 + 0.25:
+            continue
+        out.append({"ts": ev["ts"], "caller": ev.get("caller"),
+                    "collection": ev.get("collection"), "verb": ev.get("verb"),
+                    "t0_us": int(max(0.0, ts - t0) * 1e6)})
+    out.reverse()
+    return out
+
+
 def register(app):
+    @app.route("/api/observatory/terrain/trace/arm", methods=["POST"])
+    def observatory_trace_arm():
+        """Arm the tracer: the NEXT request through the app is followed all the
+        way, in order, and saved. Returns the id it will carry so the caller can
+        go looking for it without polling a list.
+
+        One at a time, deliberately. Tracing is the expensive mode (no
+        de-instrumentation, every function in the process), so this is a
+        deliberate act with a deliberate scope, not a setting to leave on."""
+        body = request.get_json(silent=True) or {}
+        label = str(body.get("label") or "")
+        # `journey: true` opens a WINDOW rather than taking one shot: the
+        # browser carries the returned id on every request until `until`, and
+        # posts its own clicks and fetches to .../trace/<id>/browser. See the
+        # journey section of runtime_trace.py.
+        if body.get("journey"):
+            rec = runtime_trace.arm_journey(label=label, seconds=body.get("seconds"))
+            return jsonify({"armed": True, "journey": rec, "id": rec["id"]})
+        trace_id = runtime_trace.arm(label=label)
+        return jsonify({"armed": True, "id": trace_id})
+
+    @app.route("/api/observatory/terrain/trace/arm", methods=["DELETE"])
+    def observatory_trace_disarm():
+        """Clear the one-shot arm, and close a journey — the one named in the
+        body's `id`, or the newest when there's none."""
+        body = request.get_json(silent=True) or {}
+        ended = runtime_trace.end_journey(body.get("id") or None)
+        return jsonify({"armed": False, "cleared": runtime_trace.disarm() or ended})
+
+    @app.route("/api/observatory/terrain/trace/<trace_id>/close", methods=["POST"])
+    def observatory_trace_close(trace_id):
+        """Close one journey. A POST rather than the DELETE above because the
+        browser closes its journey from `pagehide`/hidden with sendBeacon,
+        which can only POST."""
+        return jsonify({"closed": runtime_trace.end_journey(trace_id)})
+
+    @app.route("/api/observatory/terrain/trace")
+    def observatory_trace_list():
+        """The captured traces, newest first (`?limit=`, up to 1000), plus
+        whether anything is live — a one-shot arm in `armed`, the newest open
+        journey in `journey`, and every open one in `journeys`."""
+        limit = _valid_int(request.args.get("limit"), 200, 1000)
+        runtime_trace.prune_empty()
+        opened = runtime_trace.open_journeys()
+        return jsonify({"traces": runtime_trace.recent(limit=limit),
+                        "armed": runtime_trace.armed(),
+                        "journey": opened[0] if opened else None,
+                        "journeys": opened,
+                        "keep": runtime_trace.KEEP_TRACES,
+                        "keep_days": runtime_trace.KEEP_DAYS})
+
+    @app.route("/api/observatory/terrain/trace/<trace_id>/browser", methods=["POST"])
+    def observatory_trace_browser(trace_id):
+        """The browser's half of a journey: {events: [{kind, components,
+        path, label, t0_ms, t1_ms}]}. Accepted only for the OPEN journey (or
+        within a grace period after it closed, so the last flush lands) — a
+        stale id is refused rather than grafted onto an old record.
+
+        Component names are resolved to files through the code graph: a
+        `.tsx`/`.ts` file that some sibling imports under that exact name.
+        Ambiguous or unknown names stay unresolved, labelled `browser`, rather
+        than being guessed at."""
+        body = request.get_json(silent=True) or {}
+        events = body.get("events")
+        if not isinstance(events, list):
+            return jsonify({"error": "events must be a list"}), 400
+        rec = runtime_trace.open_journey(trace_id)
+        head = runtime_trace.read_trace(trace_id)
+        if head is None or head.get("kind") != "journey":
+            return jsonify({"error": "no such journey"}), 404
+        if rec is None:
+            # Closed. Allow the trailing flush for a short while after.
+            try:
+                closed_at = datetime.fromisoformat(head["started_at"]).timestamp() \
+                    + head["duration_us"] / 1e6
+            except (ValueError, TypeError, KeyError):
+                closed_at = 0
+            if time.time() - closed_at > _JOURNEY_GRACE_SEC:
+                return jsonify({"error": "journey is closed"}), 409
+        _graph_refresh()
+        resolver = _component_resolver()
+        n = runtime_trace.save_browser_part(
+            trace_id, events, started_at=head["started_at"], resolve=resolver)
+        return jsonify({"ok": True, "span_count": n})
+
+    @app.route("/api/observatory/terrain/trace/<trace_id>")
+    def observatory_trace_get(trace_id):
+        """One trace: the ordered hops, as a flat list AND as a tree.
+
+        Both shapes ship because they answer different questions and building
+        the tree twice on two clients is how they drift. Flat is the waterfall
+        ("what happened, in what order, for how long"); nested is the call tree
+        ("what did this hop turn into").
+
+        Each span also carries `static`: whether codegraph.py knows about this
+        edge. A hop with `static: false` is a real call the import graph cannot
+        explain — dynamic dispatch, or a gap in the parser — and those are worth
+        seeing rather than smoothing over."""
+        trace = runtime_trace.read_trace(trace_id)
+        if trace is None:
+            return jsonify({"error": "no such trace"}), 404
+        _graph_refresh()
+        known = {((e["repo"], e["src"]), (e["dst_repo"], e["dst"]))
+                 for e in codegraph.graph(internal_only=False)["edges"]}
+        # The parent and each continuation are annotated and shaped the same
+        # way — a caller shouldn't need to know which process a part came from
+        # to render it.
+        for part in (trace, *trace.get("parts", [])):
+            for span in part["spans"]:
+                span["static"] = span["src"] is not None and (
+                    ((span["src_repo"], span["src"]),
+                     (span["dst_repo"], span["dst"])) in known)
+            part["tree"] = _trace_tree(part["spans"])
+            # A turn part is the agent's process, and the tracer only sees the
+            # Python around it. What the agent itself did — every Read, Edit,
+            # Bash — is in the conversation transcript, so it's joined here by
+            # time: tool calls stamped inside this part's window.
+            if part.get("kind") == "turn":
+                part["agent_calls"] = _agent_calls_for(part)
+        # What the journey did to the DATA: every store write the journal saw
+        # inside this trace's window, whoever made it. This is the creek's
+        # half of a journey — the hops say which code ran, this says which
+        # collections actually changed while it ran.
+        trace["writes"] = _writes_in_window(trace)
+        return jsonify(trace)
+
+    @app.route("/api/observatory/terrain/graph")
+    def observatory_terrain_graph():
+        """THE WIRING: every code file in both repos, and every dependency
+        between them — with the runtime sensor's observed calls laid over the
+        top.
+
+        Two layers, deliberately distinguishable in the payload rather than
+        merged into one number, because they mean different things and one of
+        them is complete while the other is not:
+
+          - `edges[].symbols` — the static import graph (codegraph.py). Complete
+            for both languages. Says A CAN reach B, and which names it pulled
+            across.
+          - `edges[].observed` — the runtime sensor saw this exact call happen,
+            with `windows` for how many five-minute buckets it happened in.
+            Evidence, not coverage: no `observed` flag does NOT mean the call
+            never happens (see runtime_sensor's own note on framework-mediated
+            calls, which leave no edge at all).
+
+        `?external=1` includes edges to third-party packages, which are most of
+        the edge count and none of the app's own flow, so they are off by
+        default. `?repo=` narrows to one repo's files."""
+        _graph_refresh()
+        data = codegraph.graph(internal_only=request.args.get("external") != "1")
+        repo_filter = request.args.get("repo")
+        files = data["files"]
+        edges = data["edges"]
+        if repo_filter:
+            files = [f for f in files if f["repo"] == repo_filter]
+            edges = [e for e in edges if e["repo"] == repo_filter]
+
+        # The overlay. The sensor keys by ABSOLUTE path (footprints' convention)
+        # and the graph by repo-relative, so this is where the two vocabularies
+        # are reconciled — once, here, rather than in every consumer.
+        roots = [(r["id"], str(r["root"])) for r in observatory._terrain_repos()]
+        observed = {}
+        for src, dst, entry in runtime_sensor.observed_edges():
+            src_rel, dst_rel = _graph_relpath(src, roots), _graph_relpath(dst, roots)
+            if src_rel and dst_rel:
+                observed[(src_rel, dst_rel)] = entry
+        for edge in edges:
+            hit = observed.get(((edge["repo"], edge["src"]),
+                                (edge["dst_repo"], edge["dst"])))
+            if hit:
+                edge["observed"] = {"last": hit.get("last"),
+                                    "windows": hit.get("windows") or 0}
+
+        # Calls the sensor saw that the static graph does NOT explain. These are
+        # worth surfacing rather than dropping: each one is either a dynamic
+        # reach the parser can't see, or a gap in the parser — and both are
+        # things she should be able to find.
+        static_keys = {((e["repo"], e["src"]), (e["dst_repo"], e["dst"]))
+                       for e in data["edges"]}
+        unexplained = [
+            {"src_repo": s[0], "src": s[1], "dst_repo": d[0], "dst": d[1],
+             "windows": entry.get("windows") or 0, "last": entry.get("last")}
+            for (s, d), entry in observed.items() if (s, d) not in static_keys]
+
+        return jsonify({
+            "files": files,
+            "edges": edges,
+            "observed_only": sorted(unexplained,
+                                    key=lambda e: (e["src_repo"], e["src"], e["dst"])),
+            "counts": {"files": len(files), "edges": len(edges),
+                       "observed": sum(1 for e in edges if e.get("observed")),
+                       "observed_only": len(unexplained)},
+            "watching": runtime_sensor.running(),
+        })
+
+    @app.route("/api/observatory/terrain/graph/file")
+    def observatory_terrain_graph_file():
+        """One file's immediate flow, both directions — "show me everything
+        that touches this". `?repo=&path=`."""
+        repo = request.args.get("repo") or ""
+        path = (request.args.get("path") or "").strip().lstrip("/")
+        if not repo or not path:
+            return jsonify({"error": "repo and path are required"}), 400
+        _graph_refresh()
+        return jsonify({"repo": repo, "path": path, **codegraph.neighbors(repo, path)})
+
+    @app.route("/api/observatory/terrain/runtime")
+    def observatory_terrain_runtime():
+        """What the app has actually RUN — runtime_sensor.py's sidecar, mapped
+        out of absolute paths into the same per-repo, repo-relative shape every
+        other terrain endpoint speaks.
+
+        A THIRD channel, beside git history and agent footprints, and it is the
+        only one of the three that answers "was this code used". Files are
+        sorted most-recently-run first; `age` is seconds since, so a reader
+        doesn't have to know what clock the timestamps are on. `sampled` is the
+        sensor's window length — the honest resolution of every timestamp here,
+        and the reason two files can share one.
+
+        Python only, and the payload says so rather than leaving a caller to
+        infer it from the absence of .tsx files: the browser half of any click
+        runs where this sensor cannot see."""
+        snap = runtime_sensor.snapshot()
+        files = snap.get("files")
+        if not isinstance(files, dict):
+            files = {}
+        now_ts = time.time()
+        repos_out = []
+        for repo in observatory._terrain_repos():
+            root = str(repo["root"])
+            out = []
+            for abspath, entry in files.items():
+                if not isinstance(entry, dict):
+                    continue
+                try:
+                    rel = os.path.relpath(abspath, root)
+                except ValueError:
+                    continue
+                if rel == os.curdir or rel.startswith(os.pardir):
+                    continue        # not under this repo — same test the payload uses
+                rel = rel.replace(os.sep, "/")
+                if _terrain_denylisted(rel):
+                    continue
+                last = entry.get("last")
+                if not isinstance(last, (int, float)):
+                    continue
+                touches = entry.get("touches")
+                out.append({"path": rel, "last": last,
+                            "age": max(0, int(now_ts - last)),
+                            "windows": int(entry.get("windows") or 0),
+                            "touches": touches if isinstance(touches, list) else []})
+            out.sort(key=lambda f: (-f["last"], f["path"]))
+            repos_out.append({"id": repo["id"], "name": repo["name"],
+                              "files": out, "files_total": len(out)})
+        return jsonify({"repos": repos_out,
+                        "sampled": runtime_sensor.CYCLE_SEC,
+                        "watching": runtime_sensor.running(),
+                        "language": "python",
+                        "updated": snap.get("updated")})
+
     @app.route("/api/observatory/terrain/growth/facets")
     def observatory_terrain_growth_facets():
         """The chip row's contents: every place and front with at least one

@@ -58,6 +58,15 @@
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
 }
 
+/* See .dropdownUp in TopTabs.module.css — same story, same fix. The 70vh above
+ * is a first-paint fallback; menuFit.ts sets the real height inline from the
+ * panel that clips this, and flips the menu above the button when the panel
+ * leaves more room up there. */
+.menuUp {
+  top: auto;
+  bottom: 100%;
+}
+
 .groupLabel {
   padding: 8px 10px 4px;
   font-size: 12px;

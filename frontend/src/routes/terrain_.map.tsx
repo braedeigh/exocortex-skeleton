@@ -16,6 +16,10 @@ import { useDeactivateFrames } from '../shell/useIframeView';
  * structure and session titles, so public visitors bounce to '/'.
  */
 export const Route = createFileRoute('/terrain_/map')({
+  // `?journey=<id>` opens the map with that capture ready to replay (the
+  // Wiring room links here).
+  validateSearch: (raw: Record<string, unknown>): { journey?: string } =>
+    typeof raw.journey === 'string' && raw.journey ? { journey: raw.journey } : {},
   beforeLoad: () => {
     if (typeof window === 'undefined') return;
     if (window.VIEW_MODE === 'public') throw redirect({ to: '/' });

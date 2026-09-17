@@ -21,6 +21,8 @@ import store
 import config
 import features
 import proxy_auth
+import runtime_sensor
+import runtime_trace
 from routes import (
     kitchen, habits, todos, places, health, inventory, money, car,
     meditation, media, movement, reminders, food_test, terminal, settings,
@@ -225,6 +227,51 @@ def gate():
     if request.path.startswith('/api/'):
         return jsonify({"error": "unauthorized"}), 401
     return redirect('/login')
+
+
+# --- Per-request tracing (runtime_trace.py) ---
+# "Trace the next request" can't be a variable: there are two gunicorn workers
+# and the arm may be set from either. It's a FILE, and `claim()` is an atomic
+# unlink — whichever worker wins owns the trace and every other sees it gone.
+#
+# The cost of asking is ONE failed open() per request when nothing is armed,
+# which is why this can sit in the hot path at all. Registered AFTER `gate()`
+# so an unauthorized request is refused before it can consume an arm — a 401
+# is not the flow anybody armed the tracer to look at.
+#
+# A JOURNEY is the other door: the browser sends `X-Journey-Id` on every
+# request while one is armed, and each such request becomes its own child
+# trace under that id — the one-shot arm is spent on the first request, a
+# journey covers the send, the stream that reads the reply, and the polls in
+# between. Checked first, because a request that names a journey is answering
+# a more specific question than "whatever comes next".
+@app.before_request
+def _trace_begin():
+    if request.path.startswith('/api/observatory/terrain/trace'):
+        return          # never trace the tracer's own doors
+    if request.path.startswith('/api/usage/'):
+        return          # telemetry flushes are noise on a journey, not a hop
+    jrec = runtime_trace.claim_for_header(request.headers.get("X-Journey-Id"))
+    if jrec:
+        rid = runtime_trace.journey_request_id(jrec["id"])
+        request.trace_id = rid
+        runtime_trace.begin(rid, label=jrec.get("label", ""),
+                            entry=f"{request.method} {request.path}", kind="http",
+                            parent_id=jrec["id"])
+        return
+    pending = runtime_trace.claim()
+    if pending:
+        request.trace_id = pending["id"]
+        runtime_trace.begin(pending["id"], label=pending.get("label", ""),
+                            entry=f"{request.method} {request.path}", kind="http")
+
+
+@app.teardown_request
+def _trace_end(exc=None):
+    # teardown, not after_request: it runs even when the view raised, and a
+    # trace of a request that BLEW UP is the one most worth having.
+    if runtime_trace.current() is not None:
+        runtime_trace.finish()
 
 
 @app.context_processor
@@ -605,8 +652,10 @@ def _load_kitchen_data():
 def get_data_today():
   try:
     data = _common_data()
-    # Transient terminal uploads self-clean after 24h; this hot path is the
-    # reliable trigger (throttled to once an hour).
+    # Terminal uploads age out of the inbox after 24h and are FILED into the
+    # uploads archive, never deleted. This hot path is the reliable trigger
+    # (throttled to once an hour) — so simply loading the dashboard is what
+    # usually drains the inbox.
     sweep_uploads_throttled()
 
     habits = _load_habits()
@@ -1204,6 +1253,12 @@ creek.register(app)
 # store.seed_content_scaffold's docstring. No-op (and untouched) once _system/stream.py
 # already exists, so an install pointed at an existing vault/engine is never touched.
 store.seed_content_scaffold()
+# Start watching which of our own source files actually RUN (runtime_sensor.py).
+# Started here rather than at import of that module, and started per WORKER
+# because the service runs gunicorn without --preload — a sensor started before
+# the fork would leave its background thread behind in the master. Off with
+# EXOCORTEX_RUNTIME_SENSOR=0; a False return just means nothing is watching.
+runtime_sensor.start()
 validate_on_startup(app)
 import schemas
 schemas.install_error_handler(app)

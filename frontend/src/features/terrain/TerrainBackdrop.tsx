@@ -4,6 +4,7 @@ import { useTerrain, type TerrainData } from './api';
 import { collapseToPondTile, localDayISO } from './pondNodes';
 import {
   breathHalfLife,
+  mirrorHalfLife,
   buildTerrainGraph,
   changedFileIds,
   BREATH_PERIOD_MS,
@@ -224,7 +225,13 @@ export function TerrainBackdrop({
       for (const s of payload.sessions ?? []) if (s.running) orbSessionIds.add(s.id);
       const focus = focusConvRef.current;
       if (focus) orbSessionIds.add(focus);
-      const graph = buildTerrainGraph(payload, half, undefined, { orbSessionIds });
+      // Gold rides the MIRROR of the breath — when red widens to a month,
+      // gold narrows to a day, and they trade at each turn. One clock,
+      // two opposite lenses (see mirrorHalfLife).
+      const graph = buildTerrainGraph(payload, half, undefined, {
+        orbSessionIds,
+        accessLens: mirrorHalfLife(half),
+      });
       // Same node ids every time, so this updates heat in place and never
       // re-warms the layout — the map holds still, only the embers move.
       engine.setGraph(graph.nodes, graph.edges);

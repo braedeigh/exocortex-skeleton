@@ -7,7 +7,7 @@ PhoneTerminal; see frontend/MIGRATION_NOTES.md). Their APIs below are unchanged.
 from flask import request, jsonify, Response
 from pathlib import Path
 from datetime import datetime
-from data_helpers import DATA_DIR, UPLOAD_DIR, sweep_uploads
+from data_helpers import DATA_DIR, UPLOAD_DIR, sweep_uploads_throttled
 from routes.cards import _run_stream
 import fcntl
 import hashlib
@@ -694,7 +694,11 @@ def register(app):
             # journal capture below needs typed_now/body_now either way.
             saved_to = None
             if len(text) > 500:
-                ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                # Microseconds, matching the image path below. Without them two
+                # long pastes inside the same wall-clock second resolve to the
+                # same filename and the write_text on the next line silently
+                # truncates the first one away — no error, no trace.
+                ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
                 dest = UPLOAD_DIR / f"{ts}_paste.txt"
                 dest.write_text(text)
                 saved_to = str(dest)
@@ -1000,7 +1004,12 @@ def register(app):
 
     @app.route("/api/terminal/upload", methods=["POST"])
     def terminal_upload():
-        sweep_uploads()   # uploads are transient: anything older than 24h goes
+        # Aged uploads get FILED into the archive, not deleted (see
+        # data_helpers.sweep_uploads). Throttled, where this used to be the one
+        # unthrottled call in the system — it fired hardest exactly when uploads
+        # were arriving fastest. Once nothing is lost, there is no reason to
+        # drain the inbox on the instant; an hour late costs nothing.
+        sweep_uploads_throttled()
         files = [f for f in request.files.getlist("photo") if f and f.filename]
         if not files:
             return jsonify({"error": "no file"}), 400

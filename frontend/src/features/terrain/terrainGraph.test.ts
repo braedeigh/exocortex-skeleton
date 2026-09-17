@@ -20,6 +20,12 @@ import {
   LENS_HALF_LIFE_SECONDS,
   changedFileIds,
   breathHalfLife,
+  computeAccessHeat,
+  mirrorHalfLife,
+  fileLastAgentWrite,
+  writeFreshness,
+  WRITE_PEAK_SECONDS,
+  WRITE_FRESH_WINDOW_SECONDS,
   BREATH_PERIOD_MS,
   BREATH_TICK_MS,
   edgeKey,
@@ -1174,5 +1180,122 @@ describe('graphUnchanged (the test that decides whether the map holds still)', (
     const prev = shapeOf(g);
     const dupes = [...g.nodes, { ...g.nodes[0] }];
     expect(graphUnchanged(prev.ids, prev.keys, dupes, g.edges)).toBe(false);
+  });
+});
+
+describe('the access channel — what passed through a file, vs what edited it', () => {
+  const NOW = 1_700_000_000;
+  const sess = (id: string, writes: number, reads: number, agoSeconds: number) => ({
+    id,
+    title: id,
+    writes,
+    reads,
+    last: new Date((NOW - agoSeconds) * 1000).toISOString(),
+  });
+
+  it('counts reads and writes alike — access asks "was it opened", not "did it change"', () => {
+    const reader = file('a.ts', [], [sess('s1', 0, 4, 0)]);
+    const writer = file('b.ts', [], [sess('s2', 4, 0, 0)]);
+    expect(computeAccessHeat(reader, 'day', NOW)).toBeCloseTo(
+      computeAccessHeat(writer, 'day', NOW),
+    );
+  });
+
+  it('is zero for a file no agent ever touched, however hot its git history', () => {
+    const committed = file('c.ts', [NOW, NOW - 10, NOW - 20], []);
+    expect(computeAccessHeat(committed, 'day', NOW)).toBe(0);
+    expect(computeFileHeat(committed, 'day', NOW)).toBeGreaterThan(0);
+  });
+
+  it('decays on the same lens as heat — one half-life halves it', () => {
+    const f = file('d.ts', [], [sess('s', 1, 0, LENS_HALF_LIFE_SECONDS.day)]);
+    expect(computeAccessHeat(f, 'day', NOW)).toBeCloseTo(0.5, 5);
+  });
+});
+
+describe('write freshness — brightest for an hour, gone by 24', () => {
+  const NOW = 1_700_000_000;
+  const sess = (writes: number, reads: number, agoSeconds: number) => ({
+    id: 's', title: 's', writes, reads,
+    last: new Date((NOW - agoSeconds) * 1000).toISOString(),
+  });
+
+  it('ignores sessions that only read — a reader never lights the write core', () => {
+    expect(fileLastAgentWrite(file('a.ts', [], [sess(0, 9, 60)]), NOW)).toBeNull();
+    expect(fileLastAgentWrite(file('b.ts', [], [sess(1, 0, 60)]), NOW)).toBe(60);
+  });
+
+  it('takes the most recent writing session when several wrote', () => {
+    const f = file('c.ts', [], [sess(1, 0, 9000), { ...sess(1, 0, 120), id: 'newer' }]);
+    expect(fileLastAgentWrite(f, NOW)).toBe(120);
+  });
+
+  it('holds full strength through the first hour, then falls to nothing at 24', () => {
+    expect(writeFreshness(0)).toBe(1);
+    expect(writeFreshness(WRITE_PEAK_SECONDS)).toBe(1);
+    expect(writeFreshness(WRITE_FRESH_WINDOW_SECONDS)).toBe(0);
+    expect(writeFreshness(WRITE_FRESH_WINDOW_SECONDS + 1)).toBe(0);
+    expect(writeFreshness(null)).toBe(0);
+  });
+
+  it('falls off logarithmically, so the early hours cost more than the late ones', () => {
+    const twoHours = writeFreshness(2 * 3600);
+    const twelveHours = writeFreshness(12 * 3600);
+    expect(twoHours).toBeGreaterThan(twelveHours);
+    // Halfway through the window in LOG terms is ~4.9h, not 12h — a linear
+    // ramp would put 0.5 at roughly 12h, and that is the bug this guards.
+    expect(writeFreshness(12 * 3600)).toBeLessThan(0.5);
+    expect(writeFreshness(4 * 3600)).toBeGreaterThan(0.5);
+  });
+
+  it('is monotonic — a write never reads fresher as it ages', () => {
+    const ages = [0, 600, 3600, 7200, 20000, 60000, 86000, 86400];
+    const vals = ages.map((a) => writeFreshness(a));
+    for (let i = 1; i < vals.length; i += 1) expect(vals[i]).toBeLessThanOrEqual(vals[i - 1]);
+  });
+});
+
+describe('the mirror lens — gold lights on the opposite half of the breath', () => {
+  it('is a true involution: mirroring twice returns the original lens', () => {
+    for (const half of [LENS_HALF_LIFE_SECONDS.day, 3 * 86400, LENS_HALF_LIFE_SECONDS.month]) {
+      expect(mirrorHalfLife(mirrorHalfLife(half))).toBeCloseTo(half, 3);
+    }
+  });
+
+  it('swaps the two ends of the breath outright', () => {
+    expect(mirrorHalfLife(LENS_HALF_LIFE_SECONDS.day)).toBeCloseTo(
+      LENS_HALF_LIFE_SECONDS.month,
+      3,
+    );
+    expect(mirrorHalfLife(LENS_HALF_LIFE_SECONDS.month)).toBeCloseTo(
+      LENS_HALF_LIFE_SECONDS.day,
+      3,
+    );
+  });
+
+  it('is exactly antiphase against the real breath, all the way round the cycle', () => {
+    // The mirror of the breath at time t must equal the breath at the moment
+    // its log-space position is 1 - u. Sampling the whole cycle catches any
+    // drift the closed form might have against the two-half-cosine original.
+    for (let i = 0; i <= 20; i += 1) {
+      const t = (i / 20) * BREATH_PERIOD_MS;
+      const half = breathHalfLife(t, BREATH_PERIOD_MS);
+      const lo = Math.log(LENS_HALF_LIFE_SECONDS.day);
+      const hi = Math.log(LENS_HALF_LIFE_SECONDS.month);
+      const u = (Math.log(half) - lo) / (hi - lo);
+      const expected = Math.exp(lo + (hi - lo) * (1 - u));
+      expect(mirrorHalfLife(half)).toBeCloseTo(expected, 3);
+    }
+  });
+
+  it('when red is at its widest, gold is at its narrowest', () => {
+    const top = breathHalfLife(BREATH_PERIOD_MS * 0.4, BREATH_PERIOD_MS);
+    expect(top).toBeCloseTo(LENS_HALF_LIFE_SECONDS.month, 3);
+    expect(mirrorHalfLife(top)).toBeCloseTo(LENS_HALF_LIFE_SECONDS.day, 3);
+  });
+
+  it('degrades to the day lens rather than exploding on a nonsense half-life', () => {
+    expect(mirrorHalfLife(0)).toBe(LENS_HALF_LIFE_SECONDS.day);
+    expect(mirrorHalfLife(-5)).toBe(LENS_HALF_LIFE_SECONDS.day);
   });
 });

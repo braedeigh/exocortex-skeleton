@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from '@tanstack/react-router';
+import { useNavigate, useSearch } from '@tanstack/react-router';
 import { Sheet } from '../../ui';
 import { subscribeTheme } from '../../theme';
 import { TermNotesPanel } from '../../shell/TermNotesPanel';
 import { SchedulePanel } from '../../shell/SchedulePanel';
 import { openConversationInPane } from '../../shell/paneConversation';
 import { dispatchIntent } from '../../shell/panels/windowBus';
+import { useCreek } from '../creek/api';
 import { useFlow } from '../flow/api';
 import { useSessionPreview, useSessionRoster } from '../observatory/api';
 import { isUnread, openedMap } from '../observatory/readReceipts';
@@ -13,9 +14,11 @@ import { cardState, type CardState } from '../observatory/sessionFilters';
 import { sessionLocation } from '../observatory/sessionLocation';
 import { useTerrain, type TerrainData } from './api';
 import type { FileTouchKind, TerrainNode } from './terrainGraph';
+import { buildThreads, heatThreads } from './terrainThreads';
 import {
   agentTouchRings,
   breathHalfLife,
+  mirrorHalfLife,
   BREATH_INHALE_FRACTION,
   buildTerrainGraph,
   changedFileIds,
@@ -40,6 +43,9 @@ import { TerrainAgentBar } from './TerrainAgentBar';
 import { FileCodeWindow } from './FileCodeWindow';
 import { AgentHoverCard } from './AgentHoverCard';
 import { TerrainRoomsIndex } from './TerrainRoomsIndex';
+import { JourneyPanel, type ReplayRequest } from './JourneyPanel';
+import { beatNodeIds, scheduleFrames, type Beat } from './journeyReplay';
+import type { TerrainThread } from './terrainThreads';
 import { PondLandmark } from './PondLandmark';
 import { collapseToPondTile, localDayISO, parseCardPath, POND_TILE_PATH } from './pondNodes';
 import {
@@ -53,6 +59,14 @@ import {
 } from './terrainCanvas';
 import styles from './TerrainPage.module.css';
 
+/**
+ * Journey replay (the ⚡ chip): a captured trace — every file a tap, its
+ * requests, the turn and the agent's tool calls crossed — played back on this
+ * map. Beats come from journeyReplay.ts; the panel is JourneyPanel.tsx; here
+ * it is only timers, `engine.flash` on each beat's dot and a thread from the
+ * dot it came from, with the journey's files pinned onto the map for the
+ * duration. Arrive with `?journey=<id>` to open on a capture.
+ */
 /**
  * The color key — a compact panel pinned to the canvas's bottom-right whose
  * whole job is explaining the colors: the terminal-red heat ramp (just
@@ -289,6 +303,20 @@ export function TerrainPage() {
   // (/terrain/usage, /terrain/sql) that unmount this map entirely.
   const [roomsOpen, setRoomsOpen] = useState(false);
 
+  // --- journey replay ---------------------------------------------------------
+  // A captured journey (Wiring room / runtime_trace.py) played back on the
+  // map: each beat flashes the dot it reached and lights a thread from the
+  // dot it came from, on the trace's own clock stretched by `slow`. The beats
+  // are pure data (journeyReplay.ts); this is only the timers and the two
+  // engine calls. Arriving with `?journey=<id>` (the Wiring room's "replay on
+  // the terrain" link) opens the panel on that capture.
+  const search = useSearch({ strict: false }) as { journey?: string };
+  const [journeyOpen, setJourneyOpen] = useState(Boolean(search.journey));
+  const [replay, setReplay] = useState<ReplayRequest | null>(null);
+  const [replayThreads, setReplayThreads] = useState<TerrainThread[] | null>(null);
+  const [replayPins, setReplayPins] = useState<ReadonlySet<string> | undefined>(undefined);
+  const [replayProgress, setReplayProgress] = useState<{ done: number; total: number; label: string } | null>(null);
+
   const [panel, setPanel] = useState<'notes' | 'schedule' | null>(null);
   const [schedSessions, setSchedSessions] = useState<string[]>([]);
   const notesBtnRef = useRef<HTMLButtonElement>(null);
@@ -402,9 +430,13 @@ export function TerrainPage() {
   const filtered = useMemo(
     () =>
       collapsed
-        ? filterTerrainData(collapsed.data, { from: range.from, to: range.to, count: effectiveCount }, now)
+        ? filterTerrainData(
+            collapsed.data,
+            { from: range.from, to: range.to, count: effectiveCount, pinned: replayPins },
+            now,
+          )
         : null,
-    [collapsed, range.from, range.to, effectiveCount, now],
+    [collapsed, range.from, range.to, effectiveCount, now, replayPins],
   );
 
   /**
@@ -442,10 +474,92 @@ export function TerrainPage() {
   const graph = useMemo(
     () =>
       filtered
-        ? buildTerrainGraph(filtered, halfLife, undefined, { alwaysOrbIds: poolSessionIds })
+        ? buildTerrainGraph(filtered, halfLife, undefined, {
+            alwaysOrbIds: poolSessionIds,
+            // Only the Dynamic (breathing) preset splits the two channels
+            // apart. On a FIXED lens she picked a span deliberately, and gold
+            // answering on some mirrored span she never chose would be a lie
+            // about what the dial says — so there, both ride her number.
+            accessLens: breathing ? mirrorHalfLife(halfLife) : undefined,
+          })
         : null,
-    [filtered, halfLife, poolSessionIds],
+    [filtered, halfLife, poolSessionIds, breathing],
   );
+
+  // The threads: what one file makes, another one eats. The creek payload is
+  // static wiring plus per-collection write freshness, so it changes on the
+  // order of minutes, not frames — built once per payload and only re-lit on
+  // the breath below.
+  const { data: creek } = useCreek(14);
+  const threads = useMemo(() => buildThreads(creek), [creek]);
+
+  // Lit on the SAME lens the gold dots ride, mirrored breath included, so a
+  // thread and a dot of equal age are equally bright and the two read as one
+  // system rather than two overlays that happen to share a canvas.
+  const litThreads = useMemo(
+    () => heatThreads(threads, breathing ? mirrorHalfLife(halfLife) : halfLife),
+    [threads, halfLife, breathing],
+  );
+
+  useEffect(() => {
+    // While a replay runs, its threads own the canvas: they're the answer to
+    // a question she just asked, and the ambient ones would read as noise
+    // beneath them. Restored the moment the replay clears.
+    engineRef.current?.setThreads(replayThreads ?? litThreads);
+  }, [litThreads, replayThreads]);
+
+  // The replay runner. Frames are pre-batched (beats within 40ms share one
+  // flash); each frame flashes its dots and appends its threads to the lit
+  // set, which stays up for a few seconds after the last beat so the whole
+  // path can be read at once before it fades back to the ambient map.
+  useEffect(() => {
+    if (!replay) return;
+    const engine = engineRef.current;
+    if (!engine) return;
+    const frames = scheduleFrames(replay.beats, replay.slow);
+    const total = replay.beats.length;
+    let done = 0;
+    const threads: TerrainThread[] = [];
+    const seen = new Set<string>();
+    const timers: number[] = [];
+    setReplayThreads([]);
+    setReplayProgress({ done: 0, total, label: 'starting…' });
+    const t0 = performance.now();
+    for (const frame of frames) {
+      timers.push(
+        window.setTimeout(() => {
+          const ids = new Set<string>();
+          let last: Beat | null = null;
+          for (const b of frame.beats) {
+            if (b.nodeId) ids.add(b.nodeId);
+            if (b.nodeId && b.fromId && b.fromId !== b.nodeId) {
+              const key = `${b.fromId}>${b.nodeId}`;
+              if (!seen.has(key)) {
+                seen.add(key);
+                threads.push({ sourceId: b.fromId, targetId: b.nodeId, collection: `journey:${b.kind}`, lastWrite: null, t: 1 });
+              }
+            }
+            last = b;
+          }
+          done += frame.beats.length;
+          if (ids.size) engine.flash(ids);
+          setReplayThreads([...threads]);
+          setReplayProgress({ done, total, label: last ? `${last.kind} · ${last.label}` : '' });
+        }, Math.max(0, frame.atMs - (performance.now() - t0))),
+      );
+    }
+    const end = (frames[frames.length - 1]?.atMs ?? 0) + 4000;
+    timers.push(
+      window.setTimeout(() => {
+        setReplay(null);
+        setReplayThreads(null);
+        setReplayProgress(null);
+      }, end),
+    );
+    return () => {
+      for (const t of timers) window.clearTimeout(t);
+    };
+  }, [replay]);
 
   // What's actually drawn — the honest numerator for the Files readout.
   const shownFiles = useMemo(() => (filtered ? terrainFileLoaded(filtered) : 0), [filtered]);
@@ -1038,6 +1152,19 @@ export function TerrainPage() {
             >
               <span aria-hidden="true">&#128682;</span> Rooms
             </button>
+            {/* Replay a captured journey on the map — record one here or in
+                the Wiring room, then watch the dots flare in order. */}
+            <button
+              type="button"
+              className={[styles.chip, journeyOpen ? styles.chipActive : ''].filter(Boolean).join(' ')}
+              title="Journey — record and replay a path through the code"
+              aria-expanded={journeyOpen}
+              data-journey-ui=""
+
+              onClick={() => setJourneyOpen((v) => !v)}
+            >
+              <span aria-hidden="true">&#9889;</span> Journey
+            </button>
           </div>
         </div>
 
@@ -1146,6 +1273,25 @@ export function TerrainPage() {
           buttons in the top bar, and close themselves on Escape / a pointer
           down anywhere else — including on the canvas. */}
       <TermNotesPanel open={panel === 'notes'} onClose={() => setPanel(null)} triggerRef={notesBtnRef} />
+      <JourneyPanel
+        open={journeyOpen}
+        onClose={() => setJourneyOpen(false)}
+        initialId={search.journey ?? null}
+        playing={replay?.id ?? null}
+        progress={replayProgress}
+        onPlay={(req) => {
+          // Pin every dot the journey lands on so the Files dial can't have
+          // cut it away, then start once the graph has had a tick to rebuild.
+          setReplayPins(beatNodeIds(req.beats));
+          setReplay(null);
+          window.setTimeout(() => setReplay(req), 250);
+        }}
+        onStop={() => {
+          setReplay(null);
+          setReplayThreads(null);
+          setReplayProgress(null);
+        }}
+      />
       <SchedulePanel
         open={panel === 'schedule'}
         onClose={() => setPanel(null)}

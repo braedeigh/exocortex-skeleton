@@ -34,6 +34,16 @@ import fcntl
 BUILD_DIR = Path(__file__).parent
 DATA_DIR = Path(os.environ.get("EXOCORTEX_DATA_DIR", BUILD_DIR / "data"))
 UPLOAD_DIR = DATA_DIR / "uploads"  # personal uploads live in the data layer, not the code dir
+# Where an upload goes once it ages out of the inbox above. Uploads are KEPT,
+# never deleted — the sweep that empties `uploads/` files them here instead of
+# unlinking them (see data_helpers.sweep_uploads). That makes this archive
+# complete BY CONSTRUCTION: everything ever handed to the terminal is in it,
+# because nothing else was ever a possible destination. A SIBLING of UPLOAD_DIR
+# rather than a folder inside it, so the sweep never walks its own output.
+# Env-overridable like the other blob roots — it is the largest thing this app
+# accumulates, so it is the one most likely to get pointed at another disk.
+UPLOAD_ARCHIVE_DIR = Path(os.environ.get(
+    "EXOCORTEX_UPLOAD_ARCHIVE_DIR", DATA_DIR / "uploads-archive"))
 # Markdown content (habits, journal, meetings, intro). Defaults to the data dir so a new
 # user is self-contained; override with EXOCORTEX_CONTENT_DIR to point at an existing
 # content store (e.g. a separate journaling system that also reads/writes these files).

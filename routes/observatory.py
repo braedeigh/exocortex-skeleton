@@ -37,7 +37,7 @@ Guarantees carried over from the terminal send door (routes/terminal.py):
 Headless mode authenticates exactly like interactive Claude Code (the owner's
 subscription login, or an API key on a fresh install) — no separate billing.
 """
-from flask import request, jsonify, Response
+from flask import request, jsonify, Response, has_request_context
 from datetime import datetime
 from pathlib import Path
 import fcntl
@@ -585,6 +585,16 @@ def _turn_job_path(conv_id):
     return _chats_dir() / ".turns" / f"{conv_id}.json"
 
 
+def _current_trace_id():
+    """This request's trace id, or None. Guarded on has_request_context because
+    the run dispatcher and the spinoff runner reach _spawn_host from a plain
+    process with no request at all, where touching the `request` proxy raises
+    rather than returning a default."""
+    if not has_request_context():
+        return None
+    return getattr(request, "trace_id", None)
+
+
 def _spawn_host(config, text, resume_sid, conv_id, log_path):
     """Start this turn in its own process. True if it's away, False to fall back.
 
@@ -621,6 +631,12 @@ def _spawn_host(config, text, resume_sid, conv_id, log_path):
             # Same reasoning one line up, and it's what lets a test drive the
             # real host against a stub agent instead of the installed one.
             "claude_bin": CLAUDE_BIN,
+            # If this send is being traced, the turn host picks the SAME trace
+            # id up and records its half under it. A send is the one action in
+            # this app that genuinely spans two processes, and a trace that
+            # stopped at the spawn would stop exactly where the interesting
+            # part starts. See runtime_trace.
+            "trace_id": _current_trace_id(),
         }), encoding="utf-8")
     except (OSError, TypeError, ValueError):
         return False

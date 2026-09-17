@@ -234,6 +234,17 @@
   padding: var(--space-2) 0;
 }
 
+/* 70vh above is only the fallback for the first paint and for a menu nothing
+ * clips. The real height is measured and set inline (menuFit.ts) from the box
+ * that actually clips this — the panel, on the tiled desktop — because a
+ * window-sized menu inside a half-height panel loses its bottom rows to
+ * `overflow: hidden` instead of scrolling to them. Same reason for the flip:
+ * a More button low in a short panel has more room above it than below. */
+.dropdownUp {
+  top: auto;
+  bottom: 100%;
+}
+
 .dropdown :is(button, a) {
   color: var(--tab-text);
   border-bottom-color: var(--tab-border);

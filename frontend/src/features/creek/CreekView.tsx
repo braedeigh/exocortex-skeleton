@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from '@tanstack/react-router';
+import { Link, useSearch } from '@tanstack/react-router';
+import { useTrace } from '../wiring/api';
+import { JourneyPicker } from './JourneyPicker';
+import { TraceStage } from './TraceStage';
+import { journeySets, ribbonKey } from './journeyMath';
 import type { UseQueryResult } from '@tanstack/react-query';
 import {
   useCreek,
@@ -122,6 +126,17 @@ import styles from './CreekView.module.css';
  * per-event timestamp, and the legend says so rather than implying a freshness
  * they don't have.
  *
+ * JOURNEY, the third position: the creek becomes ONE recorded action
+ * (runtime_trace.py, armed from the picker in the side column or the
+ * terrain's ⚡ chip). The wiring banks and ribbons are drawn exactly as in
+ * Wiring mode; what changes is what's lit — journeyMath.ts grades a write
+ * ribbon `exact` when the trace ran the file AND the write journal saw the
+ * collection change in the window, a read ribbon `possible` (reads leave no
+ * journal entry), and dims the rest. The same journey drawn as TIME sits
+ * under the banks (TraceStage.tsx): the browser's own events, each request,
+ * the turn and the agent's tool calls. A tap on a row takes over the lighting
+ * as usual; clearing it hands the creek back to the journey.
+ *
  * LAYERS: the Writes and Reads chips are independent — each can be off on
  * its own, but never both (`creekMath.toggleLayer`: killing the last lit
  * chip turns the other one on, so the creek is never blank). Reads-only mode
@@ -165,12 +180,13 @@ const DEFAULT_WATER_SECTIONS: WaterSections = { now: false, changes: false, writ
 /** The mode control — see the MODE section of the block above. These two are
  * different pictures, not two windows on one picture: `wiring` is the static
  * call-site map over 14 days, `traffic` is measured activity today. */
-type CreekMode = 'wiring' | 'traffic';
+type CreekMode = 'wiring' | 'traffic' | 'journey';
 
 /** Reads a saved mode, including the two names this control used before the
  * wiring/traffic split, so an existing localStorage blob doesn't silently
  * bounce her back to the default. */
 function savedMode(raw: string | undefined): CreekMode {
+  if (raw === 'journey') return 'journey';
   return raw === 'traffic' || raw === 'today' ? 'traffic' : 'wiring';
 }
 
@@ -243,7 +259,17 @@ function trafficRowTitle(c: CreekCollection, phrase: string): string {
 
 export function CreekView() {
   const [saved] = useState(loadSaved);
-  const [mode, setMode] = useState<CreekMode>(() => savedMode(saved.mode));
+  // Arriving with `?journey=<id>` (from the terrain's replay panel) opens
+  // straight into Journey mode on that capture.
+  const search = useSearch({ strict: false }) as { journey?: string };
+  const [mode, setMode] = useState<CreekMode>(() => (search.journey ? 'journey' : savedMode(saved.mode)));
+  // --- journey mode: the creek becomes one recorded action ------------------
+  // The wiring banks and ribbons stay exactly as drawn; what changes is what's
+  // lit. journeyMath.ts decides: a write ribbon is `exact` when the trace ran
+  // the file AND the write journal saw the collection change in the window;
+  // a read ribbon is `possible` (reads leave no journal entry); the rest dim.
+  const [journeyId, setJourneyId] = useState<string | null>(search.journey ?? null);
+  const journeyTrace = useTrace(mode === 'journey' ? journeyId : null);
   const [selection, setSelection] = useState<CreekSelection | null>(() =>
     restorableSelection(saved.sel, savedMode(saved.mode)),
   );
@@ -258,6 +284,7 @@ export function CreekView() {
   });
 
   const traffic = mode === 'traffic';
+  const journey = mode === 'journey';
   const days = traffic ? trafficDays : WINDOW_DAYS;
   const windowPhrase =
     TRAFFIC_WINDOWS.find((w) => w.days === trafficDays)?.phrase ?? `in the last ${trafficDays} days`;
@@ -304,6 +331,15 @@ export function CreekView() {
     () => (traffic ? trafficSelectionSets(selection, callers) : selectionSets(selection, files)),
     [traffic, selection, callers, files],
   );
+  const jsets = useMemo(
+    () => (journey ? journeySets(journeyTrace.data, files) : null),
+    [journey, journeyTrace.data, files],
+  );
+  // In journey mode with nothing tapped, the journey IS the selection: rows
+  // and ribbons it didn't touch dim, the same grammar as a tapped file. A tap
+  // still works on top and takes over, so she can ask "and what else touches
+  // this collection" mid-journey.
+  const journeyLit = journey && selection === null && jsets !== null;
 
   // Reads-only mode: the Writes chip is off, so reads carry the width scale
   // and the accent-free color CreekView.module.css keys off `.ribbonReadOwn`.
@@ -386,6 +422,7 @@ export function CreekView() {
       return (next === 'traffic') === (cur.kind === 'caller') ? cur : null;
     });
   }
+  const journeyFileCount = jsets ? files.filter((f) => jsets.files.has(f.path)).length : 0;
 
   const selectedFile =
     !traffic && selection?.kind === 'file'
@@ -410,7 +447,13 @@ export function CreekView() {
           <p className={styles.sub}>
             {!hasData
               ? 'Data moving between code and vault.'
-              : traffic
+              : journey
+                ? jsets
+                  ? `journey · ${journeyFileCount} of ${files.length} files ran · ${jsets.written.size} collections written · ${jsets.ribbons.size} ribbons lit${
+                      jsets.unattributed.length ? ` · ${jsets.unattributed.length} written by something the trace didn't cross` : ''
+                    }`
+                  : 'Pick a journey, or record one.'
+                : traffic
                 ? `${callers.length} callers · ${shownCollections.length} collections moved ${windowPhrase} · ${totalWrites.toLocaleString()} writes${
                     quietCount > 0 ? ` · ${quietCount} stayed quiet` : ''
                   }`
@@ -425,8 +468,8 @@ export function CreekView() {
           <div className={styles.modeGroup} role="group" aria-label="What the ribbons mean">
             <button
               type="button"
-              className={!traffic ? styles.modeBtnActive : styles.modeBtn}
-              aria-pressed={!traffic}
+              className={mode === 'wiring' ? styles.modeBtnActive : styles.modeBtn}
+              aria-pressed={mode === 'wiring'}
               title="What the code can do — call sites in the source, over 14 days"
               onClick={() => changeMode('wiring')}
             >
@@ -440,6 +483,15 @@ export function CreekView() {
               onClick={() => changeMode('traffic')}
             >
               Traffic
+            </button>
+            <button
+              type="button"
+              className={journey ? styles.modeBtnActive : styles.modeBtn}
+              aria-pressed={journey}
+              title="One recorded action — which files ran, which collections changed, in order"
+              onClick={() => changeMode('journey')}
+            >
+              Journey
             </button>
           </div>
 
@@ -510,8 +562,9 @@ export function CreekView() {
                 aria-hidden="true"
               >
                 {shownRibbons.map((r) => {
-                  const dimmed = ribbonDimmed(selection, r.source, r.collection);
-                  const lit = selection !== null && !dimmed;
+                  const grade = journeyLit ? jsets!.ribbons.get(ribbonKey(r.source, r.collection, r.kind)) : undefined;
+                  const dimmed = journeyLit ? grade === undefined : ribbonDimmed(selection, r.source, r.collection);
+                  const lit = journeyLit ? grade === 'exact' : selection !== null && !dimmed;
                   // Traffic mode only, and only for WRITE ribbons — reads are
                   // running totals with no per-event timestamp to fade by, so
                   // they always get a freshness of 1 (the legend says this
@@ -549,7 +602,7 @@ export function CreekView() {
               ))}
               {!traffic
                 ? fileBank.rows.map((row) => {
-                    const dimmed = fileDimmed(selection, sets, row.key);
+                    const dimmed = journeyLit ? !jsets!.files.has(row.key) : fileDimmed(selection, sets, row.key);
                     const lit = selection?.kind === 'file' && selection.path === row.key;
                     return (
                       <button
@@ -603,7 +656,7 @@ export function CreekView() {
                 </div>
               ))}
               {collectionBank.rows.map((row) => {
-                const dimmed = collectionDimmed(selection, sets, row.key);
+                const dimmed = journeyLit ? !jsets!.written.has(row.key) : collectionDimmed(selection, sets, row.key);
                 const lit = selection?.kind === 'collection' && selection.id === row.key;
                 // Traffic mode says the row's state in three ways at once:
                 // opacity (by `writeState`), the count-or-"quiet" label, and
@@ -678,6 +731,8 @@ export function CreekView() {
                 water={waterSections}
                 onToggleWater={toggleWaterSection}
               />
+            ) : journey ? (
+              <JourneyPicker picked={journeyId} onPick={setJourneyId} />
             ) : (
               <Legend
                 totalWrites={totalWrites}
@@ -691,6 +746,19 @@ export function CreekView() {
               />
             )}
           </aside>
+        </div>
+      ) : null}
+
+      {/* Downstream: the same journey as time. Below the banks rather than
+          beside them — a waterfall wants the width. */}
+      {journey && journeyTrace.data ? (
+        <div className={styles.downstream}>
+          <TraceStage
+            trace={journeyTrace.data}
+            onFocus={(f) => {
+              if (f.repo === 'skeleton' && files.some((x) => x.path === f.path)) pickFile(f.path);
+            }}
+          />
         </div>
       ) : null}
     </section>
