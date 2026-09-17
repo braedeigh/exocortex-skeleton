@@ -18,7 +18,7 @@ import 'leaflet/dist/leaflet.css';
 import { geoSourceInfo, isShapeSource, metaLabel, txInfo } from './axes';
 import { featuresFor, geometryToLatLngs, getGeo, loadGeo } from './geo';
 import type { GeoFeature } from './geo';
-import { TILE_ATTRIBUTION, TILE_URLS, currentTileKey } from './themeColor';
+import { cartoKey, currentTileKey, tileLayersFor } from './themeColor';
 import type { TileKey } from './themeColor';
 import type { EcoDraft, EcoSource } from './types';
 import { HOME_LAT, HOME_LNG } from '../../ownerHome';
@@ -171,7 +171,9 @@ export const EcoMap = forwardRef<EcoMapHandle, EcoMapProps>(function EcoMap(prop
   const mapRef = useRef<L.Map | null>(null);
   const layerRef = useRef<L.LayerGroup | null>(null);
   const markersRef = useRef<Record<string, L.Layer>>({});
-  const tilesRef = useRef<L.TileLayer | null>(null);
+  // The basemap is one or two tile layers (Esri = base + labels), swapped as a
+  // unit when the theme flips.
+  const tilesRef = useRef<L.TileLayer[]>([]);
   const tilesKeyRef = useRef<TileKey | null>(null);
   const lastSourcesKeyRef = useRef<string | null>(null);
   const tempMarkerRef = useRef<L.Marker | null>(null);
@@ -190,13 +192,17 @@ export const EcoMap = forwardRef<EcoMapHandle, EcoMapProps>(function EcoMap(prop
     if (!map) return;
     const key = currentTileKey();
     if (tilesKeyRef.current === key) return;
-    if (tilesRef.current) map.removeLayer(tilesRef.current);
-    tilesRef.current = L.tileLayer(TILE_URLS[key], {
-      attribution: TILE_ATTRIBUTION,
-      subdomains: 'abcd',
-      maxZoom: 19,
-    }).addTo(map);
-    tilesRef.current.bringToBack();
+    tilesRef.current.forEach((t) => map.removeLayer(t));
+    // Provider (CARTO with a key, Esri without) is decided in themeColor.ts.
+    // Layers go on in order, then the whole stack drops behind the markers.
+    tilesRef.current = tileLayersFor(key, cartoKey()).map((spec) =>
+      L.tileLayer(spec.url, {
+        attribution: spec.attribution,
+        maxNativeZoom: spec.maxNativeZoom,
+        maxZoom: 19,
+      }).addTo(map),
+    );
+    tilesRef.current.slice().reverse().forEach((t) => t.bringToBack());
     tilesKeyRef.current = key;
   }
 
@@ -228,7 +234,7 @@ export const EcoMap = forwardRef<EcoMapHandle, EcoMapProps>(function EcoMap(prop
       mapRef.current = null;
       layerRef.current = null;
       markersRef.current = {};
-      tilesRef.current = null;
+      tilesRef.current = [];
       tilesKeyRef.current = null;
       lastSourcesKeyRef.current = null;
       tempMarkerRef.current = null;
