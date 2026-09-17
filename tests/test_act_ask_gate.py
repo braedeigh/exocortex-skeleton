@@ -56,6 +56,12 @@ ACT_COMMANDS = [
     # `record` reads its body on stdin, so THE recipe for a multi-line card body
     # has to pass: a heredoc or an inline newline can't (see ASK_COMMANDS).
     "cat body.md | python3 tools/stream/stream.py record --who K",
+    # ...and the form that sidesteps the punctuation problem entirely: the body
+    # lives in a file (written by the ungated Write tool), the command is bare.
+    # This is how the 3 AM keeper mints the context paragraph, which carries
+    # backticks and pipes that no piped/echoed form could get past _UNSAFE_META.
+    "python3 tulku/_system/stream.py record --who K --kind context --body-file /tmp/ctx.md",
+    "python3 tools/stream/stream.py record --who K --ts \"2026-09-17 03:10:00\" --body-file .keeper/ctx.md",
 ]
 
 

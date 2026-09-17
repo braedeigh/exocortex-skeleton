@@ -52,11 +52,11 @@ One addition beyond fish: tags, not reply-subtrees, are the collection primitive
 — a person or a worry threads through months of unrelated conversation rather than
 living under one root card.
 
-THE VERBS. `record` (the primitive: stdin body + flags -> mint a card, re-render its
-day + month, echo the id), `render` (rebuild `--day`, `--view NAME`, or `--all` from
+THE VERBS. `record` (the primitive: body from `--body-file PATH` or stdin, plus flags
+-> mint a card, re-render its day + month, echo the id), `render` (rebuild `--day`, `--view NAME`, or `--all` from
 the pool), `tag` / `untag` (edit a card's tags, re-render what depends on them),
-`edit` (replace a card's body from stdin, re-render its day + month + any manifest
-selecting its tags — echoes the id), `delete` (write the card to the append-only
+`edit` (replace a card's body from `--body-file` or stdin, re-render its day + month +
+any manifest selecting its tags — echoes the id), `delete` (write the card to the append-only
 deletion log, THEN remove it from the pool, re-render what's left — and clean up a
 day/month view that just lost its last card, since render never touches a zero-card
 day/month on its own), `validate` (structural checks on the whole pool + a drift
@@ -1142,8 +1142,28 @@ def validate() -> Tuple[bool, List[str]]:
 # CLI
 # --------------------------------------------------------------------------------
 
+# Where a card's body comes from. `--body-file` exists for gated sessions: the
+# act-vs-ask gate (tools/act_ask_gate.py) refuses any Bash line carrying a pipe,
+# a redirect, a backtick, `$(` or a literal newline, and a keeper's context
+# paragraph nearly always contains one of those — so `echo "<body>" | stream.py
+# record` could never mint it. With the body in a file (written by the ungated
+# Write tool) the whole call is one bare command and passes. Absent the flag,
+# stdin still works exactly as before.
+# Prompt: "give record a --body-file flag so a card can be minted as one bare
+# command with no shell metacharacters."
+def _read_body(args: argparse.Namespace) -> str:
+    path = getattr(args, "body_file", None)
+    if path:
+        return Path(path).read_text(encoding="utf-8")
+    return sys.stdin.read()
+
+
 def _cmd_record(args: argparse.Namespace) -> int:
-    raw = sys.stdin.read()
+    try:
+        raw = _read_body(args)
+    except OSError as e:
+        print(f"error: --body-file: {e}", file=sys.stderr)
+        return 1
     tags = [t.strip() for t in args.tags.split(",") if t.strip()] if args.tags else []
     refs = [t.strip() for t in args.refs.split(",") if t.strip()] if args.refs else []
     ts_dt = None
@@ -1208,7 +1228,11 @@ def _cmd_untag(args: argparse.Namespace) -> int:
 
 
 def _cmd_edit(args: argparse.Namespace) -> int:
-    raw = sys.stdin.read()
+    try:
+        raw = _read_body(args)
+    except OSError as e:
+        print(f"error: --body-file: {e}", file=sys.stderr)
+        return 1
     try:
         card = edit_card(args.id, raw)
     except StreamError as e:
@@ -1248,8 +1272,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     sub = p.add_subparsers(dest="verb", required=True)
 
-    rec = sub.add_parser("record", help="mint a card from stdin, re-render its day + month")
+    rec = sub.add_parser("record", help="mint a card from --body-file or stdin, re-render its day + month")
     rec.add_argument("--who", required=True, help="B or K")
+    rec.add_argument(
+        "--body-file", default=None,
+        help="read the card body from this file instead of stdin (lets a gated "
+             "session mint a card as one bare command, no pipe)")
     rec.add_argument("--reply-to", default=None, help="id of the card this one replies to")
     rec.add_argument("--tags", default=None, help="comma-separated tags, e.g. a,b,c")
     rec.add_argument("--ts", default=None, help="'YYYY-MM-DD HH:MM:SS' (default: now)")
@@ -1280,8 +1308,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     untagp.add_argument("tags", nargs="+")
     untagp.set_defaults(func=_cmd_untag)
 
-    editp = sub.add_parser("edit", help="replace a card's body from stdin, re-render what depends on it")
+    editp = sub.add_parser("edit", help="replace a card's body from --body-file or stdin, re-render what depends on it")
     editp.add_argument("id")
+    editp.add_argument("--body-file", default=None, help="read the new body from this file instead of stdin")
     editp.set_defaults(func=_cmd_edit)
 
     delp = sub.add_parser("delete", help="remove a card from the pool, re-render what's left")
