@@ -44,6 +44,17 @@ def public_only() -> bool:
     return os.environ.get("EXOCORTEX_PUBLIC_ONLY", "").strip().lower() in ("1", "true", "yes")
 
 
+def frame_ancestors():
+    """Origins allowed to put this site in an <iframe>, read from
+    EXOCORTEX_FRAME_ANCESTORS (space-separated, e.g.
+    "https://mudscryer.org https://www.mudscryer.org"). Only consulted on a
+    public-only mirror (see server.frame_policy): the portfolio page frames the
+    Terrain map's embed view, and nothing else on the mirror may be framed by
+    anyone. Empty (the default) means nobody. Read at call time, like
+    public_only(), so tests can flip it."""
+    return os.environ.get("EXOCORTEX_FRAME_ANCESTORS", "").split()
+
+
 def get_profile():
     """The owner profile, precedence stored value (non-empty) -> env var -> default.
 

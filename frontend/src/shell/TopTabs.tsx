@@ -3,6 +3,7 @@ import { Link, useNavigate, useLocation } from '@tanstack/react-router';
 import { Sheet, TapRow } from '../ui';
 import { TAB_META, TAB_ROUTES, VIEW_META, isValidTab, tabForPath, type LegacyTab } from './tabs';
 import { useMediaQuery, DESKTOP_QUERY } from './useMediaQuery';
+import { isEmbed } from './embed';
 import { useSessionsContext } from './SessionsContext';
 import { useChatSurfaceObservatory } from './chatSurface';
 import { useMenuFit } from './menuFit';
@@ -503,6 +504,9 @@ export function TopTabs({ subRowOnly = false }: { subRowOnly?: boolean } = {}) {
   }, [location.pathname]);
 
   if (typeof window !== 'undefined' && window.VIEW_MODE === 'public') {
+    // The embed view (shell/embed.ts) is the bare map inside a frame on the
+    // portfolio page — no header there.
+    if (isEmbed()) return null;
     return (
       <>
         <PublicHeader />

@@ -133,3 +133,29 @@ def test_the_three_tiers_do_not_overlap():
     assert not (tiers[0] & tiers[1]) and not (tiers[0] & tiers[2]) and not (tiers[1] & tiers[2])
     for p in public_config._NOT_YET_PRESENTABLE:
         assert not public_config.is_public_path(p), p
+
+
+# --- who may frame the mirror (server.frame_policy) ----------------------------
+# The portfolio page at the apex domain embeds /terrain/map?embed=1 in an
+# <iframe>; nothing else on the mirror may be framed, by anyone, and the
+# private instance sends no policy at all (its own surfaces frame each other).
+
+def test_only_the_map_may_be_framed_and_only_by_the_configured_origins(mirror, monkeypatch):
+    monkeypatch.setenv("EXOCORTEX_FRAME_ANCESTORS", "https://example.org https://www.example.org")
+    assert mirror.get("/terrain/map").headers["Content-Security-Policy"] == \
+        "frame-ancestors https://example.org https://www.example.org"
+    assert mirror.get("/terrain/map?embed=1").headers["Content-Security-Policy"] == \
+        "frame-ancestors https://example.org https://www.example.org"
+    for path in ("/", "/terrain", "/api/observatory/terrain", "/api/version", "/kitchen"):
+        assert mirror.get(path).headers["Content-Security-Policy"] == "frame-ancestors 'none'", path
+
+
+def test_no_configured_origins_means_nobody_frames_anything(mirror, monkeypatch):
+    monkeypatch.delenv("EXOCORTEX_FRAME_ANCESTORS", raising=False)
+    assert mirror.get("/terrain/map").headers["Content-Security-Policy"] == "frame-ancestors 'none'"
+
+
+def test_private_instance_sends_no_frame_policy(private, monkeypatch):
+    monkeypatch.setenv("EXOCORTEX_FRAME_ANCESTORS", "https://example.org")
+    assert "Content-Security-Policy" not in private.get("/terrain/map").headers
+    assert "Content-Security-Policy" not in private.get("/").headers

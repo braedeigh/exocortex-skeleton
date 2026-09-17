@@ -100,6 +100,13 @@ dashboard, about, kitchen, money … — closed, each line ready to move back up
 when the owner calls it presentable). On the mirror `/` lands on the map, full
 width. Contract: `tests/test_terrain_public.py`, `tests/test_public_only.py`.
 
+`/terrain/map?embed=1` is the map with no chrome — breathing heat, the Open agent
+pool, an "Open Terrain ↗" button — made to sit in an `<iframe>` on a portfolio page.
+Set `EXOCORTEX_FRAME_ANCESTORS="https://your-site.org https://www.your-site.org"` in
+the mirror's service environment: the mirror then answers
+`Content-Security-Policy: frame-ancestors <those>` on `/terrain/map` and
+`frame-ancestors 'none'` everywhere else. Unset, nothing on the mirror can be framed.
+
 ## Optional extras
 - `scripts/setup-mac-server.sh` — turn a Mac into an always-on, lid-closed server
 - `scripts/fix_ttyd.sh`, `scripts/ttyd_connect.sh` — embedded web terminal

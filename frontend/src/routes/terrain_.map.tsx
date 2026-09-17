@@ -22,8 +22,13 @@ import { useDeactivateFrames } from '../shell/useIframeView';
 export const Route = createFileRoute('/terrain_/map')({
   // `?journey=<id>` opens the map with that capture ready to replay (the
   // Wiring room links here).
-  validateSearch: (raw: Record<string, unknown>): { journey?: string } =>
-    typeof raw.journey === 'string' && raw.journey ? { journey: raw.journey } : {},
+  // `?embed=1` is the chrome-less view for the portfolio page's <iframe>
+  // (shell/embed.ts, TerrainPage's `embed`). Kept in the search schema so the
+  // router preserves it across its own navigations.
+  validateSearch: (raw: Record<string, unknown>): { journey?: string; embed?: boolean } => ({
+    ...(typeof raw.journey === 'string' && raw.journey ? { journey: raw.journey } : {}),
+    ...(raw.embed === '1' || raw.embed === 1 || raw.embed === true ? { embed: true } : {}),
+  }),
   component: TerrainRoute,
 });
 

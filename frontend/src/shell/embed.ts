@@ -1,0 +1,17 @@
+/**
+ * embed.ts — is this window the EMBED view of the Terrain map?
+ *
+ * `/terrain/map?embed=1` is the map cut down to sit in an <iframe> on the
+ * owner's portfolio page: no chrome, the breathing heat preset, the Open
+ * agent pool, and one "Open Terrain ↗" door to the full map (see
+ * features/terrain/TerrainPage.tsx). The shell's own chrome (TopTabs) reads
+ * this too, so the public header stays out of the frame.
+ *
+ * Read off the real URL rather than the router's search object because the
+ * shell decides before any route has parsed anything, and because an embed
+ * is one page — nothing navigates inside it.
+ */
+export function isEmbed(): boolean {
+  if (typeof window === 'undefined') return false;
+  return new URLSearchParams(window.location.search).get('embed') === '1';
+}

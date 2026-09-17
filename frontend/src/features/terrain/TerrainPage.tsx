@@ -5,6 +5,7 @@ import { subscribeTheme } from '../../theme';
 import { TermNotesPanel } from '../../shell/TermNotesPanel';
 import { SchedulePanel } from '../../shell/SchedulePanel';
 import { openConversationInPane } from '../../shell/paneConversation';
+import { isEmbed } from '../../shell/embed';
 import { dispatchIntent } from '../../shell/panels/windowBus';
 import { useCreek } from '../creek/api';
 import { useFlow } from '../flow/api';
@@ -241,6 +242,15 @@ export function TerrainPage() {
   // "i am ok with personal stuff showing on the map, just make all personal
   // files unreadable to visitors, but the code can be interactive."
   const visitor = typeof window !== 'undefined' && window.VIEW_MODE === 'public';
+  // The EMBED view (?embed=1, shell/embed.ts): the map as a card inside an
+  // <iframe> on the owner's portfolio page. Its one job there is "it's alive"
+  // — so no chrome at all, the breathing (Dynamic) heat preset from the first
+  // frame, the Open agent pool so the card isn't empty on a quiet day, and a
+  // single "Open Terrain ↗" door to the full map. Everything else — pan, zoom,
+  // tapping a dot — is the map as it is. Read once: an embed never navigates.
+  // Prompt: "the card's one job is it's alive … breathing glow always on,
+  // plus open agents as orbs. That's all that moves."
+  const embed = isEmbed();
   // Live mode: while any payload session is running AND the page is visible,
   // poll ~5s so a working session's touches light up as they happen. The
   // flag comes from the last payload, so the first fetch always runs cold
@@ -265,7 +275,7 @@ export function TerrainPage() {
   // breath the Observatory backdrop runs on — a day out to a month and back
   // every ten seconds. `breathDays` is the live value while it's on; heatDays
   // keeps whatever she last chose, so leaving the mode lands back there.
-  const [breathing, setBreathing] = useState(false);
+  const [breathing, setBreathing] = useState(embed);
   const [breathDays, setBreathDays] = useState(7);
   const liveHeatDays = breathing ? breathDays : heatDays;
   const halfLife = liveHeatDays * DAY_SECONDS;
@@ -341,7 +351,7 @@ export function TerrainPage() {
     setPanel((p) => (p === name ? null : name));
   };
 
-  const [pool, setPool] = useState<AgentPool>('active');
+  const [pool, setPool] = useState<AgentPool>(embed ? 'open' : 'active');
   const [section, setSection] = useState<AgentSection>('');
   const [agentWindow, setAgentWindow] = useState<{ from: number; to: number }>({ from: 0, to: 8 });
   const [selected, setSelected] = useState<TerrainNode | null>(null);
@@ -1092,6 +1102,15 @@ export function TerrainPage() {
         ) : null}
       </div>
 
+      {/* The embed view has no chrome at all (see `embed` above): both bars
+          and the colour key stay unmounted, and one door floats bottom-right. */}
+      {embed ? (
+        <a className={styles.embedOpen} href="/terrain/map" target="_top" rel="noopener">
+          Open Terrain <span aria-hidden="true">&#8599;</span>
+        </a>
+      ) : null}
+      {embed ? null : (
+      <>
       <div className={styles.chrome}>
         <div className={styles.topBar}>
           <h1 className={styles.title}>Terrain</h1>
@@ -1250,6 +1269,9 @@ export function TerrainPage() {
           />
         ) : null}
       </div>
+
+      </>
+      )}
 
       {/* Rest the cursor on an agent orb and the Observatory's own card for that
           session floats up beside it — its dot, what she asked, what it's

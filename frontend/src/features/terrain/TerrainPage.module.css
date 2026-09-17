@@ -485,3 +485,34 @@
     padding: var(--space-1) var(--space-2) calc(var(--space-1) + env(safe-area-inset-bottom, 0px));
   }
 }
+
+/* --- the embed view's one control ------------------------------------------
+   `?embed=1` (shell/embed.ts): the map sits in an <iframe> on the portfolio
+   page with no chrome. This is the only thing drawn over it — the door to the
+   full map, opened in the top window (target=_top). 40px tall, 13px, and it
+   takes its own pointer events back like every real control on this page. */
+.embedOpen {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--text) 25%, transparent);
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  pointer-events: auto;
+}
+.embedOpen:hover,
+.embedOpen:focus-visible {
+  border-color: var(--text);
+}
