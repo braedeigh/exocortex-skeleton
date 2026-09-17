@@ -21,6 +21,14 @@ describe('which section a page belongs to', () => {
     expect(sectionForUrl('/travel')?.id).toBe('dashboard');
   });
 
+  it('gives /ecosystem to Ecosystem even though Dashboard claims the same path', () => {
+    // Equal-length claims tie, and the first listed wins — so Ecosystem must
+    // stay above Dashboard in SECTIONS or its tab could never light up.
+    expect(sectionForUrl('/ecosystem')?.id).toBe('ecosystem');
+    expect(sectionForUrl('/ecosystem?recipe=abc')?.id).toBe('ecosystem');
+    expect(pageLabel('/ecosystem')).toBe('Ecosystem');
+  });
+
   it('is not fooled by a path that merely starts the same way', () => {
     expect(sectionForUrl('/codex')).toBeNull();
     expect(sectionForUrl('/journalling')).toBeNull();

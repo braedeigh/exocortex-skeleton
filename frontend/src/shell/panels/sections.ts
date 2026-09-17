@@ -15,6 +15,11 @@ import { TAB_ROUTES, VALID_TABS } from '../tabs';
  * /terrain — and it does, because Pond's claim is longer. Getting this
  * backwards would make the Pond tab impossible to ever show as active.
  *
+ * WHEN TWO CLAIMS ARE THE SAME LENGTH, the one listed first wins. That's why
+ * Ecosystem sits ABOVE Dashboard below: both claim /ecosystem exactly, and if
+ * Dashboard came first the Ecosystem tab could never light up. Move it and
+ * sections.test.ts will say so.
+ *
  * A section with NO claims is a pure shortcut: it can be pinned and clicked,
  * but it never lights up. The Keeper is one — it's a particular conversation
  * inside the Observatory rather than a place of its own, so while you're
@@ -47,8 +52,15 @@ export const SECTIONS: Section[] = [
   { id: 'flow', label: 'Flow', icon: '🫧', home: '/terrain/flow', claims: ['/terrain/flow'] },
   { id: 'workshop', label: 'Workshop', icon: '🛠', home: '/terrain/workshop', claims: ['/terrain/workshop'] },
   { id: 'journal', label: 'Journal', icon: '📓', home: '/journal', claims: ['/journal'] },
+  // A dashboard sub-tab promoted to a tab of its own, so the food map can be
+  // pinned to a panel instead of dug out of the Dashboard's sub-tab row. Has
+  // to stay ahead of Dashboard, which claims the same path (see the header).
+  // Prompt: "i want to be able to access my ecosystem map on my tabs on the
+  // right side of the split screen ... i just need it in the dropdown menu"
+  { id: 'ecosystem', label: 'Ecosystem', icon: '🌱', home: '/ecosystem', claims: ['/ecosystem'] },
   // The dashboard is fifteen routes wearing one name (tabs.ts), and its own
-  // sub-tab row is how you move between them.
+  // sub-tab row is how you move between them. Ecosystem is claimed above too;
+  // it stays in this list so the Dashboard's sub-tab row still works there.
   {
     id: 'dashboard',
     label: 'Dashboard',
