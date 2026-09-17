@@ -115,12 +115,13 @@ app.after_request(add_conditional_cache)
 
 
 # Who may frame the mirror. On a public-only mirror every response says who
-# may put it in an <iframe>: the Terrain map page (the portfolio card at the
-# apex domain embeds /terrain/map?embed=1) may be framed by the origins in
-# EXOCORTEX_FRAME_ANCESTORS; every other path answers frame-ancestors 'none'.
-# The private instance is left alone — its own surfaces frame each other
-# (/files/, /terminal/) and it isn't the thing a stranger can reach.
-_FRAMEABLE_PATHS = ("/terrain/map",)
+# may put it in an <iframe>: the two exhibit pages (the portfolio cards at the
+# apex domain embed /terrain/map?embed=1 and /food-map?embed=1) may be framed
+# by the origins in EXOCORTEX_FRAME_ANCESTORS; every other path answers
+# frame-ancestors 'none'. The private instance is left alone — its own
+# surfaces frame each other (/files/, /terminal/) and it isn't the thing a
+# stranger can reach.
+_FRAMEABLE_PATHS = ("/terrain/map", "/food-map")
 
 
 @app.after_request

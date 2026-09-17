@@ -146,6 +146,9 @@ def test_only_the_map_may_be_framed_and_only_by_the_configured_origins(mirror, m
         "frame-ancestors https://example.org https://www.example.org"
     assert mirror.get("/terrain/map?embed=1").headers["Content-Security-Policy"] == \
         "frame-ancestors https://example.org https://www.example.org"
+    # The food map is the second exhibit, framed the same way.
+    assert mirror.get("/food-map?embed=1").headers["Content-Security-Policy"] == \
+        "frame-ancestors https://example.org https://www.example.org"
     for path in ("/", "/terrain", "/api/observatory/terrain", "/api/version", "/kitchen"):
         assert mirror.get(path).headers["Content-Security-Policy"] == "frame-ancestors 'none'", path
 

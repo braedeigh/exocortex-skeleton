@@ -40,8 +40,9 @@ export interface EcoMapHandle {
   /** Zoom + center over the whole currently-visible set. One match → the tight
    * single-item framing; several → fit them all; none → leave the view be. */
   fitVisible: () => void;
-  /** Frame a traced recipe's matched source points (once per selection). */
-  fitRecipePoints: (pts: [number, number][]) => void;
+  /** Frame a traced recipe's matched source points (once per selection).
+   * `fly` animates there from wherever the map is — the exhibit's opening. */
+  fitRecipePoints: (pts: [number, number][], opts?: { fly?: boolean }) => void;
   setRegionView: () => void;
   setWorldView: () => void;
   setView: (lat: number, lng: number, zoom: number) => void;
@@ -58,6 +59,9 @@ export interface EcoMapProps {
   visibleIds: Set<string> | null;
   draft: EcoDraft | null;
   canEdit: boolean;
+  /** The exhibit: fills its frame, opens on the world, and the first markers
+   * rise in one after another. */
+  embed?: boolean;
   /** Tap-to-place while adding/editing (only fired while a draft is active). */
   onMapClick: (lat: number, lng: number) => void;
   /** The draggable draft pin was dropped somewhere new. */
@@ -100,20 +104,20 @@ function makePopup(
   root.style.minWidth = '170px';
 
   const title = document.createElement('div');
-  title.style.cssText = 'font-size:14px;font-weight:700;margin-bottom:2px';
+  title.style.cssText = 'font-size:15px;font-weight:700;margin-bottom:2px;color:var(--text)';
   title.textContent = s.name;
   root.appendChild(title);
 
   if (s.note) {
     const note = document.createElement('div');
-    note.style.cssText = 'font-size:12px;color:#555;margin-bottom:4px';
+    note.style.cssText = 'font-size:13px;color:var(--text-secondary);margin-bottom:4px';
     note.textContent = s.note;
     root.appendChild(note);
   }
 
   const showGeoLine = !!s.geo_source && s.geo_source !== 'unrated';
   const meta = document.createElement('div');
-  meta.style.cssText = `font-size:11px;color:#888;margin-bottom:${showGeoLine ? '4px' : '8px'}`;
+  meta.style.cssText = `font-size:12px;color:var(--text-muted);margin-bottom:${showGeoLine ? '4px' : '8px'}`;
   const chip = document.createElement('span');
   chip.style.cssText = `display:inline-block;width:9px;height:9px;border-radius:50%;background:${tx.color};margin-right:5px;vertical-align:middle`;
   meta.appendChild(chip);
@@ -122,7 +126,7 @@ function makePopup(
 
   if (showGeoLine) {
     const geoLine = document.createElement('div');
-    geoLine.style.cssText = 'font-size:11px;color:#999;margin-bottom:8px';
+    geoLine.style.cssText = 'font-size:12px;color:var(--text-muted);margin-bottom:8px';
     geoLine.textContent =
       `${g.icon} ${g.label}` +
       (s.geo_source === 'proxy' ? " — generally grown here, not necessarily this item's source" : '');
@@ -135,12 +139,12 @@ function makePopup(
     const editBtn = document.createElement('button');
     editBtn.textContent = 'Edit';
     editBtn.style.cssText =
-      'flex:1;height:30px;border-radius:6px;border:1px solid #ccc;background:#fff;color:#333;font-size:12px;font-weight:600;cursor:pointer';
+      'flex:1;height:36px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text);font-size:13px;font-weight:600;cursor:pointer';
     editBtn.addEventListener('click', () => onEdit(s.id));
     const delBtn = document.createElement('button');
     delBtn.textContent = 'Delete';
     delBtn.style.cssText =
-      'flex:1;height:30px;border-radius:6px;border:1px solid #e0b4b4;background:#fff;color:#c0392b;font-size:12px;font-weight:600;cursor:pointer';
+      'flex:1;height:36px;border-radius:8px;border:1px solid #e0b4b4;background:transparent;color:#c0392b;font-size:13px;font-weight:600;cursor:pointer';
     delBtn.addEventListener('click', () => onDelete(s.id, s.name));
     row.appendChild(editBtn);
     row.appendChild(delBtn);
@@ -186,6 +190,7 @@ export const EcoMap = forwardRef<EcoMapHandle, EcoMapProps>(function EcoMap(prop
   // Latest props, readable from imperative handlers without re-binding.
   const propsRef = useRef(props);
   propsRef.current = props;
+  const mountedAt = useRef(Date.now());
 
   function syncTiles() {
     const map = mapRef.current;
@@ -210,7 +215,11 @@ export const EcoMap = forwardRef<EcoMapHandle, EcoMapProps>(function EcoMap(prop
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const map = L.map(el, { zoomControl: true }).setView(ECO_HOME, ECO_REGION_ZOOM);
+    // The exhibit starts pulled all the way out so the recipe flight has
+    // somewhere to arrive from; the page starts at home.
+    const map = propsRef.current.embed
+      ? L.map(el, { zoomControl: false }).setView([20, 0], 2)
+      : L.map(el, { zoomControl: true }).setView(ECO_HOME, ECO_REGION_ZOOM);
     mapRef.current = map;
     layerRef.current = L.layerGroup().addTo(map);
     map.on('click', (e: L.LeafletMouseEvent) => {
@@ -272,6 +281,7 @@ export const EcoMap = forwardRef<EcoMapHandle, EcoMapProps>(function EcoMap(prop
     }
     const onEdit = (id: string) => propsRef.current.onEditSource(id);
     const onDelete = (id: string, name: string) => propsRef.current.onDeleteSource(id, name);
+    const hosts: L.Layer[] = [];
     sources.forEach((s) => {
       if (!hasCoords(s)) return;
       if (visibleIds && !visibleIds.has(s.id)) return; // filtered out — don't draw it
@@ -335,8 +345,27 @@ export const EcoMap = forwardRef<EcoMapHandle, EcoMapProps>(function EcoMap(prop
           host = null;
         }
       }
-      if (host) markersRef.current[s.id] = host;
+      if (host) {
+        markersRef.current[s.id] = host;
+        hosts.push(host);
+      }
     });
+    // THE REVEAL, exhibit only: for the first few seconds after mount (the
+    // first draw, and the redraw when the outlines land) each shape rises in
+    // ~90ms after the last, timed to arrive as the recipe flight settles.
+    // After that window a redraw is just a redraw — a poll must not replay it.
+    if (propsRef.current.embed && Date.now() - mountedAt.current < 4000) {
+      const paths = (l: L.Layer): L.Path[] =>
+        l instanceof L.FeatureGroup ? (l.getLayers() as L.Path[]) : [l as L.Path];
+      hosts.forEach((h, i) => {
+        paths(h).forEach((pth) => {
+          const el = pth.getElement() as SVGElement | null;
+          if (!el) return;
+          el.classList.add(styles.rise);
+          el.style.animationDelay = `${1400 + i * 90}ms`;
+        });
+      });
+    }
   }, [sources, visibleIds, canEdit, geoVersion]);
 
   // --- Draft pin (the one being added/edited): a draggable divIcon marker,
@@ -449,10 +478,19 @@ export const EcoMap = forwardRef<EcoMapHandle, EcoMapProps>(function EcoMap(prop
       });
       if (bounds) map.fitBounds((bounds as L.LatLngBounds).pad(0.15));
     },
-    fitRecipePoints(pts) {
+    fitRecipePoints(pts, opts) {
       const map = mapRef.current;
       if (!map) return;
       map.invalidateSize(false); // tab may have been hidden — refresh cached size so the fit centers right
+      if (opts?.fly) {
+        // One long eased move, ~1.8s: fast out of the world view, slow into
+        // the frame. Slower than a UI transition on purpose — this is the
+        // exhibit's one piece of theatre, and it has to be readable as travel.
+        const flight = { duration: 1.8, easeLinearity: 0.2 };
+        if (pts.length === 1) map.flyTo(pts[0], 7, flight);
+        else if (pts.length > 1) map.flyToBounds(L.latLngBounds(pts).pad(0.3), { maxZoom: 6, ...flight });
+        return;
+      }
       if (pts.length === 1) map.setView(pts[0], 7);
       else if (pts.length > 1) map.fitBounds(L.latLngBounds(pts).pad(0.3), { maxZoom: 7 });
     },
@@ -490,5 +528,10 @@ export const EcoMap = forwardRef<EcoMapHandle, EcoMapProps>(function EcoMap(prop
   // contents — nothing here re-renders on the poll. isolation:isolate (in the
   // CSS module) scopes Leaflet's internal z-index stack (panes/controls run up
   // to 1000) into its own stacking context so it can't paint over the shell.
-  return <div ref={containerRef} className={styles.map} />;
+  return (
+    <div
+      ref={containerRef}
+      className={[styles.map, props.embed ? styles.mapEmbed : ''].filter(Boolean).join(' ')}
+    />
+  );
 });

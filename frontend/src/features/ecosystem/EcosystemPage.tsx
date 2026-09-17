@@ -21,7 +21,8 @@ import { RecipePanel } from './RecipePanel';
 import { SourceEditor } from './SourceEditor';
 import { SourceList } from './SourceList';
 import type { SourcePayload } from './api';
-import { ecoRecipeSourceIds } from './ecoMatch';
+import { ecoRecipeSourceIds, ecoRecipeSourcing } from './ecoMatch';
+import { ECO_TX, ECO_TX_ORDER } from './axes';
 import { draftFromSource, newDraft } from './types';
 import type { EcoDraft, EcoSource, Transparency } from './types';
 import { useEcosystemData, useSourceMutations } from './useEcosystemData';
@@ -36,7 +37,20 @@ function canEditNow(): boolean {
   return typeof window === 'undefined' || !window.VIEW_MODE || window.VIEW_MODE === 'authed';
 }
 
-export function EcosystemPage({ initialRecipeId = '' }: { initialRecipeId?: string } = {}) {
+/**
+ * `embed` is the exhibit view (/food-map?embed=1): just the map, filling the
+ * frame, with a frosted caption, the colour key as chips, and one door out to
+ * the full page. It opens on a world view and FLIES to the traced recipe, so
+ * a visitor sees the dinner gather itself out of the whole map — the motion
+ * is the argument (where does one meal come from?), not decoration.
+ *
+ * Prompt that produced it: "iframe with some flashy thing to make people
+ * wanna click into the whole interface" — with the recipe pre-traced.
+ */
+export function EcosystemPage({
+  initialRecipeId = '',
+  embed = false,
+}: { initialRecipeId?: string; embed?: boolean } = {}) {
   const { data, isLoading, error } = useEcosystemData();
   const { toasts, push, dismiss } = useToasts();
   const { save, remove } = useSourceMutations(push);
@@ -77,12 +91,15 @@ export function EcosystemPage({ initialRecipeId = '' }: { initialRecipeId?: stri
   // The host div was hidden until the route opened — after the first data
   // lands, frame all her sources once (not on every poll). Without this the
   // map sits on the fixed Austin view and far-flung sources hang off the edge.
+  // In the embed with a recipe to trace, the recipe flight below IS the
+  // opening move, so the fit here would only fight it.
   useEffect(() => {
     if (!data || didInitialFit.current) return;
     didInitialFit.current = true;
+    if (embed && initialRecipeId) return;
     const t = setTimeout(() => mapRef.current?.fitVisible(), 0);
     return () => clearTimeout(t);
-  }, [data]);
+  }, [data, embed, initialRecipeId]);
 
   // Frame a freshly-selected recipe's sources once per selection (the poll
   // must not keep re-fitting). Reads sources through a ref so a data refresh
@@ -102,7 +119,7 @@ export function EcosystemPage({ initialRecipeId = '' }: { initialRecipeId?: stri
     const pts = sourcesRef.current
       .filter((s) => ids.has(s.id) && typeof s.lat === 'number' && typeof s.lng === 'number')
       .map((s) => [s.lat as number, s.lng as number] as [number, number]);
-    mapRef.current?.fitRecipePoints(pts);
+    mapRef.current?.fitRecipePoints(pts, { fly: embed });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeRecipeId]);
 
@@ -247,6 +264,54 @@ export function EcosystemPage({ initialRecipeId = '' }: { initialRecipeId?: stri
 
   const adding = !!draft && !draft.id;
   const editing = !!draft && !!draft.id;
+
+  if (embed) {
+    const sourcing = activeRecipe ? ecoRecipeSourcing(activeRecipe, sources) : null;
+    const door = `/food-map${recipeId ? `?recipe=${encodeURIComponent(recipeId)}` : ''}`;
+    return (
+      <div className={styles.embedPage}>
+        <EcoMap
+          ref={mapRef}
+          sources={sources}
+          visibleIds={visibleIds}
+          draft={null}
+          canEdit={false}
+          embed
+          onMapClick={() => {}}
+          onDraftMove={() => {}}
+          onEditSource={() => {}}
+          onDeleteSource={() => {}}
+        />
+        {/* The caption is written OUTWARD, to a stranger: what this is and
+            what the colour means. It never takes the pointer, so the map
+            drags straight through it. */}
+        <div className={styles.embedCaption}>
+          <div className={styles.embedTitle}>{activeRecipe ? activeRecipe.name : 'Where my food comes from'}</div>
+          {sourcing ? (
+            <div className={styles.embedCount}>
+              {sourcing.traced.length} of {sourcing.total} ingredients traced
+              {sourcing.pantry.length ? ` · ${sourcing.pantry.length} pantry staples set aside` : ''}
+            </div>
+          ) : null}
+          <p className={styles.embedLine}>
+            One dinner, traced to where public records say each ingredient is grown. Color is how
+            much can actually be known.
+          </p>
+        </div>
+        <div className={styles.embedLegend} aria-label="Transparency key">
+          {ECO_TX_ORDER.map((k) => (
+            <span key={k} className={styles.embedChip}>
+              <span className={styles.embedDot} style={{ background: ECO_TX[k].color }} />
+              {ECO_TX[k].label}
+            </span>
+          ))}
+        </div>
+        <a className={styles.embedOpen} href={door} target="_top" rel="noopener">
+          Explore the map <span aria-hidden="true">&#8599;</span>
+        </a>
+      </div>
+    );
+  }
 
   return (
     <div className={styles.page}>

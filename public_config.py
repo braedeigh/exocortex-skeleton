@@ -148,6 +148,10 @@ _SHELL_PATHS = (
     # Everything the SW precache manifest lists must be public, or a logged-out
     # browser's SW install caches login redirects (or fails) instead of assets.
     "/index.html",
+    # US county/state outlines the food map draws its regions from
+    # (frontend/public/geo/, served by routes/spa.py). Public boundary data,
+    # nothing personal — and without it a visitor's map shows dots, not shapes.
+    "/geo/",
     "/icon-192.png",
     "/icon-512.png",
 )
@@ -165,6 +169,14 @@ PRESENTABLE_PATHS = (
     "/terrain/map",
     "/api/observatory/terrain",
     "/api/observatory/terrain/file",
+    # The food-sourcing map (routes/ecosystem.py, the Ecosystem feature).
+    # Reopened 2026-09-17 as the second exhibit: the portfolio frames
+    # /food-map?embed=1 and links through to the full page. STREAMS above
+    # decides what the data feed shows a visitor (sources + the light recipe
+    # list); editing is owner-only on the page and behind the auth gate for
+    # every write endpoint.
+    "/food-map",
+    "/api/data/ecosystem",
 )
 
 _NOT_YET_PRESENTABLE = (
@@ -182,7 +194,6 @@ _NOT_YET_PRESENTABLE = (
     "/dashboard/inventory",
     "/dashboard/money",
     "/dashboard/ecosystem",
-    "/food-map",
     "/ecosystem",
     "/map",
     "/kitchen",
@@ -195,7 +206,6 @@ _NOT_YET_PRESENTABLE = (
     "/api/data/inventory",
     "/api/data/money",
     "/api/data/item-buy",
-    "/api/data/ecosystem",
     # Old public bookmarks; each only redirected to a native tab path above.
     "/legacy/map",
     "/legacy/kitchen",

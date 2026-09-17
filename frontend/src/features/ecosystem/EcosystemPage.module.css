@@ -87,3 +87,133 @@
   font-weight: 600;
   cursor: pointer;
 }
+
+/* ---- The exhibit (embed) view: the map is the room, everything else floats
+   on frosted glass and never takes the pointer. Same glass recipe as the
+   Terrain embed's door, so the two exhibits read as one house. ---- */
+.embedPage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+.embedCaption {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 5;
+  max-width: 360px;
+  padding: 16px 18px;
+  border-radius: var(--radius-xl);
+  background: color-mix(in srgb, var(--card-bg) 84%, transparent);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  border: 1px solid color-mix(in srgb, var(--text) 16%, transparent);
+  box-shadow: var(--shadow-card);
+  pointer-events: none;
+}
+
+.embedTitle {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  margin: 0 0 4px;
+}
+
+.embedCount {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.embedLine {
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.embedLegend {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  z-index: 5;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  pointer-events: none;
+}
+
+.embedChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  background: color-mix(in srgb, var(--card-bg) 84%, transparent);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  border: 1px solid color-mix(in srgb, var(--text) 14%, transparent);
+}
+
+.embedDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: none;
+}
+
+/* Sits above Leaflet's attribution line, which keeps the corner itself. */
+.embedOpen {
+  position: absolute;
+  right: 16px;
+  bottom: 40px;
+  z-index: 6;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--text) 25%, transparent);
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: border-color 150ms ease, transform 150ms ease;
+}
+
+.embedOpen:hover,
+.embedOpen:focus-visible {
+  border-color: var(--text);
+  transform: translateY(-1px);
+}
+
+@media (max-width: 520px) {
+  .embedCaption {
+    top: 12px;
+    left: 12px;
+    right: 12px;
+    max-width: none;
+    padding: 12px 14px;
+  }
+  .embedLegend {
+    left: 12px;
+    right: 12px;
+    bottom: 92px;
+  }
+  .embedOpen {
+    right: 12px;
+  }
+}
