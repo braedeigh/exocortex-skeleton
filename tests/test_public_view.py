@@ -103,12 +103,20 @@ def test_public_ecosystem_map_is_exposed():
     assert out["ecosystem"] == {"sources": [{"name": "Kale"}]}
 
 
-def test_ecosystem_tab_is_reachable_logged_out():
-    # The /ecosystem dashboard tab must be public like /map, /kitchen, etc. — its
-    # data stream and the standalone /food-map are both public, so the tab URL
-    # itself must not bounce logged-out visitors to /login.
-    assert is_public_path("/ecosystem")
-    assert is_public_path("/food-map")
+def test_ecosystem_tab_and_food_map_travel_together():
+    # The /ecosystem dashboard tab, the standalone /food-map and their data
+    # feed are one exhibit: whichever tier they sit in (closed since
+    # 2026-09-17, "only Terrain for now"), they sit there TOGETHER, so
+    # reopening one without the others — a tab that bounces to /login while
+    # its map is public, or the reverse — can't happen by accident.
+    import public_config
+    tiers = {"presentable": set(public_config.PRESENTABLE_PATHS),
+             "closed": set(public_config._NOT_YET_PRESENTABLE)}
+    home = {name for name, paths in tiers.items() if "/ecosystem" in paths}
+    assert home, "/ecosystem must be in one of the tiers"
+    tier = tiers[home.pop()]
+    assert {"/ecosystem", "/food-map", "/api/data/ecosystem"} <= tier
+    assert is_public_path("/ecosystem") == is_public_path("/food-map") == is_public_path("/api/data/ecosystem")
 
 
 def test_ecosystem_write_endpoints_stay_gated():

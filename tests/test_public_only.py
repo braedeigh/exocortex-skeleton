@@ -35,12 +35,12 @@ def private(data_dir, monkeypatch):
     return c
 
 
-def test_authed_cookie_still_gets_frosted_view(mirror):
-    resp = mirror.get("/api/data/today")
-    assert resp.status_code == 200
-    todos = resp.get_json().get("todos")
-    # "todos" is a frosted stream in public_config: shape and count only
-    assert todos is None or todos.get("_frosted") is True
+def test_authed_cookie_counts_for_nothing(mirror):
+    # The dashboard data is closed to visitors since 2026-09-17 (see the
+    # "only Terrain" block at the bottom) — and a real cookie doesn't reopen
+    # it. What IS open answers the same to the cookie as to anyone.
+    assert mirror.get("/api/data/today").status_code == 401
+    assert mirror.get("/api/observatory/terrain").status_code == 200
 
 
 def test_login_page_is_gone(mirror):
@@ -71,3 +71,65 @@ def test_switch_off_leaves_the_cookie_working(private):
     assert 'window.VIEW_MODE = "authed"' in html
     assert "window.PUBLIC_ONLY = false" in html
     assert private.get("/login").status_code == 200
+
+
+# --- "only Terrain for now" (2026-09-17) ------------------------------------
+# public_config splits what a stranger may reach into _SHELL_PATHS (the app
+# shell), PRESENTABLE_PATHS (the exhibits — today: the Terrain map) and
+# _NOT_YET_PRESENTABLE (everything that used to be public and is closed until
+# the owner moves its line back up). These pin that every closed line IS
+# closed, on the mirror and on the private site's logged-out view alike, and
+# that the shell and the map stay open — so reopening a page is a move in
+# that file, never an accident.
+
+import pytest
+
+import public_config
+
+
+@pytest.fixture
+def stranger(data_dir, monkeypatch):
+    """Logged out on the private site (no cookie, switch off)."""
+    monkeypatch.delenv("EXOCORTEX_PUBLIC_ONLY", raising=False)
+    import server
+    return server.app.test_client()
+
+
+def _closed_paths():
+    # Prefix entries ("/item/buy/") get a concrete child so the request is real.
+    return [p + "x" if p.endswith("/") else p for p in public_config._NOT_YET_PRESENTABLE]
+
+
+@pytest.mark.parametrize("path", _closed_paths())
+def test_not_yet_presentable_is_closed_on_the_mirror(mirror, path):
+    resp = mirror.get(path)
+    if path.startswith("/api/"):
+        assert resp.status_code == 401, path
+    else:
+        assert resp.status_code == 302 and resp.headers["Location"].endswith("/"), path
+        assert "/login" not in resp.headers["Location"]
+
+
+@pytest.mark.parametrize("path", _closed_paths())
+def test_not_yet_presentable_is_closed_to_a_stranger(stranger, path):
+    resp = stranger.get(path)
+    if path.startswith("/api/"):
+        assert resp.status_code == 401, path
+    else:
+        assert resp.status_code == 302 and resp.headers["Location"].endswith("/login"), path
+
+
+def test_presentable_and_shell_stay_open(mirror):
+    assert mirror.get("/").status_code == 200
+    assert mirror.get("/terrain/map").status_code == 200
+    assert mirror.get("/api/observatory/terrain").status_code == 200
+    assert mirror.get("/api/version").status_code == 200
+    assert mirror.get("/manifest.webmanifest").status_code == 200
+
+
+def test_the_three_tiers_do_not_overlap():
+    tiers = (set(public_config._SHELL_PATHS), set(public_config.PRESENTABLE_PATHS),
+             set(public_config._NOT_YET_PRESENTABLE))
+    assert not (tiers[0] & tiers[1]) and not (tiers[0] & tiers[2]) and not (tiers[1] & tiers[2])
+    for p in public_config._NOT_YET_PRESENTABLE:
+        assert not public_config.is_public_path(p), p

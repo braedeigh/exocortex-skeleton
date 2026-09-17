@@ -14,15 +14,10 @@ export function PublicLanding() {
     <div className={styles.wrap}>
       <FakeTerminal />
       <div className={styles.actions}>
-        {window.PUBLIC_ONLY ? (
-          <Link to="/terrain/map" className={styles.explore}>
-            Explore the map
-          </Link>
-        ) : (
-          <Link to="/todos" className={styles.explore}>
-            Explore the dashboard
-          </Link>
-        )}
+        {/* The map is the one page a visitor can open (public_config). */}
+        <Link to="/terrain/map" className={styles.explore}>
+          Explore the map
+        </Link>
         {window.PUBLIC_ONLY ? null : (
           <a href="/login" className={styles.signIn}>
             Sign in

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { FakeTerminal } from './FakeTerminal';
-import { AboutPane } from './AboutPane';
 import { Workspace } from './panels/Workspace';
 import { useMediaQuery, DESKTOP_QUERY } from './useMediaQuery';
 import styles from './SplitLayout.module.css';
@@ -115,6 +114,17 @@ export function SplitLayout({ chrome, children }: { chrome: ReactNode; children:
     return <Workspace>{children}</Workspace>;
   }
 
+  if (window.PUBLIC_ONLY) {
+    // The public-only mirror is a portfolio with one exhibit, the Terrain map
+    // (public_config.PRESENTABLE_PATHS): it gets the whole window, no intro
+    // pane. The about copy lives on the static page at the apex domain.
+    return (
+      <div className={styles.container} ref={containerRef}>
+        <div className={styles.right}>{chrome}{children}</div>
+      </div>
+    );
+  }
+
   // Collapsed state of the public split — replaces the intro pane and its
   // divider with a slim vertical tab pinned to the left edge.
   if (collapsed) {
@@ -137,14 +147,7 @@ export function SplitLayout({ chrome, children }: { chrome: ReactNode; children:
   return (
     <div className={[styles.container, dragging ? styles.dragging : ''].filter(Boolean).join(' ')} ref={containerRef}>
       <div className={styles.left} style={{ flexBasis: `${width}%` }}>
-        {/* The public-only mirror is the portfolio: the owner's about page
-            takes the pane the mock terminal has on the private site's public
-            view. Same collapse rail either way. */}
-        {window.PUBLIC_ONLY ? (
-          <AboutPane onCollapse={() => setCollapsed(true)} />
-        ) : (
-          <FakeTerminal onCollapse={() => setCollapsed(true)} />
-        )}
+        <FakeTerminal onCollapse={() => setCollapsed(true)} />
       </div>
       <div
         className={styles.divider}

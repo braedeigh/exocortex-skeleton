@@ -229,9 +229,8 @@ function PublicHeader() {
         )}
       </div>
       <div className={styles.publicLinks}>
-        <Link to="/about" className={styles.publicLink}>
-          About
-        </Link>
+        {/* /about is closed to visitors since 2026-09-17 (public_config
+            _NOT_YET_PRESENTABLE); bring its link back with the page. */}
         <Link to="/terrain/map" className={styles.publicLink}>
           Terrain
         </Link>

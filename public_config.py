@@ -107,14 +107,74 @@ def private_activity_types():
     cfg = store.read("public_view", {})
     return tuple(cfg.get("private_activity_types") or ())
 
-# Page paths anonymous visitors are allowed to reach.
-# Everything else: API → 401, page → redirect to /login.
-PUBLIC_PATHS = (
+# --- What a stranger may reach ------------------------------------------------
+#
+# Three tuples, joined into PUBLIC_PATHS at the bottom:
+#
+#   _SHELL_PATHS        what any browser needs to render ANY public page — the
+#                       SPA shell, its assets, the service worker, the front
+#                       door. Never personal; never needs deciding.
+#   PRESENTABLE_PATHS   the pages and APIs the owner has decided a visitor may
+#                       open TODAY. This is the list to edit.
+#   _NOT_YET_PRESENTABLE  everything that USED to be public and was closed on
+#                       2026-09-17 ("only Terrain for now" — the public site is
+#                       a portfolio, and its one exhibit is the Terrain map).
+#                       Each line is a working entry: to reopen a page, move
+#                       its line (and its API's) up into PRESENTABLE_PATHS.
+#                       tests/test_public_only.py checks every line here is
+#                       actually closed, so a move is the only way to reopen.
+#
+# Everything else: API → 401, page → redirect (to /login on the private site,
+# to / on a public-only mirror). Matching is exact, except entries ending in
+# "/" or "-" which are prefixes (see is_public_path).
+
+_SHELL_PATHS = (
     "/login",
     "/logout",
-    "/about",
     "/static/",
     "/",
+    "/api/version",
+    # The web-push hook door (routes/push.py): Claude Code's Stop/Notification
+    # hooks POST here from localhost with no session cookie, authenticated by
+    # a shared secret checked inside the route itself instead.
+    "/api/push/notify",
+    # The React SPA shell (routes/spa.py) — the app-shell HTML/JS/CSS/
+    # manifest/SW must all be reachable to render the public landing at all.
+    "/assets/",
+    "/manifest.webmanifest",
+    "/registerSW.js",
+    "/sw.js",
+    "/workbox-",  # hashed workbox runtime at dist root; see is_public_path prefix rule below
+    # Everything the SW precache manifest lists must be public, or a logged-out
+    # browser's SW install caches login redirects (or fails) instead of assets.
+    "/index.html",
+    "/icon-192.png",
+    "/icon-512.png",
+)
+
+PRESENTABLE_PATHS = (
+    # The Terrain map (routes/terrain.py). Open to visitors by the owner's
+    # decision (2026-09-17): every dot from both repos, the session orbs and
+    # their titles. What stays locked is file TEXT — the file endpoint refuses
+    # anything but git-tracked app code to a visitor (see _visitor_may_read
+    # there) — and everything that writes, arms or streams: the other rooms,
+    # traces, flow, creek and the session roster are deliberately NOT listed.
+    # Exact paths, never a prefix, so a new endpoint under /terrain/ is closed
+    # until someone adds it here on purpose.
+    "/terrain",
+    "/terrain/map",
+    "/api/observatory/terrain",
+    "/api/observatory/terrain/file",
+)
+
+_NOT_YET_PRESENTABLE = (
+    # The about page (CONTENT_DIR/public_about.md). The portfolio's own about
+    # copy lives on the static page at the apex domain now.
+    "/about",
+    "/api/about",
+    # The frosted dashboard and its data. STREAMS above still decides what
+    # each of these would show once reopened — that filter never went away.
+    "/todos",
     "/dashboard",
     "/dashboard/today",
     "/dashboard/map",
@@ -136,45 +196,15 @@ PUBLIC_PATHS = (
     "/api/data/money",
     "/api/data/item-buy",
     "/api/data/ecosystem",
-    "/api/version",
-    "/api/about",
-    # The Terrain map (routes/terrain.py). Open to visitors by the owner's
-    # decision (2026-09-17): every dot from both repos, the session orbs and
-    # their titles. What stays locked is file TEXT — the file endpoint refuses
-    # anything but git-tracked app code to a visitor (see _visitor_may_read
-    # there) — and everything that writes, arms or streams: the other rooms,
-    # traces, flow, creek and the session roster are deliberately NOT listed.
-    # Exact paths, never a prefix, so a new endpoint under /terrain/ is closed
-    # until someone adds it here on purpose.
-    "/terrain",
-    "/terrain/map",
-    "/api/observatory/terrain",
-    "/api/observatory/terrain/file",
-    # The web-push hook door (routes/push.py): Claude Code's Stop/Notification
-    # hooks POST here from localhost with no session cookie, authenticated by
-    # a shared secret checked inside the route itself instead.
-    "/api/push/notify",
-    # The React SPA shell (routes/spa.py) — the app-shell HTML/JS/CSS/
-    # manifest/SW must all be reachable to render the public landing at all.
-    # "/legacy/<tab>" entries stay so old public bookmarks can follow the
-    # redirect to the native tab paths above.
-    "/assets/",
-    "/manifest.webmanifest",
-    "/registerSW.js",
-    "/sw.js",
-    "/workbox-",  # hashed workbox runtime at dist root; see is_public_path prefix rule below
-    # Everything the SW precache manifest lists must be public, or a logged-out
-    # browser's SW install caches login redirects (or fails) instead of assets.
-    "/index.html",
-    "/icon-192.png",
-    "/icon-512.png",
-    "/todos",
+    # Old public bookmarks; each only redirected to a native tab path above.
     "/legacy/map",
     "/legacy/kitchen",
     "/legacy/inventory",
     "/legacy/money",
     "/legacy/ecosystem",
 )
+
+PUBLIC_PATHS = _SHELL_PATHS + PRESENTABLE_PATHS
 
 
 def is_public_path(path: str) -> bool:

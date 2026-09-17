@@ -93,9 +93,12 @@ and the session orbs with their titles; what they cannot do is read a personal
 file: `/api/observatory/terrain/file` answers `403 {"private": true}` for
 anything that isn't git-tracked app code (`routes/terrain.py`,
 `_visitor_may_read`). The other Terrain rooms, traces, flow, creek and the
-session roster stay 401. On the mirror, `/` lands on the map with the about
-page (`CONTENT_DIR/public_about.md`) docked in the left pane. Contract:
-`tests/test_terrain_public.py`.
+session roster stay 401. Since the same day the map is the ONLY page open to
+visitors: `public_config.py` splits what a stranger may reach into the app
+shell, `PRESENTABLE_PATHS` (the map) and `_NOT_YET_PRESENTABLE` (the frosted
+dashboard, about, kitchen, money … — closed, each line ready to move back up
+when the owner calls it presentable). On the mirror `/` lands on the map, full
+width. Contract: `tests/test_terrain_public.py`, `tests/test_public_only.py`.
 
 ## Optional extras
 - `scripts/setup-mac-server.sh` — turn a Mac into an always-on, lid-closed server
