@@ -217,3 +217,31 @@
     right: 12px;
   }
 }
+
+/* A SMALL frame — the card on the portfolio page (≈670×420 on a laptop,
+   ≈360×220 on a phone). The full caption and the key would bury the map, so
+   the exhibit keeps a one-line title and the door; the copy and the key live
+   on the page around the card. Thresholds match embedLayout.ts
+   (COMPACT_MAX_WIDTH / COMPACT_MAX_HEIGHT), which pads the map fit to suit. */
+@media (max-width: 720px), (max-height: 480px) {
+  .embedCaption {
+    top: 12px;
+    left: 12px;
+    right: auto;
+    max-width: calc(100% - 24px);
+    padding: 8px 12px;
+  }
+  .embedTitle {
+    font-size: 15px;
+    margin: 0;
+  }
+  .embedCount,
+  .embedLine,
+  .embedLegend {
+    display: none;
+  }
+  .embedOpen {
+    right: 12px;
+    bottom: 28px;
+  }
+}

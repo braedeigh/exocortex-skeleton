@@ -40,13 +40,16 @@ function canEditNow(): boolean {
 /**
  * `embed` is the exhibit view (/food-map?embed=1): just the map, filling the
  * frame, with a frosted caption, the colour key as chips, and one door out to
- * the full page. It opens centered over every source with all of them in
- * view at once (EcoMap's fitVisible, padded so the caption and key don't
- * cover a dot); a ?recipe= is traced in place rather than flown to.
+ * the full page. It opens centered over the sources near home, all of them
+ * in view at once (EcoMap's fitHome, padded so the caption and key don't
+ * cover a dot; in a small frame the caption shrinks to a title and the key
+ * hides — embedLayout.ts); a ?recipe= is traced in place rather than flown
+ * to.
  *
  * Prompts that produced it: "iframe with some flashy thing to make people
  * wanna click into the whole interface" — with the recipe pre-traced; then
- * "center over everything showing all at once".
+ * "center over everything showing all at once"; then "make it center over
+ * the US stuff actually".
  */
 export function EcosystemPage({
   initialRecipeId = '',
@@ -90,14 +93,14 @@ export function EcosystemPage({
   }, [soloId, sources]);
 
   // The host div was hidden until the route opened — after the first data
-  // lands, center over all her sources with every one in view (once, not on
-  // every poll). Without this the map sits on the fixed home view and
-  // far-flung sources hang off the edge. The exhibit opens the same way,
-  // recipe or not: the whole map, all at once.
+  // lands, center over her sources near home with every one of them in view
+  // (once, not on every poll; EcoMap.fitHome). A lone far-off source stays
+  // off-frame rather than shrinking home to a speck; "Whole world" brings it
+  // in. The exhibit opens the same way, recipe or not.
   useEffect(() => {
     if (!data || didInitialFit.current) return;
     didInitialFit.current = true;
-    const t = setTimeout(() => mapRef.current?.fitVisible(), 0);
+    const t = setTimeout(() => mapRef.current?.fitHome(), 0);
     return () => clearTimeout(t);
   }, [data]);
 

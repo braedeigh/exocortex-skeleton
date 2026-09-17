@@ -16,7 +16,9 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 're
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { geoSourceInfo, isShapeSource, metaLabel, txInfo } from './axes';
+import { embedFitPadding } from './embedLayout';
 import { featuresFor, geometryToLatLngs, getGeo, loadGeo } from './geo';
+import { homeCluster } from './homeCluster';
 import type { GeoFeature } from './geo';
 import { cartoKey, currentTileKey, tileLayersFor } from './themeColor';
 import type { TileKey } from './themeColor';
@@ -41,10 +43,16 @@ export interface EcoMapHandle {
    * once (dots and their outlines/regions). One match → the tight
    * single-item framing; none → leave the view be. */
   fitVisible: () => void;
+  /** The opening view: center over the visible sources near home (the home
+   * country — homeCluster.ts), all of them in view, outlines included. With
+   * no home configured or nothing near it, this is fitVisible. */
+  fitHome: () => void;
   /** Frame a traced recipe's matched source points (once per selection, on
    * the full page only — the exhibit stays on the everything view). */
   fitRecipePoints: (pts: [number, number][]) => void;
+  /** "My region" = the home cluster, same as the opening view. */
   setRegionView: () => void;
+  /** "Whole world" = every source at once. */
   setWorldView: () => void;
   setView: (lat: number, lng: number, zoom: number) => void;
   panTo: (lat: number, lng: number) => void;
@@ -288,7 +296,7 @@ export const EcoMap = forwardRef<EcoMapHandle, EcoMapProps>(function EcoMap(prop
       loadGeo()
         .then(() => {
           setGeoVersion((v) => v + 1);
-          if (!userMovedRef.current) fitVisible();
+          if (!userMovedRef.current) fitHome();
         })
         .catch(() => {});
     }
@@ -485,16 +493,12 @@ export const EcoMap = forwardRef<EcoMapHandle, EcoMapProps>(function EcoMap(prop
     return bounds;
   }
 
-  /** Room the fit leaves around the sources. In the exhibit the frosted
-   * caption sits top-left and the key + door sit along the bottom, so the
-   * frame keeps that much clear; on a phone-width frame the key wraps to two
-   * rows and the door sits under it, so the bottom band is taller. The
-   * figures are the overlays' rough sizes from EcosystemPage.module.css, not
-   * measured live. */
+  /** Room the fit leaves around the sources: on the page a thin margin; in
+   * the exhibit whatever its overlays need at the frame's size
+   * (embedLayout.ts — the frame's own window IS the card). */
   function fitPadding(): L.FitBoundsOptions {
     if (!propsRef.current.embed) return { paddingTopLeft: [24, 24], paddingBottomRight: [24, 24] };
-    const narrow = (containerRef.current?.clientWidth ?? 1000) <= 520;
-    return { paddingTopLeft: [24, 150], paddingBottomRight: [24, narrow ? 180 : 76] };
+    return embedFitPadding(window.innerWidth, window.innerHeight);
   }
 
   /** Center over the whole currently-visible set, all of it in view at once.
@@ -505,8 +509,14 @@ export const EcoMap = forwardRef<EcoMapHandle, EcoMapProps>(function EcoMap(prop
     if (!map) return;
     map.invalidateSize(false);
     const { sources: src, visibleIds: vis } = propsRef.current;
-    const pts = src.filter((s) => hasCoords(s) && (!vis || vis.has(s.id)));
-    if (!pts.length) return;
+    frame(src.filter((s) => hasCoords(s) && (!vis || vis.has(s.id))));
+  }
+
+  /** Frame a list: one → the tight single-item view; several → all of them
+   * with their outlines, padded for the overlays. */
+  function frame(pts: EcoSource[]) {
+    const map = mapRef.current;
+    if (!map || !pts.length) return;
     if (pts.length === 1) {
       focusSource(pts[0].id);
       return;
@@ -515,9 +525,23 @@ export const EcoMap = forwardRef<EcoMapHandle, EcoMapProps>(function EcoMap(prop
     if (b) map.fitBounds(b, fitPadding());
   }
 
+  /** The opening view: the visible sources near home, all in view at once.
+   * Prompt: "make it center over the US stuff actually" — generically, the
+   * cluster within HOME_RADIUS_KM of the configured home. */
+  function fitHome() {
+    const map = mapRef.current;
+    if (!map) return;
+    map.invalidateSize(false);
+    const { sources: src, visibleIds: vis } = propsRef.current;
+    const shown = src.filter((s) => !vis || vis.has(s.id));
+    const home: [number, number] | null = HOME_LAT !== undefined && HOME_LNG !== undefined ? [HOME_LAT, HOME_LNG] : null;
+    frame(homeCluster(shown, home));
+  }
+
   useImperativeHandle(ref, (): EcoMapHandle => ({
     focusSource,
     fitVisible,
+    fitHome,
     fitRecipePoints(pts) {
       const map = mapRef.current;
       if (!map) return;
@@ -526,7 +550,7 @@ export const EcoMap = forwardRef<EcoMapHandle, EcoMapProps>(function EcoMap(prop
       else if (pts.length > 1) map.fitBounds(L.latLngBounds(pts).pad(0.3), { maxZoom: 7 });
     },
     setRegionView() {
-      mapRef.current?.setView(ECO_HOME, ECO_REGION_ZOOM);
+      fitHome();
     },
     setWorldView() {
       // "World" = every source at once, shapes included; the bare globe only
