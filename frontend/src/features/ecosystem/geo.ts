@@ -50,6 +50,9 @@ export function loadGeo(): Promise<GeoIndex> {
       return geoCache;
     })
     .catch((e) => {
+      // Said out loud, not swallowed: a failed boundary load is why every
+      // county source quietly draws as a dot, and that went unnoticed once.
+      console.warn('ecosystem: county/state outlines failed to load — regions will show as dots', e);
       geoPromise = null;
       throw e;
     });

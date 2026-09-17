@@ -12,6 +12,11 @@ URL scheme:
     injected values are per-request).
   - "/assets/<path>" → the hashed, content-addressed build output — safe to
     cache forever.
+  - "/geo/<file>" → the US county/state boundary GeoJSON the Ecosystem map
+    draws its outlines from (`frontend/public/geo/`, copied into `dist/geo/`
+    by the build). Cached for a day: the counties file is ~3MB and never
+    changes between builds. Without this route every county/state source on
+    the map silently fell back to a dot — the fetch got a 404 page, not JSON.
   - single-segment root files vite-plugin-pwa writes into `dist/` (manifest,
     the SW registration shim, the service worker itself, its workbox runtime
     chunk, the PWA icons) → served from `dist/`, revalidated every time except
@@ -40,6 +45,7 @@ _NATIVE_TABS = frozenset(
      "movement", "body", "ideas", "ecosystem", "housing", "people", "travel")
 )
 ASSETS_DIR = DIST_DIR / "assets"
+GEO_DIR = DIST_DIR / "geo"
 INDEX_PATH = DIST_DIR / "index.html"
 
 # Extensions vite-plugin-pwa writes as loose files directly under dist/ (as
@@ -179,6 +185,17 @@ def register(app):
     def spa_asset(filename):
         resp = make_response(send_from_directory(ASSETS_DIR, filename))
         resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return resp
+
+    # Boundary outlines for the Ecosystem map. Only .geojson, only from
+    # dist/geo/ — send_from_directory refuses anything that escapes the dir.
+    # Prompt: "i am wanting the county outlines to display rather than dots"
+    @app.route("/geo/<path:filename>")
+    def spa_geo_file(filename):
+        if not filename.endswith(".geojson"):
+            abort(404)
+        resp = make_response(send_from_directory(GEO_DIR, filename))
+        resp.headers["Cache-Control"] = "public, max-age=86400"
         return resp
 
     @app.route("/<filename>")

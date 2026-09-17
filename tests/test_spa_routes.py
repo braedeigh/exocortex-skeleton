@@ -139,6 +139,28 @@ def test_unknown_asset_404s():
     assert r.status_code == 404
 
 
+# --- /geo/<boundary file> — the Ecosystem map's county/state outlines --------------
+
+def test_geo_counties_served_as_json_and_cached():
+    # Before this route existed the fetch got a 404 page and every county
+    # source on the map silently drew as a dot.
+    r = _client().get("/geo/us-counties.geojson")
+    assert r.status_code == 200
+    assert "max-age" in r.headers["Cache-Control"]
+    assert json.loads(r.get_data())["type"] == "FeatureCollection"
+
+
+def test_geo_states_served():
+    r = _client().get("/geo/us-states.geojson")
+    assert r.status_code == 200
+    assert json.loads(r.get_data())["type"] == "FeatureCollection"
+
+
+def test_geo_only_serves_geojson():
+    assert _client().get("/geo/anything.json").status_code == 404
+    assert _client().get("/geo/missing.geojson").status_code == 404
+
+
 # --- root-level PWA files ---------------------------------------------------------
 
 def test_manifest_webmanifest_served_from_dist():
