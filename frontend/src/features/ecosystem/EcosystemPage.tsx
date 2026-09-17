@@ -40,12 +40,13 @@ function canEditNow(): boolean {
 /**
  * `embed` is the exhibit view (/food-map?embed=1): just the map, filling the
  * frame, with a frosted caption, the colour key as chips, and one door out to
- * the full page. It opens on a world view and FLIES to the traced recipe, so
- * a visitor sees the dinner gather itself out of the whole map — the motion
- * is the argument (where does one meal come from?), not decoration.
+ * the full page. It opens centered over every source with all of them in
+ * view at once (EcoMap's fitVisible, padded so the caption and key don't
+ * cover a dot); a ?recipe= is traced in place rather than flown to.
  *
- * Prompt that produced it: "iframe with some flashy thing to make people
- * wanna click into the whole interface" — with the recipe pre-traced.
+ * Prompts that produced it: "iframe with some flashy thing to make people
+ * wanna click into the whole interface" — with the recipe pre-traced; then
+ * "center over everything showing all at once".
  */
 export function EcosystemPage({
   initialRecipeId = '',
@@ -89,21 +90,21 @@ export function EcosystemPage({
   }, [soloId, sources]);
 
   // The host div was hidden until the route opened — after the first data
-  // lands, frame all her sources once (not on every poll). Without this the
-  // map sits on the fixed Austin view and far-flung sources hang off the edge.
-  // In the embed with a recipe to trace, the recipe flight below IS the
-  // opening move, so the fit here would only fight it.
+  // lands, center over all her sources with every one in view (once, not on
+  // every poll). Without this the map sits on the fixed home view and
+  // far-flung sources hang off the edge. The exhibit opens the same way,
+  // recipe or not: the whole map, all at once.
   useEffect(() => {
     if (!data || didInitialFit.current) return;
     didInitialFit.current = true;
-    if (embed && initialRecipeId) return;
     const t = setTimeout(() => mapRef.current?.fitVisible(), 0);
     return () => clearTimeout(t);
-  }, [data, embed, initialRecipeId]);
+  }, [data]);
 
   // Frame a freshly-selected recipe's sources once per selection (the poll
   // must not keep re-fitting). Reads sources through a ref so a data refresh
-  // doesn't re-trigger the fit.
+  // doesn't re-trigger the fit. Not in the exhibit: there a ?recipe= traces
+  // (highlights) its sources while the view stays on everything.
   const sourcesRef = useRef(sources);
   sourcesRef.current = sources;
   const activeRecipeId = activeRecipe?.id ?? null;
@@ -114,12 +115,13 @@ export function EcosystemPage({
     }
     if (fittedRecipe.current === activeRecipeId) return;
     fittedRecipe.current = activeRecipeId;
+    if (embed) return;
     const recipe = recipes.find((r) => r.id === activeRecipeId) || null;
     const ids = ecoRecipeSourceIds(recipe, sourcesRef.current);
     const pts = sourcesRef.current
       .filter((s) => ids.has(s.id) && typeof s.lat === 'number' && typeof s.lng === 'number')
       .map((s) => [s.lat as number, s.lng as number] as [number, number]);
-    mapRef.current?.fitRecipePoints(pts, { fly: embed });
+    mapRef.current?.fitRecipePoints(pts);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeRecipeId]);
 

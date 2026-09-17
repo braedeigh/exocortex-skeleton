@@ -37,12 +37,13 @@ export interface EcoMapHandle {
   /** Zoom + center tightly on one source (frame its shape/region exactly, or
    * zoom in close on an exact spot), open its popup, scroll the map into view. */
   focusSource: (id: string) => void;
-  /** Zoom + center over the whole currently-visible set. One match → the tight
-   * single-item framing; several → fit them all; none → leave the view be. */
+  /** Center over the whole currently-visible set with all of it in view at
+   * once (dots and their outlines/regions). One match → the tight
+   * single-item framing; none → leave the view be. */
   fitVisible: () => void;
-  /** Frame a traced recipe's matched source points (once per selection).
-   * `fly` animates there from wherever the map is — the exhibit's opening. */
-  fitRecipePoints: (pts: [number, number][], opts?: { fly?: boolean }) => void;
+  /** Frame a traced recipe's matched source points (once per selection, on
+   * the full page only — the exhibit stays on the everything view). */
+  fitRecipePoints: (pts: [number, number][]) => void;
   setRegionView: () => void;
   setWorldView: () => void;
   setView: (lat: number, lng: number, zoom: number) => void;
@@ -173,6 +174,7 @@ function bindPopup(layer: L.Layer, content: HTMLElement): void {
 export const EcoMap = forwardRef<EcoMapHandle, EcoMapProps>(function EcoMap(props, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
+  const userMovedRef = useRef(false);
   const layerRef = useRef<L.LayerGroup | null>(null);
   const markersRef = useRef<Record<string, L.Layer>>({});
   // The basemap is one or two tile layers (Esri = base + labels), swapped as a
@@ -215,12 +217,18 @@ export const EcoMap = forwardRef<EcoMapHandle, EcoMapProps>(function EcoMap(prop
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    // The exhibit starts pulled all the way out so the recipe flight has
-    // somewhere to arrive from; the page starts at home.
+    // zoomSnap 0.25: a fit may land on a quarter-zoom, so "frame everything"
+    // fills the box and sits centered instead of snapping out to the next
+    // whole zoom and leaving the sources huddled off-center. Before the first
+    // data lands the exhibit shows the world; the page shows the region.
     const map = propsRef.current.embed
-      ? L.map(el, { zoomControl: false }).setView([20, 0], 2)
-      : L.map(el, { zoomControl: true }).setView(ECO_HOME, ECO_REGION_ZOOM);
+      ? L.map(el, { zoomControl: false, zoomSnap: 0.25 }).setView([20, 0], 2)
+      : L.map(el, { zoomControl: true, zoomSnap: 0.25 }).setView(ECO_HOME, ECO_REGION_ZOOM);
     mapRef.current = map;
+    // Once the visitor has moved the map themselves, no automatic fit may
+    // yank it back (the late boundary-file refit below checks this).
+    map.on('dragstart', () => { userMovedRef.current = true; });
+    el.addEventListener('wheel', () => { userMovedRef.current = true; }, { passive: true });
     layerRef.current = L.layerGroup().addTo(map);
     map.on('click', (e: L.LeafletMouseEvent) => {
       // only places a pin while adding/editing
@@ -274,9 +282,14 @@ export const EcoMap = forwardRef<EcoMapHandle, EcoMapProps>(function EcoMap(prop
     markersRef.current = {};
     // County/state regions need the boundary GeoJSON. Load it once, then
     // re-sync (until it's here those sources stand in as dots).
+    // When they land, frame everything again (shapes can reach past their
+    // anchor dots), unless the visitor has already taken the wheel.
     if (!getGeo() && sources.some(isShapeSource)) {
       loadGeo()
-        .then(() => setGeoVersion((v) => v + 1))
+        .then(() => {
+          setGeoVersion((v) => v + 1);
+          if (!userMovedRef.current) fitVisible();
+        })
         .catch(() => {});
     }
     const onEdit = (id: string) => propsRef.current.onEditSource(id);
@@ -457,40 +470,58 @@ export const EcoMap = forwardRef<EcoMapHandle, EcoMapProps>(function EcoMap(prop
     containerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
+  /** The box every listed source occupies: its dot, plus its county/state
+   * outline or its circle region when it has one. Null when none have coords. */
+  function boundsOf(list: EcoSource[]): L.LatLngBounds | null {
+    let bounds: L.LatLngBounds | null = null;
+    const add = (b: L.LatLngBounds) => { bounds = bounds ? bounds.extend(b) : L.latLngBounds(b.getSouthWest(), b.getNorthEast()); };
+    list.forEach((s) => {
+      if (!hasCoords(s)) return;
+      add(L.latLngBounds([s.lat, s.lng], [s.lat, s.lng]));
+      const feats = isShapeSource(s) ? featuresFor(s, getGeo()) : [];
+      if (feats.length) add(L.geoJSON(featureCollection(feats)).getBounds());
+      else if (s.precision === 'area' && (s.radius_km || 0) > 0) add(L.latLng(s.lat, s.lng).toBounds((s.radius_km || 0) * 2000));
+    });
+    return bounds;
+  }
+
+  /** Room the fit leaves around the sources. In the exhibit the frosted
+   * caption sits top-left and the key + door sit along the bottom, so the
+   * frame keeps that much clear; on a phone-width frame the key wraps to two
+   * rows and the door sits under it, so the bottom band is taller. The
+   * figures are the overlays' rough sizes from EcosystemPage.module.css, not
+   * measured live. */
+  function fitPadding(): L.FitBoundsOptions {
+    if (!propsRef.current.embed) return { paddingTopLeft: [24, 24], paddingBottomRight: [24, 24] };
+    const narrow = (containerRef.current?.clientWidth ?? 1000) <= 520;
+    return { paddingTopLeft: [24, 150], paddingBottomRight: [24, narrow ? 180 : 76] };
+  }
+
+  /** Center over the whole currently-visible set, all of it in view at once.
+   * One match → the tight single-item framing; none → leave the view be.
+   * Prompt: "center over everything showing all at once". */
+  function fitVisible() {
+    const map = mapRef.current;
+    if (!map) return;
+    map.invalidateSize(false);
+    const { sources: src, visibleIds: vis } = propsRef.current;
+    const pts = src.filter((s) => hasCoords(s) && (!vis || vis.has(s.id)));
+    if (!pts.length) return;
+    if (pts.length === 1) {
+      focusSource(pts[0].id);
+      return;
+    }
+    const b = boundsOf(pts);
+    if (b) map.fitBounds(b, fitPadding());
+  }
+
   useImperativeHandle(ref, (): EcoMapHandle => ({
     focusSource,
-    fitVisible() {
-      const map = mapRef.current;
-      if (!map) return;
-      map.invalidateSize(false);
-      const { sources: src, visibleIds: vis } = propsRef.current;
-      const pts = src.filter((s) => hasCoords(s) && (!vis || vis.has(s.id)));
-      if (!pts.length) return;
-      if (pts.length === 1) {
-        focusSource(pts[0].id);
-        return;
-      }
-      // Dots-only: frame the points themselves (no shape/region geometry).
-      let bounds: L.LatLngBounds | null = null;
-      pts.forEach((s) => {
-        const b = L.latLngBounds([s.lat!, s.lng!], [s.lat!, s.lng!]);
-        bounds = bounds ? bounds.extend(b) : b;
-      });
-      if (bounds) map.fitBounds((bounds as L.LatLngBounds).pad(0.15));
-    },
-    fitRecipePoints(pts, opts) {
+    fitVisible,
+    fitRecipePoints(pts) {
       const map = mapRef.current;
       if (!map) return;
       map.invalidateSize(false); // tab may have been hidden — refresh cached size so the fit centers right
-      if (opts?.fly) {
-        // One long eased move, ~1.8s: fast out of the world view, slow into
-        // the frame. Slower than a UI transition on purpose — this is the
-        // exhibit's one piece of theatre, and it has to be readable as travel.
-        const flight = { duration: 1.8, easeLinearity: 0.2 };
-        if (pts.length === 1) map.flyTo(pts[0], 7, flight);
-        else if (pts.length > 1) map.flyToBounds(L.latLngBounds(pts).pad(0.3), { maxZoom: 6, ...flight });
-        return;
-      }
       if (pts.length === 1) map.setView(pts[0], 7);
       else if (pts.length > 1) map.fitBounds(L.latLngBounds(pts).pad(0.3), { maxZoom: 7 });
     },
@@ -498,10 +529,12 @@ export const EcoMap = forwardRef<EcoMapHandle, EcoMapProps>(function EcoMap(prop
       mapRef.current?.setView(ECO_HOME, ECO_REGION_ZOOM);
     },
     setWorldView() {
+      // "World" = every source at once, shapes included; the bare globe only
+      // when nothing has coordinates yet.
       const map = mapRef.current;
       if (!map) return;
-      const pts = propsRef.current.sources.filter(hasCoords).map((s) => [s.lat, s.lng] as [number, number]);
-      if (pts.length) map.fitBounds(L.latLngBounds(pts).pad(0.3), { maxZoom: 6 });
+      const b = boundsOf(propsRef.current.sources);
+      if (b) map.fitBounds(b, fitPadding());
       else map.setView([20, 0], 2);
     },
     setView(lat, lng, zoom) {
