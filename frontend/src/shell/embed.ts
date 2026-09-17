@@ -13,5 +13,13 @@
  */
 export function isEmbed(): boolean {
   if (typeof window === 'undefined') return false;
-  return new URLSearchParams(window.location.search).get('embed') === '1';
+  return isEmbedSearch(window.location.search);
+}
+
+/** The test seam: the URL arrives as `?embed=1`, but the router re-serialises
+ * its parsed search on load and writes `?embed=true` back — by the time a
+ * component renders, that is what the address bar says. Both count. */
+export function isEmbedSearch(search: string): boolean {
+  const v = new URLSearchParams(search).get('embed');
+  return v === '1' || v === 'true';
 }
