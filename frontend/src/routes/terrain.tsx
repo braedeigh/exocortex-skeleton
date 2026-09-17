@@ -8,13 +8,11 @@ import { createFileRoute, redirect } from '@tanstack/react-router';
  * the map, /terrain/usage, /terrain/sql — is a full page of the same rank,
  * reached through the rooms index on the map.
  *
- * Auth-only, same guard as the pages it forwards to: public visitors bounce
- * to '/' before the redirect can name anything.
+ * The map is public since 2026-09-17 (public_config.PUBLIC_PATHS; the other
+ * rooms still bounce visitors), so this door forwards everyone.
  */
 export const Route = createFileRoute('/terrain')({
   beforeLoad: () => {
-    if (typeof window === 'undefined') return;
-    if (window.VIEW_MODE === 'public') throw redirect({ to: '/' });
     throw redirect({ to: '/terrain/map' });
   },
   component: () => null,

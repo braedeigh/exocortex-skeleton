@@ -239,12 +239,15 @@ export interface SessionPreview {
  * model, spend, what it's waiting on) without RosterPage's polling loop. Terrain
  * uses it for the agent hovercard. Idle-slow by default; the caller passes
  * `live` while something is actually running. */
-export function useSessionRoster(live = false) {
+export function useSessionRoster(live = false, enabled = true) {
   return useQuery({
     queryKey: ['observatory-roster'] as const,
     queryFn: async ({ signal }) => getSessions(signal),
     staleTime: live ? 4_000 : 30_000,
     refetchInterval: live ? 5_000 : false,
+    // Off for a public visitor (the map is public, the roster is not): a
+    // disabled query never fires, so nothing 401s in their console.
+    enabled,
   });
 }
 

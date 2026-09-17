@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { FakeTerminal } from './FakeTerminal';
+import { AboutPane } from './AboutPane';
 import { Workspace } from './panels/Workspace';
 import { useMediaQuery, DESKTOP_QUERY } from './useMediaQuery';
 import styles from './SplitLayout.module.css';
@@ -136,7 +137,14 @@ export function SplitLayout({ chrome, children }: { chrome: ReactNode; children:
   return (
     <div className={[styles.container, dragging ? styles.dragging : ''].filter(Boolean).join(' ')} ref={containerRef}>
       <div className={styles.left} style={{ flexBasis: `${width}%` }}>
-        <FakeTerminal onCollapse={() => setCollapsed(true)} />
+        {/* The public-only mirror is the portfolio: the owner's about page
+            takes the pane the mock terminal has on the private site's public
+            view. Same collapse rail either way. */}
+        {window.PUBLIC_ONLY ? (
+          <AboutPane onCollapse={() => setCollapsed(true)} />
+        ) : (
+          <FakeTerminal onCollapse={() => setCollapsed(true)} />
+        )}
       </div>
       <div
         className={styles.divider}

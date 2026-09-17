@@ -107,12 +107,13 @@ export interface CreekData {
  * not a live view; nothing on the page needs it fresher than a minute.
  * `refetchInterval` is only set by CreekView's Today mode (60s) — 14-day mode
  * passes nothing, so react-query never polls it. */
-export function useCreek(days = 14, opts: { refetchInterval?: number } = {}) {
+export function useCreek(days = 14, opts: { refetchInterval?: number; enabled?: boolean } = {}) {
   return useQuery({
     queryKey: ['creek', days] as const,
     queryFn: ({ signal }) => api.get<CreekData>(`/api/creek?days=${days}`, signal),
     staleTime: 60_000,
     refetchInterval: opts.refetchInterval,
+    enabled: opts.enabled ?? true,
   });
 }
 

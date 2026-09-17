@@ -138,6 +138,18 @@ PUBLIC_PATHS = (
     "/api/data/ecosystem",
     "/api/version",
     "/api/about",
+    # The Terrain map (routes/terrain.py). Open to visitors by the owner's
+    # decision (2026-09-17): every dot from both repos, the session orbs and
+    # their titles. What stays locked is file TEXT — the file endpoint refuses
+    # anything but git-tracked app code to a visitor (see _visitor_may_read
+    # there) — and everything that writes, arms or streams: the other rooms,
+    # traces, flow, creek and the session roster are deliberately NOT listed.
+    # Exact paths, never a prefix, so a new endpoint under /terrain/ is closed
+    # until someone adds it here on purpose.
+    "/terrain",
+    "/terrain/map",
+    "/api/observatory/terrain",
+    "/api/observatory/terrain/file",
     # The web-push hook door (routes/push.py): Claude Code's Stop/Notification
     # hooks POST here from localhost with no session cookie, authenticated by
     # a shared secret checked inside the route itself instead.

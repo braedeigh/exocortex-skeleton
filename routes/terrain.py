@@ -45,10 +45,12 @@ import math
 import os
 import re
 import sqlite3
+import subprocess
 import time
 
 import codegraph
 import codestore
+import config
 import runtime_sensor
 import runtime_trace
 import store
@@ -171,6 +173,68 @@ _TERRAIN_READ_DENYLIST = (
 )
 
 _TERRAIN_FILE_READ_MAX = 256 * 1024   # bytes returned to the code modal
+
+# --- what a VISITOR may read ---------------------------------------------------
+#
+# The map is public (public_config.PUBLIC_PATHS): a logged-out visitor — on the
+# private site's public view or on the public-only mirror — sees every dot from
+# both repos, the session orbs and their titles. The owner's call (2026-09-17):
+# "i am ok with personal stuff showing on the map, just make all personal
+# files unreadable to visitors, but the code can be interactive for visitors."
+#
+# So the lock is on file TEXT, and it lives here on the server, not in the
+# page: a visitor may open a file only when it is (a) in the app-code repo,
+# (b) tracked by git there — the working tree also holds logs, a local
+# CLAUDE.local.md and other untracked things that are nobody's business —
+# and (c) resolves inside that repo, so a symlink into the vault (which the
+# owner's own read deliberately follows) stays shut for strangers. Anything
+# else answers 403 with `private: true`, which the code window renders as a
+# plain "private" state rather than an error.
+_VISITOR_REPO = "skeleton"
+_TRACKED_TTL_SEC = 60
+_tracked_cache = {"at": 0.0, "root": None, "paths": frozenset()}
+
+
+def _visitor():
+    """True when this request is a stranger's (server.gate sets view_mode)."""
+    return getattr(request, "view_mode", "authed") == "public"
+
+
+def _tracked_paths(root):
+    """The repo's git-tracked paths, refreshed at most once a minute. A git
+    failure yields the empty set — a visitor then reads nothing, which is the
+    safe way to fail."""
+    now = time.monotonic()
+    if (_tracked_cache["root"] == str(root)
+            and now - _tracked_cache["at"] < _TRACKED_TTL_SEC):
+        return _tracked_cache["paths"]
+    try:
+        out = subprocess.run(["git", "-C", str(root), "ls-files", "-z"],
+                             capture_output=True, timeout=10, check=True).stdout
+        paths = frozenset(p.decode("utf-8", "replace") for p in out.split(b"\0") if p)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        paths = frozenset()
+    _tracked_cache.update(at=now, root=str(root), paths=paths)
+    return paths
+
+
+def _visitor_may_read(repo, relpath, resolved):
+    """Rules (a)–(c) above, for an already-resolved candidate file."""
+    if repo["id"] != _VISITOR_REPO:
+        return False
+    try:
+        root = Path(repo["root"]).resolve()
+    except (OSError, RuntimeError, ValueError):
+        return False
+    if root not in resolved.parents:
+        return False
+    rel = relpath.replace("\\", "/").lstrip("/")
+    return os.path.normpath(rel) in _tracked_paths(root)
+
+
+def _private_file(repo_id, relpath):
+    return jsonify({"error": "private", "private": True,
+                    "repo": repo_id, "path": relpath}), 403
 
 
 def _terrain_safe_path(root, relpath):
@@ -1579,6 +1643,10 @@ def register(app):
         resolved = _terrain_safe_path(repo["root"], relpath)
         if resolved is None:
             return jsonify({"error": "not found"}), 404
+        # The visitor lock (see _visitor_may_read). Checked AFTER the path
+        # resolves so a visitor learns nothing a 404 wouldn't already say.
+        if _visitor() and not _visitor_may_read(repo, relpath, resolved):
+            return _private_file(repo_id, relpath)
         try:
             raw = resolved.read_bytes()
         except OSError:

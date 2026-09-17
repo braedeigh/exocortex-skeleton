@@ -53,12 +53,13 @@ export const FLOW_KEY = ['flow'] as const;
  * for a backgrounded tab. `live=false` (page hidden) stops the interval
  * entirely so a lane on a sleeping monitor costs nothing.
  */
-export function useFlow(live = true) {
+export function useFlow(live = true, enabled = true) {
   return useQuery({
     queryKey: FLOW_KEY,
     queryFn: async ({ signal }) => api.get<FlowData>('/api/observatory/flow', signal),
     staleTime: 4_000,
     refetchInterval: live ? 5_000 : false,
+    enabled,
     placeholderData: (prev) => prev,
   });
 }

@@ -97,7 +97,12 @@ export function FileCodeBody({
 
       {isLoading ? <div className={styles.hint}>Reading the file…</div> : null}
 
-      {isError ? (
+      {/* 403 is the server's visitor lock (routes/terrain.py _visitor_may_read):
+          the file exists on the map, its text stays on the server. A state,
+          not a failure — so it reads as one. */}
+      {isError && (error as { status?: number } | null)?.status === 403 ? (
+        <div className={styles.hint}>Private &mdash; this file&rsquo;s contents stay on the server.</div>
+      ) : isError ? (
         <div className={styles.hint}>
           Couldn&rsquo;t read this one
           {error instanceof Error && error.message ? ` — ${error.message.toLowerCase()}` : '.'}

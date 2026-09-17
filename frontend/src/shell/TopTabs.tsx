@@ -232,6 +232,9 @@ function PublicHeader() {
         <Link to="/about" className={styles.publicLink}>
           About
         </Link>
+        <Link to="/terrain/map" className={styles.publicLink}>
+          Terrain
+        </Link>
         {window.PUBLIC_ONLY ? null : (
           <a href="/login" className={joinClass(styles.publicLink, styles.signInBtn)}>
             Sign in

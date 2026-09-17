@@ -23,6 +23,11 @@ export const Route = createFileRoute('/')({
     ) {
       return;
     }
+    // The public-only mirror is the portfolio: its front door is the Terrain
+    // map, with the about pane docked beside it (SplitLayout / AboutPane).
+    if (typeof window !== 'undefined' && window.VIEW_MODE === 'public' && window.PUBLIC_ONLY) {
+      throw redirect({ to: '/terrain/map' });
+    }
     throw redirect({ to: '/todos' });
   },
   component: Index,

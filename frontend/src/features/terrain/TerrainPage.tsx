@@ -233,6 +233,14 @@ function useDebounced<T>(value: T, ms: number): T {
 export function TerrainPage() {
   const navigate = useNavigate();
   const pageVisible = usePageVisible();
+  // A logged-out visitor — on the private site's public view or the
+  // public-only mirror. The MAP is public (public_config.PUBLIC_PATHS); the
+  // things around it are not: the session roster, flow, creek, traces, the
+  // rooms, and any file that isn't tracked app code (the server refuses
+  // those with 403 — the window shows "private"). Owner's call, 2026-09-17:
+  // "i am ok with personal stuff showing on the map, just make all personal
+  // files unreadable to visitors, but the code can be interactive."
+  const visitor = typeof window !== 'undefined' && window.VIEW_MODE === 'public';
   // Live mode: while any payload session is running AND the page is visible,
   // poll ~5s so a working session's touches light up as they happen. The
   // flag comes from the last payload, so the first fetch always runs cold
@@ -247,7 +255,7 @@ export function TerrainPage() {
   // on), for the agent hovercard. Same roster the Observatory draws from —
   // fetched here rather than derived, because none of it is in the terrain
   // payload, and it rides the same live gate so a resting map doesn't poll.
-  const roster = useSessionRoster(anyRunning && pageVisible);
+  const roster = useSessionRoster(anyRunning && pageVisible, !visitor);
 
   // The heat half-life, in whole days — what the bottom Heat bar sets. A
   // number, not one of three named lenses: the heat math has always taken a
@@ -490,7 +498,7 @@ export function TerrainPage() {
   // static wiring plus per-collection write freshness, so it changes on the
   // order of minutes, not frames — built once per payload and only re-lit on
   // the breath below.
-  const { data: creek } = useCreek(14);
+  const { data: creek } = useCreek(14, { enabled: !visitor });
   const threads = useMemo(() => buildThreads(creek), [creek]);
 
   // Lit on the SAME lens the gold dots ride, mirrored breath included, so a
@@ -791,6 +799,12 @@ export function TerrainPage() {
           setCodeFile(node);
         }
       } else if (node?.kind === 'session' && node.session) {
+        if (visitor) {
+          // The orb's footprint rings on the map; the sheet's two "Open"
+          // doors lead to the Observatory, which isn't theirs.
+          setFootprintSession((cur) => (cur === node.session!.id ? null : node.session!.id));
+          return;
+        }
         setSelected(node);
         setFootprintSession(node.session.id);
         acknowledge(node.session.id); // she turned to it — stop the sonar ping
@@ -893,7 +907,7 @@ export function TerrainPage() {
   //
   // Prompt: "This might be overlaid on the terrain visual though" (of the
   // watch-code-being-written surface).
-  const flowData = useFlow(anyRunning && pageVisible).data;
+  const flowData = useFlow(anyRunning && pageVisible, !visitor).data;
   useEffect(() => {
     const engine = engineRef.current;
     if (!engine || !flowData) return;
@@ -994,7 +1008,9 @@ export function TerrainPage() {
   // An overlay is up, so the cursor isn't over the map any more — a card left
   // hanging beside it would be pointing at an orb she can't see.
   const hoverBlocked = codeFile !== null || selected !== null;
-  const hoverId = hoverBlocked ? null : (hover?.id ?? null);
+  // (No hovercard for a visitor: its facts come from the roster and the
+  // session preview, neither of which is theirs to read.)
+  const hoverId = hoverBlocked || visitor ? null : (hover?.id ?? null);
   // Fires only while she's actually pointing at one — cached per session, so
   // coming back to the same orb is instant.
   const hoverPreview = useSessionPreview(hoverId);
@@ -1111,6 +1127,7 @@ export function TerrainPage() {
               controls: these act on the WORK, not on the map, so grouping them
               with the territory chips would say they filter something. The two
               shared panels hang from here (they anchor top-right by design). */}
+          {visitor ? null : (
           <div className={styles.pageTools}>
             <button
               ref={notesBtnRef}
@@ -1166,6 +1183,7 @@ export function TerrainPage() {
               <span aria-hidden="true">&#9889;</span> Journey
             </button>
           </div>
+          )}
         </div>
 
         {data ? (
@@ -1240,7 +1258,7 @@ export function TerrainPage() {
           the body scrolls down to the reply, and Open goes solid.
           See AgentHoverCard.tsx. */}
       <AgentHoverCard
-        hover={hoverBlocked ? null : hover}
+        hover={hoverBlocked || visitor ? null : hover}
         facts={hoverFacts}
         engaged={hoverEngaged}
         onEngage={engageHover}
@@ -1264,7 +1282,7 @@ export function TerrainPage() {
           while an overlay is up, for the same reason the agent hovercard is:
           it's anchored to a spot on a map she can no longer see. */}
       <PondLandmark
-        anchor={roomsOpen || codeFile !== null || selected !== null ? null : pondAnchor}
+        anchor={visitor || roomsOpen || codeFile !== null || selected !== null ? null : pondAnchor}
         onReach={(reached) => engineRef.current?.setPondLit(reached)}
       />
 
@@ -1272,6 +1290,8 @@ export function TerrainPage() {
           nearest positioned ancestor (.page), landing just under their trigger
           buttons in the top bar, and close themselves on Escape / a pointer
           down anywhere else — including on the canvas. */}
+      {visitor ? null : (
+      <>
       <TermNotesPanel open={panel === 'notes'} onClose={() => setPanel(null)} triggerRef={notesBtnRef} />
       <JourneyPanel
         open={journeyOpen}
@@ -1302,6 +1322,8 @@ export function TerrainPage() {
           Rendered above all the floating chrome (its backdrop covers the whole
           page), closed by Esc, the blur itself, or the Rooms button again. */}
       <TerrainRoomsIndex open={roomsOpen} onClose={() => setRoomsOpen(false)} />
+      </>
+      )}
 
       <Sheet open={selected !== null} title={selected?.label} onClose={() => setSelected(null)}>
         {selected?.kind === 'session' && selected.session ? (
@@ -1371,7 +1393,15 @@ export function TerrainPage() {
                     {/* Rows keep the quiet default — "there", the move that
                         preserves this window — the sheet's pair is where the
                         explicit fork lives. */}
-                    <button type="button" className={styles.sessionOpen} onClick={() => openSessionThere(s.id)}>
+                    <button
+                      type="button"
+                      className={styles.sessionOpen}
+                      disabled={visitor}
+                      title={visitor ? 'Sessions open only for the owner' : undefined}
+                      onClick={() => {
+                        if (!visitor) openSessionThere(s.id);
+                      }}
+                    >
                       <span className={styles.sessionTitle}>{s.title || s.id}</span>
                       <span className={styles.sessionMeta}>
                         {s.writes} {s.writes === 1 ? 'write' : 'writes'}

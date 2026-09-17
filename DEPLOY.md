@@ -87,6 +87,16 @@ door into the private instance. Nothing in the app writes in this mode that you'
 want to keep, so the data copy can be overwritten freely (an hourly `git reset
 --hard` mirror works). The Observatory and terminal stay unreachable.
 
+The **Terrain map** (`/terrain/map`) is open to visitors — on the mirror and on
+the private site's logged-out view alike. They see every file from both repos
+and the session orbs with their titles; what they cannot do is read a personal
+file: `/api/observatory/terrain/file` answers `403 {"private": true}` for
+anything that isn't git-tracked app code (`routes/terrain.py`,
+`_visitor_may_read`). The other Terrain rooms, traces, flow, creek and the
+session roster stay 401. On the mirror, `/` lands on the map with the about
+page (`CONTENT_DIR/public_about.md`) docked in the left pane. Contract:
+`tests/test_terrain_public.py`.
+
 ## Optional extras
 - `scripts/setup-mac-server.sh` — turn a Mac into an always-on, lid-closed server
 - `scripts/fix_ttyd.sh`, `scripts/ttyd_connect.sh` — embedded web terminal
