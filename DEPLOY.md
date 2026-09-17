@@ -77,6 +77,16 @@ All app data is JSON files under `EXOCORTEX_DATA_DIR`, written atomically throug
 `store.py` (the single read/write seam). Missing files fall back to sensible defaults,
 so the app runs on an empty data dir. Back up that directory (git, rsync, anything).
 
+## Running a public-only mirror
+Set `EXOCORTEX_PUBLIC_ONLY=1` in the service environment and the instance becomes a
+read-only mirror: every request gets the frosted "public" view (`public_config.py`
+decides what that shows), `/login` answers 404, and no cookie or proxy header
+authenticates. Use it for a second copy of the site on a public host — a portfolio
+page, a demo — pointed at a copy of the data, so a stranger's browser never meets a
+door into the private instance. Nothing in the app writes in this mode that you'd
+want to keep, so the data copy can be overwritten freely (an hourly `git reset
+--hard` mirror works). The Observatory and terminal stay unreachable.
+
 ## Optional extras
 - `scripts/setup-mac-server.sh` — turn a Mac into an always-on, lid-closed server
 - `scripts/fix_ttyd.sh`, `scripts/ttyd_connect.sh` — embedded web terminal

@@ -17,9 +17,11 @@ export function PublicLanding() {
         <Link to="/todos" className={styles.explore}>
           Explore the dashboard
         </Link>
-        <a href="/login" className={styles.signIn}>
-          Sign in
-        </a>
+        {window.PUBLIC_ONLY ? null : (
+          <a href="/login" className={styles.signIn}>
+            Sign in
+          </a>
+        )}
       </div>
     </div>
   );

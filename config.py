@@ -28,6 +28,22 @@ APP_VERSION = "0.6"
 DEFAULT_PASSWORD = os.environ.get("EXOCORTEX_DEFAULT_PASSWORD", "")
 
 
+def public_only() -> bool:
+    """True when this install is a read-only public mirror (EXOCORTEX_PUBLIC_ONLY=1).
+
+    In that mode every request is served in the "public" view — the frosted,
+    stranger-safe one — no matter what cookie or proxy header it carries, and
+    /login answers 404. It's how a second copy of the site (a portfolio
+    mirror on a public host) can run against a copy of the data without
+    becoming a second door into the private site. Read at call time, not
+    import time, so tests can flip it with monkeypatch.setenv.
+
+    Prompt that produced it: "add a public-only switch to the app, an env var
+    that forces every request into public view and turns off the login page."
+    """
+    return os.environ.get("EXOCORTEX_PUBLIC_ONLY", "").strip().lower() in ("1", "true", "yes")
+
+
 def get_profile():
     """The owner profile, precedence stored value (non-empty) -> env var -> default.
 

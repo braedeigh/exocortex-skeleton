@@ -231,9 +231,11 @@ function PublicHeader() {
         <Link to="/about" className={styles.publicLink}>
           About
         </Link>
-        <a href="/login" className={joinClass(styles.publicLink, styles.signInBtn)}>
-          Sign in
-        </a>
+        {window.PUBLIC_ONLY ? null : (
+          <a href="/login" className={joinClass(styles.publicLink, styles.signInBtn)}>
+            Sign in
+          </a>
+        )}
       </div>
     </div>
   );

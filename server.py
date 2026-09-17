@@ -201,6 +201,17 @@ def _is_authed() -> bool:
 
 @app.before_request
 def gate():
+    # Public-only mirror (config.public_only): nothing authenticates here — not
+    # a session cookie, not the proxy header. Every request is a stranger's, and
+    # a stranger asking for a private page is sent to the front door, not to
+    # a login page that doesn't exist in this mode.
+    if config.public_only():
+        request.view_mode = "public"
+        if is_public_path(request.path):
+            return
+        if request.path.startswith('/api/'):
+            return jsonify({"error": "unauthorized"}), 401
+        return redirect('/')
     slug = _exo_proxied_user()
     if slug:
         request.exo_user = slug
@@ -278,6 +289,10 @@ def _clear_login_fails(ip):
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
+    # A public-only mirror has no password to check against and no reason to
+    # show a form; the page simply doesn't exist there.
+    if config.public_only():
+        return "Not found", 404
     ip = request.remote_addr or "unknown"
     if request.method == "POST":
         allowed, retry_after = _check_login_rate(ip)

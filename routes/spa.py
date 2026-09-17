@@ -6,7 +6,7 @@ reachable at "/classic" as a rollback path, and the design doc this implements
 URL scheme:
   - "/" and every SPA route ("/todos", "/legacy/<tab>", "/journal", "/research",
     "/settings", "/files", "/chat") → `frontend/dist/index.html`, with `window.THEME_OVERRIDES`,
-    `window.VIEW_MODE`, and `window.PUBLIC_INTRO_HTML` injected before `</head>`.
+    `window.VIEW_MODE`, `window.PUBLIC_ONLY`, and `window.PUBLIC_INTRO_HTML` injected before `</head>`.
     Client-side routing (TanStack Router) takes it from there. Cache-Control:
     no-store — this HTML is the one thing here that's never safe to cache (the
     injected values are per-request).
@@ -72,6 +72,9 @@ def _spa_response():
         "<script>"
         f"window.THEME_OVERRIDES = {theme_json};"
         f'window.VIEW_MODE = "{view_mode}";'
+        # A public-only mirror has no login page, so the shell hides its
+        # Sign-in buttons rather than pointing strangers at a 404.
+        f"window.PUBLIC_ONLY = {'true' if config.public_only() else 'false'};"
         f"window.PUBLIC_INTRO_HTML = {intro_json};"
         f"window.APP_META = {meta_json};"
         "</script></head>"
