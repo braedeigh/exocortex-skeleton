@@ -16,19 +16,28 @@ see exactly what was written, by whom, when. This sits at the hottest seam in
 the system, so: fail-open, always — no exception can ever break or slow a
 real write beyond negligibly. Kill switch: env EXOCORTEX_WRITE_LOG_OFF=1
 disables capture entirely. Bounded: patches capped at 100 ops / ~8KB
-serialized (truncated flag). Retention: events older than 30 days pruned
-opportunistically — never a background thread."
+serialized (truncated flag)." (The brief's original 30-day retention clause
+was dropped 2026-09-17 — see below.)
 
-Touches: store.py (the only caller of ``record()``) and this module's own
-``write_log.db`` under ``store.DATA_DIR`` — nothing else reads or writes that
-db. ``diff_values()`` is a pure function, exercised directly by
+The log is PERMANENT (owner's decision, 2026-09-17): nothing in here ever
+deletes a row. It is the record of who changed what and when, kept beside
+git's hourly snapshots of the data itself. Because it grows forever it is not
+committed to git (it passed GitHub's 100 MB limit on 2026-09-14 and blocked
+every backup push until it was rewritten out of history); instead
+scripts/export_write_log.py copies each finished day into a small, never-
+changing ``write_log/<day>.db`` piece, and those pieces are what git keeps.
+The same script rebuilds this db from the pieces on a fresh machine.
+
+Touches: store.py (the only caller of ``record()``), routes/creek.py and
+routes/terrain.py (readers), scripts/export_write_log.py (the nightly
+export), and this module's own ``write_log.db`` under ``store.DATA_DIR``.
+``diff_values()`` is a pure function, exercised directly by
 tests/test_writelog.py.
 """
 from collections import Counter
-from datetime import datetime, timedelta
+from datetime import datetime
 import json
 import os
-import random
 import sqlite3
 
 import store
@@ -38,8 +47,6 @@ _BUSY_MS = 2000
 _MAX_OPS = 100
 _MAX_STR = 200               # cap on an embedded scalar's repr, in characters
 _MAX_PATCH_BYTES = 8192      # cap on the serialized patch, in bytes
-_RETENTION_DAYS = 30
-_PRUNE_CHANCE = 1 / 200      # opportunistic prune odds on a given append
 
 
 # --- kill switch ---------------------------------------------------------
@@ -313,8 +320,6 @@ def _record(collection, verb, before, after):
                 _safe_len(after),
             ),
         )
-        if random.random() < _PRUNE_CHANCE:
-            _prune(conn)
     finally:
         conn.close()
 
@@ -324,14 +329,6 @@ def _safe_len(value):
         return len(json.dumps(value, ensure_ascii=False))
     except Exception:
         return None
-
-
-def _prune(conn):
-    """Delete events older than the retention window. Called opportunistically
-    (~1-in-200 appends — see _PRUNE_CHANCE) rather than on a timer thread, so
-    retention costs nothing on the (overwhelming) majority of writes."""
-    cutoff = (datetime.now() - timedelta(days=_RETENTION_DAYS)).isoformat(timespec="seconds")
-    conn.execute("DELETE FROM write_events WHERE ts < ?", (cutoff,))
 
 
 # --- reading -----------------------------------------------------------------

@@ -36,3 +36,6 @@
 30 2 * * * EXOCORTEX_DATA_DIR=<VAULT_DIR>/data <SKELETON_DIR>/venv/bin/python3 <SKELETON_DIR>/scripts/usage_rollup.py >> <VAULT_DIR>/scripts/usage_rollup.log 2>&1
 # Architecture pulse: weekly usage report (routes, collections per caller, zero-traffic list) as a [usage] dev note
 30 4 * * 0 EXOCORTEX_DATA_DIR=<VAULT_DIR>/data <SKELETON_DIR>/venv/bin/python3 <SKELETON_DIR>/scripts/usage_doctor.py --devnote >> <VAULT_DIR>/scripts/usage_doctor.log 2>&1
+# Write-journal export: the permanent data/write_log.db (skeleton writelog.py) is too big for GitHub and untracked;
+# copy each finished day into data/write_log/<day>.db so the hourly backup commits it once. 00:10 = yesterday is closed. Idempotent.
+10 0 * * * EXOCORTEX_DATA_DIR=<VAULT_DIR>/data <SKELETON_DIR>/venv/bin/python3 <SKELETON_DIR>/scripts/export_write_log.py >> <VAULT_DIR>/scripts/export_write_log.log 2>&1

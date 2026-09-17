@@ -7,7 +7,6 @@ store's cached caller label so the caller column is deterministic. The
 diff_values() tests need no store/data_dir at all — it's a pure function.
 """
 import json
-from datetime import datetime, timedelta
 
 import pytest
 
@@ -255,22 +254,24 @@ def test_mutate_records_nothing_when_block_raises(wl_on):
     assert [e["verb"] for e in writelog.recent("log")] == ["write"]
 
 
-# --- retention: pruned opportunistically, never on a timer ---------------------
+# --- retention: there is none — the log is permanent ---------------------------
 
-def test_prune_removes_events_older_than_the_retention_window(wl_on):
+def test_nothing_is_ever_pruned(wl_on):
+    """Owner's decision 2026-09-17: no retention window. A row from years ago
+    must survive any number of new writes, and the module must not even have
+    a prune to call."""
     conn = writelog._connect()
-    old_ts = (datetime.now() - timedelta(days=writelog._RETENTION_DAYS + 10)).isoformat(timespec="seconds")
-    fresh_ts = datetime.now().isoformat(timespec="seconds")
-    for ts in (old_ts, fresh_ts):
-        conn.execute(
-            "INSERT INTO write_events"
-            " (ts, caller, collection, verb, patch, truncated, bytes_before, bytes_after)"
-            " VALUES (?, 'x', 'places', 'write', '[]', 0, 0, 0)",
-            (ts,),
-        )
-    writelog._prune(conn)
+    old_ts = "2020-01-01T12:00:00"
+    conn.execute(
+        "INSERT INTO write_events"
+        " (ts, caller, collection, verb, patch, truncated, bytes_before, bytes_after)"
+        " VALUES (?, 'x', 'places', 'write', '[]', 0, 0, 0)",
+        (old_ts,),
+    )
     conn.close()
-
-    remaining = [e["ts"] for e in writelog.recent("places", limit=100)]
-    assert old_ts not in remaining
-    assert fresh_ts in remaining
+    for _ in range(50):
+        writelog.record("places", "write", {"a": 1}, {"a": 2})
+    assert writelog.capturing_since() == old_ts
+    assert old_ts in [e["ts"] for e in writelog.recent("places", limit=100)]
+    assert not hasattr(writelog, "_prune")
+    assert not hasattr(writelog, "_RETENTION_DAYS")
