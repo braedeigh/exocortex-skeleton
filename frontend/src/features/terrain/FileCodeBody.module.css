@@ -177,24 +177,34 @@
 
 /* --- syntax roles (syntax.ts) ---------------------------------------------
 
-   Each role is coloured from the theme's own runtime variables rather than a
-   stock editor palette, so the sky engine carries the code through sunrise
-   and sunset with the rest of the page. Every hue is mixed part-way toward
-   --text: that darkens it on the light surface and lightens it on the dark
-   one, which is what keeps small monospace text legible on both without a
-   second set of rules. No red, no orange, no gold — the map's edit ramp,
-   the "waiting on you" tint and the run channel own those.
+   Two fixed palettes, one per surface, switched by .codeDark (FileCodeBody
+   sets it from the theme's ink). They used to be mixes of the theme's own
+   accent variables, but the lavender sky's page (#aba3b2) is a MID-tone,
+   and a mid-tone hue on it reads at 2–3:1 — "the contrast could be higher,
+   both with the background and with one another". So on light every role
+   is a deep, saturated hue: measured at or above 4.5:1 on the lavender
+   page, near 10:1 on the paler morning and day pages. On dark every role
+   is a light tint measured above 7:1 on both dark pages. And the hues are
+   spread — purple, green, blue, plum, petrol — with the closest pair on
+   light a ΔE of ~25 and on dark ~19, so no two roles read as one colour.
+   Still no red, orange or gold: the map's edit ramp, the "waiting on you"
+   tint and the run channel own those.
+
+   Roles that share a colour on purpose: tags wear the keyword purple (an
+   HTML/JSX tag IS the structure), properties and attribute names wear the
+   type petrol. Fewer distinct colours, each further from the next.
 
    Comments (and Python docstrings) are the plain-English layer of this
    codebase, so they get the secondary text tone and italics: prose sitting
    inside the code, readable on its own or skippable as a block. */
 
-.syn_keyword {
-  color: color-mix(in srgb, var(--accent) 80%, var(--text));
+.syn_keyword,
+.syn_tag {
+  color: #441692;
 }
 
 .syn_string {
-  color: color-mix(in srgb, var(--ongoing) 68%, var(--text));
+  color: #083f33;
 }
 
 .syn_comment {
@@ -203,37 +213,58 @@
 }
 
 .syn_number {
-  color: color-mix(in srgb, var(--evening) 72%, var(--text));
+  color: #0b2c7c;
 }
 
 .syn_function {
-  color: color-mix(in srgb, color-mix(in srgb, var(--accent) 50%, var(--evening)) 85%, var(--text));
+  color: #64105e;
 }
 
-.syn_type {
-  color: color-mix(in srgb, var(--accent) 62%, var(--text));
-}
-
+.syn_type,
 .syn_property {
-  color: color-mix(in srgb, var(--evening) 82%, var(--text));
-}
-
-.syn_tag {
-  color: color-mix(in srgb, var(--evening) 70%, var(--text));
+  color: #063f57;
 }
 
 .syn_punctuation {
-  color: color-mix(in srgb, var(--text) 72%, var(--text-muted));
+  color: #3a3540;
 }
 
 .syn_heading {
-  color: var(--accent);
+  color: #441692;
   font-weight: 600;
 }
 
 .syn_link {
-  color: color-mix(in srgb, var(--evening) 82%, var(--text));
+  color: #0b2c7c;
   text-decoration: underline;
+}
+
+.codeDark .syn_keyword,
+.codeDark .syn_tag,
+.codeDark .syn_heading {
+  color: #c9a8ff;
+}
+
+.codeDark .syn_string {
+  color: #7fe0c6;
+}
+
+.codeDark .syn_number,
+.codeDark .syn_link {
+  color: #9db8ff;
+}
+
+.codeDark .syn_function {
+  color: #f0a6e8;
+}
+
+.codeDark .syn_type,
+.codeDark .syn_property {
+  color: #8fe3ff;
+}
+
+.codeDark .syn_punctuation {
+  color: #a89cb8;
 }
 
 /* A line the red-edits toggle has lit. Both marks sit in the gutter, never

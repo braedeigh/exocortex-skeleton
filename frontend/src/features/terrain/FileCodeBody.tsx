@@ -71,8 +71,10 @@ import styles from './FileCodeBody.module.css';
  * SYNTAX COLOUR: every text file with a grammar (syntax.ts `langForPath`)
  * is tokenized by Shiki once per fetch, and each line renders as a run of
  * spans wearing a ROLE class — keyword, string, comment, number, name —
- * whose colours are the theme's own variables (the .syn* rules in the CSS
- * module). Comments and docstrings are italic and softer, so the
+ * coloured per surface: one deep palette for the light skies, one light
+ * palette for the dark ones (the .syn* rules in the CSS module, switched by
+ * .codeDark from the theme's ink, each measured for contrast against the
+ * actual page colours). Comments and docstrings are italic and softer, so the
  * plain-English layer reads as prose sitting inside the code. Until the
  * grammar arrives, or when there is none, the line is one plain span: the
  * colour never delays the text. The red wash and the syntax colours stack —
@@ -122,7 +124,10 @@ export function FileCodeBody({
   // it's on) and the ramp (only built while it's on).
   const heatOn = useCodeHeatOn();
   const edits = useTerrainFileEdits(repo, path, heatOn && !!data && !data.binary);
-  const ownInk = useThemeInk(ink === undefined && heatOn);
+  // The ink is wanted whenever there's code on screen, not only for the
+  // red: the syntax palette is per surface (.codeDark below), and the map
+  // hands its own in while other frames read it themselves.
+  const ownInk = useThemeInk(ink === undefined && data?.content != null);
   const liveInk = ink ?? ownInk;
   const ramp = useMemo(() => (heatOn && liveInk ? heatRamps(liveInk).ember : null), [heatOn, liveInk]);
   // "now" is the moment the stamps were fetched, not this render: the breath
@@ -238,7 +243,12 @@ export function FileCodeBody({
 
       {lines ? (
         <div
-          className={[styles.code, fill ? styles.codeFill : '', uncapCode ? styles.codeFlow : '']
+          className={[
+            styles.code,
+            fill ? styles.codeFill : '',
+            uncapCode ? styles.codeFlow : '',
+            liveInk?.dark ? styles.codeDark : '',
+          ]
             .filter(Boolean)
             .join(' ')}
         >
