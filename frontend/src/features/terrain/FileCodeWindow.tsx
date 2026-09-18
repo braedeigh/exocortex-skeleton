@@ -5,21 +5,20 @@ import { FileCodeBody } from './FileCodeBody';
 import styles from './FileCodeWindow.module.css';
 
 /**
- * FileCodeWindow — tap a file on the map and read it right there: a frosted
- * pane that floats OVER the terrain instead of replacing it. The map stays
- * visible (and blurred) behind the glass, so the file never stops being a
- * place on the map you're looking into.
+ * FileCodeWindow — tap a file on the map and read it: an opaque page that
+ * takes the whole screen, with the file's name and path across the top and
+ * one × (or Esc) that puts the map back exactly as it was.
  *
- * It replaced a plain modal, and the two differences are the whole point:
+ * It used to be a frosted pane floating over a blurred map, sized so the
+ * terrain showed around its edges. That's gone: the map is covered while a
+ * file is open. The page is opaque on purpose — code over a field of moving
+ * dots was the legibility cost the frost kept paying, and she asked for the
+ * cover outright.
  *
- *   - NO SCRIM. Every other overlay in the app dims the page behind it in 40%
- *     black. This one doesn't — that wash is exactly what would turn the
- *     frost into an ordinary dialog with the map hidden behind it.
- *   - ONE SCROLLER. The old modal capped its code block at 55vh and scrolled
- *     it inside a sheet that also scrolled. Here the window's body is the
- *     only vertical scroll region and the code flows into it (FileCodeBody's
- *     `uncapCode`); the code block keeps its own HORIZONTAL scroll for long
- *     lines, which is the one thing it can't inherit.
+ * One scroller: the page body is the only vertical scroll region and the
+ * code flows into it (FileCodeBody's `uncapCode`); the code block keeps its
+ * own HORIZONTAL scroll for long lines, which is the one thing it can't
+ * inherit.
  *
  * Opening it never touches the canvas element, the d3-force sim, or the zoom
  * transform — it's portalled onto document.body, so the map underneath isn't
@@ -27,12 +26,12 @@ import styles from './FileCodeWindow.module.css';
  * you left off.
  *
  * The body is shared with the /code page (FileCodeBody); this file is the
- * frame and the frost. `children` is what the map knows that the file itself
- * doesn't — which agents touched it, and the footprint control for each.
+ * frame. `children` is what the map knows that the file itself doesn't —
+ * which agents touched it, and the footprint control for each.
  *
- * Prompt that produced it: "i want to be able to tap on a file to open it in
- * another frosted window overlaid onto the terrain page with the code on it,
- * scrollable."
+ * Prompt that produced it: "when I click on the code, it just pulls it up
+ * over the entire terrain screen with an opaque background and I can click
+ * an x to close it and go back."
  */
 export function FileCodeWindow({
   repo,

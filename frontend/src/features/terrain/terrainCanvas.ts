@@ -1976,7 +1976,11 @@ export class TerrainCanvas {
       // set. Reads get a white ring; created and modified files both take the
       // agent's purple (her 07-27 call: created-ness is the green DOT above,
       // so the ring only ever says "an agent on this map touched it").
-      // Always full-alpha — it's the whole point of drawing the agents.
+      // Full-alpha on an undimmed map; under a spotlight (a search, or a
+      // tapped agent) a ring on a file outside the lit set recedes with its
+      // dot, so the rings can't keep shouting over a map that's gone quiet.
+      // Prompt: "make it such that all the circles surrounding things that
+      // agents are touching also dim".
       let ring =
         n.node.kind === 'file' ? (this.focusRings.get(n.id) ?? this.agentRings.get(n.id)) : undefined;
       // Under a hover the rings answer a narrower question. A file the hovered
@@ -2002,7 +2006,7 @@ export class TerrainCanvas {
         ctx.stroke();
       }
       if (ring) {
-        ctx.globalAlpha = ringAlpha;
+        ctx.globalAlpha = ringAlpha * (inPrint ? 1 : 0.22);
         ctx.strokeStyle = ring === 'read' ? READ_RING : this.orbStroke;
         ctx.lineWidth = 2.4 / transform.k;
         ctx.beginPath();

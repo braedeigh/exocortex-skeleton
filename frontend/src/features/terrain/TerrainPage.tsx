@@ -166,7 +166,7 @@ function usePageVisible(): boolean {
  * breath so the whole map remembers further back and forgets again on a ten
  * second cycle.
  *
- * Tap a file → its code, in a frosted window floating over the map
+ * Tap a file → its code, full-screen over the map, × to come back
  * (FileCodeWindow), with what the map knows about the file printed under it:
  * when it was last touched, and every agent that touched it — each row opens
  * that conversation in the Observatory, or rings its whole footprint on the
@@ -382,7 +382,7 @@ export function TerrainPage() {
   // (typing clears the agent, tapping an agent clears the query), so they
   // can never argue over the same pixels.
   const [query, setQuery] = useState('');
-  // The file whose frosted code window is open, if any — the whole node, not
+  // The file whose code page is open, if any — the whole node, not
   // just its coordinates, because the window shows what the MAP knows about
   // the file (when it was last touched, which agents touched it) alongside
   // what's in it. Separate from `selected`, which is now only ever an agent
@@ -828,7 +828,7 @@ export function TerrainPage() {
   // Tap. A FILE goes to a code tile if one is watching — in this window or
   // another browser window on another monitor (shell/panels/windowBus.ts),
   // most recently touched tile winning — and with no code tile anywhere it
-  // opens straight into its frosted code window over the map, one tap, exactly
+  // opens straight into its full-screen code page, one tap, exactly
   // as before. Same rule as the observatory's file lists (SessionCard), so
   // code opens the same way from every surface. An agent orb highlights its
   // footprint immediately AND opens its sheet; empty canvas clears everything.
@@ -1062,7 +1062,7 @@ export function TerrainPage() {
     openSessionHere(convId);
   };
 
-  // Files are read in the frosted window now, not the sheet, so this is the
+  // Files are read on the full-screen code page now, not the sheet, so this is the
   // age line the WINDOW prints under the code.
   const codeFileLast = codeFile?.file ? fileLastTouch(codeFile.file) : null;
 
@@ -1146,8 +1146,8 @@ export function TerrainPage() {
     }
   };
   // A row in the hit list opens the file exactly as tapping its dot does:
-  // out to a paired window if one is listening, else the frosted code
-  // window here. Hits are pinned, so the node is on the map to be found;
+  // out to a paired window if one is listening, else the full-screen code
+  // page here. Hits are pinned, so the node is on the map to be found;
   // if it somehow isn't, a bare node still carries enough to open it.
   const openHit = (hit: TerrainSearchHit) => {
     if (dispatchIntent({ kind: 'code', repo: hit.repoId, path: hit.path }) !== 'none') return;

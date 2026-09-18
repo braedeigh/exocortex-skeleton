@@ -6,7 +6,7 @@ import styles from './FileCodeBody.module.css';
  * FileCodeBody — one file's actual contents, fetched from the terrain file
  * endpoint (GET /api/observatory/terrain/file) and laid out identically in
  * every place it's shown: the map's tap-a-node modal (FileCodeModal), the
- * frosted map window (FileCodeWindow), and the /code page a session card's
+ * full-screen file page over the map (FileCodeWindow), and the /code page a session card's
  * file list opens into (FileCodePage). One fetch, one layout, three frames
  * around it.
  *
@@ -38,7 +38,7 @@ import styles from './FileCodeBody.module.css';
  *     summary still earns its keep: the point there is to read what a file IS
  *     without reading the file.
  *
- * `uncapCode` is WINDOW mode (FileCodeWindow, the frosted pane over the map).
+ * `uncapCode` is WINDOW mode (FileCodeWindow, the full-screen file page).
  * It keeps the summary — same reason the modal does — but drops the code
  * block's own vertical scroll so the whole file flows into the window's one
  * scroll region. It also drops the path line, because that frame prints the
@@ -91,7 +91,7 @@ export function FileCodeBody({
   return (
     <div className={[styles.body, fill ? styles.bodyFill : ''].filter(Boolean).join(' ')}>
       {/* The modal's header is only the filename, so the full path goes here.
-          The page and the frosted window both have room for it in their own
+          The /code page and the file page both have room for it in their own
           headers — in those frames this line would just say it twice. */}
       {!fill && !uncapCode ? <div className={styles.path}>{path}</div> : null}
 

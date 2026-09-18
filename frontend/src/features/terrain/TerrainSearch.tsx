@@ -7,8 +7,8 @@ import styles from './TerrainSearch.module.css';
  * that drops from it. Type a name or a bit of a path and the map dims to the
  * files that match (TerrainPage does the lighting through the same spotlight
  * an agent tap uses); this component only owns the field, the list, and the
- * keys. Tap a row, or the lit dot itself, and the file opens in the frosted
- * code window.
+ * keys. Tap a row, or the lit dot itself, and the file opens full-screen
+ * (FileCodeWindow).
  *
  * Keys: `/` anywhere on the page focuses the field. ↑/↓ walk the list, Enter
  * opens the highlighted hit (the top one if none is), Esc clears the query,
