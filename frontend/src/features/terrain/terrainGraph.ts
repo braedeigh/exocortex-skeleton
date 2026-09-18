@@ -47,7 +47,7 @@ export function windowToHalfLife(windowSeconds: number): number {
  * The GOLD channel's window: a file is gold if it actually RAN inside it.
  * On a fixed preset it's one day — "did this code run today" — whatever the
  * Heat bar says; the slider moves EMBER only. Under Dynamic it takes its own
- * breath (goldBreathWindow below): a day down to five minutes and back,
+ * breath (goldBreathWindow below): five minutes out to a day and back,
  * ALTERNATING with ember's day-to-month breath — see alternatingBreath. Same
  * shape of decay as ember: fully lit just ran, half a third of the way, gone
  * at the edge.
@@ -62,7 +62,9 @@ export const RUN_HALF_LIFE_SECONDS = windowToHalfLife(RUN_WINDOW_SECONDS);
  * for a file only when its bucket happened to start inside that minute — one
  * cycle in five — and the map would flicker at the bottom of every breath.
  * Five minutes is the sensor's honest resolution; the ceiling is the fixed
- * window above, so the top of the gold breath is exactly the resting state.
+ * window above, so the top of the gold breath is exactly what a fixed preset
+ * shows. Under the breath gold RESTS at the floor, not the ceiling — see
+ * alternatingBreath for why.
  */
 export const GOLD_BREATH_SECONDS = { min: 300, max: RUN_WINDOW_SECONDS } as const;
 
@@ -216,47 +218,60 @@ export function breathHalfLife(elapsedMs: number, periodMs = 10_000): number {
 }
 
 /**
- * The gold breath's SHAPE: a day tightening to five minutes over the inhale
- * and easing back out over the exhale — ember's breath inverted, focusing in
- * on "now" where ember reaches back into the past. Its rest value (a day) is
- * the fixed window, so a preset and a resting breath agree.
+ * The gold breath's SHAPE: five minutes swelling out to a day over the inhale
+ * and easing back over the exhale — the same motion as ember's breath, on
+ * gold's own range. It starts and ends at its floor, so the bottom of the
+ * breath is gold's quiet state (only what ran in the last five minutes is
+ * lit) and the top is the fixed preset's question (what ran today).
  *
  * On its own this never runs; alternatingBreath() below hands the clock to
  * one fire at a time.
  */
 export function goldBreathWindow(elapsedMs: number, periodMs = 10_000): number {
-  // lo/hi swapped on purpose: u = 0 (cycle start) is the DAY, u = 1 (top of
-  // the inhale) is five minutes.
-  return breathSpan(elapsedMs, periodMs, GOLD_BREATH_SECONDS.max, GOLD_BREATH_SECONDS.min);
+  return breathSpan(elapsedMs, periodMs, GOLD_BREATH_SECONDS.min, GOLD_BREATH_SECONDS.max);
 }
 
 /** Which fire the current breath belongs to. */
 export type BreathTurn = 'ember' | 'gold';
 
 /**
- * THE ALTERNATING BREATH — the two fires take turns. One full cycle
- * (BREATH_PERIOD_MS) belongs to ember: its window swells from a day out to a
- * month and settles back while gold rests at its day. The next cycle belongs
- * to gold: its window tightens from a day in to five minutes and eases back
- * while ember rests at ITS day. Then ember again. Her call, after seeing them
- * breathe together: "have one breath be the time of editing, then the other
- * breath be the time of the last activated, and then have them alternate
- * rather than both be active at the same time".
+ * THE ALTERNATING BREATH — the two fires take turns, and each rests at its
+ * SMALLEST. One full cycle (BREATH_PERIOD_MS) belongs to ember: its window
+ * swells from a day out to a month and settles back while gold rests at five
+ * minutes. The next cycle belongs to gold: its window swells from five
+ * minutes out to a day and settles back while ember rests at ITS day. Then
+ * ember again. Her call, after seeing them breathe together: "have one
+ * breath be the time of editing, then the other breath be the time of the
+ * last activated, and then have them alternate rather than both be active at
+ * the same time".
  *
- * The handoff is seamless by construction: both breaths START and END at a
- * day, so at the moment the clock passes from one fire to the other nothing
- * on the map or the bar jumps — the thumb comes to rest at the left as the
- * gold ring begins to move from the right, and vice versa.
+ * Why gold rests at five minutes and not at its day: a day is gold's
+ * LARGEST window, so resting there meant the map stayed fully yellow for the
+ * whole of ember's turn, while red glowed up around it. Her correction:
+ * "change it such that when the red is at its smallest, the yellow is at its
+ * largest. Currently yellow is off kilter and stays yellow in half of the
+ * cycle while the red is glowing up". With both resting small, only one
+ * colour blooms at a time: yellow is at its fullest at the top of gold's
+ * turn, exactly when red is at its smallest, and yellow is quiet while red
+ * reaches back.
+ *
+ * The handoff is seamless by construction: both breaths START and END at
+ * their rest, so at the moment the clock passes from one fire to the other
+ * nothing on the map or the bar jumps — the thumb comes to rest at the left
+ * as the gold ring begins to move out from the left, and vice versa. (Gold's
+ * rest differs from the fixed preset's day, so entering or leaving Dynamic
+ * moves the ring — the same jump the thumb already makes.)
  *
  * What it looks like: the map remembers back a month of edits and forgets
- * again; then it narrows to what is executing right now and widens again;
- * then it remembers again. One question at a time, in red, then in gold.
+ * again; then what is executing right now widens to what ran today and
+ * narrows again; then it remembers again. One question at a time, in red,
+ * then in gold.
  */
 export function alternatingBreath(
   elapsedMs: number,
   periodMs = BREATH_PERIOD_MS,
 ): { ember: number; gold: number; turn: BreathTurn } {
-  const rest = { ember: LENS_HALF_LIFE_SECONDS.day, gold: RUN_WINDOW_SECONDS };
+  const rest = { ember: LENS_HALF_LIFE_SECONDS.day, gold: GOLD_BREATH_SECONDS.min };
   if (!(periodMs > 0)) return { ...rest, turn: 'ember' };
   const two = 2 * periodMs;
   const inPair = ((elapsedMs % two) + two) % two;

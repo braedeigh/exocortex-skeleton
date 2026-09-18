@@ -283,9 +283,10 @@ export function TerrainPage() {
   const [breathDays, setBreathDays] = useState(7);
   // Gold's live window under the breath. The two fires take turns
   // (terrainGraph.ts alternatingBreath): one cycle ember reaches back to a
-  // month and returns while gold rests at its day; the next, gold tightens
-  // to five minutes and returns while ember rests at a day. On any fixed
-  // preset gold is the fixed one-day question.
+  // month and returns while gold rests at five minutes; the next, gold
+  // swells out to a day and returns while ember rests at a day. Each rests
+  // at its smallest, so yellow is fullest exactly when red is quietest. On
+  // any fixed preset gold is the fixed one-day question.
   const [goldBreathSeconds, setGoldBreathSeconds] = useState<number>(RUN_WINDOW_SECONDS);
   const liveHeatDays = breathing ? breathDays : heatDays;
   const windowSeconds = liveHeatDays * DAY_SECONDS;
@@ -303,11 +304,13 @@ export function TerrainPage() {
   useEffect(() => {
     if (!breathing || !pageVisible) return;
     // Reduced motion pins it at the swell's top rather than dropping the mode:
-    // "remember a month back" is still a legible lens standing still.
+    // "remember a month back" is still a legible lens standing still. Gold is
+    // pinned at its day (the fixed question) rather than the five minutes it
+    // rests at during ember's turn — a still map should still show what ran.
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
       const b = alternatingBreath(BREATH_PERIOD_MS * BREATH_INHALE_FRACTION, BREATH_PERIOD_MS);
       setBreathDays(b.ember / DAY_SECONDS);
-      setGoldBreathSeconds(b.gold);
+      setGoldBreathSeconds(RUN_WINDOW_SECONDS);
       return;
     }
     const started = performance.now();

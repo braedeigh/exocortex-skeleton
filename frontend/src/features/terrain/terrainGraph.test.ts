@@ -1236,34 +1236,46 @@ describe('the gold channel — what actually RAN, vs what edited it', () => {
 describe('the alternating breath — ember takes a cycle, then gold, then ember', () => {
   const P = 10_000;
   const DAY = LENS_HALF_LIFE_SECONDS.day;
+  const FIVE_MIN = GOLD_BREATH_SECONDS.min;
 
-  it('first cycle is ember: gold rests at its day while ember reaches back and returns', () => {
+  it('first cycle is ember: gold rests at five minutes while ember reaches back and returns', () => {
     for (const t of [0, P * 0.2, P * 0.4, P * 0.7, P - 1]) {
       const b = alternatingBreath(t, P);
       expect(b.turn).toBe('ember');
-      expect(b.gold).toBe(24 * 3600);
+      expect(b.gold).toBe(FIVE_MIN);
       expect(b.ember).toBeCloseTo(breathHalfLife(t, P), 3);
     }
   });
 
-  it('second cycle is gold: ember rests at a day while gold tightens to five minutes and eases back', () => {
+  it('second cycle is gold: ember rests at a day while gold swells to a day and eases back', () => {
     for (const t of [P, P * 1.2, P * 1.4, P * 1.7, 2 * P - 1]) {
       const b = alternatingBreath(t, P);
       expect(b.turn).toBe('gold');
       expect(b.ember).toBe(DAY);
       expect(b.gold).toBeCloseTo(goldBreathWindow(t - P, P), 3);
     }
-    expect(alternatingBreath(P * 1.4, P).gold).toBeCloseTo(GOLD_BREATH_SECONDS.min, 3);
+    expect(alternatingBreath(P * 1.4, P).gold).toBeCloseTo(GOLD_BREATH_SECONDS.max, 3);
   });
 
-  it('hands off without a jump — both fires sit at a day at every changeover', () => {
+  it('yellow is at its largest exactly when red is at its smallest, and quiet while red glows', () => {
+    // The top of gold's turn: a full day of runs lit, ember down at its day.
+    const top = alternatingBreath(P * 1.4, P);
+    expect(top.gold).toBeCloseTo(DAY, 3);
+    expect(top.ember).toBe(DAY);
+    // The top of ember's turn: a month of edits lit, gold down at five minutes.
+    const emberTop = alternatingBreath(P * 0.4, P);
+    expect(emberTop.ember).toBeCloseTo(LENS_HALF_LIFE_SECONDS.month, 3);
+    expect(emberTop.gold).toBe(FIVE_MIN);
+  });
+
+  it('hands off without a jump — both fires sit at their rest at every changeover', () => {
     for (const edge of [P, 2 * P, 3 * P]) {
       const before = alternatingBreath(edge - 1, P);
       const after = alternatingBreath(edge + 1, P);
       expect(before.ember).toBeCloseTo(DAY, -1);
       expect(after.ember).toBeCloseTo(DAY, -1);
-      expect(before.gold).toBeCloseTo(24 * 3600, -1);
-      expect(after.gold).toBeCloseTo(24 * 3600, -1);
+      expect(before.gold).toBeCloseTo(FIVE_MIN, -1);
+      expect(after.gold).toBeCloseTo(FIVE_MIN, -1);
     }
   });
 
@@ -1271,7 +1283,7 @@ describe('the alternating breath — ember takes a cycle, then gold, then ember'
     for (let i = 0; i < 40; i += 1) {
       const b = alternatingBreath((i / 40) * 2 * P, P);
       const emberMoving = Math.abs(b.ember - DAY) > 1;
-      const goldMoving = Math.abs(b.gold - 24 * 3600) > 1;
+      const goldMoving = Math.abs(b.gold - FIVE_MIN) > 1;
       expect(emberMoving && goldMoving).toBe(false);
     }
   });
@@ -1284,16 +1296,16 @@ describe('the alternating breath — ember takes a cycle, then gold, then ember'
   });
 });
 
-describe("the gold breath's shape — a day down to five minutes, ember's breath inverted", () => {
+describe("the gold breath's shape — five minutes out to a day, the same motion as ember's", () => {
   const P = 10_000;
 
-  it('starts at a day, tightens to five minutes at the top of the inhale, and returns', () => {
-    expect(goldBreathWindow(0, P)).toBeCloseTo(GOLD_BREATH_SECONDS.max, 3);
-    expect(goldBreathWindow(P * 0.4, P)).toBeCloseTo(GOLD_BREATH_SECONDS.min, 3);
-    expect(goldBreathWindow(P, P)).toBeCloseTo(GOLD_BREATH_SECONDS.max, 3);
+  it('starts at five minutes, swells to a day at the top of the inhale, and returns', () => {
+    expect(goldBreathWindow(0, P)).toBeCloseTo(GOLD_BREATH_SECONDS.min, 3);
+    expect(goldBreathWindow(P * 0.4, P)).toBeCloseTo(GOLD_BREATH_SECONDS.max, 3);
+    expect(goldBreathWindow(P, P)).toBeCloseTo(GOLD_BREATH_SECONDS.min, 3);
   });
 
-  it('is exactly antiphase to ember — log-space positions sum to one at every instant', () => {
+  it('moves in step with ember — log-space positions match at every instant', () => {
     const lo = Math.log(LENS_HALF_LIFE_SECONDS.day);
     const hi = Math.log(LENS_HALF_LIFE_SECONDS.month);
     const glo = Math.log(GOLD_BREATH_SECONDS.min);
@@ -1302,11 +1314,11 @@ describe("the gold breath's shape — a day down to five minutes, ember's breath
       const t = (i / 20) * P;
       const uEmber = (Math.log(breathHalfLife(t, P)) - lo) / (hi - lo);
       const uGold = (Math.log(goldBreathWindow(t, P)) - glo) / (ghi - glo);
-      expect(uGold + uEmber).toBeCloseTo(1, 6);
+      expect(uGold).toBeCloseTo(uEmber, 6);
     }
   });
 
-  it('rests at exactly the fixed window, so a preset and the bottom of the breath agree', () => {
+  it('peaks at exactly the fixed window, so a preset and the top of the breath agree', () => {
     expect(GOLD_BREATH_SECONDS.max).toBe(24 * 3600);
   });
 });

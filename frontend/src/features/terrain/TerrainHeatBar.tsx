@@ -59,15 +59,19 @@ import styles from './TerrainHeatBar.module.css';
  *    marks gold's edge on the lower band: at rest and on every fixed preset
  *    it sits at the far right (one day — "did this code run today",
  *    terrainGraph.ts RUN_WINDOW_SECONDS); under Dynamic the two take turns
- *    (alternatingBreath): for one cycle the thumb reaches right to a month
- *    and returns while the ring rests; the next, the ring tightens left to
- *    five minutes and returns while the thumb rests at a day. The
- *    ring is a marker, not a control: gold's window isn't hers to set, so
- *    there's nothing to grab. Read either band as an age axis and the colour
- *    under a point is what a file that old wears right now.
+ *    (alternatingBreath), each resting at its smallest: for one cycle the
+ *    thumb reaches right to a month and returns while the ring waits at the
+ *    far left (five minutes); the next, the ring swells right to the day and
+ *    returns while the thumb rests at a day. The ring is a marker, not a
+ *    control: gold's window isn't hers to set, so there's nothing to grab.
+ *    Read either band as an age axis and the colour under a point is what a
+ *    file that old wears right now.
  *    Prompts: "i want it to show like what has run in the past minute up to
  *    the past day" → "have one breath be the time of editing, then the other
- *    breath be the time of the last activated, and then have them alternate".
+ *    breath be the time of the last activated, and then have them alternate"
+ *    → "when the red is at its smallest, the yellow is at its largest.
+ *    Currently yellow is off kilter and stays yellow in half of the cycle
+ *    while the red is glowing up".
  *
  * Prompts that produced it: "change the day/week/month toggle for the heat map
  * coloring... a bar like the rest, but with tick marks for days, and a label
@@ -198,7 +202,7 @@ export function TerrainHeatBar({
             .join(' ')}
           aria-pressed={breathing}
           onClick={() => onBreathe?.()}
-          title="Let the windows breathe in turn — one breath reaches back a month of edits, the next narrows to the last five minutes of runs"
+          title="Let the windows breathe in turn — one breath reaches back a month of edits, the next widens from the last five minutes of runs out to the day"
         >
           Dynamic
         </button>
