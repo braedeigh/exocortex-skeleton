@@ -3,8 +3,8 @@ import { subscribeTheme } from '../../theme';
 import { useTerrain, type TerrainData } from './api';
 import { collapseToPondTile, localDayISO } from './pondNodes';
 import {
-  breathHalfLife,
-  mirrorHalfLife,
+  alternatingBreath,
+  windowToHalfLife,
   buildTerrainGraph,
   changedFileIds,
   BREATH_PERIOD_MS,
@@ -194,7 +194,13 @@ export function TerrainBackdrop({
       const payload = dataRef.current;
       if (!engine || !payload) return;
       const elapsed = calm ? BREATH_PERIOD_MS / 2 : performance.now() - started;
-      const half = breathHalfLife(elapsed, BREATH_PERIOD_MS);
+      // The breath's values are WINDOWS; the decay takes a half-life a third
+      // of each, so the glow runs out at the window's edge (terrainGraph.ts
+      // windowToHalfLife). The two fires take turns — one cycle ember, the
+      // next gold (alternatingBreath) — so `half` is whichever is moving now,
+      // and the turn detector below listens to that one.
+      const breath = alternatingBreath(elapsed, BREATH_PERIOD_MS);
+      const half = breath.turn === 'ember' ? breath.ember : breath.gold;
       // The focused agent's purple sonar fires at BOTH turns of the breath —
       // the top, where the map stops widening its memory and starts letting it
       // go, and the bottom, where it turns back. Two rings per cycle, spaced
@@ -225,12 +231,9 @@ export function TerrainBackdrop({
       for (const s of payload.sessions ?? []) if (s.running) orbSessionIds.add(s.id);
       const focus = focusConvRef.current;
       if (focus) orbSessionIds.add(focus);
-      // Gold rides the MIRROR of the breath — when red widens to a month,
-      // gold narrows to a day, and they trade at each turn. One clock,
-      // two opposite lenses (see mirrorHalfLife).
-      const graph = buildTerrainGraph(payload, half, undefined, {
+      const graph = buildTerrainGraph(payload, windowToHalfLife(breath.ember), undefined, {
         orbSessionIds,
-        accessLens: mirrorHalfLife(half),
+        runHalfLife: windowToHalfLife(breath.gold),
       });
       // Same node ids every time, so this updates heat in place and never
       // re-warms the layout — the map holds still, only the embers move.

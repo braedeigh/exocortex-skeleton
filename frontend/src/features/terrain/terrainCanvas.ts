@@ -13,11 +13,13 @@
  * code-weather fade, the running-orb pulse) each die with the thing they
  * animate — none idles either.
  *
- * Heat encoding is redundant on purpose (dataviz skill): the heat ramp
- * carries recency AND node radius scales with the same normalized heat. The
- * ramp is the owner's terminal-red spec (07-24): old = black, warming through
- * maroon to xterm red #cd3131, just-edited = xterm brightRed #f14c4c — "the
- * color of the text printing into terminal".
+ * Heat encoding is redundant on purpose (dataviz skill): colour carries
+ * recency AND node radius scales with the same glow. On the dark surface a
+ * file dot is ASH (a neutral grey lifted off the page) with its hue laid over
+ * it at an opacity equal to its glow — see the ramp block below for the
+ * vocabulary (ash / ember / gold / glow / lean). The hot ends are hers: xterm
+ * brightRed #f14c4c, "the color of the text printing into terminal", and
+ * #ffd700 gold.
  *
  * Files are captioned only when an agent is spotlit, and then only its own
  * files — all of them above readable zoom, the dozen it touched most recently
@@ -99,55 +101,134 @@ import {
 import type { TerrainThread } from './terrainThreads';
 
 /**
- * Terminal-red heat ramps — 5 steps cold→hot, per the owner's spec: cold =
- * black, hot = the red her terminal prints in (ttyd/xterm.js defaults: red
- * #cd3131, brightRed #f14c4c). The two anchors and the black are hers; only
- * the intermediate maroons were tuned for perceptual spacing. Dataviz
- * validator (--ordinal, real surfaces):
- *  dark (twilight --bg #14101e):  ALL PASS — hot end 5.24:1, gaps ≥0.06,
- *    hue spread 1°; coldest #341816 sits just above the surface (visible
- *    structure, 1.15:1 by design — "old = black").
- *  light (postDawn --bg #aba3b2): monotone/gaps/hue PASS; hot-end check
- *    FAILS at 1.47:1 (her #f14c4c anchor on lavender) — spec wins, kept
- *    deliberately. Relief channel per the skill: radius scales with the same
- *    heat. The cold half (2.1–7.2:1) does the long-range discrimination in
- *    light mode. NOTE: the hot-file ink labels were a second relief channel
- *    here and were removed 07-27 (they read as arbitrary), so radius now
- *    carries that load alone on the light surface.
+ * THE TWO FIRES, in the words the map is built in (dark surface):
+ *
+ *   ASH   — the one cold end BOTH channels share: a NEUTRAL grey as bright
+ *           as the page lifted a step toward ink, with the page's own hue
+ *           taken out. Every file nothing has touched lately is ash. Derived
+ *           live from the surface (readThemeInk), because the dark sky phases
+ *           have four different backgrounds and a hardcoded grey would sit
+ *           wrong on three of them. Neutral matters: the first cut kept the
+ *           indigo tint, and red at half strength over purple-grey lands on
+ *           mauve — the page's own family — so the eye filed every mid-heat
+ *           ember as background and "the red wasn't showing up".
+ *   EMBER — the red channel: this file was EDITED, per git. Hot end is the
+ *           red her terminal prints in (xterm brightRed #f14c4c).
+ *   GOLD  — the run channel: this code actually EXECUTED in the last day,
+ *           per runtime_sensor.py (Python only — the browser half of a click
+ *           is invisible to it). Fixed one-day window, whatever the Heat bar
+ *           says (terrainGraph.ts RUN_WINDOW_SECONDS). Hot end #ffd700.
+ *   GLOW  — how far off the floor a dot sits: the union of its ember and gold
+ *           heats (1 - (1-t)(1-a)), so a little of each glows more than a
+ *           little of one. Drives the dot's SIZE, whichever fire lit it.
+ *   LEAN  — where between ember and gold the dot's hue sits: a / (t + a).
+ *           Edited but never ran leans fully ember; ran but not edited in
+ *           the window, fully gold; both, somewhere between — halfway is a
+ *           clean orange, which honestly means "edited AND running". (The app's --orange is worn by agent orbs,
+ *           which are stroked rings, not filled bodies, so the eye keeps them
+ *           apart by structure.)
+ *
+ * A file dot is painted as an opaque ash disc with the lean hue laid over it
+ * at an opacity of glowAlpha(glow) — the square root, not glow itself. A
+ * single fresh touch normalises to a glow of ~0.5 (see normalizeHeat), and a
+ * half-strength red over grey reads as dusty rose, not red; the curve puts
+ * that same touch at ~0.7, where it still reads as the hue, and only the
+ * truly cold tail sinks into ash. So the two fires never fight: they share a
+ * floor, and as the Heat bar or the breath moves EMBER's window while gold
+ * holds its day, a file that is both edited and running TURNS between the
+ * hues rather than switching, and its red history is never hidden under a
+ * gold body the way the old priority rule hid it.
+ *
+ * Gold used to mean "an agent had this file open" (the footprints sidecar).
+ * Her call to retire that: the agent relationship still shows as the white
+ * (read) and purple (modified) RINGS and the green write core; the body's
+ * gold now says only "this ran".
+ *
+ * Everything else that paints heat (hubs, the pond, threads, the key, the heat
+ * bar) reads the same two-stop ash→hue ramps through heatRamps(), so nothing
+ * on the surface can disagree with the dots.
+ *
+ * Prompt that produced it: "i want for the red and the gold to not compete
+ * ... each one is an opacity that fades to like a darker grey color against
+ * the background" → "do ash. i want them to be opacity over the base ash
+ * color".
+ *
+ * LIGHT MODE IS UNTOUCHED — still the old five-step ramps below (black cold
+ * end, maroons, her red on top; the 1.47:1 hot-end failure on lavender is
+ * known and kept by her call) and the old priority rule in the draw loop.
+ * She has only looked at this on the dark surface so far.
  */
+/** Ash sits this far from the page toward ink (in brightness only — the hue
+ * is stripped, see readThemeInk). */
+const ASH_LIFT = 0.16;
+
+/** The opacity a glow paints at. Square-rooted so mid heats keep their hue
+ * over ash (the dot block above says why); 0 stays 0 and 1 stays 1. Shared by
+ * the dots and the ramps, so the key and heat bar can't disagree with the map. */
+export function glowAlpha(glow: number): number {
+  return Math.sqrt(Math.max(0, Math.min(1, glow)));
+}
+/** The hot ends — both hers. */
+export const EMBER_HOT = '#f14c4c';
+export const GOLD_HOT = '#ffd700';
+
+/** The two ramps for a surface. Dark: ash → hue, sampled at five heats
+ * through the same glowAlpha curve the dots use, so a colour read off the key
+ * is the colour a dot of that heat actually wears. Light: the legacy
+ * five-step ramps. heatColor() walks either. */
+export function heatRamps(ink: ThemeInk): { ember: readonly string[]; gold: readonly string[] } {
+  if (ink.dark) {
+    const stops = [0, 0.25, 0.5, 0.75, 1];
+    return {
+      ember: stops.map((t) => mixHex(ink.ash, EMBER_HOT, glowAlpha(t))),
+      gold: stops.map((t) => mixHex(ink.ash, GOLD_HOT, glowAlpha(t))),
+    };
+  }
+  return { ember: HEAT_RAMP_LIGHT, gold: GOLD_RAMP_LIGHT };
+}
+
+/** Union of the two heats — a dot's height off the ash floor. */
+export function glowOf(t: number, a: number): number {
+  return 1 - (1 - t) * (1 - a);
+}
+
+/** 0 = fully ember, 1 = fully gold; 0 when neither fire is lit. */
+export function leanOf(t: number, a: number): number {
+  return t + a > 0 ? a / (t + a) : 0;
+}
 /**
- * The ACCESS ramp — the map's second channel, in GOLD: not "this file was
- * edited" (that's the red ramp below) but "an agent OPENED this file". Built to
- * the same 5 steps, the same normalizeHeat, the same decay, so the two channels
- * are one language in two hues and a dot reads the same way in either.
+ * The GOLD ramp for the LIGHT surface — the map's second channel: not "this
+ * file was edited" (that's the red ramp below) but "this code RAN today".
+ * Built to the same 5 steps, the same normalizeHeat, the same decay, so the
+ * two channels are one language in two hues and a dot reads the same way in
+ * either. (Dark builds its ramps live from ash — see heatRamps.)
  *
  * Gold rather than the lemon yellow this started as — her call, and it sits
  * better beside the terminal reds: #ffd700 is a warm hue-51 gold, a few degrees
  * off the ramp's own warmth rather than the greenish hue-95 of a pure yellow,
  * so the map reads as one fire in two temperatures instead of two unrelated
- * signals. Cold end is a dark gold-brown, bottoming out near black the way the
- * red ramp does: an old access fades into the dark like an old edit.
+ * signals.
  *
  * Checked with the dataviz validator, not eyeballed. #ffd700 keeps the write
  * core legible on top of it (3.58:1, near-identical to the lemon's 3.71) and
  * scores the best tritan separation of the golds tried. The pair this ramp
  * CANNOT carry on hue alone is the core-green against a red dot elsewhere on
  * the map — ΔE 2.8 protan, indistinguishable — which is why the core is a small
- * concentric dot inside a gold body rather than a colour swap: a protanope
- * tells them apart by structure, a ring inside a disc vs a plain disc, and that
+ * concentric dot inside the body rather than a colour swap: a protanope tells
+ * them apart by structure, a ring inside a disc vs a plain disc, and that
  * structural difference is load-bearing, not decoration.
  */
-export const ACCESS_RAMP_LIGHT = ['#201804', '#4d3a0a', '#8f6d10', '#c9a015', '#ffd700'] as const;
-export const ACCESS_RAMP_DARK = ['#241b06', '#4d3a0a', '#8f6d10', '#c9a015', '#ffd700'] as const;
+export const GOLD_RAMP_LIGHT = ['#201804', '#4d3a0a', '#8f6d10', '#c9a015', '#ffd700'] as const;
 
 /**
- * The write core: a small filled dot at the centre of an accessed file's body,
- * saying an agent WROTE here — full strength for the first hour, faded out by
- * 24 (see writeFreshness).
+ * The write core: a small filled dot at the centre of a file's body, saying an
+ * agent WROTE here — full strength for the first hour, faded out by 24 (see
+ * writeFreshness). Fed by the footprints sidecar (file.sessions), NOT by the
+ * gold channel, so it lands on a red body or a gold one alike.
  *
  * A DEEP green, not the git-add green CREATED_GREEN wears, and the number is
- * the reason: #22c55e on the yellow body measures 1.69:1 — invisible. This one
- * measures 3.71:1 against the same yellow. The core's contrast partner is the
+ * the reason: #22c55e on the gold body measures 1.69:1 — invisible. This one
+ * measures 3.71:1 against the same gold. The core's contrast partner is the
  * body it sits inside, not the page behind it, which is why it can't just reuse
  * the brighter green that works fine against a dark map.
  *
@@ -159,7 +240,6 @@ export const ACCESS_RAMP_DARK = ['#241b06', '#4d3a0a', '#8f6d10', '#c9a015', '#f
 const WRITE_CORE_GREEN = '#15803d';
 
 export const HEAT_RAMP_LIGHT = ['#271513', '#681b1b', '#9b2425', '#cd3131', '#f14c4c'] as const;
-export const HEAT_RAMP_DARK = ['#341816', '#681b1b', '#9b2425', '#cd3131', '#f14c4c'] as const;
 
 /**
  * The agent's purple (her call, 07-26): the orb ring, its dotted tethers, AND
@@ -195,6 +275,10 @@ export interface ThemeInk {
    * since she last opened it wears it out here too, so the map and the session
    * list raise a hand in the same colour. */
   orange: string;
+  /** The shared cold floor of both heat ramps on the dark surface — a neutral
+   * grey as bright as bg lifted ASH_LIFT toward ink. Computed for light too,
+   * but only dark paints it. */
+  ash: string;
   dark: boolean;
 }
 
@@ -223,8 +307,9 @@ interface SimNode extends SimulationNodeDatum {
   node: TerrainNode;
   /** 0..1 normalized heat, precomputed once per setGraph. */
   t: number;
-  /** 0..1 normalized ACCESS heat (the yellow channel), same cadence as `t`.
-   * 0 for everything the agents have never opened, which is most of the map. */
+  /** 0..1 normalized RUN heat (the gold channel), same cadence as `t`.
+   * 0 for everything that hasn't executed in the last day, which is most of
+   * the map and every non-Python file. */
   a: number;
   radius: number;
 }
@@ -343,7 +428,7 @@ function nodeRadius(node: TerrainNode, t: number): number {
   // The pond tile: a body the size of its square, so the sim keeps the rest
   // of the map out from under it.
   if (node.file?.days) return POND_TILE_COLLIDE_R;
-  return 4 + 9 * t; // file: heat visibly scales size — the redundant channel
+  return 4 + 9 * t; // file: GLOW (union of ember + gold) scales size — the redundant channel
 }
 
 // -- orb identity color: an app token, never a color from the heat ramp --
@@ -742,6 +827,31 @@ export class TerrainCanvas {
   /** One sonar ring: launched from the orb's edge, travelling outward, fading
    * faster than linearly (the ^1.7) so it dissolves near the end of its travel
    * rather than vanishing mid-stride. `p` is 0..1 through the ring's life. */
+  /** The write core — an agent WROTE here, and how long ago. Full green for
+   * the first hour, then shrinking and dimming until it's gone at 24h, so
+   * "just now" and "yesterday morning" are the same mark at two strengths
+   * rather than two things to learn. Drawn inside the body, so it only ever
+   * appears on a dot the gold channel has already claimed.
+   *
+   * Skipped below ~7px on screen: at a cold dot's 4px there is no room for a
+   * centre that still reads as a centre, and a smudge that says "written" is
+   * worse than no mark at all. */
+  private drawWriteCore(n: SimNode, nr: number, now: number): void {
+    if (!n.node.file?.sessions?.length || nr * this.transform.k < 7) return;
+    const fresh = writeFreshness(fileLastAgentWrite(n.node.file, now / 1000));
+    if (fresh <= 0) return;
+    const { ctx } = this;
+    // Multiply into whatever alpha the dimming rules already set rather than
+    // overwriting it — a dimmed dot's core has to dim with it.
+    const base = ctx.globalAlpha;
+    ctx.globalAlpha = base * (0.35 + 0.65 * fresh);
+    ctx.fillStyle = WRITE_CORE_GREEN;
+    ctx.beginPath();
+    ctx.arc(n.x ?? 0, n.y ?? 0, nr * (0.22 + 0.24 * fresh), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = base;
+  }
+
   private strokeSonar(x: number, y: number, r: number, color: string, p: number, alpha: number): void {
     const { ctx, transform } = this;
     ctx.globalAlpha = alpha * 0.8 * (1 - p) ** 1.7;
@@ -1099,8 +1209,8 @@ export class TerrainCanvas {
         if (!node) continue;
         sn.node = node;
         sn.t = normalizeHeat(node.heat);
-        sn.a = normalizeHeat(node.accessHeat ?? 0);
-        sn.radius = nodeRadius(node, sn.t);
+        sn.a = normalizeHeat(node.runHeat ?? 0);
+        sn.radius = nodeRadius(node, glowOf(sn.t, sn.a));
       }
       this.refreshDerived(nodes);
       this.requestDraw();
@@ -1134,6 +1244,7 @@ export class TerrainCanvas {
     const byId = new Map<string, SimNode>();
     this.simNodes = nodes.map((node) => {
       const t = normalizeHeat(node.heat);
+      const a = normalizeHeat(node.runHeat ?? 0);
       const old = prev.get(node.id);
       const anchor = anchorFor(node.repoId);
       const parent = node.parentId ? byId.get(node.parentId) : undefined;
@@ -1144,8 +1255,8 @@ export class TerrainCanvas {
         id: node.id,
         node,
         t,
-        a: normalizeHeat(node.accessHeat ?? 0),
-        radius: nodeRadius(node, t),
+        a,
+        radius: nodeRadius(node, glowOf(t, a)),
         x: old?.x ?? seedX + (Math.random() - 0.5) * 60,
         y: old?.y ?? seedY + (Math.random() - 0.5) * 60,
         vx: old?.vx ?? 0,
@@ -1556,8 +1667,7 @@ export class TerrainCanvas {
     if (this.focusConv) this.stepFocusCamera();
     const { ctx, theme, transform } = this;
     const dpr = window.devicePixelRatio || 1;
-    const ramp = theme.dark ? HEAT_RAMP_DARK : HEAT_RAMP_LIGHT;
-    const accessRamp = theme.dark ? ACCESS_RAMP_DARK : ACCESS_RAMP_LIGHT;
+    const { ember: ramp, gold: goldRamp } = heatRamps(theme);
     const dimmed = this.footprint !== null;
     // The agent under the cursor, if the tap-spotlight isn't already speaking.
     // Everything it changes is an ALPHA: the other agents' tethers and rings
@@ -1594,8 +1704,8 @@ export class TerrainCanvas {
     //
     // Drawn UNDER the tree edges and the dots, because a thread is a current
     // running beneath the structure rather than part of it. Gold, on the same
-    // ramp the access channel wears, because a thread IS data passing through —
-    // the exact thing gold means everywhere else on this map.
+    // ramp the run channel wears, because a thread is a write that running
+    // code just made — the exact thing gold means everywhere else on this map.
     //
     // Bowed, not straight. Two files often sit near each other and several
     // threads can share a pair of endpoints' neighbourhood; a straight line
@@ -1642,7 +1752,7 @@ export class TerrainCanvas {
         // the map recedes around what she pointed at rather than clearing.
         const lit = held === null ? th.t : mine ? Math.max(th.t, 0.42) : th.t;
         ctx.globalAlpha = held === null ? 0.16 + 0.54 * th.t : mine ? 0.95 : 0.05;
-        ctx.strokeStyle = heatColor(lit, accessRamp);
+        ctx.strokeStyle = heatColor(lit, goldRamp);
         ctx.lineWidth = (0.6 + 1.5 * lit) / transform.k * (mine ? 1.6 : 1);
         ctx.beginPath();
         ctx.moveTo(ax, ay);
@@ -1710,6 +1820,9 @@ export class TerrainCanvas {
       ctx.globalAlpha = (inPrint ? 1 : 0.22) * kinAlpha;
       // Never let a node shrink below a visible dot, however far out we are.
       const nr = Math.max(n.radius, minR);
+      // Set by a branch that paints its own body (the dark ash+hue file dot),
+      // so the one generic fill further down knows to stand aside.
+      let bodyDrawn = false;
 
       if (n.node.kind === 'session') {
         // Session orb: a stroked ring in the identity accent — never a
@@ -1805,27 +1918,41 @@ export class TerrainCanvas {
       }
 
       if (n.node.kind === 'file') {
-        // Three ways a file dot can be filled, in priority order.
-        //
-        //   1. Freshly created (within 24h, any agent) — git-add green. The
-        //      loudest thing a file can be is new, so it still wins outright.
-        //   2. Touched by an agent — the YELLOW access ramp: something passed
-        //      through this file, whether or not it changed. Only the handful
-        //      of files the sessions have actually opened light this way.
-        //   3. Everything else — the red heat ramp, exactly as before: how
-        //      recently this file was EDITED, per git.
-        //
-        // So the map now answers two questions in two hues. Red is the work's
-        // history; yellow is what the agents are currently moving through, and
-        // the two are routinely different files.
+        // Freshly created (within 24h, any agent) — git-add green. The
+        // loudest thing a file can be is new, so it wins outright on both
+        // surfaces.
         const fresh = n.node.file
           ? fileCreatedWithin(n.node.file, CREATED_FRESH_WINDOW_SECONDS, now / 1000)
           : false;
-        ctx.fillStyle = fresh
-          ? CREATED_GREEN
-          : n.a > 0
-            ? heatColor(n.a, accessRamp)
-            : heatColor(n.t, ramp);
+        if (fresh) {
+          ctx.fillStyle = CREATED_GREEN;
+        } else if (theme.dark) {
+          // Dark: an opaque ASH disc, then the LEAN hue over it at GLOW
+          // opacity (vocabulary in the ramp block up top). Both fires share
+          // the floor, and a file with both kinds of life turns between them
+          // under the breath instead of one hiding the other. Painted here,
+          // so the generic fill below is skipped; rings and halos still draw.
+          const glow = glowOf(n.t, n.a);
+          ctx.fillStyle = theme.ash;
+          ctx.beginPath();
+          ctx.arc(n.x ?? 0, n.y ?? 0, nr, 0, Math.PI * 2);
+          ctx.fill();
+          if (glow > 0) {
+            const base = ctx.globalAlpha;
+            ctx.globalAlpha = base * glowAlpha(glow);
+            ctx.fillStyle = mixHex(EMBER_HOT, GOLD_HOT, leanOf(n.t, n.a));
+            ctx.beginPath();
+            ctx.arc(n.x ?? 0, n.y ?? 0, nr, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = base;
+          }
+          bodyDrawn = true;
+        } else {
+          // Light (untouched, her call to tune dark first): the old priority
+          // rule — anything that ran paints the gold ramp and hides the red
+          // history, else the red heat ramp.
+          ctx.fillStyle = n.a > 0 ? heatColor(n.a, goldRamp) : heatColor(n.t, ramp);
+        }
       } else {
         // Hubs: structural, mostly surface-toned (bg pushed toward ink),
         // warmed by rolled-up heat so a hot subtree's spine reads warm too.
@@ -1833,32 +1960,12 @@ export class TerrainCanvas {
         // from text.
         ctx.fillStyle = mixHex(mixHex(theme.bg, theme.text, 0.22), heatColor(n.t, ramp), 0.5 * n.t);
       }
-      ctx.beginPath();
-      ctx.arc(n.x ?? 0, n.y ?? 0, nr, 0, Math.PI * 2);
-      ctx.fill();
-      // The write core — an agent WROTE here, and how long ago. Full green for
-      // the first hour, then shrinking and dimming until it's gone at 24h, so
-      // "just now" and "yesterday morning" are the same mark at two strengths
-      // rather than two things to learn. Drawn inside the body, so it only ever
-      // appears on a dot the access ramp has already claimed.
-      //
-      // It is skipped below ~7px: at a cold dot's 4px there is no room for a
-      // centre that still reads as a centre, and a smudge that says "written"
-      // is worse than no mark at all.
-      if (n.node.kind === 'file' && n.a > 0 && n.node.file && nr * transform.k >= 7) {
-        const fresh = writeFreshness(fileLastAgentWrite(n.node.file, now / 1000));
-        if (fresh > 0) {
-          // Multiply into whatever alpha the dimming rules already set rather
-          // than overwriting it — a dimmed dot's core has to dim with it.
-          const base = ctx.globalAlpha;
-          ctx.globalAlpha = base * (0.35 + 0.65 * fresh);
-          ctx.fillStyle = WRITE_CORE_GREEN;
-          ctx.beginPath();
-          ctx.arc(n.x ?? 0, n.y ?? 0, nr * (0.22 + 0.24 * fresh), 0, Math.PI * 2);
-          ctx.fill();
-          ctx.globalAlpha = base;
-        }
+      if (!bodyDrawn) {
+        ctx.beginPath();
+        ctx.arc(n.x ?? 0, n.y ?? 0, nr, 0, Math.PI * 2);
+        ctx.fill();
       }
+      if (n.node.kind === 'file') this.drawWriteCore(n, nr, now);
       if (n.node.kind !== 'file') {
         ctx.strokeStyle = theme.border;
         ctx.lineWidth = 1.5 / transform.k;
@@ -2058,15 +2165,29 @@ export function readThemeInk(): ThemeInk {
     const [r, g, b] = hexToRgbTuple(bg);
     dark = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255 < 0.5;
   }
+  const text = get('--text', dark ? '#ddd0e8' : '#1a1815');
+  // Ash: the page lifted ASH_LIFT toward ink for its BRIGHTNESS, then
+  // flattened to a neutral grey of that luminance so none of the page's hue
+  // survives in it. Needs two hex colours; --text is hex in every sky phase
+  // and --bg is hex whenever `dark` could be judged. Otherwise a grey that
+  // sits right on the twilight palette.
+  const hex = (c: string) => /^#[0-9a-fA-F]{6}$/.test(c);
+  let ash = '#313131';
+  if (hex(bg) && hex(text)) {
+    const [r, g, b] = hexToRgbTuple(mixHex(bg, text, ASH_LIFT));
+    const grey = Math.round(0.2126 * r + 0.7152 * g + 0.0722 * b);
+    ash = mixHex('#000000', '#ffffff', grey / 255);
+  }
   return {
     bg,
-    text: get('--text', dark ? '#ddd0e8' : '#1a1815'),
+    text,
     textSecondary: get('--text-secondary', dark ? 'rgba(200,185,220,0.75)' : '#2a2522'),
     textMuted: get('--text-muted', dark ? 'rgba(170,155,190,0.5)' : 'rgba(30,25,20,0.6)'),
     border: get('--border', dark ? '#2e2545' : '#888391'),
     accent: get('--accent', '#7c5cbf'),
     evening: get('--evening', '#6a7acc'),
     orange: get('--orange', '#d4700a'),
+    ash,
     dark,
   };
 }

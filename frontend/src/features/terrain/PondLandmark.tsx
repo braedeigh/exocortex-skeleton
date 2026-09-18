@@ -18,7 +18,7 @@ import {
   savePondPane,
   POND_VIEW_KEY,
 } from '../pond/savedView';
-import { HEAT_RAMP_DARK, HEAT_RAMP_LIGHT, heatColor, readThemeInk } from './terrainCanvas';
+import { HEAT_RAMP_LIGHT, heatColor, heatRamps, readThemeInk } from './terrainCanvas';
 import type { PondAnchor, ThemeInk } from './terrainCanvas';
 import styles from './PondLandmark.module.css';
 
@@ -250,7 +250,7 @@ export function PondLandmark({
     canvas.height = Math.max(1, Math.round(draw.h * dpr));
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, draw.w, draw.h);
-    const ramp = ink?.dark ? HEAT_RAMP_DARK : HEAT_RAMP_LIGHT;
+    const ramp = ink ? heatRamps(ink).ember : HEAT_RAMP_LIGHT;
     for (const column of layout.columns) {
       for (const mark of column.marks) {
         ctx.fillStyle = heatColor(mark.t, ramp);

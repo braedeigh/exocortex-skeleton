@@ -18,8 +18,8 @@ import type { FileTouchKind, TerrainNode } from './terrainGraph';
 import { buildThreads, heatThreads } from './terrainThreads';
 import {
   agentTouchRings,
-  breathHalfLife,
-  mirrorHalfLife,
+  alternatingBreath,
+  RUN_WINDOW_SECONDS,
   BREATH_INHALE_FRACTION,
   buildTerrainGraph,
   changedFileIds,
@@ -35,6 +35,7 @@ import {
   terrainFileLoaded,
   terrainFileTotal,
   heatKeyTicks,
+  windowToHalfLife,
   SESSION_NODE_PREFIX,
 } from './terrainGraph';
 import { TerrainDials } from './TerrainDials';
@@ -52,8 +53,7 @@ import { collapseToPondTile, localDayISO, parseCardPath, POND_TILE_PATH } from '
 import {
   readThemeInk,
   TerrainCanvas,
-  HEAT_RAMP_DARK,
-  HEAT_RAMP_LIGHT,
+  heatRamps,
   type AgentHover,
   type PondAnchor,
   type ThemeInk,
@@ -70,29 +70,31 @@ import styles from './TerrainPage.module.css';
  */
 /**
  * The color key — a compact panel pinned to the canvas's bottom-right whose
- * whole job is explaining the colors: the terminal-red heat ramp (just
- * edited #f14c4c at the top, down through #cd3131 to black = old) with age
+ * whole job is explaining the colors: the ember ramp (just edited #f14c4c at
+ * the top, down to ash = old on the dark surface, black on light) with age
  * ticks generated from the heat bar's current half-life, plus one row
  * decoding the session-orb ring. pointer-events: none throughout — pan/zoom
  * passes straight through; it hides while the sheet is up so it never fights
  * the modal.
  */
 function TerrainKey({
-  halfLife,
+  windowSeconds,
   ink,
   hidden,
   showAgents,
 }: {
-  /** Half-life in seconds — the ticks are derived from it (heatKeyTicks), not
-   * looked up from a fixed set, because the bar is continuous now. */
-  halfLife: number;
+  /** The heat WINDOW in seconds (what the bar sets) — the ticks are derived
+   * from it (heatKeyTicks): now, the midpoint, the edge. */
+  windowSeconds: number;
   ink: ThemeInk;
   hidden: boolean;
   /** Drops the orb row from the key when the agents are toggled off — a
    * legend shouldn't decode something that isn't on the map. */
   showAgents: boolean;
 }) {
-  const ramp = ink.dark ? HEAT_RAMP_DARK : HEAT_RAMP_LIGHT;
+  // On the dark surface this is two stops, ash → her red; light keeps the
+  // five-step ramp. Same lookup the dots use, so the key can't drift.
+  const ramp = heatRamps(ink).ember;
   const gradient = `linear-gradient(to bottom, ${[...ramp].reverse().join(', ')})`;
   const orb = ink.accent; // agents (and their tethers) wear the app --accent — matches the engine
   return (
@@ -103,7 +105,7 @@ function TerrainKey({
       <div className={styles.keyScale}>
         <div className={styles.keyBar} style={{ background: gradient }} />
         <div className={styles.keyTicks}>
-          {heatKeyTicks(halfLife).map((tick) => (
+          {heatKeyTicks(windowSeconds).map((tick) => (
             <span key={tick} className={styles.keyTick}>
               {tick}
             </span>
@@ -267,18 +269,29 @@ export function TerrainPage() {
   // payload, and it rides the same live gate so a resting map doesn't poll.
   const roster = useSessionRoster(anyRunning && pageVisible, !visitor);
 
-  // The heat half-life, in whole days — what the bottom Heat bar sets. A
-  // number, not one of three named lenses: the heat math has always taken a
-  // raw half-life (HeatSpan), so the chips were only ever presets on this.
+  // The heat WINDOW, in whole days — what the bottom Heat bar sets: how far
+  // back a file stays lit, with the thumb as the edge of the colour. A number,
+  // not one of three named lenses; the presets are only shortcuts on it.
   const [heatDays, setHeatDays] = useState(7);
-  // Dynamic mode: the half-life stops being a setting and rides the same
-  // breath the Observatory backdrop runs on — a day out to a month and back
-  // every ten seconds. `breathDays` is the live value while it's on; heatDays
-  // keeps whatever she last chose, so leaving the mode lands back there.
+  // Dynamic mode: the window stops being a setting and rides the same breath
+  // the Observatory backdrop runs on — a day out to a month and back every
+  // ten seconds. `breathDays` is the live value while it's on; heatDays keeps
+  // whatever she last chose, so leaving the mode lands back there.
   const [breathing, setBreathing] = useState(embed);
   const [breathDays, setBreathDays] = useState(7);
+  // Gold's live window under the breath. The two fires take turns
+  // (terrainGraph.ts alternatingBreath): one cycle ember reaches back to a
+  // month and returns while gold rests at its day; the next, gold tightens
+  // to five minutes and returns while ember rests at a day. On any fixed
+  // preset gold is the fixed one-day question.
+  const [goldBreathSeconds, setGoldBreathSeconds] = useState<number>(RUN_WINDOW_SECONDS);
   const liveHeatDays = breathing ? breathDays : heatDays;
-  const halfLife = liveHeatDays * DAY_SECONDS;
+  const windowSeconds = liveHeatDays * DAY_SECONDS;
+  const goldWindowSeconds = breathing ? goldBreathSeconds : RUN_WINDOW_SECONDS;
+  // The decay runs on a half-life a third of the window (terrainGraph.ts,
+  // windowToHalfLife) so the glow has run out by the window's edge.
+  const halfLife = windowToHalfLife(windowSeconds);
+  const goldHalfLife = windowToHalfLife(goldWindowSeconds);
   // Any deliberate touch of the slider or a fixed preset ends the breath —
   // one value, one owner, so the two can never be arguing over it.
   const pickHeatDays = (days: number) => {
@@ -290,12 +303,18 @@ export function TerrainPage() {
     // Reduced motion pins it at the swell's top rather than dropping the mode:
     // "remember a month back" is still a legible lens standing still.
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      setBreathDays(breathHalfLife(BREATH_PERIOD_MS * BREATH_INHALE_FRACTION) / DAY_SECONDS);
+      const b = alternatingBreath(BREATH_PERIOD_MS * BREATH_INHALE_FRACTION, BREATH_PERIOD_MS);
+      setBreathDays(b.ember / DAY_SECONDS);
+      setGoldBreathSeconds(b.gold);
       return;
     }
     const started = performance.now();
-    const tick = () =>
-      setBreathDays(breathHalfLife(performance.now() - started, BREATH_PERIOD_MS) / DAY_SECONDS);
+    // One clock, two windows, one of them moving at a time.
+    const tick = () => {
+      const b = alternatingBreath(performance.now() - started, BREATH_PERIOD_MS);
+      setBreathDays(b.ember / DAY_SECONDS);
+      setGoldBreathSeconds(b.gold);
+    };
     tick();
     const timer = window.setInterval(tick, BREATH_TICK_MS);
     return () => window.clearInterval(timer);
@@ -494,14 +513,10 @@ export function TerrainPage() {
       filtered
         ? buildTerrainGraph(filtered, halfLife, undefined, {
             alwaysOrbIds: poolSessionIds,
-            // Only the Dynamic (breathing) preset splits the two channels
-            // apart. On a FIXED lens she picked a span deliberately, and gold
-            // answering on some mirrored span she never chose would be a lie
-            // about what the dial says — so there, both ride her number.
-            accessLens: breathing ? mirrorHalfLife(halfLife) : undefined,
+            runHalfLife: goldHalfLife,
           })
         : null,
-    [filtered, halfLife, poolSessionIds, breathing],
+    [filtered, halfLife, goldHalfLife, poolSessionIds],
   );
 
   // The threads: what one file makes, another one eats. The creek payload is
@@ -511,12 +526,12 @@ export function TerrainPage() {
   const { data: creek } = useCreek(14, { enabled: !visitor });
   const threads = useMemo(() => buildThreads(creek), [creek]);
 
-  // Lit on the SAME lens the gold dots ride, mirrored breath included, so a
+  // Lit on the SAME window the gold dots ride, gold breath included, so a
   // thread and a dot of equal age are equally bright and the two read as one
   // system rather than two overlays that happen to share a canvas.
   const litThreads = useMemo(
-    () => heatThreads(threads, breathing ? mirrorHalfLife(halfLife) : halfLife),
-    [threads, halfLife, breathing],
+    () => heatThreads(threads, goldHalfLife),
+    [threads, goldHalfLife],
   );
 
   useEffect(() => {
@@ -1233,7 +1248,9 @@ export function TerrainPage() {
           <TerrainHeatBar
             days={liveHeatDays}
             onDays={pickHeatDays}
-            dark={ink?.dark}
+            ramp={ink ? heatRamps(ink).ember : undefined}
+            goldRamp={ink ? heatRamps(ink).gold : undefined}
+            goldSeconds={goldWindowSeconds}
             breathing={breathing}
             onBreathe={() => setBreathing((v) => !v)}
           />
@@ -1262,7 +1279,7 @@ export function TerrainPage() {
             expand right up to its edge. */}
         {ink && !empty && !isLoading && !isError ? (
           <TerrainKey
-            halfLife={halfLife}
+            windowSeconds={windowSeconds}
             ink={ink}
             hidden={selected !== null || codeFile !== null}
             showAgents={shownAgentIds.size > 0}

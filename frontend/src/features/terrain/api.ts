@@ -31,9 +31,14 @@ export interface TerrainSession {
 
 export interface TerrainFile {
   path: string;
-  /** Unix seconds, newest first. */
+  /** Git touches — unix seconds, newest first. The EMBER channel. */
   touches: number[];
   sessions: TerrainSession[];
+  /** When this file actually RAN — the GOLD channel. Unix seconds in
+   * 5-minute buckets, oldest first, from runtime_sensor.py's sidecar via
+   * routes/terrain.py. Python only: the sensor can't see the browser, so a
+   * .tsx never carries this. Absent when the file never ran on record. */
+  ran?: number[];
   /** Synthetic only — the server never sends this. The pond tile
    * (pondNodes.ts) carries the last month of the journal here, bucketed per
    * day and oldest first, so the canvas can draw the month inside its square

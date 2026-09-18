@@ -11,6 +11,61 @@ import type { TerrainData, TerrainFile, TerrainLiveSession, TerrainRepo, Terrain
 
 export type HeatLens = 'day' | 'week' | 'month';
 
+/**
+ * WINDOW vs HALF-LIFE — the two units the heat runs in, and the seam between.
+ *
+ * What she sets (the Heat bar's thumb, the presets, the breath) is a WINDOW:
+ * "lit for a day", "lit for a month". The dot on the bar is the EDGE of the
+ * colour — where the glow has run out, not where it's half. What the decay
+ * math takes is a HALF-LIFE: the time for a touch to fall to half strength.
+ * The two meet here: a window is WINDOW_HALF_LIVES half-lives long, so by its
+ * edge a touch is down to 2^-3 = an eighth, which is where hue over ash stops
+ * being visible (see terrainCanvas.ts glowAlpha). Fully lit today, half lit a
+ * third of the way, gone at the dot.
+ *
+ * Three is a judgment, not a law: two would leave a quarter at the edge (a
+ * faint hue still showing past the dot), four would pull the last visible
+ * colour to well inside the dot. Three lands it right at the dot.
+ *
+ * Everything the slider or the breath produces is a window; convert with
+ * windowToHalfLife() before it meets computeFileHeat / heatThreads. The
+ * named presets (LENS_HALF_LIFE_SECONDS) are genuine half-lives for callers
+ * that pass a HeatLens by name, and the breath's day..month range is read as
+ * windows by the surfaces that run it.
+ *
+ * Prompt that produced it: "i want the dot to be the edge of the color, not
+ * for the color to trail after it" → "last visible color right at the dot."
+ */
+export const WINDOW_HALF_LIVES = 3;
+
+/** A window (what she set) → the half-life the decay runs on. */
+export function windowToHalfLife(windowSeconds: number): number {
+  return windowSeconds / WINDOW_HALF_LIVES;
+}
+
+/**
+ * The GOLD channel's window: a file is gold if it actually RAN inside it.
+ * On a fixed preset it's one day — "did this code run today" — whatever the
+ * Heat bar says; the slider moves EMBER only. Under Dynamic it takes its own
+ * breath (goldBreathWindow below): a day down to five minutes and back,
+ * ALTERNATING with ember's day-to-month breath — see alternatingBreath. Same
+ * shape of decay as ember: fully lit just ran, half a third of the way, gone
+ * at the edge.
+ */
+export const RUN_WINDOW_SECONDS = 24 * 3600;
+export const RUN_HALF_LIFE_SECONDS = windowToHalfLife(RUN_WINDOW_SECONDS);
+
+/**
+ * The gold breath's range. The floor is five minutes, not the minute she
+ * named, and the sensor is why: runtime_sensor.py stamps a run into a
+ * FIVE-MINUTE bucket (BUCKET_SEC), so "ran in the last minute" would be true
+ * for a file only when its bucket happened to start inside that minute — one
+ * cycle in five — and the map would flicker at the bottom of every breath.
+ * Five minutes is the sensor's honest resolution; the ceiling is the fixed
+ * window above, so the top of the gold breath is exactly the resting state.
+ */
+export const GOLD_BREATH_SECONDS = { min: 300, max: RUN_WINDOW_SECONDS } as const;
+
 /** Half-life in seconds for each lens — the exponential decay's "time to fall
  * to half brightness". Touches (and payloads generally) are unix seconds. */
 export const LENS_HALF_LIFE_SECONDS: Record<HeatLens, number> = {
@@ -50,61 +105,56 @@ export function formatAge(seconds: number): string {
 }
 
 /**
- * The three labels down the colour key, hottest first, derived from whatever
- * half-life the heat bar is set to — they used to be hardcoded per named
- * lens, which a continuous bar can't be.
- *
- * The middle tick is a QUARTER of the half-life, which is where the ramp is
- * still visibly warm; the bottom is the half-life itself, marked "+" because
- * everything older piles up below it. At a one-day half-life that reproduces
- * the old Day key exactly (now / 6h / 1d+).
- *
- * Prompt that produced it: "generate them from the half life".
+ * The three labels down the colour key, hottest first, derived from the
+ * WINDOW the heat bar is set to: now at the top, the window's midpoint, and
+ * its edge at the bottom — the age at which the colour has run out. No "+"
+ * on the edge any more: it isn't a floor everything older piles up under,
+ * it's where the ramp ends.
  */
-export function heatKeyTicks(halfLife: number): [string, string, string] {
-  return ['now', formatAge(halfLife / 4), `${formatAge(halfLife)}+`];
+export function heatKeyTicks(windowSeconds: number): [string, string, string] {
+  return ['now', formatAge(windowSeconds / 2), formatAge(windowSeconds)];
 }
 
 /**
  * The colour ramp laid along the heat slider's own track, so the control and
- * the legend are one object.
+ * the legend are one object — and the thumb is the EDGE of the colour.
  *
- * The trick is that the track's axis can be read two ways at once. As a
- * *control* it's the half-life you're setting; as a *scale* it's an age axis —
- * position x is "a file touched x days ago", and the colour there is exactly
- * what such a file wears on the map right now. So the bar answers "how far
- * back does the map remember" by showing it rather than naming it, and it
- * restates itself live as you drag: pull the handle right and the whole ramp
- * brightens, because a longer half-life is literally a map that keeps older
- * work lit.
+ * The track's axis reads two ways at once. As a *control* it's the window
+ * you're setting; as a *scale* it's an age axis — position x is "a file
+ * touched x days ago", and the colour there is what such a file wears on the
+ * map right now. The fill runs hot at the near end, decays across the window
+ * on the same 2^-(age/half_life) curve every node uses (half_life =
+ * window / WINDOW_HALF_LIVES), and stops at the thumb: everything older than
+ * the window is drawn at t = 0, i.e. ash. On the map a file just past the
+ * edge is at an eighth, which the eye already reads as ash; the bar rounds
+ * that last sliver to zero so the dot is a clean edge, and the 28px thumb
+ * sits over the seam. Drag right and the fill lengthens — a longer memory,
+ * shown rather than named.
  *
  * Returns sample points, not colours — the ramp itself lives with the canvas
  * that paints it (heatColor in terrainCanvas.ts), and this stays pure maths.
- * `pct` is the position along the track and `t` the 0..1 heat at it, using the
- * same 2^-(age/half_life) decay every node on the map uses.
+ * `pct` is the position along the track and `t` the 0..1 heat at it.
  *
  * Sampled rather than two-stop because the track is LOGARITHMIC in days while
  * the decay is exponential in days: a straight CSS gradient between the ends
  * would draw a curve the map doesn't have. Twenty-four stops is past the point
  * where the eye can find the seams.
- *
- * Prompt that produced it: "i want the heat map to also be superimposed onto
- * the heat map bar."
  */
 export function heatTrackStops(
-  halfLifeDays: number,
+  windowDays: number,
   minDays: number = HEAT_DAYS_MIN,
   maxDays: number = HEAT_DAYS_MAX,
   samples = 24,
 ): { pct: number; t: number }[] {
   const ratio = maxDays / minDays;
+  const halfLifeDays = windowToHalfLife(windowDays);
   return Array.from({ length: samples }, (_, i) => {
     const p = samples > 1 ? i / (samples - 1) : 0; // a lone sample is the near end, not 0/0
 
     const days = minDays * ratio ** p;
     return {
       pct: p * 100,
-      t: halfLifeDays > 0 ? 2 ** (-days / halfLifeDays) : 0,
+      t: windowDays > 0 && days <= windowDays ? 2 ** (-days / halfLifeDays) : 0,
     };
   });
 }
@@ -114,6 +164,11 @@ export function heatTrackStops(
 export const BREATH_INHALE_FRACTION = 0.4;
 
 /** One full breath. Her pick: slow and deep, not a human 5s rhythm.
+ *
+ * The breath's value is a WINDOW (a day out to a month — see windowToHalfLife
+ * at the top of this file); the surfaces that run it convert before the
+ * decay sees it. breathHalfLife keeps its name from when the two units were
+ * one. Gold breathes too, on its own range — see goldBreathWindow.
  *
  * Lives here rather than in either surface that uses it, because BOTH breathe
  * now — the Observatory backdrop and /terrain's Dynamic heat preset — and two
@@ -157,43 +212,73 @@ export const BREATH_TICK_MS = 150;
  * the map appears to remember further back, and then forget again.
  */
 export function breathHalfLife(elapsedMs: number, periodMs = 10_000): number {
-  if (!(periodMs > 0)) return LENS_HALF_LIFE_SECONDS.day;
+  return breathSpan(elapsedMs, periodMs, LENS_HALF_LIFE_SECONDS.day, LENS_HALF_LIFE_SECONDS.month);
+}
+
+/**
+ * The gold breath's SHAPE: a day tightening to five minutes over the inhale
+ * and easing back out over the exhale — ember's breath inverted, focusing in
+ * on "now" where ember reaches back into the past. Its rest value (a day) is
+ * the fixed window, so a preset and a resting breath agree.
+ *
+ * On its own this never runs; alternatingBreath() below hands the clock to
+ * one fire at a time.
+ */
+export function goldBreathWindow(elapsedMs: number, periodMs = 10_000): number {
+  // lo/hi swapped on purpose: u = 0 (cycle start) is the DAY, u = 1 (top of
+  // the inhale) is five minutes.
+  return breathSpan(elapsedMs, periodMs, GOLD_BREATH_SECONDS.max, GOLD_BREATH_SECONDS.min);
+}
+
+/** Which fire the current breath belongs to. */
+export type BreathTurn = 'ember' | 'gold';
+
+/**
+ * THE ALTERNATING BREATH — the two fires take turns. One full cycle
+ * (BREATH_PERIOD_MS) belongs to ember: its window swells from a day out to a
+ * month and settles back while gold rests at its day. The next cycle belongs
+ * to gold: its window tightens from a day in to five minutes and eases back
+ * while ember rests at ITS day. Then ember again. Her call, after seeing them
+ * breathe together: "have one breath be the time of editing, then the other
+ * breath be the time of the last activated, and then have them alternate
+ * rather than both be active at the same time".
+ *
+ * The handoff is seamless by construction: both breaths START and END at a
+ * day, so at the moment the clock passes from one fire to the other nothing
+ * on the map or the bar jumps — the thumb comes to rest at the left as the
+ * gold ring begins to move from the right, and vice versa.
+ *
+ * What it looks like: the map remembers back a month of edits and forgets
+ * again; then it narrows to what is executing right now and widens again;
+ * then it remembers again. One question at a time, in red, then in gold.
+ */
+export function alternatingBreath(
+  elapsedMs: number,
+  periodMs = BREATH_PERIOD_MS,
+): { ember: number; gold: number; turn: BreathTurn } {
+  const rest = { ember: LENS_HALF_LIFE_SECONDS.day, gold: RUN_WINDOW_SECONDS };
+  if (!(periodMs > 0)) return { ...rest, turn: 'ember' };
+  const two = 2 * periodMs;
+  const inPair = ((elapsedMs % two) + two) % two;
+  const within = inPair % periodMs;
+  if (inPair < periodMs) return { ember: breathHalfLife(within, periodMs), gold: rest.gold, turn: 'ember' };
+  return { ember: rest.ember, gold: goldBreathWindow(within, periodMs), turn: 'gold' };
+}
+
+/** One breath cycle mapped onto a range, in LOG space (an hour matters more
+ * against a day than against a month). The inhale owns the first 40% of the
+ * cycle and rides lo -> hi; the exhale owns the remaining 60% and rides back.
+ * Both are half-cosines, so the value is flat at the top and at both ends. */
+export function breathSpan(elapsedMs: number, periodMs: number, lo: number, hi: number): number {
+  if (!(periodMs > 0)) return lo;
   const phase = ((elapsedMs % periodMs) + periodMs) % periodMs / periodMs;
-  // The inhale owns the first 40% of the cycle and rides 0 -> 1; the exhale
-  // owns the remaining 60% and rides 1 -> 0. Both are half-cosines, so the
-  // value is flat at the top and at both ends of the cycle.
   const u =
     phase < BREATH_INHALE_FRACTION
       ? (1 - Math.cos((phase / BREATH_INHALE_FRACTION) * Math.PI)) / 2
       : (1 + Math.cos(((phase - BREATH_INHALE_FRACTION) / (1 - BREATH_INHALE_FRACTION)) * Math.PI)) / 2;
-  const lo = Math.log(LENS_HALF_LIFE_SECONDS.day);
-  const hi = Math.log(LENS_HALF_LIFE_SECONDS.month);
-  return Math.exp(lo + (hi - lo) * u);
-}
-
-/**
- * The breath, turned inside out: the lens the ACCESS channel rides while heat
- * rides the normal one.
- *
- * Derived from the current half-life rather than clocked separately, and the
- * identity is why this is one line instead of a second breath loop. The breath
- * interpolates in LOG space between `day` and `month` — half = exp(lo + (hi-lo)u)
- * — so the value at `1 - u` is exp(lo + hi) / half, i.e. day*month/half. The two
- * channels are geometric mirrors about sqrt(day*month), and they can never
- * drift apart or disagree about where in the cycle they are, because there is
- * still only ONE clock.
- *
- * What it looks like: gold and red trade places. At the top of the inhale, when
- * red has widened to a month and the whole map remembers, gold has narrowed to
- * a day and shows only what was opened just now. At the bottom they swap. The
- * map never stops saying something — it alternates which thing it says.
- *
- * Prompt that produced it: "I also want the yellow to light up at the opposite
- * timeline of the red."
- */
-export function mirrorHalfLife(halfLifeSeconds: number): number {
-  if (!(halfLifeSeconds > 0)) return LENS_HALF_LIFE_SECONDS.day;
-  return (LENS_HALF_LIFE_SECONDS.day * LENS_HALF_LIFE_SECONDS.month) / halfLifeSeconds;
+  const llo = Math.log(lo);
+  const lhi = Math.log(hi);
+  return Math.exp(llo + (lhi - llo) * u);
 }
 
 /** Slight per-level decay applied when a directory's heat is rolled up from
@@ -382,11 +467,11 @@ export interface TerrainNode {
   /** Raw decayed-touch sum for this node's own lens/heat calc. Always 0 for
    * session orbs — identity, not magnitude. */
   heat: number;
-  /** The same decayed sum, but over AGENT ACCESS rather than edits — every
-   * session that read or wrote this file, decayed on the same lens. Drives the
-   * yellow body: "something passed through here". Absent on nodes with no
-   * session footprint at all, which is most of the map. */
-  accessHeat?: number;
+  /** The same decayed sum, but over the file's RUN buckets rather than edits
+   * — when this code actually executed, on the fixed one-day run window.
+   * Drives the gold body: "this ran today". Absent on nodes that never ran
+   * on record, which is most of the map (and every non-Python file). */
+  runHeat?: number;
   /** The file payload, for file nodes only (sessions, touches). */
   file?: TerrainFile;
   /** Heat per synthetic sub-bucket, parallel to `file.days` — only ever on
@@ -520,10 +605,9 @@ function collapse(dir: TrieDir): TrieDir {
 interface BuildCtx {
   repo: TerrainRepo;
   lens: HeatSpan;
-  /** The lens the ACCESS (gold) channel is drawn on — normally the same as
-   * `lens`, but the breathing surfaces hand it the mirror so the two channels
-   * light on opposite halves of the cycle. See mirrorHalfLife. */
-  accessLens: HeatSpan;
+  /** Half-life the GOLD (run) channel decays on — from the fixed day, or the
+   * gold breath. See RUN_WINDOW_SECONDS / goldBreathWindow. */
+  runHalfLife: number;
   nowSeconds: number;
   nodes: TerrainNode[];
   edges: TerrainEdge[];
@@ -576,7 +660,7 @@ function emitDir(ctx: BuildCtx, dir: TrieDir, parentId: string, depth: number, p
       repoId: ctx.repo.id,
       path: file.path,
       heat,
-      accessHeat: computeAccessHeat(file, ctx.accessLens, ctx.nowSeconds),
+      runHeat: computeRunHeat(file, ctx.nowSeconds, ctx.runHalfLife),
       file,
       dayHeats: file.days?.map((d) => bucketHeat(d.touches, ctx.lens, ctx.nowSeconds)),
     });
@@ -611,15 +695,14 @@ export function buildTerrainGraph(
   opts?: {
     orbSessionIds?: Set<string> | null;
     alwaysOrbIds?: Set<string> | null;
-    /** Lens for the gold access channel. Omitted = the same lens heat is on,
-     * which is what a FIXED preset wants; the breathing surfaces pass
-     * mirrorHalfLife(lens) so gold and red light on opposite halves. */
-    accessLens?: HeatSpan;
+    /** Half-life for the GOLD (run) channel. Omitted = the fixed one-day
+     * window; the breathing surfaces pass windowToHalfLife(goldBreathWindow). */
+    runHalfLife?: number;
   },
 ): TerrainGraph {
   const nodes: TerrainNode[] = [];
   const edges: TerrainEdge[] = [];
-  const accessLens = opts?.accessLens ?? lens;
+  const runHalfLife = opts?.runHalfLife ?? RUN_HALF_LIFE_SECONDS;
 
   for (const repo of data.repos) {
     const repoId = `repo:${repo.id}`;
@@ -635,7 +718,7 @@ export function buildTerrainGraph(
     nodes.push(repoNode);
 
     const trie = buildTrie(repo.files);
-    const repoCtx: BuildCtx = { repo, lens, accessLens, nowSeconds, nodes: [], edges: [] };
+    const repoCtx: BuildCtx = { repo, lens, runHalfLife, nowSeconds, nodes: [], edges: [] };
 
     // The repo root's own files (rare — files sitting directly at repo root)
     // and its top-level directories both hang straight off the repo hub.
@@ -652,7 +735,7 @@ export function buildTerrainGraph(
         repoId: repo.id,
         path: file.path,
         heat,
-        accessHeat: computeAccessHeat(file, accessLens, nowSeconds),
+        runHeat: computeRunHeat(file, nowSeconds, runHalfLife),
         file,
         dayHeats: file.days?.map((d) => bucketHeat(d.touches, lens, nowSeconds)),
       });
@@ -948,30 +1031,32 @@ export function sessionFileTouch(file: TerrainFile, sessionId: string): FileTouc
 }
 
 /**
- * Agent ACCESS heat: the same exponential decay computeFileHeat runs, but over
- * the sessions that touched this file rather than over git's commits. Reads and
- * writes both count — the question this answers is "did anything pass through
- * here", not "did it change".
+ * RUN heat — the GOLD channel: the same exponential decay computeFileHeat
+ * runs, but over the file's run buckets (runtime_sensor.py, via `ran` on the
+ * payload) and on the fixed one-day run window rather than the slider's.
  *
- * Kept as its own sum rather than folded into computeFileHeat because the two
- * say different things and the map now draws them in different colours: heat is
- * the red ramp (this file was EDITED, per git), access is the yellow one (an
- * agent OPENED it). A file can be hot on one and cold on the other, and that
- * contrast is the whole point of the second channel.
+ * Kept as its own sum because the two say different things and the map draws
+ * them in different colours: heat is the red ramp (this file was EDITED, per
+ * git), run is the gold one (this code EXECUTED today). A file can be hot on
+ * one and cold on the other — a route that serves every click but hasn't
+ * been edited in a month is pure gold; a file rewritten this morning that
+ * nothing has called yet is pure red — and that contrast is the point.
+ *
+ * The buckets are five minutes wide, so a file that runs constantly carries
+ * one touch per five minutes; a dozen buckets in the last hour sum well past
+ * one and saturate the normaliser, which is right: "running all the time" is
+ * as gold as gold gets.
  */
-export function computeAccessHeat(
+export function computeRunHeat(
   file: TerrainFile,
-  lens: HeatSpan,
   nowSeconds: number,
+  halfLife: number = RUN_HALF_LIFE_SECONDS,
 ): number {
-  const halfLife = halfLifeSeconds(lens);
-  if (halfLife <= 0) return 0;
+  if (!(halfLife > 0) || !file.ran?.length) return 0;
   let heat = 0;
-  for (const s of file.sessions) {
-    const last = sessionLastSeconds(s.last);
-    if (last === null) continue;
-    const age = nowSeconds - last;
-    if (Number.isFinite(age)) heat += Math.pow(2, -age / halfLife);
+  for (const ts of file.ran) {
+    const age = nowSeconds - ts;
+    if (Number.isFinite(age) && age >= 0) heat += Math.pow(2, -age / halfLife);
   }
   return heat;
 }

@@ -62,37 +62,89 @@
   pointer-events: none;
 }
 
-/* --- the per-day ruler --------------------------------------------------
+/* --- the split track ----------------------------------------------------
 
-   Etched over the ramp, under the thumb. Ticks crowd toward the long end
-   because the track is logarithmic; that crowding is the point, so they're
-   drawn at full density rather than thinned. Inert to pointers so the ruler
-   can never eat a drag meant for the slider. */
+   Two 8px bands with a 4px seam: ember above, gold below (why: note 6 in
+   TerrainHeatBar.tsx). Centred as a pair on the line a single 10px band
+   would sit on. Each band carries its OWN ruler, because the two axes differ
+   — days to a year above, minutes to a day below — so a shared ruler would
+   be a lie on one of them. */
+.rampEmber {
+  height: 8px;
+  transform: translateY(calc(-50% - 6px));
+}
+
+.rampGold {
+  height: 8px;
+  transform: translateY(calc(-50% + 6px));
+}
+
+/* The gold window's marker on the lower band — a ring, not a thumb: gold is
+   pinned at one day and isn't hers to move, so there is nothing here to grab.
+   Inert to pointers for the same reason. Colour set inline from the ramp's
+   hot end so it can never drift from the band it rides. */
+.goldRing {
+  position: absolute;
+  top: calc(50% + 6px);
+  width: 18px;
+  height: 18px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  border: 3px solid;
+  background: var(--card-bg);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+}
+
+/* Split, the accent thumb rides the UPPER (ember) band rather than straddling
+   the seam — same 28px thumb, lifted by the band's offset. */
+.rangeSplit::-webkit-slider-thumb {
+  margin-top: -15px; /* -9px (centred) - 6px (ember band offset) */
+}
+
+.rangeSplit::-moz-range-thumb {
+  transform: translateY(-6px);
+}
+
+/* --- the rulers -----------------------------------------------------------
+
+   Etched over each band, under the thumb. Ticks crowd toward the long end
+   because the tracks are logarithmic; that crowding is the point, so they're
+   drawn at full density rather than thinned. Inert to pointers so a ruler
+   can never eat a drag meant for the slider. One ruler per band, each sized
+   to its band (8px) and sitting on it. */
 .ticks {
   position: absolute;
   left: 0;
   right: 0;
-  top: 50%;
-  height: 16px;
+  height: 12px;
   transform: translateY(-50%);
   pointer-events: none;
 }
 
-/* Kept inside the 10px ramp and kept faint — the gradient is the message here
+.ticksEmber {
+  top: calc(50% - 6px);
+}
+
+.ticksGold {
+  top: calc(50% + 6px);
+}
+
+/* Kept inside the 8px band and kept faint — the gradient is the message here
    and the ruler is an annotation on it, not a competing pattern. */
 .tick {
   position: absolute;
   top: 50%;
   width: 1px;
-  height: 6px;
+  height: 4px;
   transform: translate(-50%, -50%);
   background: rgba(255, 255, 255, 0.22);
 }
 
-/* The three preset days (1 / 7 / 30) stand brighter and tall enough to break
-   the ramp's edges, so the anchors the buttons jump to stay findable. */
+/* The anchors (the preset days above; the hour and the day below) stand
+   brighter and tall enough to break the band's edges, so they stay findable. */
 .tickAnchor {
-  height: 16px;
+  height: 12px;
   width: 2px;
   background: rgba(255, 255, 255, 0.65);
 }
@@ -246,12 +298,28 @@
 }
 
 .readout {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
   font-size: var(--font-size-md);
   color: var(--text-muted);
   text-shadow: var(--ink-halo, none);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   margin-left: var(--space-1);
+}
+
+/* The readout names both windows — a dot in each fire's hot colour before its
+   day count, so "7d · 1d" can't be read the wrong way round. */
+.readoutDot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-left: var(--space-1);
+}
+.readoutDot:first-child {
+  margin-left: 0;
 }
 
 @media (max-width: 430px) {

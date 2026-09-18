@@ -167,7 +167,7 @@ export function buildThreads(creek: CreekData | null | undefined): TerrainThread
  * exactly ONE event behind it (its collection's last write), so its heat can
  * never exceed 1, so through normalizeHeat it could never exceed 0.5: every
  * thread on the map was drawn from the middle of the ramp downward, and the
- * gold at the top was literally unreachable. They could not get more yellow
+ * gold at the top was literally unreachable. They could not get more gold
  * however recently they fired, which is precisely what it looked like.
  *
  * So a thread uses the raw decay directly: fired just now is 1 and full gold,

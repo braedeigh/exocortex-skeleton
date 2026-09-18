@@ -590,15 +590,43 @@ def _build_terrain(file_cap=_TERRAIN_FILE_CAP):
                 if last and (sess["last"] is None or last > sess["last"]):
                     sess["last"] = last
 
+        # Run attribution — the GOLD channel. runtime_sensor.py's sidecar says
+        # which Python files actually executed, as 5-minute buckets (unix
+        # seconds, oldest first, at most the last 50). Mapped into this repo
+        # the same way the footprints are. A file that ran surfaces even if
+        # git never touched it in the window and no agent opened it. The map
+        # decides the window (24h, terrainGraph.ts RUN_WINDOW_SECONDS); this
+        # just carries the buckets. Python only — the sensor can't see the
+        # browser, so no .tsx ever gets a `ran`.
+        for abspath, entry in (runtime_sensor.snapshot().get("files") or {}).items():
+            if not isinstance(entry, dict):
+                continue
+            try:
+                rel = os.path.relpath(abspath, root)
+            except ValueError:
+                continue
+            if rel == os.curdir or rel.startswith(os.pardir):
+                continue
+            rel = rel.replace(os.sep, "/")
+            if _terrain_denylisted(rel):
+                continue
+            ran = [int(ts) for ts in (entry.get("touches") or [])
+                   if isinstance(ts, (int, float))]
+            if not ran:
+                continue
+            files.setdefault(rel, {"touches": [], "sessions": {}})["ran"] = ran
+
         files_out = []
         for relpath, data in sorted(files.items()):
             sessions = sorted(data["sessions"].values(),
                               key=lambda s: s.get("last") or "", reverse=True)
-            files_out.append({"path": relpath, "touches": data["touches"], "sessions": sessions})
+            files_out.append({"path": relpath, "touches": data["touches"],
+                              "sessions": sessions, "ran": data.get("ran", [])})
 
         # Cap to the hottest files so the client's force-sim stays tractable.
-        # Session-attributed files always survive; the rest are ranked by
-        # week-half-life-decayed git heat. files_total keeps the cap honest.
+        # Session-attributed files and anything that RAN in the last day always
+        # survive; the rest are ranked by week-half-life-decayed git heat.
+        # files_total keeps the cap honest.
         files_total = len(files_out)
         if file_cap is not None and files_total > file_cap:
             now_ts = time.time()
@@ -607,8 +635,11 @@ def _build_terrain(file_cap=_TERRAIN_FILE_CAP):
                 return sum(2 ** (-(now_ts - ts) / _TERRAIN_CAP_HALF_LIFE_SEC)
                            for ts in f["touches"])
 
-            attributed = [f for f in files_out if f["sessions"]]
-            rest = sorted((f for f in files_out if not f["sessions"]),
+            def _ran_today(f):
+                return any(now_ts - ts <= 86400 for ts in f["ran"])
+
+            attributed = [f for f in files_out if f["sessions"] or _ran_today(f)]
+            rest = sorted((f for f in files_out if not (f["sessions"] or _ran_today(f))),
                           key=_cap_heat, reverse=True)
             keep = attributed + rest[:max(0, file_cap - len(attributed))]
             files_out = sorted(keep, key=lambda f: f["path"])

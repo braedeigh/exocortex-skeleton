@@ -5,6 +5,7 @@ import {
   formatAge,
   heatKeyTicks,
   heatTrackStops,
+  WINDOW_HALF_LIVES,
   computeFileHeat,
   fileCreatedWithin,
   CREATED_FRESH_WINDOW_SECONDS,
@@ -20,8 +21,11 @@ import {
   LENS_HALF_LIFE_SECONDS,
   changedFileIds,
   breathHalfLife,
-  computeAccessHeat,
-  mirrorHalfLife,
+  alternatingBreath,
+  computeRunHeat,
+  goldBreathWindow,
+  GOLD_BREATH_SECONDS,
+  RUN_HALF_LIFE_SECONDS,
   fileLastAgentWrite,
   writeFreshness,
   WRITE_PEAK_SECONDS,
@@ -885,21 +889,21 @@ describe('sessionFileTouch / sessionTouchRings (focus rings)', () => {
   });
 });
 
-describe('formatAge / heatKeyTicks (the colour key, derived from the half-life)', () => {
-  it('reproduces the old Day key exactly at a one-day half-life', () => {
-    expect(heatKeyTicks(LENS_HALF_LIFE_SECONDS.day)).toEqual(['now', '6h', '1d+']);
+describe('formatAge / heatKeyTicks (the colour key, derived from the window)', () => {
+  it('reads now / midpoint / edge at a one-day window', () => {
+    expect(heatKeyTicks(86400)).toEqual(['now', '12h', '1d']);
   });
 
-  it('scales with the bar — a longer half-life pushes both ticks older', () => {
-    expect(heatKeyTicks(LENS_HALF_LIFE_SECONDS.week)).toEqual(['now', '2d', '7d+']);
-    expect(heatKeyTicks(LENS_HALF_LIFE_SECONDS.month)).toEqual(['now', '8d', '30d+']);
+  it('scales with the bar — a longer window pushes both ticks older', () => {
+    expect(heatKeyTicks(7 * 86400)).toEqual(['now', '4d', '7d']);
+    expect(heatKeyTicks(30 * 86400)).toEqual(['now', '15d', '30d']);
   });
 
-  it('always leads with now and marks the oldest tick as a floor', () => {
+  it('always leads with now and names the edge plainly — no "+" floor', () => {
     for (const days of [1, 3, 9, 17, 30]) {
       const ticks = heatKeyTicks(days * 86400);
       expect(ticks[0]).toBe('now');
-      expect(ticks[2].endsWith('+')).toBe(true);
+      expect(ticks[2]).toBe(`${days}d`);
     }
   });
 
@@ -921,35 +925,44 @@ describe('heatTrackStops (the ramp painted along the heat slider)', () => {
     expect(stops[stops.length - 1].pct).toBe(100);
   });
 
-  it('reads as an age axis: the handle always lands on half-brightness', () => {
-    // The handle sits at the half-life, and one half-life old is t=0.5 by
-    // definition — so the colour under the thumb is the ramp's midpoint at
-    // every setting. That invariant is what makes the bar legible while it
-    // moves: the gradient slides past a fixed reference.
+  it('the thumb is the edge: the last visible colour sits at the dot, ash just past it', () => {
+    // At the window's edge a touch is WINDOW_HALF_LIVES half-lives old — an
+    // eighth at three — and one step older the fill is exactly zero. That's
+    // the whole point of the bar: the dot is where the colour ends.
     for (const days of [1, 7, 30]) {
       const at = heatTrackStops(days, days, days, 1)[0];
-      expect(at.t).toBeCloseTo(0.5, 10);
+      expect(at.t).toBeCloseTo(2 ** -WINDOW_HALF_LIVES, 10);
+      const past = heatTrackStops(days, days * 1.01, days * 1.01, 1)[0];
+      expect(past.t).toBe(0);
     }
   });
 
-  it('cools monotonically left to right — near days hot, month-old cold', () => {
+  it('half lit a third of the way along the window', () => {
+    const third = heatTrackStops(30, 10, 10, 1)[0];
+    expect(third.t).toBeCloseTo(0.5, 10);
+  });
+
+  it('cools left to right and never warms again — near days hot, past the edge ash', () => {
     const stops = heatTrackStops(7);
     for (let i = 1; i < stops.length; i += 1) {
-      expect(stops[i].t).toBeLessThan(stops[i - 1].t);
+      expect(stops[i].t).toBeLessThanOrEqual(stops[i - 1].t);
     }
-    expect(stops[0].t).toBeGreaterThan(0.9); // one day old under a week's memory
-    expect(stops[stops.length - 1].t).toBeLessThan(0.1); // a month old, all but out
+    expect(stops[0].t).toBeGreaterThan(0.7); // one day old under a week's window
+    expect(stops[stops.length - 1].t).toBe(0); // a year old — past the edge
   });
 
-  it('brightens the whole ramp as the half-life grows — a longer memory, shown', () => {
+  it('lengthens the fill as the window grows — a longer memory, shown', () => {
     const short = heatTrackStops(1);
     const long = heatTrackStops(30);
     for (let i = 0; i < short.length; i += 1) {
-      expect(long[i].t).toBeGreaterThan(short[i].t);
+      expect(long[i].t).toBeGreaterThanOrEqual(short[i].t);
     }
+    // Strictly brighter wherever the shorter window has already gone cold
+    // but the longer one is still lit.
+    expect(long[8].t).toBeGreaterThan(short[8].t);
   });
 
-  it('goes fully cold rather than dividing by zero on a zero half-life', () => {
+  it('goes fully cold rather than dividing by zero on a zero window', () => {
     expect(heatTrackStops(0).every((s) => s.t === 0)).toBe(true);
   });
 });
@@ -1183,33 +1196,118 @@ describe('graphUnchanged (the test that decides whether the map holds still)', (
   });
 });
 
-describe('the access channel — what passed through a file, vs what edited it', () => {
+describe('the gold channel — what actually RAN, vs what edited it', () => {
   const NOW = 1_700_000_000;
-  const sess = (id: string, writes: number, reads: number, agoSeconds: number) => ({
-    id,
-    title: id,
-    writes,
-    reads,
-    last: new Date((NOW - agoSeconds) * 1000).toISOString(),
+  const ranFile = (path: string, touches: number[], ran: number[]) => ({
+    ...file(path, touches, []),
+    ran,
   });
 
-  it('counts reads and writes alike — access asks "was it opened", not "did it change"', () => {
-    const reader = file('a.ts', [], [sess('s1', 0, 4, 0)]);
-    const writer = file('b.ts', [], [sess('s2', 4, 0, 0)]);
-    expect(computeAccessHeat(reader, 'day', NOW)).toBeCloseTo(
-      computeAccessHeat(writer, 'day', NOW),
-    );
-  });
-
-  it('is zero for a file no agent ever touched, however hot its git history', () => {
+  it('is zero for a file that never ran, however hot its git history', () => {
     const committed = file('c.ts', [NOW, NOW - 10, NOW - 20], []);
-    expect(computeAccessHeat(committed, 'day', NOW)).toBe(0);
+    expect(computeRunHeat(committed, NOW)).toBe(0);
     expect(computeFileHeat(committed, 'day', NOW)).toBeGreaterThan(0);
   });
 
-  it('decays on the same lens as heat — one half-life halves it', () => {
-    const f = file('d.ts', [], [sess('s', 1, 0, LENS_HALF_LIFE_SECONDS.day)]);
-    expect(computeAccessHeat(f, 'day', NOW)).toBeCloseTo(0.5, 5);
+  it('ignores git and agents entirely — only the run buckets count', () => {
+    const edited = ranFile('a.py', [NOW, NOW - 5], [NOW - 60]);
+    const untouched = ranFile('b.py', [], [NOW - 60]);
+    expect(computeRunHeat(edited, NOW)).toBeCloseTo(computeRunHeat(untouched, NOW), 10);
+  });
+
+  it('runs on the fixed one-day window: half at eight hours, an eighth at the edge', () => {
+    const eightHours = ranFile('r.py', [], [NOW - RUN_HALF_LIFE_SECONDS]);
+    const aDay = ranFile('d.py', [], [NOW - 24 * 3600]);
+    expect(computeRunHeat(eightHours, NOW)).toBeCloseTo(0.5, 5);
+    expect(computeRunHeat(aDay, NOW)).toBeCloseTo(0.125, 5);
+  });
+
+  it('a file running all hour outshines one that ran once', () => {
+    const constant = ranFile('busy.py', [], Array.from({ length: 12 }, (_, i) => NOW - i * 300));
+    const once = ranFile('once.py', [], [NOW]);
+    expect(computeRunHeat(constant, NOW)).toBeGreaterThan(computeRunHeat(once, NOW));
+  });
+
+  it('a run stamped in the future (clock skew across processes) counts for nothing', () => {
+    expect(computeRunHeat(ranFile('f.py', [], [NOW + 600]), NOW)).toBe(0);
+  });
+});
+
+describe('the alternating breath — ember takes a cycle, then gold, then ember', () => {
+  const P = 10_000;
+  const DAY = LENS_HALF_LIFE_SECONDS.day;
+
+  it('first cycle is ember: gold rests at its day while ember reaches back and returns', () => {
+    for (const t of [0, P * 0.2, P * 0.4, P * 0.7, P - 1]) {
+      const b = alternatingBreath(t, P);
+      expect(b.turn).toBe('ember');
+      expect(b.gold).toBe(24 * 3600);
+      expect(b.ember).toBeCloseTo(breathHalfLife(t, P), 3);
+    }
+  });
+
+  it('second cycle is gold: ember rests at a day while gold tightens to five minutes and eases back', () => {
+    for (const t of [P, P * 1.2, P * 1.4, P * 1.7, 2 * P - 1]) {
+      const b = alternatingBreath(t, P);
+      expect(b.turn).toBe('gold');
+      expect(b.ember).toBe(DAY);
+      expect(b.gold).toBeCloseTo(goldBreathWindow(t - P, P), 3);
+    }
+    expect(alternatingBreath(P * 1.4, P).gold).toBeCloseTo(GOLD_BREATH_SECONDS.min, 3);
+  });
+
+  it('hands off without a jump — both fires sit at a day at every changeover', () => {
+    for (const edge of [P, 2 * P, 3 * P]) {
+      const before = alternatingBreath(edge - 1, P);
+      const after = alternatingBreath(edge + 1, P);
+      expect(before.ember).toBeCloseTo(DAY, -1);
+      expect(after.ember).toBeCloseTo(DAY, -1);
+      expect(before.gold).toBeCloseTo(24 * 3600, -1);
+      expect(after.gold).toBeCloseTo(24 * 3600, -1);
+    }
+  });
+
+  it('never breathes both at once', () => {
+    for (let i = 0; i < 40; i += 1) {
+      const b = alternatingBreath((i / 40) * 2 * P, P);
+      const emberMoving = Math.abs(b.ember - DAY) > 1;
+      const goldMoving = Math.abs(b.gold - 24 * 3600) > 1;
+      expect(emberMoving && goldMoving).toBe(false);
+    }
+  });
+
+  it('repeats every two cycles', () => {
+    const a = alternatingBreath(P * 0.3, P);
+    const b = alternatingBreath(P * 2.3, P);
+    expect(b.ember).toBeCloseTo(a.ember, 3);
+    expect(b.gold).toBeCloseTo(a.gold, 3);
+  });
+});
+
+describe("the gold breath's shape — a day down to five minutes, ember's breath inverted", () => {
+  const P = 10_000;
+
+  it('starts at a day, tightens to five minutes at the top of the inhale, and returns', () => {
+    expect(goldBreathWindow(0, P)).toBeCloseTo(GOLD_BREATH_SECONDS.max, 3);
+    expect(goldBreathWindow(P * 0.4, P)).toBeCloseTo(GOLD_BREATH_SECONDS.min, 3);
+    expect(goldBreathWindow(P, P)).toBeCloseTo(GOLD_BREATH_SECONDS.max, 3);
+  });
+
+  it('is exactly antiphase to ember — log-space positions sum to one at every instant', () => {
+    const lo = Math.log(LENS_HALF_LIFE_SECONDS.day);
+    const hi = Math.log(LENS_HALF_LIFE_SECONDS.month);
+    const glo = Math.log(GOLD_BREATH_SECONDS.min);
+    const ghi = Math.log(GOLD_BREATH_SECONDS.max);
+    for (let i = 0; i <= 20; i += 1) {
+      const t = (i / 20) * P;
+      const uEmber = (Math.log(breathHalfLife(t, P)) - lo) / (hi - lo);
+      const uGold = (Math.log(goldBreathWindow(t, P)) - glo) / (ghi - glo);
+      expect(uGold + uEmber).toBeCloseTo(1, 6);
+    }
+  });
+
+  it('rests at exactly the fixed window, so a preset and the bottom of the breath agree', () => {
+    expect(GOLD_BREATH_SECONDS.max).toBe(24 * 3600);
   });
 });
 
@@ -1252,50 +1350,5 @@ describe('write freshness — brightest for an hour, gone by 24', () => {
     const ages = [0, 600, 3600, 7200, 20000, 60000, 86000, 86400];
     const vals = ages.map((a) => writeFreshness(a));
     for (let i = 1; i < vals.length; i += 1) expect(vals[i]).toBeLessThanOrEqual(vals[i - 1]);
-  });
-});
-
-describe('the mirror lens — gold lights on the opposite half of the breath', () => {
-  it('is a true involution: mirroring twice returns the original lens', () => {
-    for (const half of [LENS_HALF_LIFE_SECONDS.day, 3 * 86400, LENS_HALF_LIFE_SECONDS.month]) {
-      expect(mirrorHalfLife(mirrorHalfLife(half))).toBeCloseTo(half, 3);
-    }
-  });
-
-  it('swaps the two ends of the breath outright', () => {
-    expect(mirrorHalfLife(LENS_HALF_LIFE_SECONDS.day)).toBeCloseTo(
-      LENS_HALF_LIFE_SECONDS.month,
-      3,
-    );
-    expect(mirrorHalfLife(LENS_HALF_LIFE_SECONDS.month)).toBeCloseTo(
-      LENS_HALF_LIFE_SECONDS.day,
-      3,
-    );
-  });
-
-  it('is exactly antiphase against the real breath, all the way round the cycle', () => {
-    // The mirror of the breath at time t must equal the breath at the moment
-    // its log-space position is 1 - u. Sampling the whole cycle catches any
-    // drift the closed form might have against the two-half-cosine original.
-    for (let i = 0; i <= 20; i += 1) {
-      const t = (i / 20) * BREATH_PERIOD_MS;
-      const half = breathHalfLife(t, BREATH_PERIOD_MS);
-      const lo = Math.log(LENS_HALF_LIFE_SECONDS.day);
-      const hi = Math.log(LENS_HALF_LIFE_SECONDS.month);
-      const u = (Math.log(half) - lo) / (hi - lo);
-      const expected = Math.exp(lo + (hi - lo) * (1 - u));
-      expect(mirrorHalfLife(half)).toBeCloseTo(expected, 3);
-    }
-  });
-
-  it('when red is at its widest, gold is at its narrowest', () => {
-    const top = breathHalfLife(BREATH_PERIOD_MS * 0.4, BREATH_PERIOD_MS);
-    expect(top).toBeCloseTo(LENS_HALF_LIFE_SECONDS.month, 3);
-    expect(mirrorHalfLife(top)).toBeCloseTo(LENS_HALF_LIFE_SECONDS.day, 3);
-  });
-
-  it('degrades to the day lens rather than exploding on a nonsense half-life', () => {
-    expect(mirrorHalfLife(0)).toBe(LENS_HALF_LIFE_SECONDS.day);
-    expect(mirrorHalfLife(-5)).toBe(LENS_HALF_LIFE_SECONDS.day);
   });
 });
