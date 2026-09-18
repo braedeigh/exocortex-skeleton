@@ -39,6 +39,8 @@ import {
   SESSION_NODE_PREFIX,
 } from './terrainGraph';
 import { TerrainDials } from './TerrainDials';
+import { TerrainSearch } from './TerrainSearch';
+import { searchTerrainFiles, SEARCH_LABEL_CAP, type TerrainSearchHit } from './terrainSearch';
 import { TerrainHeatBar } from './TerrainHeatBar';
 import type { AgentPool, AgentSection } from './TerrainAgentBar';
 import { TerrainAgentBar } from './TerrainAgentBar';
@@ -375,6 +377,11 @@ export function TerrainPage() {
   const [agentWindow, setAgentWindow] = useState<{ from: number; to: number }>({ from: 0, to: 8 });
   const [selected, setSelected] = useState<TerrainNode | null>(null);
   const [footprintSession, setFootprintSession] = useState<string | null>(null);
+  // The file search (top bar). Non-empty → the map dims to the matching
+  // files, the same spotlight an agent tap uses; the two are exclusive
+  // (typing clears the agent, tapping an agent clears the query), so they
+  // can never argue over the same pixels.
+  const [query, setQuery] = useState('');
   // The file whose frosted code window is open, if any — the whole node, not
   // just its coordinates, because the window shows what the MAP knows about
   // the file (when it was last touched, which agents touched it) alongside
@@ -461,6 +468,25 @@ export function TerrainPage() {
    */
   const collapsed = useMemo(() => (data ? collapseToPondTile(data, localDayISO()) : null), [data]);
 
+  // Search runs over the whole payload (not the drawn nodes) so the Files
+  // dial can't hide a hit; every hit is then PINNED past the dial's cut
+  // below, the same way the journey replay pins its files. Repos toggled
+  // off stay off — the chips say what's on the map, search only lights it.
+  const searchHits = useMemo(
+    () => searchTerrainFiles(collapsed?.data, query, { hiddenRepos }),
+    [collapsed, query, hiddenRepos],
+  );
+  const searchIds = useMemo(
+    () => (searchHits.length ? new Set(searchHits.map((h) => h.id)) : null),
+    [searchHits],
+  );
+  const pins = useMemo(() => {
+    if (!searchIds) return replayPins;
+    const all = new Set<string>(replayPins ?? []);
+    for (const id of searchIds) all.add(id);
+    return all;
+  }, [replayPins, searchIds]);
+
   // The dials narrow the payload (time, then count), and the graph is built
   // from what survives — so heat, ages and session lists all describe the
   // chosen span rather than all time.
@@ -469,11 +495,11 @@ export function TerrainPage() {
       collapsed
         ? filterTerrainData(
             collapsed.data,
-            { from: range.from, to: range.to, count: effectiveCount, pinned: replayPins },
+            { from: range.from, to: range.to, count: effectiveCount, pinned: pins },
             now,
           )
         : null,
-    [collapsed, range.from, range.to, effectiveCount, now, replayPins],
+    [collapsed, range.from, range.to, effectiveCount, now, pins],
   );
 
   /**
@@ -832,6 +858,7 @@ export function TerrainPage() {
         }
         setSelected(node);
         setFootprintSession(node.session.id);
+        setQuery(''); // the agent takes the spotlight over from the search
         acknowledge(node.session.id); // she turned to it — stop the sonar ping
       } else if (node === null) {
         setSelected(null);
@@ -966,6 +993,16 @@ export function TerrainPage() {
   useEffect(() => {
     const engine = engineRef.current;
     if (!engine || !visible) return;
+    // A search owns the spotlight while it has hits: the matches stay lit
+    // and captioned, everything else recedes. Labels in rank order, so
+    // when the canvas thins captions it keeps the best matches.
+    // Only the best few are captioned on the map: the list beside the field
+    // already names every hit, and forty names over one directory is soup.
+    if (searchIds) {
+      engine.setFootprint(searchIds);
+      engine.setFootprintLabels(searchHits.slice(0, SEARCH_LABEL_CAP).map((h) => h.id));
+      return;
+    }
     if (!footprintSession) {
       engine.setFootprint(null);
       engine.setFootprintLabels([]);
@@ -980,7 +1017,7 @@ export function TerrainPage() {
     // the canvas thin the captions to the most recent work when she's zoomed
     // too far out to fit them all.
     engine.setFootprintLabels(sessionFootprintByRecency(visible.nodes, footprintSession));
-  }, [footprintSession, visible]);
+  }, [footprintSession, visible, searchIds, searchHits]);
 
   useEffect(() => {
     engineRef.current?.setAgentRings(agentRings);
@@ -1100,6 +1137,26 @@ export function TerrainPage() {
     setHover(null);
   };
 
+  // Typing a query takes the spotlight from whichever agent had it.
+  const pickQuery = (q: string) => {
+    setQuery(q);
+    if (q.trim()) {
+      setFootprintSession(null);
+      setSelected(null);
+    }
+  };
+  // A row in the hit list opens the file exactly as tapping its dot does:
+  // out to a paired window if one is listening, else the frosted code
+  // window here. Hits are pinned, so the node is on the map to be found;
+  // if it somehow isn't, a bare node still carries enough to open it.
+  const openHit = (hit: TerrainSearchHit) => {
+    if (dispatchIntent({ kind: 'code', repo: hit.repoId, path: hit.path }) !== 'none') return;
+    const node = visible?.nodes.find((n) => n.id === hit.id);
+    setCodeFile(
+      node ?? { id: hit.id, kind: 'file', label: hit.name, parentId: null, depth: 1, repoId: hit.repoId, path: hit.path, heat: 0 },
+    );
+  };
+
   return (
     <div className={styles.page}>
       {/* Canvas first and full-bleed: the chrome below floats over it, so the
@@ -1148,6 +1205,9 @@ export function TerrainPage() {
               </button>
             ))}
           </div>
+          {/* Find a file by name or path — the hits light on the map and
+              list under the field; see TerrainSearch.tsx. */}
+          <TerrainSearch query={query} onQuery={pickQuery} hits={searchHits} onPick={openHit} />
           {customRange ? (
             <button
               type="button"
@@ -1270,6 +1330,7 @@ export function TerrainPage() {
             onSpotlight={(id) => {
               setFootprintSession(id);
               setSelected(null);
+              if (id) setQuery('');
               if (id) acknowledge(id); // tapping its row in the list counts too
             }}
           />

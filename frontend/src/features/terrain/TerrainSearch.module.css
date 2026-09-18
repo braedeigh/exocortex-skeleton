@@ -1,0 +1,178 @@
+/* TerrainSearch — the search pill in the top bar and its drop-down of hits.
+   Speaks the top bar's own language: the field is the same 40px glass pill
+   as the territory chips beside it (TerrainPage.module.css .chip), the list
+   is the same frosted card the agent bar's menus use. The wrapper takes its
+   pointer events back from the chrome (which is pointer-events: none so the
+   map can be panned between controls). */
+
+.wrap {
+  position: relative;
+  flex: 1 1 12rem;
+  min-width: 9rem;
+  max-width: 24rem;
+  pointer-events: auto;
+}
+
+.field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 40px;
+  padding: 0 var(--space-1) 0 var(--space-2);
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--card-bg) 38%, transparent);
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+
+.field:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+  background: color-mix(in srgb, var(--card-bg) 70%, transparent);
+}
+
+/* While a query is lighting the map the pill stays a shade more solid even
+   unfocused — the field is the one control that says why the map is dim. */
+.fieldLit {
+  background: color-mix(in srgb, var(--card-bg) 60%, transparent);
+}
+
+.glyph {
+  color: var(--text-muted);
+  font-size: var(--font-size-md);
+  line-height: 1;
+  transform: rotate(-45deg);
+}
+
+.input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 38px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: var(--font-size-md);
+  outline: none;
+}
+
+.input::placeholder {
+  color: var(--text-muted);
+}
+
+/* The native clear glyph is tiny and browser-specific; ours is the visible
+   one, so hide theirs. */
+.input::-webkit-search-cancel-button,
+.input::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.clear {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+  color: var(--text-secondary);
+  font-size: var(--font-size-lg);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.clear:hover {
+  background: color-mix(in srgb, var(--text) 18%, transparent);
+  color: var(--text);
+}
+
+.pop {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  min-width: 16rem;
+  max-height: 50vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-1);
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: var(--radius-md, 12px);
+  background: color-mix(in srgb, var(--card-bg) 92%, transparent);
+  backdrop-filter: var(--frost-chip);
+  -webkit-backdrop-filter: var(--frost-chip);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+  z-index: 6;
+}
+
+.none {
+  padding: var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--font-size-md);
+}
+
+/* One hit: filename on top, path beneath. Two lines in the 12/14 pair the
+   rest of the map's chrome uses — hierarchy by size and colour, no text
+   under the 12px floor. */
+.row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-height: 40px;
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm, 8px);
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.row:hover,
+.rowActive {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.name {
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.path {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  max-width: 100%;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.repo {
+  flex: none;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* One line, truncated from the LEFT — the tail of a path is the part that
+   identifies it, and the name above already says what the file is. */
+.pathText {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+/* The matched span — weight carries it; no highlight box, which would read
+   as a browser find bar rather than a list. */
+.mark {
+  background: transparent;
+  color: inherit;
+  font-weight: 700;
+}
