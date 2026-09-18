@@ -16,8 +16,16 @@ Write-class tools (Edit, Write, NotebookEdit) count as writes; read-class
 tools (Read, Grep, Glob) count as reads. Grep/Glob's `path` input may point
 at a directory (or nothing at all — a bare pattern search) rather than a
 concrete file, so those are only recorded when they resolve to a file that
-actually exists on disk. Bash and everything else are ignored for v1 — no
-path to harvest reliably.
+actually exists on disk.
+
+Bash is harvested too, from the COMMAND text only (never from its output):
+a session run under the harness's auto permission mode does nearly all its
+work through the shell — `sed -i`, `cat`, Python heredocs — and left no
+footprint at all before this. Each command is split into its pieces and
+only pieces whose program means the file was opened, changed, or run count;
+searches and listings (grep, find, ls, git …) contribute nothing, however
+many files they name. See `bash_touches` for the exact rules and what they
+can't see. Everything else (WebFetch, Task, …) is still ignored.
 
 A file the session CREATED fresh (a Write to a path that didn't exist) is
 also counted, in its own `creates` tally. The tool_use can't tell a new file
@@ -52,6 +60,8 @@ import argparse
 import bisect
 import json
 import os
+import re
+import shlex
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -138,6 +148,217 @@ def _normalize_path(path, conv_cwd):
     return os.path.normpath(p)
 
 
+# --- Bash: which files a shell command actually opened, changed, or ran ------
+#
+# Plain English: the transcript records a Bash call as one string of shell
+# text plus whatever it printed. The printed half is useless for attribution
+# (an edit prints nothing; a search prints file names it merely LOOKED
+# THROUGH), so this reads the command and nothing else. A command is split
+# into its pieces at &&, ||, |, ; and newlines — quote-aware, so a sed
+# pattern like 's|a|b|' stays whole — and each piece is judged by the
+# program it starts with:
+#
+#   read     cat head tail less more wc diff, and sed WITHOUT -i
+#   write    sed -i, tee, cp/mv (the target), and any `>` / `>>` redirect
+#   run      python/python3, pytest, bash/sh, node, or a script invoked by
+#            path — counted as a READ of the file that ran, since the map's
+#            footprint has two counters and "the agent used this file" is
+#            what a read means there
+#   ignored  everything else: grep, rg, find, ls, git, echo, npm, curl …
+#
+# A path that appears only in an ignored piece never counts. That is the
+# owner's rule, verbatim from the prompt that produced this: "i just don't
+# want like random searches to show up … just stuff that it actually read
+# and executed on".
+#
+# Two shapes the coding sessions lean on get special handling. A simple
+# variable set earlier in the same command (`f=routes/x.py && sed -i … $f`)
+# is substituted back, so the path isn't lost behind `$f`. A Python heredoc
+# (`python3 - <<'PY' … PY`) is scanned for the quoted paths its source opens:
+# a write if the source calls write_text / open(…, "w") / .write(, a read
+# otherwise. Heredocs fed to anything other than python are file CONTENT, not
+# commands, and are skipped.
+#
+# What this can't see, honestly: a file reached through a glob, a `find`, or
+# a variable assembled from pieces; a file the command deleted (the existence
+# check drops it); whether the command actually succeeded; and any program
+# not in the tables above (add it and its files start counting). Scratch
+# under /tmp, /dev and /proc is dropped — it is never the work.
+
+_BASH_READ_PROGS = frozenset(("cat", "head", "tail", "less", "more", "wc", "diff", "sed"))
+_BASH_WRITE_PROGS = frozenset(("tee", "cp", "mv"))
+_BASH_RUN_PROGS = frozenset(("python", "python3", "pytest", "bash", "sh", "node"))
+_BASH_SKIP_PREFIXES = ("/tmp/", "/dev/", "/proc/", "/var/tmp/")
+_BASH_SEPARATORS = frozenset(("&&", "||", "|", ";", "(", ")", "&"))
+_BASH_HEREDOC_RE = re.compile(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n(.*?)^\s*\2\s*$", re.S | re.M)
+_BASH_ASSIGN_RE = re.compile(r"^([A-Za-z_]\w*)=(.*)$")
+_BASH_VAR_RE = re.compile(r"\$\{?([A-Za-z_]\w*)\}?")
+_BASH_PY_STRING_RE = re.compile(r"""['"]([^'"\n]+)['"]""")
+_BASH_PY_WRITE_RE = re.compile(r"write_text\(|write_bytes\(|\.write\(|open\([^)]*['\"][wa]")
+
+
+def _bash_file(token, cwd):
+    """A token that names a real file (resolved against `cwd`), or None.
+    Flags, numbers, globs, directories and scratch paths all fall out here."""
+    if not token or token.startswith("-"):
+        return None
+    if any(ch in token for ch in "*?[\n"):
+        return None
+    abspath = _normalize_path(token, cwd)
+    if abspath is None or abspath.startswith(_BASH_SKIP_PREFIXES):
+        return None
+    return abspath if os.path.isfile(abspath) else None
+
+
+def _bash_heredocs(command):
+    """Strip heredoc bodies out of the command, returning (command_without_
+    bodies, [body, ...]) — the bodies are scanned separately if python ate
+    them, and must not be parsed as shell."""
+    bodies = []
+
+    def _take(m):
+        bodies.append(m.group(3))
+        return "<<" + m.group(2) + "\n"
+
+    return _BASH_HEREDOC_RE.sub(_take, command), bodies
+
+
+def _bash_segments(command):
+    """The command's pieces as token lists, split quote-aware at the shell
+    separators. A command shlex can't tokenize (an unbalanced quote) falls
+    back to a crude whitespace split of the whole thing as one piece."""
+    text = command.replace("\\\n", " ").replace("\n", " ; ")
+    try:
+        lexer = shlex.shlex(text, posix=True, punctuation_chars=True)
+        lexer.whitespace_split = True
+        tokens = list(lexer)
+    except ValueError:
+        tokens = text.split()
+    segments, current = [], []
+    for tok in tokens:
+        if tok in _BASH_SEPARATORS:
+            if current:
+                segments.append(current)
+            current = []
+        else:
+            current.append(tok)
+    if current:
+        segments.append(current)
+    return segments
+
+
+def _bash_python_body(body, cwd):
+    """(kind, abspath) for every real file a Python heredoc names in a string
+    literal; the whole body is a write if it contains a write call."""
+    kind = "write" if _BASH_PY_WRITE_RE.search(body) else "read"
+    out = []
+    for lit in _BASH_PY_STRING_RE.findall(body):
+        abspath = _bash_file(lit, cwd)
+        if abspath is not None:
+            out.append((kind, abspath))
+    return out
+
+
+def bash_touches(command, conv_cwd):
+    """[(kind, abspath), ...] — the files one Bash command actually opened,
+    changed, or ran, per the rules in the block comment above. `kind` is
+    "read" or "write". Order follows the command; a file can repeat."""
+    if not isinstance(command, str) or not command.strip():
+        return []
+    stripped, bodies = _bash_heredocs(command)
+    cwd = conv_cwd
+    env = {}
+    out = []
+    body_iter = iter(bodies)
+    for seg in _bash_segments(stripped):
+        # Substitute the simple variables set earlier in this same command.
+        seg = [_BASH_VAR_RE.sub(lambda m: env.get(m.group(1), m.group(0)), t) for t in seg]
+        # Leading NAME=value assignments: remember them, then step past.
+        i = 0
+        while i < len(seg):
+            m = _BASH_ASSIGN_RE.match(seg[i])
+            if not m:
+                break
+            env[m.group(1)] = m.group(2)
+            i += 1
+        seg = seg[i:]
+        if seg and seg[0] == "sudo":
+            seg = seg[1:]
+        if not seg:
+            continue
+        # A heredoc marker in this piece: its body belongs to this program.
+        heredoc_body = None
+        if "<<" in seg:
+            j = seg.index("<<")
+            heredoc_body = next(body_iter, None)
+            seg = seg[:j] + seg[j + 2:]
+            if not seg:
+                continue
+        prog = os.path.basename(seg[0])
+        args = seg[1:]
+        if prog == "cd":
+            target = args[0] if args else None
+            if target:
+                moved = _normalize_path(target, cwd)
+                if moved is not None:
+                    cwd = moved
+            continue
+        # Redirect targets are writes whatever the program is.
+        redirect_targets = set()
+        plain = []
+        k = 0
+        while k < len(args):
+            tok = args[k]
+            if tok in (">", ">>"):
+                if k + 1 < len(args):
+                    redirect_targets.add(args[k + 1])
+                k += 2
+                continue
+            if tok in ("<", ">&", "<&", "&>", "2>", "2>>"):
+                k += 2
+                continue
+            plain.append(tok)
+            k += 1
+        for tok in redirect_targets:
+            abspath = _bash_file(tok, cwd)
+            if abspath is not None:
+                out.append(("write", abspath))
+        if prog in _BASH_RUN_PROGS and heredoc_body is not None and prog.startswith("python"):
+            out.extend(_bash_python_body(heredoc_body, cwd))
+        if prog in _BASH_READ_PROGS:
+            in_place = prog == "sed" and any(
+                a == "-i" or a.startswith("-i.") or a == "--in-place" or a.startswith("--in-place=")
+                or (a.startswith("-") and not a.startswith("--") and "i" in a[1:] and "n" not in a[1:])
+                for a in plain)
+            kind = "write" if in_place else "read"
+            for tok in plain:
+                abspath = _bash_file(tok, cwd)
+                if abspath is not None:
+                    out.append((kind, abspath))
+        elif prog in _BASH_WRITE_PROGS:
+            files = [tok for tok in plain if _bash_file(tok, cwd) is not None]
+            if prog == "tee":
+                for tok in files:
+                    out.append(("write", _bash_file(tok, cwd)))
+            elif files:
+                # cp/mv: the last path is the target (a write); a cp source
+                # is a read; a mv source no longer exists and drops out.
+                if prog == "cp":
+                    for tok in files[:-1]:
+                        out.append(("read", _bash_file(tok, cwd)))
+                out.append(("write", _bash_file(files[-1], cwd)))
+        elif prog in _BASH_RUN_PROGS or _bash_file(seg[0], cwd) is not None:
+            # Running a file is using it: the interpreter's script, the test
+            # file handed to pytest, or a script invoked straight by path.
+            candidates = plain if prog in _BASH_RUN_PROGS else [seg[0]] + plain
+            for tok in candidates:
+                abspath = _bash_file(tok, cwd)
+                if abspath is not None:
+                    out.append(("read", abspath))
+        # anything else: a search, a listing, git, echo … contributes nothing.
+    return out
+
+
 def _parse_ts(raw):
     """Epoch seconds for an iso-ish timestamp string, local-naive or
     'Z'-suffixed UTC (both shapes appear in these logs) — or None if it
@@ -201,6 +422,14 @@ def _extract_touches(events, conv_cwd):
                 continue
             itype = item.get("type")
             if itype == "tool_use":
+                if item.get("name") == "Bash":
+                    # Shell work: several files per call, judged by program
+                    # (see bash_touches). The output is never consulted.
+                    inp = item.get("input")
+                    cmd = inp.get("command") if isinstance(inp, dict) else None
+                    for kind, abspath in bash_touches(cmd, conv_cwd):
+                        touches.append((i, kind, abspath))
+                    continue
                 kind = _classify_tool(item.get("name"))
                 if kind is None:
                     continue
