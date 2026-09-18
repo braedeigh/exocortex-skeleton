@@ -54,6 +54,7 @@ import { PondLandmark } from './PondLandmark';
 import { collapseToPondTile, localDayISO, parseCardPath, POND_TILE_PATH } from './pondNodes';
 import { fileTypeCounts, OTHER_FILE_TYPE } from './fileTypes';
 import { setTypeColorsOn, useTypeColorsOn } from './typeColorPref';
+import { setAgentsHiddenOn, useAgentsHiddenOn } from './agentsHiddenPref';
 import {
   readThemeInk,
   TerrainCanvas,
@@ -679,16 +680,28 @@ export function TerrainPage() {
       );
   }, [graph, poolSessionIds, now]);
 
+  // Read the "hide agents" switch (agentsHiddenPref.ts). The embed card never
+  // honours it: it has no controls, so a map hidden there could never be
+  // un-hidden from there.
+  const agentsHidden = useAgentsHiddenOn() && !embed;
+
   /** The window's slice of the ranked pool — one control, one job. There's no
    * "and also show the active ones" branch any more: the pool button decides
    * membership, this decides how much of it. Clamped to the roster length,
-   * which changes whenever the pool does. */
+   * which changes whenever the pool does.
+   *
+   * Hiding agents empties this list, and that is the whole mechanism: orbs,
+   * tethers, name labels, read/write rings, the spotlight and the key's agent
+   * row all follow it, so none of them needs its own "hidden" check. The pool
+   * and window choices are left as they were, ready for when she shows them
+   * again. */
   const shownAgentIds = useMemo(() => {
+    if (agentsHidden) return new Set<string>();
     const n = rankedAgents.length;
     const to = Math.min(Math.max(agentWindow.to, 1), Math.max(1, n));
     const from = Math.min(Math.max(agentWindow.from, 0), Math.max(0, to - 1));
     return new Set(rankedAgents.slice(from, to).map((a) => a.id));
-  }, [agentWindow, rankedAgents]);
+  }, [agentWindow, rankedAgents, agentsHidden]);
 
   /**
    * Which orbs get their title drawn: the shown agents that did something
@@ -1385,6 +1398,8 @@ export function TerrainPage() {
             from={agentWindow.from}
             to={agentWindow.to}
             onWindow={(from, to) => setAgentWindow({ from, to })}
+            hidden={agentsHidden}
+            onHidden={setAgentsHiddenOn}
             spotlighted={footprintSession}
             onSpotlight={(id) => {
               setFootprintSession(id);

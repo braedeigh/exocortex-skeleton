@@ -23,6 +23,13 @@ import styles from './TerrainAgentBar.module.css';
  * - **Agents button**: toggles a popup list of the agents currently shown —
  *   tap a row to spotlight that agent's footprint. No inline chips; the bar
  *   stays a control strip, the list is where identity lives.
+ * - **Hide**, at the end: takes every agent off the map — orbs, tethers,
+ *   rings, names — leaving files only. While hidden the whole bar folds down
+ *   to one **Show agents** button: the pool and the window choose among
+ *   agents that aren't being drawn, so showing them would be offering
+ *   controls that do nothing. Both choices are kept and come back as they
+ *   were. The switch itself stays across reloads (agentsHiddenPref.ts).
+ *   Prompt: "make it possible to hide agents".
  *
  * Selection/visibility state is owned by TerrainPage; this is presentation +
  * the gestures. The dual-handle mechanics mirror TerrainDials' Dates row
@@ -91,6 +98,9 @@ export interface TerrainAgentBarProps {
   from: number;
   to: number;
   onWindow: (from: number, to: number) => void;
+  /** True while agents are hidden from the map altogether. */
+  hidden: boolean;
+  onHidden: (hidden: boolean) => void;
   /** The spotlighted agent id (footprint ringed on the map), or null. */
   spotlighted: string | null;
   onSpotlight: (id: string | null) => void;
@@ -106,6 +116,8 @@ export function TerrainAgentBar({
   from,
   to,
   onWindow,
+  hidden,
+  onHidden,
   spotlighted,
   onSpotlight,
 }: TerrainAgentBarProps) {
@@ -125,6 +137,25 @@ export function TerrainAgentBar({
   const poolLabel = section
     ? `${POOL_LABELS[pool]} · ${SECTION_LABELS[section]}`
     : POOL_LABELS[pool];
+
+  // Agents are hidden: fold the bar down to the one button that brings them
+  // back. Lit like any engaged control, so it reads as "a filter is on" and
+  // not as an empty bar.
+  if (hidden) {
+    return (
+      <div className={styles.bar} role="group" aria-label="Agents">
+        <button
+          type="button"
+          className={`${styles.btn} ${styles.btnOn}`}
+          aria-pressed
+          onClick={() => onHidden(false)}
+          title="Agents are hidden — put them back on the map"
+        >
+          Show agents
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className={styles.bar} role="group" aria-label="Agents">
@@ -246,6 +277,21 @@ export function TerrainAgentBar({
           </div>
         ) : null}
       </div>
+
+      {/* Hide every agent. Closes both popups on the way out, so neither is
+          still open when the bar comes back. */}
+      <button
+        type="button"
+        className={styles.btn}
+        onClick={() => {
+          setListOpen(false);
+          setPoolOpen(false);
+          onHidden(true);
+        }}
+        title="Take every agent off the map — files only"
+      >
+        Hide
+      </button>
     </div>
   );
 }
