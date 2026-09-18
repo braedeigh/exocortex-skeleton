@@ -1,6 +1,7 @@
 import { useEffect, type ReactNode } from 'react';
 import { IconButton } from '../../ui';
 import { FileCodeBody } from './FileCodeBody';
+import type { ThemeInk } from './terrainCanvas';
 import styles from './FileCodeWindow.module.css';
 
 /**
@@ -38,18 +39,27 @@ import styles from './FileCodeWindow.module.css';
  * The body is shared with the /code page (FileCodeBody); this file is the
  * frame. `children` is what the map knows that the file itself doesn't —
  * which agents touched it, and the footprint control for each.
+ * `windowSeconds` and `ink` are the map's live heat window and theme ink,
+ * handed straight through to the body so its red-edits toggle paints lines
+ * on the very lens and ramp the dots outside the pane are wearing.
  */
 export function FileCodeWindow({
   repo,
   path,
   onClose,
   children,
+  windowSeconds,
+  ink,
 }: {
   repo: string | null;
   path: string | null;
   onClose: () => void;
   /** What touched this file — rendered under the code, inside the same scroll. */
   children?: ReactNode;
+  /** The map's live heat window (breath included), for the red-edits lines. */
+  windowSeconds?: number;
+  /** The map's theme ink, for the same ember ramp the dots use. */
+  ink?: ThemeInk;
 }) {
   const open = repo !== null && path !== null;
 
@@ -82,7 +92,7 @@ export function FileCodeWindow({
         </IconButton>
       </div>
       <div className={styles.body}>
-        <FileCodeBody repo={repo} path={path} uncapCode />
+        <FileCodeBody repo={repo} path={path} uncapCode windowSeconds={windowSeconds} ink={ink ?? undefined} />
         {children}
       </div>
     </div>

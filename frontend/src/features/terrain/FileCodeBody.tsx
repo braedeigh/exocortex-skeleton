@@ -1,5 +1,10 @@
-import { useEffect, useMemo, useRef } from 'react';
-import { useTerrainFile } from './api';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { subscribeTheme } from '../../theme';
+import { useTerrainFile, useTerrainFileEdits } from './api';
+import { setCodeHeatOn, useCodeHeatOn } from './codeHeatPref';
+import { lineEditHeat } from './lineEditHeat';
+import { EMBER_HOT, glowAlpha, heatColor, heatRamps, readThemeInk, type ThemeInk } from './terrainCanvas';
+import { heatKeyTicks } from './terrainGraph';
 import styles from './FileCodeBody.module.css';
 
 /**
@@ -43,6 +48,23 @@ import styles from './FileCodeBody.module.css';
  * block's own vertical scroll so the whole file flows into the window's one
  * scroll region. It also drops the path line, because that frame prints the
  * path in its header rather than at the top of the body.
+ *
+ * THE RED: an "edits" toggle on the meta line (every frame has it) paints
+ * each line by when it was last edited, on the map's own ember ramp — a
+ * line changed just now is fully red, the colour decays across the window
+ * and is gone at its edge, exactly as a file's dot does on the terrain
+ * (lineEditHeat.ts). The stamps come from git blame through
+ * GET /api/observatory/terrain/file/edits, fetched only while the toggle is
+ * on. The toggle is one setting for every file (codeHeatPref.ts): flip it
+ * once and every file opens lit until it's flipped back. `windowSeconds`
+ * is the window to decay across — the map's pane passes its live heat
+ * window (breath included, so the pane breathes with the map); frames with
+ * no window of their own get a week. The row wash is the hot ember at an
+ * alpha scaled by the heat, so text stays legible under it, and the line
+ * NUMBER wears the ramp colour itself — the same colour the dot would.
+ *
+ * Prompt that produced it: "can those displays show when the most recent
+ * code was edited by a toggleable red color like on the terrain map".
  */
 export interface LineHighlight {
   /** 1-based, inclusive — matches how people say line numbers out loud and
@@ -57,6 +79,8 @@ export function FileCodeBody({
   fill = false,
   uncapCode = false,
   highlight,
+  windowSeconds = DEFAULT_WINDOW_SECONDS,
+  ink,
 }: {
   repo: string | null;
   path: string | null;
@@ -68,8 +92,28 @@ export function FileCodeBody({
    * every existing caller that omits it looks exactly as it did before,
    * apart from the line-number gutter that now always shows on text files. */
   highlight?: LineHighlight;
+  /** The heat window the red decays across, in seconds. The map's pane
+   * hands in its live one; anything else gets a week. */
+  windowSeconds?: number;
+  /** The theme's ink, for the ember ramp. The map already tracks it and
+   * passes it in; other frames read it themselves (useThemeInk). */
+  ink?: ThemeInk;
 }) {
   const { data, isLoading, isError, error } = useTerrainFile(repo, path);
+
+  // The red-edits toggle and what it needs: the stamps (only fetched while
+  // it's on) and the ramp (only built while it's on).
+  const heatOn = useCodeHeatOn();
+  const edits = useTerrainFileEdits(repo, path, heatOn && !!data && !data.binary);
+  const ownInk = useThemeInk(ink === undefined && heatOn);
+  const liveInk = ink ?? ownInk;
+  const ramp = useMemo(() => (heatOn && liveInk ? heatRamps(liveInk).ember : null), [heatOn, liveInk]);
+  // "now" is the moment the stamps were fetched, not this render: the breath
+  // re-renders this several times a second, and a line's age moving by a
+  // fraction of a second between frames is nothing the eye can see. (Zero
+  // until the first fetch lands — then there are no stamps to age anyway.)
+  const nowSeconds = edits.dataUpdatedAt > 0 ? edits.dataUpdatedAt / 1000 : Date.now() / 1000;
+  const stamps = heatOn ? (edits.data?.edits ?? null) : null;
 
   // Split once per fetch, not per render. null for binaries/no-content-yet —
   // that's what tells the JSX below to fall back to nothing rendered rather
@@ -126,11 +170,50 @@ export function FileCodeBody({
       ) : null}
 
       {data ? (
-        <div className={styles.meta}>
-          {formatBytes(data.size)}
-          {!data.binary ? ` · ${data.lines.toLocaleString()} lines` : null}
-          {data.truncated ? ' · showing the first part only' : null}
+        <div className={styles.metaRow}>
+          <div className={styles.meta}>
+            {formatBytes(data.size)}
+            {!data.binary ? ` · ${data.lines.toLocaleString()} lines` : null}
+            {data.truncated ? ' · showing the first part only' : null}
+          </div>
+          {/* The red-edits toggle. A pill like the heat bar's presets, lit
+              the same way when on. It's one setting for every file
+              (codeHeatPref.ts), so it reads as a mode, not a per-file
+              option. Hidden for binaries — nothing to paint. */}
+          {!data.binary ? (
+            <button
+              type="button"
+              className={[styles.heatToggle, heatOn ? styles.heatToggleOn : ''].filter(Boolean).join(' ')}
+              aria-pressed={heatOn}
+              title={heatOn ? 'Stop colouring lines by when they were last edited' : 'Colour lines by when they were last edited'}
+              onClick={() => setCodeHeatOn(!heatOn)}
+            >
+              <span className={styles.heatToggleDot} aria-hidden="true" />
+              edits
+            </button>
+          ) : null}
         </div>
+      ) : null}
+
+      {/* The key, only while the red is on: the ramp laid hot-to-cold with
+          the same three ticks the map's key uses — now, the window's
+          midpoint, its edge — so "how old is that shade" has one answer
+          across the pane and the map. A file git has no history for says so
+          instead, rather than sitting there uncoloured for no stated reason. */}
+      {heatOn && data && !data.binary ? (
+        edits.data && edits.data.edits === null ? (
+          <div className={styles.hint}>No edit history for this file &mdash; git doesn&rsquo;t track it.</div>
+        ) : ramp ? (
+          <div className={styles.heatKey} aria-label="Edit recency key">
+            <span className={styles.heatKeyTick}>{heatKeyTicks(windowSeconds)[0]}</span>
+            <span
+              className={styles.heatKeyRamp}
+              style={{ background: `linear-gradient(to right, ${[...ramp].reverse().join(', ')})` }}
+            />
+            <span className={styles.heatKeyTick}>{heatKeyTicks(windowSeconds)[2]}</span>
+            {edits.isLoading ? <span className={styles.heatKeyNote}>reading history…</span> : null}
+          </div>
+        ) : null
       ) : null}
 
       {data?.binary ? <div className={styles.hint}>Binary file — nothing to read here.</div> : null}
@@ -144,11 +227,27 @@ export function FileCodeBody({
           {lines.map((line, i) => {
             const n = i + 1; // 1-based, to match `highlight` and the URL.
             const hot = highlight !== undefined && n >= highlight.start && n <= highlight.end;
+            // The red, per line: the row gets a wash of the hot ember at an
+            // alpha that follows the heat (glowAlpha, the dots' own curve),
+            // and the number gets the ramp colour outright — the exact
+            // shade this line's age would wear as a dot on the map. A cold
+            // line (0) gets neither, so the plain look is untouched.
+            const t = stamps && ramp ? lineEditHeat(stamps[i], nowSeconds, windowSeconds) : 0;
+            const paint: CSSProperties | undefined =
+              t > 0 && ramp
+                ? {
+                    background: `color-mix(in srgb, ${EMBER_HOT} ${Math.round(EMBER_WASH_MAX * glowAlpha(t) * 100)}%, transparent)`,
+                    ['--edit-ink' as string]: heatColor(t, ramp),
+                  }
+                : undefined;
             return (
               <div
                 key={i}
                 ref={hot && n === highlight?.start ? hotRef : undefined}
-                className={[styles.codeLine, hot ? styles.codeLineHot : ''].filter(Boolean).join(' ')}
+                className={[styles.codeLine, hot ? styles.codeLineHot : '', t > 0 ? styles.codeLineEdited : '']
+                  .filter(Boolean)
+                  .join(' ')}
+                style={paint}
               >
                 <span className={styles.codeLineNo}>{n}</span>
                 <span className={styles.codeLineText}>{line === '' ? ' ' : line}</span>
@@ -165,6 +264,31 @@ export function FileCodeBody({
       ) : null}
     </div>
   );
+}
+
+/** A week — the window frames with no live heat bar decay the red across. */
+const DEFAULT_WINDOW_SECONDS = 7 * 24 * 3600;
+
+/** How much of the hot ember a fully-red row's wash carries. Strong enough
+ * to be unmistakably red behind the text, weak enough to keep the text
+ * legible on both surfaces. */
+const EMBER_WASH_MAX = 0.32;
+
+/**
+ * The theme's ink for frames the map isn't feeding — read on mount and again
+ * on every theme commit (the /code page can sit open across the Auto mode's
+ * sunset). Only subscribed while `active`, so a pane with the red off pays
+ * nothing for it.
+ */
+function useThemeInk(active: boolean): ThemeInk | null {
+  const [ink, setInk] = useState<ThemeInk | null>(null);
+  useEffect(() => {
+    if (!active) return;
+    const apply = () => setInk(readThemeInk());
+    apply();
+    return subscribeTheme(apply);
+  }, [active]);
+  return active ? ink : null;
 }
 
 function formatBytes(bytes: number): string {

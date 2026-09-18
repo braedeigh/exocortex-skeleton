@@ -3,7 +3,9 @@ happened, fed by code history (coverage of everything) and bot_chats
 footprints (attribution of which session touched which file). Serves the
 endpoints the map and its rooms read: GET /api/observatory/terrain (the
 payload), GET /api/observatory/terrain/file (one file's text for the
-tap-a-node code modal), and GET /api/observatory/flow (the live stream of
+tap-a-node code modal), GET /api/observatory/terrain/file/edits (when each
+of its lines was last edited, from git blame, for the pane's red-edits
+toggle), and GET /api/observatory/flow (the live stream of
 code being written, for the Flow lane at /terrain/flow). See
 scripts/extract_footprints.py for the footprints sidecar and the flow
 harvest.
@@ -278,6 +280,75 @@ def _terrain_safe_path(root, relpath):
     if not candidate.is_file():
         return None
     return candidate
+
+
+def _terrain_file_target(repo_id, relpath):
+    """The shared front door of the two file endpoints (/terrain/file and
+    /terrain/file/edits): resolve `repo` + `path` to a readable file, or say
+    why not. Returns (resolved_path, None) on success, or (None, response)
+    carrying the 400/404/403 the caller should return as-is. One function so
+    the traversal check and the visitor lock can never drift apart between
+    the file's text and the file's edit history."""
+    if not repo_id or not relpath:
+        return None, (jsonify({"error": "repo and path are required"}), 400)
+    repo = next((r for r in observatory._terrain_repos() if r["id"] == repo_id), None)
+    if repo is None:
+        return None, (jsonify({"error": "unknown repo"}), 404)
+    resolved = _terrain_safe_path(repo["root"], relpath)
+    if resolved is None:
+        return None, (jsonify({"error": "not found"}), 404)
+    # The visitor lock (see _visitor_may_read). Checked AFTER the path
+    # resolves so a visitor learns nothing a 404 wouldn't already say.
+    if _visitor() and not _visitor_may_read(repo, relpath, resolved):
+        return None, _private_file(repo_id, relpath)
+    return resolved, None
+
+
+_BLAME_TIMEOUT_SEC = 15
+
+
+def _terrain_line_edits(resolved):
+    """When each line of a file was last edited: a list of unix seconds, one
+    per line in file order, read from `git blame` in whichever Terrain repo
+    the file actually lives in (a symlink is judged on where it lands, same
+    as the read). None when git can't say — an untracked file, a file
+    outside every repo, a missing binary, a timeout — so the client shows
+    nothing rather than guessing.
+
+    A line changed on disk but not yet committed comes back from blame as
+    "Not Committed Yet" stamped with the time of the call, which is honest:
+    it IS the most recent edit. The pane paints it hottest.
+
+    Prompt that produced it: "can those displays show when the most recent
+    code was edited by a toggleable red color like on the terrain map"."""
+    for repo in observatory._terrain_repos():
+        try:
+            root = Path(repo["root"]).resolve()
+        except (OSError, RuntimeError, ValueError):
+            continue
+        if root == resolved or root not in resolved.parents:
+            continue
+        rel = resolved.relative_to(root).as_posix()
+        try:
+            proc = subprocess.run(
+                ["git", "-C", str(root), "blame", "--line-porcelain", "--", rel],
+                capture_output=True, text=True, timeout=_BLAME_TIMEOUT_SEC,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if proc.returncode != 0:
+            return None
+        # --line-porcelain repeats the full header for every line, so one
+        # author-time per line, in file order — no need to track the sha.
+        edits = []
+        for line in proc.stdout.splitlines():
+            if line.startswith("author-time "):
+                try:
+                    edits.append(int(line[12:]))
+                except ValueError:
+                    edits.append(0)
+        return edits
+    return None
 
 
 def _terrain_file_summary(relpath, text):
@@ -1666,18 +1737,9 @@ def register(app):
         should stay boring."""
         repo_id = (request.args.get("repo") or "").strip()
         relpath = (request.args.get("path") or "").strip()
-        if not repo_id or not relpath:
-            return jsonify({"error": "repo and path are required"}), 400
-        repo = next((r for r in observatory._terrain_repos() if r["id"] == repo_id), None)
-        if repo is None:
-            return jsonify({"error": "unknown repo"}), 404
-        resolved = _terrain_safe_path(repo["root"], relpath)
-        if resolved is None:
-            return jsonify({"error": "not found"}), 404
-        # The visitor lock (see _visitor_may_read). Checked AFTER the path
-        # resolves so a visitor learns nothing a 404 wouldn't already say.
-        if _visitor() and not _visitor_may_read(repo, relpath, resolved):
-            return _private_file(repo_id, relpath)
+        resolved, refusal = _terrain_file_target(repo_id, relpath)
+        if refusal is not None:
+            return refusal
         try:
             raw = resolved.read_bytes()
         except OSError:
@@ -1699,3 +1761,19 @@ def register(app):
                         "binary": False, "truncated": truncated,
                         "summary": _terrain_file_summary(relpath, text),
                         "content": text, "lines": text.count("\n") + 1})
+
+    @app.route("/api/observatory/terrain/file/edits")
+    def observatory_terrain_file_edits():
+        """When each line of one file was last edited — the red channel of
+        the map, brought down to the line. Same door as /terrain/file (same
+        resolution, same traversal refusal, same visitor lock), fetched only
+        when the pane's "edits" toggle is on. `edits` is one unix-second
+        stamp per line in file order, or null when git has no history for
+        the file (untracked, or not a repo)."""
+        repo_id = (request.args.get("repo") or "").strip()
+        relpath = (request.args.get("path") or "").strip()
+        resolved, refusal = _terrain_file_target(repo_id, relpath)
+        if refusal is not None:
+            return refusal
+        return jsonify({"repo": repo_id, "path": relpath,
+                        "edits": _terrain_line_edits(resolved)})

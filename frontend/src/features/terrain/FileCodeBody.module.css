@@ -52,6 +52,81 @@
   color: var(--text-muted);
 }
 
+/* Size + line count on the left, the red-edits toggle on the right. */
+.metaRow {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+/* The "edits" pill — the heat bar's preset pill (TerrainHeatBar.module.css
+   .preset), lit the same way when on, with a dot that turns her red so the
+   button shows the colour it's about to paint. 40px tall per the house rules. */
+.heatToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--text) 22%, transparent);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--card-bg) 55%, transparent);
+  color: var(--text-secondary);
+  font-size: var(--font-size-md);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.heatToggleOn {
+  border-color: #f14c4c;
+  color: var(--text);
+  background: color-mix(in srgb, #f14c4c 16%, var(--card-bg));
+}
+
+.heatToggleDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text) 30%, transparent);
+}
+
+.heatToggleOn .heatToggleDot {
+  background: #f14c4c;
+}
+
+/* The key under the toggle: "now" — ramp, hot to cold — the window's edge. */
+.heatKey {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.heatKeyRamp {
+  flex: 0 1 160px;
+  height: 8px;
+  border-radius: 4px;
+}
+
+.heatKeyTick {
+  flex: none;
+  min-width: 1.5em;
+}
+
+.heatKeyTick:first-child {
+  text-align: right;
+}
+
+.heatKeyNote {
+  margin-left: var(--space-2);
+}
+
 .hint {
   flex: none;
   font-size: var(--font-size-md);
@@ -97,6 +172,14 @@
 
 .codeLineText {
   min-width: 0;
+}
+
+/* A line the red-edits toggle has lit: the wash is set inline (the alpha
+   follows the heat), and the number takes the ramp colour handed in as
+   --edit-ink at full opacity — a dot's colour, not a muted gutter's. */
+.codeLineEdited .codeLineNo {
+  color: var(--edit-ink);
+  opacity: 1;
 }
 
 /* A /code?...&lines= highlighted line — same color-mix idiom as the summary

@@ -1481,11 +1481,15 @@ export function TerrainPage() {
           was last touched, and which agents touched it, each still able to
           ring its own footprint. That was a separate sheet standing between
           her and the code; it reads better as the tail of the file than as a
-          gate in front of it. */}
+          gate in front of it. The pane also gets the map's live heat window
+          and ink, so its red-edits toggle (FileCodeBody) colours lines on
+          the same lens as the dots — under Dynamic the lines breathe too. */}
       <FileCodeWindow
         repo={codeFile?.repoId ?? null}
         path={codeFile?.path ?? null}
         onClose={() => setCodeFile(null)}
+        windowSeconds={windowSeconds}
+        ink={ink ?? undefined}
       >
         {codeFile?.file ? (
           <div className={styles.sheetBody}>

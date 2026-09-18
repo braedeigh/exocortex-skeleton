@@ -168,3 +168,36 @@ export function useTerrainFile(repo: string | null, path: string | null) {
     staleTime: 5 * 60_000,
   });
 }
+
+// --- when each line was last edited, for the pane's red-edits toggle --------
+
+export interface TerrainFileEdits {
+  repo: string;
+  path: string;
+  /** One unix-second stamp per line, in file order — the commit that last
+   * touched the line, or "now" for a line changed on disk and not yet
+   * committed. null when git has no history for the file (untracked, or
+   * not in a repo): the pane then paints nothing rather than guessing. */
+  edits: number[] | null;
+}
+
+/**
+ * GET /api/observatory/terrain/file/edits — git blame, one stamp per line
+ * (routes/terrain.py `_terrain_line_edits`). Fetched only while the toggle
+ * is on (`enabled`), so a plain read never pays for a blame. Short stale
+ * time rather than the file's five minutes: an agent editing the file
+ * changes this answer line by line, and the point of the colour is to see
+ * that.
+ */
+export function useTerrainFileEdits(repo: string | null, path: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: ['terrain-file-edits', repo, path] as const,
+    queryFn: async ({ signal }) =>
+      api.get<TerrainFileEdits>(
+        `/api/observatory/terrain/file/edits?repo=${encodeURIComponent(repo!)}&path=${encodeURIComponent(path!)}`,
+        signal,
+      ),
+    enabled: enabled && repo !== null && path !== null,
+    staleTime: 30_000,
+  });
+}

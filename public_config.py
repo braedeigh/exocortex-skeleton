@@ -169,6 +169,9 @@ PRESENTABLE_PATHS = (
     "/terrain/map",
     "/api/observatory/terrain",
     "/api/observatory/terrain/file",
+    # When each line was last edited (git blame) — same visitor lock as the
+    # file's text, so a visitor gets it for tracked app code and 403 elsewhere.
+    "/api/observatory/terrain/file/edits",
     # The food-sourcing map (routes/ecosystem.py, the Ecosystem feature).
     # Reopened 2026-09-17 as the second exhibit: the portfolio frames
     # /food-map?embed=1 and links through to the full page. STREAMS above
