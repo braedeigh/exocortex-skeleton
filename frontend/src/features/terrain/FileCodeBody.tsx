@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type CSSProperties, type Ref } from 'react';
 import { subscribeTheme } from '../../theme';
 import { useTerrainFile, useTerrainFileEdits } from './api';
 import { setCodeHeatOn, useCodeHeatOn } from './codeHeatPref';
 import { lineEditHeat } from './lineEditHeat';
+import { langForPath, tokenizeCode, type SyntaxLines, type SyntaxToken } from './syntax';
 import { EMBER_HOT, glowAlpha, heatColor, heatRamps, readThemeInk, type ThemeInk } from './terrainCanvas';
 import { heatKeyTicks } from './terrainGraph';
 import styles from './FileCodeBody.module.css';
@@ -65,6 +66,21 @@ import styles from './FileCodeBody.module.css';
  *
  * Prompt that produced it: "can those displays show when the most recent
  * code was edited by a toggleable red color like on the terrain map".
+ *
+ * SYNTAX COLOUR: every text file with a grammar (syntax.ts `langForPath`)
+ * is tokenized by Shiki once per fetch, and each line renders as a run of
+ * spans wearing a ROLE class — keyword, string, comment, number, name —
+ * whose colours are the theme's own variables (the .syn* rules in the CSS
+ * module). Comments and docstrings are italic and softer, so the
+ * plain-English layer reads as prose sitting inside the code. Until the
+ * grammar arrives, or when there is none, the line is one plain span: the
+ * colour never delays the text. The red wash and the syntax colours stack —
+ * the wash is the row's background, the roles are the text.
+ *
+ * Each row is a memoized component (CodeLine) so the Dynamic breath, which
+ * re-renders this body several times a second, only redraws rows whose red
+ * actually moved — a long file is tens of thousands of spans, and redrawing
+ * them all at that rate would stutter.
  */
 export interface LineHighlight {
   /** 1-based, inclusive — matches how people say line numbers out loud and
@@ -119,6 +135,7 @@ export function FileCodeBody({
   // that's what tells the JSX below to fall back to nothing rendered rather
   // than a stray empty code block.
   const lines = useMemo(() => (data?.content != null ? data.content.split('\n') : null), [data?.content]);
+  const syntax = useSyntaxLines(data?.content ?? null, path);
 
   // Scroll the first highlighted line to center ONCE per mount, guarded by a
   // ref rather than keyed on data so a background refetch of the same file
@@ -227,31 +244,21 @@ export function FileCodeBody({
           {lines.map((line, i) => {
             const n = i + 1; // 1-based, to match `highlight` and the URL.
             const hot = highlight !== undefined && n >= highlight.start && n <= highlight.end;
-            // The red, per line: the row gets a wash of the hot ember at an
-            // alpha that follows the heat (glowAlpha, the dots' own curve),
-            // and the number gets the ramp colour outright — the exact
-            // shade this line's age would wear as a dot on the map. A cold
-            // line (0) gets neither, so the plain look is untouched.
-            const t = stamps && ramp ? lineEditHeat(stamps[i], nowSeconds, windowSeconds) : 0;
-            const paint: CSSProperties | undefined =
-              t > 0 && ramp
-                ? {
-                    background: `color-mix(in srgb, ${EMBER_HOT} ${Math.round(EMBER_WASH_MAX * glowAlpha(t) * 100)}%, transparent)`,
-                    ['--edit-ink' as string]: heatColor(t, ramp),
-                  }
-                : undefined;
+            // The red, per line, quantized to 1/64 so the breath only
+            // re-renders a row when its shade visibly moves.
+            const raw = stamps && ramp ? lineEditHeat(stamps[i], nowSeconds, windowSeconds) : 0;
+            const t = Math.round(raw * 64) / 64;
             return (
-              <div
+              <CodeLine
                 key={i}
-                ref={hot && n === highlight?.start ? hotRef : undefined}
-                className={[styles.codeLine, hot ? styles.codeLineHot : '', t > 0 ? styles.codeLineEdited : '']
-                  .filter(Boolean)
-                  .join(' ')}
-                style={paint}
-              >
-                <span className={styles.codeLineNo}>{n}</span>
-                <span className={styles.codeLineText}>{line === '' ? ' ' : line}</span>
-              </div>
+                n={n}
+                text={line}
+                tokens={syntax ? syntax[i] : undefined}
+                hot={hot}
+                heat={t}
+                heatInk={t > 0 && ramp ? heatColor(t, ramp) : null}
+                hotRef={hot && n === highlight?.start ? hotRef : undefined}
+              />
             );
           })}
         </div>
@@ -264,6 +271,93 @@ export function FileCodeBody({
       ) : null}
     </div>
   );
+}
+
+/**
+ * One line of code. Memoized: the body re-renders on every breath tick, and
+ * a row only needs to repaint when its own red moved, its highlight changed,
+ * or its tokens arrived.
+ *
+ * The red: the row gets a wash of the hot ember at an alpha that follows
+ * the heat (glowAlpha, the dots' own curve), and the number gets the ramp
+ * colour outright (`heatInk`) — the exact shade this line's age would wear
+ * as a dot on the map. A cold line (heat 0) gets neither, so the plain look
+ * is untouched. The text: the syntax tokens as role-classed spans, or the
+ * raw line as one span while there are none.
+ */
+const CodeLine = memo(function CodeLine({
+  n,
+  text,
+  tokens,
+  hot,
+  heat,
+  heatInk,
+  hotRef,
+}: {
+  n: number;
+  text: string;
+  tokens: SyntaxToken[] | undefined;
+  hot: boolean;
+  heat: number;
+  heatInk: string | null;
+  hotRef: Ref<HTMLDivElement> | undefined;
+}) {
+  const paint: CSSProperties | undefined =
+    heat > 0 && heatInk
+      ? {
+          background: `color-mix(in srgb, ${EMBER_HOT} ${Math.round(EMBER_WASH_MAX * glowAlpha(heat) * 100)}%, transparent)`,
+          ['--edit-ink' as string]: heatInk,
+        }
+      : undefined;
+  return (
+    <div
+      ref={hotRef}
+      className={[styles.codeLine, hot ? styles.codeLineHot : '', heat > 0 ? styles.codeLineEdited : '']
+        .filter(Boolean)
+        .join(' ')}
+      style={paint}
+    >
+      <span className={styles.codeLineNo}>{n}</span>
+      <span className={styles.codeLineText}>
+        {tokens && tokens.length > 0
+          ? tokens.map((tok, j) =>
+              tok.role ? (
+                <span key={j} className={styles[`syn_${tok.role}`]}>
+                  {tok.content}
+                </span>
+              ) : (
+                tok.content
+              ),
+            )
+          : text === ''
+            ? ' '
+            : text}
+      </span>
+    </div>
+  );
+});
+
+/**
+ * The file's syntax tokens, or null while they're loading / when there are
+ * none to have. Re-tokenizes when the content or the path's language
+ * changes; a result that lands after the file has already changed under it
+ * is dropped, so a fast file switch can't paint the wrong colours.
+ */
+function useSyntaxLines(content: string | null, path: string | null): SyntaxLines | null {
+  const [lines, setLines] = useState<SyntaxLines | null>(null);
+  const lang = langForPath(path);
+  useEffect(() => {
+    setLines(null);
+    if (content === null || lang === null) return;
+    let live = true;
+    void tokenizeCode(content, lang).then((result) => {
+      if (live) setLines(result);
+    });
+    return () => {
+      live = false;
+    };
+  }, [content, lang]);
+  return lines;
 }
 
 /** A week — the window frames with no live heat bar decay the red across. */

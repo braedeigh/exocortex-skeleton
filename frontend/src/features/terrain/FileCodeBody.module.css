@@ -174,6 +174,67 @@
   min-width: 0;
 }
 
+/* --- syntax roles (syntax.ts) ---------------------------------------------
+
+   Each role is coloured from the theme's own runtime variables rather than a
+   stock editor palette, so the sky engine carries the code through sunrise
+   and sunset with the rest of the page. Every hue is mixed part-way toward
+   --text: that darkens it on the light surface and lightens it on the dark
+   one, which is what keeps small monospace text legible on both without a
+   second set of rules. No red, no orange, no gold — the map's edit ramp,
+   the "waiting on you" tint and the run channel own those.
+
+   Comments (and Python docstrings) are the plain-English layer of this
+   codebase, so they get the secondary text tone and italics: prose sitting
+   inside the code, readable on its own or skippable as a block. */
+
+.syn_keyword {
+  color: color-mix(in srgb, var(--accent) 80%, var(--text));
+}
+
+.syn_string {
+  color: color-mix(in srgb, var(--ongoing) 68%, var(--text));
+}
+
+.syn_comment {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.syn_number {
+  color: color-mix(in srgb, var(--evening) 72%, var(--text));
+}
+
+.syn_function {
+  color: color-mix(in srgb, color-mix(in srgb, var(--accent) 50%, var(--evening)) 85%, var(--text));
+}
+
+.syn_type {
+  color: color-mix(in srgb, var(--accent) 62%, var(--text));
+}
+
+.syn_property {
+  color: color-mix(in srgb, var(--evening) 82%, var(--text));
+}
+
+.syn_tag {
+  color: color-mix(in srgb, var(--evening) 70%, var(--text));
+}
+
+.syn_punctuation {
+  color: color-mix(in srgb, var(--text) 72%, var(--text-muted));
+}
+
+.syn_heading {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.syn_link {
+  color: color-mix(in srgb, var(--evening) 82%, var(--text));
+  text-decoration: underline;
+}
+
 /* A line the red-edits toggle has lit: the wash is set inline (the alpha
    follows the heat), and the number takes the ramp colour handed in as
    --edit-ink at full opacity — a dot's colour, not a muted gutter's. */
