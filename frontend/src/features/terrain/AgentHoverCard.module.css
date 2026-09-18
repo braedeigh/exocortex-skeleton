@@ -1,9 +1,9 @@
 /* The agent hovercard — see AgentHoverCard.tsx for what it's for.
 
-   Same frost as the file window (FileCodeWindow.module.css), one step heavier:
-   this pane is small, sits over the densest part of the map, and carries the
-   smallest type on the surface, so it buys a little more opacity for
-   legibility.
+   A frosted pane over the map (the file pane, FileCodeWindow.module.css, is
+   opaque and sits beside the map instead): this card is small, sits over the
+   densest part of the map, and carries the smallest type on the surface, so
+   it buys a good deal of opacity for legibility.
 
    It takes the pointer — you can move into it and click. So it has two states:
    RESTING (she's on the orb, the card is describing) and ENGAGED (the cursor is
@@ -14,7 +14,8 @@
 
 .card {
   position: fixed;
-  z-index: 90; /* over the map and its chrome, under the file window (100) */
+  z-index: 90; /* over the map and its chrome — and over the file pane, which only
+                 matters on a wide map where an orb beside the pane is hovered */
   width: 320px;
   /* The ceiling, and the only truncation there is now: the card fills to here
      and the rest scrolls, which is why nothing inside needs a line-clamp any

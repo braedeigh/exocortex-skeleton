@@ -166,8 +166,9 @@ function usePageVisible(): boolean {
  * breath so the whole map remembers further back and forgets again on a ten
  * second cycle.
  *
- * Tap a file → its code, full-screen over the map, × to come back
- * (FileCodeWindow), with what the map knows about the file printed under it:
+ * Tap a file → its code in a pane on the map's right half (or over the whole
+ * map when the terrain is narrow), × to come back (FileCodeWindow), with
+ * what the map knows about the file printed under it:
  * when it was last touched, and every agent that touched it — each row opens
  * that conversation in the Observatory, or rings its whole footprint on the
  * map. Tap an agent orb → a sheet, and its footprint rings at once.
@@ -1065,14 +1066,15 @@ export function TerrainPage() {
     openSessionHere(convId);
   };
 
-  // Files are read on the full-screen code page now, not the sheet, so this is the
-  // age line the WINDOW prints under the code.
+  // Files are read in the code pane now, not the sheet, so this is the age
+  // line the PANE prints under the code.
   const codeFileLast = codeFile?.file ? fileLastTouch(codeFile.file) : null;
 
   // --- the agent hovercard ------------------------------------------------
-  // An overlay is up, so the cursor isn't over the map any more — a card left
-  // hanging beside it would be pointing at an orb she can't see.
-  const hoverBlocked = codeFile !== null || selected !== null;
+  // The agent sheet is up, so the cursor isn't over the map any more — a card
+  // left hanging beside it would be pointing at an orb she can't see. An open
+  // file doesn't block it: on a wide map the left half is still the live map.
+  const hoverBlocked = selected !== null;
   // (No hovercard for a visitor: its facts come from the roster and the
   // session preview, neither of which is theirs to read.)
   const hoverId = hoverBlocked || visitor ? null : (hover?.id ?? null);
@@ -1161,9 +1163,10 @@ export function TerrainPage() {
   };
 
   return (
-    <div className={styles.page}>
+    <div className={[styles.page, codeFile !== null ? styles.pageFileOpen : ''].filter(Boolean).join(' ')}>
       {/* Canvas first and full-bleed: the chrome below floats over it, so the
-          map owns the whole page and shows through the controls. */}
+          map owns the whole page and shows through the controls. With a file
+          open (.pageFileOpen) a wide map yields its right half to the pane. */}
       <div ref={wrapRef} className={styles.canvasWrap}>
         <canvas ref={canvasRef} className={styles.canvas} aria-label="File-tree heatmap" />
         {isLoading ? <div className={styles.overlayHint}>Loading the terrain…</div> : null}
@@ -1470,13 +1473,15 @@ export function TerrainPage() {
         ) : null}
       </Sheet>
 
-      {/* Portalled over the canvas — the sim, the zoom transform and the
-          layout are all untouched while it's up, so closing it drops you back
-          onto exactly the map you left. The window carries what the MAP knows
-          about the file under the code: when it was last touched, and which
-          agents touched it, each still able to ring its own footprint. That
-          was a separate sheet standing between her and the code; it reads
-          better as the tail of the file than as a gate in front of it. */}
+      {/* The file pane, in the page's own area — the map's right half when
+          the map is wide, the whole map when it's narrow (FileCodeWindow).
+          The sim and the zoom transform are untouched while it's up, so
+          closing it drops you back onto exactly the map you left. The pane
+          carries what the MAP knows about the file under the code: when it
+          was last touched, and which agents touched it, each still able to
+          ring its own footprint. That was a separate sheet standing between
+          her and the code; it reads better as the tail of the file than as a
+          gate in front of it. */}
       <FileCodeWindow
         repo={codeFile?.repoId ?? null}
         path={codeFile?.path ?? null}

@@ -1,25 +1,33 @@
-/* The file page — see FileCodeWindow.tsx for what it's for. */
+/* The file pane — see FileCodeWindow.tsx for what it's for. */
 
-/* Takes the whole viewport, opaque: the map is gone until the × (or Esc)
-   brings it back. The catcher is the full-screen layer; the window fills it,
-   so there's no gap to click through. */
-.catcher {
-  position: fixed;
+/* Sits INSIDE the terrain page, over the map's own area — never over the
+   whole window. The base rule fills that area, which is right for a phone
+   and for a terrain that is already one side of the desktop split: the file
+   takes the terrain's side and nothing else. Opaque, so code never sits over
+   moving dots. z-index clears the page's chrome (2–4) and the floating
+   landmarks; the app's portalled sheets sit far above and are unaffected. */
+.pane {
+  position: absolute;
   inset: 0;
-  z-index: 100;
-  display: flex;
-  background: var(--bg);
-  animation: veilIn 140ms ease;
-}
-
-.window {
+  z-index: 10;
   display: flex;
   flex-direction: column;
-  flex: 1;
   min-width: 0;
   min-height: 0;
   background: var(--bg);
   animation: windowIn 160ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* A wide map — more than half the window and real width to spare — keeps
+   the left half for itself: the pane takes only the RIGHT half, edge to
+   edge, and the page pulls the canvas and both chrome bars in to match
+   (TerrainPage.module.css .pageFileOpen, the same query). The map on the
+   left stays live, so tapping another dot swaps the file in the pane. */
+@container terrain-page (min-width: 1000px) and (min-width: 51vw) {
+  .pane {
+    left: 50%;
+    border-left: 1px solid var(--border);
+  }
 }
 
 .header {
@@ -60,11 +68,11 @@
   text-align: left;
 }
 
-/* The one scroll region on the page. The code block inside it no longer
+/* The one scroll region in the pane. The code block inside it no longer
    scrolls vertically on its own (FileCodeBody's uncapCode) — one file, one
    scrollbar, rather than a pane that scrolls inside a pane that scrolls.
    overscroll-behavior stops a flick at the end of the file from continuing
-   into the map's own wheel/zoom handlers underneath. */
+   into the map's own wheel/zoom handlers beside it. */
 .body {
   flex: 1;
   min-height: 0;
@@ -89,19 +97,13 @@
   text-transform: lowercase;
 }
 
-@keyframes veilIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
 @keyframes windowIn {
   from { opacity: 0; transform: translateY(8px) scale(0.985); }
   to { opacity: 1; transform: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .catcher,
-  .window {
+  .pane {
     animation: none;
   }
 }

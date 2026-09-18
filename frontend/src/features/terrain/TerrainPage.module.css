@@ -16,6 +16,30 @@
      top and bottom bars inherit it. */
   --ink-halo:
     0 0 3px var(--bg), 0 0 3px var(--bg), 0 0 6px var(--bg), 0 1px 2px var(--bg);
+
+  /* The measuring box for the file pane (FileCodeWindow.module.css): whether
+     it takes the map's right half or all of it is decided by how wide the
+     MAP's area is, not the window — in a half-width workspace panel the map
+     is already one side of a split. */
+  container-type: inline-size;
+  container-name: terrain-page;
+}
+
+/* A file is open (.pageFileOpen, FileCodeWindow). On a wide map the pane
+   takes the right half, so the canvas and both chrome bars pull in to the
+   left half — a whole small map with its own controls beside the code,
+   rather than bars running on under the pane. Same query as the pane's own,
+   so the two can't disagree. On a narrow map the pane covers everything and
+   nothing here needs to move. */
+@container terrain-page (min-width: 1000px) and (min-width: 51vw) {
+  .pageFileOpen .canvasWrap {
+    width: 50%;
+  }
+
+  .pageFileOpen .chrome,
+  .pageFileOpen .chromeBottom {
+    right: 50%;
+  }
 }
 
 /* The controls float ON the map with no pane behind them at all — no wash,
