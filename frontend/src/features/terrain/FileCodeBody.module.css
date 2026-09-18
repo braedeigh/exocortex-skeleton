@@ -1,10 +1,9 @@
-/* One file's contents (FileCodeBody), worn by the map's tap-a-file modal, the
-   frosted map window, and the /code page. The code block is the only thing
-   allowed to scroll sideways; nothing around it ever does.
-
-   Lines render one row per line (gutter number + text) instead of a single
-   <pre> blob, so /code?...&lines=140-162 has somewhere to hang a highlight —
-   pattern lifted from workshop/WorkshopPage.module.css's .line/.lineNo. */
+/* The look of one file's contents (FileCodeBody.tsx), worn by the pond's
+   work panel, the file pane beside the map, and the /code page. Top to
+   bottom: path, summary card, size line with the "edits" toggle, the key for
+   the red, then the code block — one row per line — with the syntax colours
+   and the red edit marks. The code block is the only thing allowed to scroll
+   sideways; nothing around it ever does. */
 
 .body {
   display: flex;
@@ -12,16 +11,17 @@
   gap: var(--space-3);
 }
 
-/* Page mode: the body owns the pane's full height so the code block below can
-   take whatever's left over after the summary and meta lines. */
+/* Page mode: the body owns the pane's full height, so the code block below
+   can take whatever is left over after the lines above it. */
 .bodyFill {
   min-height: 0;
   flex: 1;
 }
 
-/* The lines around the code never grow or shrink — in page mode the code block
-   is the only flexible thing in the column, so it always gets the leftover
-   height and always has somewhere to scroll. */
+/* The lines around the code never grow or shrink (the `flex: none` on
+   .path, .meta, .metaRow, .heatKey and .hint). In page mode that leaves the
+   code block as the only flexible thing in the column, so it always gets
+   the leftover height and always has somewhere to scroll. */
 .path {
   flex: none;
   font-size: var(--font-size-md);
@@ -29,6 +29,8 @@
   word-break: break-all;
 }
 
+/* The summary card: the file's own docblock, one paragraph per <p>, on a
+   panel tinted toward the accent. */
 .summary {
   display: flex;
   flex-direction: column;
@@ -62,9 +64,11 @@
   flex-wrap: wrap;
 }
 
-/* The "edits" pill — the heat bar's preset pill (TerrainHeatBar.module.css
-   .preset), lit the same way when on, with a dot that turns her red so the
-   button shows the colour it's about to paint. 40px tall per the house rules. */
+/* The "edits" pill: the red-edits toggle. Built like the heat bar's preset
+   pill (TerrainHeatBar.module.css .preset) and lit the same way when on, but
+   in her red (#f14c4c) rather than the accent. Its dot turns that red too,
+   so the button shows the colour it's about to paint. 40px tall per the
+   house rules. */
 .heatToggle {
   display: inline-flex;
   align-items: center;
@@ -98,7 +102,9 @@
   background: #f14c4c;
 }
 
-/* The key under the toggle: "now" — ramp, hot to cold — the window's edge. */
+/* The key for the red, under the toggle: "now" — the ramp, hot to cold —
+   the window's edge. The ramp's gradient itself is set inline by
+   FileCodeBody.tsx. */
 .heatKey {
   flex: none;
   display: flex;
@@ -127,12 +133,15 @@
   margin-left: var(--space-2);
 }
 
+/* A quiet one-line message: loading, private, binary, truncated. */
 .hint {
   flex: none;
   font-size: var(--font-size-md);
   color: var(--text-muted);
 }
 
+/* The code block: the panel the rows sit in. This is the default frame's
+   version; .codeFill and .codeFlow below change it for page and window mode. */
 .code {
   margin: 0;
   padding: var(--space-2) 0;
@@ -140,8 +149,9 @@
   border: 1px solid var(--border);
   background: var(--code-bg, color-mix(in srgb, var(--text) 6%, var(--card-bg)));
   color: var(--text);
-  /* The one element that may scroll in both directions. Capped so a long
-     file can't push the close button off the top of the modal. */
+  /* The one element that may scroll in both directions. Capped at 55vh, so
+     a long file scrolls inside the block instead of stretching the frame
+     around it. */
   max-height: 55vh;
   overflow: auto;
   -webkit-overflow-scrolling: touch;
@@ -152,8 +162,12 @@
   tab-size: 2;
 }
 
-/* One row per line — number gutter, then the text. white-space lives here
-   (not on .code) because each row needs it, not the scroll container. */
+/* One row per line — number gutter, then the text — rather than one <pre>,
+   so a highlight or an edit mark has a row to land on. The same row pattern
+   as workshop/WorkshopPage.module.css's .line/.lineNo. white-space lives
+   here (not on .code) because each row needs it, not the scroll container.
+   position: relative is what the edit strip (.codeLineEdited::before) pins
+   itself to. */
 .codeLine {
   position: relative;
   display: flex;
@@ -177,18 +191,19 @@
 
 /* --- syntax roles (syntax.ts) ---------------------------------------------
 
-   Two fixed palettes, one per surface, switched by .codeDark (FileCodeBody
-   sets it from the theme's ink). They used to be mixes of the theme's own
-   accent variables, but the lavender sky's page (#aba3b2) is a MID-tone,
-   and a mid-tone hue on it reads at 2–3:1 — "the contrast could be higher,
-   both with the background and with one another". So on light every role
-   is a deep, saturated hue: measured at or above 4.5:1 on the lavender
-   page, near 10:1 on the paler morning and day pages. On dark every role
-   is a light tint measured above 7:1 on both dark pages. And the hues are
-   spread — purple, green, blue, plum, petrol — with the closest pair on
-   light a ΔE of ~25 and on dark ~19, so no two roles read as one colour.
-   Still no red, orange or gold: the map's edit ramp, the "waiting on you"
-   tint and the run channel own those.
+   Colour each token by its role. Two fixed palettes, one per surface,
+   switched by .codeDark (FileCodeBody sets it from the theme's ink).
+
+   Fixed hexes rather than mixes of the theme's own accent variables,
+   because the lavender sky's page (#aba3b2) is a MID-tone, and a mid-tone
+   hue on it reads at 2–3:1. So on light every role is a deep, saturated
+   hue: measured at or above 4.5:1 on the lavender page, near 10:1 on the
+   paler morning and day pages. On dark every role is a light tint measured
+   above 7:1 on both dark pages. And the hues are spread — purple, green,
+   blue, plum, petrol — with the closest pair on light a ΔE of ~25 and on
+   dark ~19, so no two roles read as one colour. Still no red, orange or
+   gold: the map's edit ramp, the "waiting on you" tint and the run channel
+   own those.
 
    Roles that share a colour on purpose: tags wear the keyword purple (an
    HTML/JSX tag IS the structure), properties and attribute names wear the
@@ -196,7 +211,10 @@
 
    Comments (and Python docstrings) are the plain-English layer of this
    codebase, so they get the secondary text tone and italics: prose sitting
-   inside the code, readable on its own or skippable as a block. */
+   inside the code, readable on its own or skippable as a block.
+
+   The ask: "the contrast could be higher, both with the background and with
+   one another". */
 
 .syn_keyword,
 .syn_tag {
@@ -267,8 +285,8 @@
   color: #a89cb8;
 }
 
-/* A line the red-edits toggle has lit. Both marks sit in the gutter, never
-   behind the text: a strip down the row's left edge in the ramp colour
+/* Mark a line the red-edits toggle has lit. Both marks sit in the gutter,
+   never behind the text: a strip down the row's left edge in the ramp colour
    (--edit-ink, set inline per line) with its opacity following the heat
    (--edit-alpha), and the number in the same colour at full strength — a
    dot's colour, not a muted gutter's. */
@@ -288,27 +306,28 @@
   opacity: 1;
 }
 
-/* A /code?...&lines= highlighted line — same color-mix idiom as the summary
-   card above and PondView's active-state tints, just against --accent so it
-   reads as "pointed at", not "warning". */
+/* Light up a highlighted line (/code?...&lines=). A tint mixed from
+   --accent — the same color-mix idiom as the summary card above and
+   PondView's active-state tints — so it reads as "pointed at", not
+   "warning". */
 .codeLineHot {
   background: color-mix(in srgb, var(--accent) 20%, var(--card-bg));
 }
 
-/* Page mode: no 55vh cap — there's no close button above it to protect, so the
-   code takes the rest of the pane and scrolls inside itself. */
+/* Page mode: no 55vh cap. The code takes the rest of the pane (.bodyFill
+   above) and scrolls inside itself. */
 .codeFill {
   flex: 1;
   min-height: 0;
   max-height: none;
 }
 
-/* Window mode (the frosted pane over the map): the code doesn't scroll
-   vertically at all — it flows at its full height into the window's single
+/* Window mode (the file pane beside the map): the code doesn't scroll
+   vertically at all. It flows at its full height into the pane's single
    scroll region, so one file means one scrollbar. Long LINES still need
    somewhere to go, and there's no inheriting that, so overflow-x stays.
-   The block also goes transparent: over frosted glass its own tinted panel
-   read as a second, flatter surface floating inside the first. */
+   The block also goes transparent — background and border — so its own
+   tinted panel doesn't read as a second surface floating inside the pane. */
 .codeFlow {
   max-height: none;
   overflow-x: auto;

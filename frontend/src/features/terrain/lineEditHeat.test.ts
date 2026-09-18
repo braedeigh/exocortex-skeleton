@@ -1,3 +1,9 @@
+/**
+ * lineEditHeat.test.ts — checks lineEditHeat.ts, how red one line of code is
+ * by when it was last edited: fully red now, half at a third of the window,
+ * nothing past the window's edge, and cold for a missing stamp or a bad
+ * window.
+ */
 import { describe, expect, it } from 'vitest';
 import { lineEditHeat } from './lineEditHeat';
 
@@ -16,7 +22,8 @@ describe('lineEditHeat', () => {
 
   it('is gone past the edge of the window, not merely faint', () => {
     expect(lineEditHeat(NOW - 7 * DAY - 1, NOW, 7 * DAY)).toBe(0);
-    // Right AT the edge it's still the ramp's last sliver — an eighth.
+    // Right AT the edge it's still the ramp's last sliver — an eighth (three
+    // half-lives).
     expect(lineEditHeat(NOW - 7 * DAY, NOW, 7 * DAY)).toBeCloseTo(0.125, 6);
   });
 

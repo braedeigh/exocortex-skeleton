@@ -283,12 +283,13 @@ def _terrain_safe_path(root, relpath):
 
 
 def _terrain_file_target(repo_id, relpath):
-    """The shared front door of the two file endpoints (/terrain/file and
-    /terrain/file/edits): resolve `repo` + `path` to a readable file, or say
-    why not. Returns (resolved_path, None) on success, or (None, response)
-    carrying the 400/404/403 the caller should return as-is. One function so
-    the traversal check and the visitor lock can never drift apart between
-    the file's text and the file's edit history."""
+    """Shared front door: resolve `repo` + `path` to a readable file, or refuse.
+
+    Both file endpoints (/terrain/file and /terrain/file/edits) come through
+    here, so the traversal check and the visitor lock can never drift apart
+    between the file's text and the file's edit history. Returns
+    (resolved_path, None) on success, or (None, response) carrying the
+    400/404/403 the caller should return as-is."""
     if not repo_id or not relpath:
         return None, (jsonify({"error": "repo and path are required"}), 400)
     repo = next((r for r in observatory._terrain_repos() if r["id"] == repo_id), None)
@@ -297,23 +298,28 @@ def _terrain_file_target(repo_id, relpath):
     resolved = _terrain_safe_path(repo["root"], relpath)
     if resolved is None:
         return None, (jsonify({"error": "not found"}), 404)
-    # The visitor lock (see _visitor_may_read). Checked AFTER the path
-    # resolves so a visitor learns nothing a 404 wouldn't already say.
+    # Visitor lock: a visitor gets a 403 "private" unless _visitor_may_read
+    # allows the file. It runs after the path resolves, because the rule
+    # judges where the file really lands; a path that doesn't resolve is
+    # already a 404 above, for owner and visitor alike.
     if _visitor() and not _visitor_may_read(repo, relpath, resolved):
         return None, _private_file(repo_id, relpath)
     return resolved, None
 
 
+# The longest one `git blame` may run, in seconds. Past it,
+# _terrain_line_edits gives up and answers None.
 _BLAME_TIMEOUT_SEC = 15
 
 
 def _terrain_line_edits(resolved):
-    """When each line of a file was last edited: a list of unix seconds, one
-    per line in file order, read from `git blame` in whichever Terrain repo
-    the file actually lives in (a symlink is judged on where it lands, same
-    as the read). None when git can't say — an untracked file, a file
-    outside every repo, a missing binary, a timeout — so the client shows
-    nothing rather than guessing.
+    """When each line of a file was last edited, read from `git blame`.
+
+    Returns a list of unix seconds, one per line in file order, from
+    whichever Terrain repo the file actually lives in (a symlink is judged on
+    where it lands, same as the read). None when git can't say — an untracked
+    file, a file outside every repo, a missing binary, a timeout — so the
+    client shows nothing rather than guessing.
 
     A line changed on disk but not yet committed comes back from blame as
     "Not Committed Yet" stamped with the time of the call, which is honest:
@@ -321,6 +327,7 @@ def _terrain_line_edits(resolved):
 
     Prompt that produced it: "can those displays show when the most recent
     code was edited by a toggleable red color like on the terrain map"."""
+    # Find the repo this file really lives in; skip any root it isn't under.
     for repo in observatory._terrain_repos():
         try:
             root = Path(repo["root"]).resolve()
@@ -329,6 +336,8 @@ def _terrain_line_edits(resolved):
         if root == resolved or root not in resolved.parents:
             continue
         rel = resolved.relative_to(root).as_posix()
+        # Ask git. Any failure — no git, a timeout, a file git doesn't
+        # track — means "no answer", never a guess.
         try:
             proc = subprocess.run(
                 ["git", "-C", str(root), "blame", "--line-porcelain", "--", rel],
@@ -338,8 +347,10 @@ def _terrain_line_edits(resolved):
             return None
         if proc.returncode != 0:
             return None
-        # --line-porcelain repeats the full header for every line, so one
-        # author-time per line, in file order — no need to track the sha.
+        # Pick out one timestamp per line. --line-porcelain repeats the full
+        # header for every line, so there is one author-time per line, in
+        # file order — no need to track the sha. A stamp that isn't a number
+        # becomes 0.
         edits = []
         for line in proc.stdout.splitlines():
             if line.startswith("author-time "):
@@ -1729,14 +1740,15 @@ def register(app):
     def observatory_terrain_file():
         """One file's own text, for the map's tap-a-node code modal.
 
-        Scoped hard to the two Terrain repos: the path is resolved with
-        symlinks followed (the vault keeps real ones) and must still land
-        inside a repo root, so neither '../' nor a symlink pointing out of
-        the tree can read anything else. Secrets are refused by name even
-        inside those roots — this is an HTTP door onto the filesystem, and it
-        should stay boring."""
+        Comes in through the shared front door (`_terrain_file_target`), so
+        reads are scoped hard to the two Terrain repos: neither '../' nor a
+        symlink pointing out of the tree can read anything else. Secrets are
+        refused by name even inside those roots, and the visitor lock
+        applies. This is an HTTP door onto the filesystem, and it should stay
+        boring."""
         repo_id = (request.args.get("repo") or "").strip()
         relpath = (request.args.get("path") or "").strip()
+        # Shared front door: a readable file, or the refusal to send back as-is.
         resolved, refusal = _terrain_file_target(repo_id, relpath)
         if refusal is not None:
             return refusal
@@ -1745,17 +1757,21 @@ def register(app):
         except OSError:
             return jsonify({"error": "not found"}), 404
         size = len(raw)
+        # Binary check: a zero byte in the first 8000 bytes means this isn't
+        # text. Answer its size and `binary: true`, with no content.
         if b"\0" in raw[:8000]:
             return jsonify({"repo": repo_id, "path": relpath, "size": size,
                             "binary": True, "truncated": False,
                             "summary": None, "content": None, "lines": 0})
+        # Size cap: send at most _TERRAIN_FILE_READ_MAX bytes and mark the
+        # answer `truncated`. The cut text ends at its last complete line, so
+        # no half-line goes out — unless it has no line break at all.
         truncated = size > _TERRAIN_FILE_READ_MAX
         try:
             text = raw[:_TERRAIN_FILE_READ_MAX].decode("utf-8", errors="replace")
         except Exception:
             return jsonify({"error": "not readable"}), 404
         if truncated:
-            # Never hand back a half-line — cut at the last complete one.
             text = text[:text.rfind("\n") + 1] if "\n" in text else text
         return jsonify({"repo": repo_id, "path": relpath, "size": size,
                         "binary": False, "truncated": truncated,
@@ -1764,14 +1780,17 @@ def register(app):
 
     @app.route("/api/observatory/terrain/file/edits")
     def observatory_terrain_file_edits():
-        """When each line of one file was last edited — the red channel of
-        the map, brought down to the line. Same door as /terrain/file (same
-        resolution, same traversal refusal, same visitor lock), fetched only
-        when the pane's "edits" toggle is on. `edits` is one unix-second
-        stamp per line in file order, or null when git has no history for
-        the file (untracked, or not a repo)."""
+        """Per-line last-edit times of one file, for the pane's "edits" toggle.
+
+        Comes in through the shared front door (`_terrain_file_target`), so
+        it has the same resolution, same traversal refusal and same visitor
+        lock as /terrain/file. This is the red channel of the map, brought
+        down to the line, fetched only when that toggle is on. `edits` is one
+        unix-second stamp per line in file order, or null when git can't say
+        (an untracked file, for one — see `_terrain_line_edits`)."""
         repo_id = (request.args.get("repo") or "").strip()
         relpath = (request.args.get("path") or "").strip()
+        # Shared front door: a readable file, or the refusal to send back as-is.
         resolved, refusal = _terrain_file_target(repo_id, relpath)
         if refusal is not None:
             return refusal

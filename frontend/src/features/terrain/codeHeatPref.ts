@@ -12,9 +12,8 @@ import { useSyncExternalStore } from 'react';
  * every window follows within the gesture — `listeners` for anything mounted
  * in this document, the browser's `storage` event for other tabs of the same
  * origin. Same shape as backdropPref.ts, which is the pattern for "a toggle
- * that stays".
- *
- * Off by default: a file is plain text until she asks for the heat.
+ * that stays" — an external store hook, React's name for a value kept outside
+ * any component that components can subscribe to.
  *
  * Prompt that produced it: "show when the most recent code was edited by a
  * toggleable red color like on the terrain map".
@@ -22,6 +21,8 @@ import { useSyncExternalStore } from 'react';
 
 const KEY = 'terrain-code-heat';
 
+/** Off unless she has explicitly turned it on — a file is plain text until
+ * she asks for the heat. */
 function fromStorage(): boolean {
   try {
     return localStorage.getItem(KEY) === 'on';
@@ -75,7 +76,10 @@ function subscribe(fn: () => void): () => void {
   };
 }
 
-/** The live value, re-rendering the caller whenever it changes anywhere. */
+/** The live value, re-rendering the caller whenever it changes anywhere.
+ * This is the external store hook itself (React's useSyncExternalStore),
+ * reading `current` and listening through `subscribe`; off when rendered on
+ * a server. */
 export function useCodeHeatOn(): boolean {
   return useSyncExternalStore(subscribe, codeHeatOn, () => false);
 }

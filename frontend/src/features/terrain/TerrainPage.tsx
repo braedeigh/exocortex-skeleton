@@ -1473,17 +1473,17 @@ export function TerrainPage() {
         ) : null}
       </Sheet>
 
-      {/* The file pane, in the page's own area — the map's right half when
-          the map is wide, the whole map when it's narrow (FileCodeWindow).
-          The sim and the zoom transform are untouched while it's up, so
-          closing it drops you back onto exactly the map you left. The pane
-          carries what the MAP knows about the file under the code: when it
-          was last touched, and which agents touched it, each still able to
-          ring its own footprint. That was a separate sheet standing between
-          her and the code; it reads better as the tail of the file than as a
-          gate in front of it. The pane also gets the map's live heat window
-          and ink, so its red-edits toggle (FileCodeBody) colours lines on
-          the same lens as the dots — under Dynamic the lines breathe too. */}
+      {/* The file pane: read the tapped file without leaving the map
+          (FileCodeWindow). It sits in the page's own area — the map's right
+          half when the map is wide, the whole map when it's narrow. The sim
+          and the zoom transform are untouched while it's up, so closing it
+          drops you back onto exactly the map you left. Under the code the
+          pane carries what the MAP knows about the file: when it was last
+          touched, and which agents touched it, each still able to ring its
+          own footprint — the tail of the file, not a gate in front of it.
+          The pane also gets the map's live heat window and ink, so its
+          red-edits toggle (FileCodeBody) colours lines on the same lens as
+          the dots — under Dynamic the lines breathe too. */}
       <FileCodeWindow
         repo={codeFile?.repoId ?? null}
         path={codeFile?.path ?? null}

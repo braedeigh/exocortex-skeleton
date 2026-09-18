@@ -1,3 +1,8 @@
+/**
+ * syntax.test.ts — checks syntax.ts, the terrain's syntax colouring: which
+ * grammar a path gets, a placeholder colour turned back into its role, and a
+ * real tokenize of a little Python through Shiki.
+ */
 import { describe, expect, it } from 'vitest';
 import { langForPath, roleForColor, tokenizeCode } from './syntax';
 
@@ -20,6 +25,7 @@ describe('langForPath', () => {
 describe('roleForColor', () => {
   it('maps a placeholder back to its role and ignores anything else', () => {
     expect(roleForColor('#000001')).toBe('keyword');
+    // An alpha pair on the end is ignored — only `#rrggbb` is read.
     expect(roleForColor('#000003FF')).toBe('comment');
     expect(roleForColor('#123456')).toBeUndefined();
     expect(roleForColor(undefined)).toBeUndefined();
@@ -32,6 +38,7 @@ describe('tokenizeCode', () => {
     const lines = await tokenizeCode(code, 'python');
     expect(lines).not.toBeNull();
     expect(lines!.length).toBe(code.split('\n').length);
+    // Look up the role of the first token whose text contains `text`.
     const roleOf = (text: string) =>
       lines!.flat().find((t) => t.content.includes(text))?.role;
     expect(roleOf('def')).toBe('keyword');
@@ -47,6 +54,7 @@ describe('tokenizeCode', () => {
 
   it('shows plain for an unknown language or an oversized file', async () => {
     expect(await tokenizeCode('x', null)).toBeNull();
+    // 200,000 characters — over the size cap (SYNTAX_MAX_CHARS, 160,000).
     expect(await tokenizeCode('x'.repeat(200_000), 'python')).toBeNull();
   });
 });

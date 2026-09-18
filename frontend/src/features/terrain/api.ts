@@ -183,11 +183,11 @@ export interface TerrainFileEdits {
 
 /**
  * GET /api/observatory/terrain/file/edits — git blame, one stamp per line
- * (routes/terrain.py `_terrain_line_edits`). Fetched only while the toggle
- * is on (`enabled`), so a plain read never pays for a blame. Short stale
- * time rather than the file's five minutes: an agent editing the file
- * changes this answer line by line, and the point of the colour is to see
- * that.
+ * (routes/terrain.py `_terrain_line_edits`).
+ * Fetched only while the toggle is on (`enabled`), so a plain read never
+ * pays for a blame. Short stale time — thirty seconds — rather than the
+ * file's five minutes: an agent editing the file changes this answer line by
+ * line, and the point of the colour is to see that.
  */
 export function useTerrainFileEdits(repo: string | null, path: string | null, enabled: boolean) {
   return useQuery({

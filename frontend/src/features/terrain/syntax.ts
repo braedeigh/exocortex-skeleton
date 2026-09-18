@@ -3,23 +3,13 @@
  * keywords, strings, comments, numbers, names, each in its own colour, so the
  * shape of a file reads at a glance the way it does in an editor.
  *
- * The tokens come from Shiki, which runs the same TextMate grammars VS Code
- * does. The COLOURS do not: a stock editor theme is a fixed set of hexes that
- * would clash with the lavender/indigo skies and lean on red, and red is the
- * map's edit ramp. So the "theme" handed to Shiki is a set of placeholder
- * colours that mean ROLES (keyword, string, comment…), `roleForColor` turns
- * each token's placeholder back into its role, and FileCodeBody.module.css
- * paints the role from the app's own runtime variables — accent, evening,
- * ongoing, the text tones — so the sky engine keeps driving the code's
- * colours through sunrise and sunset like everything else. No red, no
- * orange, no gold: those channels are spoken for elsewhere.
- *
- * Nothing here is in the main bundle's critical path: Shiki's core, the
- * regex engine and each grammar are dynamic imports, fetched the first time
- * a file of that language opens and cached for the session. A language
- * without a grammar here (`langForPath` → null), a file too big to be worth
- * it, or a grammar that fails to load all fall back to plain text — the
- * pane never waits on colour to show the code.
+ * Three parts, in file order: which grammar a path gets (`langForPath`), a
+ * placeholder theme that tags each token with a ROLE (keyword, string,
+ * comment…) instead of a colour, and a highlighter that loads on first use
+ * (`tokenizeCode`). The tokens come from Shiki, which runs the same TextMate
+ * grammars VS Code does. The COLOURS do not: FileCodeBody.module.css paints
+ * each role (its `.syn_*` classes). Whenever there is nothing to colour, the
+ * pane shows plain text — it never waits on colour to show the code.
  *
  * Prompt that produced it: "are there other color things i can do with the
  * code? like vscode probably has colors for different things? to make it
@@ -51,14 +41,15 @@ export interface SyntaxToken {
 /** One entry per line, in file order; each line is its run of tokens. */
 export type SyntaxLines = SyntaxToken[][];
 
-/** Files bigger than this show plain — tokenizing a quarter-megabyte in the
- * browser is a stall, and nobody reads a file that size for its colours. */
+/** The size cap: files bigger than this show plain. Tokenizing a
+ * quarter-megabyte in the browser is a stall, and nobody reads a file that
+ * size for its colours. */
 export const SYNTAX_MAX_CHARS = 160_000;
 
 // -- which grammar a path gets ----------------------------------------------
 
-/** Grammar name by extension. Only what this codebase and the vault
- * actually contain; anything else is plain text. */
+/** Grammar name by file extension — a lookup table. Only what this codebase
+ * and the vault actually contain; anything else is plain text. */
 const LANG_BY_EXT: Record<string, string> = {
   py: 'python',
   ts: 'typescript',
@@ -82,8 +73,9 @@ const LANG_BY_EXT: Record<string, string> = {
   env: 'ini',
 };
 
-/** The grammar for a path, or null for plain text. Matches on the last
- * extension only — `.test.ts` is TypeScript, `.module.css` is CSS. */
+/** Pick the grammar for a path, or null for plain text. Matches on the last
+ * extension only — `.test.ts` is TypeScript, `.module.css` is CSS. A name
+ * with no dot, or only a leading one (a dotfile), is plain. */
 export function langForPath(path: string | null | undefined): string | null {
   if (!path) return null;
   const name = path.split('/').pop() ?? '';
@@ -93,6 +85,15 @@ export function langForPath(path: string | null | undefined): string | null {
 }
 
 // -- the placeholder theme ---------------------------------------------------
+//
+// Tag each token with a role instead of a colour. A stock editor theme is a
+// fixed set of hexes that would clash with the lavender/indigo skies and lean
+// on red, and red is the map's edit ramp. So the "theme" handed to Shiki is a
+// set of placeholder colours that mean ROLES, `roleForColor` turns each
+// token's placeholder back into its role, and FileCodeBody.module.css paints
+// the role: one fixed palette for light pages and one for dark, with comments
+// in the theme's secondary text tone. No red, no orange, no gold: those
+// channels are spoken for elsewhere.
 
 /** Placeholder hex per role. Shiki only needs them to be distinct; the real
  * colour is looked up by role in CSS. Near-black on purpose, so if one ever
@@ -111,22 +112,26 @@ const ROLE_COLOR: Record<SyntaxRole, string> = {
   link: '#00000b',
 };
 
+// The same table turned around — placeholder hex → role — for `roleForColor`.
 const COLOR_ROLE: Record<string, SyntaxRole> = Object.fromEntries(
   (Object.entries(ROLE_COLOR) as [SyntaxRole, string][]).map(([role, hex]) => [hex, role]),
 );
 
-/** A token's placeholder colour back to its role; undefined for plain. */
+/** Turn a token's placeholder colour back into its role; undefined for
+ * plain. Case is ignored and only the first seven characters (`#rrggbb`) are
+ * read, so a colour with an alpha pair on the end still matches. */
 export function roleForColor(color: string | undefined): SyntaxRole | undefined {
   if (!color) return undefined;
   return COLOR_ROLE[color.toLowerCase().slice(0, 7)];
 }
 
 /**
- * TextMate scopes → roles. In a TextMate theme the most specific matching
- * scope wins, and among equals the LATER rule wins, which is why
- * `keyword.operator` (→ punctuation) sits after `keyword` (→ keyword), and a
- * Python docstring (a `string.quoted.docstring`) sits after `string` so it
- * reads as the comment it really is.
+ * Which role each kind of token gets: TextMate scopes (the grammar's names
+ * for what a token is) → roles. Order matters. In a TextMate theme the most
+ * specific matching scope wins, and among equals the LATER rule wins, which
+ * is why `keyword.operator` (→ punctuation) sits after `keyword`
+ * (→ keyword), and a Python docstring (a `string.quoted.docstring`) sits
+ * after `string` so it reads as the comment it really is.
  */
 const TOKEN_COLORS: { scope: string[]; settings: { foreground: string } }[] = [
   { scope: ['comment', 'punctuation.definition.comment'], settings: { foreground: ROLE_COLOR.comment } },
@@ -188,6 +193,9 @@ const TOKEN_COLORS: { scope: string[]; settings: { foreground: string } }[] = [
 
 const THEME_NAME = 'exocortex-roles';
 
+// The theme object handed to Shiki: plain black on white as the default, plus
+// the scope rules above. The rules are given under both `settings` and
+// `tokenColors`.
 const THEME = {
   name: THEME_NAME,
   type: 'light' as const,
@@ -197,6 +205,11 @@ const THEME = {
 };
 
 // -- the lazy highlighter ----------------------------------------------------
+//
+// Load the highlighter only when a file first needs it. Nothing here is in
+// the main bundle's critical path: Shiki's core, the regex engine and each
+// grammar are dynamic imports, fetched the first time a file of that language
+// opens and cached for the session.
 
 /** Grammar loaders by name, each its own chunk. Static strings so Vite can
  * see and split them. */
@@ -217,9 +230,16 @@ const GRAMMARS: Record<string, () => Promise<unknown>> = {
   ini: () => import('shiki/langs/ini.mjs'),
 };
 
+// A cache that lives for the session: the one highlighter, and one load per
+// grammar. Both hold the PROMISE rather than the finished thing, so two files
+// opening at once share a single download.
 let highlighterPromise: Promise<HighlighterCore> | null = null;
 const loadedLangs = new Map<string, Promise<void>>();
 
+// The one shared highlighter — this is a lazy singleton. The first call
+// fetches Shiki's core and its regex engine together and builds a highlighter
+// with the placeholder theme and no grammars yet; every later call gets that
+// same promise back.
 function highlighter(): Promise<HighlighterCore> {
   if (!highlighterPromise) {
     highlighterPromise = (async () => {
@@ -237,6 +257,10 @@ function highlighter(): Promise<HighlighterCore> {
   return highlighterPromise;
 }
 
+// Make sure a grammar is loaded before it's used. False when there is no
+// loader for the language. Each grammar is loaded once; a load that fails is
+// forgotten, so a later open retries it, and the error is passed up to
+// `tokenizeCode`.
 async function ensureLang(hl: HighlighterCore, lang: string): Promise<boolean> {
   const loader = GRAMMARS[lang];
   if (!loader) return false;
@@ -244,7 +268,7 @@ async function ensureLang(hl: HighlighterCore, lang: string): Promise<boolean> {
     loadedLangs.set(
       lang,
       hl.loadLanguage(loader() as Parameters<HighlighterCore['loadLanguage']>[0]).catch((err) => {
-        loadedLangs.delete(lang); // let a later open retry
+        loadedLangs.delete(lang);
         throw err;
       }),
     );
@@ -253,6 +277,8 @@ async function ensureLang(hl: HighlighterCore, lang: string): Promise<boolean> {
   return true;
 }
 
+// Turn Shiki's tokens into ours: same lines, same text, each placeholder
+// colour swapped for its role. A token with no role keeps only its text.
 function toLines(tokens: ThemedToken[][]): SyntaxLines {
   return tokens.map((line) =>
     line.map((tok) => {
@@ -265,8 +291,9 @@ function toLines(tokens: ThemedToken[][]): SyntaxLines {
 /**
  * Tokenize a file. Resolves to null when there's nothing to colour — no
  * grammar for the language, the file is over the size cap, or the
- * highlighter couldn't load — and the caller shows plain text. The result's
- * line count matches `code.split('\n')`, so callers index it by line.
+ * highlighter or the grammar couldn't load — and the caller shows plain
+ * text; it never throws. The result's line count matches
+ * `code.split('\n')`, so callers index it by line.
  */
 export async function tokenizeCode(code: string, lang: string | null): Promise<SyntaxLines | null> {
   if (!lang || code.length > SYNTAX_MAX_CHARS) return null;

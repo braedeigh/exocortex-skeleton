@@ -1,11 +1,12 @@
-"""GET /api/observatory/terrain/file/edits — when each line of a file was
-last edited, from `git blame`, for the file pane's red-edits toggle
-(routes/terrain.py `_terrain_line_edits`).
+"""Tests GET /api/observatory/terrain/file/edits — per-line last-edit times.
 
-The vault is re-rooted at a temp git repo with one committed file, so the
-test controls the commit time. The contract:
+The endpoint says when each line of a file was last edited, from `git
+blame`, for the file pane's red-edits toggle (routes/terrain.py
+`_terrain_line_edits`). The `vault` fixture re-roots the vault at a temp git
+repo with one committed file, so the tests control the commit time. The
+contract:
   - a tracked file answers one unix-second stamp per line, in file order,
-    each the time of the commit that last touched it
+    each the time of the commit that last touched it (git's author-time)
   - a line edited on disk but not committed is stamped NOW-ish (git says
     "Not Committed Yet"), so the newest edit reads hottest
   - an untracked file answers `edits: null` — nothing to say, no guess
@@ -21,6 +22,7 @@ import pytest
 import store
 
 
+# The fixed moment (unix seconds) the fixture's one commit is stamped with.
 COMMIT_EPOCH = 1_700_000_000
 
 
@@ -54,6 +56,10 @@ def vault(tmp_path, monkeypatch):
 
 
 def _client(monkeypatch, authed):
+    """A test client on the real server app, logged in or not.
+
+    The real app rather than a minimal one, because the visitor lock reads
+    what the server's auth gate decides about the request."""
     monkeypatch.delenv("EXOCORTEX_PUBLIC_ONLY", raising=False)
     import server
     c = server.app.test_client()
@@ -84,6 +90,7 @@ def test_tracked_file_stamps_every_line_with_its_commit_time(owner):
 
 
 def test_uncommitted_line_reads_as_just_now(owner, vault):
+    # Line two changes on disk only. The 5 seconds are slack around "now".
     (vault / "notes.md").write_text("one\ntwo (changed)\nthree\n")
     before = int(time.time()) - 5
     edits = _edits(owner, "vault", "notes.md").get_json()["edits"]

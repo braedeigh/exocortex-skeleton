@@ -169,8 +169,8 @@ PRESENTABLE_PATHS = (
     "/terrain/map",
     "/api/observatory/terrain",
     "/api/observatory/terrain/file",
-    # When each line was last edited (git blame) — same visitor lock as the
-    # file's text, so a visitor gets it for tracked app code and 403 elsewhere.
+    # When each line of a file was last edited (git blame). Same front door as
+    # the file's text above, so the same visitor lock: git-tracked app code only.
     "/api/observatory/terrain/file/edits",
     # The food-sourcing map (routes/ecosystem.py, the Ecosystem feature).
     # Reopened 2026-09-17 as the second exhibit: the portfolio frames
