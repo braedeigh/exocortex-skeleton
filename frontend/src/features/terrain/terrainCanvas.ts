@@ -497,20 +497,63 @@ export function deriveOrbColor(primary: string, fallback: string, bg: string, te
  * is the WCAG floor for a graphic, the same bar the orb colour is held to. */
 const TYPE_DOT_MIN_CONTRAST = 3;
 
+/** A colour as OKLab — a colour space built so that equal steps look equally
+ * big to the eye. L is lightness (0 black, 1 white); a and b together carry
+ * the hue and how vivid it is. */
+function hexToOklab(hex: string): [number, number, number] {
+  const s2lin = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const [r, g, b] = hexToRgbTuple(hex).map((v) => s2lin(v / 255));
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  return [
+    0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
+    1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
+    0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s,
+  ];
+}
+
+/** OKLab back to a #rrggbb hex. A lightness the screen can't show at that
+ * vividness is clipped channel by channel to the nearest colour it can. */
+function oklabToHex(lightness: number, a: number, b: number): string {
+  const l = (lightness + 0.3963377774 * a + 0.2158037573 * b) ** 3;
+  const m = (lightness - 0.1055613458 * a - 0.0638541728 * b) ** 3;
+  const s = (lightness - 0.0894841775 * a - 1.291485548 * b) ** 3;
+  const lin2s = (v: number) => {
+    const c = Math.max(0, Math.min(1, v));
+    return Math.round(255 * (c <= 0.0031308 ? c * 12.92 : 1.055 * c ** (1 / 2.4) - 0.055));
+  };
+  const channels = [
+    lin2s(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s),
+    lin2s(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s),
+    lin2s(-0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s),
+  ];
+  return `#${channels.map((v) => v.toString(16).padStart(2, '0')).join('')}`;
+}
+
+/** How far lightness moves per try while lifting a type colour — fine enough
+ * that the result lands just past the contrast floor, not well beyond it. */
+const TYPE_DOT_LIGHTNESS_STEP = 0.02;
+
 /**
- * Make a file type's colour legible on the live surface. Takes GitHub's
- * colour for the type (fileTypes.ts) and returns what the dot wears under
- * the "Types" toggle. GitHub picked
- * its colours for a white page, so several vanish on a dark sky (Markdown's
- * navy, JSON's near-black) and a pale one can vanish on a light sky; any
- * that fall under 3:1 are mixed toward the text ink a tenth at a time until
- * they clear it — the hue survives, the dot becomes visible. Exported so the
- * legend in TerrainPage.tsx shows exactly the colour the dot wears.
+ * Make a file type's colour legible on the live surface. Takes the type's
+ * colour from fileTypes.ts and returns what the dot wears under the "Types"
+ * toggle. A colour that already stands 3:1 off the surface is returned as it
+ * is. One that doesn't — a navy on the dark sky, a pale yellow on the light
+ * one — has ONLY its lightness moved, a step at a time toward the text ink's
+ * lightness, until it clears 3:1. Hue and vividness are left alone, which is
+ * the point: mixing toward the ink instead would grey every lifted colour
+ * toward the same mud, and the types have to stay tellable apart. Exported so
+ * the legend in TerrainPage.tsx shows exactly the colour the dot wears.
  */
 export function typeDotColor(base: string, bg: string, text: string): string {
-  if (!/^#[0-9a-fA-F]{6}$/.test(bg) || !/^#[0-9a-fA-F]{6}$/.test(text)) return base;
-  for (let f = 0; f <= 0.9001; f += 0.1) {
-    const c = mixHex(base, text, f);
+  const isHex = (c: string) => /^#[0-9a-fA-F]{6}$/.test(c);
+  if (!isHex(base) || !isHex(bg) || !isHex(text)) return base;
+  if (wcagContrast(base, bg) >= TYPE_DOT_MIN_CONTRAST) return base.toLowerCase();
+  const [lightness, a, b] = hexToOklab(base);
+  const step = hexToOklab(text)[0] > lightness ? TYPE_DOT_LIGHTNESS_STEP : -TYPE_DOT_LIGHTNESS_STEP;
+  for (let next = lightness + step; next > 0 && next < 1; next += step) {
+    const c = oklabToHex(next, a, b);
     if (wcagContrast(c, bg) >= TYPE_DOT_MIN_CONTRAST) return c;
   }
   return text;

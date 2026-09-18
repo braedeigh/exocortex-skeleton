@@ -1,27 +1,36 @@
 /**
- * fileTypes.ts — which kind of file a path is, and the colour GitHub gives
- * that kind. This is the lookup behind the terrain's "Types" toggle, which
+ * fileTypes.ts — which kind of file a path is, and the colour that kind
+ * wears, after GitHub's scheme. This is the lookup behind the terrain's "Types" toggle, which
  * paints every file dot by its type instead of by its heat.
  *
- * The colours are GitHub's own — the ones in the language bar on any repo
- * page, published in its open-source Linguist project (languages.yml). They
- * are kept here exactly as GitHub ships them. Several are too dark to see on
- * a dark sky (Markdown is navy, JSON is near-black); making them legible is
- * the painter's job, not this table's — see typeDotColor in terrainCanvas.ts,
- * which lifts a colour toward the text ink until it clears the surface.
+ * The colours start from GitHub's own — the ones in the language bar on any
+ * repo page, published in its open-source Linguist project (languages.yml).
+ * Three are deliberately NOT GitHub's, each marked where it's set below:
+ * GitHub gives Python, TypeScript and Markdown three near-identical blues,
+ * and JSON a near-black that lands on the same grey as "Other" once it's
+ * made visible. Those four kinds are most of the dots on this map, so
+ * TypeScript keeps the blue and the others move to hues nothing else was
+ * using. The replacements were picked by measuring, not by eye: how far
+ * apart the dots sit (distance in OKLab, a colour space where equal steps
+ * look equal) on both the dark and the light sky.
+ *
+ * Some colours are still too dark or too pale for one sky or the other;
+ * making them legible is the painter's job, not this table's — see
+ * typeDotColor in terrainCanvas.ts, which moves a colour's lightness, and
+ * only its lightness, until it clears the surface.
  *
  * Used by terrainCanvas.ts (the dots) and TerrainPage.tsx (the legend). Pure
  * data and one lookup, so it's tested directly in fileTypes.test.ts.
  *
  * Prompt that produced it: "a toggle to color the dots by file type like with
  * the github scheme … a toggle that overrides the other colors when i toggle
- * it on".
+ * it on"; then "markdown, typescript, and python are too similar".
  */
 
 export interface FileType {
   /** The name shown in the legend, as GitHub spells it. */
   label: string;
-  /** GitHub's colour for it, a #rrggbb hex. */
+  /** Its colour, a #rrggbb hex — GitHub's, except the three marked below. */
   color: string;
 }
 
@@ -30,16 +39,20 @@ export interface FileType {
  * than borrowing a language's colour. */
 export const OTHER_FILE_TYPE: FileType = { label: 'Other', color: '#8b8b8b' };
 
-// GitHub Linguist's colours, keyed by the type's name.
+// GitHub Linguist's colours, keyed by the type's name — except the three
+// marked "not GitHub's".
 const TYPES = {
-  python: { label: 'Python', color: '#3572A5' },
+  // Not GitHub's (its #3572A5 is a blue beside TypeScript's): teal.
+  python: { label: 'Python', color: '#1fa08c' },
   typescript: { label: 'TypeScript', color: '#3178c6' },
   javascript: { label: 'JavaScript', color: '#f1e05a' },
   css: { label: 'CSS', color: '#663399' },
   scss: { label: 'SCSS', color: '#c6538c' },
   html: { label: 'HTML', color: '#e34c26' },
-  markdown: { label: 'Markdown', color: '#083fa1' },
-  json: { label: 'JSON', color: '#292929' },
+  // Not GitHub's (its #083fa1 is a navy that lifts into TypeScript's blue): pink.
+  markdown: { label: 'Markdown', color: '#d45fa0' },
+  // Not GitHub's (its #292929 lifts to the same grey as Other): periwinkle.
+  json: { label: 'JSON', color: '#9aa7d9' },
   yaml: { label: 'YAML', color: '#cb171e' },
   toml: { label: 'TOML', color: '#9c4221' },
   shell: { label: 'Shell', color: '#89e051' },
