@@ -704,6 +704,14 @@ export class TerrainCanvas {
    * search in typeDotColor runs once per file rather than once per frame. */
   private typeColorCache: Map<string, string> = new Map();
   /**
+   * File dots the All / Recent / Old switch has hidden (activityFilter.ts).
+   * Hidden is a PAINT decision, not a layout one: these dots stay in the sim
+   * and keep their places, so flipping the switch moves nothing — they just
+   * aren't drawn, their tree edges and tethers and threads aren't drawn, and
+   * a tap can't land on them.
+   */
+  private hiddenFiles: ReadonlySet<string> = new Set();
+  /**
    * /terrain's ring set: every file the *shown* agents have read or written,
    * ringed all at once without anything being focused or tapped. Same colours
    * the backdrop's focus rings use (purple = written, white = read) and drawn
@@ -871,6 +879,13 @@ export class TerrainCanvas {
   setTypeColors(on: boolean): void {
     if (this.typeColors === on) return;
     this.typeColors = on;
+    this.requestDraw();
+  }
+
+  /** Hand over the file dots to hide (activityFilter.ts). Pure lighting: no
+   * camera move, no sim wake, one repaint. */
+  setHiddenFiles(ids: ReadonlySet<string>): void {
+    this.hiddenFiles = ids;
     this.requestDraw();
   }
 
@@ -1474,6 +1489,7 @@ export class TerrainCanvas {
     let bestDist = Infinity;
     for (const n of this.simNodes) {
       if (sessionsOnly && n.node.kind !== 'session') continue;
+      if (this.hiddenFiles.has(n.id)) continue; // a hidden dot can't be tapped
       const dx = (n.x ?? 0) - wx;
       const dy = (n.y ?? 0) - wy;
       const dist = Math.hypot(dx, dy);
@@ -1820,6 +1836,7 @@ export class TerrainCanvas {
         const a = byId.get(th.sourceId);
         const b = byId.get(th.targetId);
         if (!a || !b) continue; // one end filtered off the map by a dial
+        if (this.hiddenFiles.has(a.id) || this.hiddenFiles.has(b.id)) continue; // or hidden by the activity switch
         const ax = a.x ?? 0;
         const ay = a.y ?? 0;
         const bx = b.x ?? 0;
@@ -1854,6 +1871,9 @@ export class TerrainCanvas {
     for (const link of this.simLinks) {
       const s = link.source as SimNode;
       const t = link.target as SimNode;
+      // A line to a hidden dot would end in empty space, so it goes too —
+      // the tree edge from its folder and any agent's tether alike.
+      if (this.hiddenFiles.has(s.id) || this.hiddenFiles.has(t.id)) continue;
       const inPrint = !dimmed || this.footprint!.has(s.id) || this.footprint!.has(t.id);
       if (link.kind === 'session') {
         // Orb tethers: identity-accent threads, dashed so they never read as
@@ -1898,6 +1918,9 @@ export class TerrainCanvas {
     const minR = MIN_NODE_PX / transform.k;   // world units for a screen-px floor
     const threadHover = this.hoverFile;
     for (const n of this.simNodes) {
+      // Hidden by the All / Recent / Old switch: skipped whole, so its rings,
+      // write core and flash go with it.
+      if (this.hiddenFiles.has(n.id)) continue;
       const inPrint = !dimmed || this.footprint!.has(n.id);
       // A file hover pulls the whole map down around the thread it lit: the
       // hovered dot and everything wired to it stay full, everything else
@@ -2140,7 +2163,7 @@ export class TerrainCanvas {
     // half. Position is world (it belongs to its node); size is screen.
     if (this.weatherFrags.length > 0) {
       const nodePos = new Map<string, SimNode>();
-      for (const n of this.simNodes) nodePos.set(n.id, n);
+      for (const n of this.simNodes) if (!this.hiddenFiles.has(n.id)) nodePos.set(n.id, n);
       ctx.font = `${WEATHER_PX / transform.k}px ${WEATHER_FONT}`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'bottom';
@@ -2201,6 +2224,7 @@ export class TerrainCanvas {
           ? this.footprintLabelSet
           : new Set(this.footprintLabels.slice(0, FOOTPRINT_LABEL_CAP));
     for (const n of this.simNodes) {
+      if (this.hiddenFiles.has(n.id)) continue; // no caption for a dot that isn't drawn
       if (n.node.kind === 'file' && !(namedFiles !== null && namedFiles.has(n.id))) continue;
       // Directories caption themselves at readable zoom on the map proper. In
       // the step-back view zoom is not hers to set, so the bound is relevance

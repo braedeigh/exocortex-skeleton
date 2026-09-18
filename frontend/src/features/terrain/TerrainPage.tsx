@@ -52,6 +52,7 @@ import { beatNodeIds, scheduleFrames, type Beat } from './journeyReplay';
 import type { TerrainThread } from './terrainThreads';
 import { PondLandmark } from './PondLandmark';
 import { collapseToPondTile, localDayISO, parseCardPath, POND_TILE_PATH } from './pondNodes';
+import { filesHiddenByActivity, type ActivityFilter } from './activityFilter';
 import { fileTypeCounts, OTHER_FILE_TYPE } from './fileTypes';
 import { setTypeColorsOn, useTypeColorsOn } from './typeColorPref';
 import { setAgentsHiddenOn, useAgentsHiddenOn } from './agentsHiddenPref';
@@ -97,6 +98,7 @@ function TerrainKey({
   hidden,
   showAgents,
   typeRows,
+  activityNote,
 }: {
   /** The heat WINDOW in seconds (what the bar sets) — the ticks are derived
    * from it (heatKeyTicks): now, the midpoint, the edge. */
@@ -109,6 +111,10 @@ function TerrainKey({
   /** The file types on the map right now, most common first — set only while
    * the "Types" toggle is on, and the key lists these instead of the ramp. */
   typeRows: { label: string; color: string }[] | null;
+  /** Set only while the All / Recent / Old switch is filtering: what's being
+   * shown and how many files that is. Heads the key, because it changes what
+   * every row under it is describing. */
+  activityNote: { title: string; count: string } | null;
 }) {
   // On the dark surface this is two stops, ash → her red; light keeps the
   // five-step ramp. Same lookup the dots use, so the key can't drift.
@@ -120,6 +126,12 @@ function TerrainKey({
       className={[styles.key, hidden ? styles.keyHidden : ''].filter(Boolean).join(' ')}
       aria-hidden="true"
     >
+      {activityNote ? (
+        <div className={styles.keyNote}>
+          <span className={styles.keyNoteTitle}>{activityNote.title}</span>
+          <span className={styles.keyTick}>{activityNote.count}</span>
+        </div>
+      ) : null}
       {typeRows ? (
         <div className={styles.keyTypes}>
           {typeRows.map((row) => (
@@ -1081,6 +1093,34 @@ export function TerrainPage() {
     engineRef.current?.setTypeColors(typeColors);
   }, [typeColors]);
 
+  // Work out which file dots the All / Recent / Old switch hides, and hand
+  // them to the canvas. The cutoff is the Heat slider's SET window (heatDays),
+  // not the live breathing one: under Dynamic the live window swells and
+  // settles every ten seconds, and a filter riding it would blink files in
+  // and out of existence. Page state, not a stored preference — see note 8 in
+  // TerrainHeatBar.tsx for why this one doesn't stay across reloads.
+  const [activity, setActivity] = useState<ActivityFilter>('all');
+  const hiddenFiles = useMemo(
+    () => (visible ? filesHiddenByActivity(visible.nodes, activity, heatDays * DAY_SECONDS, now) : new Set<string>()),
+    [visible, activity, heatDays, now],
+  );
+  useEffect(() => {
+    engineRef.current?.setHiddenFiles(hiddenFiles);
+  }, [hiddenFiles]);
+  // What the key says while the switch is on: which side of the edge, where
+  // the edge is, and how many files that leaves — the count is the answer to
+  // "how much of this is old", readable without counting dots.
+  const activityNote = useMemo(() => {
+    if (activity === 'all' || !visible) return null;
+    const files = visible.nodes.filter((n) => n.kind === 'file' && !n.file?.days).length;
+    const shown = files - hiddenFiles.size;
+    const span = `${heatDays}d`;
+    return {
+      title: activity === 'recent' ? `Active in the last ${span}` : `Nothing in the last ${span}`,
+      count: `${shown} of ${files} files`,
+    };
+  }, [activity, visible, hiddenFiles, heatDays]);
+
   // Build the key's type list. Only the files drawn right now are counted,
   // so the legend never names a type that isn't on the map, and each swatch
   // is the exact lifted colour its dots wear (typeDotColor). The commonest
@@ -1088,7 +1128,9 @@ export function TerrainPage() {
   // anything is left over — unrecognised files or the types cut off the end.
   const typeRows = useMemo(() => {
     if (!typeColors || !ink || !visible) return null;
-    const paths = visible.nodes.filter((n) => n.kind === 'file').map((n) => n.path ?? n.label);
+    const paths = visible.nodes
+      .filter((n) => n.kind === 'file' && !hiddenFiles.has(n.id))
+      .map((n) => n.path ?? n.label);
     const counts = fileTypeCounts(paths);
     const named = counts.filter((c) => c.type !== OTHER_FILE_TYPE);
     const listed = named.length < counts.length || named.length > KEY_TYPE_ROWS
@@ -1098,7 +1140,7 @@ export function TerrainPage() {
       label: type.label,
       color: typeDotColor(type.color, ink.bg, ink.text),
     }));
-  }, [typeColors, ink, visible]);
+  }, [typeColors, ink, visible, hiddenFiles]);
 
   const toggleRepo = (repoId: string) => {
     setHiddenRepos((prev) => {
@@ -1385,6 +1427,8 @@ export function TerrainPage() {
             onBreathe={() => setBreathing((v) => !v)}
             typeColors={typeColors}
             onTypeColors={setTypeColorsOn}
+            activity={activity}
+            onActivity={setActivity}
           />
           {/* The agent control: Active button, a window that slides past agents
               over the ranked roster, and a popup list to spotlight one. */}
@@ -1419,6 +1463,7 @@ export function TerrainPage() {
             hidden={selected !== null || codeFile !== null}
             showAgents={shownAgentIds.size > 0}
             typeRows={typeRows}
+            activityNote={activityNote}
           />
         ) : null}
       </div>

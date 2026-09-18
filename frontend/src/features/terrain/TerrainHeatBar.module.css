@@ -248,6 +248,45 @@
   margin-left: var(--space-3);
 }
 
+/* The All / Recent / Old control: three buttons joined into one pill, so it
+   reads as a single three-way choice. Same glass, border and 40px height as
+   the presets beside it; the pill's own border and clipped corners do the
+   joining, and a hairline divides the segments. */
+.segments {
+  display: inline-flex;
+  border: 1px solid color-mix(in srgb, var(--text) 22%, transparent);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--card-bg) 55%, transparent);
+  overflow: hidden;
+}
+
+.segment {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px; /* 40px with the pill's 1px border top and bottom */
+  padding: 0 var(--space-2);
+  border: 0;
+  border-left: 1px solid color-mix(in srgb, var(--text) 14%, transparent);
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: var(--font-size-md);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.segment:first-child {
+  border-left: 0;
+}
+
+/* The chosen segment wears the same lit tint as a chosen preset. */
+.segmentOn {
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 18%, var(--card-bg));
+}
+
 /* --- Dynamic, lit ------------------------------------------------------
 
    The button breathes on the same 10s clock as the half-life it just handed

@@ -449,6 +449,25 @@
   line-height: 1;
 }
 
+/* The key's heading while the All / Recent / Old switch is filtering: what
+   is being shown, then how many files that is. Primary ink for the first
+   line and secondary for the count, so the hierarchy comes from colour and
+   weight rather than from shrinking the type. */
+.keyNote {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.keyNoteTitle {
+  font-size: var(--font-size-sm); /* 12px floor */
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.2;
+}
+
 /* The key's type list, shown in place of the ramp while "Types" is on: one
    swatch-and-name row per file type, stacked. */
 .keyTypes {

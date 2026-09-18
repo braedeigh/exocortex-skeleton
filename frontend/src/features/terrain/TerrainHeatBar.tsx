@@ -9,6 +9,7 @@ import {
 } from './terrainGraph';
 import { GOLD_RAMP_LIGHT, HEAT_RAMP_LIGHT, heatColor } from './terrainCanvas';
 import { POS_STEPS, posFromValue, valueFromPos } from './TerrainDials';
+import type { ActivityFilter } from './activityFilter';
 import styles from './TerrainHeatBar.module.css';
 
 /**
@@ -81,6 +82,21 @@ import styles from './TerrainHeatBar.module.css';
  *    The value itself lives in typeColorPref.ts and stays on across reloads.
  *    Prompt: "a toggle to color the dots by file type like with the github
  *    scheme … that overrides the other colors when i toggle it on".
+ * 8. **All / Recent / Old is a filter on THIS slider's window.** One joined
+ *    control of three, at the end of the row. Recent keeps only the files
+ *    edited or run inside the window the thumb sets; Old keeps only the ones
+ *    that weren't; All is the map as normal. It borrows the slider's window
+ *    rather than bringing a second "how far back" control, so the thumb has
+ *    one meaning — the edge between lit and ash — and this switch just picks
+ *    a side of that edge. Drag the thumb while it's on and dots cross over.
+ *    The rule is activityFilter.ts; the canvas hides dots without moving the
+ *    rest (terrainCanvas.ts setHiddenFiles). Not remembered across reloads,
+ *    unlike Types: Types is how she likes the map lit, this is a question
+ *    she's asking right now, and a map that opens mostly empty with no memory
+ *    of why is a worse surprise than re-tapping a button.
+ *    Prompt: "a toggle to hide any dots that haven't been modified or active
+ *    in the past X amount of time and then i can also see things that haven't
+ *    been active … so i can identify old files easily and what kind they are".
  *
  * Prompts that produced it: "change the day/week/month toggle for the heat map
  * coloring... a bar like the rest, but with tick marks for days, and a label
@@ -154,7 +170,16 @@ export interface TerrainHeatBarProps {
   /** True while file dots are coloured by file type instead of heat (note 7). */
   typeColors?: boolean;
   onTypeColors?: (on: boolean) => void;
+  /** Which side of the window's edge the map shows (note 8). */
+  activity?: ActivityFilter;
+  onActivity?: (filter: ActivityFilter) => void;
 }
+
+const ACTIVITY_CHOICES: readonly { value: ActivityFilter; label: string; hint: string }[] = [
+  { value: 'all', label: 'All', hint: 'Every file, whenever it was last active' },
+  { value: 'recent', label: 'Recent', hint: 'Only files edited or run inside the heat window' },
+  { value: 'old', label: 'Old', hint: 'Only files NOT edited or run inside the heat window' },
+];
 
 const DAY_SECONDS = 24 * 3600;
 
@@ -180,6 +205,8 @@ export function TerrainHeatBar({
   onBreathe,
   typeColors = false,
   onTypeColors,
+  activity = 'all',
+  onActivity,
 }: TerrainHeatBarProps) {
   const id = useId();
   // The fill along the track, hot (today) on the left and running out at the
@@ -234,6 +261,27 @@ export function TerrainHeatBar({
           >
             Types
           </button>
+        ) : null}
+        {/* Show all files, only the recently active, or only the old ones
+            (note 8). A segmented control — three buttons joined into one
+            pill — because the three are one choice, not three switches. */}
+        {onActivity ? (
+          <div className={`${styles.segments} ${styles.presetApart}`} role="group" aria-label="Show files by activity">
+            {ACTIVITY_CHOICES.map((choice) => (
+              <button
+                key={choice.value}
+                type="button"
+                className={[styles.segment, activity === choice.value ? styles.segmentOn : '']
+                  .filter(Boolean)
+                  .join(' ')}
+                aria-pressed={activity === choice.value}
+                onClick={() => onActivity(choice.value)}
+                title={choice.hint}
+              >
+                {choice.label}
+              </button>
+            ))}
+          </div>
         ) : null}
         <span className={styles.readout}>
           <span className={styles.readoutDot} style={{ background: ramp[ramp.length - 1] }} />
