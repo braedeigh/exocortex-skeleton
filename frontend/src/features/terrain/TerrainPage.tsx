@@ -166,8 +166,8 @@ function usePageVisible(): boolean {
  * breath so the whole map remembers further back and forgets again on a ten
  * second cycle.
  *
- * Tap a file → its code in a pane on the map's right half (or over the whole
- * map when the terrain is narrow), × to come back (FileCodeWindow), with
+ * Tap a file → its code in a pane over the whole terrain panel — this
+ * panel only, never a neighbour in a split — × to come back (FileCodeWindow), with
  * what the map knows about the file printed under it:
  * when it was last touched, and every agent that touched it — each row opens
  * that conversation in the Observatory, or rings its whole footprint on the
@@ -1071,10 +1071,10 @@ export function TerrainPage() {
   const codeFileLast = codeFile?.file ? fileLastTouch(codeFile.file) : null;
 
   // --- the agent hovercard ------------------------------------------------
-  // The agent sheet is up, so the cursor isn't over the map any more — a card
-  // left hanging beside it would be pointing at an orb she can't see. An open
-  // file doesn't block it: on a wide map the left half is still the live map.
-  const hoverBlocked = selected !== null;
+  // Hide the hovercard whenever something covers the map. The agent sheet or
+  // the file pane is up, so the cursor isn't over the map any more — a card
+  // left hanging would be pointing at an orb she can't see.
+  const hoverBlocked = selected !== null || codeFile !== null;
   // (No hovercard for a visitor: its facts come from the roster and the
   // session preview, neither of which is theirs to read.)
   const hoverId = hoverBlocked || visitor ? null : (hover?.id ?? null);
@@ -1163,10 +1163,9 @@ export function TerrainPage() {
   };
 
   return (
-    <div className={[styles.page, codeFile !== null ? styles.pageFileOpen : ''].filter(Boolean).join(' ')}>
+    <div className={styles.page}>
       {/* Canvas first and full-bleed: the chrome below floats over it, so the
-          map owns the whole page and shows through the controls. With a file
-          open (.pageFileOpen) a wide map yields its right half to the pane. */}
+          map owns the whole page and shows through the controls. */}
       <div ref={wrapRef} className={styles.canvasWrap}>
         <canvas ref={canvasRef} className={styles.canvas} aria-label="File-tree heatmap" />
         {isLoading ? <div className={styles.overlayHint}>Loading the terrain…</div> : null}
@@ -1474,8 +1473,8 @@ export function TerrainPage() {
       </Sheet>
 
       {/* The file pane: read the tapped file without leaving the map
-          (FileCodeWindow). It sits in the page's own area — the map's right
-          half when the map is wide, the whole map when it's narrow. The sim
+          (FileCodeWindow). It covers this terrain panel's whole area and
+          nothing outside it — one tile of a split, never its neighbours. The sim
           and the zoom transform are untouched while it's up, so closing it
           drops you back onto exactly the map you left. Under the code the
           pane carries what the MAP knows about the file: when it was last

@@ -12,26 +12,18 @@ import styles from './FileCodeWindow.module.css';
  * This file is the frame. The contents are FileCodeBody, shared with the
  * /code page; TerrainPage.tsx opens the pane and hands it what the map knows.
  *
- * Where it sits follows the map's own width, not the window's
- * (FileCodeWindow.module.css, measured against TerrainPage's container):
+ * Where it sits: over the whole terrain panel it was opened from, and only
+ * that panel (FileCodeWindow.module.css .pane). On a single screen that is
+ * the full page; when the screen is split in two or three it is the
+ * terrain's own tile. It never reaches over a neighbouring panel, and the
+ * map is hidden behind it until × — to read a different file, close and tap
+ * another dot.
  *
- * - Wide map (most of the window): the pane takes the map's RIGHT half, edge
- *   to edge, and the map keeps the left half with its chrome pulled in to
- *   match (TerrainPage.module.css .pageFileOpen). The map stays live: tap
- *   another dot and the pane shows that file instead.
- * - Narrow map (a phone, or the terrain already one side of the desktop
- *   split): the pane covers the map's whole area — the terrain's side of the
- *   split and nothing else. It never reaches over other panels.
+ * Opening it never touches the d3-force sim, the zoom transform, or the
+ * canvas's size, so closing it drops you back onto exactly the map you left.
  *
- * Opening it never touches the d3-force sim or the zoom transform. On a wide
- * map the canvas does get narrower (the page shrinks it to the left half),
- * but a resize only redraws at the new size under the same transform — the
- * left half of the map is exactly where it was, and closing gives the right
- * half back unmoved.
- *
- * Her ask: "when i open a file it doesn't show up on the whole screen, it
- * just shows up on the right side of the screen like the split screen on the
- * terrain side".
+ * Her ask: "it should only cover the window it's open on. like if the screen
+ * is split into 2 or 3, it should cover only in the one i'm opening it into."
  */
 export function FileCodeWindow({
   repo,

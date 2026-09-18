@@ -1,7 +1,7 @@
 /* The agent hovercard — see AgentHoverCard.tsx for what it's for.
 
    A frosted pane over the map (the file pane, FileCodeWindow.module.css, is
-   opaque and sits beside the map instead): this card is small, sits over the
+   opaque and covers the map instead): this card is small, sits over the
    densest part of the map, and carries the smallest type on the surface, so
    it buys a good deal of opacity for legibility.
 
@@ -14,8 +14,8 @@
 
 .card {
   position: fixed;
-  z-index: 90; /* over the map and its chrome — and over the file pane, which only
-                 matters on a wide map where an orb beside the pane is hovered */
+  z-index: 90; /* over the map and its chrome. The card is never up while the
+                 file pane is (TerrainPage's hoverBlocked), so the two don't meet */
   width: 320px;
   /* The ceiling, and the only truncation there is now: the card fills to here
      and the rest scrolls, which is why nothing inside needs a line-clamp any

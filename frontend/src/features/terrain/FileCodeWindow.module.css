@@ -1,11 +1,12 @@
 /* The file pane — see FileCodeWindow.tsx for what it's for. */
 
-/* Sits INSIDE the terrain page, over the map's own area — never over the
-   whole window. The base rule fills that area, which is right for a phone
-   and for a terrain that is already one side of the desktop split: the file
-   takes the terrain's side and nothing else. Opaque, so code never sits over
-   moving dots. z-index clears the page's chrome (2–4) and the floating
-   landmarks; the app's portalled sheets sit far above and are unaffected. */
+/* Cover the whole terrain panel, and only that panel. The pane is positioned
+   against the terrain page (its nearest positioned parent), so `inset: 0`
+   fills whatever box the terrain was given — the full page on a single
+   screen, one tile when the screen is split in two or three — and never
+   reaches over a neighbouring panel. Opaque, so code never sits over moving
+   dots. z-index clears the page's chrome (2–4) and the floating landmarks;
+   the app's portalled sheets sit far above and are unaffected. */
 .pane {
   position: absolute;
   inset: 0;
@@ -16,18 +17,6 @@
   min-height: 0;
   background: var(--bg);
   animation: windowIn 160ms cubic-bezier(0.32, 0.72, 0, 1);
-}
-
-/* A wide map — more than half the window and real width to spare — keeps
-   the left half for itself: the pane takes only the RIGHT half, edge to
-   edge, and the page pulls the canvas and both chrome bars in to match
-   (TerrainPage.module.css .pageFileOpen, the same query). The map on the
-   left stays live, so tapping another dot swaps the file in the pane. */
-@container terrain-page (min-width: 1000px) and (min-width: 51vw) {
-  .pane {
-    left: 50%;
-    border-left: 1px solid var(--border);
-  }
 }
 
 .header {
