@@ -27,9 +27,10 @@ import { useSyncExternalStore } from 'react';
  * follows within the gesture: `listeners` for anything mounted in this
  * document, the browser's `storage` event for other tabs of the same origin.
  * Off unless she has explicitly turned it on — a file is plain text until
- * she asks for a mark.
+ * she asks for a mark. Exported for the map's own sticky switch
+ * (typeColorPref.ts), so there is one implementation of the pattern.
  */
-function makeStickyToggle(key: string) {
+export function makeStickyToggle(key: string) {
   function fromStorage(): boolean {
     try {
       return localStorage.getItem(key) === 'on';

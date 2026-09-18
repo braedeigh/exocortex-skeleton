@@ -99,6 +99,7 @@ import {
   type TerrainNode,
 } from './terrainGraph';
 import type { TerrainThread } from './terrainThreads';
+import { fileTypeOf } from './fileTypes';
 
 /**
  * THE TWO FIRES, in the words the map is built in (dark surface):
@@ -492,6 +493,29 @@ export function deriveOrbColor(primary: string, fallback: string, bg: string, te
   return text;
 }
 
+/** How far a type colour has to stand off the surface to read as a dot. 3:1
+ * is the WCAG floor for a graphic, the same bar the orb colour is held to. */
+const TYPE_DOT_MIN_CONTRAST = 3;
+
+/**
+ * Make a file type's colour legible on the live surface. Takes GitHub's
+ * colour for the type (fileTypes.ts) and returns what the dot wears under
+ * the "Types" toggle. GitHub picked
+ * its colours for a white page, so several vanish on a dark sky (Markdown's
+ * navy, JSON's near-black) and a pale one can vanish on a light sky; any
+ * that fall under 3:1 are mixed toward the text ink a tenth at a time until
+ * they clear it — the hue survives, the dot becomes visible. Exported so the
+ * legend in TerrainPage.tsx shows exactly the colour the dot wears.
+ */
+export function typeDotColor(base: string, bg: string, text: string): string {
+  if (!/^#[0-9a-fA-F]{6}$/.test(bg) || !/^#[0-9a-fA-F]{6}$/.test(text)) return base;
+  for (let f = 0; f <= 0.9001; f += 0.1) {
+    const c = mixHex(base, text, f);
+    if (wcagContrast(c, bg) >= TYPE_DOT_MIN_CONTRAST) return c;
+  }
+  return text;
+}
+
 /**
  * The sonar ping an agent that's waiting on her sends out: one orange ring
  * per period, launched from the orb's edge, expanding outward and fading as
@@ -625,6 +649,17 @@ export class TerrainCanvas {
    * being wallpaper and become the thing she's looking at.
    */
   private ambientLabels = false;
+  /**
+   * The "Types" toggle: while on, every file dot is filled with its file
+   * type's colour and nothing else — heat red, ran gold and new-file green
+   * are all overridden. Size, rings and everything that isn't a file dot are
+   * untouched.
+   */
+  private typeColors = false;
+  /** Type colours already worked out for the current surface, keyed by
+   * path — a cache, emptied whenever the theme changes, so the contrast
+   * search in typeDotColor runs once per file rather than once per frame. */
+  private typeColorCache: Map<string, string> = new Map();
   /**
    * /terrain's ring set: every file the *shown* agents have read or written,
    * ringed all at once without anything being focused or tapped. Same colours
@@ -784,6 +819,15 @@ export class TerrainCanvas {
   setTheme(theme: ThemeInk): void {
     this.theme = theme;
     this.orbStroke = theme.accent; // agent + its dotted tethers track the live --accent
+    this.typeColorCache.clear(); // type colours are lifted against the surface, which just changed
+    this.requestDraw();
+  }
+
+  /** Turn the "Types" colouring on or off (typeColorPref.ts). Pure lighting:
+   * no camera move, no sim wake, one repaint when it flips. */
+  setTypeColors(on: boolean): void {
+    if (this.typeColors === on) return;
+    this.typeColors = on;
     this.requestDraw();
   }
 
@@ -1919,12 +1963,26 @@ export class TerrainCanvas {
 
       if (n.node.kind === 'file') {
         // Freshly created (within 24h, any agent) — git-add green. The
-        // loudest thing a file can be is new, so it wins outright on both
-        // surfaces.
+        // loudest thing a file can be is new, so it beats heat on both
+        // surfaces. Only the "Types" toggle, just below, overrides it.
         const fresh = n.node.file
           ? fileCreatedWithin(n.node.file, CREATED_FRESH_WINDOW_SECONDS, now / 1000)
           : false;
-        if (fresh) {
+        if (this.typeColors) {
+          // The "Types" toggle overrides every other fill. The dot wears its
+          // file type's GitHub colour flat — not green for new, not red or
+          // gold for heat — on both surfaces. Heat still sets the dot's SIZE
+          // (nodeRadius), so a busy file is a big dot of its type's colour.
+          // Prompt: "a toggle that overrides the other colors when i toggle
+          // it on".
+          const path = n.node.path ?? n.node.label;
+          let typeColor = this.typeColorCache.get(path);
+          if (typeColor === undefined) {
+            typeColor = typeDotColor(fileTypeOf(path).color, theme.bg, theme.text);
+            this.typeColorCache.set(path, typeColor);
+          }
+          ctx.fillStyle = typeColor;
+        } else if (fresh) {
           ctx.fillStyle = CREATED_GREEN;
         } else if (theme.dark) {
           // Dark: an opaque ASH disc, then the LEAN hue over it at GLOW

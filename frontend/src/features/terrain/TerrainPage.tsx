@@ -52,10 +52,13 @@ import { beatNodeIds, scheduleFrames, type Beat } from './journeyReplay';
 import type { TerrainThread } from './terrainThreads';
 import { PondLandmark } from './PondLandmark';
 import { collapseToPondTile, localDayISO, parseCardPath, POND_TILE_PATH } from './pondNodes';
+import { fileTypeCounts, OTHER_FILE_TYPE } from './fileTypes';
+import { setTypeColorsOn, useTypeColorsOn } from './typeColorPref';
 import {
   readThemeInk,
   TerrainCanvas,
   heatRamps,
+  typeDotColor,
   type AgentHover,
   type PondAnchor,
   type ThemeInk,
@@ -78,12 +81,21 @@ import styles from './TerrainPage.module.css';
  * decoding the session-orb ring. pointer-events: none throughout — pan/zoom
  * passes straight through; it hides while the sheet is up so it never fights
  * the modal.
+ *
+ * While the "Types" toggle is on the ramp would be explaining colours that
+ * aren't on the map, so the key swaps it for the file types that ARE: one
+ * swatch and name per type, most common first.
  */
+/** How many named types the key lists before the rest are left to "Other" —
+ * enough for the types that make up a map, short enough to stay a corner. */
+const KEY_TYPE_ROWS = 8;
+
 function TerrainKey({
   windowSeconds,
   ink,
   hidden,
   showAgents,
+  typeRows,
 }: {
   /** The heat WINDOW in seconds (what the bar sets) — the ticks are derived
    * from it (heatKeyTicks): now, the midpoint, the edge. */
@@ -93,6 +105,9 @@ function TerrainKey({
   /** Drops the orb row from the key when the agents are toggled off — a
    * legend shouldn't decode something that isn't on the map. */
   showAgents: boolean;
+  /** The file types on the map right now, most common first — set only while
+   * the "Types" toggle is on, and the key lists these instead of the ramp. */
+  typeRows: { label: string; color: string }[] | null;
 }) {
   // On the dark surface this is two stops, ash → her red; light keeps the
   // five-step ramp. Same lookup the dots use, so the key can't drift.
@@ -104,16 +119,27 @@ function TerrainKey({
       className={[styles.key, hidden ? styles.keyHidden : ''].filter(Boolean).join(' ')}
       aria-hidden="true"
     >
-      <div className={styles.keyScale}>
-        <div className={styles.keyBar} style={{ background: gradient }} />
-        <div className={styles.keyTicks}>
-          {heatKeyTicks(windowSeconds).map((tick) => (
-            <span key={tick} className={styles.keyTick}>
-              {tick}
-            </span>
+      {typeRows ? (
+        <div className={styles.keyTypes}>
+          {typeRows.map((row) => (
+            <div key={row.label} className={styles.keySessionRow}>
+              <span className={styles.keySwatch} style={{ background: row.color }} />
+              <span className={styles.keyTick}>{row.label}</span>
+            </div>
           ))}
         </div>
-      </div>
+      ) : (
+        <div className={styles.keyScale}>
+          <div className={styles.keyBar} style={{ background: gradient }} />
+          <div className={styles.keyTicks}>
+            {heatKeyTicks(windowSeconds).map((tick) => (
+              <span key={tick} className={styles.keyTick}>
+                {tick}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
       {showAgents ? (
         <div className={styles.keySessionRow}>
           <span className={styles.keyRing} style={{ borderColor: orb }} />
@@ -1035,6 +1061,32 @@ export function TerrainPage() {
     engineRef.current?.setLabeledAgents(labeledAgentIds);
   }, [labeledAgentIds]);
 
+  // Hand the "Types" toggle to the canvas. The value is a toggle that stays
+  // (typeColorPref.ts), so a terrain in another panel flips with this one.
+  const typeColors = useTypeColorsOn();
+  useEffect(() => {
+    engineRef.current?.setTypeColors(typeColors);
+  }, [typeColors]);
+
+  // Build the key's type list. Only the files drawn right now are counted,
+  // so the legend never names a type that isn't on the map, and each swatch
+  // is the exact lifted colour its dots wear (typeDotColor). The commonest
+  // KEY_TYPE_ROWS named types are listed; "Other" closes the list whenever
+  // anything is left over — unrecognised files or the types cut off the end.
+  const typeRows = useMemo(() => {
+    if (!typeColors || !ink || !visible) return null;
+    const paths = visible.nodes.filter((n) => n.kind === 'file').map((n) => n.path ?? n.label);
+    const counts = fileTypeCounts(paths);
+    const named = counts.filter((c) => c.type !== OTHER_FILE_TYPE);
+    const listed = named.length < counts.length || named.length > KEY_TYPE_ROWS
+      ? [...named.slice(0, KEY_TYPE_ROWS).map((c) => c.type), OTHER_FILE_TYPE]
+      : named.map((c) => c.type);
+    return listed.map((type) => ({
+      label: type.label,
+      color: typeDotColor(type.color, ink.bg, ink.text),
+    }));
+  }, [typeColors, ink, visible]);
+
   const toggleRepo = (repoId: string) => {
     setHiddenRepos((prev) => {
       const next = new Set(prev);
@@ -1318,6 +1370,8 @@ export function TerrainPage() {
             goldSeconds={goldWindowSeconds}
             breathing={breathing}
             onBreathe={() => setBreathing((v) => !v)}
+            typeColors={typeColors}
+            onTypeColors={setTypeColorsOn}
           />
           {/* The agent control: Active button, a window that slides past agents
               over the ranked roster, and a popup list to spotlight one. */}
@@ -1349,6 +1403,7 @@ export function TerrainPage() {
             ink={ink}
             hidden={selected !== null || codeFile !== null}
             showAgents={shownAgentIds.size > 0}
+            typeRows={typeRows}
           />
         ) : null}
       </div>

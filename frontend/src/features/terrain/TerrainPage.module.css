@@ -449,6 +449,22 @@
   line-height: 1;
 }
 
+/* The key's type list, shown in place of the ramp while "Types" is on: one
+   swatch-and-name row per file type, stacked. */
+.keyTypes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* A filled dot, the same shape the map draws a file as. */
+.keySwatch {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+
 .keySessionRow {
   display: flex;
   align-items: center;

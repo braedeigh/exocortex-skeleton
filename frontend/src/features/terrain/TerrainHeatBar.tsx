@@ -72,6 +72,15 @@ import styles from './TerrainHeatBar.module.css';
  *    → "when the red is at its smallest, the yellow is at its largest.
  *    Currently yellow is off kilter and stays yellow in half of the cycle
  *    while the red is glowing up".
+ * 7. **Types is a switch, not a preset.** It sits at the end of the same row
+ *    because it answers the same question — how the map is lit — but it
+ *    doesn't move the slider: on, every file dot wears its file type's GitHub
+ *    colour and the heat colours are overridden (terrainCanvas.ts). The
+ *    slider still works underneath it, because heat still sets dot SIZE. A
+ *    gap sets it apart from the presets so it doesn't read as a fifth window.
+ *    The value itself lives in typeColorPref.ts and stays on across reloads.
+ *    Prompt: "a toggle to color the dots by file type like with the github
+ *    scheme … that overrides the other colors when i toggle it on".
  *
  * Prompts that produced it: "change the day/week/month toggle for the heat map
  * coloring... a bar like the rest, but with tick marks for days, and a label
@@ -142,6 +151,9 @@ export interface TerrainHeatBarProps {
   /** True while the half-life is riding the breath. */
   breathing?: boolean;
   onBreathe?: () => void;
+  /** True while file dots are coloured by file type instead of heat (note 7). */
+  typeColors?: boolean;
+  onTypeColors?: (on: boolean) => void;
 }
 
 const DAY_SECONDS = 24 * 3600;
@@ -166,6 +178,8 @@ export function TerrainHeatBar({
   goldSeconds = RUN_WINDOW_SECONDS,
   breathing = false,
   onBreathe,
+  typeColors = false,
+  onTypeColors,
 }: TerrainHeatBarProps) {
   const id = useId();
   // The fill along the track, hot (today) on the left and running out at the
@@ -206,6 +220,21 @@ export function TerrainHeatBar({
         >
           Dynamic
         </button>
+        {/* Colour the dots by file type instead of heat (note 7). A switch,
+            so it reports pressed/unpressed rather than picking a window. */}
+        {onTypeColors ? (
+          <button
+            type="button"
+            className={[styles.preset, styles.presetApart, typeColors ? styles.presetOn : '']
+              .filter(Boolean)
+              .join(' ')}
+            aria-pressed={typeColors}
+            onClick={() => onTypeColors(!typeColors)}
+            title="Colour every file dot by its file type, in GitHub's colours, instead of by heat"
+          >
+            Types
+          </button>
+        ) : null}
         <span className={styles.readout}>
           <span className={styles.readoutDot} style={{ background: ramp[ramp.length - 1] }} />
           {Math.round(days)}d

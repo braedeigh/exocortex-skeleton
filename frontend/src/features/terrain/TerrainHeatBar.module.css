@@ -242,6 +242,12 @@
   background: color-mix(in srgb, var(--accent) 18%, var(--card-bg));
 }
 
+/* Set the Types switch apart from the window presets. It shares the row and
+   the pill shape, but it isn't a fifth window — the gap is what says so. */
+.presetApart {
+  margin-left: var(--space-3);
+}
+
 /* --- Dynamic, lit ------------------------------------------------------
 
    The button breathes on the same 10s clock as the half-life it just handed
