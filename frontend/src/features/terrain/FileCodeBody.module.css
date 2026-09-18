@@ -155,6 +155,7 @@
 /* One row per line — number gutter, then the text. white-space lives here
    (not on .code) because each row needs it, not the scroll container. */
 .codeLine {
+  position: relative;
   display: flex;
   gap: var(--space-2);
   padding: 0 var(--space-3);
@@ -235,9 +236,22 @@
   text-decoration: underline;
 }
 
-/* A line the red-edits toggle has lit: the wash is set inline (the alpha
-   follows the heat), and the number takes the ramp colour handed in as
-   --edit-ink at full opacity — a dot's colour, not a muted gutter's. */
+/* A line the red-edits toggle has lit. Both marks sit in the gutter, never
+   behind the text: a strip down the row's left edge in the ramp colour
+   (--edit-ink, set inline per line) with its opacity following the heat
+   (--edit-alpha), and the number in the same colour at full strength — a
+   dot's colour, not a muted gutter's. */
+.codeLineEdited::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--edit-ink);
+  opacity: var(--edit-alpha, 1);
+}
+
 .codeLineEdited .codeLineNo {
   color: var(--edit-ink);
   opacity: 1;

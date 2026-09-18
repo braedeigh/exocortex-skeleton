@@ -4,7 +4,7 @@ import { useTerrainFile, useTerrainFileEdits } from './api';
 import { setCodeHeatOn, useCodeHeatOn } from './codeHeatPref';
 import { lineEditHeat } from './lineEditHeat';
 import { langForPath, tokenizeCode, type SyntaxLines, type SyntaxToken } from './syntax';
-import { EMBER_HOT, glowAlpha, heatColor, heatRamps, readThemeInk, type ThemeInk } from './terrainCanvas';
+import { glowAlpha, heatColor, heatRamps, readThemeInk, type ThemeInk } from './terrainCanvas';
 import { heatKeyTicks } from './terrainGraph';
 import styles from './FileCodeBody.module.css';
 
@@ -60,9 +60,10 @@ import styles from './FileCodeBody.module.css';
  * once and every file opens lit until it's flipped back. `windowSeconds`
  * is the window to decay across — the map's pane passes its live heat
  * window (breath included, so the pane breathes with the map); frames with
- * no window of their own get a week. The row wash is the hot ember at an
- * alpha scaled by the heat, so text stays legible under it, and the line
- * NUMBER wears the ramp colour itself — the same colour the dot would.
+ * no window of their own get a week. The red sits in the gutter — a strip
+ * down the left edge fading with the heat, and the line NUMBER in the ramp
+ * colour itself, the same colour the dot would wear — and never behind the
+ * text, so the code reads the same either way.
  *
  * Prompt that produced it: "can those displays show when the most recent
  * code was edited by a toggleable red color like on the terrain map".
@@ -278,12 +279,16 @@ export function FileCodeBody({
  * a row only needs to repaint when its own red moved, its highlight changed,
  * or its tokens arrived.
  *
- * The red: the row gets a wash of the hot ember at an alpha that follows
- * the heat (glowAlpha, the dots' own curve), and the number gets the ramp
- * colour outright (`heatInk`) — the exact shade this line's age would wear
- * as a dot on the map. A cold line (heat 0) gets neither, so the plain look
- * is untouched. The text: the syntax tokens as role-classed spans, or the
- * raw line as one span while there are none.
+ * The red lives in the gutter, not across the row: a strip down the left
+ * edge and the line number itself, both in the ramp colour (`heatInk`) —
+ * the exact shade this line's age would wear as a dot on the map — with
+ * the strip's opacity following the heat (glowAlpha, the dots' own curve)
+ * so an old line fades to nothing rather than to a grey bar. The text is
+ * left alone, so the code reads the same lit or not. A cold line (heat 0)
+ * gets neither. Her ask: "instead of the whole block being red, could it be
+ * like a strip on the side of the numbers and the numbers themselves are
+ * red". The text: the syntax tokens as role-classed spans, or the raw line
+ * as one span while there are none.
  */
 const CodeLine = memo(function CodeLine({
   n,
@@ -305,8 +310,8 @@ const CodeLine = memo(function CodeLine({
   const paint: CSSProperties | undefined =
     heat > 0 && heatInk
       ? {
-          background: `color-mix(in srgb, ${EMBER_HOT} ${Math.round(EMBER_WASH_MAX * glowAlpha(heat) * 100)}%, transparent)`,
           ['--edit-ink' as string]: heatInk,
+          ['--edit-alpha' as string]: glowAlpha(heat).toFixed(3),
         }
       : undefined;
   return (
@@ -362,11 +367,6 @@ function useSyntaxLines(content: string | null, path: string | null): SyntaxLine
 
 /** A week — the window frames with no live heat bar decay the red across. */
 const DEFAULT_WINDOW_SECONDS = 7 * 24 * 3600;
-
-/** How much of the hot ember a fully-red row's wash carries. Strong enough
- * to be unmistakably red behind the text, weak enough to keep the text
- * legible on both surfaces. */
-const EMBER_WASH_MAX = 0.32;
 
 /**
  * The theme's ink for frames the map isn't feeding — read on mount and again
