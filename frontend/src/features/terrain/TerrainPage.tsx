@@ -1481,14 +1481,16 @@ export function TerrainPage() {
           pane carries what the MAP knows about the file: when it was last
           touched, and which agents touched it, each still able to ring its
           own footprint — the tail of the file, not a gate in front of it.
-          The pane also gets the map's live heat window and ink, so its
-          red-edits toggle (FileCodeBody) colours lines on the same lens as
-          the dots — under Dynamic the lines breathe too. */}
+          The pane also gets the map's live heat window, gold window and
+          ink, so its red-edits and gold-ran toggles (FileCodeBody) colour
+          lines on the same lens as the dots — under Dynamic the lines
+          breathe too. */}
       <FileCodeWindow
         repo={codeFile?.repoId ?? null}
         path={codeFile?.path ?? null}
         onClose={() => setCodeFile(null)}
         windowSeconds={windowSeconds}
+        runWindowSeconds={goldWindowSeconds}
         ink={ink ?? undefined}
       >
         {codeFile?.file ? (

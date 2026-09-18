@@ -322,3 +322,62 @@ def test_runtime_endpoint_applies_the_denylist(terrain_client, tmp_path, monkeyp
     }})
     files = terrain_client.get("/api/observatory/terrain/runtime").get_json()["repos"][0]["files"]
     assert [f["path"] for f in files] == ["store.py"]
+
+
+# --- which FUNCTION ran (the second sidecar) ----------------------------------
+
+def test_records_the_function_that_ran_and_not_its_neighbour(sensor, tmp_path):
+    """The gutter's gold is per function: calling one `def` in a file must not
+    credit the one beside it."""
+    root = tmp_path / "app"
+    mod, path = _module_under(root, "sensed_functions_a", """
+        def used():
+            return 1
+
+        def unused():
+            return 2
+    """)
+    assert sensor.start(roots=[root], background=False) is True
+    mod.used()
+    sensor.cycle()
+    ran = sensor.functions_ran(path)
+    assert "used" in ran
+    assert "unused" not in ran
+
+
+def test_importing_a_file_credits_no_function(sensor, tmp_path):
+    """A module's top level "runs" at import under the name <module>. That is
+    loading, not use — crediting it would paint the whole file gold."""
+    root = tmp_path / "app"
+    assert sensor.start(roots=[root], background=False) is True
+    _, path = _module_under(root, "sensed_functions_b", """
+        VALUE = [n for n in range(3)]
+        def never_called():
+            return VALUE
+    """)
+    sensor.cycle()
+    assert sensor.functions_ran(path) == {}
+
+
+def test_a_function_not_seen_for_five_weeks_is_forgotten(sensor, tmp_path, monkeypatch):
+    """A renamed function never runs again under its old name; without the
+    prune its entry would sit in the sidecar forever."""
+    root = tmp_path / "app"
+    mod, path = _module_under(root, "sensed_functions_c", """
+        def old_name():
+            return 1
+
+        def still_here():
+            return 2
+    """)
+    clock = {"t": 1_700_000_000.0}
+    monkeypatch.setattr(runtime_sensor, "_now", lambda: clock["t"])
+    assert sensor.start(roots=[root], background=False) is True
+    mod.old_name()
+    sensor.cycle()
+    assert "old_name" in sensor.functions_ran(path)
+
+    clock["t"] += runtime_sensor.FUNCTION_KEEP_SEC + runtime_sensor.BUCKET_SEC
+    mod.still_here()
+    sensor.cycle()
+    assert set(sensor.functions_ran(path)) == {"still_here"}

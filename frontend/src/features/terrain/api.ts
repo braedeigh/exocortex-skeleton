@@ -201,3 +201,40 @@ export function useTerrainFileEdits(repo: string | null, path: string | null, en
     staleTime: 30_000,
   });
 }
+
+// --- when each line's function last ran, for the pane's gold "ran" toggle ----
+
+export interface TerrainFileRuns {
+  repo: string;
+  path: string;
+  /** One unix-second stamp per line, in file order — when the innermost
+   * function around that line last ran; 0 for a line in no function, or in
+   * one the sensor hasn't seen run. null when the sensor can't say anything
+   * about the file (it only sees Python, and only what has run since it was
+   * switched on): the pane then paints nothing rather than guessing. */
+  runs: number[] | null;
+  /** The sensor's bucket, in seconds — every stamp is rounded down to it, so
+   * "ran 0–5 minutes ago" is as fine as this ever gets. */
+  sampled: number;
+}
+
+/**
+ * GET /api/observatory/terrain/file/runs — the runtime sensor, one stamp per
+ * line (routes/terrain.py `_terrain_line_runs`).
+ * Fetched only while the toggle is on (`enabled`), so a plain read never
+ * pays for it. Stale after a minute, the sensor's own cycle: code she just
+ * exercised should turn gold while she's still looking at it.
+ */
+export function useTerrainFileRuns(repo: string | null, path: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: ['terrain-file-runs', repo, path] as const,
+    queryFn: async ({ signal }) =>
+      api.get<TerrainFileRuns>(
+        `/api/observatory/terrain/file/runs?repo=${encodeURIComponent(repo!)}&path=${encodeURIComponent(path!)}`,
+        signal,
+      ),
+    enabled: enabled && repo !== null && path !== null,
+    staleTime: 60_000,
+    refetchInterval: 60_000,
+  });
+}

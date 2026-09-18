@@ -1,11 +1,11 @@
 import { memo, useEffect, useMemo, useRef, useState, type CSSProperties, type Ref } from 'react';
 import { subscribeTheme } from '../../theme';
-import { useTerrainFile, useTerrainFileEdits } from './api';
-import { setCodeHeatOn, useCodeHeatOn } from './codeHeatPref';
+import { useTerrainFile, useTerrainFileEdits, useTerrainFileRuns } from './api';
+import { setCodeHeatOn, setCodeRunOn, useCodeHeatOn, useCodeRunOn } from './codeHeatPref';
 import { lineEditHeat } from './lineEditHeat';
 import { langForPath, tokenizeCode, type SyntaxLines, type SyntaxToken } from './syntax';
 import { glowAlpha, heatColor, heatRamps, readThemeInk, type ThemeInk } from './terrainCanvas';
-import { heatKeyTicks } from './terrainGraph';
+import { heatKeyTicks, RUN_WINDOW_SECONDS } from './terrainGraph';
 import styles from './FileCodeBody.module.css';
 
 /**
@@ -19,12 +19,13 @@ import styles from './FileCodeBody.module.css';
  *     FileCodePage.tsx) — passes `fill` and a `highlight` range
  *
  * Top to bottom it shows: the path, the file's own summary, a size line with
- * the "edits" toggle, the key for the red, then the code — one numbered row
- * per line, in syntax colour, with a red mark in the gutter by how recently
- * each line was edited while the toggle is on.
+ * the "edits" and "ran" toggles, a key for each colour that's on, then the
+ * code — one numbered row per line, in syntax colour. In the gutter, while
+ * its toggle is on: a red mark by how recently each line was edited, and a
+ * gold mark by how recently the function around it ran.
  *
- * Touches: api.ts (the two fetches), syntax.ts (the colour tokens),
- * codeHeatPref.ts (the toggle's one setting), lineEditHeat.ts (a line's age
+ * Touches: api.ts (the three fetches), syntax.ts (the colour tokens),
+ * codeHeatPref.ts (the two toggles' settings), lineEditHeat.ts (an age
  * turned into heat), terrainCanvas.ts and terrainGraph.ts (the map's ramp and
  * key labels), FileCodeBody.module.css (the look).
  */
@@ -42,6 +43,7 @@ export function FileCodeBody({
   uncapCode = false,
   highlight,
   windowSeconds = DEFAULT_WINDOW_SECONDS,
+  runWindowSeconds = RUN_WINDOW_SECONDS,
   ink,
 }: {
   repo: string | null;
@@ -61,7 +63,12 @@ export function FileCodeBody({
    * hands in its live one (breath included, so the pane breathes with the
    * map); anything else gets a week. */
   windowSeconds?: number;
-  /** The theme's ink, for the ember ramp and the dark-or-light syntax
+  /** The window the gold decays across, in seconds. The map's pane hands in
+   * its live one, so a function is gold in the pane exactly as long as its
+   * file's dot is gold outside; anything else gets a day, the map's own
+   * resting window for "this ran". */
+  runWindowSeconds?: number;
+  /** The theme's ink, for the two ramps and the dark-or-light syntax
    * palette. The map already tracks it and passes it in; other frames read
    * it themselves (useThemeInk). */
   ink?: ThemeInk;
@@ -78,6 +85,18 @@ export function FileCodeBody({
   // code was edited by a toggleable red color like on the terrain map".
   const heatOn = useCodeHeatOn();
   const edits = useTerrainFileEdits(repo, path, heatOn && !!data && !data.binary);
+  // Get what the gold-ran toggle needs: its setting, and the stamps.
+  // The same shape as the red above, from a different source. The stamps say
+  // when the function around each line last ran — the runtime sensor, through
+  // GET /api/observatory/terrain/file/runs — fetched only while the toggle
+  // is on, and again every minute, so code she just used turns gold while
+  // the file is still open. A visitor never gets the toggle: that endpoint
+  // isn't open to them.
+  // Prompt that produced it: "see which function in a file ran, not just
+  // that the file ran".
+  const visitor = typeof window !== 'undefined' && window.VIEW_MODE === 'public';
+  const runOn = useCodeRunOn() && !visitor;
+  const runs = useTerrainFileRuns(repo, path, runOn && !!data && !data.binary);
   // Read the theme's ink, and build the red's ramp from it.
   // The ink is wanted whenever there's code on screen, not only for the
   // red: the syntax palette is per surface (.codeDark below). The map hands
@@ -87,6 +106,7 @@ export function FileCodeBody({
   const ownInk = useThemeInk(ink === undefined && data?.content != null);
   const liveInk = ink ?? ownInk;
   const ramp = useMemo(() => (heatOn && liveInk ? heatRamps(liveInk).ember : null), [heatOn, liveInk]);
+  const goldRamp = useMemo(() => (runOn && liveInk ? heatRamps(liveInk).gold : null), [runOn, liveInk]);
   // Fix "now" at the moment the stamps were fetched, not at this render.
   // The breath re-renders this several times a second, and a line's age
   // moving by a fraction of a second between frames is nothing the eye can
@@ -94,6 +114,8 @@ export function FileCodeBody({
   // no stamps to age then anyway. With the toggle off there are no stamps.
   const nowSeconds = edits.dataUpdatedAt > 0 ? edits.dataUpdatedAt / 1000 : Date.now() / 1000;
   const stamps = heatOn ? (edits.data?.edits ?? null) : null;
+  const runNowSeconds = runs.dataUpdatedAt > 0 ? runs.dataUpdatedAt / 1000 : Date.now() / 1000;
+  const runStamps = runOn ? (runs.data?.runs ?? null) : null;
 
   // Split the text into lines once per fetch, not per render (memoized).
   // null for a binary, or while there's no content yet — that's what tells
@@ -187,6 +209,21 @@ export function FileCodeBody({
               edits
             </button>
           ) : null}
+          {/* The gold-ran toggle: turn the per-function run colour on or
+              off. The same pill as "edits", lit gold. One setting for every
+              file (codeHeatPref.ts). Hidden for binaries, and for a visitor. */}
+          {!data.binary && !visitor ? (
+            <button
+              type="button"
+              className={[styles.heatToggle, runOn ? styles.runToggleOn : ''].filter(Boolean).join(' ')}
+              aria-pressed={runOn}
+              title={runOn ? 'Stop marking functions by when they last ran' : 'Mark functions by when they last ran'}
+              onClick={() => setCodeRunOn(!runOn)}
+            >
+              <span className={styles.heatToggleDot} aria-hidden="true" />
+              ran
+            </button>
+          ) : null}
         </div>
       ) : null}
 
@@ -208,6 +245,36 @@ export function FileCodeBody({
             />
             <span className={styles.heatKeyTick}>{heatKeyTicks(windowSeconds)[2]}</span>
             {edits.isLoading ? <span className={styles.heatKeyNote}>reading history…</span> : null}
+          </div>
+        ) : null
+      ) : null}
+
+      {/* The key for the gold, only while the toggle is on. The same strip
+          as the red's key, in the gold ramp, from "now" to the edge of the
+          gold window. When the sensor has nothing for this file it says
+          which kind of nothing: it only watches Python, and only sees what
+          has run. Under the key, one line on what gold can't mean — a whole
+          function lights, never single lines. */}
+      {runOn && data && !data.binary ? (
+        runs.isError ? (
+          <div className={styles.hint}>Couldn&rsquo;t read what ran in this file.</div>
+        ) : runs.data && runs.data.runs === null ? (
+          <div className={styles.hint}>
+            {path?.endsWith('.py')
+              ? 'Nothing in this file has been seen running.'
+              : 'No run marks for this file — the sensor only sees Python on the server.'}
+          </div>
+        ) : goldRamp ? (
+          <div className={styles.heatKey} aria-label="Run recency key">
+            <span className={styles.heatKeyTick}>{heatKeyTicks(runWindowSeconds)[0]}</span>
+            <span
+              className={styles.heatKeyRamp}
+              style={{ background: `linear-gradient(to right, ${[...goldRamp].reverse().join(', ')})` }}
+            />
+            <span className={styles.heatKeyTick}>{heatKeyTicks(runWindowSeconds)[2]}</span>
+            <span className={styles.heatKeyNote}>
+              {runs.isLoading ? 'reading what ran…' : 'a whole function lights when it ran — not single lines'}
+            </span>
           </div>
         ) : null
       ) : null}
@@ -237,6 +304,11 @@ export function FileCodeBody({
             // breath only re-renders a row when its shade visibly moves.
             const raw = stamps && ramp ? lineEditHeat(stamps[i], nowSeconds, windowSeconds) : 0;
             const t = Math.round(raw * 64) / 64;
+            // Work out this line's gold. The same decay and the same
+            // rounding as the red, read off the run stamps and the gold
+            // window.
+            const rawRun = runStamps && goldRamp ? lineEditHeat(runStamps[i], runNowSeconds, runWindowSeconds) : 0;
+            const runHeat = Math.round(rawRun * 64) / 64;
             return (
               <CodeLine
                 key={i}
@@ -246,6 +318,8 @@ export function FileCodeBody({
                 hot={hot}
                 heat={t}
                 heatInk={t > 0 && ramp ? heatColor(t, ramp) : null}
+                runHeat={runHeat}
+                runInk={runHeat > 0 && goldRamp ? heatColor(runHeat, goldRamp) : null}
                 hotRef={hot && n === highlight?.start ? hotRef : undefined}
               />
             );
@@ -263,7 +337,7 @@ export function FileCodeBody({
 }
 
 /**
- * One line of code: its number, its red mark, its coloured text.
+ * One line of code: its number, its red and gold marks, its coloured text.
  *
  * A memoized component. The body re-renders on every breath tick — several
  * times a second under Dynamic — and a row only repaints when its own red
@@ -276,6 +350,11 @@ export function FileCodeBody({
  * following the heat (glowAlpha, the dots' own curve) so an old line fades
  * to nothing rather than to a grey bar. The text is left alone, so the code
  * reads the same lit or not. A cold line (heat 0) gets neither mark.
+ *
+ * The gold is a second strip just inside the red one, in the map's gold ramp
+ * read at this line's run heat (`runInk`), fading the same way. So a line
+ * can wear both: edited lately AND ran lately. The number goes gold only
+ * when it isn't already red — an edit is the rarer news.
  *
  * The text is the syntax tokens, each with a role (keyword, string,
  * comment…) wearing that role's class — the .syn_* rules in
@@ -293,6 +372,8 @@ const CodeLine = memo(function CodeLine({
   hot,
   heat,
   heatInk,
+  runHeat,
+  runInk,
   hotRef,
 }: {
   n: number;
@@ -301,19 +382,32 @@ const CodeLine = memo(function CodeLine({
   hot: boolean;
   heat: number;
   heatInk: string | null;
+  runHeat: number;
+  runInk: string | null;
   hotRef: Ref<HTMLDivElement> | undefined;
 }) {
+  const edited = heat > 0 && heatInk !== null;
+  const ran = runHeat > 0 && runInk !== null;
   const paint: CSSProperties | undefined =
-    heat > 0 && heatInk
+    edited || ran
       ? {
-          ['--edit-ink' as string]: heatInk,
-          ['--edit-alpha' as string]: glowAlpha(heat).toFixed(3),
+          ...(edited
+            ? { ['--edit-ink' as string]: heatInk, ['--edit-alpha' as string]: glowAlpha(heat).toFixed(3) }
+            : {}),
+          ...(ran
+            ? { ['--run-ink' as string]: runInk, ['--run-alpha' as string]: glowAlpha(runHeat).toFixed(3) }
+            : {}),
         }
       : undefined;
   return (
     <div
       ref={hotRef}
-      className={[styles.codeLine, hot ? styles.codeLineHot : '', heat > 0 ? styles.codeLineEdited : '']
+      className={[
+        styles.codeLine,
+        hot ? styles.codeLineHot : '',
+        edited ? styles.codeLineEdited : '',
+        ran ? styles.codeLineRan : '',
+      ]
         .filter(Boolean)
         .join(' ')}
       style={paint}

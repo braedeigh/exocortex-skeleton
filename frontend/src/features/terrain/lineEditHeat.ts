@@ -7,6 +7,11 @@
  * FileCodeBody.tsx asks this for each line it paints; the half-life comes
  * from terrainGraph.ts.
  *
+ * The pane's gold "ran" mark uses the same function: there the stamp is when
+ * the function around the line last ran (GET .../terrain/file/runs) and the
+ * window is the gold one. An age is an age — one decay curve for both
+ * colours, as on the map.
+ *
  * Prompt that produced it: "can those displays show when the most recent
  * code was edited by a toggleable red color like on the terrain map".
  */

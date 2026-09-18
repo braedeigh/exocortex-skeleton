@@ -5,7 +5,9 @@ endpoints the map and its rooms read: GET /api/observatory/terrain (the
 payload), GET /api/observatory/terrain/file (one file's text for the
 tap-a-node code modal), GET /api/observatory/terrain/file/edits (when each
 of its lines was last edited, from git blame, for the pane's red-edits
-toggle), and GET /api/observatory/flow (the live stream of
+toggle), GET /api/observatory/terrain/file/runs (when each of its functions
+last ran, from runtime_sensor.py, for the pane's gold "ran" toggle), and
+GET /api/observatory/flow (the live stream of
 code being written, for the Flow lane at /terrain/flow). See
 scripts/extract_footprints.py for the footprints sidecar and the flow
 harvest.
@@ -42,6 +44,7 @@ from flask import request, jsonify
 from datetime import date, datetime, timedelta
 from fnmatch import fnmatch
 from pathlib import Path
+import ast
 import contextlib
 import math
 import os
@@ -360,6 +363,64 @@ def _terrain_line_edits(resolved):
                     edits.append(0)
         return edits
     return None
+
+
+def _terrain_line_runs(resolved):
+    """When each line of a Python file last RAN, one function at a time.
+
+    Returns a list of unix seconds, one per line in file order — 0 for a line
+    that is in no function, or in one the sensor hasn't seen run — or None
+    when there is nothing to say: not a Python file, a file that won't parse,
+    or one the sensor has never seen anything in.
+
+    The sensor (runtime_sensor.py) records function NAMES, not line numbers,
+    so this reads the file as it is on disk now, finds where each `def` starts
+    and ends (Python's own parser, `ast`), and gives every line inside a
+    function that function's last-ran time. A line belongs to the INNERMOST
+    function around it: a route handler nested inside `register(app)` is lit
+    by its own runs, not by `register` having run once at startup.
+
+    What it can't say, and the pane repeats it: it is per function, never per
+    line. A function that was entered lights whole, including a branch it
+    didn't take. And the stamp is the sensor's five-minute bucket, not the
+    second.
+
+    Prompt that produced it: "see which function in a file ran, not just that
+    the file ran"."""
+    if resolved.suffix.lower() != ".py":
+        return None
+    ran = runtime_sensor.functions_ran(resolved)
+    if not ran:
+        return None
+    try:
+        text = resolved.read_text(encoding="utf-8", errors="replace")
+        tree = ast.parse(text)
+    except (OSError, SyntaxError, ValueError, RecursionError):
+        return None
+    runs = [0] * (text.count("\n") + 1)
+
+    # Walk the file outermost-first, building each function's dotted name the
+    # way Python builds `co_qualname`: a class adds its name, a function adds
+    # its name and then "<locals>" for anything defined inside it. Painting
+    # outer before inner is what lets the inner function overwrite its own
+    # lines.
+    def walk(node, prefix):
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                name = prefix + child.name
+                last = ran.get(name)
+                stamp = int(last) if isinstance(last, (int, float)) else 0
+                end = getattr(child, "end_lineno", None) or child.lineno
+                for line_number in range(child.lineno, min(end, len(runs)) + 1):
+                    runs[line_number - 1] = stamp
+                walk(child, name + ".<locals>.")
+            elif isinstance(child, ast.ClassDef):
+                walk(child, prefix + child.name + ".")
+            else:
+                walk(child, prefix)
+
+    walk(tree, "")
+    return runs
 
 
 def _terrain_file_summary(relpath, text):
@@ -1796,3 +1857,25 @@ def register(app):
             return refusal
         return jsonify({"repo": repo_id, "path": relpath,
                         "edits": _terrain_line_edits(resolved)})
+
+    @app.route("/api/observatory/terrain/file/runs")
+    def observatory_terrain_file_runs():
+        """Per-line last-ran times of one file, for the pane's "ran" toggle.
+
+        Comes in through the shared front door (`_terrain_file_target`), so
+        it has the same resolution, same traversal refusal and same visitor
+        lock as /terrain/file. This is the gold channel of the map, brought
+        down to the function, fetched only when that toggle is on. `runs` is
+        one unix-second stamp per line in file order (0 = not seen running),
+        or null when the sensor can't say (anything that isn't Python, for
+        one — see `_terrain_line_runs`). `sampled` is the sensor's bucket:
+        the honest resolution of every stamp here."""
+        repo_id = (request.args.get("repo") or "").strip()
+        relpath = (request.args.get("path") or "").strip()
+        # Shared front door: a readable file, or the refusal to send back as-is.
+        resolved, refusal = _terrain_file_target(repo_id, relpath)
+        if refusal is not None:
+            return refusal
+        return jsonify({"repo": repo_id, "path": relpath,
+                        "runs": _terrain_line_runs(resolved),
+                        "sampled": runtime_sensor.BUCKET_SEC})

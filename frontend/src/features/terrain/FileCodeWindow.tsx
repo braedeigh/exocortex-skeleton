@@ -39,6 +39,7 @@ export function FileCodeWindow({
   onClose,
   children,
   windowSeconds,
+  runWindowSeconds,
   ink,
 }: {
   repo: string | null;
@@ -52,6 +53,9 @@ export function FileCodeWindow({
    * to the body so its red-edits toggle paints lines on the same lens the
    * dots outside the pane are wearing. */
   windowSeconds?: number;
+  /** The map's live gold window, handed straight through to the body the
+   * same way, for its gold-ran toggle. */
+  runWindowSeconds?: number;
   /** The map's theme ink, handed straight through to the body, for the same
    * ember ramp the dots use. */
   ink?: ThemeInk;
@@ -97,7 +101,7 @@ export function FileCodeWindow({
           its own HORIZONTAL scroll for long lines, which is the one thing it
           can't inherit. */}
       <div className={styles.body}>
-        <FileCodeBody repo={repo} path={path} uncapCode windowSeconds={windowSeconds} ink={ink ?? undefined} />
+        <FileCodeBody repo={repo} path={path} uncapCode windowSeconds={windowSeconds} runWindowSeconds={runWindowSeconds} ink={ink ?? undefined} />
         {children}
       </div>
     </div>

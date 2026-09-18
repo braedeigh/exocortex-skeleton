@@ -73,6 +73,10 @@ partial is worse than no signal:
     genuinely depends on it.
   - Not the agent. The `claude` binary is Node, in its own process; the sensor
     sees `scripts/turn_host.py` hosting it, not the agent's own work.
+  - Functions, never lines. The second sidecar (FUNCTIONS_COLLECTION) says
+    which FUNCTION ran, because that is what the interpreter hands the callback
+    for free. It cannot say which lines inside the function ran: a function
+    that was entered counts whole, including the branch it didn't take.
   - It says "ran", not "ran a lot". A file hit once and a file hit ten thousand
     times inside one window are the same entry; `windows` counts the five-minute
     buckets a file appeared in, which is a measure of how OFTEN it is reached
@@ -85,7 +89,9 @@ Touches:
   - `server.py` calls `start()` at startup (each gunicorn worker, since the
     service runs without `--preload`), `scripts/turn_host.py` calls it too, so
     a turn's own process is measured as well as the web worker's.
-  - `routes/terrain.py` serves it back at GET /api/observatory/terrain/runtime.
+  - `routes/terrain.py` serves it back at GET /api/observatory/terrain/runtime,
+    and the per-function half at GET /api/observatory/terrain/file/runs — the
+    gold mark in the file pane's gutter.
 
 Prompt that produced this file: "I want the gold to actually be files that were
 utilized ... I want a sensor for what I just described" — the described thing
@@ -103,6 +109,19 @@ from pathlib import Path
 import store
 
 COLLECTION = "runtime_use"
+
+# Which FUNCTIONS ran, kept apart from the per-file sidecar above.
+# A second collection rather than a field on the first: the map reads
+# `runtime_use` on every payload build, and one entry per function would make
+# that read several times heavier for a detail only an open file pane asks for.
+# Shape: {"files": {abspath: {qualname: last_bucket}}}.
+FUNCTIONS_COLLECTION = "runtime_use_functions"
+
+# How long a function's "last ran" is kept without being seen again. A renamed
+# or deleted function never runs again under its old name, so without this its
+# entry would sit in the sidecar forever. Five weeks: just past the month that
+# is the longest window the pane can be asked to colour.
+FUNCTION_KEEP_SEC = 35 * 86400
 
 # How long a re-arm window is. Everything about the signal's resolution comes
 # from this number: a file that ran at any point inside a window gets one
@@ -146,8 +165,8 @@ _CANDIDATE_TOOL_IDS = (3, 4)
 _EXCLUDE_PARTS = ("/venv/", "/.venv/", "/site-packages/", "/node_modules/",
                   "/__pycache__/", "/.git/")
 
-# The two shared pieces of mutable state: filenames seen since the last cycle,
-# and caller→callee file pairs seen since the last cycle. Plain sets, and
+# The two shared pieces of mutable state: (filename, function name) pairs seen
+# since the last cycle, and caller→callee file pairs seen since the last cycle. Plain sets, and
 # `_seen_add` / `_edge_add` are their BOUND `add` methods — the callbacks below
 # call those directly, so a hit costs one C call and touches no Python frame of
 # ours (which is also what keeps a callback from recursing into itself).
@@ -202,8 +221,12 @@ def _install(tool_id):
 
     TWO EVENTS, ANSWERING TWO QUESTIONS.
 
-    PY_START fires on entry to a Python function and says WHICH FILE RAN. It
-    disables per function, so each function costs one callback per window.
+    PY_START fires on entry to a Python function and says WHICH FILE RAN, and
+    which function in it — `co_qualname`, the dotted name Python itself prints
+    in a traceback ("register.<locals>.observatory_terrain_file"). The name
+    rather than the line number, because a line number is only true for the
+    version of the file this process loaded; the name survives edits above it.
+    It disables per function, so each function costs one callback per window.
 
     CALL fires at a call SITE and says WHO CALLED WHOM. It is the right event
     for edges for two reasons: the caller arrives as `code` rather than having
@@ -218,7 +241,7 @@ def _install(tool_id):
     disable = mon.DISABLE
 
     def _py_start(code, instruction_offset):
-        _seen_add(code.co_filename)
+        _seen_add((code.co_filename, code.co_qualname))
         return disable       # never call us for this function again — until re-arm
 
     def _call(code, instruction_offset, callable_, arg0):
@@ -243,7 +266,8 @@ def _install(tool_id):
 
 
 def _harvest():
-    """Swap the hit set out, and return the filenames that were in it.
+    """Swap the hit set out, and return the (filename, function) pairs that
+    were in it.
 
     The swap rebinds the module-global `add` the callback holds, then reads the
     OLD set — that order is what makes the race benign. A callback that grabbed
@@ -275,12 +299,24 @@ def _merge(hits, roots, now=None, edges=()):
     thousands of edges into the interpreter. Which packages a file depends on
     is already answered, statically and completely, by codegraph.py."""
     now = _now() if now is None else now
-    ours = sorted(f for f in hits if _under_roots(f, roots))
+    # Split the hits into files and functions. A hit is a (filename, function
+    # name) pair; a bare filename is still accepted, as a file with no function
+    # to credit.
+    functions_by_file = {}
+    for hit in hits:
+        filename, qualname = hit if isinstance(hit, tuple) else (hit, None)
+        if not _under_roots(filename, roots):
+            continue
+        names = functions_by_file.setdefault(filename, set())
+        if qualname and _is_function_name(qualname):
+            names.add(qualname)
+    ours = sorted(functions_by_file)
     our_edges = sorted((s, d) for s, d in edges
                        if _under_roots(s, roots) and _under_roots(d, roots) and s != d)
     if not ours and not our_edges:
         return 0
     bucket = int(now // BUCKET_SEC) * BUCKET_SEC
+    _merge_functions(functions_by_file, bucket)
     with store.mutate(COLLECTION, {"files": {}, "edges": {}}) as data:
         _merge_edges(data.setdefault("edges", {}), our_edges, bucket)
         files = data.setdefault("files", {})
@@ -311,6 +347,60 @@ def _merge(hits, roots, now=None, edges=()):
                  if isinstance(e, dict) and isinstance(e.get("last"), (int, float))),
                 default=bucket)
     return len(ours)
+
+
+def _is_function_name(qualname):
+    """True for a real `def`. The interpreter also "enters" a module's top
+    level (`<module>`), a lambda and a generator expression, and names them in
+    angle brackets. None of those is a function someone could point at in the
+    file — and `<module>` runs at import, so crediting it would paint a whole
+    file as "ran" for merely being loaded."""
+    return not qualname.rsplit(".", 1)[-1].startswith("<")
+
+
+def _merge_functions(functions_by_file, bucket):
+    """Fold one window's functions into the second sidecar: for each file, the
+    bucket each of its functions last ran in.
+
+    One number per function, not a ring of touches like a file gets: the pane
+    only ever asks "when did this last run". Bucketed like everything else
+    here, so a function seen again inside the same bucket changes nothing and
+    store's unchanged-write guard drops the write. Entries not seen for
+    FUNCTION_KEEP_SEC are dropped on the way through."""
+    if not any(functions_by_file.values()):
+        return
+    oldest_kept = bucket - FUNCTION_KEEP_SEC
+    with store.mutate(FUNCTIONS_COLLECTION, {"files": {}}) as data:
+        files = data.setdefault("files", {})
+        for path, names in functions_by_file.items():
+            if not names:
+                continue
+            entry = files.get(path)
+            if not isinstance(entry, dict):
+                entry = {}
+                files[path] = entry
+            for qualname in sorted(names):
+                entry[qualname] = bucket
+        for path in list(files):
+            entry = files[path]
+            if not isinstance(entry, dict):
+                del files[path]
+                continue
+            for qualname in [q for q, last in entry.items()
+                             if not isinstance(last, (int, float)) or last < oldest_kept]:
+                del entry[qualname]
+            if not entry:
+                del files[path]
+
+
+def functions_ran(abspath):
+    """{function name: when it last ran} for one file, by absolute path. Empty
+    when the sensor has never seen anything in that file run. The reader's half
+    of _merge_functions."""
+    data = store.read(FUNCTIONS_COLLECTION, {"files": {}})
+    files = data.get("files") if isinstance(data, dict) else None
+    entry = files.get(str(abspath)) if isinstance(files, dict) else None
+    return dict(entry) if isinstance(entry, dict) else {}
 
 
 def _merge_edges(edges, pairs, bucket):

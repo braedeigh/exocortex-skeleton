@@ -102,6 +102,18 @@
   background: #f14c4c;
 }
 
+/* The "ran" pill, lit: the same pill in the map's gold. */
+.runToggleOn {
+  border-color: #c9a015;
+  color: var(--text);
+  background: color-mix(in srgb, #ffd700 18%, var(--card-bg));
+}
+
+.runToggleOn .heatToggleDot {
+  background: #ffd700;
+  box-shadow: 0 0 0 1px #8f6d10;
+}
+
 /* The key for the red, under the toggle: "now" — the ramp, hot to cold —
    the window's edge. The ramp's gradient itself is set inline by
    FileCodeBody.tsx. */
@@ -304,6 +316,33 @@
 .codeLineEdited .codeLineNo {
   color: var(--edit-ink);
   opacity: 1;
+}
+
+/* Mark a line the gold-ran toggle has lit. A second strip just inside the
+   red one (the row's left padding is 12px: red takes 0–4, gold 5–9), in the
+   gold ramp colour (--run-ink) with its opacity following the run heat
+   (--run-alpha). The number goes gold only when the red hasn't claimed it.
+   On a light sky the ramp's hot end (#ffd700) is too pale to read as a
+   number, so there the number wears the ramp's deep middle gold instead;
+   the strip still carries the heat. */
+.codeLineRan::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--run-ink);
+  opacity: var(--run-alpha, 1);
+}
+
+.codeLineRan:not(.codeLineEdited) .codeLineNo {
+  color: #8f6d10;
+  opacity: 1;
+}
+
+.codeDark .codeLineRan:not(.codeLineEdited) .codeLineNo {
+  color: var(--run-ink);
 }
 
 /* Light up a highlighted line (/code?...&lines=). A tint mixed from
