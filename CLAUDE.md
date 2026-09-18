@@ -15,11 +15,19 @@ This codebase is **bilingual**: plain-English explanation lives *inside* the fil
 
 - **New file → a top-of-file block in plain English:** what this file does and which other files it touches. Enough to *get it*, not a totalizing spec.
 - **Touch a file that has no block → add one.** If you edit any code file that's missing its top-of-file plain-English block, write one as you pass through. That's how the whole codebase gets covered over time — file by file, as they're touched.
-- **Meaningful code → an inline note in plain English, present tense** — what a chunk does / why it's this way, right at the spot. Renames, typos, and trivial glue don't earn a note (same bar as "when do you write a test").
-- **Bake in the prompt that produced it**, verbatim where possible, next to what it made (file-level prompt in the top block; a spot-level prompt inline). **Strip anything personal** — health, relationships, names, life detail — so this repo stays shareable; keep only the technical ask. Distill a mostly-personal prompt down to its technical rider.
+- **Meaningful code → an inline note in plain English, present tense**, right at the spot, shaped like this (renames, typos, and trivial glue don't earn a note — same bar as "when do you write a test"):
+  - **The first line says what the chunk is *for*.** Its purpose, in a few plain words that stand on their own — "Refuse any path that escapes the repo." Then the detail: how it does it, why it's this way. Someone who already knows the file should be able to read only first lines and still follow it.
+  - **One note per chunk of steps, never one per line.** A note heads a group of lines that together do one job.
+  - **Same kind of chunk, same words.** When two places do the same job, open their notes with the same phrase — across files too. Seeing the repeat is how the pattern gets learned.
+  - **If it's a known pattern, name it** — "this is a debounce", "a cache that expires after a minute".
+  - **The note sits on the code it explains.** The top-of-file block orients; it doesn't explain code far below it — that goes beside the code.
+- **Names are whole words.** `windowSeconds`, not `ws` or `winSec`. A name is the first note a reader meets. (A throwaway counter in a three-line loop is the one exception — a judgment call, not a finding.)
+- **Bake in the prompt that produced it**, verbatim where possible, next to what it made (file-level prompt in the top block; a spot-level prompt inline, *after* the purpose line and the detail — never ahead of them). **Strip anything personal** — health, relationships, names, life detail — so this repo stays shareable; keep only the technical ask. Distill a mostly-personal prompt down to its technical rider.
 - **Overwrite, never accumulate.** These notes are *present tense*, not a changelog. Edit a spot again → **delete the old note and its prompt, write the new one.** Only ever one note per spot, always describing the code as it is *now* — no history piles up in the body, nothing to prune.
 - **Cross-file stuff goes in a doc, linked — not smeared across files.** A decision spanning many files, a procedure, or the history the overwrite rule can't keep, lives in a short markdown beside the code; the file's block just links to it. In-file notes stay local and present-tense.
 - **The note must never lie.** A confident English sentence sitting next to code that no longer matches it is *worse* than no note — the owner reads the English, not the code, and a stale note walks her (and the next Claude) straight into a bug. **Never claim more certainty than the code earns:** where you only honestly know a region, say a region, plainly. Overwrite means overwrite. This honesty is the whole point.
+
+Why the notes take this shape — what's been measured, and how much weight each rule will bear: [`docs/comment-style-evidence.md`](docs/comment-style-evidence.md). The shape rules are *inferences* from studies of learners and developers, none run on this codebase; re-check that file before tightening them.
 
 Reference examples: `frontend/src/features/todos/reminderMath.ts` (block added from scratch) and `frontend/src/features/journal/calendarMath.ts` (a developer block rewritten into this style).
 
