@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { fileTypeCounts, fileTypeOf, OTHER_FILE_TYPE } from './fileTypes';
-import { typeDotColor } from './terrainCanvas';
+import { staleTypeColor, typeDotColor } from './terrainCanvas';
 
 /**
  * fileTypes.test.ts — the path → type lookup behind the terrain's "Types"
  * toggle (fileTypes.ts), the counting that orders its legend, and the lift
  * that keeps a too-dark or too-pale colour visible on the sky without
- * changing its hue (typeDotColor in terrainCanvas.ts).
+ * changing its hue (typeDotColor in terrainCanvas.ts), plus the fade that
+ * sinks a stale dot back into the sky (staleTypeColor, same file).
  */
 
 describe('fileTypeOf', () => {
@@ -85,6 +86,34 @@ describe('typeDotColor', () => {
 
   it('hands the colour back untouched when the surface is not a hex colour', () => {
     expect(typeDotColor('#292929', 'rgba(0,0,0,0.5)', DARK_SKY_INK)).toBe('#292929');
+  });
+});
+
+describe('staleTypeColor', () => {
+  const SKY = '#14101e';
+  const TEAL = '#1fa08c';
+  const brightness = (hex: string) =>
+    [1, 3, 5].reduce((sum, i) => sum + parseInt(hex.slice(i, i + 2), 16), 0);
+
+  it('wears the full type colour when the file is freshly touched', () => {
+    expect(staleTypeColor(TEAL, SKY, 1, 0)).toBe(TEAL);
+  });
+
+  it('wears the full type colour when the file has only just run', () => {
+    expect(staleTypeColor(TEAL, SKY, 0, 1)).toBe(TEAL);
+  });
+
+  it('disappears into the sky when nothing has touched the file', () => {
+    expect(staleTypeColor(TEAL, SKY, 0, 0)).toBe(SKY);
+  });
+
+  it('fades further the staler the file gets', () => {
+    const warm = staleTypeColor(TEAL, SKY, 0.6, 0);
+    const cooling = staleTypeColor(TEAL, SKY, 0.3, 0);
+    const cold = staleTypeColor(TEAL, SKY, 0.05, 0);
+    expect(brightness(warm)).toBeGreaterThan(brightness(cooling));
+    expect(brightness(cooling)).toBeGreaterThan(brightness(cold));
+    expect(brightness(cold)).toBeGreaterThan(brightness(SKY));
   });
 });
 

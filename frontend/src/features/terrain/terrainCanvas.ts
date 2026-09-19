@@ -233,6 +233,31 @@ export function glowOf(t: number, a: number): number {
 export function leanOf(t: number, a: number): number {
   return t + a > 0 ? a / (t + a) : 0;
 }
+
+/**
+ * Sink a stale file into the sky under the "Types" toggle. Takes the dot's
+ * type colour and returns what it actually wears: the full colour while the
+ * file is alive, mixed further toward the surface the longer it's been since
+ * anything touched it, and gone entirely once it's outside the Heat bar's
+ * window. So Types still answers "what kind of file is this" for the code
+ * she's working in, and the dead wood goes dark rather than shouting in the
+ * same colour as the living.
+ *
+ * "Alive" is the union of both fires (glowOf) — edited OR run, the same pair
+ * the All / Recent / Old switch counts as activity — and the fade curve is
+ * glowAlpha, the very curve the ember hue fades on over ash. That's on
+ * purpose: under Types the type colour simply takes the ember hue's place, so
+ * a dot goes out at exactly the moment it would have gone out under heat —
+ * at the thumb. Which makes the Heat slider the staleness dial here too: drag
+ * it right and older files come back.
+ *
+ * Prompt that produced it: "i want to hide stale files on the terrain page …
+ * i'm wanting for the dots to turn black or to disappear when i am on the
+ * 'types' display".
+ */
+export function staleTypeColor(typeColor: string, bg: string, t: number, a: number): string {
+  return mixHex(bg, typeColor, glowAlpha(glowOf(t, a)));
+}
 /**
  * The GOLD ramp for the LIGHT surface — the map's second channel: not "this
  * file was edited" (that's the red ramp below) but "this code RAN today".
@@ -2714,9 +2739,9 @@ export class TerrainCanvas {
           ? fileCreatedWithin(n.node.file, CREATED_FRESH_WINDOW_SECONDS, now / 1000)
           : false;
         if (this.typeColors) {
-          // The "Types" toggle overrides every other fill. The dot wears its
-          // file type's GitHub colour flat — not green for new, not red or
-          // gold for heat — on both surfaces. Heat still sets the dot's SIZE
+          // The "Types" toggle overrides every other HUE. The dot wears its
+          // file type's GitHub colour — not green for new, not red or gold
+          // for heat — on both surfaces. Heat still sets the dot's SIZE
           // (nodeRadius), so a busy file is a big dot of its type's colour.
           // Prompt: "a toggle that overrides the other colors when i toggle
           // it on".
@@ -2726,7 +2751,13 @@ export class TerrainCanvas {
             typeColor = typeDotColor(fileTypeOf(path).color, theme.bg, theme.text);
             this.typeColorCache.set(path, typeColor);
           }
-          ctx.fillStyle = typeColor;
+          // Stale files sink into the sky. The colour says what KIND of file
+          // it is; how much of it is left says whether the file is still
+          // alive — full at a fresh touch or run, gone by the Heat thumb, so
+          // dead wood goes dark (black sky) or blank (light one) instead of
+          // shouting in the same colour as the code she's working in. The
+          // curve is staleTypeColor, up top, and the Heat slider is its dial.
+          ctx.fillStyle = staleTypeColor(typeColor, theme.bg, n.t, n.a);
         } else if (fresh) {
           ctx.fillStyle = CREATED_GREEN;
         } else if (theme.dark) {

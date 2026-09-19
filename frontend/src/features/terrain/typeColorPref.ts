@@ -10,10 +10,13 @@ import { makeStickyToggle } from './codeHeatPref';
  * Off unless she turns it on; heat is the map's normal lighting.
  *
  * The button lives in TerrainHeatBar.tsx; TerrainPage.tsx reads the value and
- * hands it to the canvas (terrainCanvas.ts setTypeColors).
+ * hands it to the canvas (terrainCanvas.ts setTypeColors). Heat isn't gone
+ * under it, only its hues: it still sets each dot's size, and how much of the
+ * type colour is left, so stale files fade into the sky (staleTypeColor).
  *
- * Prompt that produced it: "a toggle that overrides the other colors when i
- * toggle it on".
+ * Prompts that produced it: "a toggle that overrides the other colors when i
+ * toggle it on" → "i want to hide stale files … the dots turn black or
+ * disappear when i am on the 'types' display".
  */
 const typesToggle = makeStickyToggle('terrain-type-colors');
 export const setTypeColorsOn = typesToggle.set;

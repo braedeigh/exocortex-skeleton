@@ -76,12 +76,18 @@ import styles from './TerrainHeatBar.module.css';
  * 7. **Types is a switch, not a preset.** It sits at the end of the same row
  *    because it answers the same question — how the map is lit — but it
  *    doesn't move the slider: on, every file dot wears its file type's GitHub
- *    colour and the heat colours are overridden (terrainCanvas.ts). The
- *    slider still works underneath it, because heat still sets dot SIZE. A
- *    gap sets it apart from the presets so it doesn't read as a fifth window.
- *    The value itself lives in typeColorPref.ts and stays on across reloads.
- *    Prompt: "a toggle to color the dots by file type like with the github
- *    scheme … that overrides the other colors when i toggle it on".
+ *    colour and the heat HUES are overridden (terrainCanvas.ts). The slider
+ *    still works underneath it, and in two ways: heat sets dot SIZE, and it
+ *    sets how much of the type colour is left (terrainCanvas.ts
+ *    staleTypeColor) — a fresh file wears its colour whole, a stale one sinks
+ *    into the sky and is gone by the thumb. So under Types the thumb is a
+ *    staleness dial: drag it right and older files come back. A gap sets it
+ *    apart from the presets so it doesn't read as a fifth window. The value
+ *    itself lives in typeColorPref.ts and stays on across reloads.
+ *    Prompts: "a toggle to color the dots by file type like with the github
+ *    scheme … that overrides the other colors when i toggle it on" → "i want
+ *    to hide stale files … the dots turn black or disappear when i am on the
+ *    'types' display".
  * 8. **All / Recent / Old is a filter on THIS slider's window.** One joined
  *    control of three, at the end of the row. Recent keeps only the files
  *    edited or run inside the window the thumb sets; Old keeps only the ones
@@ -247,8 +253,9 @@ export function TerrainHeatBar({
         >
           Dynamic
         </button>
-        {/* Colour the dots by file type instead of heat (note 7). A switch,
-            so it reports pressed/unpressed rather than picking a window. */}
+        {/* Colour the dots by file type instead of heat, stale ones fading
+            out (note 7). A switch, so it reports pressed/unpressed rather
+            than picking a window. */}
         {onTypeColors ? (
           <button
             type="button"
@@ -257,7 +264,7 @@ export function TerrainHeatBar({
               .join(' ')}
             aria-pressed={typeColors}
             onClick={() => onTypeColors(!typeColors)}
-            title="Colour every file dot by its file type, in GitHub's colours, instead of by heat"
+            title="Colour every file dot by its file type, in GitHub's colours, instead of by heat — stale files fade into the sky, gone by the thumb"
           >
             Types
           </button>
