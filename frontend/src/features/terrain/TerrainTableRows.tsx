@@ -184,7 +184,9 @@ export function TerrainTableRows({ table }: { table: TerrainTable }) {
                     >
                       {row.cells.map((cell, i) => (
                         <td key={i} className={typeof cell === 'number' ? styles.number : undefined}>
-                          <Marked value={cell} word={search} />
+                          <div className={styles.cell}>
+                            <Marked value={cell} word={search} />
+                          </div>
                         </td>
                       ))}
                     </tr>
