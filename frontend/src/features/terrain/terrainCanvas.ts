@@ -76,13 +76,18 @@
  * database table, and this engine draws each as a rectangle that is the
  * table's own shape — one stripe per column wide, its row count tall — with a
  * foreign key drawn as a blue line to the table it points at (`drawTable`, the
- * 'fk' link kind). Each is a real sim body like the tile; unlike the tile they
- * name themselves, because a rectangle with no name teaches nothing. Hovering
+ * 'fk' link kind). They are the one thing the physics doesn't place: they
+ * stand pinned on shelves in a section of their own on the vault's outer side
+ * (`placeShelves`), one family of joined tables per shelf on a shared
+ * baseline, with the foreign keys running under the shelf. Unlike the tile
+ * they name themselves, because a rectangle with no name teaches nothing. Hovering
  * one keeps the tables it's joined to lit; tapping one reports it through
  * `onTap` like any file, and the page shows its columns.
  *
  * Prompt that produced it: "i want them to be sized by how much is in there
- * and learn more about the shapes of the tables through this exercise".
+ * and learn more about the shapes of the tables through this exercise" / "a
+ * little off in their own section of the personal vault and then more
+ * organized" / "B shelves on the outer side away from the app code".
  */
 import {
   forceCollide,
@@ -113,7 +118,14 @@ import {
 } from './terrainGraph';
 import type { TerrainThread } from './terrainThreads';
 import { fileTypeOf } from './fileTypes';
-import { COLUMN_WIDTH, HEADER_HEIGHT, tableCollideRadius, tableSize } from './tableNodes';
+import {
+  COLUMN_WIDTH,
+  HEADER_HEIGHT,
+  shelfLayout,
+  tableCollideRadius,
+  tableSize,
+  type ShelfLayout,
+} from './tableNodes';
 
 /**
  * THE TWO FIRES, in the words the map is built in (dark surface):
@@ -411,9 +423,9 @@ function isPondTile(n: SimNode): boolean {
 }
 
 /** Is this sim node a database table? (A synthetic file carrying the table it
- * stands for — see tableNodes.ts.) Like the pond tile it is a body bigger than
- * a dot, so the physics gives it a collision circle, a longer rope to its
- * folder, and ballast. */
+ * stands for — see tableNodes.ts.) Tables are the one thing the physics does
+ * NOT place: each is pinned to its spot on the shelves (placeShelves), and
+ * keeps only a collision circle so stray dots are pushed off it. */
 function isTable(n: SimNode): boolean {
   return n.node.file?.table !== undefined;
 }
@@ -422,11 +434,23 @@ function isTable(n: SimNode): boolean {
  * zooming far out leaves a field of small marks rather than nothing. Same idea
  * as MIN_NODE_PX. */
 const TABLE_MIN_PX = 3;
-/** Tables are named from further out than folders are (LABEL_MIN_K): there are
- * only a few dozen of them, and a rectangle with no name teaches nothing. */
-const TABLE_LABEL_MIN_K = 0.3;
+/** Tables are named from much further out than folders are (LABEL_MIN_K): a
+ * rectangle with no name teaches nothing, and the label pass already skips any
+ * name that would overlap another, so showing them early costs no clutter —
+ * pulled back, only the names that fit appear. */
+const TABLE_LABEL_MIN_K = 0.16;
 /** The smallest body a table gets in the physics, whatever its rectangle. */
 const TABLE_MIN_COLLIDE_R = 30;
+/** The clear ground between the outer edge of the vault's dots and the
+ * shelves. The shelf names hang in this gap, right-aligned against the
+ * shelves, and they are drawn at a fixed SCREEN size — so at the pulled-back
+ * zooms the map is usually read at, a 100px name covers ~200 of these world
+ * units. The margin is that plus breathing room. Judged by eye. */
+const SHELF_MARGIN = 300;
+/** The shelves re-measure where the dots are once every this many physics
+ * ticks — often enough to glide with the map as it settles, rare enough that
+ * walking a few thousand positions costs nothing noticeable. */
+const SHELF_SETTLE_EVERY = 8;
 
 function hexToRgbTuple(hex: string): [number, number, number] {
   const h = hex.replace('#', '');
@@ -462,8 +486,8 @@ function nodeRadius(node: TerrainNode, t: number): number {
   // of the map out from under it.
   if (node.file?.days) return POND_TILE_COLLIDE_R;
   // A table: the circle that encloses its rectangle, for the same reason.
-  // Never less than TABLE_MIN_COLLIDE_R: a two-column lookup table is a sliver,
-  // and slivers packed edge to edge leave no room for their names.
+  // Never less than TABLE_MIN_COLLIDE_R, so even a two-column sliver of a
+  // table has enough body to push a stray dot off itself.
   if (node.file?.table) return Math.max(tableCollideRadius(node.file.table), TABLE_MIN_COLLIDE_R);
   return 4 + 9 * t; // file: GLOW (union of ember + gold) scales size — the redundant channel
 }
@@ -676,6 +700,28 @@ export class TerrainCanvas {
   private hoverFile: string | null = null;
   /** Table node id → the table node ids it shares a foreign key with. */
   private foreignKeyKin = new Map<string, Set<string>>();
+  /** The folder node(s) the tables hang off (`exo.db`) — pinned at the head of
+   * the shelves, and excused from the ordinary folder spring. */
+  private shelfHubIds = new Set<string>();
+  /** The table section, once there are tables: its arrangement, which side
+   * of its repo it stands on, the nodes it pins, and where its top-left
+   * corner currently is in WORLD units (null until first measured). */
+  private shelf: {
+    layout: ShelfLayout;
+    repoId: string;
+    outward: 1 | -1;
+    tables: SimNode[];
+    hubs: SimNode[];
+    left: number | null;
+    top: number | null;
+  } | null = null;
+  /** Physics ticks since the graph was last laid out — paces settleShelves. */
+  private ticksSinceLayout = 0;
+  /** True once she has panned or zoomed by hand. */
+  private cameraIsHers = false;
+  /** Set when the table shelves first appear: frame the whole map once more
+   * when the physics settles — unless she has taken the camera by then. */
+  private refitWhenSettled = false;
   /** Everything the hovered file is wired to, itself included — recomputed
    * only when the hover changes, not per frame. */
   private hoverFileKin: Set<string> = new Set();
@@ -850,8 +896,12 @@ export class TerrainCanvas {
     this.zoomBehavior = zoom<HTMLCanvasElement, unknown>()
       .scaleExtent([MIN_ZOOM, MAX_ZOOM])
       .clickDistance(8) // pans suppress the click; taps still land
-      .on('zoom', (event: { transform: ZoomTransform }) => {
+      .on('zoom', (event: { transform: ZoomTransform; sourceEvent?: unknown }) => {
         this.transform = event.transform;
+        // A zoom with a real gesture behind it means SHE moved the camera; one
+        // the engine asked for has no source event. Remembered so a late
+        // re-frame (the table shelves arriving) never yanks a view she chose.
+        if (event.sourceEvent) this.cameraIsHers = true;
         // The map just moved out from under the cursor. A wheel-zoom fires no
         // pointermove, so nothing else would correct a hovercard still hanging
         // where the orb used to be — drop the hover and let her point again.
@@ -1416,6 +1466,8 @@ export class TerrainCanvas {
       .filter((e) => byId.has(e.source) && byId.has(e.target))
       .map((e): SimLink => ({ source: byId.get(e.source)!, target: byId.get(e.target)!, kind: e.kind }));
 
+    this.placeShelves(byId, repoIds, anchorFor);
+
     // Which tables each table is joined to by a foreign key, either direction
     // — what a hover over a table keeps lit. Rebuilt only here, with the
     // links, never in the draw loop.
@@ -1457,11 +1509,6 @@ export class TerrainCanvas {
             // rope just beyond the collision circle and the pair can actually
             // reach equilibrium and go still.
             if (isPondTile(s) || isPondTile(t)) return POND_TILE_COLLIDE_R + 24;
-            // A foreign key rests with the two tables clear of each other;
-            // a table's rope to its folder reaches past its own body, for
-            // the same can't-ever-settle reason as the pond tile's.
-            if (l.kind === 'fk') return s.radius + t.radius + 40;
-            if (isTable(s) || isTable(t)) return Math.max(s.radius, t.radius) + 24;
             return s.node.kind === 'repo' ? 70 : 34;
           })
           // Session tethers are weak on purpose: the orb drifts to sit amid
@@ -1471,24 +1518,26 @@ export class TerrainCanvas {
           .strength((l) =>
             l.kind === 'session'
               ? 0.06
-              : l.kind === 'fk'
-                ? // A foreign key only LEANS related tables toward each
-                  // other — enough that todos and its subtasks end up
-                  // neighbours, never enough to fight the folder's rope.
-                  0.04
-                : isPondTile(l.source as SimNode) ||
-                    isPondTile(l.target as SimNode) ||
-                    isTable(l.source as SimNode) ||
-                    isTable(l.target as SimNode)
-                  ? 0.15
-                  : 0.7,
+              : // The shelves are pinned, so no spring may pull on them. A
+                // link touching a table does nothing at all; the one rope
+                // from the database's folder back into the vault is left
+                // barely taut, or the pinned folder would drag `data/` and
+                // everything under it across the map toward the shelves.
+                l.kind === 'fk' || isTable(l.source as SimNode) || isTable(l.target as SimNode)
+                ? 0
+                : this.shelfHubIds.has((l.target as SimNode).id) ||
+                    this.shelfHubIds.has((l.source as SimNode).id)
+                  ? 0.01
+                  : isPondTile(l.source as SimNode) || isPondTile(l.target as SimNode)
+                    ? 0.15
+                    : 0.7,
           ),
       )
       .force(
         'charge',
         forceManyBody<SimNode>().strength((n) =>
-          // A table pushes like a folder, not like a dot: it is a body with a
-          // name to keep clear, and dot-strength charge packs them into soup.
+          // A table pushes like a folder, not like a dot, which keeps the
+          // ground around the shelves clear of strays.
           n.node.kind === 'file' && !isTable(n) ? -38 : n.node.kind === 'session' ? -70 : -140,
         ),
       )
@@ -1502,19 +1551,29 @@ export class TerrainCanvas {
         // that passed through the crowd. Bleeding most of its velocity each
         // tick makes it move like the heavy thing it is: nudges still land,
         // drift doesn't.
-        // Tables get a lighter share of the same ballast: bigger than a
-        // dot, smaller than the tile.
         for (const sn of this.simNodes) {
-          const keep = isPondTile(sn) ? 0.3 : isTable(sn) ? 0.6 : 1;
-          if (keep === 1) continue;
-          sn.vx = (sn.vx ?? 0) * keep;
-          sn.vy = (sn.vy ?? 0) * keep;
+          if (!isPondTile(sn)) continue;
+          sn.vx = (sn.vx ?? 0) * 0.3;
+          sn.vy = (sn.vy ?? 0) * 0.3;
         }
+        // Keep the table shelves just outside the dots as the dots spread.
+        this.ticksSinceLayout += 1;
+        if (this.ticksSinceLayout % SHELF_SETTLE_EVERY === 0) this.settleShelves(0.25);
         this.requestDraw();
       })
       // Quiescence = sleep. d3-force stops its own timer at alphaMin; one
       // final paint and nothing runs until the next setGraph.
-      .on('end', () => this.requestDraw());
+      .on('end', () => {
+        // One last measure, so the shelves rest exactly clear of where the
+        // dots finally stopped; then the once-only re-frame that includes
+        // them, if it was asked for and the camera is still ours to move.
+        this.settleShelves(1);
+        if (this.refitWhenSettled) {
+          this.refitWhenSettled = false;
+          if (!this.cameraIsHers) this.fitSoon();
+        }
+        this.requestDraw();
+      });
   }
 
   /** Running/pinging flags + focus rings, recomputed on every graph feed (both
@@ -1540,10 +1599,15 @@ export class TerrainCanvas {
       if (this.focusConv && this.computeFocusTransform()) return;
       let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
       for (const n of this.simNodes) {
-        minX = Math.min(minX, n.x ?? 0);
-        maxX = Math.max(maxX, n.x ?? 0);
-        minY = Math.min(minY, n.y ?? 0);
-        maxY = Math.max(maxY, n.y ?? 0);
+        // A dot is framed by its centre; a table by its whole rectangle, or a
+        // tall one at the edge of the map gets framed with its top cut off.
+        const size = n.node.file?.table ? tableSize(n.node.file.table) : null;
+        const halfW = size ? size.width / 2 : 0;
+        const halfH = size ? size.height / 2 : 0;
+        minX = Math.min(minX, (n.x ?? 0) - halfW);
+        maxX = Math.max(maxX, (n.x ?? 0) + halfW);
+        minY = Math.min(minY, (n.y ?? 0) - halfH);
+        maxY = Math.max(maxY, (n.y ?? 0) + halfH);
       }
       const w = Math.max(1, maxX - minX + 120);
       const h = Math.max(1, maxY - minY + 120);
@@ -1786,6 +1850,115 @@ export class TerrainCanvas {
   }
 
   /**
+   * Stand the tables on their shelves, in a section of their own on the OUTER
+   * side of the repo that holds the database — the side facing away from the
+   * other repo, so no foreign-key line ever crosses the gap between the two.
+   *
+   * The arrangement itself is tableNodes.ts shelfLayout (families of joined
+   * tables, one per shelf, all on a shared baseline); this only works out
+   * which side is outward and remembers the pieces. settleShelves then puts
+   * the section where the dots aren't.
+   */
+  private placeShelves(
+    byId: ReadonlyMap<string, SimNode>,
+    repoIds: readonly string[],
+    anchorFor: (repoId: string) => { x: number; y: number },
+  ): void {
+    const before = this.shelf;
+    this.shelf = null;
+    this.shelfHubIds = new Set();
+    const tables = this.simNodes.filter(isTable);
+    if (tables.length === 0) return;
+
+    const repoId = tables[0].node.repoId;
+    // Outward = away from the average of the OTHER repos' anchors. With only
+    // one repo on the map there is no "other side", so the right will do.
+    const others = repoIds.filter((id) => id !== repoId).map((id) => anchorFor(id).x);
+    const othersX = others.length > 0 ? others.reduce((sum, x) => sum + x, 0) / others.length : -Infinity;
+    const hubs: SimNode[] = [];
+    for (const n of tables) {
+      const hub = n.node.parentId ? byId.get(n.node.parentId) : undefined;
+      if (hub && !this.shelfHubIds.has(hub.id)) {
+        this.shelfHubIds.add(hub.id);
+        hubs.push(hub);
+      }
+    }
+    this.shelf = {
+      layout: shelfLayout(tables.map((n) => n.node.file!.table!)),
+      repoId,
+      outward: anchorFor(repoId).x >= othersX ? 1 : -1,
+      tables,
+      hubs,
+      // Start from where the section already was, so a refetch that changes
+      // nothing about the dots doesn't make the shelves jump.
+      left: before?.left ?? null,
+      top: before?.top ?? null,
+    };
+    this.settleShelves(1);
+    // The first time the shelves appear, ask for the map to be framed again
+    // once the physics comes to rest (the sim's 'end' handler does it). The
+    // tables arrive in their own request, usually just after the camera has
+    // already framed a map that didn't have them, and they keep gliding
+    // outward for as long as the dots keep spreading — so any earlier moment
+    // frames a section that then walks off the edge of the screen.
+    if (before === null && !this.ambient) this.refitWhenSettled = true;
+  }
+
+  /**
+   * Put the shelves just past the outer edge of their repo's dots, and pin
+   * every table to its spot there.
+   *
+   * Measured, not assumed: the physics only LEANS a repo toward its anchor, so
+   * where the cluster of dots ends up — and how big it is, at 300 files or at
+   * 3,000 — can't be known ahead of time. So this looks at where the dots
+   * actually are: the edge is the furthest any of the repo's dots reaches in
+   * the outward direction (the physics pulls every dot toward its repo's
+   * anchor, so there are no far-flung strays to distort that).
+   *
+   * `ease` is how much of the way to move toward the measured spot: 1 snaps
+   * (first placement), a fraction glides (called every few ticks while the map
+   * is still settling, so the section drifts out with the dots instead of
+   * being overrun by them and then jumping).
+   *
+   * Pinning is d3's `fx`/`fy`: a node with those set is held at that spot and
+   * the physics moves everything else around it. The database's folder node is
+   * pinned at the section's top corner as its heading; one slack rope still
+   * runs from it back to `data/`, which is what says the section is the
+   * vault's.
+   */
+  private settleShelves(ease: number): void {
+    const shelf = this.shelf;
+    if (!shelf) return;
+    const reach: number[] = [];
+    let sumY = 0;
+    for (const n of this.simNodes) {
+      if (n.node.repoId !== shelf.repoId || isTable(n) || this.shelfHubIds.has(n.id)) continue;
+      reach.push((n.x ?? 0) * shelf.outward + n.radius);
+      sumY += n.y ?? 0;
+    }
+    if (reach.length === 0) return;
+    const edge = Math.max(...reach);
+    const nearSide = edge + SHELF_MARGIN; // measured along the outward direction
+    const targetLeft = shelf.outward > 0 ? nearSide : -nearSide - shelf.layout.width;
+    const targetTop = sumY / reach.length - shelf.layout.height / 2;
+    const left = shelf.left === null ? targetLeft : shelf.left + (targetLeft - shelf.left) * ease;
+    const top = shelf.top === null ? targetTop : shelf.top + (targetTop - shelf.top) * ease;
+    shelf.left = left;
+    shelf.top = top;
+
+    for (const n of shelf.tables) {
+      const spot = shelf.layout.positions.get(n.node.file!.table!.name);
+      if (!spot) continue;
+      n.fx = n.x = left + spot.x;
+      n.fy = n.y = top + spot.y;
+    }
+    for (const hub of shelf.hubs) {
+      hub.fx = hub.x = left;
+      hub.fy = hub.y = top - 8;
+    }
+  }
+
+  /**
    * A database table, drawn as the table's own shape.
    *
    * One vertical stripe per column, so the WIDTH is the column count; the
@@ -1797,9 +1970,9 @@ export class TerrainCanvas {
    * same blue as the line that leaves the table for the one it points at. An
    * empty table is a dashed outline with only its header: structure, no rows.
    *
-   * Opaque on purpose: foreign-key lines run centre to centre and are painted
-   * first, so a solid body makes each line appear to stop at the table's edge.
-   * Neutral ink, not heat — a table has no edit history on this map, and
+   * Opaque on purpose: lines are painted before bodies, so a solid table
+   * hides anything that happens to pass behind it instead of looking crossed
+   * out. Neutral ink, not heat — a table has no edit history on this map, and
    * wearing the ramp's cold black would claim it's an old file.
    */
   private drawTable(n: SimNode): void {
@@ -2025,6 +2198,11 @@ export class TerrainCanvas {
       // A line to a hidden dot would end in empty space, so it goes too —
       // the tree edge from its folder and any agent's tether alike.
       if (this.hiddenFiles.has(s.id) || this.hiddenFiles.has(t.id)) continue;
+      // No rope from the database's folder to each table: standing on the
+      // shelves already says they belong to it, and thirty-one lines fanning
+      // out of one corner would bury the foreign keys, which are the lines
+      // worth reading.
+      if (link.kind !== 'fk' && (isTable(s) || isTable(t))) continue;
       const inPrint = !dimmed || this.footprint!.has(s.id) || this.footprint!.has(t.id);
       if (link.kind === 'session') {
         // Orb tethers: identity-accent threads, dashed so they never read as
@@ -2071,6 +2249,27 @@ export class TerrainCanvas {
       const hoveredKey =
         link.kind === 'fk' && (s.id === this.hoverFile || t.id === this.hoverFile);
       if (this.hoverFile !== null && !hoveredKey) ctx.globalAlpha *= 0.22;
+      if (link.kind === 'fk' && s.node.file?.table && t.node.file?.table) {
+        // A foreign key runs UNDER the shelf: out of the bottom of the table
+        // that holds the key, dipping below the baseline, and up into the
+        // bottom of the table it points at — deeper the further it travels, so
+        // long and short hops don't lie on top of each other. The dot marks
+        // the pointed-at end, which is how the direction reads at a glance.
+        const fromX = s.x ?? 0;
+        const fromY = (s.y ?? 0) + tableSize(s.node.file.table).height / 2;
+        const toX = t.x ?? 0;
+        const toY = (t.y ?? 0) + tableSize(t.node.file.table).height / 2;
+        const dip = Math.min(50, 14 + Math.abs(toX - fromX) * 0.12);
+        ctx.beginPath();
+        ctx.moveTo(fromX, fromY);
+        ctx.quadraticCurveTo((fromX + toX) / 2, Math.max(fromY, toY) + dip * 2, toX, toY);
+        ctx.stroke();
+        ctx.fillStyle = theme.evening;
+        ctx.beginPath();
+        ctx.arc(toX, toY, 2.4, 0, Math.PI * 2);
+        ctx.fill();
+        continue;
+      }
       ctx.beginPath();
       ctx.moveTo(s.x ?? 0, s.y ?? 0);
       ctx.lineTo(t.x ?? 0, t.y ?? 0);
@@ -2487,6 +2686,24 @@ export class TerrainCanvas {
       const kinFirst = Number(kin?.has(b.id) ?? false) - Number(kin?.has(a.id) ?? false);
       return kinFirst || b.node.file!.table!.rows - a.node.file!.table!.rows;
     });
+
+    // The shelf names: each family's word, muted, right-aligned so it ends
+    // just before its shelf begins, sitting on the shelf's baseline. Screen space like every label, so never under 12px.
+    ctx.textAlign = 'right';
+    ctx.font = `600 ${LABEL_PX}px ${this.fontFamily}`;
+    ctx.fillStyle = theme.textMuted;
+    ctx.globalAlpha = kin === null ? 1 : 0.3;
+    if (this.shelf && this.shelf.left !== null && this.shelf.top !== null) {
+      for (const label of this.shelf.layout.shelfLabels) {
+        ctx.fillText(
+          label.text,
+          (this.shelf.left + label.x) * k + transform.x - 12,
+          (this.shelf.top + label.y) * k + transform.y,
+        );
+      }
+    }
+    ctx.textAlign = 'center';
+    ctx.globalAlpha = 1;
 
     const placed: { left: number; right: number; top: number; bottom: number }[] = [];
     const lineHeight = LABEL_PX + 2;

@@ -6,8 +6,12 @@ import {
   HEADER_HEIGHT,
   addTableNodes,
   describeTableShape,
+  LONERS_LABEL,
+  SHELF_MAX_WIDTH,
   foreignKeyEdges,
   formatBytes,
+  shelfLayout,
+  tableFamilies,
   tableNodeId,
   tableSize,
   tablesPointingAt,
@@ -172,5 +176,85 @@ describe('formatBytes', () => {
 
   it('reads as a human size', () => {
     expect(formatBytes(2256896)).toBe('2.2 MB');
+  });
+});
+
+describe('tableFamilies', () => {
+  const fronts = table('fronts', ['id', 'name'], 15);
+  const todoFronts = table('todo_fronts', ['todo_id', 'front'], 167, {
+    foreign_keys: [
+      { column: 'todo_id', table: 'todos', to: 'id' },
+      { column: 'front', table: 'fronts', to: 'id' },
+    ],
+  });
+  const docs = table('docs', ['name', 'data'], 44);
+  const tags = table('tags', ['id', 'tag'], 900);
+  const families = tableFamilies([docs, subtasks, fronts, tags, todoFronts, todos]);
+
+  it('puts tables joined by foreign keys in one family, however they were listed', () => {
+    expect(families[0].tables.map((t) => t.name).sort()).toEqual([
+      'fronts',
+      'todo_fronts',
+      'todo_subtasks',
+      'todos',
+    ]);
+  });
+
+  it('names a family by the word most of its tables share', () => {
+    expect(families[0].label).toBe('todo');
+  });
+
+  it('stands a parent before the tables that point at it', () => {
+    const order = families[0].tables.map((t) => t.name);
+    expect(order.indexOf('todos')).toBeLessThan(order.indexOf('todo_subtasks'));
+    expect(order.indexOf('fronts')).toBeLessThan(order.indexOf('todo_fronts'));
+  });
+
+  it('gathers tables joined to nothing onto one last shelf, biggest first', () => {
+    const last = families[families.length - 1];
+    expect(last.label).toBe(LONERS_LABEL);
+    expect(last.tables.map((t) => t.name)).toEqual(['tags', 'docs']);
+  });
+
+  it('does not let a key to itself make a table a family', () => {
+    const habits = table('habits', ['id', 'merged_into'], 5, {
+      foreign_keys: [{ column: 'merged_into', table: 'habits', to: 'id' }],
+    });
+    expect(tableFamilies([habits])[0].label).toBe(LONERS_LABEL);
+  });
+});
+
+describe('shelfLayout', () => {
+  it('stands every table on a shelf on the same baseline', () => {
+    const layout = shelfLayout([todos, subtasks]);
+    const bottoms = [todos, subtasks].map(
+      (t) => layout.positions.get(t.name)!.y + tableSize(t).height / 2,
+    );
+    expect(bottoms[0]).toBeCloseTo(bottoms[1]);
+    expect(layout.shelfLabels).toEqual([{ text: 'todo', x: 0, y: bottoms[0] }]);
+  });
+
+  it('never lets two tables share floor', () => {
+    const layout = shelfLayout([todos, subtasks]);
+    const a = layout.positions.get('todos')!;
+    const b = layout.positions.get('todo_subtasks')!;
+    const gap = Math.abs(a.x - b.x) - (tableSize(todos).width + tableSize(subtasks).width) / 2;
+    expect(gap).toBeGreaterThan(0);
+  });
+
+  it('carries a family too long for one shelf onto the next one down', () => {
+    const parent = table('things', ['id'], 10);
+    const children = Array.from({ length: 12 }, (_, i) =>
+      table(`thing_part_${i}`, ['id', 'thing_id'], 10 + i, {
+        foreign_keys: [{ column: 'thing_id', table: 'things', to: 'id' }],
+      }),
+    );
+    const layout = shelfLayout([parent, ...children]);
+    const baselines = new Set(
+      [parent, ...children].map((t) => Math.round(layout.positions.get(t.name)!.y + tableSize(t).height / 2)),
+    );
+    expect(baselines.size).toBeGreaterThan(1);
+    expect(layout.width).toBeLessThanOrEqual(SHELF_MAX_WIDTH);
+    expect(layout.shelfLabels).toHaveLength(1);
   });
 });
