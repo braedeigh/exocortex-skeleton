@@ -8,6 +8,7 @@
  * is for a given recency lens.
  */
 import type { TerrainData, TerrainFile, TerrainLiveSession, TerrainRepo, TerrainSession } from './api';
+import { foreignKeyEdges } from './tableNodes';
 
 export type HeatLens = 'day' | 'week' | 'month';
 
@@ -502,8 +503,10 @@ export interface TerrainEdge {
   target: string;
   /** 'tree' = parent→child structure (default); 'session' = a weak tether
    * from a session orb to one of its footprint files, so the physics parks
-   * the orb amid its own territory without distorting the tree. */
-  kind?: 'tree' | 'session';
+   * the orb amid its own territory without distorting the tree; 'fk' = a
+   * foreign key, from the table that holds it to the table it points at
+   * (tableNodes.ts). */
+  kind?: 'tree' | 'session' | 'fk';
 }
 
 export interface TerrainGraph {
@@ -776,6 +779,9 @@ export function buildTerrainGraph(
   );
   nodes.push(...orbs.nodes);
   edges.push(...orbs.edges);
+
+  // Foreign keys: a line between two tables, when the map carries tables.
+  edges.push(...foreignKeyEdges(nodes));
 
   return { nodes, edges };
 }

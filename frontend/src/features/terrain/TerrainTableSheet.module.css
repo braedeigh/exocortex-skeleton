@@ -1,0 +1,163 @@
+/* TerrainTableSheet — the card a tapped table opens. House rules: nothing
+   under 12px, anything tappable ~40px tall. The two swatch colours repeat the
+   canvas's header-band ink (terrainCanvas.ts drawTable): solid text colour for
+   a primary key, the app's blue for a foreign key. */
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--space-2);
+}
+
+.fact {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg);
+}
+
+.factNumber {
+  font-size: var(--font-size-lg, 18px);
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.factLabel {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.note {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.heading {
+  margin: 0;
+  font-size: var(--font-size-base);
+  font-weight: 700;
+  color: var(--text);
+}
+
+.prose {
+  margin: 0;
+  font-size: var(--font-size-md);
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.columns {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.column {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1.2fr) minmax(0, 0.6fr) minmax(0, 1.6fr);
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 32px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--font-size-md);
+}
+
+.swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--text) 42%, var(--bg));
+}
+
+.swatchPrimary {
+  background: var(--text);
+}
+
+.swatchForeign {
+  background: var(--evening);
+}
+
+.columnName {
+  font-weight: 600;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.columnType {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.columnRole {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.link {
+  min-height: var(--tap-target, 40px);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.linkName {
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.linkVia {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.door {
+  min-height: var(--tap-target, 40px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  color: var(--text);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  text-decoration: none;
+}

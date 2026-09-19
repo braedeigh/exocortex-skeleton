@@ -30,7 +30,7 @@ from routes import (
     entities, threads, person, shell, cards, archivals, research,
     research_search, research_sources, research_import, research_text,
     annotations, spa, fronts, tags, wiki, travel, profile, usage, streaks, spinoff,
-    observatory, terrain, automations, nightcrew, push, claude_auth, run_queue,
+    observatory, terrain, terrain_tables, automations, nightcrew, push, claude_auth, run_queue,
     branches, recordings,
     sqlab, sandbox, pond, tabsets, creek,
 )
@@ -1221,6 +1221,10 @@ if features.enabled("observatory"):
     # same flag: it maps the observatory's sessions onto the repos, and its
     # /terrain/file door reads checkout files over HTTP — off means off.
     terrain.register(app)
+    # The database's tables, described for the map (routes/terrain_tables.py).
+    # Owner only — it is not in public_config.PUBLIC_PATHS, so the auth gate
+    # closes it to visitors even though the map itself is open.
+    terrain_tables.register(app)
     # The night crew rides the same flag: its UI lives inside the observatory,
     # and its merge endpoint runs git against the live checkout — with the
     # observatory off, that door must not answer either.

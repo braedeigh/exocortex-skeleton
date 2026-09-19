@@ -47,7 +47,8 @@ export function fileLastActive(file: TerrainFile): number | null {
  * agents stay, so the map keeps its skeleton and the dots that remain still
  * sit somewhere recognisable. A file with no recorded activity counts as old.
  * The pond tile is never hidden: it is the journal's one body on the map, a
- * landmark rather than a file to be sorted.
+ * landmark rather than a file to be sorted. Tables (tableNodes.ts) are never
+ * hidden either — they have no edit history to be recent or old BY.
  */
 export function filesHiddenByActivity(
   nodes: readonly TerrainNode[],
@@ -59,7 +60,7 @@ export function filesHiddenByActivity(
   if (filter === 'all') return hidden;
   const cutoff = nowSeconds - windowSeconds;
   for (const node of nodes) {
-    if (node.kind !== 'file' || !node.file || node.file.days) continue;
+    if (node.kind !== 'file' || !node.file || node.file.days || node.file.table) continue;
     const lastActive = fileLastActive(node.file);
     const isRecent = lastActive !== null && lastActive >= cutoff;
     if (filter === 'recent' ? !isRecent : isRecent) hidden.add(node.id);

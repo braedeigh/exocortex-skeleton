@@ -1,8 +1,13 @@
 /**
- * api.ts — typed fetch for GET /api/observatory/terrain (routes/observatory.py,
- * built in parallel with this page — see terrainGraph.ts for the contract this
- * was coded against). "Where is being worked on": every repo's file tree
- * across its whole git history, files glowing ember by recency of touch.
+ * api.ts — the typed fetches behind the Terrain map, and the shapes of what
+ * comes back.
+ *
+ * The main one is GET /api/observatory/terrain (routes/terrain.py): "where is
+ * being worked on" — every repo's file tree across its whole git history, with
+ * which agent sessions touched which file. terrainGraph.ts turns that payload
+ * into the map's nodes. Beside it: one file's text and its per-line edit and
+ * run times for the code pane (the /terrain/file doors), and the database's
+ * tables for the map's table layer (routes/terrain_tables.py → tableNodes.ts).
  */
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../api/client';
@@ -44,6 +49,11 @@ export interface TerrainFile {
    * day and oldest first, so the canvas can draw the month inside its square
    * and terrainGraph can light each day with the live heat lens. */
   days?: { day: string; touches: number[] }[];
+  /** Synthetic only — the server never sends this on a file. A table node
+   * (tableNodes.ts) carries the table it stands for here, so the canvas can
+   * draw it as a rectangle (columns wide, rows tall) and the page can show
+   * its columns when she taps it. */
+  table?: TerrainTable;
 }
 
 export interface TerrainRepo {
@@ -130,6 +140,65 @@ export function useTerrain(live = false, limit: number | null = 350) {
     // Keep the previous tier's map on screen while a bigger one loads, so
     // dragging the slider never blanks the canvas.
     placeholderData: (prev) => prev,
+  });
+}
+
+// --- the database's tables, for the map's table layer -------------------------
+
+export interface TerrainTableColumn {
+  name: string;
+  /** The declared SQLite type, as written in CREATE TABLE ('' when none). */
+  type: string;
+  notnull: boolean;
+  /** Part of the primary key — the column(s) that identify one row. */
+  pk: boolean;
+}
+
+/** One foreign key: "my `column` holds a value from `table`.`to`". `to` is
+ * null when the key names no target column, which means that table's
+ * primary key. */
+export interface TerrainTableForeignKey {
+  column: string;
+  table: string;
+  to: string | null;
+}
+
+export interface TerrainTable {
+  name: string;
+  rows: number;
+  /** Bytes the table's own pages take on disk; null when this SQLite build
+   * can't measure it (no `dbstat`) — "not measured", never zero. */
+  bytes: number | null;
+  /** Bytes taken by the table's indexes, on top of `bytes`. */
+  index_bytes: number | null;
+  columns: TerrainTableColumn[];
+  indexes: { name: string; unique: boolean }[];
+  foreign_keys: TerrainTableForeignKey[];
+}
+
+/** GET /api/observatory/terrain/tables (routes/terrain_tables.py). `repo` and
+ * `path` say where the database file sits — which repo, and its path inside
+ * it — so the tables hang off the folder the database really lives in. Both
+ * are null when the data directory is outside every repo. */
+export interface TerrainTables {
+  repo: string | null;
+  path: string | null;
+  tables: TerrainTable[];
+}
+
+/**
+ * The tables change shape only when a migration runs, and their row counts
+ * drift slowly, so this is fetched once and kept for five minutes. Owner only:
+ * the endpoint is closed to visitors, so the caller passes `enabled: false`
+ * for them rather than spending a request on a 401.
+ */
+export function useTerrainTables(enabled: boolean) {
+  return useQuery({
+    queryKey: ['terrain-tables'] as const,
+    queryFn: async ({ signal }) =>
+      api.get<TerrainTables>('/api/observatory/terrain/tables', signal),
+    enabled,
+    staleTime: 5 * 60_000,
   });
 }
 

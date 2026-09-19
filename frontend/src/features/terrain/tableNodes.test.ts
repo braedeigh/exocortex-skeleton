@@ -1,0 +1,176 @@
+import { describe, expect, it } from 'vitest';
+import type { TerrainData, TerrainTable, TerrainTables } from './api';
+import { buildTerrainGraph } from './terrainGraph';
+import {
+  COLUMN_WIDTH,
+  HEADER_HEIGHT,
+  addTableNodes,
+  describeTableShape,
+  foreignKeyEdges,
+  formatBytes,
+  tableNodeId,
+  tableSize,
+  tablesPointingAt,
+} from './tableNodes';
+
+/**
+ * tableNodes.test.ts — the arithmetic behind the map's table layer: that a
+ * table's rectangle really is its shape, that tables land in the right folder
+ * and survive being absent, that foreign keys become exactly the lines they
+ * should, and that the plain-English shape names agree with the picture.
+ */
+
+function table(name: string, columnNames: string[], rows: number, extra: Partial<TerrainTable> = {}): TerrainTable {
+  return {
+    name,
+    rows,
+    bytes: 4096,
+    index_bytes: 0,
+    columns: columnNames.map((column, i) => ({ name: column, type: 'TEXT', notnull: false, pk: i === 0 })),
+    indexes: [],
+    foreign_keys: [],
+    ...extra,
+  };
+}
+
+const todos = table('todos', ['id', 'text', 'bucket', 'done'], 100);
+const subtasks = table('todo_subtasks', ['id', 'todo_id', 'text'], 400, {
+  foreign_keys: [{ column: 'todo_id', table: 'todos', to: 'id' }],
+});
+
+const payload: TerrainData = {
+  generated_at: '2026-09-19T12:00:00',
+  window_days: null,
+  file_cap: null,
+  repos: [
+    { id: 'skeleton', name: 'App code', root: '/app', files: [], files_total: 0 },
+    {
+      id: 'vault',
+      name: 'Personal vault',
+      root: '/vault',
+      files: [{ path: 'data/notes.md', touches: [1], sessions: [] }],
+      files_total: 1,
+    },
+  ],
+};
+
+const described: TerrainTables = { repo: 'vault', path: 'data/exo.db', tables: [todos, subtasks] };
+
+describe('tableSize', () => {
+  it('is one stripe wide per column', () => {
+    expect(tableSize(todos).width).toBe(4 * COLUMN_WIDTH);
+  });
+
+  it('grows taller with more rows, by the square root', () => {
+    const small = tableSize(table('a', ['id'], 100)).rowsHeight;
+    const big = tableSize(table('b', ['id'], 400)).rowsHeight;
+    expect(big).toBeCloseTo(small * 2);
+  });
+
+  it('draws an empty table as its header band alone', () => {
+    const size = tableSize(table('empty', ['id', 'x'], 0));
+    expect(size.rowsHeight).toBe(0);
+    expect(size.height).toBe(HEADER_HEIGHT);
+  });
+});
+
+describe('addTableNodes', () => {
+  it('hangs each table under the database file, in the repo that holds it', () => {
+    const out = addTableNodes(payload, described);
+    const vault = out.repos.find((r) => r.id === 'vault')!;
+    expect(vault.files.map((f) => f.path)).toEqual([
+      'data/notes.md',
+      'data/exo.db/todos',
+      'data/exo.db/todo_subtasks',
+    ]);
+    expect(out.repos.find((r) => r.id === 'skeleton')!.files).toEqual([]);
+  });
+
+  it('leaves the payload alone when the database is outside every repo', () => {
+    expect(addTableNodes(payload, { repo: null, path: null, tables: [todos] })).toBe(payload);
+  });
+
+  it('leaves the payload alone before the tables have loaded', () => {
+    expect(addTableNodes(payload, undefined)).toBe(payload);
+  });
+});
+
+describe('foreign keys on the map', () => {
+  const graph = buildTerrainGraph(addTableNodes(payload, described), 7 * 86400, 1000);
+
+  it('draws one line from the table holding the key to the table it points at', () => {
+    const keys = graph.edges.filter((e) => e.kind === 'fk');
+    expect(keys).toEqual([
+      {
+        source: tableNodeId('vault', 'data/exo.db', 'todo_subtasks'),
+        target: tableNodeId('vault', 'data/exo.db', 'todos'),
+        kind: 'fk',
+      },
+    ]);
+  });
+
+  it('puts the tables under an exo.db folder', () => {
+    const node = graph.nodes.find((n) => n.file?.table?.name === 'todos')!;
+    const parent = graph.nodes.find((n) => n.id === node.parentId)!;
+    expect(parent.kind).toBe('dir');
+    expect(parent.label).toContain('exo.db');
+  });
+
+  it('skips a key to a missing table, and a table pointing at itself', () => {
+    const habits = table('habits', ['id', 'merged_into', 'gone_id'], 5, {
+      foreign_keys: [
+        { column: 'merged_into', table: 'habits', to: 'id' },
+        { column: 'gone_id', table: 'not_on_the_map', to: 'id' },
+      ],
+    });
+    const alone = buildTerrainGraph(
+      addTableNodes(payload, { repo: 'vault', path: 'data/exo.db', tables: [habits] }),
+      7 * 86400,
+      1000,
+    );
+    expect(foreignKeyEdges(alone.nodes)).toEqual([]);
+  });
+});
+
+describe('tablesPointingAt', () => {
+  it('finds the keys a table cannot see in its own definition', () => {
+    expect(tablesPointingAt([todos, subtasks], 'todos')).toEqual([
+      { table: 'todo_subtasks', column: 'todo_id' },
+    ]);
+  });
+});
+
+describe('describeTableShape', () => {
+  it('calls a table with no rows empty', () => {
+    expect(describeTableShape(table('t', ['id', 'x'], 0)).kind).toBe('empty');
+  });
+
+  it('calls a table whose every column is a foreign key a join table', () => {
+    const join = table('todo_fronts', ['todo_id', 'front'], 167, {
+      foreign_keys: [
+        { column: 'todo_id', table: 'todos', to: 'id' },
+        { column: 'front', table: 'fronts', to: 'id' },
+      ],
+    });
+    expect(describeTableShape(join).kind).toBe('join');
+  });
+
+  it('calls few columns and many rows tall', () => {
+    expect(describeTableShape(table('log', ['id', 'at'], 40000)).kind).toBe('tall');
+  });
+
+  it('calls many columns and few rows wide', () => {
+    const wide = table('things', Array.from({ length: 20 }, (_, i) => `c${i}`), 30);
+    expect(describeTableShape(wide).kind).toBe('wide');
+  });
+});
+
+describe('formatBytes', () => {
+  it('never reports an unmeasured size as zero', () => {
+    expect(formatBytes(null)).toBe('not measured');
+  });
+
+  it('reads as a human size', () => {
+    expect(formatBytes(2256896)).toBe('2.2 MB');
+  });
+});

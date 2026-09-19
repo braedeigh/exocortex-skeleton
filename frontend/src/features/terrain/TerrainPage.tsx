@@ -13,7 +13,7 @@ import { useSessionPreview, useSessionRoster } from '../observatory/api';
 import { isUnread, openedMap } from '../observatory/readReceipts';
 import { cardState, type CardState } from '../observatory/sessionFilters';
 import { sessionLocation } from '../observatory/sessionLocation';
-import { useTerrain, type TerrainData } from './api';
+import { useTerrain, useTerrainTables, type TerrainData } from './api';
 import type { FileTouchKind, TerrainNode } from './terrainGraph';
 import { buildThreads, heatThreads } from './terrainThreads';
 import {
@@ -53,6 +53,8 @@ import type { TerrainThread } from './terrainThreads';
 import { PondLandmark } from './PondLandmark';
 import { collapseToPondTile, localDayISO, parseCardPath, POND_TILE_PATH } from './pondNodes';
 import { filesHiddenByActivity, type ActivityFilter } from './activityFilter';
+import { addTableNodes } from './tableNodes';
+import { TerrainTableSheet } from './TerrainTableSheet';
 import { fileTypeCounts, OTHER_FILE_TYPE } from './fileTypes';
 import { setTypeColorsOn, useTypeColorsOn } from './typeColorPref';
 import { setAgentsHiddenOn, useAgentsHiddenOn } from './agentsHiddenPref';
@@ -302,6 +304,9 @@ export function TerrainPage() {
   const [anyRunning, setAnyRunning] = useState(false);
   const [tier, setTier] = useState<number | null>(FETCH_TIERS[0]);
   const { data, isLoading, isError, isFetching } = useTerrain(anyRunning && pageVisible, tier);
+  // The database's tables, for the map's table layer (tableNodes.ts). Owner
+  // only — the endpoint is closed to visitors, so they don't ask.
+  const { data: tables } = useTerrainTables(!visitor);
   useEffect(() => {
     if (data) setAnyRunning((data.sessions ?? []).some((s) => s.running));
   }, [data]);
@@ -574,18 +579,26 @@ export function TerrainPage() {
     return ids;
   }, [data?.sessions, pool, section, now]);
 
+  // Put the database's tables on the map: one body per table, added AFTER the
+  // dials so neither the Files cut nor the date range can remove them — both
+  // rank by edit history, and a table has none. See tableNodes.ts.
+  const withTables = useMemo(
+    () => (filtered ? addTableNodes(filtered, tables) : null),
+    [filtered, tables],
+  );
+
   // `alwaysOrbIds` = every agent in the pool. Orbs are otherwise built by
   // inverting files[].sessions, so a pool member that hasn't touched a file
   // yet would have no body on the map at all; this puts it there regardless.
   const graph = useMemo(
     () =>
-      filtered
-        ? buildTerrainGraph(filtered, halfLife, undefined, {
+      withTables
+        ? buildTerrainGraph(withTables, halfLife, undefined, {
             alwaysOrbIds: poolSessionIds,
             runHalfLife: goldHalfLife,
           })
         : null,
-    [filtered, halfLife, goldHalfLife, poolSessionIds],
+    [withTables, halfLife, goldHalfLife, poolSessionIds],
   );
 
   // The threads: what one file makes, another one eats. The creek payload is
@@ -900,6 +913,12 @@ export function TerrainPage() {
         // owns the pond's interactions (its reach target catches most taps;
         // this catches the hit-slop ring around the square).
         if (node.path === POND_TILE_PATH) return;
+        // A table isn't a code file either: it opens its own card (columns,
+        // shape, what it's joined to) instead of the code window.
+        if (node.file?.table) {
+          setSelected(node);
+          return;
+        }
         if (node.path) {
           if (dispatchIntent({ kind: 'code', repo: node.repoId, path: node.path }) !== 'none') return;
           setCodeFile(node);
@@ -1129,7 +1148,8 @@ export function TerrainPage() {
   const typeRows = useMemo(() => {
     if (!typeColors || !ink || !visible) return null;
     const paths = visible.nodes
-      .filter((n) => n.kind === 'file' && !hiddenFiles.has(n.id))
+      // Tables ride the map as synthetic files, but they aren't a file type.
+      .filter((n) => n.kind === 'file' && !n.file?.table && !hiddenFiles.has(n.id))
       .map((n) => n.path ?? n.label);
     const counts = fileTypeCounts(paths);
     const named = counts.filter((c) => c.type !== OTHER_FILE_TYPE);
@@ -1584,6 +1604,17 @@ export function TerrainPage() {
               Its footprint is ringed on the map — tap elsewhere to clear.
             </div>
           </div>
+        ) : null}
+        {selected?.file?.table ? (
+          <TerrainTableSheet
+            table={selected.file.table}
+            allTables={tables?.tables ?? []}
+            onPickTable={(tableName) => {
+              // Jump to a joined table's card: same sheet, different table.
+              const next = graph?.nodes.find((n) => n.file?.table?.name === tableName);
+              if (next) setSelected(next);
+            }}
+          />
         ) : null}
       </Sheet>
 

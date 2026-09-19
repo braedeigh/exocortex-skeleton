@@ -54,7 +54,8 @@
  * terrain, the other rings and lines become grayed out from the other agents
  * to focus on what is showing there."
  *
- * THE POND is the one thing on this map that isn't a dot. The card pool used
+ * THE POND is one of two things on this map that aren't dots (the database's
+ * tables, below, are the other). The card pool used
  * to arrive as ~1,700 anonymous dots; pondNodes.ts now swaps them for ONE
  * synthetic file node carrying the last month bucketed per day, and this
  * engine draws that node as a small square of water — one column per day,
@@ -70,6 +71,18 @@
  * Prompt that produced it: "I want the pond UI to display in the background
  * of my sessions ... in a square without any labels ... it needs to bump
  * around the other dots and not cover them".
+ *
+ * THE TABLES are the other. tableNodes.ts adds one synthetic file node per
+ * database table, and this engine draws each as a rectangle that is the
+ * table's own shape — one stripe per column wide, its row count tall — with a
+ * foreign key drawn as a blue line to the table it points at (`drawTable`, the
+ * 'fk' link kind). Each is a real sim body like the tile; unlike the tile they
+ * name themselves, because a rectangle with no name teaches nothing. Hovering
+ * one keeps the tables it's joined to lit; tapping one reports it through
+ * `onTap` like any file, and the page shows its columns.
+ *
+ * Prompt that produced it: "i want them to be sized by how much is in there
+ * and learn more about the shapes of the tables through this exercise".
  */
 import {
   forceCollide,
@@ -100,6 +113,7 @@ import {
 } from './terrainGraph';
 import type { TerrainThread } from './terrainThreads';
 import { fileTypeOf } from './fileTypes';
+import { COLUMN_WIDTH, HEADER_HEIGHT, tableCollideRadius, tableSize } from './tableNodes';
 
 /**
  * THE TWO FIRES, in the words the map is built in (dark surface):
@@ -316,7 +330,7 @@ interface SimNode extends SimulationNodeDatum {
 }
 
 interface SimLink extends SimulationLinkDatum<SimNode> {
-  kind?: 'tree' | 'session';
+  kind?: 'tree' | 'session' | 'fk';
 }
 
 /** One write worth raining on the map — key is the flow event's stable id,
@@ -396,6 +410,24 @@ function isPondTile(n: SimNode): boolean {
   return n.node.file?.days !== undefined;
 }
 
+/** Is this sim node a database table? (A synthetic file carrying the table it
+ * stands for — see tableNodes.ts.) Like the pond tile it is a body bigger than
+ * a dot, so the physics gives it a collision circle, a longer rope to its
+ * folder, and ballast. */
+function isTable(n: SimNode): boolean {
+  return n.node.file?.table !== undefined;
+}
+
+/** A table is never drawn narrower or shorter than this many SCREEN pixels, so
+ * zooming far out leaves a field of small marks rather than nothing. Same idea
+ * as MIN_NODE_PX. */
+const TABLE_MIN_PX = 3;
+/** Tables are named from further out than folders are (LABEL_MIN_K): there are
+ * only a few dozen of them, and a rectangle with no name teaches nothing. */
+const TABLE_LABEL_MIN_K = 0.3;
+/** The smallest body a table gets in the physics, whatever its rectangle. */
+const TABLE_MIN_COLLIDE_R = 30;
+
 function hexToRgbTuple(hex: string): [number, number, number] {
   const h = hex.replace('#', '');
   return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
@@ -429,6 +461,10 @@ function nodeRadius(node: TerrainNode, t: number): number {
   // The pond tile: a body the size of its square, so the sim keeps the rest
   // of the map out from under it.
   if (node.file?.days) return POND_TILE_COLLIDE_R;
+  // A table: the circle that encloses its rectangle, for the same reason.
+  // Never less than TABLE_MIN_COLLIDE_R: a two-column lookup table is a sliver,
+  // and slivers packed edge to edge leave no room for their names.
+  if (node.file?.table) return Math.max(tableCollideRadius(node.file.table), TABLE_MIN_COLLIDE_R);
   return 4 + 9 * t; // file: GLOW (union of ember + gold) scales size — the redundant channel
 }
 
@@ -638,6 +674,8 @@ export class TerrainCanvas {
    * file's wiring is a different question from asking about an agent, so it
    * gets its own hover rather than sharing hoverAgent's. */
   private hoverFile: string | null = null;
+  /** Table node id → the table node ids it shares a foreign key with. */
+  private foreignKeyKin = new Map<string, Set<string>>();
   /** Everything the hovered file is wired to, itself included — recomputed
    * only when the hover changes, not per frame. */
   private hoverFileKin: Set<string> = new Set();
@@ -1143,16 +1181,23 @@ export class TerrainCanvas {
         if (th.sourceId === id) kin.add(th.targetId);
         else if (th.targetId === id) kin.add(th.sourceId);
       }
+      // A hovered table keeps the tables it's joined to lit beside it.
+      for (const other of this.foreignKeyKin.get(id) ?? []) kin.add(other);
     }
     this.hoverFileKin = kin;
   }
 
   /** Point the thread highlight at a file dot, or clear it. Only files that
-   * actually have threads take the hover — lighting up a dot with nothing
-   * wired to it would dim the whole map to say nothing. */
+   * actually have threads — or tables that actually have foreign keys — take
+   * the hover: lighting up a dot with nothing wired to it would dim the whole
+   * map to say nothing. */
   private setHoverFile(id: string | null): void {
     let next = id;
-    if (next !== null && !this.threads.some((th) => th.sourceId === next || th.targetId === next)) {
+    if (
+      next !== null &&
+      !this.foreignKeyKin.has(next) &&
+      !this.threads.some((th) => th.sourceId === next || th.targetId === next)
+    ) {
       next = null;
     }
     if (next === this.hoverFile) return;
@@ -1371,6 +1416,20 @@ export class TerrainCanvas {
       .filter((e) => byId.has(e.source) && byId.has(e.target))
       .map((e): SimLink => ({ source: byId.get(e.source)!, target: byId.get(e.target)!, kind: e.kind }));
 
+    // Which tables each table is joined to by a foreign key, either direction
+    // — what a hover over a table keeps lit. Rebuilt only here, with the
+    // links, never in the draw loop.
+    this.foreignKeyKin = new Map();
+    for (const link of this.simLinks) {
+      if (link.kind !== 'fk') continue;
+      const a = (link.source as SimNode).id;
+      const b = (link.target as SimNode).id;
+      if (!this.foreignKeyKin.has(a)) this.foreignKeyKin.set(a, new Set());
+      if (!this.foreignKeyKin.has(b)) this.foreignKeyKin.set(b, new Set());
+      this.foreignKeyKin.get(a)!.add(b);
+      this.foreignKeyKin.get(b)!.add(a);
+    }
+
     // Remember the shape we just laid out, so the next feed can be answered
     // without touching the sim. Built from what was HANDED IN, not from the
     // filtered simLinks — the next graph is compared against the same source,
@@ -1398,6 +1457,11 @@ export class TerrainCanvas {
             // rope just beyond the collision circle and the pair can actually
             // reach equilibrium and go still.
             if (isPondTile(s) || isPondTile(t)) return POND_TILE_COLLIDE_R + 24;
+            // A foreign key rests with the two tables clear of each other;
+            // a table's rope to its folder reaches past its own body, for
+            // the same can't-ever-settle reason as the pond tile's.
+            if (l.kind === 'fk') return s.radius + t.radius + 40;
+            if (isTable(s) || isTable(t)) return Math.max(s.radius, t.radius) + 24;
             return s.node.kind === 'repo' ? 70 : 34;
           })
           // Session tethers are weak on purpose: the orb drifts to sit amid
@@ -1407,15 +1471,25 @@ export class TerrainCanvas {
           .strength((l) =>
             l.kind === 'session'
               ? 0.06
-              : isPondTile(l.source as SimNode) || isPondTile(l.target as SimNode)
-                ? 0.15
-                : 0.7,
+              : l.kind === 'fk'
+                ? // A foreign key only LEANS related tables toward each
+                  // other — enough that todos and its subtasks end up
+                  // neighbours, never enough to fight the folder's rope.
+                  0.04
+                : isPondTile(l.source as SimNode) ||
+                    isPondTile(l.target as SimNode) ||
+                    isTable(l.source as SimNode) ||
+                    isTable(l.target as SimNode)
+                  ? 0.15
+                  : 0.7,
           ),
       )
       .force(
         'charge',
         forceManyBody<SimNode>().strength((n) =>
-          n.node.kind === 'file' ? -38 : n.node.kind === 'session' ? -70 : -140,
+          // A table pushes like a folder, not like a dot: it is a body with a
+          // name to keep clear, and dot-strength charge packs them into soup.
+          n.node.kind === 'file' && !isTable(n) ? -38 : n.node.kind === 'session' ? -70 : -140,
         ),
       )
       .force('collide', forceCollide<SimNode>((n) => n.radius + 4))
@@ -1428,10 +1502,13 @@ export class TerrainCanvas {
         // that passed through the crowd. Bleeding most of its velocity each
         // tick makes it move like the heavy thing it is: nudges still land,
         // drift doesn't.
+        // Tables get a lighter share of the same ballast: bigger than a
+        // dot, smaller than the tile.
         for (const sn of this.simNodes) {
-          if (!isPondTile(sn)) continue;
-          sn.vx = (sn.vx ?? 0) * 0.3;
-          sn.vy = (sn.vy ?? 0) * 0.3;
+          const keep = isPondTile(sn) ? 0.3 : isTable(sn) ? 0.6 : 1;
+          if (keep === 1) continue;
+          sn.vx = (sn.vx ?? 0) * keep;
+          sn.vy = (sn.vy ?? 0) * keep;
         }
         this.requestDraw();
       })
@@ -1493,6 +1570,20 @@ export class TerrainCanvas {
       const dx = (n.x ?? 0) - wx;
       const dy = (n.y ?? 0) - wy;
       const dist = Math.hypot(dx, dy);
+      // A table is hit by its RECTANGLE, plus a fingertip of slop — not by
+      // its collision circle, which on a tall thin table is mostly empty
+      // space either side of it and would steal taps meant for the map.
+      if (n.node.file?.table) {
+        const size = tableSize(n.node.file.table);
+        const slop = TAP_RADIUS_PX / 2 / k;
+        const inside =
+          Math.abs(dx) <= size.width / 2 + slop && Math.abs(dy) <= size.height / 2 + slop;
+        if (inside && dist < bestDist) {
+          best = n;
+          bestDist = dist;
+        }
+        continue;
+      }
       // Generous, screen-space hit radius: the node's own drawn radius or a
       // fingertip's ~20px, whichever is bigger on screen.
       const hit = Math.max(n.radius, TAP_RADIUS_PX / k);
@@ -1692,6 +1783,66 @@ export class TerrainCanvas {
       ctx.stroke();
       ctx.globalAlpha = base;
     }
+  }
+
+  /**
+   * A database table, drawn as the table's own shape.
+   *
+   * One vertical stripe per column, so the WIDTH is the column count; the
+   * HEIGHT under the header band is the row count on a square-root scale
+   * (tableNodes.ts tableSize, which the tap card and the hit test share, so
+   * picture, words and touch can't disagree). The band across the top stands
+   * for the column names. Within it, a primary-key column is inked solid — the
+   * column that identifies a row — and a foreign-key column is inked blue, the
+   * same blue as the line that leaves the table for the one it points at. An
+   * empty table is a dashed outline with only its header: structure, no rows.
+   *
+   * Opaque on purpose: foreign-key lines run centre to centre and are painted
+   * first, so a solid body makes each line appear to stop at the table's edge.
+   * Neutral ink, not heat — a table has no edit history on this map, and
+   * wearing the ramp's cold black would claim it's an old file.
+   */
+  private drawTable(n: SimNode): void {
+    const table = n.node.file?.table;
+    if (!table) return;
+    const { ctx, theme, transform } = this;
+    const size = tableSize(table);
+    const floor = TABLE_MIN_PX / transform.k;
+    const width = Math.max(size.width, floor);
+    const height = Math.max(size.height, floor);
+    const x0 = (n.x ?? 0) - width / 2;
+    const y0 = (n.y ?? 0) - height / 2;
+    const columnWidth = width / Math.max(1, table.columns.length);
+    const headerHeight = Math.min(HEADER_HEIGHT, height);
+    const foreignColumns = new Set(table.foreign_keys.map((key) => key.column));
+
+    // The body: opaque surface, then alternating column stripes over the rows.
+    ctx.fillStyle = theme.bg;
+    ctx.fillRect(x0, y0, width, height);
+    for (let i = 0; i < table.columns.length; i += 1) {
+      ctx.fillStyle = mixHex(theme.bg, theme.text, i % 2 === 0 ? 0.16 : 0.09);
+      ctx.fillRect(x0 + i * columnWidth, y0 + headerHeight, columnWidth, height - headerHeight);
+    }
+
+    // The header band: one cell per column, inked by what the column is.
+    for (let i = 0; i < table.columns.length; i += 1) {
+      const column = table.columns[i];
+      ctx.fillStyle = column.pk
+        ? theme.text
+        : foreignColumns.has(column.name)
+          ? theme.evening
+          : mixHex(theme.bg, theme.text, 0.42);
+      // A hair of gap between cells so 22 columns read as 22, not as a bar.
+      const gap = Math.min(columnWidth * 0.12, COLUMN_WIDTH * 0.12);
+      ctx.fillRect(x0 + i * columnWidth + gap / 2, y0, columnWidth - gap, headerHeight);
+    }
+
+    // The outline — dashed when the table holds no rows at all.
+    ctx.strokeStyle = mixHex(theme.bg, theme.text, 0.55);
+    ctx.lineWidth = 1 / transform.k;
+    if (table.rows === 0) ctx.setLineDash([3 / transform.k, 3 / transform.k]);
+    ctx.strokeRect(x0, y0, width, height);
+    ctx.setLineDash([]);
   }
 
   /** Tell the page where the water is, if that answer has moved. */
@@ -1896,6 +2047,17 @@ export class TerrainCanvas {
         ctx.strokeStyle = this.orbStroke;
         ctx.lineWidth = 1.3 / transform.k;
         ctx.setLineDash([4 / transform.k, 5 / transform.k]);
+      } else if (link.kind === 'fk') {
+        // Foreign keys: solid lines in the app's blue, a step heavier than
+        // the tree — "these two tables are joined" is a different statement
+        // from "this file is in that folder", so it gets its own ink. Blue
+        // because red and gold are heat and the accent is the agents'. Under
+        // a table hover the hovered table's own keys thicken and skip the
+        // fade just below, while the rest recede with the tree.
+        ctx.globalAlpha = inPrint ? 0.7 : 0.15;
+        ctx.strokeStyle = theme.evening;
+        ctx.lineWidth = (s.id === this.hoverFile || t.id === this.hoverFile ? 2.2 : 1.4) / transform.k;
+        ctx.setLineDash([]);
       } else {
         ctx.globalAlpha = inPrint ? 0.55 : 0.15;
         ctx.strokeStyle = theme.border;
@@ -1906,7 +2068,9 @@ export class TerrainCanvas {
       // tree stays at full strength while the dots fall away, and the map
       // reads as a skeleton with the flesh removed rather than as one thing
       // stepping back.
-      if (this.hoverFile !== null) ctx.globalAlpha *= 0.22;
+      const hoveredKey =
+        link.kind === 'fk' && (s.id === this.hoverFile || t.id === this.hoverFile);
+      if (this.hoverFile !== null && !hoveredKey) ctx.globalAlpha *= 0.22;
       ctx.beginPath();
       ctx.moveTo(s.x ?? 0, s.y ?? 0);
       ctx.lineTo(t.x ?? 0, t.y ?? 0);
@@ -2024,6 +2188,13 @@ export class TerrainCanvas {
         // The pond tile — the journal's one body on the map. Drawn as a
         // square of water rather than a dot, and never labeled by the engine.
         this.drawPondTile(n, ramp, now);
+        continue;
+      }
+
+      if (n.node.kind === 'file' && n.node.file?.table) {
+        // A database table — drawn as its own shape, columns wide and rows
+        // tall, rather than as a dot.
+        this.drawTable(n);
         continue;
       }
 
@@ -2225,6 +2396,7 @@ export class TerrainCanvas {
           : new Set(this.footprintLabels.slice(0, FOOTPRINT_LABEL_CAP));
     for (const n of this.simNodes) {
       if (this.hiddenFiles.has(n.id)) continue; // no caption for a dot that isn't drawn
+      if (n.node.file?.table) continue; // tables are named in their own pass, below
       if (n.node.kind === 'file' && !(namedFiles !== null && namedFiles.has(n.id))) continue;
       // Directories caption themselves at readable zoom on the map proper. In
       // the step-back view zoom is not hers to set, so the bound is relevance
@@ -2277,8 +2449,80 @@ export class TerrainCanvas {
       }
     }
 
+    this.drawTableLabels(dimmed);
+
     // Last, so the anchor it reports is the one this frame actually drew.
     this.reportPond();
+  }
+
+  /**
+   * Name the tables, without letting the names pile up — this is greedy label
+   * placement, the way a map decides which towns to name at each zoom.
+   *
+   * Tables sit close together and their names are wider than they are, so
+   * naming all of them at once is a smear of text. Instead the candidates are
+   * taken in order of importance — the hovered table and the tables it's
+   * joined to first, then biggest first — and a name is only drawn if its box
+   * doesn't overlap one already drawn. Zoom in and the tables spread apart on
+   * screen, so more names fit; nothing is ever hidden for good.
+   *
+   * The name sits above the rectangle. At readable zoom a second line under
+   * it gives the size in words — "2,773 × 13", rows × columns — the fact the
+   * rectangle is a picture of. Screen space, so never under the 12px floor.
+   */
+  private drawTableLabels(dimmed: boolean): void {
+    const { ctx, theme, transform } = this;
+    const k = transform.k;
+    if (k < TABLE_LABEL_MIN_K) return;
+    const detailed = k >= LABEL_MIN_K;
+    const kin = this.hoverFile !== null ? this.hoverFileKin : null;
+
+    const candidates = this.simNodes.filter(
+      (n) =>
+        n.node.file?.table !== undefined &&
+        !this.hiddenFiles.has(n.id) &&
+        !(dimmed && !this.footprint!.has(n.id)),
+    );
+    candidates.sort((a, b) => {
+      const kinFirst = Number(kin?.has(b.id) ?? false) - Number(kin?.has(a.id) ?? false);
+      return kinFirst || b.node.file!.table!.rows - a.node.file!.table!.rows;
+    });
+
+    const placed: { left: number; right: number; top: number; bottom: number }[] = [];
+    const lineHeight = LABEL_PX + 2;
+    for (const n of candidates) {
+      const table = n.node.file!.table!;
+      const x = (n.x ?? 0) * k + transform.x;
+      const bottom = ((n.y ?? 0) - tableSize(table).height / 2) * k + transform.y - 4;
+      if (x < -80 || x > this.width + 80 || bottom < -40 || bottom > this.height + 40) continue;
+
+      ctx.font = `600 ${LABEL_PX}px ${this.fontFamily}`;
+      const halfWidth = ctx.measureText(table.name).width / 2 + 4;
+      const box = {
+        left: x - halfWidth,
+        right: x + halfWidth,
+        top: bottom - lineHeight * (detailed ? 2 : 1),
+        bottom,
+      };
+      const collides = placed.some(
+        (p) => box.left < p.right && box.right > p.left && box.top < p.bottom && box.bottom > p.top,
+      );
+      if (collides) continue;
+      placed.push(box);
+
+      // With a table hovered, the names outside its joins step back with
+      // their rectangles.
+      ctx.globalAlpha = kin === null || kin.has(n.id) ? 1 : 0.3;
+      if (detailed) {
+        ctx.font = `500 ${LABEL_PX}px ${this.fontFamily}`;
+        ctx.fillStyle = theme.textMuted;
+        ctx.fillText(`${table.rows.toLocaleString()} × ${table.columns.length}`, x, bottom);
+        ctx.font = `600 ${LABEL_PX}px ${this.fontFamily}`;
+      }
+      ctx.fillStyle = theme.text;
+      ctx.fillText(table.name, x, bottom - (detailed ? lineHeight : 0));
+    }
+    ctx.globalAlpha = 1;
   }
 }
 
