@@ -7,9 +7,15 @@ what is INSIDE that file — so the map can give every table its own body:
 
   GET /api/observatory/terrain/tables       every table, described
   GET /api/observatory/terrain/tables/rows  one table's actual rows, a page at
-                                            a time, optionally only the rows
-                                            that contain a search word
+                                            a time — searched, filtered by
+                                            column, and sorted as asked, with
+                                            the SQL that did it sent back too
   GET /api/observatory/terrain/tables/row   one whole row, nothing cut short
+  GET /api/observatory/terrain/tables/column
+                                            one column, profiled: how full it
+                                            is, how many different values, and
+                                            — when they're few — every value
+                                            with how many rows carry it
 
 For each table it says how many rows it holds, how many bytes it takes on
 disk, every column (name, type, primary key, NOT NULL), its indexes, and which
@@ -45,7 +51,10 @@ be sized by how much is in there and learn more about the shapes of the tables
 through this exercise" / "for each one i want a description of the information
 it contains and the files that created it and write to it or that otherwise
 interact with it" / "make it such that i can click into it to see the actual
-rows themselves with a search function within the rows".
+rows themselves with a search function within the rows" / "a more robust
+feature to filter and sort the sql tables … toggle rows, sort by oldest to
+newest and reverse the direction" / "see all the value categories for a given
+[column] and a description of what [it] contains for each one".
 """
 import contextlib
 import json
@@ -146,7 +155,8 @@ _NOTES_PATH = Path(__file__).resolve().parent.parent / "table_notes.json"
 
 
 def load_notes():
-    """Read the hand-written table notes: {table name: {holds, source, rebuildable}}.
+    """Read the hand-written table notes: {table name: {holds, source, kind,
+    time_column, columns}} — see the `_about` entry in the file itself.
 
     A missing or broken notes file comes back as {} — every table then simply
     has no description on its card, which is honest, rather than the whole map
@@ -356,15 +366,119 @@ def _show_cell(value, word):
     return text[:_CELL_CHARS] + "…", True
 
 
-def read_rows(table, word="", offset=0, limit=_ROWS_PAGE):
-    """Read one page of a table's rows, in the order the database stores them.
+# What a filter may do to a column. A fixed list: the request picks one of
+# these WORDS, and only the code below ever turns a word into SQL.
+_FILTER_OPS = ("is", "is_not", "contains", "empty", "not_empty", "min", "max")
+_FILTER_MAX = 12            # filters per request
+_FILTER_VALUES_MAX = 50     # values in one "is" / "is_not"
+_DAY_ONLY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
-    With a search word, only rows where SOME column contains it (any case, for
-    plain letters) — every column is compared as text, so a number or a date
-    can be searched for the same way a name can. Returns None when the table
-    doesn't exist. `total` is the whole table; `matching` is how many rows the
-    search found (equal to `total` when there is no search), so the page can
-    say "37 of 2,773" honestly."""
+
+class BadFilter(ValueError):
+    """A filter or sort the request had no business asking for."""
+
+
+def _sql_literal(value):
+    """Write a value the way it would be typed into SQL — for the SQL that is
+    SHOWN, never for the SQL that is run (that one uses bound parameters)."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return str(value)
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def _filter_clause(spec, column_types):
+    """Turn one filter into (SQL with ? placeholders, its parameters).
+
+    `spec` is {"column", "op", "value" or "values"}. The column must be one of
+    the table's real columns and the op one of _FILTER_OPS, or this raises
+    BadFilter — the two checks that make it safe to put the column's name into
+    SQL text. Every VALUE travels as a parameter."""
+    if not isinstance(spec, dict):
+        raise BadFilter("a filter must be an object")
+    column, op = spec.get("column"), spec.get("op")
+    if column not in column_types:
+        raise BadFilter(f"no such column: {column}")
+    if op not in _FILTER_OPS:
+        raise BadFilter(f"no such filter: {op}")
+    name = f'"{column}"'
+    numeric = column_types[column].upper().startswith(("INT", "REAL", "NUM", "FLOAT", "DOUB"))
+
+    if op in ("empty", "not_empty"):
+        # "Empty" means nothing was stored: NULL, or text with nothing in it.
+        return (f"({name} IS NULL OR {name} = '')" if op == "empty"
+                else f"({name} IS NOT NULL AND {name} <> '')"), []
+
+    if op in ("is", "is_not"):
+        values = spec.get("values")
+        if not isinstance(values, list) or not values or len(values) > _FILTER_VALUES_MAX:
+            raise BadFilter("`values` must be a list of 1 to 50 values")
+        wants_empty = any(v is None for v in values)
+        listed = [v for v in values if v is not None]
+        if any(not isinstance(v, (str, int, float)) or isinstance(v, bool) for v in listed):
+            raise BadFilter("values must be text or numbers")
+        parts, params = [], []
+        if listed:
+            parts.append(f"{name} IN ({', '.join('?' * len(listed))})")
+            params = [str(v)[:200] if isinstance(v, str) else v for v in listed]
+        if wants_empty:
+            parts.append(f"{name} IS NULL")
+        inside = " OR ".join(parts)
+        if op == "is":
+            return f"({inside})", params
+        # NOT IN quietly drops rows whose value is NULL (NULL is "unknown", so
+        # SQL won't say it ISN'T in the list). "Is not done" should keep the
+        # rows with no value at all, so they are let back in by name.
+        keep_nulls = "" if wants_empty else f" OR {name} IS NULL"
+        return f"(NOT ({inside}){keep_nulls})", params
+
+    value = spec.get("value")
+    if not isinstance(value, (str, int, float)) or isinstance(value, bool) or value == "":
+        raise BadFilter("`value` must be text or a number")
+    if op == "contains":
+        return f"CAST({name} AS TEXT) LIKE ? ESCAPE '\\'", [_like_pattern(str(value)[:200])]
+    if numeric:
+        try:
+            value = float(value) if "." in str(value) else int(value)
+        except ValueError as e:
+            raise BadFilter(f"{column} holds numbers") from e
+        return f"{name} {'>=' if op == 'min' else '<='} ?", [value]
+    value = str(value)[:200]
+    if op == "max" and _DAY_ONLY.match(value):
+        # "Up to the 19th" must include the whole of the 19th. Times here are
+        # text like 2026-09-19T14:03, which sorts AFTER the bare day, so the
+        # comparison is made on the day part only.
+        return f"substr({name}, 1, 10) <= ?", [value]
+    return f"{name} {'>=' if op == 'min' else '<='} ?", [value]
+
+
+def _shown_sql(template, params):
+    """The SQL that was run, with the values written in — what she sees, and
+    can paste into the SQL room. Same statement, same order; only the ?s are
+    replaced, left to right."""
+    pieces = template.split("?")
+    assert len(pieces) == len(params) + 1
+    out = pieces[0]
+    for value, piece in zip(params, pieces[1:]):
+        out += _sql_literal(value) + piece
+    return out
+
+
+def read_rows(table, word="", offset=0, limit=_ROWS_PAGE, filters=None, sort=None, descending=False):
+    """Read one page of a table's rows — searched, filtered, and sorted.
+
+    SEARCH (`word`): keep rows where SOME column contains it (any case, for
+    plain letters); every column is compared as text, so a number or a date
+    can be searched for the same way a name can.
+    FILTERS: a list of {"column", "op", ...} (see _filter_clause); a row must
+    pass ALL of them, and the search too.
+    SORT: a column name, ascending unless `descending`. Rows with no value in
+    that column always come LAST, whichever direction — "newest first" should
+    not open with a page of blanks. With no sort, rows come in stored order.
+
+    Returns None when the table doesn't exist; raises BadFilter for a filter or
+    sort column that isn't real. `total` is the whole table and `matching` is
+    how many rows passed, so the page can say "37 of 2,773" honestly. `sql` is
+    the statement that produced the page, written out with its values."""
     conn = _open_read_only()
     if conn is None:
         return None
@@ -372,19 +486,36 @@ def read_rows(table, word="", offset=0, limit=_ROWS_PAGE):
         name = _real_table(conn, table)
         if name is None:
             return None
-        columns = [c[1] for c in conn.execute(f'PRAGMA table_info("{name}")')]
-        where, params = "", []
+        info = list(conn.execute(f'PRAGMA table_info("{name}")'))
+        columns = [c[1] for c in info]
+        column_types = {c[1]: c[2] or "" for c in info}
+
+        clauses, params = [], []
         if word:
-            where = " WHERE " + " OR ".join(
-                f"CAST(\"{c}\" AS TEXT) LIKE ? ESCAPE '\\'" for c in columns)
-            params = [_like_pattern(word)] * len(columns)
+            clauses.append("(" + " OR ".join(
+                f"CAST(\"{c}\" AS TEXT) LIKE ? ESCAPE '\\'" for c in columns) + ")")
+            params += [_like_pattern(word)] * len(columns)
+        filters = filters or []
+        if not isinstance(filters, list) or len(filters) > _FILTER_MAX:
+            raise BadFilter(f"at most {_FILTER_MAX} filters")
+        for spec in filters:
+            clause, clause_params = _filter_clause(spec, column_types)
+            clauses.append(clause)
+            params += clause_params
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+
+        if sort is not None and sort not in column_types:
+            raise BadFilter(f"no such column: {sort}")
+        order = (f' ORDER BY "{sort}" IS NULL, "{sort}" {"DESC" if descending else "ASC"}, rowid'
+                 if sort else " ORDER BY rowid")
+
         total = conn.execute(f'SELECT COUNT(*) FROM "{name}"').fetchone()[0]
         matching = (conn.execute(f'SELECT COUNT(*) FROM "{name}"{where}', params).fetchone()[0]
-                    if word else total)
+                    if clauses else total)
         # `rowid` is SQLite's own hidden row number. It rides along so the page
         # can ask for one whole row by it later; it is not one of her columns.
         fetched = conn.execute(
-            f'SELECT rowid, * FROM "{name}"{where} ORDER BY rowid LIMIT ? OFFSET ?',
+            f'SELECT rowid, * FROM "{name}"{where}{order} LIMIT ? OFFSET ?',
             params + [limit, offset]).fetchall()
         rows = []
         for record in fetched:
@@ -394,8 +525,99 @@ def read_rows(table, word="", offset=0, limit=_ROWS_PAGE):
                 cells.append(shown)
                 cut.append(was_cut)
             rows.append({"rowid": record[0], "cells": cells, "cut": cut})
+        shown_order = "" if not sort else order.replace(", rowid", "")
         return {"table": name, "columns": columns, "rows": rows, "total": total,
-                "matching": matching, "offset": offset, "limit": limit, "search": word}
+                "matching": matching, "offset": offset, "limit": limit, "search": word,
+                "sort": sort, "descending": bool(sort and descending),
+                "sql": _shown_sql(f'SELECT * FROM "{name}"{where}{shown_order} LIMIT {limit}', params)}
+    finally:
+        with contextlib.suppress(sqlite3.Error):
+            conn.close()
+
+
+# --- one column, profiled -------------------------------------------------------
+
+_VALUES_ALL_MAX = 40     # a column with this few different values lists them all
+_VALUES_TOP = 12         # ...otherwise only its most common ones
+_VALUE_CHARS_MAX = 60    # a column whose values average longer than this is
+                         # prose (a card's body, a whole JSON document): listing
+                         # "the different values" of prose is meaningless
+_DATE_LIKE = re.compile(r"^\d{4}-\d{2}-\d{2}")
+
+
+def read_column(table, column):
+    """Profile one column across the WHOLE table: how full it is, how many
+    different values it has, its smallest and largest, and its values with how
+    many rows carry each — all of them when they're few, the most common when
+    they're many, none when the column is prose.
+
+    `looks_like` is a plain guess at what kind of column it is, made from the
+    data (not from its name), so the page can offer the right kind of filter:
+    'yesno' (only 0 and 1), 'number', 'date' (values start YYYY-MM-DD),
+    'category' (few different values), or 'text'. Returns None when the table
+    or column doesn't exist."""
+    conn = _open_read_only()
+    if conn is None:
+        return None
+    try:
+        name = _real_table(conn, table)
+        if name is None:
+            return None
+        info = {c[1]: c for c in conn.execute(f'PRAGMA table_info("{name}")')}
+        if column not in info:
+            return None
+        col = f'"{column}"'
+        declared = info[column][2] or ""
+        numeric = declared.upper().startswith(("INT", "REAL", "NUM", "FLOAT", "DOUB"))
+        filled_where = f"{col} IS NOT NULL AND {col} <> ''"
+
+        total, filled, distinct, average_chars, smallest, largest = conn.execute(
+            f"SELECT COUNT(*), SUM({filled_where}), COUNT(DISTINCT {col}),"
+            f" AVG(LENGTH(CAST({col} AS TEXT))),"
+            f" MIN(CASE WHEN {filled_where} THEN {col} END),"
+            f" MAX(CASE WHEN {filled_where} THEN {col} END) FROM \"{name}\"").fetchone()
+        filled = filled or 0
+        prose = (average_chars or 0) > _VALUE_CHARS_MAX
+        average = None
+        if numeric and filled:
+            average = conn.execute(f'SELECT AVG({col}) FROM "{name}"').fetchone()[0]
+
+        values, values_complete = None, False
+        if not prose and distinct:
+            values_complete = distinct <= _VALUES_ALL_MAX
+            counted = conn.execute(
+                f'SELECT {col}, COUNT(*) FROM "{name}" WHERE {col} IS NOT NULL'
+                f" GROUP BY {col} ORDER BY COUNT(*) DESC, {col} LIMIT ?",
+                (_VALUES_ALL_MAX if values_complete else _VALUES_TOP,)).fetchall()
+            values = [{"value": v if not isinstance(v, bytes) else f"<{len(v):,} bytes>",
+                       "rows": n} for v, n in counted]
+
+        if numeric and distinct and distinct <= 2 and smallest in (0, 1) and largest in (0, 1):
+            looks_like = "yesno"
+        elif numeric:
+            looks_like = "number"
+        elif isinstance(smallest, str) and _DATE_LIKE.match(smallest) and _DATE_LIKE.match(str(largest)):
+            looks_like = "date"
+        elif values_complete:
+            looks_like = "category"
+        else:
+            looks_like = "text"
+
+        points_at = next(({"table": f[2], "column": f[4]}
+                          for f in conn.execute(f'PRAGMA foreign_key_list("{name}")')
+                          if f[3] == column), None)
+        table_notes = load_notes().get(name) or {}
+        return {
+            "table": name, "column": column, "type": declared,
+            "primary_key": bool(info[column][5]), "required": bool(info[column][3]),
+            "points_at": points_at, "looks_like": looks_like,
+            "total": total, "filled": filled, "empty": total - filled, "distinct": distinct,
+            "smallest": smallest if not isinstance(smallest, bytes) else None,
+            "largest": largest if not isinstance(largest, bytes) else None,
+            "average": average, "prose": prose,
+            "values": values, "values_complete": values_complete,
+            "notes": (table_notes.get("columns") or {}).get(column),
+        }
     finally:
         with contextlib.suppress(sqlite3.Error):
             conn.close()
@@ -443,8 +665,18 @@ def register(app):
         word = (request.args.get("q") or "").strip()[:200]
         offset = _whole_number(request.args.get("offset"), 0, 0, 10_000_000)
         limit = _whole_number(request.args.get("limit"), _ROWS_PAGE, 1, _ROWS_PAGE_MAX)
+        # Filters arrive as one JSON list in the query string; the sort as a
+        # column name plus a direction word.
         try:
-            page = read_rows(table, word, offset, limit)
+            filters = json.loads(request.args.get("filters") or "[]")
+        except ValueError:
+            return jsonify({"error": "filters must be JSON"}), 400
+        sort = request.args.get("sort") or None
+        descending = request.args.get("dir") == "desc"
+        try:
+            page = read_rows(table, word, offset, limit, filters, sort, descending)
+        except BadFilter as e:
+            return jsonify({"error": str(e)}), 400
         except sqlite3.OperationalError as e:
             # "interrupted" is the wall-clock cap firing: say what happened in
             # words she can act on, rather than a bare 500.
@@ -468,3 +700,15 @@ def register(app):
         if row is None:
             return jsonify({"error": "no such row"}), 404
         return jsonify(row)
+
+    @app.route("/api/observatory/terrain/tables/column")
+    def observatory_terrain_table_column():
+        try:
+            profile = read_column(request.args.get("table", ""), request.args.get("column", ""))
+        except sqlite3.OperationalError as e:
+            if "interrupt" in str(e).lower():
+                return jsonify({"error": "That took too long and was stopped."}), 408
+            return jsonify({"error": str(e)}), 500
+        if profile is None:
+            return jsonify({"error": "no such column"}), 404
+        return jsonify(profile)

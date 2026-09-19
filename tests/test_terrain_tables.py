@@ -17,6 +17,13 @@ hand in the isolated data dir and check:
     % and _ as ordinary characters, cuts long cells short (around the match,
     when there is one) and says so, and the single-row door returns them whole
   - rows are closed to visitors, and an unknown table is a 404, not SQL
+  - rows can be filtered by column and sorted either way, empties always last;
+    "is not" keeps the rows with no value; a made-up column or filter word is
+    refused before it gets near SQL; the SQL that ran is sent back, runnable
+  - one column can be profiled: how full, how many different values, every
+    value with its count when they're few, none when the column is prose
+  - every COLUMN sqlstore.py creates has a plain-English note, and each
+    table's declared time column really exists
 """
 import json
 import re
@@ -182,8 +189,31 @@ def test_every_table_in_the_schema_has_a_note():
     described = {name for name in notes if not name.startswith("_")}
     assert created - described == set()
     for name in described:
-        assert set(notes[name]) == {"holds", "source", "kind"}
+        assert set(notes[name]) == {"holds", "source", "kind", "time_column", "columns"}
         assert notes[name]["kind"] in {"mirror", "record", "store", "mixed"}
+
+
+def test_every_column_in_the_schema_has_a_note(data_dir):
+    """Build a brand-new database the way the app does (sqlstore's migration
+    ladder), then compare its real columns with the notes. Reading the columns
+    back from SQLite, rather than parsing CREATE TABLE text, means columns
+    added later by ALTER TABLE are held to the same rule."""
+    import sqlstore
+    sqlstore.open_db().close()
+    notes = json.loads((Path(store.BUILD_DIR) / "table_notes.json").read_text())
+    conn = sqlite3.connect(data_dir / "exo.db")
+    tables = [r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")]
+    assert tables, "the ladder made no tables"
+    for table in tables:
+        real = {c[1] for c in conn.execute(f'PRAGMA table_info("{table}")')}
+        noted = set(notes[table]["columns"])
+        assert real - noted == set(), f"{table}: columns with no description"
+        assert noted - real == set(), f"{table}: descriptions for columns that don't exist"
+        assert notes[table]["time_column"] in real | {None}
+        for column in notes[table]["columns"].values():
+            assert set(column) <= {"holds", "values"} and column["holds"]
+    conn.close()
 
 
 # --- the rows themselves ---------------------------------------------------------
@@ -263,3 +293,132 @@ def test_rows_are_closed_to_visitors(data_dir, monkeypatch):
     visitor = server.app.test_client()
     assert visitor.get("/api/observatory/terrain/tables/rows?table=todos").status_code == 401
     assert visitor.get("/api/observatory/terrain/tables/row?table=todos&rowid=1").status_code == 401
+
+
+# --- filtering, sorting, and the SQL that did it ---------------------------------
+
+@pytest.fixture
+def shelf(vault):
+    """Books with a category, a yes/no, a date with gaps, and a page count."""
+    conn = sqlite3.connect(vault / "exo.db")
+    conn.execute("CREATE TABLE books (id INTEGER PRIMARY KEY, title TEXT, genre TEXT,"
+                 " read INTEGER, finished TEXT, pages INTEGER)")
+    conn.executemany(
+        "INSERT INTO books (title, genre, read, finished, pages) VALUES (?, ?, ?, ?, ?)", [
+            ("Dune", "scifi", 1, "2026-03-01T09:00", 412),
+            ("Emma", "classic", 1, "2026-05-20T21:30", 320),
+            ("Ubik", "scifi", 0, None, 202),
+            ("Solaris", "scifi", 1, "2026-05-20T08:00", 204),
+            ("Untitled", None, 0, None, 10),
+        ])
+    conn.commit()
+    conn.close()
+
+
+def _filtered(client, filters=None, **params):
+    if filters is not None:
+        params["filters"] = json.dumps(filters)
+    return _rows(client, table="books", **params)
+
+
+def _titles(page):
+    return [r["cells"][1] for r in page["rows"]]
+
+
+def test_filter_keeps_only_the_chosen_categories(client, shelf):
+    _, page = _filtered(client, [{"column": "genre", "op": "is", "values": ["scifi"]}])
+    assert _titles(page) == ["Dune", "Ubik", "Solaris"]
+    assert (page["total"], page["matching"]) == (5, 3)
+
+
+def test_filters_stack(client, shelf):
+    _, page = _filtered(client, [{"column": "genre", "op": "is", "values": ["scifi"]},
+                                 {"column": "read", "op": "is", "values": [1]}])
+    assert _titles(page) == ["Dune", "Solaris"]
+
+
+def test_is_not_keeps_rows_that_have_no_value_at_all(client, shelf):
+    _, page = _filtered(client, [{"column": "genre", "op": "is_not", "values": ["scifi"]}])
+    assert _titles(page) == ["Emma", "Untitled"]
+
+
+def test_empty_and_not_empty(client, shelf):
+    _, unfinished = _filtered(client, [{"column": "finished", "op": "empty"}])
+    _, finished = _filtered(client, [{"column": "finished", "op": "not_empty"}])
+    assert _titles(unfinished) == ["Ubik", "Untitled"]
+    assert _titles(finished) == ["Dune", "Emma", "Solaris"]
+
+
+def test_date_range_includes_the_whole_last_day(client, shelf):
+    _, page = _filtered(client, [{"column": "finished", "op": "min", "value": "2026-04-01"},
+                                 {"column": "finished", "op": "max", "value": "2026-05-20"}])
+    assert sorted(_titles(page)) == ["Emma", "Solaris"]
+
+
+def test_number_range_compares_as_numbers(client, shelf):
+    _, page = _filtered(client, [{"column": "pages", "op": "min", "value": "203"}])
+    assert sorted(_titles(page)) == ["Dune", "Emma", "Solaris"]
+
+
+def test_sort_newest_first_puts_empty_dates_last(client, shelf):
+    _, page = _filtered(client, sort="finished", dir="desc")
+    assert _titles(page) == ["Emma", "Solaris", "Dune", "Ubik", "Untitled"]
+
+
+def test_sort_oldest_first_still_puts_empty_dates_last(client, shelf):
+    _, page = _filtered(client, sort="finished", dir="asc")
+    assert _titles(page) == ["Dune", "Solaris", "Emma", "Ubik", "Untitled"]
+
+
+def test_made_up_column_or_filter_word_is_refused(client, shelf):
+    assert _filtered(client, [{"column": "nope", "op": "is", "values": [1]}])[0] == 400
+    assert _filtered(client, [{"column": "genre", "op": "drop", "values": [1]}])[0] == 400
+    assert _filtered(client, sort='id"; DROP TABLE books; --')[0] == 400
+    assert _filtered(client)[1]["total"] == 5
+
+
+def test_the_sql_sent_back_gives_the_same_rows_when_run(client, shelf, vault):
+    _, page = _filtered(client, [{"column": "genre", "op": "is", "values": ["scifi"]}],
+                        q="s", sort="pages", dir="desc")
+    conn = sqlite3.connect(vault / "exo.db")
+    rerun = [r[1] for r in conn.execute(page["sql"])]
+    conn.close()
+    assert rerun == _titles(page)
+
+
+# --- one column, profiled --------------------------------------------------------
+
+def _column(client, column):
+    resp = client.get("/api/observatory/terrain/tables/column",
+                      query_string={"table": "books", "column": column})
+    return resp.status_code, resp.get_json()
+
+
+def test_category_column_lists_every_value_with_its_count(client, shelf):
+    _, profile = _column(client, "genre")
+    assert profile["looks_like"] == "category"
+    assert profile["values"] == [{"value": "scifi", "rows": 3}, {"value": "classic", "rows": 1}]
+    assert (profile["filled"], profile["empty"], profile["distinct"]) == (4, 1, 2)
+    assert profile["values_complete"] is True
+
+
+def test_column_kinds_are_read_from_the_data(client, shelf):
+    assert _column(client, "read")[1]["looks_like"] == "yesno"
+    assert _column(client, "pages")[1]["looks_like"] == "number"
+    assert _column(client, "finished")[1]["looks_like"] == "date"
+
+
+def test_prose_column_lists_no_values(client, library):
+    _, profile = _column(client, "title")
+    assert profile["prose"] is True and profile["values"] is None
+
+
+def test_unknown_column_is_not_found(client, shelf):
+    assert _column(client, 'genre"; DROP TABLE books; --')[0] == 404
+
+
+def test_column_profile_is_closed_to_visitors(data_dir, monkeypatch):
+    monkeypatch.delenv("EXOCORTEX_PUBLIC_ONLY", raising=False)
+    import server
+    visitor = server.app.test_client()
+    assert visitor.get("/api/observatory/terrain/tables/column?table=todos&column=text").status_code == 401
