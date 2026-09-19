@@ -405,6 +405,11 @@ const DRAG_ALPHA = 0.1;
  * not a tap: she moved a dot, she didn't ask to open it. */
 const DRAG_CLICK_GRACE_MS = 250;
 
+/** How often the layout is allowed to be written down while she's working.
+ * The saves that have no second chance (the page going away, a node put down)
+ * skip it. */
+const SAVE_THROTTLE_MS = 2_000;
+
 /** Where a gesture started, in client coordinates — mouse and touch answer
  * that question differently, and the zoom filter has to ask it of both. */
 function gesturePoint(event: Event): { clientX: number; clientY: number } | null {
@@ -774,6 +779,8 @@ export class TerrainCanvas {
   private dragMoved = false;
   /** When the last real drag ended, so its trailing click can be swallowed. */
   private draggedAt = 0;
+  /** When the layout was last written down — see SAVE_THROTTLE_MS. */
+  private lastSaveAt = 0;
   /** Set when the table shelves first appear: frame the whole map once more
    * when the physics settles — unless she has taken the camera by then. */
   private refitWhenSettled = false;
@@ -1017,23 +1024,48 @@ export class TerrainCanvas {
     }
 
     document.addEventListener('visibilitychange', this.handleVisibility);
+    // The reload path. `pagehide` is the one event that fires reliably across
+    // desktop and iOS on the way out; visibilitychange covers a PWA that's
+    // backgrounded and then killed without ever firing it.
+    if (this.remembers) {
+      window.addEventListener('pagehide', this.handlePageHide);
+      document.addEventListener('visibilitychange', this.handlePageHide);
+    }
     this.orbStroke = theme.accent; // agent + its dotted tethers = the app --accent (her 07-26 call)
   }
 
+  /**
+   * Write the map down — positions, her pins, the camera (layoutMemory.ts).
+   * Called whenever the map goes still, whenever she finishes moving something,
+   * and, the one that matters for a reload, as the page goes away: a reload
+   * never runs React's cleanup, so saving only on destroy saved nothing at all
+   * on a hard refresh. Throttled; `force` is for the saves with no second
+   * chance.
+   */
+  private saveLayout(force = false): void {
+    if (!this.remembers || this.simNodes.length === 0) return;
+    const now = performance.now();
+    if (!force && now - this.lastSaveAt < SAVE_THROTTLE_MS) return;
+    this.lastSaveAt = now;
+    rememberLayout(
+      this.simNodes.map((n) => ({
+        id: n.id,
+        x: n.x,
+        y: n.y,
+        pinned: this.pinnedByHand.has(n.id),
+      })),
+      { x: this.transform.x, y: this.transform.y, k: this.transform.k },
+    );
+  }
+
+  /** The page is going away — a reload, a closed tab, a phone backgrounding the
+   * PWA. Last chance to write, and it has to be synchronous. */
+  private handlePageHide = (): void => {
+    this.saveLayout(true);
+  };
+
   destroy(): void {
-    // Write the map down before anything is torn down, so the next mount opens
-    // where she left it rather than laying the world out again (layoutMemory.ts).
-    if (this.remembers) {
-      rememberLayout(
-        this.simNodes.map((n) => ({
-          id: n.id,
-          x: n.x,
-          y: n.y,
-          pinned: this.pinnedByHand.has(n.id),
-        })),
-        { x: this.transform.x, y: this.transform.y, k: this.transform.k },
-      );
-    }
+    this.saveLayout(true);
     this.destroyed = true;
     this.sim?.stop();
     this.stopPulse();
@@ -1052,6 +1084,8 @@ export class TerrainCanvas {
     this.canvas.removeEventListener('pointerup', this.handlePointerUp);
     this.canvas.removeEventListener('pointercancel', this.handlePointerUp);
     document.removeEventListener('visibilitychange', this.handleVisibility);
+    window.removeEventListener('pagehide', this.handlePageHide);
+    document.removeEventListener('visibilitychange', this.handlePageHide);
     select(this.canvas).on('.zoom', null);
   }
 
@@ -1728,6 +1762,9 @@ export class TerrainCanvas {
         // dots finally stopped; then the once-only re-frame that includes
         // them, if it was asked for and the camera is still ours to move.
         this.settleShelves(1);
+        // Quiescence is the natural moment to write the map down: this is the
+        // arrangement she'd want back.
+        this.saveLayout();
         if (this.refitWhenSettled) {
           this.refitWhenSettled = false;
           if (!this.cameraIsHers) this.fitSoon();
@@ -1899,6 +1936,7 @@ export class TerrainCanvas {
       this.pinnedByHand.add(node.id);
       this.onPins?.(this.pinnedByHand.size);
       this.draggedAt = performance.now();
+      this.saveLayout(true);
     } else if (!this.pinnedByHand.has(node.id)) {
       node.fx = null;
       node.fy = null;
