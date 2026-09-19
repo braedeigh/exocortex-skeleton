@@ -1,11 +1,20 @@
 /* TerrainTableRows — the rows of one table, with search. House rules: nothing
    under 12px; anything tappable ~40px tall (rows, the pager, the search box). */
 
+/* Every piece of the view keeps its natural height (flex: none on the
+   children). The window's body is the one scroller; without this, a column
+   flexbox shrinks whichever child CAN shrink — and the table's box, which
+   scrolls, can — so the table was being squashed down to three rows to make
+   room for everything under it. */
 .rowsView {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  min-height: 0;
+  flex: none;
+}
+
+.rowsView > * {
+  flex: none;
 }
 
 .toolbar {

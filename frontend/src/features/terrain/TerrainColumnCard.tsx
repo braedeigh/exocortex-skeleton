@@ -178,7 +178,9 @@ export function TerrainColumnCard({
               <span className={styles.statLabel}>different {data.distinct === 1 ? 'value' : 'values'}</span>
             </div>
           </div>
-          {data.filled > 0 && !data.prose ? (
+          {/* Smallest and largest only mean something for numbers and dates —
+              "the smallest bucket is done" is just alphabetical order. */}
+          {data.filled > 0 && (data.looks_like === 'date' || data.looks_like === 'number') ? (
             <p className={styles.muted}>
               {data.looks_like === 'date' ? 'Earliest' : 'Smallest'} {shown(data.smallest)} ·{' '}
               {data.looks_like === 'date' ? 'latest' : 'largest'} {shown(data.largest)}

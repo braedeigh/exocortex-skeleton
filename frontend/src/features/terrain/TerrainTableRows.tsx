@@ -366,7 +366,19 @@ export function TerrainTableRows({
             : rows.isError
               ? ''
               : 'Reading…'}
-          {sort ? ` · sorted by ${sort.column}, ${sort.descending ? 'largest / newest first' : 'smallest / oldest first'}` : ''}
+          {sort
+            ? // The time column gets time words; any other column gets the
+              // neutral pair, which is true of numbers, dates and text alike.
+              ` · sorted by ${sort.column}, ${
+                sort.column === timeColumn
+                  ? sort.descending
+                    ? 'newest first'
+                    : 'oldest first'
+                  : sort.descending
+                    ? 'high to low'
+                    : 'low to high'
+              }`
+            : ''}
         </span>
         {search ? (
           <button type="button" className={styles.filterChip} onClick={() => setTyped('')}>
