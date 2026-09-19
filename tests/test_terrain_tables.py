@@ -13,6 +13,10 @@ hand in the isolated data dir and check:
   - the code scan sorts files into creates / writes / reads, and is not fooled
     by lowercase Python imports or by SQL quoted in prose
   - every table sqlstore.py creates has a plain-English note
+  - the rows door pages through a table, searches every column as text, treats
+    % and _ as ordinary characters, cuts long cells short (around the match,
+    when there is one) and says so, and the single-row door returns them whole
+  - rows are closed to visitors, and an unknown table is a 404, not SQL
 """
 import json
 import re
@@ -180,3 +184,82 @@ def test_every_table_in_the_schema_has_a_note():
     for name in described:
         assert set(notes[name]) == {"holds", "source", "kind"}
         assert notes[name]["kind"] in {"mirror", "record", "store", "mixed"}
+
+
+# --- the rows themselves ---------------------------------------------------------
+
+LONG_TITLE = "x" * 400 + " the needle sits deep inside " + "y" * 400
+
+
+@pytest.fixture
+def library(vault):
+    """A table with a number, a percent sign, an underscore and one very long cell."""
+    conn = sqlite3.connect(vault / "exo.db")
+    conn.execute("CREATE TABLE books (id INTEGER PRIMARY KEY, title TEXT, pages INTEGER)")
+    conn.executemany("INSERT INTO books (title, pages) VALUES (?, ?)", [
+        ("Dune", 412), ("50% off", 20), ("snake_case", 99), ("snakeXcase", 7), (LONG_TITLE, 1),
+    ])
+    conn.commit()
+    conn.close()
+
+
+def _rows(client, **params):
+    resp = client.get("/api/observatory/terrain/tables/rows", query_string=params)
+    return resp.status_code, resp.get_json()
+
+
+def test_rows_come_back_a_page_at_a_time_in_stored_order(client, library):
+    status, page = _rows(client, table="books", limit=2, offset=1)
+    assert status == 200
+    assert page["columns"] == ["id", "title", "pages"]
+    assert [r["cells"][1] for r in page["rows"]] == ["50% off", "snake_case"]
+    assert (page["total"], page["matching"]) == (5, 5)
+
+
+def test_search_looks_in_every_column_including_numbers(client, library):
+    _, by_text = _rows(client, table="books", q="dune")
+    _, by_number = _rows(client, table="books", q="412")
+    assert [r["cells"][1] for r in by_text["rows"]] == ["Dune"]
+    assert [r["cells"][1] for r in by_number["rows"]] == ["Dune"]
+    assert (by_text["total"], by_text["matching"]) == (5, 1)
+
+
+def test_search_treats_percent_and_underscore_as_plain_characters(client, library):
+    _, percent = _rows(client, table="books", q="50%")
+    _, underscore = _rows(client, table="books", q="snake_case")
+    assert [r["cells"][1] for r in percent["rows"]] == ["50% off"]
+    assert [r["cells"][1] for r in underscore["rows"]] == ["snake_case"]
+
+
+def test_long_cell_is_cut_short_and_says_so(client, library):
+    _, page = _rows(client, table="books", q="xxxx")
+    row = page["rows"][0]
+    assert row["cut"] == [False, True, False]
+    assert len(row["cells"][1]) < len(LONG_TITLE)
+
+
+def test_cut_cell_shows_the_part_that_matched(client, library):
+    _, page = _rows(client, table="books", q="needle")
+    assert "needle" in page["rows"][0]["cells"][1]
+
+
+def test_one_row_comes_back_whole(client, library):
+    _, page = _rows(client, table="books", q="needle")
+    rowid = page["rows"][0]["rowid"]
+    resp = client.get("/api/observatory/terrain/tables/row",
+                      query_string={"table": "books", "rowid": rowid})
+    assert resp.get_json()["values"][1] == LONG_TITLE
+
+
+def test_unknown_table_is_not_found_rather_than_run_as_sql(client, library):
+    status, _ = _rows(client, table='books"; DROP TABLE books; --')
+    assert status == 404
+    assert _rows(client, table="books")[1]["total"] == 5
+
+
+def test_rows_are_closed_to_visitors(data_dir, monkeypatch):
+    monkeypatch.delenv("EXOCORTEX_PUBLIC_ONLY", raising=False)
+    import server
+    visitor = server.app.test_client()
+    assert visitor.get("/api/observatory/terrain/tables/rows?table=todos").status_code == 401
+    assert visitor.get("/api/observatory/terrain/tables/row?table=todos&rowid=1").status_code == 401

@@ -5,7 +5,11 @@ database out on purpose: exo.db is one binary file, so on a map of files it
 could only ever be one anonymous dot. This module answers the other question —
 what is INSIDE that file — so the map can give every table its own body:
 
-  GET /api/observatory/terrain/tables
+  GET /api/observatory/terrain/tables       every table, described
+  GET /api/observatory/terrain/tables/rows  one table's actual rows, a page at
+                                            a time, optionally only the rows
+                                            that contain a search word
+  GET /api/observatory/terrain/tables/row   one whole row, nothing cut short
 
 For each table it says how many rows it holds, how many bytes it takes on
 disk, every column (name, type, primary key, NOT NULL), its indexes, and which
@@ -40,7 +44,8 @@ terrain view? curious to put my tables on there somewhere" / "i want them to
 be sized by how much is in there and learn more about the shapes of the tables
 through this exercise" / "for each one i want a description of the information
 it contains and the files that created it and write to it or that otherwise
-interact with it".
+interact with it" / "make it such that i can click into it to see the actual
+rows themselves with a search function within the rows".
 """
 import contextlib
 import json
@@ -50,7 +55,7 @@ import sqlite3
 import time
 from pathlib import Path
 
-from flask import jsonify
+from flask import jsonify, request
 
 import store
 from routes import observatory
@@ -277,8 +282,189 @@ def build_tables():
     return {"repo": repo, "path": relpath, "code_repo": "skeleton", "tables": tables}
 
 
+# --- the rows themselves ------------------------------------------------------
+#
+# Reading rows is kept deliberately narrow — this is a window for LOOKING, and
+# the SQL room (routes/sqlab.py) is the place for asking real questions:
+#   - the table name must be one that exists (checked against sqlite_master),
+#     so nothing from the request is ever put into SQL text except a name the
+#     database itself just gave us;
+#   - the search word travels as a bound parameter, never as SQL text;
+#   - the connection is read-only, and a wall-clock cap stops a slow search
+#     from pinning a worker;
+#   - long cells are cut short in the list (one journal card or one whole
+#     collection can be hundreds of kilobytes) and said to be cut, and the
+#     single-row door returns them whole.
+
+_ROWS_PAGE = 100           # rows per page when the client doesn't say
+_ROWS_PAGE_MAX = 500       # ...and the most it may ask for
+_CELL_CHARS = 240          # a cell longer than this is cut short in the list
+_ROWS_DEADLINE_SEC = 3.0   # a search slower than this is stopped
+
+
+def _open_read_only():
+    """Open exo.db read-only, or None when there isn't one yet."""
+    path = store.DATA_DIR / "exo.db"
+    if not path.is_file():
+        return None
+    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
+    conn.execute("PRAGMA query_only = ON")
+    deadline = time.monotonic() + _ROWS_DEADLINE_SEC
+    # SQLite calls this every few thousand steps; a non-zero answer aborts.
+    conn.set_progress_handler(lambda: 1 if time.monotonic() > deadline else 0, 5000)
+    return conn
+
+
+def _real_table(conn, name):
+    """Return the table's name as the database spells it, or None if there is
+    no such table. This is the gate that makes it safe to put the name into
+    SQL text below."""
+    row = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table'"
+        " AND name NOT LIKE 'sqlite_%' AND name = ?", (name,)).fetchone()
+    return row[0] if row else None
+
+
+def _like_pattern(word):
+    """Turn a search word into a LIKE pattern that means "contains this, exactly".
+
+    `%` and `_` are wildcards in LIKE, so a search for "50%" or "todo_id" would
+    otherwise match far more than was typed; they are escaped with a backslash
+    (the queries below declare ESCAPE '\\')."""
+    escaped = word.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
+def _show_cell(value, word):
+    """Make one cell fit for the list: (what to show, whether it was cut short).
+
+    Text longer than _CELL_CHARS is cut. When the row is here BECAUSE of a
+    search, the cut is taken around the first place the word appears rather
+    than from the start — otherwise a match deep inside a long journal card
+    would list the row with no visible reason for it being there."""
+    if value is None or isinstance(value, (int, float)):
+        return value, False
+    if isinstance(value, bytes):
+        return f"<{len(value):,} bytes of binary data>", False
+    text = str(value)
+    if len(text) <= _CELL_CHARS:
+        return text, False
+    at = text.lower().find(word.lower()) if word else -1
+    if at > _CELL_CHARS - len(word) - 20:
+        start = max(0, at - 60)
+        return "…" + text[start:start + _CELL_CHARS] + "…", True
+    return text[:_CELL_CHARS] + "…", True
+
+
+def read_rows(table, word="", offset=0, limit=_ROWS_PAGE):
+    """Read one page of a table's rows, in the order the database stores them.
+
+    With a search word, only rows where SOME column contains it (any case, for
+    plain letters) — every column is compared as text, so a number or a date
+    can be searched for the same way a name can. Returns None when the table
+    doesn't exist. `total` is the whole table; `matching` is how many rows the
+    search found (equal to `total` when there is no search), so the page can
+    say "37 of 2,773" honestly."""
+    conn = _open_read_only()
+    if conn is None:
+        return None
+    try:
+        name = _real_table(conn, table)
+        if name is None:
+            return None
+        columns = [c[1] for c in conn.execute(f'PRAGMA table_info("{name}")')]
+        where, params = "", []
+        if word:
+            where = " WHERE " + " OR ".join(
+                f"CAST(\"{c}\" AS TEXT) LIKE ? ESCAPE '\\'" for c in columns)
+            params = [_like_pattern(word)] * len(columns)
+        total = conn.execute(f'SELECT COUNT(*) FROM "{name}"').fetchone()[0]
+        matching = (conn.execute(f'SELECT COUNT(*) FROM "{name}"{where}', params).fetchone()[0]
+                    if word else total)
+        # `rowid` is SQLite's own hidden row number. It rides along so the page
+        # can ask for one whole row by it later; it is not one of her columns.
+        fetched = conn.execute(
+            f'SELECT rowid, * FROM "{name}"{where} ORDER BY rowid LIMIT ? OFFSET ?',
+            params + [limit, offset]).fetchall()
+        rows = []
+        for record in fetched:
+            cells, cut = [], []
+            for value in record[1:]:
+                shown, was_cut = _show_cell(value, word)
+                cells.append(shown)
+                cut.append(was_cut)
+            rows.append({"rowid": record[0], "cells": cells, "cut": cut})
+        return {"table": name, "columns": columns, "rows": rows, "total": total,
+                "matching": matching, "offset": offset, "limit": limit, "search": word}
+    finally:
+        with contextlib.suppress(sqlite3.Error):
+            conn.close()
+
+
+def read_row(table, rowid):
+    """Read ONE row whole — every value at full length. None when the table or
+    the row doesn't exist. Binary values are still described, not sent."""
+    conn = _open_read_only()
+    if conn is None:
+        return None
+    try:
+        name = _real_table(conn, table)
+        if name is None:
+            return None
+        columns = [c[1] for c in conn.execute(f'PRAGMA table_info("{name}")')]
+        record = conn.execute(f'SELECT * FROM "{name}" WHERE rowid = ?', (rowid,)).fetchone()
+        if record is None:
+            return None
+        values = [f"<{len(v):,} bytes of binary data>" if isinstance(v, bytes) else v
+                  for v in record]
+        return {"table": name, "rowid": rowid, "columns": columns, "values": values}
+    finally:
+        with contextlib.suppress(sqlite3.Error):
+            conn.close()
+
+
+def _whole_number(raw, default, lowest, highest):
+    """Read a whole number from the query string, held inside [lowest, highest]."""
+    try:
+        return max(lowest, min(highest, int(raw)))
+    except (TypeError, ValueError):
+        return default
+
+
 def register(app):
 
     @app.route("/api/observatory/terrain/tables")
     def observatory_terrain_tables():
         return jsonify(build_tables())
+
+    @app.route("/api/observatory/terrain/tables/rows")
+    def observatory_terrain_table_rows():
+        table = request.args.get("table", "")
+        word = (request.args.get("q") or "").strip()[:200]
+        offset = _whole_number(request.args.get("offset"), 0, 0, 10_000_000)
+        limit = _whole_number(request.args.get("limit"), _ROWS_PAGE, 1, _ROWS_PAGE_MAX)
+        try:
+            page = read_rows(table, word, offset, limit)
+        except sqlite3.OperationalError as e:
+            # "interrupted" is the wall-clock cap firing: say what happened in
+            # words she can act on, rather than a bare 500.
+            if "interrupt" in str(e).lower():
+                return jsonify({"error": "That search took too long and was stopped."}), 408
+            return jsonify({"error": str(e)}), 500
+        if page is None:
+            return jsonify({"error": "no such table"}), 404
+        return jsonify(page)
+
+    @app.route("/api/observatory/terrain/tables/row")
+    def observatory_terrain_table_row():
+        table = request.args.get("table", "")
+        rowid = _whole_number(request.args.get("rowid"), None, -2**62, 2**62)
+        if rowid is None:
+            return jsonify({"error": "rowid is required"}), 400
+        try:
+            row = read_row(table, rowid)
+        except sqlite3.OperationalError as e:
+            return jsonify({"error": str(e)}), 500
+        if row is None:
+            return jsonify({"error": "no such row"}), 404
+        return jsonify(row)
