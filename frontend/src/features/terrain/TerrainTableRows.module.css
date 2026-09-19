@@ -8,11 +8,122 @@
   min-height: 0;
 }
 
-.searchBar {
+.toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-2) var(--space-3);
+  gap: var(--space-2);
+}
+
+/* The toolbar's buttons: newest-first and the column chooser. "On" means the
+   thing it controls is currently in force. */
+.tool,
+.toolOn {
+  min-height: var(--tap-target, 44px);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+
+.toolOn {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 22%, var(--bg));
+}
+
+.columnChooser {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--text) 4%, var(--bg));
+}
+
+.chooserHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.chooserTitle {
+  font-size: var(--font-size-md);
+  color: var(--text-secondary);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* A column's chip: solid when the column is showing, struck through and faded
+   when hidden — state carried by more than colour alone. */
+.columnChip,
+.columnChipOn {
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--font-size-md);
+  text-decoration: line-through;
+  cursor: pointer;
+}
+
+.columnChipOn {
+  color: var(--text);
+  font-weight: 600;
+  text-decoration: none;
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg));
+}
+
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* One filter in force, in words, with its ×. */
+.filterChip {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--accent) 60%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 16%, var(--bg));
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-size-md);
+  cursor: pointer;
+}
+
+.linkButton {
+  min-height: 40px;
+  padding: 0 var(--space-2);
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
 }
 
 .search {
@@ -64,7 +175,7 @@
 .table th {
   position: sticky;
   top: 0;
-  padding: var(--space-2) var(--space-3);
+  padding: 0 var(--space-2);
   text-align: left;
   white-space: nowrap;
   font-size: var(--font-size-sm);
@@ -72,6 +183,64 @@
   color: var(--text-secondary);
   background: color-mix(in srgb, var(--text) 8%, var(--bg));
   border-bottom: 1px solid var(--border);
+}
+
+/* A header cell holds two buttons side by side: the column's NAME (opens its
+   card) and a sort ARROW. Each is its own 40px target, because on a touch
+   screen "tap the name" and "tap the arrow" have to be tellable apart. */
+.headCell {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.headName,
+.headNameOn {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-md, 8px);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.headNameOn {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  color: var(--text);
+}
+
+/* A dot on a column's name says a filter on that column is in force. */
+.filteredDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.sortOn,
+.sortOff {
+  min-width: 32px;
+  min-height: 40px;
+  border: 0;
+  border-radius: var(--radius-md, 8px);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--font-size-base);
+  cursor: pointer;
+}
+
+.sortOn {
+  color: var(--text);
+  font-weight: 700;
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
 }
 
 /* A primary-key column wears the same solid ink its header cell wears on the
@@ -145,10 +314,78 @@
   position: sticky;
   left: var(--space-3);
   width: calc(100cqw - 2 * var(--space-3));
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.fieldList {
   margin: 0;
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+}
+
+/* A way along a join: from a key's value to the row it points at, or from
+   this row to the rows in another table that point at it. */
+.jump {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  margin: var(--space-1, 4px) var(--space-2) 0 0;
+  padding: 0 var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--evening) 60%, var(--border));
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--evening) 14%, var(--bg));
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.fieldValue .jump {
+  display: flex;
+  width: fit-content;
+}
+
+.pointedAt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+}
+
+.pointedAtLabel {
+  width: 100%;
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.sqlBlock {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.sql {
+  align-self: stretch;
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--text) 6%, var(--bg));
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--font-size-md);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 220px;
+  overflow-y: auto;
 }
 
 .field {

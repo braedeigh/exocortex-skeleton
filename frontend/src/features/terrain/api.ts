@@ -184,6 +184,18 @@ export interface TerrainTableNotes {
    * 'record' = the only copy; 'store' = the database of record itself;
    * 'mixed' = some rows of each. */
   kind: 'mirror' | 'record' | 'store' | 'mixed';
+  /** The column that says WHEN a row happened — what "newest first" sorts by.
+   * null when the table has no such column; missing on an old payload. */
+  time_column?: string | null;
+  /** One entry per column: what it contains, and — for a column that holds a
+   * fixed set of categories — what each value means. */
+  columns?: Record<string, TerrainColumnNote>;
+}
+
+/** The hand-written note on one column. */
+export interface TerrainColumnNote {
+  holds: string;
+  values?: Record<string, string>;
 }
 
 /** One Python file whose SQL names the table, and the first line it does. */

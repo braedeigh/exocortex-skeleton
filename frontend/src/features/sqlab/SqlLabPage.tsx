@@ -21,6 +21,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { ApiError } from '../../api/client';
+import { SQL_ROOM_QUERY_KEY, SQL_ROOM_VIEW_KEY } from './handoff';
 import { getCollections, getSchema, rebuildHabits, runQuery } from './api';
 import { CollectionMap } from './CollectionMap';
 import { SandboxPanel } from './SandboxPanel';
@@ -28,8 +29,10 @@ import { EXAMPLES } from './examples';
 import type { Collection, SqlCell, SqlResult, SqlTable, TypedTable } from './types';
 import styles from './SqlLabPage.module.css';
 
-const STORAGE_KEY = 'sqlab_query';
-const VIEW_KEY = 'sqlab_view';
+// The keys are shared with handoff.ts, which lets other pages leave a query
+// here for this room to open with.
+const STORAGE_KEY = SQL_ROOM_QUERY_KEY;
+const VIEW_KEY = SQL_ROOM_VIEW_KEY;
 
 type View = 'map' | 'console' | 'sandbox';
 

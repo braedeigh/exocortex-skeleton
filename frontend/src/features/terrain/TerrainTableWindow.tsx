@@ -3,7 +3,8 @@ import { Link } from '@tanstack/react-router';
 import { IconButton } from '../../ui';
 import type { TerrainTable } from './api';
 import { TerrainTableSheet } from './TerrainTableSheet';
-import { TerrainTableRows } from './TerrainTableRows';
+import { TerrainTableRows, type TableJump } from './TerrainTableRows';
+import type { TableFilter } from './tableRows';
 import styles from './TerrainTableWindow.module.css';
 
 /**
@@ -34,7 +35,10 @@ import styles from './TerrainTableWindow.module.css';
  *
  * It opens on About and goes back to About whenever a DIFFERENT table is
  * picked (the joins inside About are buttons that jump between tables), so
- * she always lands on "what is this" before "what's in it". Esc, the ×, and a
+ * she always lands on "what is this" before "what's in it". The one exception
+ * is FOLLOWING A JOIN from inside the rows — tapping a `todo_id` to see that
+ * to-do — which is a question about rows, so it lands on the other table's
+ * Rows side, already filtered to the row the key pointed at. Esc, the ×, and a
  * tap on the dimmed map all close it.
  *
  * Rendered by TerrainPage.tsx in place of its Sheet, for table nodes only.
@@ -62,11 +66,28 @@ export function TerrainTableWindow({
 }) {
   const [side, setSide] = useState<'about' | 'rows'>('about');
   const tableName = table?.name ?? null;
+  // Set when a join is followed: which table it leads to, and the filters that
+  // pick out the rows it pointed at.
+  const [jump, setJump] = useState<{ table: string; filters: TableFilter[] } | null>(null);
 
-  // A different table starts on About again.
+  // A different table starts on About again — unless she got here by following
+  // a join, which lands on that table's Rows, filtered.
   useEffect(() => {
-    setSide('about');
+    setSide(jump !== null && jump.table === tableName ? 'rows' : 'about');
+  }, [tableName, jump]);
+
+  // Closing the window forgets the followed join, so opening the same table
+  // from the map later starts clean rather than still filtered to one row.
+  useEffect(() => {
+    if (tableName === null) setJump(null);
   }, [tableName]);
+
+  /** Follow a join: open the other table (or stay, for a table that points
+   * at itself) with its rows narrowed to what the key pointed at. */
+  const followJump = (next: TableJump) => {
+    setJump({ table: next.table, filters: next.filters });
+    if (next.table !== tableName) onPickTable(next.table);
+  };
 
   // Close on Esc. The key listener is only attached while the window is open.
   useEffect(() => {
@@ -119,11 +140,21 @@ export function TerrainTableWindow({
             <TerrainTableSheet
               table={table}
               allTables={allTables}
-              onPickTable={onPickTable}
+              onPickTable={(name) => {
+                // A jump between tables from About is a fresh look, not a
+                // followed key — forget any filters a join left behind.
+                setJump(null);
+                onPickTable(name);
+              }}
               onOpenFile={onOpenFile}
             />
           ) : (
-            <TerrainTableRows table={table} />
+            <TerrainTableRows
+              table={table}
+              allTables={allTables}
+              start={jump !== null && jump.table === table.name ? jump.filters : null}
+              onJump={followJump}
+            />
           )}
         </div>
 
