@@ -127,6 +127,7 @@ import {
   type TerrainNode,
 } from './terrainGraph';
 import type { TerrainThread } from './terrainThreads';
+import { bodyRadius, sameRings } from './ringBodies';
 import { fileTypeOf } from './fileTypes';
 import {
   COLUMN_WIDTH,
@@ -1161,10 +1162,64 @@ export class TerrainCanvas {
   }
 
   /** The shown agents' read/write rings (see agentTouchRings). Pass an empty
-   * map to clear. */
+   * map to clear. An identical set arriving again changes nothing at all —
+   * see sameRings for why that test has to be on the contents. */
   setAgentRings(rings: Map<string, FileTouchKind>): void {
+    if (sameRings(this.agentRings, rings)) return;
     this.agentRings = rings;
+    this.reshapeBodies();
     this.requestDraw();
+  }
+
+  /** Is this node wearing a touch ring right now? Deliberately does NOT ask
+   * hoverRings: those rewrite themselves as the cursor moves, and a map that
+   * re-arranges itself under the mouse is unusable. Physics follows the fact,
+   * paint follows the cursor. */
+  private isRinged(n: SimNode): boolean {
+    return n.node.kind === 'file' && (this.focusRings.has(n.id) || this.agentRings.has(n.id));
+  }
+
+  /** This node's body in world units — the circle the collider reserves and
+   * the circle the ring is drawn on. The single number behind both; see
+   * ringBodies.ts. */
+  private bodyRadiusOf(n: SimNode): number {
+    return bodyRadius(n.radius, this.isRinged(n));
+  }
+
+  /**
+   * Re-measure the bodies after the ring set changed, then let the map make
+   * room.
+   *
+   * d3 reads each node's collision radius and each rope's rest length ONCE,
+   * in the force's initialize(), and caches them in an array — it never asks
+   * the accessor again. So a ring appearing is invisible to the physics until
+   * those forces are re-initialized, and handing a force back to the
+   * simulation under its own name is what re-runs that measurement.
+   *
+   * Then the faintest warmth: enough that the neighbours step back around a
+   * dot that just grew, far too little to re-arrange the map — the same heat
+   * a node being carried gets (DRAG_ALPHA).
+   */
+  private reshapeBodies(): void {
+    this.remeasureBodies();
+    const sim = this.sim;
+    if (sim && sim.alpha() < DRAG_ALPHA) sim.alpha(DRAG_ALPHA).restart();
+  }
+
+  /** The measuring half of reshapeBodies, without waking anything: the forces
+   * ask for every radius and rest length again, and use them whenever the sim
+   * next runs. This is what the in-place heat path calls — a dot growing with
+   * its heat changes its body too, and leaving the collider on the radii it
+   * cached at the last rebuild is how a swollen dot ends up with a ring lying
+   * over its neighbour. Cheap enough to do at the breath's cadence; a wake is
+   * not, which is why that stays with ring changes. */
+  private remeasureBodies(): void {
+    const sim = this.sim;
+    if (!sim) return;
+    for (const name of ['collide', 'link'] as const) {
+      const force = sim.force(name);
+      if (force) sim.force(name, force);
+    }
   }
 
   /**
@@ -1261,6 +1316,7 @@ export class TerrainCanvas {
     if (this.focusConv === convId) return;
     this.focusConv = convId;
     this.recomputeFocusRings();
+    this.reshapeBodies();
     this.requestDraw();
   }
 
@@ -1578,6 +1634,8 @@ export class TerrainCanvas {
         sn.a = normalizeHeat(node.runHeat ?? 0);
         sn.radius = nodeRadius(node, glowOf(sn.t, sn.a));
       }
+      // The dots just changed size, so their bodies did too — tell the forces.
+      this.remeasureBodies();
       this.refreshDerived(nodes);
       this.requestDraw();
       return;
@@ -1698,7 +1756,15 @@ export class TerrainCanvas {
             // rope just beyond the collision circle and the pair can actually
             // reach equilibrium and go still.
             if (isPondTile(s) || isPondTile(t)) return POND_TILE_COLLIDE_R + 24;
-            return s.node.kind === 'repo' ? 70 : 34;
+            // Rest the rope just beyond the two bodies, for the same reason
+            // the tile gets its longer one: a rope shorter than the collision
+            // circles it joins can never settle — the spring pulls in, the
+            // collider throws back out. Ordinarily the two are already clear
+            // of each other (34 is more than a pair of average dots need), so
+            // this only lengthens for the widest bodies: two hot files wearing
+            // rings, which is exactly where the strain would otherwise land.
+            const rest = s.node.kind === 'repo' ? 70 : 34;
+            return Math.max(rest, this.bodyRadiusOf(s) + this.bodyRadiusOf(t));
           })
           // Session tethers are weak on purpose: the orb drifts to sit amid
           // its territory without dragging the tree out of shape. The tile's
@@ -1731,7 +1797,11 @@ export class TerrainCanvas {
           isTable(n) ? -300 : n.node.kind === 'file' ? -38 : n.node.kind === 'session' ? -70 : -140,
         ),
       )
-      .force('collide', forceCollide<SimNode>((n) => n.radius + 4))
+      // Nothing may enter a node's body — and for a file an agent is touching,
+      // the body IS its ring (bodyRadius, ringBodies.ts). Collide separates
+      // two nodes to at least the sum of their bodies, so a ring ends up
+      // touching its neighbours at most and never lapping over them.
+      .force('collide', forceCollide<SimNode>((n) => this.bodyRadiusOf(n)))
       // Keep the dots out of the table section. Charge and collision only
       // push a dot away from one table at a time, which lets it slip BETWEEN
       // two shelves and sit there; this treats the whole section as one
@@ -2832,19 +2902,36 @@ export class TerrainCanvas {
       // wherever a touch ring is about to land: that ring says everything
       // this one does and more (purple = written, white = read), so drawing
       // both would bury the distinction under a second, flatter circle.
-      if (dimmed && !ring && this.footprint!.has(n.id)) {
+      // Both rings are drawn ON THE BODY — the same world-space circle the
+      // collider reserves (bodyRadiusOf) — so the physics has already made the
+      // room and a ring can never lap over a neighbouring dot. The stroke
+      // WEIGHT stays screen-locked: that's legibility, not geometry.
+      //
+      // Only when the body would actually show outside the dot. Far out, the
+      // screen-pixel floor (minR) inflates the drawn dot past its real size
+      // and the ring would fall inside the thing it rings — better no ring
+      // than a ring that lies about where the dot ends. At those zooms it was
+      // a sub-pixel hairline anyway.
+      //
+      // Prompt that produced it: "i want the outer ring to be the physics that
+      // separates them" → "the only thing i care about is if the ring physics
+      // causes the dots to move further apart so the rings aren't
+      // overlapping".
+      const bodyR = this.bodyRadiusOf(n);
+      const ringVisible = bodyR > nr;
+      if (dimmed && !ring && ringVisible && this.footprint!.has(n.id)) {
         ctx.strokeStyle = theme.text;
         ctx.lineWidth = 2 / transform.k;
         ctx.beginPath();
-        ctx.arc(n.x ?? 0, n.y ?? 0, nr + 3.5 / transform.k, 0, Math.PI * 2);
+        ctx.arc(n.x ?? 0, n.y ?? 0, bodyR, 0, Math.PI * 2);
         ctx.stroke();
       }
-      if (ring) {
+      if (ring && ringVisible) {
         ctx.globalAlpha = ringAlpha * (inPrint ? 1 : 0.22);
         ctx.strokeStyle = ring === 'read' ? READ_RING : this.orbStroke;
         ctx.lineWidth = 2.4 / transform.k;
         ctx.beginPath();
-        ctx.arc(n.x ?? 0, n.y ?? 0, nr + 4 / transform.k, 0, Math.PI * 2);
+        ctx.arc(n.x ?? 0, n.y ?? 0, bodyR, 0, Math.PI * 2);
         ctx.stroke();
       }
       // One-shot flash: a hot-end halo swelling and fading over ~1s (live
