@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent, type RefObject } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { notesQueryKey } from '../features/todos/useNotesPill';
 import { useDismiss } from './useDismiss';
 import { addPanelNote, editPanelNote, getPanelNotes, removePanelNote, type DevNote, type PanelNotesTab } from './shellApi';
 import styles from './TermNotesPanel.module.css';
@@ -18,6 +20,10 @@ const ROOM_WORDING: Record<PanelNotesTab, { placeholder: string; empty: string }
  * the phone terminal and the Observatory all file under 'terminal' (one list,
  * on purpose — they are the same conversation surface); Terrain files under
  * 'terrain'. Leaving `tab` off means 'terminal'.
+ *
+ * The roster page's floating notes pill (features/todos/NotesPill) shows the
+ * same 'terminal' list through its own cached query, so every change made
+ * here also marks that cache stale — see `load` below.
  *
  * Dev notes that shaped this:
  * - Enter posts, Shift+Enter inserts a newline.
@@ -47,7 +53,20 @@ export function TermNotesPanel({
 
   useDismiss(open, onClose, panelRef, triggerRef);
 
-  const load = () => {
+  const queryClient = useQueryClient();
+
+  // Re-read this room's list after opening or after any change. `changed` is
+  // true when this panel just wrote something: the notes pill and the /notes
+  // browser keep their own cached copies of the same tab, so they are marked
+  // stale here — otherwise a note added beside a session would be missing from
+  // the roster's pill until its cache aged out. This is cache invalidation.
+  // Prompt: "make the notes button on both every session and the roster page
+  // contain the same notes"
+  const load = (changed = false) => {
+    if (changed) {
+      void queryClient.invalidateQueries({ queryKey: notesQueryKey('dev', tab) });
+      void queryClient.invalidateQueries({ queryKey: ['notesAll', 'dev'] });
+    }
     getPanelNotes(tab)
       .then((data) => setNotes(data.notes || []))
       .catch(() => setNotes([]));
@@ -76,7 +95,7 @@ export function TermNotesPanel({
     // back to its initial small size ("the expansion of the note add remains
     // after i send the note").
     if (inputRef.current) inputRef.current.style.height = '';
-    load();
+    load(true);
   };
 
   const onDraftKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -105,7 +124,7 @@ export function TermNotesPanel({
     if (!text || !editingId) return;
     await editPanelNote(tab, editingId, text);
     setEditingId(null);
-    load();
+    load(true);
   };
 
   const onDelete = async (id: string) => {
@@ -118,7 +137,7 @@ export function TermNotesPanel({
     clearTimeout(confirmTimer.current ?? undefined);
     setConfirmDeleteId(null);
     await removePanelNote(tab, id);
-    load();
+    load(true);
   };
 
   if (!open) return null;

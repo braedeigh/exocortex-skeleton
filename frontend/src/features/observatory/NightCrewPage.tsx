@@ -171,8 +171,8 @@ export function NightCrewPage() {
 
       <ToastStack toasts={toasts} onDismiss={dismiss} />
       {/* Its own dev-notes tab, not the roster's: notes left here are about
-          this page, and filing them under "observatory" would mix them in with
-          notes about the roster. */}
+          this page, and filing them under "terminal" (the list the roster and
+          every session share) would mix them in with notes about those. */}
       <NotesPill tab="nightcrew" onError={push} />
     </div>
   );

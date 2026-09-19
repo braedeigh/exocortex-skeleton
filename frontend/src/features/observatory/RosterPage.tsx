@@ -603,11 +603,16 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
           Docked, it tucks into the PANE's bottom-right corner rather than the
           viewport's — that one already holds the other pane's pill, and a
           second there would land on top of it.
+          It files under 'terminal' — the same list the 📝 button on every
+          session shows (shell/TermNotesPanel) — so the Observatory has one set
+          of notes whichever button she reaches for.
           [prompt: "i also want the dev notes button on this page too"; "put the
-          dev notes on the right corner and the other buttons on the left"] */}
+          dev notes on the right corner and the other buttons on the left";
+          "make the notes button on both every session and the roster page
+          contain the same notes"] */}
       <ToastStack toasts={toasts} onDismiss={dismiss} />
       <NotesPill
-        tab="observatory"
+        tab="terminal"
         onError={push}
         anchor={onOpenConversation ? 'splitPane' : 'viewport'}
       />
