@@ -9,7 +9,7 @@ import {
 } from './terrainGraph';
 import { GOLD_RAMP_LIGHT, HEAT_RAMP_LIGHT, heatColor } from './terrainCanvas';
 import { POS_STEPS, posFromValue, valueFromPos } from './TerrainDials';
-import type { ActivityFilter } from './activityFilter';
+import type { ActivitySide } from './activityFilter';
 import styles from './TerrainHeatBar.module.css';
 
 /**
@@ -88,17 +88,40 @@ import styles from './TerrainHeatBar.module.css';
  *    scheme … that overrides the other colors when i toggle it on" → "i want
  *    to hide stale files … the dots turn black or disappear when i am on the
  *    'types' display".
- * 8. **All / Recent / Old is a filter on THIS slider's window — and it only
- *    exists under Types.** One joined control of three, at the end of the
- *    row, on screen only while Types is on. Recent keeps only the files
- *    edited or run inside the window the thumb sets; Old keeps only the ones
- *    that weren't; All is the map as normal. It borrows the slider's window
- *    rather than bringing a second "how far back" control, so the thumb has
- *    one meaning — the edge between lit and ash — and this switch just picks
- *    a side of that edge. Drag the thumb while it's on and dots cross over.
- *    On the heat map it isn't drawn at all, because there it would do
- *    nothing: age is already the colour of every dot, and the heat map draws
- *    every file there is (activityFilter.ts, effectiveActivity).
+ * 8. **Each bar's LABEL is its filter switch.** The pill reading "Heat" or
+ *    "Active" is a button: lit, that bar's window is cutting the map; hollow,
+ *    it's only a setting. One button per bar, where you already look to see
+ *    which bar you're on, and you can read both cuts off the screen without
+ *    hunting for a control.
+ *      - **Heat, lit** = only what's still lit. The colour edge made into a
+ *        cut: anything the ramp has already left as ash stops being drawn.
+ *      - **Active, lit** = only the Recent, or only the Old, against the
+ *        Active slider's OWN window — a second edge, moved independently of
+ *        the colour. Recent / Old (below) picks which side it keeps, and is
+ *        drawn only while the cut is on, because off it decides nothing.
+ *    Both are off by default and both exist on both views: the map opens
+ *    whole and stays whole until she asks it not to. Each view — heat and
+ *    Types — keeps its own pair, so a cut set up under Types doesn't follow
+ *    her back to the heat map.
+ *
+ *    Neither filter can move the layout. They hand ids to the canvas and it
+ *    skips painting them (terrainCanvas.ts setHiddenFiles), so a dot that
+ *    comes back comes back to the same spot. The rule is activityFilter.ts,
+ *    called once per live cut and unioned in TerrainPage.
+ *
+ *    Prompts: "a toggle to hide any dots that haven't been modified or active
+ *    in the past X amount of time and then i can also see things that haven't
+ *    been active" → "i want to be able to filter by both the heat map and by
+ *    the recently active toggle ... move both independently and also filter by
+ *    one or both" → "i want to be able to toggle each one on ... maybe by
+ *    clicking the button on each bar and the button goes hollow when it is
+ *    inactive".
+ * 9. **Both sliders share one axis.** The Active slider runs the same log
+ *    days-to-a-year scale as Heat, directly under it, so the two edges can be
+ *    compared by eye: further right is further back, on both rows. A second
+ *    "how far back" control is exactly what note 8's ancestor ("Window") was
+ *    deleted for — this one earns its place by never sharing a *meaning* with
+ *    the thumb above it (colour vs cut) and by sitting on the same ruler.
  *    The rule is activityFilter.ts; the canvas hides dots without moving the
  *    rest (terrainCanvas.ts setHiddenFiles). Not remembered across reloads,
  *    unlike Types: Types is how she likes the map lit, this is a question
@@ -180,15 +203,23 @@ export interface TerrainHeatBarProps {
   /** True while file dots are coloured by file type instead of heat (note 7). */
   typeColors?: boolean;
   onTypeColors?: (on: boolean) => void;
-  /** Which side of the window's edge the map shows (note 8). */
-  activity?: ActivityFilter;
-  onActivity?: (filter: ActivityFilter) => void;
+  /** Whether the heat window is also cutting the map — "only what's lit"
+   * (note 8). */
+  heatCut?: boolean;
+  onHeatCut?: (on: boolean) => void;
+  /** The Active bar: its own on/off, its own window in days, and which side of
+   * that edge it keeps (notes 8 and 9). */
+  activeCut?: boolean;
+  onActiveCut?: (on: boolean) => void;
+  activeDays?: number;
+  onActiveDays?: (days: number) => void;
+  activeSide?: ActivitySide;
+  onActiveSide?: (side: ActivitySide) => void;
 }
 
-const ACTIVITY_CHOICES: readonly { value: ActivityFilter; label: string; hint: string }[] = [
-  { value: 'all', label: 'All', hint: 'Every file, whenever it was last active' },
-  { value: 'recent', label: 'Recent', hint: 'Only files edited or run inside the heat window' },
-  { value: 'old', label: 'Old', hint: 'Only files NOT edited or run inside the heat window' },
+const SIDE_CHOICES: readonly { value: ActivitySide; label: string; hint: string }[] = [
+  { value: 'recent', label: 'Recent', hint: 'Keep only files edited or run inside the Active window' },
+  { value: 'old', label: 'Old', hint: 'Keep only files NOT edited or run inside the Active window' },
 ];
 
 const DAY_SECONDS = 24 * 3600;
@@ -215,10 +246,17 @@ export function TerrainHeatBar({
   onBreathe,
   typeColors = false,
   onTypeColors,
-  activity = 'all',
-  onActivity,
+  heatCut = false,
+  onHeatCut,
+  activeCut = false,
+  onActiveCut,
+  activeDays = 7,
+  onActiveDays,
+  activeSide = 'recent',
+  onActiveSide,
 }: TerrainHeatBarProps) {
   const id = useId();
+  const activeId = useId();
   // The fill along the track, hot (today) on the left and running out at the
   // thumb — the same colours, from the same lookup, as the nodes.
   const gradient = trackGradient(days, ramp);
@@ -273,22 +311,20 @@ export function TerrainHeatBar({
             Types
           </button>
         ) : null}
-        {/* Show all files, only the recently active, or only the old ones
-            (note 8). A segmented control — three buttons joined into one
-            pill — because the three are one choice, not three switches. Only
-            under Types: on the heat map it would be a control that does
-            nothing, and her last choice waits here for when she comes back. */}
-        {onActivity && typeColors ? (
-          <div className={`${styles.segments} ${styles.presetApart}`} role="group" aria-label="Show files by activity">
-            {ACTIVITY_CHOICES.map((choice) => (
+        {/* Which side of the Active edge to keep (note 8). Drawn only while
+            that cut is on — off, it decides nothing, and a control that can't
+            change anything shouldn't be taking up the row. */}
+        {onActiveSide && activeCut ? (
+          <div className={`${styles.segments} ${styles.presetApart}`} role="group" aria-label="Which side of the Active edge to keep">
+            {SIDE_CHOICES.map((choice) => (
               <button
                 key={choice.value}
                 type="button"
-                className={[styles.segment, activity === choice.value ? styles.segmentOn : '']
+                className={[styles.segment, activeSide === choice.value ? styles.segmentOn : '']
                   .filter(Boolean)
                   .join(' ')}
-                aria-pressed={activity === choice.value}
-                onClick={() => onActivity(choice.value)}
+                aria-pressed={activeSide === choice.value}
+                onClick={() => onActiveSide(choice.value)}
                 title={choice.hint}
               >
                 {choice.label}
@@ -304,9 +340,17 @@ export function TerrainHeatBar({
         </span>
       </div>
       <div className={styles.row}>
-        <label className={styles.label} htmlFor={id}>
+        {/* The label IS the switch (note 8): lit, the heat window is cutting
+            the map to what's still lit; hollow, it only colours. */}
+        <button
+          type="button"
+          className={[styles.cutButton, heatCut ? styles.cutOn : ''].filter(Boolean).join(' ')}
+          aria-pressed={heatCut}
+          onClick={() => onHeatCut?.(!heatCut)}
+          title="Show only what's still lit — hide every file the colour has already left as ash"
+        >
           Heat
-        </label>
+        </button>
         <div className={styles.track}>
           {/* The ramp and the ruler are their own elements UNDER the input,
               rather than a background on the input's track pseudo-element, so
@@ -362,6 +406,47 @@ export function TerrainHeatBar({
             }
             aria-label="How far back the map stays lit"
             aria-valuetext={`${days} ${days === 1 ? 'day' : 'days'}`}
+          />
+        </div>
+      </div>
+      {/* The second edge (note 9): the same log ruler as Heat, directly under
+          it, so the two thumbs can be compared by eye — further right is
+          further back on both rows. Its own switch, its own window. */}
+      <div className={styles.row}>
+        <button
+          type="button"
+          className={[styles.cutButton, activeCut ? styles.cutOn : ''].filter(Boolean).join(' ')}
+          aria-pressed={activeCut}
+          onClick={() => onActiveCut?.(!activeCut)}
+          title="Hide files by when they were last edited or run — Recent keeps the fresh ones, Old keeps everything else"
+        >
+          Active
+        </button>
+        <div className={`${styles.track} ${styles.plainTrack}`}>
+          <span className={`${styles.ticks} ${styles.ticksPlain}`} aria-hidden="true">
+            {TICK_DAYS.map((d) => (
+              <span
+                key={d}
+                className={[styles.tick, PRESETS.some((p) => p.days === d) ? styles.tickAnchor : '']
+                  .filter(Boolean)
+                  .join(' ')}
+                style={{ left: `${trackPct(d)}%` }}
+              />
+            ))}
+          </span>
+          <input
+            id={activeId}
+            className={styles.range}
+            type="range"
+            min={0}
+            max={POS_STEPS}
+            step={1}
+            value={posFromValue(activeDays, HEAT_DAYS_MIN, HEAT_DAYS_MAX)}
+            onChange={(e) =>
+              onActiveDays?.(valueFromPos(Number(e.target.value), HEAT_DAYS_MIN, HEAT_DAYS_MAX))
+            }
+            aria-label="How far back counts as active"
+            aria-valuetext={`${activeDays} ${activeDays === 1 ? 'day' : 'days'}`}
           />
         </div>
       </div>

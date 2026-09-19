@@ -27,12 +27,34 @@
   column-gap: var(--space-2);
 }
 
-.label {
-  font-size: var(--font-size-md);
-  font-weight: 600;
+/* Each bar's name, which is also its filter switch (note 8 in the .tsx).
+   Hollow — a bordered pill over the map — means the bar is only a setting;
+   lit means its window is cutting the map. Sized to the same first column as
+   TerrainDials' labels so every slider on the page still lines up, and to the
+   house 40px tap target. */
+.cutButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 var(--space-1);
+  border: 1px solid color-mix(in srgb, var(--text) 22%, transparent);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--card-bg) 55%, transparent);
   color: var(--text-secondary);
   text-shadow: var(--ink-halo, none);
+  font-family: inherit;
+  font-size: var(--font-size-md);
+  font-weight: 600;
   cursor: pointer;
+}
+
+/* Lit: the same tint a chosen preset wears, so "this control is doing
+   something" reads the same everywhere on this bar. */
+.cutOn {
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  background: color-mix(in srgb, var(--accent) 18%, var(--card-bg));
+  color: var(--text);
 }
 
 .track {
@@ -382,4 +404,31 @@
   .readout {
     display: none;
   }
+}
+
+/* --- the Active row's track ---------------------------------------------
+
+   No ramp: this edge isn't a colour, it's a cut. One grey line, the same
+   weight as the ember band above it, so the two rows read as one instrument
+   with two thumbs on one ruler rather than two unrelated sliders. */
+.plainTrack::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 10px;
+  transform: translateY(-50%);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--text) 16%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--text) 18%, transparent);
+  pointer-events: none;
+}
+
+/* The ruler sits centred on that single line, where the split track's two
+   rulers sit on their own bands. */
+.ticksPlain {
+  top: 50%;
+  height: 10px;
+  transform: translateY(-50%);
 }

@@ -366,11 +366,26 @@ function inRange(ts: number, from: number, to: number): boolean {
  * asking for 200 files should give the 200 hottest files *of that week*, not
  * whichever of the all-time top 200 happen to fall inside it.
  *
- * A file survives the time cut if any of its git touches OR any session's
- * last write lands in range; everything out of range is stripped from the
- * file, so heat, ages, and the session lists all describe the chosen span
- * rather than all time. `files_total` is deliberately NOT recomputed — it
- * stays the honest whole-corpus count the key line reports against.
+ * The date range NEVER removes a file. Out-of-range touches are stripped, and
+ * an out-of-range session keeps its attribution with its stamp blanked, so
+ * heat and ages describe the chosen span — but the node stays in the graph,
+ * cold and empty-handed. A file with nothing left in range is then hidden by
+ * the canvas rather than deleted from it (filesOutsideRange below, joined into
+ * the one hidden set in TerrainPage): the dots go, the layout doesn't move,
+ * and dragging the handles back brings them home to the same spots.
+ *
+ * Deleting them is what it used to do, and it meant every drag of a date
+ * handle tore down the graph and re-ran the force layout over a different set
+ * of bodies — the map rearranged itself under her, which is the one thing a
+ * map must never do.
+ *
+ * Owner, 2026-09-19: "i want it to remove the dots but i don't want it to
+ * rearrange everything, as if they were still there but just not visible."
+ *
+ * The COUNT dial still removes files — that one is "draw fewer bodies", which
+ * is a different question from "show me this span". `files_total` is
+ * deliberately NOT recomputed — it stays the honest whole-corpus count the key
+ * line reports against.
  */
 export function filterTerrainData(
   data: TerrainData,
@@ -391,11 +406,15 @@ export function filterTerrainData(
       // stamp is KEPT rather than dropped — attribution ("this agent wrote
       // here") is worth more than the timestamp we failed to parse, and
       // dropping them is what made the agent orbs disappear entirely.
-      const sessions = file.sessions.filter((s) => {
+      // An out-of-range session keeps its row and loses its stamp. Blanking
+      // `last` is what takes it out of the heat sums (they skip a null) while
+      // leaving the agent's tether to this file in the graph — so narrowing the
+      // dates re-lights the map without changing which bodies or edges exist,
+      // and the layout has no reason to move.
+      const sessions = file.sessions.map((s) => {
         const last = sessionLastSeconds(s.last);
-        return last === null || inRange(last, from, to);
+        return last !== null && !inRange(last, from, to) ? { ...s, last: null } : s;
       });
-      if (touches.length === 0 && sessions.length === 0 && !pin) continue;
       const kept: TerrainFile = { ...file, touches, sessions };
       // Synthetic sub-buckets (the pond tile's days) obey the date dial too —
       // a range narrowed to one week should empty the tile's other columns,
@@ -440,6 +459,45 @@ export function filterTerrainData(
       files: (byRepo.get(i) ?? []).sort((a, b) => a.path.localeCompare(b.path)),
     })),
   };
+}
+
+/**
+ * The files with nothing inside the date range — the dots the range hides.
+ *
+ * Read off the payload BEFORE filterTerrainData strips it, because the
+ * question is "did anything happen in this span", and the stripped copy has
+ * already thrown away the evidence either way. A file with no timestamps at
+ * all anywhere is NOT hidden: there's nothing to judge it by, and the same
+ * rule elsewhere in this file says attribution outlives a stamp we couldn't
+ * parse. The pond tile is never hidden — it's the journal's one landmark, and
+ * the range reaches inside it to empty its day columns instead.
+ *
+ * Returns ids to hide rather than a smaller payload, on purpose: joined with
+ * the heat and activity cuts into the one set the canvas paints around
+ * (terrainCanvas.ts setHiddenFiles), so every time filter on this page hides
+ * dots and none of them can move the layout.
+ */
+export function filesOutsideRange(data: TerrainData, from: number, to: number): Set<string> {
+  const hidden = new Set<string>();
+  for (const repo of data.repos) {
+    for (const file of repo.files) {
+      if (file.days) continue; // the pond tile is a landmark, not a dot to sort
+      let anyStamp = false;
+      let inside = false;
+      for (const ts of file.touches) {
+        anyStamp = true;
+        if (inRange(ts, from, to)) inside = true;
+      }
+      for (const session of file.sessions) {
+        const last = sessionLastSeconds(session.last);
+        if (last === null) continue;
+        anyStamp = true;
+        if (inRange(last, from, to)) inside = true;
+      }
+      if (anyStamp && !inside) hidden.add(`${repo.id}:file:${file.path}`);
+    }
+  }
+  return hidden;
 }
 
 export type TerrainNodeKind = 'repo' | 'dir' | 'file' | 'session';

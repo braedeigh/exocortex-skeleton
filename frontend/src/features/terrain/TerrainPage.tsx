@@ -27,6 +27,7 @@ import {
   BREATH_TICK_MS,
   fileLastTouch,
   filterTerrainData,
+  filesOutsideRange,
   relativeAge,
   sessionFootprint,
   sessionFootprintByRecency,
@@ -52,7 +53,7 @@ import { beatNodeIds, scheduleFrames, type Beat } from './journeyReplay';
 import type { TerrainThread } from './terrainThreads';
 import { PondLandmark } from './PondLandmark';
 import { collapseToPondTile, localDayISO, parseCardPath, POND_TILE_PATH } from './pondNodes';
-import { effectiveActivity, filesHiddenByActivity, type ActivityFilter } from './activityFilter';
+import { filesHiddenByActivity, type ActivitySide } from './activityFilter';
 import { addTableNodes } from './tableNodes';
 import { TerrainTableWindow } from './TerrainTableWindow';
 import { fileTypeCounts, OTHER_FILE_TYPE } from './fileTypes';
@@ -100,7 +101,7 @@ function TerrainKey({
   hidden,
   showAgents,
   typeRows,
-  activityNote,
+  filterNote,
 }: {
   /** The heat WINDOW in seconds (what the bar sets) — the ticks are derived
    * from it (heatKeyTicks): now, the midpoint, the edge. */
@@ -113,10 +114,11 @@ function TerrainKey({
   /** The file types on the map right now, most common first — set only while
    * the "Types" toggle is on, and the key lists these instead of the ramp. */
   typeRows: { label: string; color: string }[] | null;
-  /** Set only while the All / Recent / Old switch is filtering: what's being
-   * shown and how many files that is. Heads the key, because it changes what
-   * every row under it is describing. */
-  activityNote: { title: string; count: string } | null;
+  /** Set only while something is hiding dots — the date range, the heat cut,
+   * the active cut, or several at once, named in the order they sit on screen.
+   * Heads the key, because it changes what every row under it is describing,
+   * and its count is what tells an empty map from a broken one. */
+  filterNote: { title: string; count: string } | null;
 }) {
   // On the dark surface this is two stops, ash → her red; light keeps the
   // five-step ramp. Same lookup the dots use, so the key can't drift.
@@ -128,10 +130,10 @@ function TerrainKey({
       className={[styles.key, hidden ? styles.keyHidden : ''].filter(Boolean).join(' ')}
       aria-hidden="true"
     >
-      {activityNote ? (
+      {filterNote ? (
         <div className={styles.keyNote}>
-          <span className={styles.keyNoteTitle}>{activityNote.title}</span>
-          <span className={styles.keyTick}>{activityNote.count}</span>
+          <span className={styles.keyNoteTitle}>{filterNote.title}</span>
+          <span className={styles.keyTick}>{filterNote.count}</span>
         </div>
       ) : null}
       {typeRows ? (
@@ -271,6 +273,22 @@ const HOVER_LEAVE_MS = 240;
  * rather than only a subset of them."
  */
 const FETCH_TIERS: readonly (number | null)[] = [350, 1000, 2500, null];
+
+/**
+ * One view's pair of time cuts (note 8 in TerrainHeatBar.tsx). `heatCut` turns
+ * the colour edge into a cut — "only what's still lit"; `activeCut` runs a
+ * second, independent edge with its own window, keeping the Recent side of it
+ * or the Old. The heat map and the Types view each carry their own of these.
+ */
+interface ViewCuts {
+  heatCut: boolean;
+  activeCut: boolean;
+  activeDays: number;
+  activeSide: ActivitySide;
+}
+
+/** Both cuts off, the Active edge parked on a week — the map opens whole. */
+const NO_CUTS: ViewCuts = { heatCut: false, activeCut: false, activeDays: 7, activeSide: 'recent' };
 
 function nextTier(tier: number | null): number | null {
   if (tier === null) return null;
@@ -719,7 +737,6 @@ export function TerrainPage() {
   }, [replay]);
 
   // What's actually drawn — the honest numerator for the Files readout.
-  const shownFiles = useMemo(() => (filtered ? terrainFileLoaded(filtered) : 0), [filtered]);
 
   /** The pool, ranked most-recent-first (running → active → last touched).
    * The agent bar's window slides over THIS list by index. */
@@ -1158,40 +1175,100 @@ export function TerrainPage() {
     engineRef.current?.setTypeColors(typeColors);
   }, [typeColors]);
 
-  // Work out which file dots the All / Recent / Old switch hides, and hand
-  // them to the canvas. The cutoff is the Heat slider's SET window (heatDays),
-  // not the live breathing one: under Dynamic the live window swells and
-  // settles every ten seconds, and a filter riding it would blink files in
-  // and out of existence. Page state, not a stored preference — see note 8 in
-  // TerrainHeatBar.tsx for why this one doesn't stay across reloads.
+  // The two time cuts, per view (note 8 in TerrainHeatBar.tsx). Both off by
+  // default — the map opens whole — and each view keeps its own pair, so a cut
+  // set up under Types doesn't follow her back to the heat map and vice versa.
   //
-  // The switch only bites under Types (effectiveActivity): the heat map draws
-  // every file there is, always, because age is already its colour.
-  const [activity, setActivity] = useState<ActivityFilter>('all');
-  const liveActivity = effectiveActivity(activity, typeColors);
-  const hiddenFiles = useMemo(
+  // Both cutoffs are SET windows, never the live breathing one: under Dynamic
+  // the heat window swells and settles every ten seconds, and a filter riding
+  // it would blink files in and out of existence.
+  //
+  // Page state, not a stored preference — a map that opens mostly empty with
+  // no memory of why is a worse surprise than re-tapping a button. The lit
+  // buttons on the bar are what say a cut is running.
+  const [cutsByView, setCutsByView] = useState<Record<'heat' | 'types', ViewCuts>>({
+    heat: { ...NO_CUTS },
+    types: { ...NO_CUTS },
+  });
+  const view: 'heat' | 'types' = typeColors ? 'types' : 'heat';
+  const cuts = cutsByView[view];
+  const setCuts = (patch: Partial<ViewCuts>) =>
+    setCutsByView((prev) => ({ ...prev, [view]: { ...prev[view], ...patch } }));
+
+  // The dots the date range hides. Only worth computing while she's actually
+  // narrowed it: unpinned, the range is the whole payload and nothing can be
+  // outside it, and this walks every file in both repos.
+  const hiddenByDates = useMemo(
     () =>
-      visible
-        ? filesHiddenByActivity(visible.nodes, liveActivity, heatDays * DAY_SECONDS, now)
+      collapsed && customRange
+        ? filesOutsideRange(collapsed.data, range.from, range.to)
         : new Set<string>(),
-    [visible, liveActivity, heatDays, now],
+    [collapsed, customRange, range.from, range.to],
   );
+
+  // One hidden set, three contributors — dates, the heat cut, the active cut.
+  // Everything that takes dots off this map goes through here, because the
+  // canvas skips painting these and moves nothing: a dot that comes back comes
+  // back to the same spot (terrainCanvas.ts setHiddenFiles).
+  const hiddenFiles = useMemo(() => {
+    const all = new Set<string>(hiddenByDates);
+    if (!visible) return all;
+    if (cuts.heatCut) {
+      for (const id of filesHiddenByActivity(visible.nodes, 'recent', heatDays * DAY_SECONDS, now)) {
+        all.add(id);
+      }
+    }
+    if (cuts.activeCut) {
+      for (const id of filesHiddenByActivity(
+        visible.nodes,
+        cuts.activeSide,
+        cuts.activeDays * DAY_SECONDS,
+        now,
+      )) {
+        all.add(id);
+      }
+    }
+    return all;
+  }, [visible, hiddenByDates, cuts, heatDays, now]);
   useEffect(() => {
     engineRef.current?.setHiddenFiles(hiddenFiles);
   }, [hiddenFiles]);
   // What the key says while the switch is on: which side of the edge, where
   // the edge is, and how many files that leaves — the count is the answer to
   // "how much of this is old", readable without counting dots.
-  const activityNote = useMemo(() => {
-    if (liveActivity === 'all' || !visible) return null;
+  // What the Files dial's readout reports: dots actually PAINTED, so a cut
+  // that hides half the map is visible in the number rather than only on the
+  // canvas. Tables ride the map as synthetic files and aren't part of the
+  // corpus count.
+  const shownFiles = useMemo(
+    () =>
+      visible
+        ? visible.nodes.filter(
+            (n) => n.kind === 'file' && !n.file?.table && !hiddenFiles.has(n.id),
+          ).length
+        : 0,
+    [visible, hiddenFiles],
+  );
+
+  const filterNote = useMemo(() => {
+    if (!visible || hiddenFiles.size === 0) return null;
+    // Name every cut that's running, in the order they sit on screen. Two cuts
+    // compose as an intersection, and some pairs are empty by construction
+    // ("lit in a day" AND "nothing in a month" has no members) — so the count
+    // below is what stops an empty map from reading as a broken one.
+    const parts: string[] = [];
+    if (hiddenByDates.size > 0) parts.push('Dates');
+    if (cuts.heatCut) parts.push(`Lit · ${heatDays}d`);
+    if (cuts.activeCut) {
+      parts.push(`${cuts.activeSide === 'recent' ? 'Active' : 'Idle'} · ${cuts.activeDays}d`);
+    }
+    if (parts.length === 0) return null;
     const files = visible.nodes.filter((n) => n.kind === 'file' && !n.file?.days).length;
-    const shown = files - hiddenFiles.size;
-    const span = `${heatDays}d`;
     return {
-      title: liveActivity === 'recent' ? `Active in the last ${span}` : `Nothing in the last ${span}`,
-      count: `${shown} of ${files} files`,
+      title: parts.join(' + '),
+      count: `${files - hiddenFiles.size} of ${files} files`,
     };
-  }, [liveActivity, visible, hiddenFiles, heatDays]);
+  }, [visible, hiddenFiles, hiddenByDates, cuts, heatDays]);
 
   // Build the key's type list. Only the files drawn right now are counted,
   // so the legend never names a type that isn't on the map, and each swatch
@@ -1542,8 +1619,14 @@ export function TerrainPage() {
             onBreathe={() => setBreathing((v) => !v)}
             typeColors={typeColors}
             onTypeColors={setTypeColorsOn}
-            activity={activity}
-            onActivity={setActivity}
+            heatCut={cuts.heatCut}
+            onHeatCut={(on) => setCuts({ heatCut: on })}
+            activeCut={cuts.activeCut}
+            onActiveCut={(on) => setCuts({ activeCut: on })}
+            activeDays={cuts.activeDays}
+            onActiveDays={(days) => setCuts({ activeDays: days })}
+            activeSide={cuts.activeSide}
+            onActiveSide={(side) => setCuts({ activeSide: side })}
           />
           {/* The agent control: Active button, a window that slides past agents
               over the ranked roster, and a popup list to spotlight one. */}
@@ -1578,7 +1661,7 @@ export function TerrainPage() {
             hidden={selected !== null || codeFile !== null}
             showAgents={shownAgentIds.size > 0}
             typeRows={typeRows}
-            activityNote={activityNote}
+            filterNote={filterNote}
           />
         ) : null}
       </div>

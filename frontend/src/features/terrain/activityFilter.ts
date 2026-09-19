@@ -11,16 +11,21 @@ import { fileLastTouch, type TerrainNode } from './terrainGraph';
  * has. So Recent is exactly the dots the heat colours would light, and Old is
  * exactly the ones they'd leave as ash.
  *
- * THIS SWITCH BELONGS TO THE TYPES VIEW, and nowhere else — see
- * effectiveActivity below. On the heat map, age is already on screen as
- * colour, so hiding the old dots says the same thing twice and costs her the
- * shape of the whole terrain. Under Types that colour is spent on file type
- * instead, age can't be read off the map at all, and hiding is the only way
- * left to ask the question.
+ * TWO CUTS RUN THROUGH THIS ONE RULE, because they're the same question asked
+ * against two different edges — the page calls it twice and unions the
+ * answers (TerrainPage, hiddenFiles):
  *
- * Owner, 2026-09-19: "i want for the active files showing on the heat map to
- * always show all of the files. but when i do types, it hides from view the
- * ones older or younger than the setting that i have." 
+ *   the HEAT cut    filter 'recent' against the heat slider's window —
+ *                   "only what's still lit", the colour edge made into a cut
+ *   the ACTIVE cut  filter 'recent' or 'old' against the Active slider's own
+ *                   window — a second edge she moves independently
+ *
+ * Each is off unless she turns it on, on both views, and each view keeps its
+ * own settings. Nothing here hides anything by default: the map opens whole.
+ *
+ * Owner, 2026-09-19: "i want to be able to filter by both the heat map and by
+ * the recently active toggle ... move both independently and also filter by
+ * one or both" / "it lives on both and retains the behavior of each view." 
  *
  * It returns the dots to HIDE rather than a smaller map, on purpose. The
  * canvas (terrainCanvas.ts setHiddenFiles) keeps hidden dots in the layout
@@ -41,16 +46,9 @@ import { fileLastTouch, type TerrainNode } from './terrainGraph';
  * keeps the ones that weren't. */
 export type ActivityFilter = 'all' | 'recent' | 'old';
 
-/**
- * What the switch actually means right now. Off the Types view it means
- * nothing — the heat map always draws every file — so her choice is kept but
- * reads as 'all' until she goes back to Types. Kept as a function rather than
- * a condition inside the page so the rule is one tested thing, next to the
- * rule it governs.
- */
-export function effectiveActivity(filter: ActivityFilter, typeColorsOn: boolean): ActivityFilter {
-  return typeColorsOn ? filter : 'all';
-}
+/** Which side of its edge a cut keeps. 'all' isn't a side — that's the cut
+ * being off, which the page says by not calling this rule at all. */
+export type ActivitySide = Exclude<ActivityFilter, 'all'>;
 
 /** When a file was last active, in unix seconds: its latest edit (git touch
  * or an agent's write) or its latest run, whichever is later. null when

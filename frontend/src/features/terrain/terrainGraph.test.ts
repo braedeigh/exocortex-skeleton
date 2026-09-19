@@ -36,6 +36,7 @@ import {
   graphUnchanged,
   bucketHeat,
   halfLifeSeconds,
+  filesOutsideRange,
   filterTerrainData,
   terrainEarliestTouch,
   terrainFileLoaded,
@@ -528,15 +529,25 @@ describe('filterTerrainData — date range', () => {
     },
   ]);
 
-  it('keeps only files touched inside the range', () => {
+  // The range never removes a body from the map — it empties the ones outside
+  // it and lets the canvas skip painting them, so the layout can't move.
+  it('keeps every file, whatever the range', () => {
     const out = filterTerrainData(data, { from: NOW - 14 * DAY, to: NOW, count: null }, NOW);
-    expect(out.repos[0].files.map((f) => f.path)).toEqual(['mid.py', 'new.py']);
+    expect(out.repos[0].files.map((f) => f.path)).toEqual(['mid.py', 'new.py', 'old.py']);
   });
 
-  it('excludes files whose only touches are newer than the range end', () => {
-    // A historical window must not leak the present into it.
+  it('empties the files outside the range instead of dropping them', () => {
+    const out = filterTerrainData(data, { from: NOW - 14 * DAY, to: NOW, count: null }, NOW);
+    const byPath = new Map(out.repos[0].files.map((f) => [f.path, f]));
+    expect(byPath.get('old.py')?.touches).toEqual([]);
+    expect(byPath.get('mid.py')?.touches).toEqual([NOW - 10 * DAY]);
+  });
+
+  it('a historical window does not leak the present into it', () => {
     const out = filterTerrainData(data, { from: NOW - 40 * DAY, to: NOW - 20 * DAY, count: null }, NOW);
-    expect(out.repos[0].files.map((f) => f.path)).toEqual(['old.py']);
+    const byPath = new Map(out.repos[0].files.map((f) => [f.path, f]));
+    expect(byPath.get('old.py')?.touches).toEqual([NOW - 30 * DAY]);
+    expect(byPath.get('new.py')?.touches).toEqual([]);
   });
 
   it('strips out-of-range touches from the files it keeps', () => {
@@ -561,7 +572,7 @@ describe('filterTerrainData — date range', () => {
     expect(out.repos[0].files.map((f) => f.path)).toEqual(['uncommitted.py']);
   });
 
-  it('drops sessions whose writes fall outside the range', () => {
+  it('blanks an out-of-range session stamp but keeps the attribution', () => {
     const attributed = makeData([
       {
         id: 'r',
@@ -576,7 +587,63 @@ describe('filterTerrainData — date range', () => {
       },
     ]);
     const out = filterTerrainData(attributed, { from: NOW - 7 * DAY, to: NOW, count: null }, NOW);
-    expect(out.repos[0].files[0].sessions.map((s) => s.id)).toEqual(['recent']);
+    // Both agents still tether to the file — dropping one would change the
+    // graph's edges, and the map would re-settle every time she dragged a date
+    // handle. The out-of-range one loses its stamp instead, which is what
+    // takes it out of the heat sums.
+    expect(out.repos[0].files[0].sessions.map((s) => s.id)).toEqual(['recent', 'ancient']);
+    expect(out.repos[0].files[0].sessions.map((s) => s.last)).toEqual([NOW - 1 * DAY, null]);
+  });
+});
+
+describe('filesOutsideRange — the dots the date range hides', () => {
+  const data = makeData([
+    {
+      id: 'r',
+      name: 'R',
+      root: '/',
+      files: [file('old.py', [NOW - 30 * DAY]), file('new.py', [NOW - 1 * DAY])],
+    },
+  ]);
+
+  it('names the files with nothing inside the range, repo-prefixed', () => {
+    expect([...filesOutsideRange(data, NOW - 14 * DAY, NOW)]).toEqual(['r:file:old.py']);
+  });
+
+  it('hides nothing when the range covers everything', () => {
+    expect(filesOutsideRange(data, NOW - 90 * DAY, NOW).size).toBe(0);
+  });
+
+  it('counts a session write as being inside the range', () => {
+    const attributed = makeData([
+      {
+        id: 'r',
+        name: 'R',
+        root: '/',
+        files: [file('a.py', [NOW - 30 * DAY], [{ id: 's', title: 't', writes: 1, reads: 0, last: NOW - 2 * DAY }])],
+      },
+    ]);
+    expect(filesOutsideRange(attributed, NOW - 7 * DAY, NOW).size).toBe(0);
+  });
+
+  it('keeps a file with no timestamps at all — there is nothing to judge it by', () => {
+    const stampless = makeData([
+      {
+        id: 'r',
+        name: 'R',
+        root: '/',
+        files: [file('mystery.py', [], [{ id: 's', title: 't', writes: 1, reads: 0, last: null }])],
+      },
+    ]);
+    expect(filesOutsideRange(stampless, NOW - 7 * DAY, NOW).size).toBe(0);
+  });
+
+  it('never hides the pond tile — it is a landmark, not a dot to sort', () => {
+    const withTile = makeData([
+      { id: 'r', name: 'R', root: '/', files: [file('tulku/_system/data/cards/pond', [NOW - 60 * DAY])] },
+    ]);
+    withTile.repos[0].files[0].days = [{ day: '2026-09-01', touches: [NOW - 60 * DAY] }];
+    expect(filesOutsideRange(withTile, NOW - 7 * DAY, NOW).size).toBe(0);
   });
 });
 
