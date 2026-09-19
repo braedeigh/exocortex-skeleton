@@ -1,13 +1,23 @@
 import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent, type RefObject } from 'react';
 import { useDismiss } from './useDismiss';
-import { addTermNote, editTermNote, getTermNotes, removeTermNote, type DevNote } from './shellApi';
+import { addPanelNote, editPanelNote, getPanelNotes, removePanelNote, type DevNote, type PanelNotesTab } from './shellApi';
 import styles from './TermNotesPanel.module.css';
 
+// What each room's panel says. The words name the room the note is about, so
+// the box itself tells her which list she is writing into.
+const ROOM_WORDING: Record<PanelNotesTab, { placeholder: string; empty: string }> = {
+  terminal: { placeholder: 'Bug or idea for the terminal…', empty: 'No terminal notes yet' },
+  terrain: { placeholder: 'Bug or idea for Terrain…', empty: 'No Terrain notes yet' },
+};
+
 /**
- * Terminal notes panel — React port of split.html's #termNotesPanel
- * (templates/split.html:514-523, 1131-1374). Bugs/ideas for the terminal,
- * filed to dev notes under the 'terminal' tab (same store the PWA 📝 writes
- * to, routes/devnotes.py).
+ * The 📝 dev-notes panel that drops from a room's top bar — React port of
+ * split.html's #termNotesPanel (templates/split.html:514-523, 1131-1374).
+ * Bugs/ideas for ONE room, filed to dev notes under that room's own tab
+ * (routes/devnotes.py). The room mounting it passes `tab`: the terminal pane,
+ * the phone terminal and the Observatory all file under 'terminal' (one list,
+ * on purpose — they are the same conversation surface); Terrain files under
+ * 'terrain'. Leaving `tab` off means 'terminal'.
  *
  * Dev notes that shaped this:
  * - Enter posts, Shift+Enter inserts a newline.
@@ -16,10 +26,12 @@ import styles from './TermNotesPanel.module.css';
  *   must not (see useDismiss's pointerdown-time containment check).
  */
 export function TermNotesPanel({
+  tab = 'terminal',
   open,
   onClose,
   triggerRef,
 }: {
+  tab?: PanelNotesTab;
   open: boolean;
   onClose: () => void;
   triggerRef: RefObject<HTMLElement | null>;
@@ -36,7 +48,7 @@ export function TermNotesPanel({
   useDismiss(open, onClose, panelRef, triggerRef);
 
   const load = () => {
-    getTermNotes()
+    getPanelNotes(tab)
       .then((data) => setNotes(data.notes || []))
       .catch(() => setNotes([]));
   };
@@ -50,12 +62,12 @@ export function TermNotesPanel({
       setConfirmDeleteId(null);
       setEditingId(null);
     }
-  }, [open]);
+  }, [open, tab]);
 
   const submitDraft = async () => {
     const text = draft.trim();
     if (!text) return;
-    await addTermNote(text);
+    await addPanelNote(tab, text);
     setDraft('');
     // onDraftInput grows the textarea by writing a pixel height straight to
     // the DOM node (needed since it auto-grows while typing) — clearing
@@ -91,7 +103,7 @@ export function TermNotesPanel({
   const saveEdit = async () => {
     const text = editText.trim();
     if (!text || !editingId) return;
-    await editTermNote(editingId, text);
+    await editPanelNote(tab, editingId, text);
     setEditingId(null);
     load();
   };
@@ -105,7 +117,7 @@ export function TermNotesPanel({
     }
     clearTimeout(confirmTimer.current ?? undefined);
     setConfirmDeleteId(null);
-    await removeTermNote(id);
+    await removePanelNote(tab, id);
     load();
   };
 
@@ -118,7 +130,7 @@ export function TermNotesPanel({
           ref={inputRef}
           className={styles.input}
           rows={2}
-          placeholder="Bug or idea for the terminal…"
+          placeholder={ROOM_WORDING[tab].placeholder}
           value={draft}
           onChange={onDraftInput}
           onKeyDown={onDraftKeyDown}
@@ -129,7 +141,7 @@ export function TermNotesPanel({
       </div>
       <div className={styles.list}>
         {notes.length === 0 ? (
-          <div className={styles.empty}>No terminal notes yet</div>
+          <div className={styles.empty}>{ROOM_WORDING[tab].empty}</div>
         ) : (
           notes.map((n) =>
             n.id === editingId ? (

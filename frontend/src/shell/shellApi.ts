@@ -1,5 +1,5 @@
 /**
- * shellApi.ts — API-call helpers for the terminal-pane widgets (notes,
+ * shellApi.ts — API-call helpers for the terminal-pane widgets (panel notes,
  * scheduled prompts, upload, activity). Kept out of src/api/endpoints.ts on
  * purpose (that file is owned elsewhere); everything the terminal pane needs
  * to call lives here instead, on top of the same `api` client every other
@@ -7,7 +7,7 @@
  */
 import { api } from '../api/client';
 
-// --- Terminal notes (dev_notes.json, tab 'terminal') ------------------------
+// --- Panel notes (dev_notes.json, one tab per room) --------------------------
 // Backend: routes/devnotes.py
 
 export interface DevNote {
@@ -16,20 +16,29 @@ export interface DevNote {
   created: string;
 }
 
-export function getTermNotes(signal?: AbortSignal): Promise<{ tab: string; notes: DevNote[] }> {
-  return api.get('/api/devnotes/terminal', signal);
+// Which dev-notes section a 📝 panel files under. Each room that mounts the
+// panel names its own tab, so a note written on the Terrain map lands under
+// 'terrain' and one written beside a conversation lands under 'terminal' —
+// two rooms never share a list by accident. Tab names are free-form on the
+// backend (a new one is created on first write), so adding a room here needs
+// no server change.
+// Prompt: "unlink them and give the terrain room its own dev notes section"
+export type PanelNotesTab = 'terminal' | 'terrain';
+
+export function getPanelNotes(tab: PanelNotesTab, signal?: AbortSignal): Promise<{ tab: string; notes: DevNote[] }> {
+  return api.get(`/api/devnotes/${tab}`, signal);
 }
 
-export function addTermNote(text: string): Promise<{ ok: true }> {
-  return api.post('/api/devnote/add', { tab: 'terminal', text });
+export function addPanelNote(tab: PanelNotesTab, text: string): Promise<{ ok: true }> {
+  return api.post('/api/devnote/add', { tab, text });
 }
 
-export function editTermNote(id: string, text: string): Promise<{ ok: true }> {
-  return api.post('/api/devnote/edit', { tab: 'terminal', id, text });
+export function editPanelNote(tab: PanelNotesTab, id: string, text: string): Promise<{ ok: true }> {
+  return api.post('/api/devnote/edit', { tab, id, text });
 }
 
-export function removeTermNote(id: string): Promise<{ ok: true }> {
-  return api.post('/api/devnote/remove', { tab: 'terminal', id });
+export function removePanelNote(tab: PanelNotesTab, id: string): Promise<{ ok: true }> {
+  return api.post('/api/devnote/remove', { tab, id });
 }
 
 // --- Scheduled prompts (scheduled_prompts.json) ------------------------------
