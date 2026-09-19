@@ -551,3 +551,60 @@
 .embedOpen:focus-visible {
   border-color: var(--text);
 }
+
+/* The map's own tools — refresh, and the release that only exists once she's
+   moved something — sit at the right edge of the top bar, ahead of the page
+   tools. They act on the MAP, which is why they're not in that group: those
+   act on the work. */
+.mapTools {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-left: auto;
+}
+
+/* Glyph plus the age of what's on screen, in one pill. The age is the point:
+   the map holds still between refreshes now, so the control that refreshes it
+   is also the only thing that can say how old it is. Hierarchy between the two
+   comes from colour, not size — the age stays at label size and steps back a
+   shade (Refactoring UI: three greys before you shrink anything). */
+.refreshChip {
+  gap: 6px;
+  padding: 0 var(--space-2);
+}
+.refreshGlyph {
+  font-size: var(--font-size-lg);
+  line-height: 1;
+}
+.refreshAge {
+  color: color-mix(in srgb, var(--text-secondary) 72%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+.refreshChip:disabled {
+  cursor: default;
+}
+
+/* Spinning while a fetch she asked for is in flight. Linear is deliberate and
+   is the one place it belongs — a continuous rotation with easing visibly
+   stutters once per turn. */
+.refreshing .refreshGlyph {
+  animation: terrainRefreshSpin 900ms linear infinite;
+}
+@keyframes terrainRefreshSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .refreshing .refreshGlyph {
+    animation: none;
+    opacity: 0.55;
+  }
+}
+
+/* Only on screen while something is pinned, so it reads as an undo for a thing
+   she just did rather than a permanent control. */
+.releaseChip {
+  padding: 0 var(--space-2);
+  font-weight: 500;
+}

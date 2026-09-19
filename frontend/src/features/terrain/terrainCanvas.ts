@@ -13,6 +13,15 @@
  * code-weather fade, the running-orb pulse) each die with the thing they
  * animate — none idles either.
  *
+ * The map is HERS to arrange, and it stays arranged. Positions, the nodes she
+ * dragged, and the camera are written to layoutMemory.ts as this engine is
+ * destroyed and read back by the next one, so leaving the page and returning
+ * reopens the map she left instead of laying out a new one — opt-in, with
+ * `remember: true`, which only the real map asks for. Dragging a node pins it
+ * where she dropped it (d3's fx/fy) until she releases it or reloads the page;
+ * a press that starts on a draggable node is a drag, and the zoom behaviour
+ * stands down for it (see the filter in the constructor).
+ *
  * Heat encoding is redundant on purpose (dataviz skill): colour carries
  * recency AND node radius scales with the same glow. On the dark surface a
  * file dot is ASH (a neutral grey lifted off the page) with its hue laid over
@@ -102,6 +111,7 @@ import {
 } from 'd3-force';
 import { select } from 'd3-selection';
 import { zoom, zoomIdentity, type ZoomBehavior, type ZoomTransform } from 'd3-zoom';
+import { forgetPins, recallLayout, rememberLayout } from './layoutMemory';
 import {
   CREATED_FRESH_WINDOW_SECONDS,
   edgeKey,
@@ -386,6 +396,23 @@ const MAX_ZOOM = 5;
 const MIN_NODE_PX = 1.4;
 /** Screen-space tap slop — a fingertip, not a cursor. */
 const TAP_RADIUS_PX = 20;
+
+/** How warm the sim runs while she's carrying a node — enough that the
+ * neighbours make room around it, far too little to re-arrange the map. */
+const DRAG_ALPHA = 0.1;
+
+/** A click that lands within this of a drag ending is the drag's own click,
+ * not a tap: she moved a dot, she didn't ask to open it. */
+const DRAG_CLICK_GRACE_MS = 250;
+
+/** Where a gesture started, in client coordinates — mouse and touch answer
+ * that question differently, and the zoom filter has to ask it of both. */
+function gesturePoint(event: Event): { clientX: number; clientY: number } | null {
+  const touches = (event as TouchEvent).touches;
+  if (touches && touches.length > 0) return { clientX: touches[0].clientX, clientY: touches[0].clientY };
+  const mouse = event as MouseEvent;
+  return Number.isFinite(mouse.clientX) ? { clientX: mouse.clientX, clientY: mouse.clientY } : null;
+}
 /** "Readable zoom" — the line above which the map can afford names. Directory
  * hubs caption themselves here, and so does every file in a spotlit agent's
  * footprint. */
@@ -729,6 +756,24 @@ export class TerrainCanvas {
   private ticksSinceLayout = 0;
   /** True once she has panned or zoomed by hand. */
   private cameraIsHers = false;
+  /**
+   * Whether this engine keeps its layout across mounts (layoutMemory.ts). Only
+   * the real map opts in: the ambient backdrop draws the same graph as
+   * wallpaper on a canvas of a different size, and letting it write would hand
+   * the page back somebody else's camera.
+   */
+  private remembers = false;
+  /** The nodes SHE dragged into place, by id. Each is held at its spot (d3's
+   * fx/fy) until she releases it or reloads the page. */
+  private pinnedByHand = new Set<string>();
+  /** The node currently being carried, and the pointer carrying it. */
+  private dragNode: SimNode | null = null;
+  private dragPointerId: number | null = null;
+  /** Whether that pointer has actually moved — a press that never moved is a
+   * tap, and still has to open the file. */
+  private dragMoved = false;
+  /** When the last real drag ended, so its trailing click can be swallowed. */
+  private draggedAt = 0;
   /** Set when the table shelves first appear: frame the whole map once more
    * when the physics settles — unless she has taken the camera by then. */
   private refitWhenSettled = false;
@@ -875,6 +920,9 @@ export class TerrainCanvas {
   private pondReport: PondAnchor | null = null;
 
   onTap: ((node: TerrainNode | null) => void) | null = null;
+  /** How many nodes she's dragged into place, reported whenever that changes —
+   * what the page's "release" control counts. */
+  onPins: ((count: number) => void) | null = null;
   /**
    * Where the hovered agent's orb is on screen, in client coordinates — the
    * anchor /terrain hangs its hovercard from. null the moment the cursor
@@ -893,19 +941,41 @@ export class TerrainCanvas {
    */
   onPondMove: ((anchor: PondAnchor | null) => void) | null = null;
 
-  constructor(canvas: HTMLCanvasElement, theme: ThemeInk, opts?: { ambient?: boolean }) {
+  constructor(
+    canvas: HTMLCanvasElement,
+    theme: ThemeInk,
+    opts?: { ambient?: boolean; remember?: boolean },
+  ) {
     this.canvas = canvas;
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('canvas 2d context unavailable');
     this.ctx = ctx;
     this.theme = theme;
     this.ambient = opts?.ambient === true;
+    this.remembers = opts?.remember === true;
     this.fontFamily =
       getComputedStyle(document.documentElement).getPropertyValue('--font-sans').trim() || this.fontFamily;
 
     this.zoomBehavior = zoom<HTMLCanvasElement, unknown>()
       .scaleExtent([MIN_ZOOM, MAX_ZOOM])
       .clickDistance(8) // pans suppress the click; taps still land
+      // A gesture that starts ON a draggable node belongs to that node, not to
+      // the camera — the drag handlers below take it and d3-zoom never sees it.
+      // The rest is d3's own default filter: no secondary button, no ctrl-drag,
+      // wheel always allowed.
+      .filter((event: Event) => {
+        const mouse = event as MouseEvent;
+        if (mouse.button) return false;
+        // A wheel is always the camera's — and hit-testing one would cost a
+        // scan of the whole map per wheel event, dozens per scroll.
+        if (event.type === 'wheel') return true;
+        if (mouse.ctrlKey) return false;
+        // A second finger is a pinch, whatever the first one landed on.
+        const touches = (event as TouchEvent).touches;
+        if (touches && touches.length > 1) return true;
+        const point = gesturePoint(event);
+        return point === null || !this.canDrag(this.nodeAt(point));
+      })
       .on('zoom', (event: { transform: ZoomTransform; sourceEvent?: unknown }) => {
         this.transform = event.transform;
         // A zoom with a real gesture behind it means SHE moved the camera; one
@@ -930,6 +1000,20 @@ export class TerrainCanvas {
       this.canvas.addEventListener('click', this.handleClick);
       this.canvas.addEventListener('pointermove', this.handlePointerMove);
       this.canvas.addEventListener('pointerleave', this.handlePointerLeave);
+      this.canvas.addEventListener('pointerdown', this.handlePointerDown);
+      this.canvas.addEventListener('pointerup', this.handlePointerUp);
+      this.canvas.addEventListener('pointercancel', this.handlePointerUp);
+    }
+
+    // Come back to the camera she left. Restoring it counts as hers, so the
+    // once-only fit never yanks the view back out to the whole map.
+    const camera = this.remembers ? (recallLayout()?.camera ?? null) : null;
+    if (camera) {
+      select(this.canvas).call(
+        this.zoomBehavior.transform,
+        zoomIdentity.translate(camera.x, camera.y).scale(camera.k),
+      );
+      this.cameraIsHers = true;
     }
 
     document.addEventListener('visibilitychange', this.handleVisibility);
@@ -937,6 +1021,19 @@ export class TerrainCanvas {
   }
 
   destroy(): void {
+    // Write the map down before anything is torn down, so the next mount opens
+    // where she left it rather than laying the world out again (layoutMemory.ts).
+    if (this.remembers) {
+      rememberLayout(
+        this.simNodes.map((n) => ({
+          id: n.id,
+          x: n.x,
+          y: n.y,
+          pinned: this.pinnedByHand.has(n.id),
+        })),
+        { x: this.transform.x, y: this.transform.y, k: this.transform.k },
+      );
+    }
     this.destroyed = true;
     this.sim?.stop();
     this.stopPulse();
@@ -951,6 +1048,9 @@ export class TerrainCanvas {
     this.canvas.removeEventListener('click', this.handleClick);
     this.canvas.removeEventListener('pointermove', this.handlePointerMove);
     this.canvas.removeEventListener('pointerleave', this.handlePointerLeave);
+    this.canvas.removeEventListener('pointerdown', this.handlePointerDown);
+    this.canvas.removeEventListener('pointerup', this.handlePointerUp);
+    this.canvas.removeEventListener('pointercancel', this.handlePointerUp);
     document.removeEventListener('visibilitychange', this.handleVisibility);
     select(this.canvas).on('.zoom', null);
   }
@@ -1425,6 +1525,12 @@ export class TerrainCanvas {
     }
 
     const prev = new Map(this.simNodes.map((n) => [n.id, n]));
+    // Where these nodes were the last time the page was open (layoutMemory.ts)
+    // — read only on the FIRST graph of a mount, when there's nothing live to
+    // carry over. A node that's remembered doesn't have to be laid out again,
+    // and the ones she'd dragged come back still pinned.
+    const recalled = this.remembers && prev.size === 0 ? (recallLayout()?.nodes ?? null) : null;
+    let recalledHits = 0;
     const repoIds = [...new Set(nodes.filter((n) => n.repoId).map((n) => n.repoId))];
     const anchorFor = (repoId: string): { x: number; y: number } => {
       const i = repoIds.indexOf(repoId);
@@ -1453,6 +1559,8 @@ export class TerrainCanvas {
       const t = normalizeHeat(node.heat);
       const a = normalizeHeat(node.runHeat ?? 0);
       const old = prev.get(node.id);
+      const memory = old ? undefined : recalled?.get(node.id);
+      if (memory) recalledHits += 1;
       const anchor = anchorFor(node.repoId);
       const parent = node.parentId ? byId.get(node.parentId) : undefined;
       const seed = orbSeed.get(node.id);
@@ -1464,11 +1572,22 @@ export class TerrainCanvas {
         t,
         a,
         radius: nodeRadius(node, glowOf(t, a)),
-        x: old?.x ?? seedX + (Math.random() - 0.5) * 60,
-        y: old?.y ?? seedY + (Math.random() - 0.5) * 60,
+        x: old?.x ?? memory?.x ?? seedX + (Math.random() - 0.5) * 60,
+        y: old?.y ?? memory?.y ?? seedY + (Math.random() - 0.5) * 60,
         vx: old?.vx ?? 0,
         vy: old?.vy ?? 0,
       };
+      // Held where she put it — across a rebuild (she's still on the page) or
+      // across a mount (from the memory). Pinning is d3's fx/fy: a node with
+      // those set stays there and the physics flows around it.
+      if (old && this.pinnedByHand.has(node.id)) {
+        sn.fx = old.fx ?? old.x;
+        sn.fy = old.fy ?? old.y;
+      } else if (memory?.pinned) {
+        this.pinnedByHand.add(node.id);
+        sn.fx = memory.x;
+        sn.fy = memory.y;
+      }
       byId.set(sn.id, sn);
       return sn;
     });
@@ -1501,6 +1620,7 @@ export class TerrainCanvas {
     this.edgeKeys = new Set(edges.map((e) => edgeKey(e.source, e.target)));
 
     this.refreshDerived(nodes);
+    if (this.pinnedByHand.size > 0) this.onPins?.(this.pinnedByHand.size);
 
     this.sim?.stop();
     this.sim = forceSimulation<SimNode>(this.simNodes)
@@ -1634,6 +1754,9 @@ export class TerrainCanvas {
     // Give the sim a few ticks to spread out before measuring.
     window.setTimeout(() => {
       if (this.destroyed || this.simNodes.length === 0) return;
+      // Never yank a camera she placed — including one restored from the last
+      // time she had this page open (layoutMemory.ts).
+      if (this.cameraIsHers) return;
       // A focused surface frames its agent's cluster instead — don't yank the
       // camera out to the whole graph once the orb exists to home in on.
       if (this.focusConv && this.computeFocusTransform()) return;
@@ -1700,8 +1823,108 @@ export class TerrainCanvas {
   }
 
   private handleClick = (ev: MouseEvent): void => {
+    // Swallow the click a finished drag fires: she moved a dot, she didn't ask
+    // to open it.
+    if (performance.now() - this.draggedAt < DRAG_CLICK_GRACE_MS) return;
     this.onTap?.(this.nodeAt(ev)?.node ?? null);
   };
+
+  /**
+   * Can she pick this one up? Everything the physics places is fair game. The
+   * tables are not: they stand on shelves the engine re-measures as the dots
+   * spread (placeShelves), so a hand-placed table would be shoved straight back
+   * on the next settle — a press on one pans the map, exactly as it always did.
+   */
+  private canDrag(node: SimNode | null): node is SimNode {
+    if (!node) return false;
+    return !isTable(node) && !this.shelfHubIds.has(node.id);
+  }
+
+  /**
+   * Pick a node up. Nothing here runs unless the press landed on something
+   * draggable — the zoom filter asked the same question first and only stood
+   * down if the answer was yes. Capturing the pointer keeps the drag alive when
+   * the cursor leaves the canvas, and warming the sim a little lets the
+   * neighbours make room as she moves it.
+   *
+   * Prompt that produced it: "i also want to be able to drag nodes around and
+   * for it to save that position until i refresh the page."
+   */
+  private handlePointerDown = (ev: PointerEvent): void => {
+    if (ev.pointerType === 'mouse' && ev.button !== 0) return;
+    if (this.dragNode !== null) return; // one node at a time; a second finger is a pinch
+    const hit = this.nodeAt(ev);
+    if (!this.canDrag(hit)) return;
+    this.dragNode = hit;
+    this.dragPointerId = ev.pointerId;
+    this.dragMoved = false;
+    hit.fx = hit.x;
+    hit.fy = hit.y;
+    this.canvas.setPointerCapture(ev.pointerId);
+    this.canvas.style.cursor = 'grabbing';
+    this.sim?.alphaTarget(DRAG_ALPHA).restart();
+  };
+
+  /** The node follows the pointer in WORLD coordinates, so it stays under her
+   * finger at any zoom. */
+  private dragTo(ev: PointerEvent): void {
+    const node = this.dragNode;
+    if (!node) return;
+    const rect = this.canvas.getBoundingClientRect();
+    const [wx, wy] = this.transform.invert([ev.clientX - rect.left, ev.clientY - rect.top]);
+    node.fx = wx;
+    node.fy = wy;
+    node.x = wx;
+    node.y = wy;
+    this.dragMoved = true;
+    this.requestDraw();
+  }
+
+  /**
+   * Put it down — and leave it there. The node keeps its fx/fy, which is what
+   * "it stays where I put it" means in a force layout: the physics flows around
+   * it instead of reclaiming it, until she releases it or reloads the page. A
+   * press that never moved was a tap, so that one hands the node back (unless
+   * it was already pinned) and lets the click through.
+   */
+  private handlePointerUp = (ev: PointerEvent): void => {
+    const node = this.dragNode;
+    if (node === null || ev.pointerId !== this.dragPointerId) return;
+    this.dragNode = null;
+    this.dragPointerId = null;
+    if (this.canvas.hasPointerCapture(ev.pointerId)) this.canvas.releasePointerCapture(ev.pointerId);
+    this.canvas.style.cursor = '';
+    this.sim?.alphaTarget(0);
+    if (this.dragMoved) {
+      this.pinnedByHand.add(node.id);
+      this.onPins?.(this.pinnedByHand.size);
+      this.draggedAt = performance.now();
+    } else if (!this.pinnedByHand.has(node.id)) {
+      node.fx = null;
+      node.fy = null;
+    }
+    this.dragMoved = false;
+    this.requestDraw();
+  };
+
+  /**
+   * Hand the map back to the physics: every hand-placed node is released and
+   * the sim is warmed just enough for them to rejoin the crowd. The resting
+   * positions are left alone, so the map settles from where it is rather than
+   * jumping.
+   */
+  releasePins(): void {
+    if (this.pinnedByHand.size === 0) return;
+    for (const sn of this.simNodes) {
+      if (!this.pinnedByHand.has(sn.id)) continue;
+      sn.fx = null;
+      sn.fy = null;
+    }
+    this.pinnedByHand.clear();
+    forgetPins();
+    this.onPins?.(0);
+    this.sim?.alpha(0.2).restart();
+  }
 
   /**
    * Hover: which agent is under the cursor. Mouse-only — a touch pointer fires
@@ -1710,6 +1933,12 @@ export class TerrainCanvas {
    * Nothing here wakes the sim; a changed hover costs exactly one repaint.
    */
   private handlePointerMove = (ev: PointerEvent): void => {
+    // Carrying a node: the gesture is the drag and nothing else — no hover, and
+    // no camera, which stood down back at pointerdown.
+    if (this.dragNode !== null && ev.pointerId === this.dragPointerId) {
+      this.dragTo(ev);
+      return;
+    }
     if (ev.pointerType !== 'mouse') return;
     const hit = this.nodeAt(ev, true);
     const any = this.nodeAt(ev);

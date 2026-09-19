@@ -303,10 +303,13 @@ export function TerrainPage() {
   // and the poll turns itself off when the last session goes quiet.
   const [anyRunning, setAnyRunning] = useState(false);
   const [tier, setTier] = useState<number | null>(FETCH_TIERS[0]);
-  const { data, isLoading, isError, isFetching } = useTerrain(anyRunning && pageVisible, tier);
+  const { data, isLoading, isError, isFetching, dataUpdatedAt, refetch } = useTerrain(
+    anyRunning && pageVisible,
+    tier,
+  );
   // The database's tables, for the map's table layer (tableNodes.ts). Owner
   // only — the endpoint is closed to visitors, so they don't ask.
-  const { data: tables } = useTerrainTables(!visitor);
+  const { data: tables, refetch: refetchTables } = useTerrainTables(!visitor);
   useEffect(() => {
     if (data) setAnyRunning((data.sessions ?? []).some((s) => s.running));
   }, [data]);
@@ -493,6 +496,30 @@ export function TerrainPage() {
       setTier((cur) => nextTier(cur));
     }
   }, [settledCount, loadedFiles, totalFiles, data]);
+  // The map no longer re-fetches itself every time she opens the page (see
+  // useTerrain's staleTime), so the refresh chip has to say how old what she's
+  // looking at is. A bump every 30s keeps that label honest; nothing else in
+  // the page depends on it, and it stops while the tab is in the background.
+  const [, bumpAge] = useState(0);
+  useEffect(() => {
+    if (!pageVisible) return;
+    const t = window.setInterval(() => bumpAge((n) => n + 1), 30_000);
+    return () => window.clearInterval(t);
+  }, [pageVisible]);
+  const dataAge = dataUpdatedAt ? relativeAge(dataUpdatedAt / 1000) : null;
+  // Live mode already polls every ~5s; spinning the chip on each of those would
+  // be a flicker that means nothing. The spin is for a fetch SHE asked for.
+  const refreshing = isFetching && !(anyRunning && pageVisible);
+  const refreshMap = () => {
+    void refetch();
+    void refetchTables();
+  };
+
+  // How many nodes she's dragged into place — reported by the engine, and the
+  // only reason the "release" chip exists. It appears when there's something to
+  // release and is gone the rest of the time.
+  const [pinnedCount, setPinnedCount] = useState(0);
+
   // Live theme tokens for the HTML color key (the engine keeps its own copy)
   // — set on mount and kept fresh by the same subscription below.
   const [ink, setInk] = useState<ThemeInk | null>(null);
@@ -866,8 +893,12 @@ export function TerrainPage() {
     const wrap = wrapRef.current;
     if (!canvas || !wrap) return;
     const initialInk = readThemeInk();
-    const engine = new TerrainCanvas(canvas, initialInk);
+    // `remember: true` is what makes re-opening this page reopen HER map:
+    // positions, the nodes she dragged, and the camera are carried across the
+    // mount in layoutMemory.ts. The ambient backdrop doesn't ask for it.
+    const engine = new TerrainCanvas(canvas, initialInk, { remember: true });
     engineRef.current = engine;
+    engine.onPins = setPinnedCount;
     setInk(initialInk);
     engine.resize(wrap.clientWidth, wrap.clientHeight);
 
@@ -1349,6 +1380,48 @@ export function TerrainPage() {
               dates · clear ×
             </button>
           ) : null}
+          {/* The map is fetched when she ASKS now, not every time the page
+              opens, so this chip is both the door to fresh data and the honest
+              label of how old what she's looking at is. Beside it, and only
+              when there's something to undo, the release: hand the nodes she
+              dragged back to the physics.
+
+              Prompt: "i want for the map to not have to reload every time i
+              open the page ... there can be a button on there somewhere that i
+              can actively refresh it." */}
+          <div className={styles.mapTools}>
+            {pinnedCount > 0 ? (
+              <button
+                type="button"
+                className={[styles.chip, styles.releaseChip].join(' ')}
+                title="Let the physics have the nodes you moved back"
+                onClick={() => engineRef.current?.releasePins()}
+              >
+                release {pinnedCount}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className={[styles.chip, styles.refreshChip, refreshing ? styles.refreshing : '']
+                .filter(Boolean)
+                .join(' ')}
+              title={
+                dataAge === null
+                  ? 'Refresh the map'
+                  : dataAge === 'now'
+                    ? 'Refresh the map — fetched just now'
+                    : `Refresh the map — fetched ${dataAge} ago`
+              }
+              aria-label="Refresh the map"
+              disabled={refreshing}
+              onClick={refreshMap}
+            >
+              <span className={styles.refreshGlyph} aria-hidden="true">
+                &#8635;
+              </span>
+              {dataAge ? <span className={styles.refreshAge}>{dataAge}</span> : null}
+            </button>
+          </div>
           {/* Page tools, pushed to the right edge and away from the map's own
               controls: these act on the WORK, not on the map, so grouping them
               with the territory chips would say they filter something. The two

@@ -125,6 +125,16 @@ function getTerrain(limit: number | null, signal?: AbortSignal): Promise<Terrain
  * already pauses interval refetches for backgrounded tabs; the caller gates
  * `live` on document visibility on top of that.
  *
+ * At rest the payload never goes stale on its own: opening the page, or
+ * coming back to the tab, re-uses what's already cached instead of fetching,
+ * and the map she left is the map she returns to. Fresh data is something she
+ * ASKS for — the refresh chip in the top bar calls `refetch`. Live mode is the
+ * one exception, and it earns it: the whole point there is watching it happen.
+ *
+ * Prompt that produced it: "i want for the map to not have to reload every
+ * time i open the page ... there can be a button on there somewhere that i can
+ * actively refresh it."
+ *
  * `limit` is the Files slider's fetch tier (null = every file), part of the
  * query key so each tier caches separately — sliding back down to a smaller
  * map is then instant, served from the cache rather than the network. The
@@ -135,7 +145,7 @@ export function useTerrain(live = false, limit: number | null = 350) {
   return useQuery({
     queryKey: [...TERRAIN_KEY, limit] as const,
     queryFn: async ({ signal }) => getTerrain(limit, signal),
-    staleTime: live ? 4_000 : 60_000,
+    staleTime: live ? 4_000 : Infinity,
     refetchInterval: live ? 5_000 : false,
     // Keep the previous tier's map on screen while a bigger one loads, so
     // dragging the slider never blanks the canvas.
