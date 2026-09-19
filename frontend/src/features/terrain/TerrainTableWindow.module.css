@@ -1,0 +1,120 @@
+/* TerrainTableWindow — see the .tsx for why this isn't the shared Sheet. */
+
+/* Cover the terrain pane, and only that pane. Positioned against the terrain
+   page (its nearest positioned parent), so `inset: 0` is whatever box the map
+   was given — the whole page on one screen, one side when the screen is split
+   — and the flex centring below is therefore centred over the MAP. z-index
+   sits above the page's chrome and the code window's level (10). */
+.backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  backdrop-filter: blur(2px);
+  animation: backdropIn 140ms ease-out;
+}
+
+.window {
+  display: flex;
+  flex-direction: column;
+  width: min(600px, 100%);
+  max-height: 100%;
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl, 16px);
+  background: var(--surface, var(--bg));
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.35);
+  /* The width eases when she switches to Rows, so the window visibly opens
+     out rather than jumping. */
+  transition: width 180ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.windowWide {
+  width: min(1180px, 100%);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.switch {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.switchOn,
+.switchOff {
+  min-height: 40px;
+  padding: 0 var(--space-4);
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+
+.switchOn {
+  background: color-mix(in srgb, var(--accent) 22%, var(--bg));
+  color: var(--text);
+}
+
+/* The window's one vertical scroller. overscroll-behavior stops a flick at the
+   end from carrying on into the map's own wheel-zoom underneath. */
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.seeRows {
+  min-height: var(--tap-target, 44px);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--accent) 16%, var(--bg));
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+@keyframes backdropIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

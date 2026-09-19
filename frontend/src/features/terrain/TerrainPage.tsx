@@ -54,7 +54,7 @@ import { PondLandmark } from './PondLandmark';
 import { collapseToPondTile, localDayISO, parseCardPath, POND_TILE_PATH } from './pondNodes';
 import { filesHiddenByActivity, type ActivityFilter } from './activityFilter';
 import { addTableNodes } from './tableNodes';
-import { TerrainTableSheet } from './TerrainTableSheet';
+import { TerrainTableWindow } from './TerrainTableWindow';
 import { fileTypeCounts, OTHER_FILE_TYPE } from './fileTypes';
 import { setTypeColorsOn, useTypeColorsOn } from './typeColorPref';
 import { setAgentsHiddenOn, useAgentsHiddenOn } from './agentsHiddenPref';
@@ -1641,7 +1641,14 @@ export function TerrainPage() {
       </>
       )}
 
-      <Sheet open={selected !== null} title={selected?.label} onClose={() => setSelected(null)}>
+      {/* The shared Sheet is for agents only. A tapped TABLE opens its own
+          window below instead, because the Sheet centres on the whole browser
+          window and a table's card has to centre over this pane. */}
+      <Sheet
+        open={selected !== null && !selected.file?.table}
+        title={selected?.label}
+        onClose={() => setSelected(null)}
+      >
         {selected?.kind === 'session' && selected.session ? (
           <div className={styles.sheetBody}>
             <div className={styles.sheetMeta}>
@@ -1681,41 +1688,45 @@ export function TerrainPage() {
             </div>
           </div>
         ) : null}
-        {selected?.file?.table ? (
-          <TerrainTableSheet
-            table={selected.file.table}
-            allTables={tables?.tables ?? []}
-            onPickTable={(tableName) => {
-              // Jump to a joined table's card: same sheet, different table.
-              const next = graph?.nodes.find((n) => n.file?.table?.name === tableName);
-              if (next) setSelected(next);
-            }}
-            onOpenFile={(path) => {
-              // Open one of the files that touches this table, the same way a
-              // tapped dot opens: another window if one is listening, else the
-              // code window here. The file may not be ON the map (the Files
-              // dial cuts to the hottest few hundred), so when it isn't, a
-              // bare stand-in node carries the repo and path the window needs.
-              const repo = tables?.code_repo ?? 'skeleton';
-              setSelected(null);
-              if (dispatchIntent({ kind: 'code', repo, path }) !== 'none') return;
-              const id = `${repo}:file:${path}`;
-              setCodeFile(
-                graph?.nodes.find((n) => n.id === id) ?? {
-                  id,
-                  kind: 'file',
-                  label: path.split('/').slice(-1)[0],
-                  parentId: null,
-                  depth: 0,
-                  repoId: repo,
-                  path,
-                  heat: 0,
-                },
-              );
-            }}
-          />
-        ) : null}
       </Sheet>
+
+      {/* The table window: what a tapped table opens — its description, and
+          its actual rows with search (TerrainTableWindow). Centred over THIS
+          pane, so with the screen split it sits over the map's side rather
+          than straddling the divider. */}
+      <TerrainTableWindow
+        table={selected?.file?.table ?? null}
+        allTables={tables?.tables ?? []}
+        onClose={() => setSelected(null)}
+        onPickTable={(tableName) => {
+          // Jump to a joined table's card: same window, different table.
+          const next = graph?.nodes.find((n) => n.file?.table?.name === tableName);
+          if (next) setSelected(next);
+        }}
+        onOpenFile={(path) => {
+          // Open one of the files that touches this table, the same way a
+          // tapped dot opens: another window if one is listening, else the
+          // code window here. The file may not be ON the map (the Files
+          // dial cuts to the hottest few hundred), so when it isn't, a
+          // bare stand-in node carries the repo and path the window needs.
+          const repo = tables?.code_repo ?? 'skeleton';
+          setSelected(null);
+          if (dispatchIntent({ kind: 'code', repo, path }) !== 'none') return;
+          const id = `${repo}:file:${path}`;
+          setCodeFile(
+            graph?.nodes.find((n) => n.id === id) ?? {
+              id,
+              kind: 'file',
+              label: path.split('/').slice(-1)[0],
+              parentId: null,
+              depth: 0,
+              repoId: repo,
+              path,
+              heat: 0,
+            },
+          );
+        }}
+      />
 
       {/* The file pane: read the tapped file without leaving the map
           (FileCodeWindow). It covers this terrain panel's whole area and

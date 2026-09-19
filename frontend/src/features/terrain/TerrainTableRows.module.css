@@ -1,0 +1,190 @@
+/* TerrainTableRows — the rows of one table, with search. House rules: nothing
+   under 12px; anything tappable ~40px tall (rows, the pager, the search box). */
+
+.rowsView {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 0;
+}
+
+.searchBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+.search {
+  flex: 1 1 260px;
+  min-height: var(--tap-target, 44px);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-size-base);
+}
+
+.count {
+  font-size: var(--font-size-md);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.status {
+  margin: 0;
+  font-size: var(--font-size-md);
+  color: var(--text-muted);
+}
+
+/* The table scrolls sideways inside its own box — a 22-column table is far
+   wider than the window, and the window itself must not scroll sideways. */
+.scroller {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overscroll-behavior-x: contain;
+}
+
+.table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: var(--font-size-md);
+}
+
+.table th {
+  position: sticky;
+  top: 0;
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  white-space: nowrap;
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--text) 8%, var(--bg));
+  border-bottom: 1px solid var(--border);
+}
+
+/* A primary-key column wears the same solid ink its header cell wears on the
+   map (terrainCanvas.ts drawTable). */
+.table th.keyColumn {
+  color: var(--text);
+  box-shadow: inset 0 -2px 0 var(--text);
+}
+
+.table td {
+  padding: var(--space-2) var(--space-3);
+  max-width: 340px;
+  vertical-align: top;
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+
+.row,
+.rowOpen {
+  height: 40px;
+  cursor: pointer;
+}
+
+.row:hover,
+.row:focus-visible {
+  background: color-mix(in srgb, var(--text) 5%, var(--bg));
+  outline: none;
+}
+
+.rowOpen {
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg));
+}
+
+.number {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.empty {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.mark {
+  background: color-mix(in srgb, var(--orange, #e0a030) 45%, transparent);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.wholeRow td {
+  max-width: none;
+  padding: var(--space-3);
+  background: color-mix(in srgb, var(--accent) 6%, var(--bg));
+}
+
+.fields {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.field {
+  display: grid;
+  grid-template-columns: minmax(90px, 160px) minmax(0, 1fr);
+  gap: var(--space-3);
+}
+
+.fieldName {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.fieldValue {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  /* One whole collection can be a hundred kilobytes; it scrolls in place
+     rather than pushing every other field off the screen. */
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.pageBtn {
+  min-height: var(--tap-target, 44px);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pageBtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.pageNote {
+  font-size: var(--font-size-md);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.note {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}

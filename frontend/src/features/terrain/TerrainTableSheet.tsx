@@ -35,9 +35,10 @@ import styles from './TerrainTableSheet.module.css';
  *
  * This file is only the words and layout; all of it is drawn from the table
  * description the map already holds (GET /api/observatory/terrain/tables), so
- * opening a card costs no request. Rendered by TerrainPage.tsx inside its
- * Sheet; the door at the bottom leads to the SQL room (/terrain/sql), where
- * the same table can be queried.
+ * opening a card costs no request. Shown as the About side of
+ * TerrainTableWindow.tsx (whose Rows side shows the table's actual contents);
+ * the door at the bottom leads to the SQL room (/terrain/sql), where the same
+ * table can be queried.
  *
  * Prompt that produced it: "i want them to be sized by how much is in there
  * and learn more about the shapes of the tables through this exercise" / "for
