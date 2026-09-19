@@ -446,7 +446,17 @@ const TABLE_MIN_COLLIDE_R = 30;
  * shelves, and they are drawn at a fixed SCREEN size — so at the pulled-back
  * zooms the map is usually read at, a 100px name covers ~200 of these world
  * units. The margin is that plus breathing room. Judged by eye. */
-const SHELF_MARGIN = 300;
+const SHELF_MARGIN = 480;
+/** The shelves' keep-out zone: the section's own rectangle grown by this much
+ * on every side. A dot inside it is pushed back out (see the 'shelfKeepOut'
+ * force). Deliberately smaller than SHELF_MARGIN, so the zone's edge sits in
+ * the clear ground between the vault and the shelves — a dot resting at the
+ * vault's outer edge is never inside it, and the two rules can't fight. */
+const SHELF_KEEP_OUT_PAD = 160;
+/** How hard a dot inside the keep-out zone is pushed, per tick, as a share of
+ * how deep inside it is. Firm enough to clear a dot in a second or so, soft
+ * enough that it slides out rather than being flung across the map. */
+const SHELF_KEEP_OUT_PUSH = 0.35;
 /** The shelves re-measure where the dots are once every this many physics
  * ticks — often enough to glide with the map as it settles, rare enough that
  * walking a few thousand positions costs nothing noticeable. */
@@ -1536,15 +1546,45 @@ export class TerrainCanvas {
       .force(
         'charge',
         forceManyBody<SimNode>().strength((n) =>
-          // A table pushes like a folder, not like a dot, which keeps the
-          // ground around the shelves clear of strays.
-          n.node.kind === 'file' && !isTable(n) ? -38 : n.node.kind === 'session' ? -70 : -140,
+          // A table pushes harder than anything else on the map — about twice
+          // a folder — so the ground around the shelves stays clear and the
+          // vault's dots settle leaning away from them, not against them.
+          isTable(n) ? -300 : n.node.kind === 'file' ? -38 : n.node.kind === 'session' ? -70 : -140,
         ),
       )
       .force('collide', forceCollide<SimNode>((n) => n.radius + 4))
+      // Keep the dots out of the table section. Charge and collision only
+      // push a dot away from one table at a time, which lets it slip BETWEEN
+      // two shelves and sit there; this treats the whole section as one
+      // rectangle nothing else may rest inside. A dot found inside is pushed
+      // out through the side facing its own territory (back toward the vault),
+      // harder the deeper in it is, and eased by the sim's cooling `alpha`
+      // like every other force so the map still comes to rest. Agents' orbs
+      // are left alone: they drift to wherever their files are and belong to
+      // no territory.
+      .force('shelfKeepOut', (alpha: number) => {
+        const shelf = this.shelf;
+        if (!shelf || shelf.left === null || shelf.top === null) return;
+        const zoneLeft = shelf.left - SHELF_KEEP_OUT_PAD;
+        const zoneRight = shelf.left + shelf.layout.width + SHELF_KEEP_OUT_PAD;
+        const zoneTop = shelf.top - SHELF_KEEP_OUT_PAD;
+        const zoneBottom = shelf.top + shelf.layout.height + SHELF_KEEP_OUT_PAD;
+        for (const n of this.simNodes) {
+          if (isTable(n) || this.shelfHubIds.has(n.id) || n.node.kind === 'session') continue;
+          const x = n.x ?? 0;
+          const y = n.y ?? 0;
+          if (x < zoneLeft || x > zoneRight || y < zoneTop || y > zoneBottom) continue;
+          // How far it has to travel to be out through the vault-facing side.
+          const depth = shelf.outward > 0 ? x - zoneLeft : zoneRight - x;
+          n.vx = (n.vx ?? 0) - shelf.outward * depth * SHELF_KEEP_OUT_PUSH * alpha;
+        }
+      })
       .force('x', forceX<SimNode>((n) => anchorFor(n.node.repoId).x).strength((n) => (n.node.kind === 'session' ? 0 : 0.045)))
       .force('y', forceY<SimNode>((n) => anchorFor(n.node.repoId).y).strength((n) => (n.node.kind === 'session' ? 0 : 0.055)))
-      .alpha(prev.size > 0 ? 0.35 : 1)
+      // A map restored from memory is already settled: it gets the faintest
+      // warmth, enough to place whatever is new and no more. A rebuild while
+      // she watches re-warms at 0.35; only a map with no past explodes from 1.
+      .alpha(recalled !== null && recalledHits >= nodes.length * 0.6 ? 0.06 : prev.size > 0 ? 0.35 : 1)
       .on('tick', () => {
         // Ballast. d3-force has no mass — every node coasts equally — so the
         // tile, the biggest body on the map, was being carried by every wave
@@ -1913,7 +1953,9 @@ export class TerrainCanvas {
    * 3,000 — can't be known ahead of time. So this looks at where the dots
    * actually are: the edge is the furthest any of the repo's dots reaches in
    * the outward direction (the physics pulls every dot toward its repo's
-   * anchor, so there are no far-flung strays to distort that).
+   * anchor, so there are no far-flung strays to distort that). The section
+   * stands SHELF_MARGIN beyond that edge, and the 'shelfKeepOut' force pushes
+   * back any dot that drifts into it afterwards.
    *
    * `ease` is how much of the way to move toward the measured spot: 1 snaps
    * (first placement), a fraction glides (called every few ticks while the map

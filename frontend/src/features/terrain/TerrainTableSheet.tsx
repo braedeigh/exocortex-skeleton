@@ -113,10 +113,15 @@ export function TerrainTableSheet({
   return (
     <div className={styles.body}>
       {/* WHAT'S IN IT — the description, first, because "what is this" comes
-          before "how big is it". A table nobody has described says so. */}
-      <p className={styles.holds}>
-        {table.notes ? table.notes.holds : 'Nobody has written a description of this table yet.'}
-      </p>
+          before "how big is it". Three cases, kept apart on purpose: a note
+          (show it); null = the server looked and nobody has described this
+          table (say so); undefined = the server predates notes altogether
+          (say nothing — "nobody has written one" would be a guess). */}
+      {table.notes !== undefined ? (
+        <p className={styles.holds}>
+          {table.notes ? table.notes.holds : 'Nobody has written a description of this table yet.'}
+        </p>
+      ) : null}
 
       {/* HOW MUCH — the three numbers the rectangle stands for. */}
       <div className={styles.facts}>
@@ -232,13 +237,13 @@ export function TerrainTableSheet({
         </section>
       ) : null}
 
-      {/* CODE THAT TOUCHES IT — creates, writes, reads; each file opens. */}
+      {/* CODE THAT TOUCHES IT — creates, writes, reads; each file opens. Left
+          out entirely when the payload carries no scan (a server that predates
+          it): "no file found" would then be a claim nobody checked. */}
+      {table.code !== undefined ? (
       <section className={styles.section}>
         <h3 className={styles.heading}>Code that touches it</h3>
         {CODE_GROUPS.map((group) => {
-          // `?.` because a payload from before the server learned to scan
-          // (an old cached response, or a server not yet reloaded) has no
-          // `code` at all — that must read as "none found", not crash the card.
           const hits = table.code?.[group.key] ?? [];
           return (
             <div key={group.key} className={styles.codeGroup}>
@@ -270,6 +275,7 @@ export function TerrainTableSheet({
           path.
         </p>
       </section>
+      ) : null}
 
       {table.indexes.length > 0 ? (
         <section className={styles.section}>
