@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { TerrainFile } from './api';
-import { fileLastActive, filesHiddenByActivity } from './activityFilter';
+import {
+  effectiveActivity,
+  fileLastActive,
+  filesHiddenByActivity,
+  type ActivityFilter,
+} from './activityFilter';
 import type { TerrainNode } from './terrainGraph';
 
 /**
@@ -73,5 +78,23 @@ describe('filesHiddenByActivity', () => {
   it('never hides the pond tile', () => {
     const pond = fileNode('pond', { days: [{ day: '2026-09-01', touches: [] }] });
     expect(filesHiddenByActivity([pond], 'recent', 7 * DAY, NOW).size).toBe(0);
+  });
+});
+
+describe('effectiveActivity — the switch belongs to the Types view', () => {
+  it('means nothing on the heat map: every file is drawn whatever she set', () => {
+    expect(effectiveActivity('recent', false)).toBe('all');
+    expect(effectiveActivity('old', false)).toBe('all');
+  });
+
+  it('bites under Types, which is the only place age cannot be read off colour', () => {
+    expect(effectiveActivity('recent', true)).toBe('recent');
+    expect(effectiveActivity('old', true)).toBe('old');
+  });
+
+  it('keeps her choice while it is inert, so turning Types back on restores it', () => {
+    const chosen: ActivityFilter = 'old';
+    expect(effectiveActivity(chosen, false)).toBe('all');
+    expect(effectiveActivity(chosen, true)).toBe('old');
   });
 });

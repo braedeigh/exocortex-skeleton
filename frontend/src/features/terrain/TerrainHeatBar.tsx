@@ -88,13 +88,17 @@ import styles from './TerrainHeatBar.module.css';
  *    scheme … that overrides the other colors when i toggle it on" → "i want
  *    to hide stale files … the dots turn black or disappear when i am on the
  *    'types' display".
- * 8. **All / Recent / Old is a filter on THIS slider's window.** One joined
- *    control of three, at the end of the row. Recent keeps only the files
+ * 8. **All / Recent / Old is a filter on THIS slider's window — and it only
+ *    exists under Types.** One joined control of three, at the end of the
+ *    row, on screen only while Types is on. Recent keeps only the files
  *    edited or run inside the window the thumb sets; Old keeps only the ones
  *    that weren't; All is the map as normal. It borrows the slider's window
  *    rather than bringing a second "how far back" control, so the thumb has
  *    one meaning — the edge between lit and ash — and this switch just picks
  *    a side of that edge. Drag the thumb while it's on and dots cross over.
+ *    On the heat map it isn't drawn at all, because there it would do
+ *    nothing: age is already the colour of every dot, and the heat map draws
+ *    every file there is (activityFilter.ts, effectiveActivity).
  *    The rule is activityFilter.ts; the canvas hides dots without moving the
  *    rest (terrainCanvas.ts setHiddenFiles). Not remembered across reloads,
  *    unlike Types: Types is how she likes the map lit, this is a question
@@ -271,8 +275,10 @@ export function TerrainHeatBar({
         ) : null}
         {/* Show all files, only the recently active, or only the old ones
             (note 8). A segmented control — three buttons joined into one
-            pill — because the three are one choice, not three switches. */}
-        {onActivity ? (
+            pill — because the three are one choice, not three switches. Only
+            under Types: on the heat map it would be a control that does
+            nothing, and her last choice waits here for when she comes back. */}
+        {onActivity && typeColors ? (
           <div className={`${styles.segments} ${styles.presetApart}`} role="group" aria-label="Show files by activity">
             {ACTIVITY_CHOICES.map((choice) => (
               <button

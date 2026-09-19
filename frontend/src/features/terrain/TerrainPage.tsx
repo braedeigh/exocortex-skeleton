@@ -52,7 +52,7 @@ import { beatNodeIds, scheduleFrames, type Beat } from './journeyReplay';
 import type { TerrainThread } from './terrainThreads';
 import { PondLandmark } from './PondLandmark';
 import { collapseToPondTile, localDayISO, parseCardPath, POND_TILE_PATH } from './pondNodes';
-import { filesHiddenByActivity, type ActivityFilter } from './activityFilter';
+import { effectiveActivity, filesHiddenByActivity, type ActivityFilter } from './activityFilter';
 import { addTableNodes } from './tableNodes';
 import { TerrainTableWindow } from './TerrainTableWindow';
 import { fileTypeCounts, OTHER_FILE_TYPE } from './fileTypes';
@@ -257,6 +257,18 @@ const HOVER_LEAVE_MS = 240;
  * request per pixel: within a tier the dial slices locally (instant), and
  * only crossing one costs a fetch — which react-query then caches, so
  * sliding back down is instant too. `null` = every file there is.
+ *
+ * The map OPENS on `null` — every file, both repos, ~4,000 drawn nodes once
+ * the pond has collapsed the card pool into its tile. The tiers below it are
+ * what the Files dial slides back down to, not a ladder it has to climb: a
+ * map that shows most of the corpus and calls it the terrain is telling her
+ * something false about her own codebase. The cost is honest and it's
+ * front-loaded — a bigger first payload, a heavier first settle — and the
+ * layout memory (layoutMemory.ts) means that settle happens once, not on
+ * every visit.
+ *
+ * Prompt that produced it: "i also want ALL my files to show by default
+ * rather than only a subset of them."
  */
 const FETCH_TIERS: readonly (number | null)[] = [350, 1000, 2500, null];
 
@@ -302,7 +314,10 @@ export function TerrainPage() {
   // flag comes from the last payload, so the first fetch always runs cold
   // and the poll turns itself off when the last session goes quiet.
   const [anyRunning, setAnyRunning] = useState(false);
-  const [tier, setTier] = useState<number | null>(FETCH_TIERS[0]);
+  // Everything, from the first frame — except in the embed, where the map is a
+  // decorative card on a public page and the hottest few hundred is plenty for
+  // "it's alive" at a fraction of the payload.
+  const [tier, setTier] = useState<number | null>(embed ? FETCH_TIERS[0] : null);
   const { data, isLoading, isError, isFetching, dataUpdatedAt, refetch } = useTerrain(
     anyRunning && pageVisible,
     tier,
@@ -1149,10 +1164,17 @@ export function TerrainPage() {
   // settles every ten seconds, and a filter riding it would blink files in
   // and out of existence. Page state, not a stored preference — see note 8 in
   // TerrainHeatBar.tsx for why this one doesn't stay across reloads.
+  //
+  // The switch only bites under Types (effectiveActivity): the heat map draws
+  // every file there is, always, because age is already its colour.
   const [activity, setActivity] = useState<ActivityFilter>('all');
+  const liveActivity = effectiveActivity(activity, typeColors);
   const hiddenFiles = useMemo(
-    () => (visible ? filesHiddenByActivity(visible.nodes, activity, heatDays * DAY_SECONDS, now) : new Set<string>()),
-    [visible, activity, heatDays, now],
+    () =>
+      visible
+        ? filesHiddenByActivity(visible.nodes, liveActivity, heatDays * DAY_SECONDS, now)
+        : new Set<string>(),
+    [visible, liveActivity, heatDays, now],
   );
   useEffect(() => {
     engineRef.current?.setHiddenFiles(hiddenFiles);
@@ -1161,15 +1183,15 @@ export function TerrainPage() {
   // the edge is, and how many files that leaves — the count is the answer to
   // "how much of this is old", readable without counting dots.
   const activityNote = useMemo(() => {
-    if (activity === 'all' || !visible) return null;
+    if (liveActivity === 'all' || !visible) return null;
     const files = visible.nodes.filter((n) => n.kind === 'file' && !n.file?.days).length;
     const shown = files - hiddenFiles.size;
     const span = `${heatDays}d`;
     return {
-      title: activity === 'recent' ? `Active in the last ${span}` : `Nothing in the last ${span}`,
+      title: liveActivity === 'recent' ? `Active in the last ${span}` : `Nothing in the last ${span}`,
       count: `${shown} of ${files} files`,
     };
-  }, [activity, visible, hiddenFiles, heatDays]);
+  }, [liveActivity, visible, hiddenFiles, heatDays]);
 
   // Build the key's type list. Only the files drawn right now are counted,
   // so the legend never names a type that isn't on the map, and each swatch
