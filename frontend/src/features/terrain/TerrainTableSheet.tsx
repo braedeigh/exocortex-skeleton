@@ -1,4 +1,3 @@
-import { Link } from '@tanstack/react-router';
 import type { TerrainTable, TerrainTableNotes } from './api';
 import { describeTableShape, formatBytes, tablesPointingAt } from './tableNodes';
 import styles from './TerrainTableSheet.module.css';
@@ -36,9 +35,10 @@ import styles from './TerrainTableSheet.module.css';
  * This file is only the words and layout; all of it is drawn from the table
  * description the map already holds (GET /api/observatory/terrain/tables), so
  * opening a card costs no request. Shown as the About side of
- * TerrainTableWindow.tsx (whose Rows side shows the table's actual contents);
- * the door at the bottom leads to the SQL room (/terrain/sql), where the same
- * table can be queried.
+ * TerrainTableWindow.tsx (whose Rows side shows the table's actual contents).
+ * The ways OUT of the card — into the rows, into the SQL room — are not in
+ * here: they sit in the window's pinned footer, so they're in reach however
+ * far down this description has been scrolled.
  *
  * Prompt that produced it: "i want them to be sized by how much is in there
  * and learn more about the shapes of the tables through this exercise" / "for
@@ -288,9 +288,6 @@ export function TerrainTableSheet({
         </section>
       ) : null}
 
-      <Link to="/terrain/sql" className={styles.door}>
-        Ask it things in the SQL room →
-      </Link>
     </div>
   );
 }

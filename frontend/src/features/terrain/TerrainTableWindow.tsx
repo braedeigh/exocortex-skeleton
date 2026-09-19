@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from '@tanstack/react-router';
 import { IconButton } from '../../ui';
 import type { TerrainTable } from './api';
 import { TerrainTableSheet } from './TerrainTableSheet';
@@ -26,6 +27,11 @@ import styles from './TerrainTableWindow.module.css';
  *           grows wide for this side: a table of data needs the width a
  *           column of prose doesn't.
  *
+ * THE FOOTER is pinned to the bottom of the card and never scrolls away: the
+ * two ways onward — into the table's rows, and into the SQL room where it can
+ * be queried — stay under her thumb however long the description or the list
+ * of rows is. On the Rows side the first of them turns into the way back.
+ *
  * It opens on About and goes back to About whenever a DIFFERENT table is
  * picked (the joins inside About are buttons that jump between tables), so
  * she always lands on "what is this" before "what's in it". Esc, the ×, and a
@@ -36,7 +42,9 @@ import styles from './TerrainTableWindow.module.css';
  * Prompt that produced it: "make the card that pops up for each one center
  * over the open terrain page on the side of the split screen that it's on, and
  * then make it such that i can click into it to see the actual rows themselves
- * with a search function within the rows".
+ * with a search function within the rows" / "i want the 'play with in sql
+ * room' and the 'see all rows' to float on the bottom of the card fixed to the
+ * bottom of the card".
  */
 export function TerrainTableWindow({
   table,
@@ -108,21 +116,31 @@ export function TerrainTableWindow({
 
         <div className={styles.body}>
           {side === 'about' ? (
-            <>
-              <TerrainTableSheet
-                table={table}
-                allTables={allTables}
-                onPickTable={onPickTable}
-                onOpenFile={onOpenFile}
-              />
-              {/* The way in, said again at the bottom of the description — the
-                  switch in the header is easy to miss after a long scroll. */}
-              <button type="button" className={styles.seeRows} onClick={() => setSide('rows')}>
-                See the {table.rows.toLocaleString()} {table.rows === 1 ? 'row' : 'rows'} →
-              </button>
-            </>
+            <TerrainTableSheet
+              table={table}
+              allTables={allTables}
+              onPickTable={onPickTable}
+              onOpenFile={onOpenFile}
+            />
           ) : (
             <TerrainTableRows table={table} />
+          )}
+        </div>
+
+        {/* The pinned footer: outside the scrolling body, so it holds still at
+            the bottom of the card while everything above it scrolls. */}
+        <div className={styles.footer}>
+          <Link to="/terrain/sql" className={styles.footerButton}>
+            Play with it in the SQL room
+          </Link>
+          {side === 'about' ? (
+            <button type="button" className={styles.footerPrimary} onClick={() => setSide('rows')}>
+              See all {table.rows.toLocaleString()} {table.rows === 1 ? 'row' : 'rows'} →
+            </button>
+          ) : (
+            <button type="button" className={styles.footerPrimary} onClick={() => setSide('about')}>
+              ← About this table
+            </button>
           )}
         </div>
       </div>

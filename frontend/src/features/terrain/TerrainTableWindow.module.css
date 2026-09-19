@@ -97,17 +97,42 @@
   gap: var(--space-3);
 }
 
-.seeRows {
+/* The pinned footer. It is a sibling of .body, not inside it: .body is the
+   only part of the card that scrolls, so this stays put at the bottom edge. A
+   hairline and the card's own surface behind it keep scrolling text from
+   reading through. Buttons share the row equally, and stack on a narrow pane. */
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 var(--radius-xl, 12px) var(--radius-xl, 12px);
+  background: var(--surface, var(--bg));
+}
+
+.footerButton,
+.footerPrimary {
+  flex: 1 1 200px;
   min-height: var(--tap-target, 44px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
   padding: 0 var(--space-4);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  background: color-mix(in srgb, var(--accent) 16%, var(--bg));
+  background: var(--bg);
   color: var(--text);
   font: inherit;
   font-size: var(--font-size-base);
   font-weight: 600;
+  text-align: center;
+  text-decoration: none;
   cursor: pointer;
+}
+
+.footerPrimary {
+  background: color-mix(in srgb, var(--accent) 16%, var(--bg));
 }
 
 @keyframes backdropIn {
