@@ -2,12 +2,15 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { FakeTerminal } from './FakeTerminal';
 import { Workspace } from './panels/Workspace';
 import { useMediaQuery, DESKTOP_QUERY } from './useMediaQuery';
+import { isSolo } from './solo';
 import styles from './SplitLayout.module.css';
 
 /**
  * SplitLayout.tsx — decides WHICH of the three shells this window gets, and
  * owns only the simplest one itself.
  *
+ * - A solo window (`?solo=1`, shell/solo.ts): none of them. The routed
+ *   content gets the whole window, with no chrome at all.
  * - Mobile (under 769px): no split at all. The routed content fills the
  *   window, exactly as it always has.
  * - Desktop, signed in: the tiling workspace (panels/Workspace.tsx) — as many
@@ -23,7 +26,7 @@ import styles from './SplitLayout.module.css';
  *   percentage in localStorage.
  *
  * Touches: panels/Workspace.tsx (the authed desktop shell), FakeTerminal.tsx
- * (the public one), routes/__root.tsx (mounts this).
+ * (the public one), solo.ts (the solo flag), routes/__root.tsx (mounts this).
  */
 
 const WIDTH_KEY = 'exo-split-width';
@@ -97,6 +100,19 @@ export function SplitLayout({ chrome, children }: { chrome: ReactNode; children:
       window.removeEventListener('pointerup', endDrag);
     };
   }, [dragging, onPointerMove, endDrag]);
+
+  if (isSolo()) {
+    // Give a solo window the page and nothing else. A file popped out of the
+    // Terrain map (shell/solo.ts) is its own browser window whose whole point
+    // is one pane — so no workspace, no tiles restored from the last layout,
+    // and no tab strip. Checked before everything else so it holds at any
+    // width: dragging the window narrow must not bring the mobile tabs back.
+    return (
+      <div className={styles.container} ref={containerRef}>
+        <div className={styles.right}>{children}</div>
+      </div>
+    );
+  }
 
   if (!isDesktop) {
     // Mobile: no split — content fills, exactly as before.

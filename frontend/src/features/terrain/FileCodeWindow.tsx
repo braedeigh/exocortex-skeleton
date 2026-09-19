@@ -1,13 +1,16 @@
 import { useEffect, type ReactNode } from 'react';
 import { IconButton } from '../../ui';
 import { FileCodeBody } from './FileCodeBody';
+import { soloCodeHref } from '../../shell/solo';
 import type { ThemeInk } from './terrainCanvas';
 import styles from './FileCodeWindow.module.css';
 
 /**
  * FileCodeWindow — tap a file on the map and read it: an opaque pane INSIDE
  * the terrain page, with the file's name and path across the top and one ×
- * (or Esc) that puts the map back exactly as it was.
+ * (or Esc) that puts the map back exactly as it was. Beside the × sits a ↗
+ * that pops the same file out into its own browser window, where it is the
+ * only pane (the /code page in solo mode — shell/solo.ts).
  *
  * This file is the frame. The contents are FileCodeBody, shared with the
  * /code page; TerrainPage.tsx opens the pane and hands it what the map knows.
@@ -70,6 +73,7 @@ export function FileCodeWindow({
   // would ellipsize the actual filename away, so the name gets the title
   // line and the full path gets its own line under it.
   const name = path.split('/').filter(Boolean).slice(-1)[0] ?? path;
+  const visitor = window.VIEW_MODE === 'public';
 
   return (
     <div className={styles.pane} role="dialog" aria-label={name}>
@@ -83,6 +87,31 @@ export function FileCodeWindow({
               tail. */}
           <div className={styles.path}>&lrm;{path}</div>
         </div>
+        {/* Pop the file out into its own browser window. It opens the /code
+            page in solo mode (shell/solo.ts), where the file is the only
+            pane — no workspace, no tabs — sized like a reading window rather
+            than a full browser. The pane here stays open; × still closes it.
+            `_blank` (not a named window) so each press gives a NEW window and
+            two files can sit side by side. Called straight from the click,
+            because an installed PWA blocks window.open from anywhere else.
+            Hidden from a public visitor: /code is the owner's and would only
+            bounce them home.
+            Her ask: "open a code window in a new browser window by clicking
+            a button, where it becomes the only pane… next to the x button." */}
+        {visitor ? null : (
+          <IconButton
+            aria-label="Open in a new window"
+            title="Open in a new window"
+            data-track="terrain-code-popout"
+            onClick={() => window.open(soloCodeHref(repo, path), '_blank', 'popup,width=960,height=1000')}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M14 4h6v6" />
+              <path d="M20 4l-9 9" />
+              <path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5" />
+            </svg>
+          </IconButton>
+        )}
         <IconButton aria-label="Close" onClick={onClose}>
           &times;
         </IconButton>

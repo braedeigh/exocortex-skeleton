@@ -29,6 +29,12 @@ export interface CodeSearch {
   path?: string;
   /** 1-based line or line range to highlight, e.g. "140" or "140-162". */
   lines?: string;
+  /** This window is the file and nothing else — a file popped out of the
+   * Terrain map (shell/solo.ts reads it off the URL; the route never does).
+   * It's in the schema only so the router doesn't strip it from the address
+   * bar on load, which would drop the window back into the full workspace on
+   * the next render. */
+  solo?: boolean;
 }
 
 const LINES_PATTERN = /^\d+(-\d+)?$/;
@@ -41,6 +47,7 @@ export const Route = createFileRoute('/code')({
       typeof search.lines === 'string' && LINES_PATTERN.test(search.lines)
         ? search.lines
         : undefined,
+    ...(search.solo === '1' || search.solo === 1 || search.solo === true ? { solo: true } : {}),
   }),
   beforeLoad: () => {
     if (typeof window === 'undefined') return;
