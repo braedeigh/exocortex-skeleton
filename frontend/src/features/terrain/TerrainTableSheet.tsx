@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router';
-import type { TerrainTable } from './api';
+import type { TerrainTable, TerrainTableNotes } from './api';
 import { describeTableShape, formatBytes, tablesPointingAt } from './tableNodes';
 import styles from './TerrainTableSheet.module.css';
 
@@ -10,6 +10,8 @@ import styles from './TerrainTableSheet.module.css';
  *
  * Top to bottom it answers, in the order the questions come up:
  *
+ *   WHAT'S IN IT  the hand-written description of the information the table
+ *               contains (table_notes.json, served with the table).
  *   HOW MUCH    rows, columns, and bytes on disk — what the rectangle's size
  *               was a picture of — with the scale said out loud, because the
  *               height is a square root and a picture with a hidden scale is
@@ -23,6 +25,13 @@ import styles from './TerrainTableSheet.module.css';
  *               aren't written anywhere in this table's own definition, which
  *               is exactly why they're worth listing. Each name is a button
  *               that jumps to that table's card.
+ *   WHERE ITS ROWS COME FROM
+ *               the note's account of what fills the table, and whether it's
+ *               a copy that can be rebuilt or the only record there is.
+ *   CODE THAT TOUCHES IT
+ *               the files that create it, write to it, and read it — found by
+ *               the server searching the code, so it can't go stale. Each is
+ *               a button that opens the file in the map's code window.
  *
  * This file is only the words and layout; all of it is drawn from the table
  * description the map already holds (GET /api/observatory/terrain/tables), so
@@ -31,18 +40,50 @@ import styles from './TerrainTableSheet.module.css';
  * the same table can be queried.
  *
  * Prompt that produced it: "i want them to be sized by how much is in there
- * and learn more about the shapes of the tables through this exercise".
+ * and learn more about the shapes of the tables through this exercise" / "for
+ * each one i want a description of the information it contains and the files
+ * that created it and write to it or that otherwise interact with it".
  */
+
+/** What each `kind` of table means, in a sentence — the difference that
+ * matters most is whether wiping the table loses anything. */
+const KIND_MEANING: Record<TerrainTableNotes['kind'], { label: string; meaning: string }> = {
+  mirror: {
+    label: 'A rebuildable copy',
+    meaning: 'The truth lives somewhere else. This table could be emptied and filled again from its source without losing anything.',
+  },
+  record: {
+    label: 'The only record',
+    meaning: 'These rows exist nowhere else. They are events that happened once, so this table can never be rebuilt — only backed up.',
+  },
+  store: {
+    label: 'The database of record',
+    meaning: 'This is where the app actually keeps its collections. Everything else that shows them is a copy of this.',
+  },
+  mixed: {
+    label: 'Part copy, part record',
+    meaning: 'Some rows can be regenerated at any time; the ones set by hand cannot.',
+  },
+};
+
+const CODE_GROUPS = [
+  { key: 'creates', label: 'Creates it' },
+  { key: 'writes', label: 'Writes to it' },
+  { key: 'reads', label: 'Reads it' },
+] as const;
 export function TerrainTableSheet({
   table,
   allTables,
   onPickTable,
+  onOpenFile,
 }: {
   table: TerrainTable;
   /** Every table on the map — needed to find the keys pointing IN. */
   allTables: readonly TerrainTable[];
   /** Jump to another table's card. */
   onPickTable: (tableName: string) => void;
+  /** Open one of the code files in the map's code window. */
+  onOpenFile: (path: string) => void;
 }) {
   const shape = describeTableShape(table);
   const pointsAt = table.foreign_keys;
@@ -71,6 +112,12 @@ export function TerrainTableSheet({
 
   return (
     <div className={styles.body}>
+      {/* WHAT'S IN IT — the description, first, because "what is this" comes
+          before "how big is it". A table nobody has described says so. */}
+      <p className={styles.holds}>
+        {table.notes ? table.notes.holds : 'Nobody has written a description of this table yet.'}
+      </p>
+
       {/* HOW MUCH — the three numbers the rectangle stands for. */}
       <div className={styles.facts}>
         <div className={styles.fact}>
@@ -172,6 +219,54 @@ export function TerrainTableSheet({
           ) : null}
         </section>
       ) : null}
+
+      {/* WHERE ITS ROWS COME FROM — and whether wiping it would lose anything. */}
+      {table.notes ? (
+        <section className={styles.section}>
+          <h3 className={styles.heading}>Where its rows come from</h3>
+          <p className={styles.prose}>{table.notes.source}</p>
+          <p className={styles.prose}>
+            <strong>{KIND_MEANING[table.notes.kind].label}.</strong>{' '}
+            {KIND_MEANING[table.notes.kind].meaning}
+          </p>
+        </section>
+      ) : null}
+
+      {/* CODE THAT TOUCHES IT — creates, writes, reads; each file opens. */}
+      <section className={styles.section}>
+        <h3 className={styles.heading}>Code that touches it</h3>
+        {CODE_GROUPS.map((group) => {
+          const hits = table.code[group.key];
+          return (
+            <div key={group.key} className={styles.codeGroup}>
+              <span className={styles.codeLabel}>{group.label}</span>
+              {hits.length > 0 ? (
+                <div className={styles.links}>
+                  {hits.map((hit) => (
+                    <button
+                      key={hit.path}
+                      type="button"
+                      className={styles.link}
+                      onClick={() => onOpenFile(hit.path)}
+                    >
+                      <span className={styles.fileName}>{hit.path}</span>
+                      <span className={styles.linkVia}>first at line {hit.line}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <span className={styles.codeNone}>no file found</span>
+              )}
+            </div>
+          );
+        })}
+        <p className={styles.note}>
+          Found by searching the app's Python for SQL that names this table. It can't see code
+          that reaches the table through another file's functions, or the tools that read every
+          table (the SQL room, this map) — "where its rows come from" above covers the indirect
+          path.
+        </p>
+      </section>
 
       {table.indexes.length > 0 ? (
         <section className={styles.section}>

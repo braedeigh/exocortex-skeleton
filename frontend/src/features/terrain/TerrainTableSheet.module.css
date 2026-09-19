@@ -161,3 +161,35 @@
   font-weight: 600;
   text-decoration: none;
 }
+
+.holds {
+  margin: 0;
+  font-size: var(--font-size-base);
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.codeGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.codeLabel {
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.codeNone {
+  font-size: var(--font-size-md);
+  color: var(--text-muted);
+}
+
+.fileName {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}

@@ -33,6 +33,8 @@ function table(name: string, columnNames: string[], rows: number, extra: Partial
     columns: columnNames.map((column, i) => ({ name: column, type: 'TEXT', notnull: false, pk: i === 0 })),
     indexes: [],
     foreign_keys: [],
+    notes: null,
+    code: { creates: [], writes: [], reads: [] },
     ...extra,
   };
 }
@@ -58,7 +60,12 @@ const payload: TerrainData = {
   ],
 };
 
-const described: TerrainTables = { repo: 'vault', path: 'data/exo.db', tables: [todos, subtasks] };
+const described: TerrainTables = {
+  repo: 'vault',
+  path: 'data/exo.db',
+  code_repo: 'skeleton',
+  tables: [todos, subtasks],
+};
 
 describe('tableSize', () => {
   it('is one stripe wide per column', () => {
@@ -91,7 +98,7 @@ describe('addTableNodes', () => {
   });
 
   it('leaves the payload alone when the database is outside every repo', () => {
-    expect(addTableNodes(payload, { repo: null, path: null, tables: [todos] })).toBe(payload);
+    expect(addTableNodes(payload, { repo: null, path: null, code_repo: 'skeleton', tables: [todos] })).toBe(payload);
   });
 
   it('leaves the payload alone before the tables have loaded', () => {
@@ -128,7 +135,7 @@ describe('foreign keys on the map', () => {
       ],
     });
     const alone = buildTerrainGraph(
-      addTableNodes(payload, { repo: 'vault', path: 'data/exo.db', tables: [habits] }),
+      addTableNodes(payload, { repo: 'vault', path: 'data/exo.db', code_repo: 'skeleton', tables: [habits] }),
       7 * 86400,
       1000,
     );

@@ -163,6 +163,25 @@ export interface TerrainTableForeignKey {
   to: string | null;
 }
 
+/** The hand-written plain-English note on a table (table_notes.json). */
+export interface TerrainTableNotes {
+  /** What information the table contains. */
+  holds: string;
+  /** Where its rows come from — including the indirect path (a page edits a
+   * collection, a store module mirrors it here) that a code scan can't see. */
+  source: string;
+  /** 'mirror' = a copy that can be wiped and rebuilt from its source;
+   * 'record' = the only copy; 'store' = the database of record itself;
+   * 'mixed' = some rows of each. */
+  kind: 'mirror' | 'record' | 'store' | 'mixed';
+}
+
+/** One Python file whose SQL names the table, and the first line it does. */
+export interface TerrainTableCodeHit {
+  path: string;
+  line: number;
+}
+
 export interface TerrainTable {
   name: string;
   rows: number;
@@ -174,6 +193,16 @@ export interface TerrainTable {
   columns: TerrainTableColumn[];
   indexes: { name: string; unique: boolean }[];
   foreign_keys: TerrainTableForeignKey[];
+  /** null when nobody has described this table yet. */
+  notes: TerrainTableNotes | null;
+  /** Which files create, write to, and read the table — found by the server
+   * scanning the app's Python for SQL that names it. A text search: it misses
+   * SQL built from variables and code that goes through another module. */
+  code: {
+    creates: TerrainTableCodeHit[];
+    writes: TerrainTableCodeHit[];
+    reads: TerrainTableCodeHit[];
+  };
 }
 
 /** GET /api/observatory/terrain/tables (routes/terrain_tables.py). `repo` and
@@ -183,6 +212,8 @@ export interface TerrainTable {
 export interface TerrainTables {
   repo: string | null;
   path: string | null;
+  /** Which repo the `code` file paths belong to (the app-code repo). */
+  code_repo: string;
   tables: TerrainTable[];
 }
 

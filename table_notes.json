@@ -1,0 +1,165 @@
+{
+  "_about": "Plain-English notes on every table in exo.db, shown on the Terrain map's table cards (routes/terrain_tables.py serves them; frontend/src/features/terrain/TerrainTableSheet.tsx shows them). One entry per table: `holds` = what information is in it; `source` = where its rows come from, including the indirect path a code scan can't see; `kind` = 'mirror' (a copy that can be wiped and rebuilt from its source), 'record' (the only copy — wiping it loses history), 'store' (the database of record itself), or 'mixed'. Written from the comments beside each CREATE TABLE in sqlstore.py — when a table changes there, change its note here. tests/test_terrain_tables.py fails if a table in sqlstore.py has no entry. Keep these generic: no personal details, this repo is shareable.",
+
+  "docs": {
+    "holds": "Every ordinary collection the app keeps — to-dos, contacts, budget, settings, and dozens more — each stored whole as one row: the collection's name, its entire contents as JSON text, and when it was last written. Few rows, but each one is a whole document.",
+    "source": "Written by store.py through sqlstore.py every time any page saves a collection. The .json files in the data folder are one-way export copies of these rows, never read back.",
+    "kind": "store"
+  },
+
+  "habits": {
+    "holds": "One row per habit that has ever existed: its name, which section of the habit list it sits in, whether it is still active, when it started, and — if the owner has said two habits were always the same one — which habit it was merged into.",
+    "source": "Rebuilt by habitstore.py from the habits_log collection and the habit list. A habit is a row with a stable id, so renaming it doesn't lose its history.",
+    "kind": "mirror"
+  },
+  "habit_aliases": {
+    "holds": "Every name a habit has ever been logged under, each pointing at the habit it means. This is what keeps old history reachable after a habit is renamed, moved to another section, or dropped from the list.",
+    "source": "Rebuilt by habitstore.py alongside the habits table.",
+    "kind": "mirror"
+  },
+  "habit_entries": {
+    "holds": "One row per habit per day: done, missed, or skipped — plus whether that answer was actually logged or only inferred. The raw log can only say 'done', so 'didn't do it' and 'wasn't on the list yet' look identical there; this table tells them apart, and says which answers are guesses.",
+    "source": "Rebuilt by habitstore.py from the habits_log collection.",
+    "kind": "mirror"
+  },
+
+  "expense_categories": {
+    "holds": "The short list of spending categories, each with an id. It is its own table, rather than a word repeated on every expense, so an expense can point at a category and a form can offer a dropdown.",
+    "source": "Rebuilt by expensestore.py from the categories used in the expenses collection.",
+    "kind": "mirror"
+  },
+  "expenses": {
+    "holds": "One row per transaction: the date, the amount in whole cents (never a decimal, so sums can't drift), whether money went out or came in, its category, the bank's memo line, a title, a receipt reference, and where the row came from.",
+    "source": "Rebuilt by expensestore.py from the expenses collection, which the budget pages edit. Ids are kept the same in both places so a row here and an entry there are provably the same expense.",
+    "kind": "mirror"
+  },
+
+  "files": {
+    "holds": "One row per file that git has ever seen in either repo (plus files a session touched that were never committed): which repo, the path it has now, when it was first and last seen, and when it was deleted if it was. A file keeps its id through renames — the path is a fact about it, not its identity.",
+    "source": "Built by codestore.py by walking both repos' git history and the session footprints. Git stays the truth; this is a queryable index over it.",
+    "kind": "mirror"
+  },
+  "file_paths": {
+    "holds": "Every path any file has ever had, each pointing at the file it belonged to. This is how an old path in an old commit still finds the right file after a rename.",
+    "source": "Built by codestore.py alongside the files table.",
+    "kind": "mirror"
+  },
+  "commits": {
+    "holds": "One row per git commit in either repo: its id, which repo, when it was authored (as both a number for maths and local text for joining to journal days), the author, and the subject line.",
+    "source": "Built by codestore.py from git log. The Terrain map's heat comes from here.",
+    "kind": "mirror"
+  },
+  "commit_files": {
+    "holds": "One row for every file changed in every commit: which commit, which file, what happened to it (added, modified, deleted, renamed), and how many lines were added and removed. By far the biggest table, because it is commits multiplied by files. 'Which files change together' is a question asked of this table.",
+    "source": "Built by codestore.py from git log. It is the link between commits and files.",
+    "kind": "mirror"
+  },
+  "sessions": {
+    "holds": "One row per agent conversation held in the Observatory: its id, title, which bot, which room (lane) it lives in, when it started and when it was last active.",
+    "source": "Built by codestore.py from the conversation index the Observatory keeps in the bot_chats data folder.",
+    "kind": "mirror"
+  },
+  "session_files": {
+    "holds": "Which files each agent conversation touched, and how: counts of writes, reads and creates, and when it last touched the file. This is what lets the map ring an agent's footprint.",
+    "source": "Built by codestore.py from the footprints sidecar (scripts/extract_footprints.py harvests it from the transcripts).",
+    "kind": "mirror"
+  },
+  "session_turns": {
+    "holds": "One row per message the owner sent to an agent: which conversation, its position, the moment it was sent, and whether that message also went into the journal. No message text — only the moment — because this table exists to be drawn on a timeline.",
+    "source": "Built by codestore.py from the conversation transcripts. Rebuilt from scratch each time, which is safe because the transcripts are the truth.",
+    "kind": "mirror"
+  },
+  "job_runs": {
+    "holds": "What the scheduled background jobs actually did: one row per run — which job, when it started and finished, whether it worked, did nothing, failed or was switched off, and how many things it looked at, acted on, and failed on. A run with no finish time is either still going or died, which is the silent-failure alarm. Quiet every-minute runs are folded into one hourly heartbeat row so the noise doesn't pile up.",
+    "source": "Written by jobstore.py as each job runs. A run is an event that happened once, so this can never be rebuilt — finished days are copied to JSON files under the data folder's job_runs/ as the backup.",
+    "kind": "record"
+  },
+  "filer_nominations": {
+    "holds": "Every filing suggestion the filer has made: which file, where it was at the time, a fingerprint of its contents, which model looked at it, what the model says it saw, where it proposed to file it and why, how confident it was, the options it considered and passed over, the latest verdict, and whether the move was actually carried out.",
+    "source": "Written by filerstore.py as the filer runs. Kept as a training record of proposals, so it is never rebuilt; finished days are copied to JSON as the backup.",
+    "kind": "record"
+  },
+  "filer_verdicts": {
+    "holds": "Every ruling made on a filing suggestion: accepted, rejected, or redirected, when, by whom, a note, and — for a redirect — where it should have gone instead. Rulings are only ever added, never overwritten, so a change of mind is kept as history.",
+    "source": "Written by filerstore.py when a suggestion is judged. The rejections and redirects are the most valuable rows: they are the examples of where the boundary is.",
+    "kind": "record"
+  },
+
+  "cards": {
+    "holds": "One row per journal card: its id, the journal day, the full timestamp, who wrote it (the owner or the Keeper), what kind of card it is, which card it answers, which session it came from, and the text itself. It also tracks presence: when the card's file was first and last seen, whether it was deliberately deleted, and whether it has gone missing without explanation — a loud alarm, because the journal promises never to lose a card.",
+    "source": "Built by cardstore.py from the card markdown files in the vault, which stay the truth. The pond and the Terrain map's pond tile are drawn from this table.",
+    "kind": "mirror"
+  },
+  "card_tags": {
+    "holds": "Which tags are on which journal card — one row per card-and-tag pair, nothing else. A plain pair table, so 'every card tagged x' is one quick lookup.",
+    "source": "Built by cardstore.py from the tags written in each card file.",
+    "kind": "mirror"
+  },
+
+  "fronts": {
+    "holds": "The list of life domains ('fronts') that to-dos can belong to: an id, a display name, when it was created, and whether it is officially in the registry — old retired domains still riding on a few to-dos are kept and flagged rather than dropped.",
+    "source": "Rebuilt by todostore.py from the fronts registry and from whatever fronts appear on to-dos.",
+    "kind": "mirror"
+  },
+  "todos": {
+    "holds": "One row per to-do, wide because a to-do has many facets: its text, which list it is in and its hand-set position there, whether it is done, when it was created, one folded-together completion moment (and which of three older fields that came from), notes, due date and time, duration, place, what it has to wait for, its status, and who or what created it.",
+    "source": "Rebuilt by todostore.py from the todos collection, which the to-do page edits. The collection stays the truth; this is a mirror for asking questions like 'what got done this week'.",
+    "kind": "mirror"
+  },
+  "todo_fronts": {
+    "holds": "Which life domains each to-do belongs to — one row per to-do-and-front pair. A pure join table: both of its columns point at other tables.",
+    "source": "Rebuilt by todostore.py from the fronts listed on each to-do.",
+    "kind": "mirror"
+  },
+  "todo_subtasks": {
+    "holds": "The checklist items under a to-do, in order: which to-do, its position, the subtask's own id, its text, and whether it is done.",
+    "source": "Rebuilt by todostore.py from the subtasks inside each to-do.",
+    "kind": "mirror"
+  },
+  "todo_agent_notes": {
+    "holds": "Notes that agents have left on to-dos: which to-do, its position, which agent said it and when, the text, what it cites, and which conversation it came from.",
+    "source": "Rebuilt by todostore.py from the agent notes stored on each to-do (todo_provenance.py defines them).",
+    "kind": "mirror"
+  },
+
+  "tags": {
+    "holds": "The universal tagging table: one row says 'this subject has this tag, in this namespace'. A subject can be anything — a card, a to-do, a file, a research entry, a thread — and the namespace (front, topic, …) is what lets new kinds of tag be added without changing the table. Each row also records where it came from: set by hand, derived automatically, or proposed by a background job.",
+    "source": "Written by routes/tags.py when tags are set by hand, and by scripts/backfill_tags.py for the derived ones. The derived rows can be regenerated at any time; the hand-set rows cannot.",
+    "kind": "mixed"
+  },
+  "attention_segments": {
+    "holds": "When the owner was looking at what: one row per unbroken stretch of attention on one tab — which tab, which agent conversation if it was one, when it started and ended, and the day it belongs to. It gives screen time a beginning and an end, so it can be laid beside file writes and journal cards on one timeline.",
+    "source": "Rebuilt by attentionstore.py from the per-day attention log files under the data folder's attention/, which are the truth.",
+    "kind": "mirror"
+  },
+  "command_runs": {
+    "holds": "Every slash command that was run: when (with the day and hour split out for counting), the command's name and kind, which session and folder it was run from, and how long its arguments were — the length only, not the text.",
+    "source": "Built by commandstore.py by reading the Claude Code transcripts on disk. Re-readable at any time, so it can be dropped and rebuilt.",
+    "kind": "mirror"
+  },
+  "command_sources": {
+    "holds": "Bookkeeping for the command scan: one row per transcript file, saying how far into it has already been read. Transcripts only ever grow at the end, so this lets each scan pick up where the last one stopped instead of re-reading everything.",
+    "source": "Written by commandstore.py as it scans. If wiped, the next scan simply starts from the top.",
+    "kind": "mirror"
+  },
+  "code_files": {
+    "holds": "Every code file as it stands on disk right now: which repo, its path, its language, how many lines, how many other files it depends on and how many depend on it, when it was parsed, and the error if it couldn't be. 'What is a hub' and 'what is dead code' are read straight off this table.",
+    "source": "Built by codegraph.py by parsing the source. Deliberately separate from the files table: that one is git's view through history, this one is the code as it is today.",
+    "kind": "mirror"
+  },
+  "code_edges": {
+    "holds": "Every dependency between code files: this file imports from that one, and exactly which names cross — not just 'server.py uses store.py' but which parts of it. Dependencies on outside packages are kept too, marked as external.",
+    "source": "Built by codegraph.py by parsing the source, alongside code_files.",
+    "kind": "mirror"
+  },
+  "traces": {
+    "holds": "One row per captured request followed through the code: a label, where it was taken, what was being done, when it started, how long it took, how many steps were recorded, whether the recording was cut short, and — when one request continued in another process — which trace it continues.",
+    "source": "Written by runtime_trace.py when a trace is armed from the Terrain map. A recording of a moment that has passed, so it can't be rebuilt; only the newest few are kept.",
+    "kind": "record"
+  },
+  "trace_spans": {
+    "holds": "The individual steps inside a trace, in order: which function in which file called which function in which file, how deep in the call stack, and the start and end times in millionths of a second from the start of the trace.",
+    "source": "Written by runtime_trace.py alongside each trace, and deleted with it.",
+    "kind": "record"
+  }
+}
