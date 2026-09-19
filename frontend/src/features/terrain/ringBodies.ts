@@ -27,15 +27,18 @@ import type { FileTouchKind } from './terrainGraph';
  * ordinary gap so the clearing is visible as a clearing — a file being worked
  * on shoulders the map away from itself, which is the whole point.
  *
- * Wide enough that the clearing reads as a clearing at a glance, which is
- * what it's for. It comfortably outruns the folder rope's 34-unit rest length
- * — two of the hottest possible dots (radius 13) ringed at 9 want 44 between
- * them — and that's fine only because the rope now stretches to whatever the
- * two bodies actually need (see the link distance in terrainCanvas.ts).
- * Without that stretch this would be the strain that once had the pond tile
- * wandering the map: the spring pulling in while the collider throws out.
+ * Set wide — the clearing is meant to be the first thing the eye catches, a
+ * hole opening in the crowd where work is happening. Wide enough that it now
+ * governs the layout rather than fitting inside it: two of the hottest
+ * possible dots (radius 13) ringed at 14 want 54 world units between them,
+ * against the folder rope's ordinary 34, so a folder whose files are being
+ * worked on visibly swells and settles back afterward. That only holds
+ * together because the rope stretches to whatever the two bodies actually
+ * need (see the link distance in terrainCanvas.ts) — on a fixed rope this
+ * would be the strain that once had the pond tile wandering the map, the
+ * spring pulling in while the collider throws out.
  */
-export const RING_GAP = 9;
+export const RING_GAP = 14;
 
 /** Ordinary breathing room for everything not wearing a ring — the collider's
  * long-standing constant, now named. */
