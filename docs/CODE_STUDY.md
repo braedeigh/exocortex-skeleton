@@ -160,4 +160,49 @@ Files: `routes/pending.py`, `frontend/src/features/approvals/`,
 ## Progress log
 _(assistant: append after each session — their summary, in their words, plus "next time: …")_
 
-- (not started)
+### Session 1 — 2026-09-19 — Unit 1 begun: `store.py` lines 1–127 (imports + the address block)
+
+**Their summary, verbatim:**
+> "i still don't quite grok anything other than they are 1) identifying file paths
+> where information is stored and 2) allowing the program to fall back on empty files"
+
+(One word to carry forward: the fallback is an empty *folder* — `BUILD_DIR / "data"` —
+not empty files. Files appear in it on first save.)
+
+**Solid — they explained these back correctly, unprompted:**
+- `Path(...)` wraps a string so Python treats it as a file location; nothing on disk
+  is touched until a tool like `.exists()` / `.mkdir()` is called.
+- Assignment: name on the left of `=`, value on the right. Spotted on their own that
+  lines 34–124 are "just assigning names to paths."
+- Line 35 end to end: look up the `EXOCORTEX_DATA_DIR` note, else fall back to the
+  `data` folder beside the code, wrap as a Path, remember it as `DATA_DIR`.
+- The reading habit: a line with `name =` *remembers* something; a line without one
+  (`DATA_DIR.mkdir(...)`) *does* something.
+
+**Introduced but still shaky — revisit before building on them:**
+- An environment variable is a note the program *carries in memory*, handed over once
+  at launch — not a file, not a folder. (Kept sliding back toward "a file it goes and
+  finds.") Each running program has its own: the website has the note, a plain
+  terminal does not — seen first-hand when `env | grep EXOCORTEX` printed nothing.
+- Function calls with two inputs separated by a comma (`.get(name, fallback)`).
+- JSON-as-mirror vs JSON-as-truth (`SQL_COLLECTIONS`). Covered too fast; treat as new.
+
+**Not yet touched:** functions (`def` / `return`), `if`, `for`, dictionaries — the four
+ideas that unlock the rest of the file. Also not yet touched: `read` / `write_file` /
+`write` / `mutate`, which are the actual point of Unit 1.
+
+**Note to the next assistant — pacing.** This session went wrong the same way several
+times: a one-line question got a multi-screen answer, and they ended the day feeling
+slow when the problem was volume. They learn well from: ONE idea per message, the real
+line from their own file, their own machine's real values, then "say it back." Ask
+before widening. Stop when they say their head is full. They type commands exactly as
+shown — never put a language label (like `bash`) where it could be read as part of the
+command, and check that a command works in a *plain terminal* (which does not have the
+service's environment variables) before handing it over.
+
+**Next time:** read `_path()` at `store.py:159` together — three lines, their first
+function (`def`, an `if`, a `return`), built entirely from ideas already solid. Then
+`seed_content_scaffold()` at line 130 for the first `for` loop. Skip lines 262–450
+(telemetry + write-journal plumbing) entirely for now. A later stretch, once Python
+reading is comfortable: `tools/add-todo/src/main.rs:330` is line 35 rewritten in Rust —
+same idea, and it *refuses* where the Python falls back.
