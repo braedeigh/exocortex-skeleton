@@ -187,9 +187,14 @@ not empty files. Files appear in it on first save.)
 - Function calls with two inputs separated by a comma (`.get(name, fallback)`).
 - JSON-as-mirror vs JSON-as-truth (`SQL_COLLECTIONS`). Covered too fast; treat as new.
 
-**Not yet touched:** functions (`def` / `return`), `if`, `for`, dictionaries — the four
-ideas that unlock the rest of the file. Also not yet touched: `read` / `write_file` /
-`write` / `mutate`, which are the actual point of Unit 1.
+**Not covered this session** (which is not the same as not known): functions
+(`def` / `return`), `if`, `for`, dictionaries. They have built and run this system for
+months and report a working feel for what functions and databases are and do — picked
+up little by little while building. So the likely gap is not the concepts but *precise
+reading*: the exact syntax, the vocabulary, saying what one specific line does. Don't
+assume either way — **calibrate first**: show a short function and have them explain
+it BEFORE you explain anything, then teach only what was actually missing. Also not
+yet read: `read` / `write_file` / `write` / `mutate`, the actual point of Unit 1.
 
 **Note to the next assistant — pacing.** This session went wrong the same way several
 times: a one-line question got a multi-screen answer, and they ended the day feeling
