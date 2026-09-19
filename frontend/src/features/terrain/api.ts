@@ -193,12 +193,13 @@ export interface TerrainTable {
   columns: TerrainTableColumn[];
   indexes: { name: string; unique: boolean }[];
   foreign_keys: TerrainTableForeignKey[];
-  /** null when nobody has described this table yet. */
-  notes: TerrainTableNotes | null;
+  /** null when nobody has described this table yet; missing entirely on a
+   * payload from a server that predates the notes. */
+  notes?: TerrainTableNotes | null;
   /** Which files create, write to, and read the table — found by the server
    * scanning the app's Python for SQL that names it. A text search: it misses
    * SQL built from variables and code that goes through another module. */
-  code: {
+  code?: {
     creates: TerrainTableCodeHit[];
     writes: TerrainTableCodeHit[];
     reads: TerrainTableCodeHit[];

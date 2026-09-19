@@ -236,7 +236,10 @@ export function TerrainTableSheet({
       <section className={styles.section}>
         <h3 className={styles.heading}>Code that touches it</h3>
         {CODE_GROUPS.map((group) => {
-          const hits = table.code[group.key];
+          // `?.` because a payload from before the server learned to scan
+          // (an old cached response, or a server not yet reloaded) has no
+          // `code` at all — that must read as "none found", not crash the card.
+          const hits = table.code?.[group.key] ?? [];
           return (
             <div key={group.key} className={styles.codeGroup}>
               <span className={styles.codeLabel}>{group.label}</span>
