@@ -1,4 +1,5 @@
 import type { TerrainTable, TerrainTableNotes } from './api';
+import { fileMentions } from './tableMentions';
 import { describeTableShape, formatBytes, tablesPointingAt } from './tableNodes';
 import styles from './TerrainTableSheet.module.css';
 
@@ -83,8 +84,10 @@ export function TerrainTableSheet({
   allTables: readonly TerrainTable[];
   /** Jump to another table's card. */
   onPickTable: (tableName: string) => void;
-  /** Open one of the code files in the map's code window. */
-  onOpenFile: (path: string) => void;
+  /** Open one of the code files in the map's code window, at every line it
+   * names this table on — the file lands on the first and steps between the
+   * rest (FileCodeBody's mention strip). */
+  onOpenFile: (path: string, mentions: number[]) => void;
 }) {
   const shape = describeTableShape(table);
   const pointsAt = table.foreign_keys;
@@ -251,17 +254,28 @@ export function TerrainTableSheet({
               <span className={styles.codeLabel}>{group.label}</span>
               {hits.length > 0 ? (
                 <div className={styles.links}>
-                  {hits.map((hit) => (
-                    <button
-                      key={hit.path}
-                      type="button"
-                      className={styles.link}
-                      onClick={() => onOpenFile(hit.path)}
-                    >
-                      <span className={styles.fileName}>{hit.path}</span>
-                      <span className={styles.linkVia}>first at line {hit.line}</span>
-                    </button>
-                  ))}
+                  {hits.map((hit) => {
+                    // Every line this file names the table on, across all
+                    // three verbs — a file that both writes and reads it has
+                    // its mentions split between two groups, and opening it
+                    // is one journey through one file either way.
+                    const mentions = fileMentions(table, hit.path);
+                    return (
+                      <button
+                        key={hit.path}
+                        type="button"
+                        className={styles.link}
+                        onClick={() => onOpenFile(hit.path, mentions)}
+                      >
+                        <span className={styles.fileName}>{hit.path}</span>
+                        <span className={styles.linkVia}>
+                          {mentions.length > 1
+                            ? `${mentions.length} mentions, from line ${mentions[0]}`
+                            : `line ${hit.line}`}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               ) : (
                 <span className={styles.codeNone}>no file found</span>
@@ -270,10 +284,11 @@ export function TerrainTableSheet({
           );
         })}
         <p className={styles.note}>
-          Found by searching the app's Python for SQL that names this table. It can't see code
-          that reaches the table through another file's functions, or the tools that read every
-          table (the SQL room, this map) — "where its rows come from" above covers the indirect
-          path.
+          Found by searching the app's Python for SQL that names this table. Open one and it
+          lands on the first place it names this table, with a way to step through the rest. It
+          can't see code that reaches the table through another file's functions, or the tools
+          that read every table (the SQL room, this map) — "where its rows come from" above
+          covers the indirect path.
         </p>
       </section>
       ) : null}

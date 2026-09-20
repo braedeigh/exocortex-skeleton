@@ -46,6 +46,7 @@ import { TerrainHeatBar } from './TerrainHeatBar';
 import type { AgentPool, AgentSection } from './TerrainAgentBar';
 import { TerrainAgentBar } from './TerrainAgentBar';
 import { FileCodeWindow } from './FileCodeWindow';
+import type { CodeMentions } from './codeMentions';
 import { AgentHoverCard } from './AgentHoverCard';
 import { TerrainRoomsIndex } from './TerrainRoomsIndex';
 import { JourneyPanel, type ReplayRequest } from './JourneyPanel';
@@ -55,6 +56,7 @@ import { PondLandmark } from './PondLandmark';
 import { collapseToPondTile, localDayISO, parseCardPath, POND_TILE_PATH } from './pondNodes';
 import { filesHiddenByActivity, type ActivitySide } from './activityFilter';
 import { addTableNodes } from './tableNodes';
+import { tableCodeLinks } from './tableMentions';
 import { TerrainTableWindow } from './TerrainTableWindow';
 import { fileTypeCounts, OTHER_FILE_TYPE } from './fileTypes';
 import { setTypeColorsOn, useTypeColorsOn } from './typeColorPref';
@@ -472,6 +474,12 @@ export function TerrainPage() {
   // what's in it. Separate from `selected`, which is now only ever an agent
   // orb: a file tap goes straight to its code rather than through a sheet.
   const [codeFile, setCodeFile] = useState<TerrainNode | null>(null);
+  // Set only when the file was opened FROM a table's card: which table she
+  // came in asking about, and every line this file names it on. The open file
+  // lands on the first and steps between the rest (FileCodeBody's mention
+  // strip). Null for a file opened any other way — a tapped dot is not a
+  // question about a table, and a strip saying so would be noise.
+  const [codeMentions, setCodeMentions] = useState<CodeMentions | null>(null);
   // The agent orb under the cursor, once it's rested there long enough to mean
   // it — the anchor for the hovercard. Mouse-only, and the engine drops it the
   // moment the map moves, so this can't be left pointing at nothing.
@@ -682,6 +690,18 @@ export function TerrainPage() {
     // beneath them. Restored the moment the replay clears.
     engineRef.current?.setThreads(replayThreads ?? litThreads);
   }, [litThreads, replayThreads]);
+
+  // The table-to-code ropes: which files touch which table, as pairs of node
+  // ids. Built against the graph the map actually drew, so a file the Files
+  // dial cut gets no rope to nowhere; the canvas draws them only under a
+  // hover (terrainCanvas.ts setTableCodeLinks).
+  const codeLinks = useMemo(
+    () => tableCodeLinks(tables, new Set((graph?.nodes ?? []).map((n) => n.id))),
+    [tables, graph],
+  );
+  useEffect(() => {
+    engineRef.current?.setTableCodeLinks(codeLinks);
+  }, [codeLinks]);
 
   // The replay runner. Frames are pre-batched (beats within 40ms share one
   // flash); each frame flashes its dots and appends its threads to the lit
@@ -984,6 +1004,7 @@ export function TerrainPage() {
         }
         if (node.path) {
           if (dispatchIntent({ kind: 'code', repo: node.repoId, path: node.path }) !== 'none') return;
+          setCodeMentions(null);
           setCodeFile(node);
         }
       } else if (node?.kind === 'session' && node.session) {
@@ -1414,6 +1435,7 @@ export function TerrainPage() {
   const openHit = (hit: TerrainSearchHit) => {
     if (dispatchIntent({ kind: 'code', repo: hit.repoId, path: hit.path }) !== 'none') return;
     const node = visible?.nodes.find((n) => n.id === hit.id);
+    setCodeMentions(null);
     setCodeFile(
       node ?? { id: hit.id, kind: 'file', label: hit.name, parentId: null, depth: 1, repoId: hit.repoId, path: hit.path, heat: 0 },
     );
@@ -1808,15 +1830,23 @@ export function TerrainPage() {
           const next = graph?.nodes.find((n) => n.file?.table?.name === tableName);
           if (next) setSelected(next);
         }}
-        onOpenFile={(path) => {
+        onOpenFile={(path, mentions) => {
           // Open one of the files that touches this table, the same way a
           // tapped dot opens: another window if one is listening, else the
           // code window here. The file may not be ON the map (the Files
           // dial cuts to the hottest few hundred), so when it isn't, a
           // bare stand-in node carries the repo and path the window needs.
+          //
+          // The mentions travel with it either way, so the file opens where
+          // it names this table rather than at line 1 — as a search param
+          // when it lands in another tile, as state when it opens here.
           const repo = tables?.code_repo ?? 'skeleton';
+          const label = selected?.file?.table?.name ?? '';
           setSelected(null);
-          if (dispatchIntent({ kind: 'code', repo, path }) !== 'none') return;
+          if (dispatchIntent({ kind: 'code', repo, path, mentions, mentionsOf: label }) !== 'none') {
+            return;
+          }
+          setCodeMentions(mentions.length > 0 ? { label, lines: mentions } : null);
           const id = `${repo}:file:${path}`;
           setCodeFile(
             graph?.nodes.find((n) => n.id === id) ?? {
@@ -1848,7 +1878,11 @@ export function TerrainPage() {
       <FileCodeWindow
         repo={codeFile?.repoId ?? null}
         path={codeFile?.path ?? null}
-        onClose={() => setCodeFile(null)}
+        onClose={() => {
+          setCodeFile(null);
+          setCodeMentions(null);
+        }}
+        mentions={codeMentions ?? undefined}
         windowSeconds={windowSeconds}
         runWindowSeconds={goldWindowSeconds}
         ink={ink ?? undefined}

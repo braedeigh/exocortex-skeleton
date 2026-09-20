@@ -80,14 +80,17 @@ import styles from './TerrainHeatBar.module.css';
  *    still works underneath it, and in two ways: heat sets dot SIZE, and it
  *    sets how much of the type colour is left (terrainCanvas.ts
  *    staleTypeColor) — a fresh file wears its colour whole, a stale one sinks
- *    into the sky and is gone by the thumb. So under Types the thumb is a
- *    staleness dial: drag it right and older files come back. A gap sets it
+ *    into the sky and is gone by the thumb, and the lines into it recede with
+ *    it as far as half (staleTypeAlpha), so the limb goes quiet together but
+ *    the tree's shape survives. So under Types the thumb is a staleness dial:
+ *    drag it right and older files come back. A gap sets it
  *    apart from the presets so it doesn't read as a fifth window. The value
  *    itself lives in typeColorPref.ts and stays on across reloads.
  *    Prompts: "a toggle to color the dots by file type like with the github
  *    scheme … that overrides the other colors when i toggle it on" → "i want
  *    to hide stale files … the dots turn black or disappear when i am on the
- *    'types' display".
+ *    'types' display" → "the lines that go to the dots faded too … to show
+ *    they're 'there' but not be so prominent as the others".
  * 8. **Each bar's LABEL is its filter switch.** The pill reading "Heat" or
  *    "Active" is a button: lit, that bar's window is cutting the map; hollow,
  *    it's only a setting. One button per bar, where you already look to see

@@ -198,10 +198,15 @@ export interface TerrainColumnNote {
   values?: Record<string, string>;
 }
 
-/** One Python file whose SQL names the table, and the first line it does. */
+/** One Python file whose SQL names the table, and where it does. */
 export interface TerrainTableCodeHit {
   path: string;
+  /** The first line it names the table on — what the card's button says. */
   line: number;
+  /** EVERY line it names the table on, ascending. What the file opens at and
+   * steps through (tableMentions.ts). Missing on a payload from a server that
+   * predates it, which reads as "only `line` is known". */
+  lines?: number[];
 }
 
 export interface TerrainTable {

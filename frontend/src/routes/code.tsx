@@ -1,10 +1,12 @@
 import { createFileRoute, redirect } from '@tanstack/react-router';
 import { FileCodePage } from '../features/terrain/FileCodePage';
+import { MENTIONS_PATTERN } from '../features/terrain/codeMentions';
 import { useDeactivateFrames } from '../shell/useIframeView';
 
 /**
  * /code?repo=…&path=…&lines=… — read one file from either repo, optionally
- * with a line range highlighted and scrolled to.
+ * with a line range highlighted and scrolled to, or with every place it names
+ * one SQL table marked and steppable (`mentions` + `of`).
  *
  * This is the target the Observatory's session cards link their file lists at:
  * on desktop the observatory sits in the split's LEFT pane and the router owns
@@ -19,6 +21,13 @@ import { useDeactivateFrames } from '../shell/useIframeView';
  * undefined rather than crashing the page. FileCodePage does the actual
  * parsing into a {start, end} range for FileCodeBody to render.
  *
+ * `mentions` is a comma-separated list of 1-based lines and `of` is what they
+ * name — what a SQL table's card on the Terrain map sends when she opens one
+ * of the files that touches it. The file lands on the first, marks the rest,
+ * and gives her arrows to step between them. Same validation contract as
+ * `lines`: a malformed list collapses to undefined (see
+ * features/terrain/codeMentions.ts, which spells both ends of this param).
+ *
  * Auth-only, same guard as /terrain and /observatory: it reads repo source, so
  * public visitors bounce to '/'.
  */
@@ -29,6 +38,10 @@ export interface CodeSearch {
   path?: string;
   /** 1-based line or line range to highlight, e.g. "140" or "140-162". */
   lines?: string;
+  /** 1-based lines that all name the same thing, e.g. "4,9,30". */
+  mentions?: string;
+  /** What those lines name — a SQL table's name. */
+  of?: string;
   /** This window is the file and nothing else — a file popped out of the
    * Terrain map (shell/solo.ts reads it off the URL; the route never does).
    * It's in the schema only so the router doesn't strip it from the address
@@ -47,6 +60,11 @@ export const Route = createFileRoute('/code')({
       typeof search.lines === 'string' && LINES_PATTERN.test(search.lines)
         ? search.lines
         : undefined,
+    mentions:
+      typeof search.mentions === 'string' && MENTIONS_PATTERN.test(search.mentions)
+        ? search.mentions
+        : undefined,
+    of: typeof search.of === 'string' && search.of !== '' ? search.of : undefined,
     ...(search.solo === '1' || search.solo === 1 || search.solo === true ? { solo: true } : {}),
   }),
   beforeLoad: () => {
@@ -58,6 +76,6 @@ export const Route = createFileRoute('/code')({
 
 function CodeRoute() {
   useDeactivateFrames();
-  const { repo, path, lines } = Route.useSearch();
-  return <FileCodePage repo={repo} path={path} lines={lines} />;
+  const { repo, path, lines, mentions, of } = Route.useSearch();
+  return <FileCodePage repo={repo} path={path} lines={lines} mentions={mentions} of={of} />;
 }

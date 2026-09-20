@@ -39,7 +39,17 @@
 /** The kinds of thing one part of the app can hand to another. */
 export type Intent =
   | { kind: 'conversation'; convId: string }
-  | { kind: 'code'; repo: string; path: string }
+  | {
+      kind: 'code';
+      repo: string;
+      path: string;
+      /** Where in the file to land: the lines that name `mentionsOf`, 1-based
+       * and ascending. Set when the file was opened from a SQL table's card;
+       * absent for a plain "open this file". */
+      mentions?: readonly number[];
+      /** What those lines name — a table, shown in the file's mention strip. */
+      mentionsOf?: string;
+    }
   | { kind: 'session'; name: string };
 
 export type IntentKind = Intent['kind'];

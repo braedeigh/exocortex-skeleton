@@ -1,6 +1,7 @@
 import { useEffect, type ReactNode } from 'react';
 import { IconButton } from '../../ui';
 import { FileCodeBody } from './FileCodeBody';
+import type { CodeMentions } from './codeMentions';
 import { soloCodeHref } from '../../shell/solo';
 import type { ThemeInk } from './terrainCanvas';
 import styles from './FileCodeWindow.module.css';
@@ -33,6 +34,7 @@ export function FileCodeWindow({
   path,
   onClose,
   children,
+  mentions,
   windowSeconds,
   runWindowSeconds,
   ink,
@@ -44,6 +46,10 @@ export function FileCodeWindow({
    * it, and the footprint control for each. Rendered under the code, inside
    * the same scroll. */
   children?: ReactNode;
+  /** Set when the file was opened from a table's card: where in it that table
+   * is named. Handed straight to the body, which lights them and gives her a
+   * strip to step between them. */
+  mentions?: CodeMentions;
   /** The map's live heat window (breath included), handed straight through
    * to the body so its red-edits toggle paints lines on the same lens the
    * dots outside the pane are wearing. */
@@ -105,7 +111,7 @@ export function FileCodeWindow({
             aria-label="Open in a new tab"
             title="Open in a new tab"
             data-track="terrain-code-popout"
-            onClick={() => window.open(soloCodeHref(repo, path), '_blank')}
+            onClick={() => window.open(soloCodeHref(repo, path, mentions), '_blank')}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M14 4h6v6" />
@@ -124,7 +130,7 @@ export function FileCodeWindow({
           its own HORIZONTAL scroll for long lines, which is the one thing it
           can't inherit. */}
       <div className={styles.body}>
-        <FileCodeBody repo={repo} path={path} uncapCode windowSeconds={windowSeconds} runWindowSeconds={runWindowSeconds} ink={ink ?? undefined} />
+        <FileCodeBody repo={repo} path={path} uncapCode mentions={mentions} windowSeconds={windowSeconds} runWindowSeconds={runWindowSeconds} ink={ink ?? undefined} />
         {children}
       </div>
     </div>

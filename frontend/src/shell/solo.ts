@@ -1,3 +1,5 @@
+import { mentionsToSearch, type CodeMentions } from '../features/terrain/codeMentions';
+
 /**
  * solo.ts — is this window a SOLO window: one page, and nothing else?
  *
@@ -32,8 +34,10 @@ export function isSoloSearch(search: string): boolean {
 
 /** Build the address of a file's solo window. Lives here, beside the reader,
  * so the one place that writes `solo=1` and the one that reads it can't
- * drift apart. */
-export function soloCodeHref(repo: string, path: string): string {
-  const search = new URLSearchParams({ repo, path, solo: '1' });
+ * drift apart. Mentions ride along when there are any, so a file popped out
+ * of a table's card opens where it names that table rather than at line 1
+ * (features/terrain/codeMentions.ts spells those params). */
+export function soloCodeHref(repo: string, path: string, mentions?: CodeMentions): string {
+  const search = new URLSearchParams({ repo, path, solo: '1', ...mentionsToSearch(mentions) });
   return `/code?${search.toString()}`;
 }

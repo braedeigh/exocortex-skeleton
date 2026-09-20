@@ -127,6 +127,7 @@ import {
   type TerrainNode,
 } from './terrainGraph';
 import type { TerrainThread } from './terrainThreads';
+import type { TableCodeLink } from './tableMentions';
 import { bodyRadius, sameRings } from './ringBodies';
 import { fileTypeOf } from './fileTypes';
 import {
@@ -258,6 +259,28 @@ export function leanOf(t: number, a: number): number {
  */
 export function staleTypeColor(typeColor: string, bg: string, t: number, a: number): string {
   return mixHex(bg, typeColor, glowAlpha(glowOf(t, a)));
+}
+
+/** How much of its presence a LINE keeps once the file it lands on has gone
+ * stale. Half, not nothing — the dot can leave, but the line it hung from
+ * still has to say the file is there. */
+const STALE_EDGE_FLOOR = 0.5;
+
+/**
+ * Fade a line along with the dot it lands on, under the "Types" toggle. Same
+ * staleness and the same curve as staleTypeColor above, so a line dims in step
+ * with its own dot rather than on a rule of its own — but it lands at half
+ * presence instead of at nothing. A dot that's gone dark with a full-strength
+ * line still running to it reads as a mistake, and a folder whose lines all
+ * vanished reads as an empty folder; half keeps the shape of the tree legible
+ * while letting the live files have the eye.
+ *
+ * Prompt that produced it: "i also want the lines that go to the dots to be
+ * faded too … maybe like 50% opacity. to show they're 'there' but not be so
+ * prominent as the others".
+ */
+export function staleTypeAlpha(t: number, a: number): number {
+  return STALE_EDGE_FLOOR + (1 - STALE_EDGE_FLOOR) * glowAlpha(glowOf(t, a));
 }
 /**
  * The GOLD ramp for the LIGHT surface — the map's second channel: not "this
@@ -768,6 +791,14 @@ export class TerrainCanvas {
   private hoverFile: string | null = null;
   /** Table node id → the table node ids it shares a foreign key with. */
   private foreignKeyKin = new Map<string, Set<string>>();
+  /** Table-to-code ropes: which code files touch which table (tableMentions.ts
+   * tableCodeLinks). Drawn only under a hover, and — like the threads — never
+   * handed to the physics: a spring from a pinned shelf to a file dot would
+   * drag the file across the map. Empty until the page hands them over. */
+  private tableCodeLinks: readonly TableCodeLink[] = [];
+  /** Either end of a rope → the node ids at its other ends. The hover reads
+   * this; it is rebuilt only when the ropes or the graph change. */
+  private codeLinkKin = new Map<string, Set<string>>();
   /** The folder node(s) the tables hang off (`exo.db`) — pinned at the head of
    * the shelves, and excused from the ordinary folder spring. */
   private shelfHubIds = new Set<string>();
@@ -1445,6 +1476,32 @@ export class TerrainCanvas {
     this.requestDraw();
   }
 
+  /**
+   * Hand over the table-to-code ropes: which code files touch which table.
+   *
+   * The same contract as setThreads above — stored and drawn, never given to
+   * the physics. Cheap to call whenever the graph or the tables payload
+   * changes; anything already hovered has its kin rebuilt against the new
+   * ropes, so a refeed can't leave the highlight pointing at a rope that no
+   * longer exists.
+   *
+   * Prompt that produced it: "i'm wanting to connect my sql databases to
+   * files … when i hover over it to have lines pop up connecting them to the
+   * files that created them and interact with them".
+   */
+  setTableCodeLinks(links: readonly TableCodeLink[]): void {
+    this.tableCodeLinks = links;
+    this.codeLinkKin = new Map();
+    for (const link of links) {
+      if (!this.codeLinkKin.has(link.tableId)) this.codeLinkKin.set(link.tableId, new Set());
+      if (!this.codeLinkKin.has(link.fileId)) this.codeLinkKin.set(link.fileId, new Set());
+      this.codeLinkKin.get(link.tableId)!.add(link.fileId);
+      this.codeLinkKin.get(link.fileId)!.add(link.tableId);
+    }
+    if (this.hoverFile !== null) this.recomputeHoverKin();
+    this.requestDraw();
+  }
+
   /** Which nodes the hovered file is threaded to. Recomputed on a hover change
    * or a thread refeed — never in the draw loop, which runs far more often. */
   private recomputeHoverKin(): void {
@@ -1458,19 +1515,24 @@ export class TerrainCanvas {
       }
       // A hovered table keeps the tables it's joined to lit beside it.
       for (const other of this.foreignKeyKin.get(id) ?? []) kin.add(other);
+      // ...and the code files that touch it, at the other end of the ropes
+      // drawn below. Symmetric, so hovering one of those FILES lights the
+      // tables it touches instead — the same question asked from either end.
+      for (const other of this.codeLinkKin.get(id) ?? []) kin.add(other);
     }
     this.hoverFileKin = kin;
   }
 
   /** Point the thread highlight at a file dot, or clear it. Only files that
-   * actually have threads — or tables that actually have foreign keys — take
-   * the hover: lighting up a dot with nothing wired to it would dim the whole
-   * map to say nothing. */
+   * actually have threads, code ropes to a table — or tables that actually
+   * have foreign keys — take the hover: lighting up a dot with nothing wired
+   * to it would dim the whole map to say nothing. */
   private setHoverFile(id: string | null): void {
     let next = id;
     if (
       next !== null &&
       !this.foreignKeyKin.has(next) &&
+      !this.codeLinkKin.has(next) &&
       !this.threads.some((th) => th.sourceId === next || th.targetId === next)
     ) {
       next = null;
@@ -2379,6 +2441,36 @@ export class TerrainCanvas {
    * out. Neutral ink, not heat — a table has no edit history on this map, and
    * wearing the ramp's cold black would claim it's an old file.
    */
+  /**
+   * Where a line coming from (fromX, fromY) should meet a table: the point on
+   * its drawn rectangle's edge facing that way.
+   *
+   * The rectangle is centred on the node and painted opaque, so a line aimed
+   * at the centre would disappear under it. Walking out from the centre toward
+   * the caller and stopping at whichever side is reached first gives the edge
+   * point; the walk is never longer than the half-box (`Math.min(1, …)`), so a
+   * dot sitting INSIDE the rectangle gets the centre rather than a point past
+   * the far side. Same minimum screen size as drawTable, so the two agree at
+   * every zoom.
+   */
+  private tableEdgeToward(n: SimNode, fromX: number, fromY: number): [number, number] {
+    const table = n.node.file?.table;
+    const cx = n.x ?? 0;
+    const cy = n.y ?? 0;
+    if (!table) return [cx, cy];
+    const floor = TABLE_MIN_PX / this.transform.k;
+    const size = tableSize(table);
+    const halfWidth = Math.max(size.width, floor) / 2;
+    const halfHeight = Math.max(size.height, floor) / 2;
+    const dx = fromX - cx;
+    const dy = fromY - cy;
+    const reach = Math.min(
+      1,
+      Math.min(halfWidth / (Math.abs(dx) || 1e-6), halfHeight / (Math.abs(dy) || 1e-6)),
+    );
+    return [cx + dx * reach, cy + dy * reach];
+  }
+
   private drawTable(n: SimNode): void {
     const table = n.node.file?.table;
     if (!table) return;
@@ -2481,6 +2573,25 @@ export class TerrainCanvas {
    * dimming rule layered over it would only fight the first. */
   private activeHover(): string | null {
     return this.footprint === null ? this.hoverAgent : null;
+  }
+
+  /**
+   * How much of its presence a line keeps, given the dots at its two ends.
+   * Only "Types" has a stale fade to follow, so off it this is always 1 and
+   * nothing about the lines changes. A line is only ever as present as the
+   * stalest plain file it touches — the dot that faded furthest is the one
+   * the line has to agree with. Ends that aren't plain file dots (folders,
+   * repos, orbs, the pond, the table shelves) have no staleness of their own
+   * and are skipped; a line between two of them stays at full strength.
+   */
+  private staleEdgeAlpha(a: SimNode, b: SimNode): number {
+    if (!this.typeColors) return 1;
+    let alpha = 1;
+    for (const n of [a, b]) {
+      if (n.node.kind !== 'file' || !n.node.file || n.node.file.days || isTable(n)) continue;
+      alpha = Math.min(alpha, staleTypeAlpha(n.t, n.a));
+    }
+    return alpha;
   }
 
   private requestDraw(): void {
@@ -2594,6 +2705,78 @@ export class TerrainCanvas {
       ctx.globalAlpha = 1;
     }
 
+    // -- table-to-code ropes: which files touch the hovered table --
+    //
+    // Only under a hover, and only the hovered body's own ropes. Every rope at
+    // once would be a solid mat: thirty-odd tables against the files that
+    // touch them is hundreds of lines across the whole map, and the map's
+    // subject is the files, not the database. So this answers one question at
+    // a time — "what code touches THIS table" — and answers it in both
+    // directions, since hovering one of those files draws the same ropes back
+    // to the tables it touches.
+    //
+    // Blue, the same ink the foreign keys wear, because both lines are about
+    // the database; gold is a write passing between files and the accent is
+    // the agents'. What the file DOES sets the weight: creating is heavier
+    // than writing, writing than reading. The dot marks the TABLE end — the
+    // thing being acted on — the same way an fk's dot marks the table its key
+    // points at.
+    //
+    // Bowed, for the reason the threads are: a rope between two dots that
+    // happen to sit near each other vanishes under them, and several ropes
+    // leaving one table for the same corner of the map would stack into one
+    // smear.
+    if (this.hoverFile !== null && this.tableCodeLinks.length > 0) {
+      const held = this.hoverFile;
+      const kin = this.codeLinkKin.get(held);
+      if (kin !== undefined && kin.size > 0) {
+        // One pass for the handful of nodes involved — the hovered body and
+        // whatever is at the other end of its ropes. Cheaper than a map of
+        // every node on the map, which this would otherwise rebuild on every
+        // frame the breath draws while she holds a hover.
+        const ends = new Map<string, SimNode>();
+        for (const n of this.simNodes) {
+          if (n.id === held || kin.has(n.id)) ends.set(n.id, n);
+        }
+        ctx.setLineDash([]);
+        for (const link of this.tableCodeLinks) {
+          if (link.tableId !== held && link.fileId !== held) continue;
+          const tableNode = ends.get(link.tableId);
+          const fileNode = ends.get(link.fileId);
+          if (!tableNode || !fileNode) continue;
+          if (this.hiddenFiles.has(tableNode.id) || this.hiddenFiles.has(fileNode.id)) continue;
+          const fx = fileNode.x ?? 0;
+          const fy = fileNode.y ?? 0;
+          // Land on the table's drawn EDGE, not its centre: a table is painted
+          // opaque over the lines, so a rope aimed at the middle would be
+          // swallowed by the rectangle it was pointing at.
+          const [tx, ty] = this.tableEdgeToward(tableNode, fx, fy);
+          const dx = tx - fx;
+          const dy = ty - fy;
+          const len = Math.hypot(dx, dy) || 1;
+          const bow = Math.min(len * 0.16, 60);
+          const weight = link.verb === 'creates' ? 2.4 : link.verb === 'writes' ? 1.7 : 1.1;
+          ctx.globalAlpha = link.verb === 'reads' ? 0.6 : 0.9;
+          ctx.strokeStyle = theme.evening;
+          ctx.lineWidth = weight / transform.k;
+          ctx.beginPath();
+          ctx.moveTo(fx, fy);
+          ctx.quadraticCurveTo(
+            (fx + tx) / 2 - (dy / len) * bow,
+            (fy + ty) / 2 + (dx / len) * bow,
+            tx,
+            ty,
+          );
+          ctx.stroke();
+          ctx.fillStyle = theme.evening;
+          ctx.beginPath();
+          ctx.arc(tx, ty, 2.4 / transform.k + 1, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+      }
+    }
+
     // -- edges --
     ctx.lineWidth = 1 / transform.k;
     for (const link of this.simLinks) {
@@ -2653,6 +2836,12 @@ export class TerrainCanvas {
       const hoveredKey =
         link.kind === 'fk' && (s.id === this.hoverFile || t.id === this.hoverFile);
       if (this.hoverFile !== null && !hoveredKey) ctx.globalAlpha *= 0.22;
+      // A line into a stale dot recedes with it (staleEdgeAlpha), so under
+      // Types the whole limb goes quiet together instead of the dot leaving a
+      // full-strength line hanging in the air. Multiplied in rather than set,
+      // like the hover fade above it, so a spotlight or a hover still has the
+      // last word on how far down the line goes.
+      ctx.globalAlpha *= this.staleEdgeAlpha(s, t);
       if (link.kind === 'fk' && s.node.file?.table && t.node.file?.table) {
         // A foreign key runs UNDER the shelf: out of the bottom of the table
         // that holds the key, dipping below the baseline, and up into the

@@ -376,3 +376,82 @@
   padding-left: 0;
   padding-right: 0;
 }
+
+/* The mention strip: how many times this file names the thing she came here
+   for, which one she's on, and an arrow each way.
+
+   Sticky, because stepping to a mention four hundred lines down scrolls the
+   top of the pane away and the arrow has to come with it. `top: 0` is
+   measured against whichever ancestor actually scrolls — the frame's own
+   body in window mode, nothing at all in the other two frames, where the
+   strip sits above a code block that scrolls inside itself and is therefore
+   always on screen anyway. */
+.mentions {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  flex: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-lg);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, var(--card-bg));
+  font-size: var(--font-size-md);
+  color: var(--text-secondary);
+}
+
+.mentionCount {
+  flex: 1 1 auto;
+}
+
+/* The table's own name, set apart from the sentence around it. */
+.mentionLabel {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  color: var(--text);
+}
+
+.mentionStep {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* Comfortable to hit on a phone — the map's 40px floor, both ways. */
+.mentionArrow {
+  min-width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--text);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.mentionArrow:hover {
+  background: color-mix(in srgb, var(--accent) 16%, var(--card-bg));
+}
+
+.mentionAt {
+  min-width: 4.5ch;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.mentionLine {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+/* A mention she hasn't walked to yet: a bar down the gutter only, never a
+   wash across the row. The lit one (.codeLineHot) takes the whole row, so at
+   a glance the difference between "here" and "also here" is obvious. */
+.codeLineMarked {
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 65%, transparent);
+}

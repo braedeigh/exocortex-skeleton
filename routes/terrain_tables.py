@@ -188,6 +188,7 @@ def load_notes():
 # Folders the scan never walks: not the app's own code, or not code at all.
 _SCAN_SKIP_DIRS = {"venv", "node_modules", "tests", "shed", "__pycache__", "frontend",
                    ".git", ".claude", "dist", "worktrees"}
+_MENTION_LINES_MAX = 200   # the most mention lines reported for one file
 _SCAN_TTL_SEC = 300     # a cache that expires after five minutes: source files
                         # change on the order of commits, not requests
 _scan_cache = {"built_at": 0.0, "tables": None, "result": None}
@@ -208,9 +209,17 @@ def scan_code(table_names, root=None):
     """Find which Python files create, write to, and read each table.
 
     Returns {table: {"creates": [...], "writes": [...], "reads": [...]}}, each a
-    sorted list of {"path": repo-relative path, "line": first matching line}.
-    One pass over the app checkout's .py files; see the block above for what
-    the search can and can't see."""
+    sorted list of {"path": repo-relative path, "line": first matching line,
+    "lines": every matching line}. One pass over the app checkout's .py files;
+    see the block above for what the search can and can't see.
+
+    EVERY line, not just the first, because the card's file buttons open the
+    file at its mentions and step between them — one line per file would give
+    her the first hit and no way to reach the rest.
+
+    Prompt that produced this: "when i click those files in the popup for each
+    data table, it highlights where the table was mentioned in the code file
+    when i open it up and i can hop between them if there are multiple"."""
     root = Path(root or store.BUILD_DIR)
     names = sorted(table_names, key=len, reverse=True)   # longest first, so
     if not names:                                        # `todo_fronts` isn't
@@ -241,10 +250,17 @@ def scan_code(table_names, root=None):
                     if text.count("`", line_start, match.start()) % 2 == 1:
                         continue
                     line = text.count("\n", 0, match.start()) + 1
-                    found[match.group(1)][verb].setdefault(relpath, line)
+                    found[match.group(1)][verb].setdefault(relpath, []).append(line)
 
+    # One entry per file, carrying every line it named the table on. Two
+    # matches on one line (`FROM todos JOIN todos`) are one mention, so the
+    # lines are de-duplicated; they come out of finditer in order, and sorted()
+    # keeps that true after the set. Capped, so a file that names one table
+    # hundreds of times can't bloat the payload every table hangs off.
     return {
-        name: {verb: [{"path": p, "line": line} for p, line in sorted(hits.items())]
+        name: {verb: [{"path": p, "line": min(lines),
+                       "lines": sorted(set(lines))[:_MENTION_LINES_MAX]}
+                      for p, lines in sorted(hits.items())]
                for verb, hits in verbs.items()}
         for name, verbs in found.items()
     }

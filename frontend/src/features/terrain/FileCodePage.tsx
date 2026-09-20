@@ -1,4 +1,5 @@
 import { FileCodeBody } from './FileCodeBody';
+import { mentionsFromSearch } from './codeMentions';
 import styles from './FileCodePage.module.css';
 
 /**
@@ -21,6 +22,11 @@ import styles from './FileCodePage.module.css';
  * already validated its shape); `parseLineRange` turns it into the 1-based
  * inclusive {start, end} FileCodeBody highlights and scrolls to on mount. A
  * bare number highlights just that one line.
+ *
+ * `mentions` + `of` are the other way in: every line this file names one SQL
+ * table on, sent by that table's card on the Terrain map. The body marks them
+ * all, lands on the first, and puts arrows above the code to step between them
+ * (codeMentions.ts spells the params; FileCodeBody does the stepping).
  */
 function parseLineRange(lines?: string): { start: number; end: number } | undefined {
   if (!lines) return undefined;
@@ -31,7 +37,21 @@ function parseLineRange(lines?: string): { start: number; end: number } | undefi
   return { start, end: Number.isFinite(end) ? end : start };
 }
 
-export function FileCodePage({ repo, path, lines }: { repo?: string; path?: string; lines?: string }) {
+export function FileCodePage({
+  repo,
+  path,
+  lines,
+  mentions,
+  of,
+}: {
+  repo?: string;
+  path?: string;
+  lines?: string;
+  /** Comma-separated 1-based lines that all name `of`, e.g. "4,9,30". */
+  mentions?: string;
+  /** What those lines name — a SQL table's name. */
+  of?: string;
+}) {
   // Nothing asked for yet — a bare /code, or a link that lost its search.
   if (!repo || !path) {
     return (
@@ -62,13 +82,16 @@ export function FileCodePage({ repo, path, lines }: { repo?: string; path?: stri
       {/* keyed on file + line range so switching files (or clicking a new
           lines= link to the SAME file) remounts clean — otherwise the
           scroll-once guard in FileCodeBody would fire for the first link and
-          never fire again for the second. */}
+          never fire again for the second. The mentions are in the key for the
+          same reason: a second table's card pointing at this same file should
+          land on ITS first mention, not stay where the last one left her. */}
       <FileCodeBody
-        key={`${repo}:${path}:${lines ?? ''}`}
+        key={`${repo}:${path}:${lines ?? ''}:${mentions ?? ''}`}
         repo={repo}
         path={path}
         fill
         highlight={parseLineRange(lines)}
+        mentions={mentionsFromSearch(mentions, of)}
       />
     </div>
   );

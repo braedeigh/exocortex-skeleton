@@ -6,6 +6,7 @@ import { lineEditHeat } from './lineEditHeat';
 import { langForPath, tokenizeCode, type SyntaxLines, type SyntaxToken } from './syntax';
 import { glowAlpha, heatColor, heatRamps, readThemeInk, type ThemeInk } from './terrainCanvas';
 import { heatKeyTicks, RUN_WINDOW_SECONDS } from './terrainGraph';
+import { stepMention, type CodeMentions } from './codeMentions';
 import styles from './FileCodeBody.module.css';
 
 /**
@@ -36,12 +37,14 @@ export interface LineHighlight {
   end: number;
 }
 
+
 export function FileCodeBody({
   repo,
   path,
   fill = false,
   uncapCode = false,
   highlight,
+  mentions,
   windowSeconds = DEFAULT_WINDOW_SECONDS,
   runWindowSeconds = RUN_WINDOW_SECONDS,
   ink,
@@ -59,6 +62,16 @@ export function FileCodeBody({
    * without it no line is lit and nothing scrolls. This component doesn't
    * parse the URL; it renders whatever range it's handed. */
   highlight?: LineHighlight;
+  /** Every place one thing is named in this file — what a SQL table's card
+   * hands over when she opens one of the files that touches it. All of them
+   * get a soft mark down the gutter, ONE of them is lit and scrolled to, and
+   * a strip above the code steps between them. `highlight` wins over this
+   * when both are given: an explicit range was asked for by name.
+   *
+   * Prompt that produced it: "when i click those files in the popup for each
+   * data table, it highlights where the table was mentioned in the code file
+   * when i open it up and i can hop between them if there are multiple". */
+  mentions?: CodeMentions;
   /** The heat window the red decays across, in seconds. The map's pane
    * hands in its live one (breath included, so the pane breathes with the
    * map); anything else gets a week. */
@@ -124,18 +137,49 @@ export function FileCodeBody({
   const lines = useMemo(() => (data?.content != null ? data.content.split('\n') : null), [data?.content]);
   const syntax = useSyntaxLines(data?.content ?? null, path);
 
-  // Scroll the first highlighted line to center, ONCE per mount.
-  // A ref guards it, rather than keying on the data, so a background refetch
-  // of the same file never yanks her scroll position back. Nothing here
-  // re-arms it: FileCodePage remounts this body (its `key`) when a new range
-  // should scroll.
-  const hotRef = useRef<HTMLDivElement | null>(null);
-  const scrolledRef = useRef(false);
+  // Which mention she's standing on, of however many. Reset to the first
+  // whenever the file or the list changes, so opening a second file from the
+  // same table's card starts at the top of THAT file rather than at whatever
+  // number she had reached in the last one.
+  const mentionLines = mentions?.lines ?? EMPTY_LINES;
+  // Keyed on the lines' VALUE, not the array's identity: the /code page
+  // re-parses them out of the URL on every render, so a fresh array arrives
+  // each time and an identity-keyed reset would snap her back to the first
+  // mention the instant she pressed the arrow.
+  const mentionKey = mentionLines.join(',');
+  const [mentionAt, setMentionAt] = useState(0);
   useEffect(() => {
-    if (scrolledRef.current || !hotRef.current) return;
+    setMentionAt(0);
+  }, [path, mentionKey]);
+  const at = Math.min(mentionAt, Math.max(0, mentionLines.length - 1));
+
+  // What is actually lit. An explicit `highlight` wins: a range asked for by
+  // name (the /code?lines= contract) beats a mention the page found for her.
+  // Otherwise the mention she's standing on is a one-line range.
+  const litLine = mentionLines.length > 0 ? mentionLines[at] : undefined;
+  const lit: LineHighlight | undefined =
+    highlight ?? (litLine !== undefined ? { start: litLine, end: litLine } : undefined);
+  // The soft marks: every OTHER place the thing is named, so the ones she
+  // hasn't walked to yet are visible in the gutter as she scrolls past.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- mentionKey IS the lines
+  const marks = useMemo(() => new Set(mentionLines), [mentionKey]);
+
+  // Scroll the lit line to centre — on arrival, and again each time it MOVES.
+  // The ref remembers which line it last scrolled to rather than a bare "have
+  // I scrolled", so a background refetch of the same file never yanks her
+  // position back, while stepping to the next mention does take her there.
+  const hotRef = useRef<HTMLDivElement | null>(null);
+  const scrolledToRef = useRef<number | null>(null);
+  const litStart = lit?.start ?? null;
+  useEffect(() => {
+    if (litStart === null || scrolledToRef.current === litStart || !hotRef.current) return;
     hotRef.current.scrollIntoView({ block: 'center' });
-    scrolledRef.current = true;
-  }, [lines]);
+    scrolledToRef.current = litStart;
+  }, [lines, litStart]);
+
+  /** Step to the next mention, or the previous one. The wrap arithmetic is
+   * `stepMention` in codeMentions.ts, where it can be tested. */
+  const step = (by: number) => setMentionAt((was) => stepMention(was, by, mentionLines.length));
 
   return (
     <div className={[styles.body, fill ? styles.bodyFill : ''].filter(Boolean).join(' ')}>
@@ -281,6 +325,50 @@ export function FileCodeBody({
 
       {data?.binary ? <div className={styles.hint}>Binary file — nothing to read here.</div> : null}
 
+      {/* THE MENTION STRIP — where this file names the thing she came here
+          for, and a way to walk them. Opened from a table's card, "which
+          files touch this table" has already been answered; the question
+          left is WHERE in the file, and a file can answer it a dozen times.
+          So: how many there are, which one she's standing on, and an arrow
+          each way that scrolls the next one to the middle of the pane.
+          Sticky to the top of whichever frame is scrolling, because the
+          whole point is stepping to a line four hundred rows down and still
+          having the arrow under her thumb when she lands. */}
+      {mentionLines.length > 0 && lines ? (
+        <div className={styles.mentions}>
+          <span className={styles.mentionCount}>
+            {mentionLines.length} {mentionLines.length === 1 ? 'mention' : 'mentions'} of{' '}
+            <span className={styles.mentionLabel}>{mentions?.label}</span>
+          </span>
+          {mentionLines.length > 1 ? (
+            <div className={styles.mentionStep}>
+              <button
+                type="button"
+                className={styles.mentionArrow}
+                aria-label="Previous mention"
+                title="Previous mention"
+                onClick={() => step(-1)}
+              >
+                &lsaquo;
+              </button>
+              <span className={styles.mentionAt}>
+                {at + 1} / {mentionLines.length}
+              </span>
+              <button
+                type="button"
+                className={styles.mentionArrow}
+                aria-label="Next mention"
+                title="Next mention"
+                onClick={() => step(1)}
+              >
+                &rsaquo;
+              </button>
+            </div>
+          ) : null}
+          <span className={styles.mentionLine}>line {litLine}</span>
+        </div>
+      ) : null}
+
       {/* The code: one numbered row per line (CodeLine below) rather than one
           bare <pre>, so every text file gets line numbers and a highlight
           has a row to land on — the same row pattern as
@@ -299,7 +387,11 @@ export function FileCodeBody({
         >
           {lines.map((line, i) => {
             const n = i + 1; // 1-based, to match `highlight` and the URL.
-            const hot = highlight !== undefined && n >= highlight.start && n <= highlight.end;
+            const hot = lit !== undefined && n >= lit.start && n <= lit.end;
+            // A mention she hasn't stepped to yet: marked, not lit. The one
+            // she IS standing on is already `hot` above and doesn't need the
+            // fainter mark underneath it.
+            const marked = !hot && marks.has(n);
             // Work out this line's red. Rounded to the nearest 1/64 so the
             // breath only re-renders a row when its shade visibly moves.
             const raw = stamps && ramp ? lineEditHeat(stamps[i], nowSeconds, windowSeconds) : 0;
@@ -316,11 +408,12 @@ export function FileCodeBody({
                 text={line}
                 tokens={syntax ? syntax[i] : undefined}
                 hot={hot}
+                marked={marked}
                 heat={t}
                 heatInk={t > 0 && ramp ? heatColor(t, ramp) : null}
                 runHeat={runHeat}
                 runInk={runHeat > 0 && goldRamp ? heatColor(runHeat, goldRamp) : null}
-                hotRef={hot && n === highlight?.start ? hotRef : undefined}
+                hotRef={hot && n === lit?.start ? hotRef : undefined}
               />
             );
           })}
@@ -370,6 +463,7 @@ const CodeLine = memo(function CodeLine({
   text,
   tokens,
   hot,
+  marked = false,
   heat,
   heatInk,
   runHeat,
@@ -380,6 +474,9 @@ const CodeLine = memo(function CodeLine({
   text: string;
   tokens: SyntaxToken[] | undefined;
   hot: boolean;
+  /** One of the mentions, but not the one she's standing on — a quiet bar in
+   * the gutter so the rest are visible as she scrolls past them. */
+  marked?: boolean;
   heat: number;
   heatInk: string | null;
   runHeat: number;
@@ -405,6 +502,7 @@ const CodeLine = memo(function CodeLine({
       className={[
         styles.codeLine,
         hot ? styles.codeLineHot : '',
+        marked ? styles.codeLineMarked : '',
         edited ? styles.codeLineEdited : '',
         ran ? styles.codeLineRan : '',
       ]
@@ -462,6 +560,10 @@ function useSyntaxLines(content: string | null, path: string | null): SyntaxLine
 
 /** A week — the window frames with no live heat bar decay the red across. */
 const DEFAULT_WINDOW_SECONDS = 7 * 24 * 3600;
+
+/** One shared empty array for "no mentions", so the effect that resets the
+ * step counter isn't re-run by a fresh `[]` on every render. */
+const EMPTY_LINES: readonly number[] = [];
 
 /**
  * Read the theme's ink, for frames the map isn't feeding.

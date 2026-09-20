@@ -159,6 +159,25 @@ def test_scan_ignores_python_imports_and_sql_quoted_in_prose(tmp_path):
     assert found == {"creates": [], "writes": [], "reads": []}
 
 
+def test_scan_reports_every_line_a_file_names_the_table_on(tmp_path):
+    found = _scan(tmp_path, {
+        "bookstore.py": 'a = conn.execute("SELECT id FROM books")\n'
+                        'b = 1\n'
+                        'c = conn.execute("SELECT title FROM books")\n',
+    }, ["books"])["books"]
+    hit, = found["reads"]
+    assert hit["lines"] == [1, 3]
+    assert hit["line"] == 1          # the first, still, for the card's label
+
+
+def test_scan_counts_two_matches_on_one_line_as_one_mention(tmp_path):
+    found = _scan(tmp_path, {
+        "join.py": 'conn.execute("SELECT 1 FROM books JOIN books ON 1 = 1")\n',
+    }, ["books"])["books"]
+    hit, = found["reads"]
+    assert hit["lines"] == [1]
+
+
 def test_scan_does_not_mistake_a_longer_table_name_for_a_shorter_one(tmp_path):
     found = _scan(tmp_path, {
         "parts.py": 'conn.execute("SELECT 1 FROM book_parts")\n',

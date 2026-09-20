@@ -61,7 +61,9 @@ export function TerrainTableWindow({
   table: TerrainTable | null;
   allTables: readonly TerrainTable[];
   onPickTable: (tableName: string) => void;
-  onOpenFile: (path: string) => void;
+  /** Open one of the files that touches this table, at every line it names
+   * the table on (TerrainTableSheet passes them straight through). */
+  onOpenFile: (path: string, mentions: number[]) => void;
   onClose: () => void;
 }) {
   const [side, setSide] = useState<'about' | 'rows'>('about');

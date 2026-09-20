@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { fileTypeCounts, fileTypeOf, OTHER_FILE_TYPE } from './fileTypes';
-import { staleTypeColor, typeDotColor } from './terrainCanvas';
+import { staleTypeAlpha, staleTypeColor, typeDotColor } from './terrainCanvas';
 
 /**
  * fileTypes.test.ts — the path → type lookup behind the terrain's "Types"
  * toggle (fileTypes.ts), the counting that orders its legend, and the lift
  * that keeps a too-dark or too-pale colour visible on the sky without
  * changing its hue (typeDotColor in terrainCanvas.ts), plus the fade that
- * sinks a stale dot back into the sky (staleTypeColor, same file).
+ * sinks a stale dot back into the sky (staleTypeColor, same file) and the
+ * matching fade on the lines that land on it (staleTypeAlpha).
  */
 
 describe('fileTypeOf', () => {
@@ -114,6 +115,29 @@ describe('staleTypeColor', () => {
     expect(brightness(warm)).toBeGreaterThan(brightness(cooling));
     expect(brightness(cooling)).toBeGreaterThan(brightness(cold));
     expect(brightness(cold)).toBeGreaterThan(brightness(SKY));
+  });
+});
+
+describe('staleTypeAlpha', () => {
+  it('leaves a line at full strength when its file is alive', () => {
+    expect(staleTypeAlpha(1, 0)).toBe(1);
+    expect(staleTypeAlpha(0, 1)).toBe(1);
+  });
+
+  it('keeps a line half present when its file has gone stale', () => {
+    expect(staleTypeAlpha(0, 0)).toBe(0.5);
+  });
+
+  it('never lets a line fade further than half, however dead the file', () => {
+    for (const t of [0, 0.01, 0.1, 0.5, 1]) {
+      expect(staleTypeAlpha(t, 0)).toBeGreaterThanOrEqual(0.5);
+      expect(staleTypeAlpha(t, 0)).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('dims in step with the dot, so the line is never brighter than its file', () => {
+    expect(staleTypeAlpha(0.6, 0)).toBeGreaterThan(staleTypeAlpha(0.3, 0));
+    expect(staleTypeAlpha(0.3, 0)).toBeGreaterThan(staleTypeAlpha(0.05, 0));
   });
 });
 
