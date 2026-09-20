@@ -1,5 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { TerrainPage } from '../features/terrain/TerrainPage';
+import type { CodeFileSearch } from '../features/terrain/codeFileSearch';
+import { MENTIONS_PATTERN } from '../features/terrain/codeMentions';
 import { useDeactivateFrames } from '../shell/useIframeView';
 
 /**
@@ -25,10 +27,24 @@ export const Route = createFileRoute('/terrain_/map')({
   // `?embed=1` is the chrome-less view for the portfolio page's <iframe>
   // (shell/embed.ts, TerrainPage's `embed`). Kept in the search schema so the
   // router preserves it across its own navigations.
-  validateSearch: (raw: Record<string, unknown>): { journey?: string; embed?: boolean } => ({
-    ...(typeof raw.journey === 'string' && raw.journey ? { journey: raw.journey } : {}),
-    ...(raw.embed === '1' || raw.embed === 1 || raw.embed === true ? { embed: true } : {}),
-  }),
+  // `?repo=…&file=…` is the file open over the map, with `mentions`/`of` when
+  // it was opened from a table's card (features/terrain/codeFileSearch.ts).
+  // In the address so a refresh keeps the file open and the pane's × is a
+  // real "back". A file without its repo (or the reverse) means nothing, so
+  // the pair is kept or dropped together; mentions only ride with a file.
+  validateSearch: (raw: Record<string, unknown>): { journey?: string; embed?: boolean } & CodeFileSearch => {
+    const hasFile = typeof raw.repo === 'string' && raw.repo !== '' && typeof raw.file === 'string' && raw.file !== '';
+    // The router parses a bare `mentions=4` as the number 4, so accept both.
+    const mentions = typeof raw.mentions === 'number' ? String(raw.mentions) : raw.mentions;
+    const hasMentions = hasFile && typeof mentions === 'string' && MENTIONS_PATTERN.test(mentions);
+    return {
+      ...(typeof raw.journey === 'string' && raw.journey ? { journey: raw.journey } : {}),
+      ...(raw.embed === '1' || raw.embed === 1 || raw.embed === true ? { embed: true } : {}),
+      ...(hasFile ? { repo: raw.repo as string, file: raw.file as string } : {}),
+      ...(hasMentions ? { mentions: mentions as string } : {}),
+      ...(hasMentions && typeof raw.of === 'string' ? { of: raw.of } : {}),
+    };
+  },
   component: TerrainRoute,
 });
 

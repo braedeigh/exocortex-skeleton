@@ -9,7 +9,10 @@ import styles from './FileCodeWindow.module.css';
 /**
  * FileCodeWindow — tap a file on the map and read it: an opaque pane INSIDE
  * the terrain page, with the file's name and path across the top and one ×
- * (or Esc) that puts the map back exactly as it was. Beside the × sits a ↗
+ * (or Esc) that goes BACK — to the map exactly as it was, or to the table
+ * card the file was opened from. The open file lives in the map's address
+ * (codeFileSearch.ts), so the × is the same move as the browser's back
+ * button, and a refresh keeps the file open. Beside the × sits a ↗
  * that pops the same file out into its own browser tab, where it is the
  * only pane (the /code page in solo mode — shell/solo.ts).
  *

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useSearch } from '@tanstack/react-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useRouter, useSearch } from '@tanstack/react-router';
 import { Sheet } from '../../ui';
 import { subscribeTheme } from '../../theme';
 import { TermNotesPanel } from '../../shell/TermNotesPanel';
@@ -46,7 +46,8 @@ import { TerrainHeatBar } from './TerrainHeatBar';
 import type { AgentPool, AgentSection } from './TerrainAgentBar';
 import { TerrainAgentBar } from './TerrainAgentBar';
 import { FileCodeWindow } from './FileCodeWindow';
-import type { CodeMentions } from './codeMentions';
+import { mentionsFromSearch, type CodeMentions } from './codeMentions';
+import { codeFileNode, searchWithCodeFile, searchWithoutCodeFile, type CodeFileSearch } from './codeFileSearch';
 import { AgentHoverCard } from './AgentHoverCard';
 import { TerrainRoomsIndex } from './TerrainRoomsIndex';
 import { JourneyPanel, type ReplayRequest } from './JourneyPanel';
@@ -311,6 +312,7 @@ function useDebounced<T>(value: T, ms: number): T {
 
 export function TerrainPage() {
   const navigate = useNavigate();
+  const router = useRouter();
   const pageVisible = usePageVisible();
   // A logged-out visitor — on the private site's public view or the
   // public-only mirror. The MAP is public (public_config.PUBLIC_PATHS); the
@@ -435,7 +437,7 @@ export function TerrainPage() {
   // are pure data (journeyReplay.ts); this is only the timers and the two
   // engine calls. Arriving with `?journey=<id>` (the Wiring room's "replay on
   // the terrain" link) opens the panel on that capture.
-  const search = useSearch({ strict: false }) as { journey?: string };
+  const search = useSearch({ strict: false }) as { journey?: string } & CodeFileSearch;
   const [journeyOpen, setJourneyOpen] = useState(Boolean(search.journey));
   const [replay, setReplay] = useState<ReplayRequest | null>(null);
   const [replayThreads, setReplayThreads] = useState<TerrainThread[] | null>(null);
@@ -468,18 +470,6 @@ export function TerrainPage() {
   // (typing clears the agent, tapping an agent clears the query), so they
   // can never argue over the same pixels.
   const [query, setQuery] = useState('');
-  // The file whose code page is open, if any — the whole node, not
-  // just its coordinates, because the window shows what the MAP knows about
-  // the file (when it was last touched, which agents touched it) alongside
-  // what's in it. Separate from `selected`, which is now only ever an agent
-  // orb: a file tap goes straight to its code rather than through a sheet.
-  const [codeFile, setCodeFile] = useState<TerrainNode | null>(null);
-  // Set only when the file was opened FROM a table's card: which table she
-  // came in asking about, and every line this file names it on. The open file
-  // lands on the first and steps between the rest (FileCodeBody's mention
-  // strip). Null for a file opened any other way — a tapped dot is not a
-  // question about a table, and a strip saying so would be noise.
-  const [codeMentions, setCodeMentions] = useState<CodeMentions | null>(null);
   // The agent orb under the cursor, once it's rested there long enough to mean
   // it — the anchor for the hovercard. Mouse-only, and the engine drops it the
   // moment the map moves, so this can't be left pointing at nothing.
@@ -668,6 +658,58 @@ export function TerrainPage() {
         : null,
     [withTables, halfLife, goldHalfLife, poolSessionIds],
   );
+
+  // The file whose code page is open, if any — read off the ADDRESS, not held
+  // in memory (codeFileSearch.ts). That is what makes a refresh reopen the
+  // same file, and what makes closing it a real "back". It is the whole node,
+  // not just its coordinates, because the window shows what the MAP knows
+  // about the file (when it was last touched, which agents touched it)
+  // alongside what's in it. Separate from `selected`: a file tap goes
+  // straight to its code rather than through a sheet.
+  const codeFile = useMemo(
+    () => codeFileNode(search.repo, search.file, graph?.nodes),
+    [search.repo, search.file, graph],
+  );
+  // Set only when the file was opened FROM a table's card: which table she
+  // came in asking about, and every line this file names it on. The open file
+  // lands on the first and steps between the rest (FileCodeBody's mention
+  // strip). Null for a file opened any other way — a tapped dot is not a
+  // question about a table, and a strip saying so would be noise.
+  const codeMentions = useMemo(
+    () => mentionsFromSearch(search.mentions, search.of) ?? null,
+    [search.mentions, search.of],
+  );
+
+  // Open a file over the map by stepping the address forward. A push, not a
+  // replace, so the browser's history gains one entry and "back" means
+  // "close the file".
+  const openCodeFile = useCallback(
+    (repo: string, path: string, mentions?: CodeMentions) => {
+      void navigate({
+        to: '/terrain/map',
+        search: (previous) => searchWithCodeFile(previous as CodeFileSearch, repo, path, mentions),
+      });
+    },
+    [navigate],
+  );
+  // Close the open file by going BACK — the ×, Esc, the browser's back
+  // button and a swipe-back are one and the same move, and land wherever she
+  // opened the file from. When there is no "back" to go to (a pasted link, a
+  // fresh tab, a tile reopened after a refresh — its private history doesn't
+  // survive one), take the file out of the address instead, which shows the
+  // map. That is a replace, so the dead-end entry doesn't linger in history.
+  // Her ask: "the x is fine if it's functionally the same as a back button."
+  const closeCodeFile = useCallback(() => {
+    if (router.history.canGoBack()) {
+      router.history.back();
+      return;
+    }
+    void navigate({
+      to: '/terrain/map',
+      search: (previous) => searchWithoutCodeFile(previous as CodeFileSearch),
+      replace: true,
+    });
+  }, [router, navigate]);
 
   // The threads: what one file makes, another one eats. The creek payload is
   // static wiring plus per-collection write freshness, so it changes on the
@@ -1004,8 +1046,7 @@ export function TerrainPage() {
         }
         if (node.path) {
           if (dispatchIntent({ kind: 'code', repo: node.repoId, path: node.path }) !== 'none') return;
-          setCodeMentions(null);
-          setCodeFile(node);
+          openCodeFile(node.repoId, node.path);
         }
       } else if (node?.kind === 'session' && node.session) {
         if (visitor) {
@@ -1430,15 +1471,10 @@ export function TerrainPage() {
   };
   // A row in the hit list opens the file exactly as tapping its dot does:
   // out to a paired window if one is listening, else the full-screen code
-  // page here. Hits are pinned, so the node is on the map to be found;
-  // if it somehow isn't, a bare node still carries enough to open it.
+  // page here (openCodeFile — the address finds the node, or stands one in).
   const openHit = (hit: TerrainSearchHit) => {
     if (dispatchIntent({ kind: 'code', repo: hit.repoId, path: hit.path }) !== 'none') return;
-    const node = visible?.nodes.find((n) => n.id === hit.id);
-    setCodeMentions(null);
-    setCodeFile(
-      node ?? { id: hit.id, kind: 'file', label: hit.name, parentId: null, depth: 1, repoId: hit.repoId, path: hit.path, heat: 0 },
-    );
+    openCodeFile(hit.repoId, hit.path);
   };
 
   return (
@@ -1822,7 +1858,11 @@ export function TerrainPage() {
           pane, so with the screen split it sits over the map's side rather
           than straddling the divider. */}
       <TerrainTableWindow
-        table={selected?.file?.table ?? null}
+        // Hide the card while a file is open over the map. The card sits
+        // above the file pane, so it has to step aside — but it is hidden,
+        // not closed, so going back from the file lands on the card she
+        // opened it from.
+        table={codeFile ? null : (selected?.file?.table ?? null)}
         allTables={tables?.tables ?? []}
         onClose={() => setSelected(null)}
         onPickTable={(tableName) => {
@@ -1833,33 +1873,24 @@ export function TerrainPage() {
         onOpenFile={(path, mentions) => {
           // Open one of the files that touches this table, the same way a
           // tapped dot opens: another window if one is listening, else the
-          // code window here. The file may not be ON the map (the Files
-          // dial cuts to the hottest few hundred), so when it isn't, a
-          // bare stand-in node carries the repo and path the window needs.
+          // code window here (openCodeFile — the file may not be ON the map,
+          // and the address stands a bare node in when it isn't).
           //
           // The mentions travel with it either way, so the file opens where
           // it names this table rather than at line 1 — as a search param
-          // when it lands in another tile, as state when it opens here.
+          // wherever it lands.
+          //
+          // Opened HERE, the card is not closed, only hidden while the file
+          // is up (see `table=` above): closing the file is "back", and back
+          // from a file opened off a card should be that card. Handed to
+          // another tile, the card closes as it always has.
           const repo = tables?.code_repo ?? 'skeleton';
           const label = selected?.file?.table?.name ?? '';
-          setSelected(null);
           if (dispatchIntent({ kind: 'code', repo, path, mentions, mentionsOf: label }) !== 'none') {
+            setSelected(null);
             return;
           }
-          setCodeMentions(mentions.length > 0 ? { label, lines: mentions } : null);
-          const id = `${repo}:file:${path}`;
-          setCodeFile(
-            graph?.nodes.find((n) => n.id === id) ?? {
-              id,
-              kind: 'file',
-              label: path.split('/').slice(-1)[0],
-              parentId: null,
-              depth: 0,
-              repoId: repo,
-              path,
-              heat: 0,
-            },
-          );
+          openCodeFile(repo, path, mentions.length > 0 ? { label, lines: mentions } : undefined);
         }}
       />
 
@@ -1878,10 +1909,7 @@ export function TerrainPage() {
       <FileCodeWindow
         repo={codeFile?.repoId ?? null}
         path={codeFile?.path ?? null}
-        onClose={() => {
-          setCodeFile(null);
-          setCodeMentions(null);
-        }}
+        onClose={closeCodeFile}
         mentions={codeMentions ?? undefined}
         windowSeconds={windowSeconds}
         runWindowSeconds={goldWindowSeconds}
@@ -1931,7 +1959,7 @@ export function TerrainPage() {
                         // Ringing a footprint is a statement about the MAP, so
                         // the window gets out of the way to show it.
                         setFootprintSession((cur) => (cur === s.id ? null : s.id));
-                        setCodeFile(null);
+                        closeCodeFile();
                       }}
                     >
                       footprint
