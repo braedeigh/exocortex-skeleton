@@ -86,12 +86,21 @@
  * table's own shape — one stripe per column wide, its row count tall — with a
  * foreign key drawn as a blue line to the table it points at (`drawTable`, the
  * 'fk' link kind). They are the one thing the physics doesn't place: they
- * stand pinned on shelves in a section of their own on the vault's outer side
- * (`placeShelves`), one family of joined tables per shelf on a shared
- * baseline, with the foreign keys running under the shelf. Unlike the tile
- * they name themselves, because a rectangle with no name teaches nothing. Hovering
- * one keeps the tables it's joined to lit; tapping one reports it through
- * `onTap` like any file, and the page shows its columns.
+ * stand pinned on shelves in a section of their own in the corridor BETWEEN
+ * the two repos (`placeShelves`), one family of joined tables per shelf on a
+ * shared baseline, with the foreign keys running under the shelf. That
+ * corridor is made, not found — the repos are anchored far enough apart to
+ * leave room for the section, and the 'shelfKeepOut' force pushes any dot
+ * that drifts in back out through the side facing its own repo. Unlike the tile
+ * they name themselves, because a rectangle with no name teaches nothing.
+ * Hovering one keeps the tables it's joined to lit; CLICKING one pins that
+ * lighting on (`holdFileHover`) so it can be read without holding the mouse
+ * still, and reports the tap through `onTap` like any file — the page makes
+ * the second click on the same table the one that opens its card.
+ *
+ * Every file dot NAMES ITSELF under the cursor (`hoverLabel`), on a plate of
+ * the map's background so the name is readable over a dense field — pointing
+ * at something is the gesture that asks "what is this".
  *
  * Hovering a table also draws a rope out to every CODE FILE that touches it,
  * named where it lands (`setTableCodeLinks`, and the rope pass just before
@@ -102,10 +111,14 @@
  * Prompt that produced it: "i want them to be sized by how much is in there
  * and learn more about the shapes of the tables through this exercise" / "a
  * little off in their own section of the personal vault and then more
- * organized" / "B shelves on the outer side away from the app code" / "i'm
+ * organized" / "i would like for the sql databases to be positioned centrally
+ * between the personal and the code database rather than being on the right
+ * edge" / "i'm
  * wanting to connect my sql databases to files … when i hover over it to have
  * lines pop up connecting them to the files that created them and interact
- * with them".
+ * with them" / "hovering over a file shows its name … i want them to
+ * highlight the tables and files they're connected to on one click and a
+ * double click opens it up".
  */
 import {
   forceCollide,
@@ -137,11 +150,14 @@ import {
 } from './terrainGraph';
 import type { TerrainThread } from './terrainThreads';
 import type { TableCodeLink } from './tableMentions';
+import { highlightTarget } from './hoverSelection';
 import { bodyRadius, sameRings } from './ringBodies';
 import { fileTypeOf } from './fileTypes';
+import { childTypeCounts, liveliestBeneath } from './folderTypes';
 import {
   COLUMN_WIDTH,
   HEADER_HEIGHT,
+  corridorLeft,
   shelfLayout,
   tableCollideRadius,
   tableSize,
@@ -543,6 +559,17 @@ const SHELF_MARGIN = 480;
  * the clear ground between the vault and the shelves — a dot resting at the
  * vault's outer edge is never inside it, and the two rules can't fight. */
 const SHELF_KEEP_OUT_PAD = 160;
+/** Extra keep-out on the section's LEFT, where the shelf names hang (they are
+ * right-aligned to end just before each shelf begins). The names are drawn at
+ * a fixed SCREEN size, so at the pulled-back zooms the map is read at they
+ * cover a few hundred world units; without this a dot parks underneath them
+ * and the names become unreadable. Judged by eye, same as SHELF_MARGIN. */
+const SHELF_NAME_GUTTER = 360;
+/** Breathing room on top of the corridor the section needs: how much clear
+ * ground is left between the section's keep-out zone and where each repo's
+ * dots are pulled. Without it the two rules rest exactly against each other
+ * and the dots sit pressed to the section's edge. */
+const SHELF_CORRIDOR_CLEAR = 260;
 /** How hard a dot inside the keep-out zone is pushed, per tick, as a share of
  * how deep inside it is. Firm enough to clear a dot in a second or so, soft
  * enough that it slides out rather than being flung across the map. */
@@ -587,6 +614,11 @@ export function heatColor(t: number, ramp: readonly string[]): string {
  * folder is a place. Before this, a folder was a circle that differed from a
  * file only in tone, so the structure and its contents read as one soup.
  *
+ * They're drawn HOLLOW — outline only, no fill — for the same reason: a
+ * folder is a container, and an unfilled one leaves the files inside it as
+ * the thing being looked at. What the outline is painted with is the draw
+ * loop's call, and it follows whichever lens the map is lit by.
+ *
  * The bounding box is the SAME at every zoom. Far out, that box is all there
  * is — a plain rounded rectangle. Once the body is tall enough on screen to
  * show it, the tab is cut DOWN into the top edge rather than added on top, so
@@ -596,13 +628,18 @@ export function heatColor(t: number, ramp: readonly string[]): string {
  * a pixel deep is noise on an outline, not a folder, which is what the
  * threshold is for.
  *
- * Pure — the caller rounds the corners and paints it (traceRoundedPolygon).
+ * Pure — the caller rounds the corners and paints it (roundedPolygonPoints).
  *
  * Prompt that produced it: "i'm wondering if the folder nodes should be a
  * different shape and or color … maybe a literal folder, and when i'm zoomed
  * out it just shows a rounded square or rectangle in the shape the folder is".
  */
 export const FOLDER_TAB_MIN_PX = 13;
+/** The smallest share of a folder that earns its own slice of the outline,
+ * and the most slices one folder is ever cut into. Past either, the tail
+ * becomes a single neutral slice — see folderSharesOf. */
+const MIN_FOLDER_SHARE = 0.08;
+const MAX_FOLDER_SHARES = 5;
 /** The box a folder of radius r fills — a little wider than tall, the way a
  * folder is, and about the footprint the circle it replaced had. */
 export function folderBox(r: number): { width: number; height: number } {
@@ -644,40 +681,164 @@ export function folderOutline(
   ];
 }
 
+/** How many straight steps a rounded corner is drawn in. Eight is past the
+ * point where the facets show at this map's zoom, and keeps a folder's whole
+ * outline under fifty points — small enough to walk per frame. */
+const CORNER_STEPS = 8;
+
 /**
- * Trace a closed outline through `points` with every corner rounded. Leaves
- * the path current so the caller can fill it, stroke it, or both.
+ * Round the corners of a closed outline and flatten the result into a plain
+ * polyline — a list of points, first joined back to last.
  *
- * Starts halfway along the LAST edge, which is the one point on the outline
- * guaranteed to sit outside every corner's arc — begin at a corner instead
- * and the first arc has no straight run to start from, which canvas draws as
- * a stray chord across the shape.
+ * Flattened rather than left as arcs because the caller doesn't only fill and
+ * stroke this shape: it walks it BY LENGTH, to paint each file type its share
+ * of a folder's border. A canvas path can't be measured or cut; a polyline
+ * can, and at eight steps a corner the two are indistinguishable on screen.
+ *
+ * Each corner is replaced by the arc that runs tangent to both of its edges,
+ * shrunk if it wouldn't fit on the shorter one. Concave corners work the same
+ * way as convex ones, which is what lets the folder tab's shoulder round like
+ * every other corner instead of staying a spike.
  */
-function traceRoundedPolygon(
-  ctx: CanvasRenderingContext2D,
+export function roundedPolygonPoints(
   points: readonly [number, number][],
   radius: number,
-): void {
+): [number, number][] {
   const count = points.length;
-  ctx.beginPath();
-  ctx.moveTo(
-    (points[count - 1][0] + points[0][0]) / 2,
-    (points[count - 1][1] + points[0][1]) / 2,
-  );
+  const out: [number, number][] = [];
   for (let i = 0; i < count; i += 1) {
     const [x, y] = points[i];
-    const [nextX, nextY] = points[(i + 1) % count];
     const [prevX, prevY] = points[(i + count - 1) % count];
-    // Never round a corner by more than half of either edge it joins, or two
-    // arcs on one short edge overrun each other and the outline knots.
-    const fit = Math.min(
-      radius,
-      Math.hypot(x - prevX, y - prevY) / 2,
-      Math.hypot(nextX - x, nextY - y) / 2,
-    );
-    ctx.arcTo(x, y, nextX, nextY, fit);
+    const [nextX, nextY] = points[(i + 1) % count];
+    const prevLen = Math.hypot(x - prevX, y - prevY);
+    const nextLen = Math.hypot(nextX - x, nextY - y);
+    if (prevLen === 0 || nextLen === 0) {
+      out.push([x, y]);
+      continue;
+    }
+    // Unit vectors pointing away from the corner, back along each of its two
+    // edges. The angle between them is the corner's own angle.
+    const inX = (prevX - x) / prevLen;
+    const inY = (prevY - y) / prevLen;
+    const outX = (nextX - x) / nextLen;
+    const outY = (nextY - y) / nextLen;
+    const halfAngle = Math.acos(Math.max(-1, Math.min(1, inX * outX + inY * outY))) / 2;
+    // A corner that isn't one — a straight run, or a fold back on itself —
+    // has no arc to draw.
+    if (!Number.isFinite(halfAngle) || halfAngle < 1e-4 || Math.PI / 2 - halfAngle < 1e-4) {
+      out.push([x, y]);
+      continue;
+    }
+    // Shrink the arc until it fits: it reaches this far down each edge, and
+    // two corners are never allowed to eat the same half of an edge.
+    let reach = radius / Math.tan(halfAngle);
+    let arcRadius = radius;
+    const room = Math.min(prevLen, nextLen) / 2;
+    if (reach > room) {
+      reach = room;
+      arcRadius = reach * Math.tan(halfAngle);
+    }
+    // The arc's centre sits along the corner's bisector, far enough in that
+    // the arc just touches both edges.
+    let bisectorX = inX + outX;
+    let bisectorY = inY + outY;
+    const bisectorLen = Math.hypot(bisectorX, bisectorY);
+    if (bisectorLen < 1e-9) {
+      out.push([x, y]);
+      continue;
+    }
+    bisectorX /= bisectorLen;
+    bisectorY /= bisectorLen;
+    const centreX = x + bisectorX * (arcRadius / Math.sin(halfAngle));
+    const centreY = y + bisectorY * (arcRadius / Math.sin(halfAngle));
+    const from = Math.atan2(y + inY * reach - centreY, x + inX * reach - centreX);
+    const to = Math.atan2(y + outY * reach - centreY, x + outX * reach - centreX);
+    // Always take the short way round, whichever direction that turns out to
+    // be — the long way would loop the arc back across the shape.
+    let sweep = to - from;
+    while (sweep > Math.PI) sweep -= Math.PI * 2;
+    while (sweep < -Math.PI) sweep += Math.PI * 2;
+    for (let step = 0; step <= CORNER_STEPS; step += 1) {
+      const angle = from + (sweep * step) / CORNER_STEPS;
+      out.push([centreX + Math.cos(angle) * arcRadius, centreY + Math.sin(angle) * arcRadius]);
+    }
   }
+  return out;
+}
+
+/** Lay a closed polyline into the current path. Leaves it current so the
+ * caller can fill it, stroke it, or both. */
+function tracePolyline(ctx: CanvasRenderingContext2D, polyline: readonly [number, number][]): void {
+  ctx.beginPath();
+  ctx.moveTo(polyline[0][0], polyline[0][1]);
+  for (let i = 1; i < polyline.length; i += 1) ctx.lineTo(polyline[i][0], polyline[i][1]);
   ctx.closePath();
+}
+
+/**
+ * Paint a closed polyline in coloured slices — each one taking the share of
+ * the outline its `fraction` asks for, in order, starting where the polyline
+ * starts.
+ *
+ * This is GitHub's language bar bent around the shape: it's how a folder says
+ * what MIX of things is inside it rather than just naming its commonest. The
+ * alternative — blending the type colours into one — would land on a colour
+ * that means nothing, or worse, on some third type's colour: these are
+ * CATEGORY colours, and the space between two of them isn't a category.
+ * Proportion is the thing that can be averaged here; hue isn't.
+ *
+ * Fractions are taken as given and are expected to sum to 1; anything past
+ * the end of the outline is simply not drawn.
+ *
+ * Prompt that produced it: "shouldn't the outline be like an average of the
+ * children".
+ */
+function strokePolylineShares(
+  ctx: CanvasRenderingContext2D,
+  polyline: readonly [number, number][],
+  shares: readonly { color: string; fraction: number }[],
+): void {
+  const count = polyline.length;
+  // Measure once: how long each step is, and how long the whole loop is.
+  const steps: number[] = [];
+  let total = 0;
+  for (let i = 0; i < count; i += 1) {
+    const [x, y] = polyline[i];
+    const [nextX, nextY] = polyline[(i + 1) % count];
+    const len = Math.hypot(nextX - x, nextY - y);
+    steps.push(len);
+    total += len;
+  }
+  if (total === 0) return;
+  let from = 0;
+  for (const share of shares) {
+    const to = from + share.fraction * total;
+    // Cut the run between `from` and `to` out of the loop: walk the steps,
+    // skip the ones outside it, and clip the two it starts and ends inside.
+    ctx.beginPath();
+    let cursor = 0;
+    let started = false;
+    for (let i = 0; i < count; i += 1) {
+      const stepStart = cursor;
+      const stepEnd = cursor + steps[i];
+      cursor = stepEnd;
+      if (steps[i] === 0 || stepEnd <= from || stepStart >= to) continue;
+      const [x, y] = polyline[i];
+      const [nextX, nextY] = polyline[(i + 1) % count];
+      const enter = Math.max(0, (from - stepStart) / steps[i]);
+      const exit = Math.min(1, (to - stepStart) / steps[i]);
+      if (!started) {
+        ctx.moveTo(x + (nextX - x) * enter, y + (nextY - y) * enter);
+        started = true;
+      }
+      ctx.lineTo(x + (nextX - x) * exit, y + (nextY - y) * exit);
+    }
+    if (started) {
+      ctx.strokeStyle = share.color;
+      ctx.stroke();
+    }
+    from = to;
+  }
 }
 
 function nodeRadius(node: TerrainNode, t: number): number {
@@ -920,6 +1081,10 @@ export class TerrainCanvas {
     layout: ShelfLayout;
     repoId: string;
     outward: 1 | -1;
+    /** True when the section stands in the corridor BETWEEN the repos rather
+     * than out past the far edge of its own. Needs another repo to be between
+     * — with one repo on the map there is no corridor. */
+    between: boolean;
     tables: SimNode[];
     hubs: SimNode[];
     left: number | null;
@@ -1018,6 +1183,27 @@ export class TerrainCanvas {
    * search in typeDotColor runs once per file rather than once per frame. */
   private typeColorCache: Map<string, string> = new Map();
   /**
+   * How each folder's outline is split under "Types": the file types beneath
+   * it (folderTypes.ts) as coloured shares of its border, commonest first and
+   * already lifted for the surface.
+   *
+   * Rebuilt only when its answer could have changed — a new graph, a new
+   * surface, or a different set of files hidden by the All / Recent / Old
+   * switch. The hidden set is compared BY IDENTITY, because the page hands
+   * over a freshly built Set only when the filter or the window actually
+   * moved; under Dynamic that would otherwise be a full roll-up every frame.
+   */
+  private folderShareCache: Map<string, { color: string; fraction: number }[]> | null = null;
+  private folderSharesKey: ReadonlySet<string> | null = null;
+  /**
+   * How present each folder is under "Types", 0..1 — the aliveness of the
+   * liveliest file anywhere beneath it (folderTypes.ts liveliestBeneath), on
+   * the same curve the file dots fade out on. Zero for a folder with nothing
+   * live inside, which paints as nothing at all. Built and thrown away with
+   * folderShareCache, off the same walk.
+   */
+  private folderFadeCache: Map<string, number> = new Map();
+  /**
    * File dots the All / Recent / Old switch has hidden (activityFilter.ts).
    * Hidden is a PAINT decision, not a layout one: these dots stay in the sim
    * and keep their places, so flipping the switch moves nothing — they just
@@ -1076,6 +1262,17 @@ export class TerrainCanvas {
   /** An agent whose lighting is pinned on regardless of where the cursor is —
    * set while its hovercard is up. See holdHover. */
   private heldHover: string | null = null;
+  /** The FILE dot under the cursor, whatever it is — the one that names
+   * itself. Deliberately not hoverFile: that one is the wiring highlight and
+   * refuses a dot with nothing wired to it, which is exactly the dot whose
+   * name is worth showing. Mouse-only, like every hover here.
+   *
+   * Prompt that produced it: "i want it such that hovering over a file shows
+   * its name". */
+  private hoverLabel: string | null = null;
+  /** A file or table whose wiring is pinned lit regardless of the cursor —
+   * set by a click (see holdFileHover), the way heldHover pins an agent. */
+  private heldFile: string | null = null;
   /**
    * The nodes that ARE the journal — the card pool and the diary, by the same
    * path prefixes routes/pond.py calls JOURNAL_PATHS. Their centroid is where
@@ -1271,6 +1468,7 @@ export class TerrainCanvas {
     this.theme = theme;
     this.orbStroke = theme.accent; // agent + its dotted tethers track the live --accent
     this.typeColorCache.clear(); // type colours are lifted against the surface, which just changed
+    this.folderShareCache = null; // and so are the folder outlines built from them
     this.requestDraw();
   }
 
@@ -1285,6 +1483,7 @@ export class TerrainCanvas {
   /** Hand over the file dots to hide (activityFilter.ts). Pure lighting: no
    * camera move, no sim wake, one repaint. */
   setHiddenFiles(ids: ReadonlySet<string>): void {
+    if (this.hiddenFiles !== ids) this.folderShareCache = null; // folders describe what's still shown
     this.hiddenFiles = ids;
     this.requestDraw();
   }
@@ -1634,23 +1833,50 @@ export class TerrainCanvas {
     this.hoverFileKin = kin;
   }
 
-  /** Point the thread highlight at a file dot, or clear it. Only files that
-   * actually have threads, code ropes to a table — or tables that actually
-   * have foreign keys — take the hover: lighting up a dot with nothing wired
-   * to it would dim the whole map to say nothing. */
+  /** Is anything actually wired to this dot? Threads, a foreign key, or a code
+   * rope to a table. Lighting up a dot with nothing wired to it would dim the
+   * whole map to say nothing, so neither a hover nor a click may do it. */
+  private isWired = (id: string): boolean =>
+    this.foreignKeyKin.has(id) ||
+    this.codeLinkKin.has(id) ||
+    this.threads.some((th) => th.sourceId === id || th.targetId === id);
+
+  /** Point the wiring highlight at a file dot, or clear it. A click can pin
+   * one lit (holdFileHover), so what's under the cursor and what's pinned are
+   * resolved together — hoverSelection.ts holds that rule. */
   private setHoverFile(id: string | null): void {
-    let next = id;
-    if (
-      next !== null &&
-      !this.foreignKeyKin.has(next) &&
-      !this.codeLinkKin.has(next) &&
-      !this.threads.some((th) => th.sourceId === next || th.targetId === next)
-    ) {
-      next = null;
-    }
+    const next = highlightTarget(id, this.heldFile, this.isWired);
     if (next === this.hoverFile) return;
     this.hoverFile = next;
     this.recomputeHoverKin();
+    this.requestDraw();
+  }
+
+  /**
+   * Pin the wiring highlight to one file or table, or release it with null.
+   *
+   * The map's own answer to "click once to see what this is joined to, click
+   * again to open it": the first click pins the threads, the foreign keys and
+   * the code ropes lit so she can read them without holding the mouse still,
+   * and the page decides what a second click on the same body means.
+   *
+   * A body with nothing wired to it pins nothing — the page still treats the
+   * click as a selection, but the map doesn't dim itself to announce an empty
+   * answer.
+   *
+   * Prompt that produced it: "i want them to highlight the tables and files
+   * they're connected to on one click and a double click opens it up".
+   */
+  holdFileHover(id: string | null): void {
+    this.heldFile = id;
+    this.setHoverFile(null);
+  }
+
+  /** Name the dot under the cursor, or stop naming one. A label change is one
+   * repaint and nothing else — no sim, no camera. */
+  private setHoverLabel(id: string | null): void {
+    if (this.hoverLabel === id) return;
+    this.hoverLabel = id;
     this.requestDraw();
   }
 
@@ -1814,6 +2040,9 @@ export class TerrainCanvas {
       return;
     }
 
+    // New bodies, so the folder roll-up has to be counted again. The
+    // update-in-place path above can't change it: same nodes, same paths.
+    this.folderShareCache = null;
     const prev = new Map(this.simNodes.map((n) => [n.id, n]));
     // Where these nodes were the last time the page was open (layoutMemory.ts)
     // — read only on the FIRST graph of a mount, when there's nothing live to
@@ -1822,10 +2051,26 @@ export class TerrainCanvas {
     const recalled = this.remembers && prev.size === 0 ? (recallLayout()?.nodes ?? null) : null;
     let recalledHits = 0;
     const repoIds = [...new Set(nodes.filter((n) => n.repoId).map((n) => n.repoId))];
+    // Work out the table section's shape before anything is placed, because
+    // the repos have to be told to stand far enough apart to leave room for
+    // it. Worked out here once and handed to placeShelves, rather than twice.
+    const tables = nodes.filter((n) => n.file?.table !== undefined);
+    const shelves = tables.length > 0 ? shelfLayout(tables.map((n) => n.file!.table!)) : null;
+    // How much clear ground the section needs between the two repos: its own
+    // width, the gutter its shelf names hang in, and the keep-out pad each
+    // side. A corridor narrower than this can't hold it, and the repos would
+    // spend the whole simulation being shoved out of a space their own anchors
+    // keep pulling them back into.
+    const corridor = shelves === null ? 0 : shelves.width + SHELF_NAME_GUTTER + SHELF_KEEP_OUT_PAD * 2;
     const anchorFor = (repoId: string): { x: number; y: number } => {
       const i = repoIds.indexOf(repoId);
       if (i === -1) return { x: this.width / 2, y: this.height / 2 }; // orbs: no repo pull
-      const spread = Math.min(this.width, 900) * 0.36;
+      // The resting spread, or wide enough for the section to stand between
+      // them — whichever is bigger. With one repo there's no corridor to make.
+      const spread = Math.max(
+        Math.min(this.width, 900) * 0.36,
+        repoIds.length > 1 ? corridor + SHELF_CORRIDOR_CLEAR : 0,
+      );
       const offset = repoIds.length > 1 ? (i - (repoIds.length - 1) / 2) * spread : 0;
       return { x: this.width / 2 + offset, y: this.height / 2 };
     };
@@ -1885,7 +2130,7 @@ export class TerrainCanvas {
       .filter((e) => byId.has(e.source) && byId.has(e.target))
       .map((e): SimLink => ({ source: byId.get(e.source)!, target: byId.get(e.target)!, kind: e.kind }));
 
-    this.placeShelves(byId, repoIds, anchorFor);
+    this.placeShelves(byId, repoIds, anchorFor, shelves);
 
     // Which tables each table is joined to by a foreign key, either direction
     // — what a hover over a table keeps lit. Rebuilt only here, with the
@@ -1979,26 +2224,40 @@ export class TerrainCanvas {
       // push a dot away from one table at a time, which lets it slip BETWEEN
       // two shelves and sit there; this treats the whole section as one
       // rectangle nothing else may rest inside. A dot found inside is pushed
-      // out through the side facing its own territory (back toward the vault),
-      // harder the deeper in it is, and eased by the sim's cooling `alpha`
+      // out harder the deeper in it is, eased by the sim's cooling `alpha`
       // like every other force so the map still comes to rest. Agents' orbs
       // are left alone: they drift to wherever their files are and belong to
       // no territory.
+      //
+      // WHICH WAY OUT: through the side facing the dot's OWN repo. That one
+      // rule does both jobs. With the section standing between the repos it
+      // opens the corridor from both sides at once — the vault's dots part
+      // leftward, the code's rightward — and neither repo is pushed through
+      // the section into the other's territory. With the section out past the
+      // edge of a lone repo it reduces to what it always did, since every dot
+      // there has the same home and it lies to one side.
+      //
+      // The zone is wider on the LEFT by the shelf names' gutter: they are
+      // right-aligned to end just before each shelf, and a dot resting under
+      // them makes them unreadable.
       .force('shelfKeepOut', (alpha: number) => {
         const shelf = this.shelf;
         if (!shelf || shelf.left === null || shelf.top === null) return;
-        const zoneLeft = shelf.left - SHELF_KEEP_OUT_PAD;
+        const zoneLeft = shelf.left - SHELF_KEEP_OUT_PAD - SHELF_NAME_GUTTER;
         const zoneRight = shelf.left + shelf.layout.width + SHELF_KEEP_OUT_PAD;
         const zoneTop = shelf.top - SHELF_KEEP_OUT_PAD;
         const zoneBottom = shelf.top + shelf.layout.height + SHELF_KEEP_OUT_PAD;
+        const zoneMiddle = (zoneLeft + zoneRight) / 2;
         for (const n of this.simNodes) {
           if (isTable(n) || this.shelfHubIds.has(n.id) || n.node.kind === 'session') continue;
           const x = n.x ?? 0;
           const y = n.y ?? 0;
           if (x < zoneLeft || x > zoneRight || y < zoneTop || y > zoneBottom) continue;
-          // How far it has to travel to be out through the vault-facing side.
-          const depth = shelf.outward > 0 ? x - zoneLeft : zoneRight - x;
-          n.vx = (n.vx ?? 0) - shelf.outward * depth * SHELF_KEEP_OUT_PUSH * alpha;
+          if (anchorFor(n.node.repoId).x <= zoneMiddle) {
+            n.vx = (n.vx ?? 0) - (x - zoneLeft) * SHELF_KEEP_OUT_PUSH * alpha;
+          } else {
+            n.vx = (n.vx ?? 0) + (zoneRight - x) * SHELF_KEEP_OUT_PUSH * alpha;
+          }
         }
       })
       .force('x', forceX<SimNode>((n) => anchorFor(n.node.repoId).x).strength((n) => (n.node.kind === 'session' ? 0 : 0.045)))
@@ -2255,6 +2514,11 @@ export class TerrainCanvas {
     // A file under the cursor lights its own threads. An orb wins if both are
     // under it — the agent hover is the older, louder question.
     this.setHoverFile(hit === null && any?.node.kind === 'file' ? any.id : null);
+    // ...and names itself, wired or not. Every file, not just the wired ones:
+    // "what is this dot" is the question a stranger to the map asks first, and
+    // the answer shouldn't depend on whether anything happens to be joined to
+    // it.
+    this.setHoverLabel(any?.node.kind === 'file' ? any.id : null);
     this.reportHover(hit);
   };
 
@@ -2263,6 +2527,7 @@ export class TerrainCanvas {
     this.canvas.style.cursor = '';
     this.setHoverAgent(null);
     this.setHoverFile(null);
+    this.setHoverLabel(null);
     this.reportHover(null);
   };
 
@@ -2425,25 +2690,41 @@ export class TerrainCanvas {
   }
 
   /**
-   * Stand the tables on their shelves, in a section of their own on the OUTER
-   * side of the repo that holds the database — the side facing away from the
-   * other repo, so no foreign-key line ever crosses the gap between the two.
+   * Stand the tables on their shelves, in a section of their own in the
+   * CORRIDOR BETWEEN the repos — between her vault and the app code.
+   *
+   * That is where the database actually belongs in the story the map tells:
+   * exo.db holds the vault's data and is written entirely by the app's code,
+   * so it is the seam between the two, not an outbuilding past the edge of
+   * one of them. It also shortens every rope the table hover draws: those run
+   * from a table to the CODE files that touch it, and from the vault's far
+   * edge each one had to cross the whole vault and then the gap.
+   *
+   * With only one repo on the map there is no corridor, and the section falls
+   * back to standing past that repo's outer edge (`between: false`).
    *
    * The arrangement itself is tableNodes.ts shelfLayout (families of joined
    * tables, one per shelf, all on a shared baseline); this only works out
-   * which side is outward and remembers the pieces. settleShelves then puts
-   * the section where the dots aren't.
+   * where the section goes and remembers the pieces. settleShelves then
+   * measures the spot and pins the tables to it.
+   *
+   * Prompt that produced it: "i would like for the sql databases to be
+   * positioned centrally between the personal and the code database rather
+   * than being on the right edge".
    */
   private placeShelves(
     byId: ReadonlyMap<string, SimNode>,
     repoIds: readonly string[],
     anchorFor: (repoId: string) => { x: number; y: number },
+    /** The section's arrangement, already worked out by setGraph — which had
+     * to know its width to space the repos far enough apart for it. */
+    layout: ShelfLayout | null,
   ): void {
     const before = this.shelf;
     this.shelf = null;
     this.shelfHubIds = new Set();
     const tables = this.simNodes.filter(isTable);
-    if (tables.length === 0) return;
+    if (tables.length === 0 || layout === null) return;
 
     const repoId = tables[0].node.repoId;
     // Outward = away from the average of the OTHER repos' anchors. With only
@@ -2459,9 +2740,10 @@ export class TerrainCanvas {
       }
     }
     this.shelf = {
-      layout: shelfLayout(tables.map((n) => n.node.file!.table!)),
+      layout,
       repoId,
       outward: anchorFor(repoId).x >= othersX ? 1 : -1,
+      between: others.length > 0,
       tables,
       hubs,
       // Start from where the section already was, so a refetch that changes
@@ -2480,17 +2762,25 @@ export class TerrainCanvas {
   }
 
   /**
-   * Put the shelves just past the outer edge of their repo's dots, and pin
-   * every table to its spot there.
+   * Put the shelves in the corridor between the two repos, and pin every table
+   * to its spot there.
    *
    * Measured, not assumed: the physics only LEANS a repo toward its anchor, so
-   * where the cluster of dots ends up — and how big it is, at 300 files or at
+   * where each cluster of dots ends up — and how big it is, at 300 files or at
    * 3,000 — can't be known ahead of time. So this looks at where the dots
-   * actually are: the edge is the furthest any of the repo's dots reaches in
-   * the outward direction (the physics pulls every dot toward its repo's
-   * anchor, so there are no far-flung strays to distort that). The section
-   * stands SHELF_MARGIN beyond that edge, and the 'shelfKeepOut' force pushes
-   * back any dot that drifts into it afterwards.
+   * actually are. Two measurements, one per side: how far the database's own
+   * repo reaches TOWARD the other, and how near the other comes back. The
+   * section is centred between those two facing edges, which is what "between
+   * them" means on a map whose two halves are different sizes — the midpoint
+   * of the anchors would sit inside the bigger cluster.
+   *
+   * The clusters usually overlap that corridor at first, and nothing here
+   * moves them: the 'shelfKeepOut' force does, pushing each dot out through
+   * the side facing its OWN repo, so the corridor opens from both sides as
+   * the map settles rather than the section shoving its way in.
+   *
+   * With one repo (`between: false`) there is nothing to be between, and the
+   * old rule stands: SHELF_MARGIN past the outer edge of that repo's dots.
    *
    * `ease` is how much of the way to move toward the measured spot: 1 snaps
    * (first placement), a fraction glides (called every few ticks while the map
@@ -2506,18 +2796,42 @@ export class TerrainCanvas {
   private settleShelves(ease: number): void {
     const shelf = this.shelf;
     if (!shelf) return;
-    const reach: number[] = [];
+    // Measure both sides at once, in "toward the other repo" space: `inward`
+    // flips the axis so that bigger always means further along that way,
+    // whichever side of the map the database's repo happens to be on.
+    const inward: 1 | -1 = shelf.outward > 0 ? -1 : 1;
+    let ownInner = -Infinity;    // how far the database's repo comes this way
+    let ownOuter = -Infinity;    // ...and how far it reaches the other way
+    let otherInner = Infinity;   // how near the other repo comes back
     let sumY = 0;
+    let ownCounted = 0;
     for (const n of this.simNodes) {
-      if (n.node.repoId !== shelf.repoId || isTable(n) || this.shelfHubIds.has(n.id)) continue;
-      reach.push((n.x ?? 0) * shelf.outward + n.radius);
-      sumY += n.y ?? 0;
+      if (isTable(n) || this.shelfHubIds.has(n.id) || n.node.kind === 'session') continue;
+      if (!n.node.repoId) continue;
+      const along = (n.x ?? 0) * inward;
+      if (n.node.repoId === shelf.repoId) {
+        ownInner = Math.max(ownInner, along + n.radius);
+        ownOuter = Math.max(ownOuter, -along + n.radius);
+        sumY += n.y ?? 0;
+        ownCounted += 1;
+      } else {
+        otherInner = Math.min(otherInner, along - n.radius);
+      }
     }
-    if (reach.length === 0) return;
-    const edge = Math.max(...reach);
-    const nearSide = edge + SHELF_MARGIN; // measured along the outward direction
-    const targetLeft = shelf.outward > 0 ? nearSide : -nearSide - shelf.layout.width;
-    const targetTop = sumY / reach.length - shelf.layout.height / 2;
+    if (ownCounted === 0) return;
+
+    let targetLeft: number;
+    if (shelf.between && otherInner !== Infinity) {
+      targetLeft = corridorLeft(ownInner, otherInner, inward, shelf.layout.width);
+    } else {
+      // One repo, nothing to be between: stand clear of its outer edge.
+      const nearSide = ownOuter + SHELF_MARGIN;
+      targetLeft = shelf.outward > 0 ? nearSide : -nearSide - shelf.layout.width;
+    }
+    // Vertically centred on the database's own repo either way — the section
+    // belongs to the vault, and centring on the whole map would let it drift
+    // with whichever side happens to have more files.
+    const targetTop = sumY / ownCounted - shelf.layout.height / 2;
     const left = shelf.left === null ? targetLeft : shelf.left + (targetLeft - shelf.left) * ease;
     const top = shelf.top === null ? targetTop : shelf.top + (targetTop - shelf.top) * ease;
     shelf.left = left;
@@ -2699,10 +3013,99 @@ export class TerrainCanvas {
     if (!this.typeColors) return 1;
     let alpha = 1;
     for (const n of [a, b]) {
+      // A folder end takes the folder's own fade, and takes it ALL the way
+      // down — no half-presence floor. The floor exists so a line can still
+      // say "a file is there" after its dot has gone; once the whole branch
+      // is out there's nothing left for the line to say, and a half-lit line
+      // to a folder that isn't painted is a limb hanging in the air.
+      if (n.node.kind === 'dir' || n.node.kind === 'repo') {
+        alpha = Math.min(alpha, this.folderFadeOf(n.id));
+        continue;
+      }
       if (n.node.kind !== 'file' || !n.node.file || n.node.file.days || isTable(n)) continue;
       alpha = Math.min(alpha, staleTypeAlpha(n.t, n.a));
     }
     return alpha;
+  }
+
+  /**
+   * How this folder's outline is split under "Types" — its file types as
+   * coloured shares of the border, commonest first. Undefined when nothing
+   * visible is inside it, which the caller reads as "leave it plain".
+   *
+   * A cache that rebuilds when its answer could have changed: a new graph, a
+   * new surface, or a different hidden set (see folderShareCache). Building
+   * it walks every file's parent chain once, which is cheap — but not cheap
+   * enough to want on every frame of the breath, hence the identity test.
+   */
+  private folderSharesOf(id: string): { color: string; fraction: number }[] | undefined {
+    this.ensureFolderLens();
+    return this.folderShareCache!.get(id);
+  }
+
+  /**
+   * How present this folder is, 0..1 — the aliveness of the liveliest file
+   * beneath it, or 0 when there's nothing live down there at all. Only
+   * "Types" fades a folder, so off it every folder is fully present.
+   *
+   * A folder is exactly as present as the most alive thing inside it. That's
+   * what keeps the structure honest once stale files start disappearing: a
+   * full outline around a subtree of faded dots is a box drawn around
+   * nothing, and worse, it reads as "something is here".
+   *
+   * Prompt that produced it: "i want the folder node to be hidden / the
+   * background color if there are no files highlighted within its tree".
+   */
+  private folderFadeOf(id: string): number {
+    if (!this.typeColors) return 1;
+    this.ensureFolderLens();
+    return this.folderFadeCache.get(id) ?? 0;
+  }
+
+  /** Rebuild the folder lens if anything it's built from has moved. */
+  private ensureFolderLens(): void {
+    if (this.folderShareCache === null || this.folderSharesKey !== this.hiddenFiles) {
+      const built = new Map<string, { color: string; fraction: number }[]>();
+      const nodes = this.simNodes.map((sn) => sn.node);
+      const ranked = childTypeCounts(nodes, this.hiddenFiles);
+      // How alive each folder's liveliest file is. Read off the sim, where
+      // both heats are already normalised for the window the Heat bar is on,
+      // then put through glowAlpha — the same curve a file dot fades out on,
+      // so a folder goes dark at the moment its last live file does.
+      const glowById = new Map(this.simNodes.map((sn) => [sn.id, glowOf(sn.t, sn.a)]));
+      this.folderFadeCache = new Map();
+      for (const [folderId, alive] of liveliestBeneath(
+        nodes,
+        this.hiddenFiles,
+        (node) => glowById.get(node.id) ?? 0,
+      )) {
+        this.folderFadeCache.set(folderId, glowAlpha(alive));
+      }
+      for (const [folderId, types] of ranked) {
+        const total = types.reduce((sum, share) => sum + share.count, 0);
+        if (total === 0) continue;
+        // Keep the types worth seeing and lump the tail into one neutral
+        // slice. A segment thinner than a few pixels reads as a nick in the
+        // outline rather than as a colour, so a folder with one file of each
+        // of nine languages would be a ring of noise — the tail says "and
+        // some other things" in the plain border colour instead.
+        const shares: { color: string; fraction: number }[] = [];
+        let kept = 0;
+        for (const share of types) {
+          const fraction = share.count / total;
+          if (shares.length > 0 && (fraction < MIN_FOLDER_SHARE || shares.length >= MAX_FOLDER_SHARES)) break;
+          shares.push({
+            color: typeDotColor(share.type.color, this.theme.bg, this.theme.text),
+            fraction,
+          });
+          kept += fraction;
+        }
+        if (1 - kept > 0.001) shares.push({ color: this.theme.border, fraction: 1 - kept });
+        built.set(folderId, shares);
+      }
+      this.folderShareCache = built;
+      this.folderSharesKey = this.hiddenFiles;
+    }
   }
 
   private requestDraw(): void {
@@ -3000,6 +3403,12 @@ export class TerrainCanvas {
       // Set by a branch that paints its own body (the dark ash+hue file dot),
       // so the one generic fill further down knows to stand aside.
       let bodyDrawn = false;
+      // Set to a colour by the folder branch below, which makes it the test
+      // for "this node is a hollow folder" everywhere after it.
+      let folderStroke: string | null = null;
+      // And, under Types, how that outline is split between the file types
+      // inside it.
+      let folderShares: { color: string; fraction: number }[] | null = null;
 
       if (n.node.kind === 'session') {
         // Session orb: a stroked ring in the identity accent — never a
@@ -3158,33 +3567,72 @@ export class TerrainCanvas {
           ctx.fillStyle = n.a > 0 ? heatColor(n.a, goldRamp) : heatColor(n.t, ramp);
         }
       } else {
-        // Hubs: structural, mostly surface-toned (bg pushed toward ink),
-        // warmed by rolled-up heat so a hot subtree's spine reads warm too.
-        // --text is hex in every sky phase; --text-muted may be rgba, so mix
-        // from text.
-        ctx.fillStyle = mixHex(mixHex(theme.bg, theme.text, 0.22), heatColor(n.t, ramp), 0.5 * n.t);
+        // Folders and repos: an OUTLINE, and what it's painted with. They're
+        // the only hollow bodies on the map — a folder is a container, not a
+        // mark, and an unfilled one lets the files inside it stay the thing
+        // being looked at. (Everything below is deferred to the stroke, so
+        // nothing sets a fillStyle here.)
+        //
+        // The outline answers whichever question the map is currently lit by,
+        // rather than having a lens of its own:
+        //   Types on  — the commonest file type beneath it (folderTypes.ts),
+        //               so a Python package reads teal and frontend/ blue.
+        //   otherwise — its subtree's own rolled-up heat, leaning gold when
+        //               that subtree RAN, in the same two hues and on the same
+        //               curve as the file dots. Cold, that lands on the plain
+        //               border colour, which is where folders started.
+        // The All / Recent / Old switch is felt through the first of those:
+        // the dominant type is counted over the files still on screen, so on
+        // Old the outline describes the old files that are left.
+        folderShares = this.typeColors ? (this.folderSharesOf(n.id) ?? null) : null;
+        folderStroke = this.typeColors
+          ? (folderShares?.[0].color ?? theme.border)
+          : mixHex(
+              theme.border,
+              mixHex(EMBER_HOT, GOLD_HOT, leanOf(n.t, n.a)),
+              glowAlpha(glowOf(n.t, n.a)),
+            );
       }
-      if (!bodyDrawn) {
-        // Folders and repos are drawn AS folders — the one place on this map
-        // where a node isn't a circle (folderOutline says why, and why the
-        // tab comes and goes with the zoom). Everything else is a disc.
-        if (n.node.kind === 'dir' || n.node.kind === 'repo') {
-          const { height } = folderBox(nr);
-          traceRoundedPolygon(ctx, folderOutline(n.x ?? 0, n.y ?? 0, nr, transform.k), height * 0.2);
+      if (folderStroke !== null) {
+        // A folder is only as present as the liveliest file beneath it. With
+        // nothing live down there this is 0 and the folder simply isn't
+        // painted — no outline around an empty branch. Multiplied into the
+        // spotlight and hover alphas rather than replacing them, so those
+        // still have the last word.
+        const folderFade = this.folderFadeOf(n.id);
+        if (folderFade <= 0.01) continue;
+        ctx.globalAlpha *= folderFade;
+        // Hollow: trace the folder and stroke it, never fill it. Drawn AS a
+        // folder — the one place on this map where a node isn't a circle
+        // (folderOutline says why, and why the tab comes and goes with the
+        // zoom). A repo takes a heavier line than a folder: the two are the
+        // same shape at different ranks, and rank was carried by size alone,
+        // which a hot folder grown by its children's heat could eat up.
+        const { height } = folderBox(nr);
+        const outline = roundedPolygonPoints(
+          folderOutline(n.x ?? 0, n.y ?? 0, nr, transform.k),
+          height * 0.2,
+        );
+        ctx.lineWidth = (n.node.kind === 'repo' ? 2.6 : 1.8) / transform.k;
+        // Big enough on screen to read as a mixture: paint each file type its
+        // share of the border, so the folder says what's IN it and not only
+        // what's commonest. Below that it's the commonest one, solid — the
+        // same level-of-detail step the tab takes, and on the same threshold,
+        // so a folder gains its notch and its languages in one move.
+        if (folderShares !== null && folderShares.length > 1 && height * transform.k >= FOLDER_TAB_MIN_PX) {
+          strokePolylineShares(ctx, outline, folderShares);
         } else {
+          tracePolyline(ctx, outline);
+          ctx.strokeStyle = folderStroke;
+          ctx.stroke();
+        }
+      } else {
+        if (!bodyDrawn) {
           ctx.beginPath();
           ctx.arc(n.x ?? 0, n.y ?? 0, nr, 0, Math.PI * 2);
+          ctx.fill();
         }
-        ctx.fill();
-      }
-      if (n.node.kind === 'file') this.drawWriteCore(n, nr, now);
-      if (n.node.kind !== 'file') {
-        // A repo is drawn with a heavier line than a folder. The two are the
-        // same shape at different ranks, and rank was carried by size alone —
-        // which a hot folder, grown by its children's heat, could eat up.
-        ctx.strokeStyle = theme.border;
-        ctx.lineWidth = (n.node.kind === 'repo' ? 2.2 : 1.5) / transform.k;
-        ctx.stroke();
+        if (n.node.kind === 'file') this.drawWriteCore(n, nr, now);
       }
       // How this file was touched, when anything on screen touched it: the
       // backdrop's focused conversation first, else /terrain's shown-agent
@@ -3341,8 +3789,14 @@ export class TerrainCanvas {
     for (const n of this.simNodes) {
       if (this.hiddenFiles.has(n.id)) continue; // no caption for a dot that isn't drawn
       if (n.node.file?.table) continue; // tables are named in their own pass, below
+      // The dot under the cursor always names itself — the same exception the
+      // hovered ORB gets below, for the same reason: pointing at something is
+      // the gesture that asks "what is this", and it deserves an answer
+      // whether or not a spotlight happens to be up.
+      const pointedAt = n.id === this.hoverLabel;
       if (
         n.node.kind === 'file' &&
+        !pointedAt &&
         !(namedFiles !== null && namedFiles.has(n.id)) &&
         !(ropeNamed !== null && ropeNamed.has(n.id))
       ) {
@@ -3353,6 +3807,9 @@ export class TerrainCanvas {
       // instead: only the directories the focused agent is actually working
       // inside get named, however far out the camera happens to be sitting.
       if (n.node.kind === 'dir' && (captioned ? !this.focusDirIds.has(n.id) : k < LABEL_MIN_K)) continue;
+      // No name for a folder that isn't painted — under Types a branch with
+      // nothing live in it goes entirely, label and all.
+      if ((n.node.kind === 'dir' || n.node.kind === 'repo') && this.folderFadeOf(n.id) <= 0.01) continue;
       // Orbs wear their titles by default — an agent's name is its identity,
       // not something to uncover — but the caller can narrow it. /terrain
       // passes the agents active within the hour, because a twelve-agent pool
@@ -3368,7 +3825,9 @@ export class TerrainCanvas {
         if (sid === undefined || !this.labeledAgents.has(sid)) continue;
       }
       const inPrint = !dimmed || this.footprint!.has(n.id);
-      if (n.node.kind !== 'repo' && dimmed && !inPrint) continue;
+      // ...and it survives a spotlight, too: a dot she is pointing at outside
+      // the spotlit agent's footprint is still a dot she is pointing at.
+      if (n.node.kind !== 'repo' && dimmed && !inPrint && !pointedAt) continue;
       const sx = (n.x ?? 0) * k + transform.x;
       const sy = (n.y ?? 0) * k + transform.y;
       if (sx < -80 || sx > this.width + 80 || sy < -40 || sy > this.height + 40) continue;
@@ -3394,8 +3853,22 @@ export class TerrainCanvas {
         // orb's own title above them, so the agent still reads as the subject
         // and its files as the answer.
         ctx.font = `600 ${LABEL_PX}px ${this.fontFamily}`;
-        ctx.fillStyle = theme.textSecondary;
-        ctx.fillText(n.node.label, sx, sy - n.radius * k - 4);
+        const ty = sy - n.radius * k - 4;
+        // The one she's POINTING at is louder than that: full ink, on a plate
+        // of the map's own background. The plate is what makes it readable —
+        // a name in a dense field lands on top of other dots and their names,
+        // and a hover has to answer immediately or it hasn't answered.
+        if (pointedAt) {
+          const plateWidth = ctx.measureText(n.node.label).width + 10;
+          ctx.globalAlpha = 0.86;
+          ctx.fillStyle = theme.bg;
+          ctx.fillRect(sx - plateWidth / 2, ty - LABEL_PX - 2, plateWidth, LABEL_PX + 7);
+          ctx.globalAlpha = 1;
+          ctx.fillStyle = theme.text;
+        } else {
+          ctx.fillStyle = theme.textSecondary;
+        }
+        ctx.fillText(n.node.label, sx, ty);
       }
     }
 

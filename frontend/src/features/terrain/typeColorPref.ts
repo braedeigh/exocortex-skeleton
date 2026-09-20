@@ -13,7 +13,10 @@ import { makeStickyToggle } from './codeHeatPref';
  * hands it to the canvas (terrainCanvas.ts setTypeColors). Heat isn't gone
  * under it, only its hues: it still sets each dot's size, and how much of the
  * type colour is left, so stale files fade into the sky (staleTypeColor) and
- * the lines into them fade halfway with them (staleTypeAlpha).
+ * the lines into them fade halfway with them (staleTypeAlpha). Folder outlines
+ * follow the toggle too: on, a hollow folder's border is split between the
+ * file types beneath it (folderTypes.ts) instead of showing its own heat, and
+ * a folder with nothing live inside fades out along with its files.
  *
  * Prompts that produced it: "a toggle that overrides the other colors when i
  * toggle it on" → "i want to hide stale files … the dots turn black or

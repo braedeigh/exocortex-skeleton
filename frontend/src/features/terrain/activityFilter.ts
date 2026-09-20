@@ -27,6 +27,11 @@ import { fileLastTouch, type TerrainNode } from './terrainGraph';
  * the recently active toggle ... move both independently and also filter by
  * one or both" / "it lives on both and retains the behavior of each view." 
  *
+ * The folders feel it too: under Types a folder's outline is split between the
+ * file types still SHOWN beneath it (folderTypes.ts), so on Old the structure
+ * describes the old files that are left rather than the folder in general —
+ * and a folder with nothing left showing fades out with them.
+ *
  * It returns the dots to HIDE rather than a smaller map, on purpose. The
  * canvas (terrainCanvas.ts setHiddenFiles) keeps hidden dots in the layout
  * and just doesn't paint them, so flipping Recent ↔ Old moves nothing: the

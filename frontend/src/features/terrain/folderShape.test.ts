@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FOLDER_TAB_MIN_PX, folderBox, folderOutline } from './terrainCanvas';
+import { FOLDER_TAB_MIN_PX, folderBox, folderOutline, roundedPolygonPoints } from './terrainCanvas';
 
 /**
  * folderShape.test.ts — the outline behind the map's folder nodes
@@ -12,6 +12,11 @@ import { FOLDER_TAB_MIN_PX, folderBox, folderOutline } from './terrainCanvas';
  * either side of the level-of-detail switch and zooming can't make a node
  * jump. Everything else here is geometry that would be obvious on screen the
  * moment it broke; that isn't.
+ *
+ * roundedPolygonPoints is tested here too: it's what turns that outline into
+ * the polyline the canvas walks by length to give each file type its share of
+ * a folder's border, so a folder with a bulge or a NaN in it would take the
+ * whole paint loop down rather than just looking wrong.
  */
 
 /** The smallest box containing every point of an outline. */
@@ -72,6 +77,53 @@ describe('folderOutline', () => {
     const bodyTop = Math.min(...points.filter((p) => p[1] !== box.top).map((p) => p[1]));
     expect(bodyTop).toBeGreaterThan(box.top);
     expect(bodyTop).toBeLessThan(box.bottom);
+  });
+
+  it('rounds the corners without ever bulging outside the box', () => {
+    const square = folderOutline(0, 0, RADIUS, FAR);
+    const box = bounds(square);
+    const rounded = roundedPolygonPoints(square, folderBox(RADIUS).height * 0.2);
+    const roundedBox = bounds(rounded);
+    expect(roundedBox.left).toBeGreaterThanOrEqual(box.left - 1e-9);
+    expect(roundedBox.right).toBeLessThanOrEqual(box.right + 1e-9);
+    expect(roundedBox.top).toBeGreaterThanOrEqual(box.top - 1e-9);
+    expect(roundedBox.bottom).toBeLessThanOrEqual(box.bottom + 1e-9);
+  });
+
+  it('samples every corner, so the outline can be walked by length', () => {
+    const tabbed = folderOutline(0, 0, RADIUS, CLOSE);
+    const rounded = roundedPolygonPoints(tabbed, folderBox(RADIUS).height * 0.2);
+    expect(rounded.length).toBeGreaterThan(tabbed.length);
+    for (const [x, y] of rounded) {
+      expect(Number.isFinite(x)).toBe(true);
+      expect(Number.isFinite(y)).toBe(true);
+    }
+  });
+
+  it('rounds the tab\'s inward corner too, not just the outward ones', () => {
+    // The shoulder where the tab steps down is the one CONCAVE corner on the
+    // shape; an arc that only handled convex corners would leave it a spike.
+    const tabbed = folderOutline(0, 0, RADIUS, CLOSE);
+    const radius = folderBox(RADIUS).height * 0.2;
+    const rounded = roundedPolygonPoints(tabbed, radius);
+    // No output point sits exactly on the original shoulder vertex.
+    const shoulder = tabbed[2];
+    for (const [x, y] of rounded) {
+      expect(Math.hypot(x - shoulder[0], y - shoulder[1])).toBeGreaterThan(1e-6);
+    }
+  });
+
+  it('survives a degenerate outline rather than emitting NaN', () => {
+    const doubled: [number, number][] = [
+      [0, 0],
+      [0, 0],
+      [10, 0],
+      [10, 10],
+    ];
+    for (const [x, y] of roundedPolygonPoints(doubled, 3)) {
+      expect(Number.isFinite(x)).toBe(true);
+      expect(Number.isFinite(y)).toBe(true);
+    }
   });
 
   it('is wider than it is tall, the way a folder is', () => {

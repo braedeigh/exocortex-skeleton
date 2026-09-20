@@ -58,6 +58,7 @@ import { collapseToPondTile, localDayISO, parseCardPath, POND_TILE_PATH } from '
 import { filesHiddenByActivity, type ActivitySide } from './activityFilter';
 import { addTableNodes } from './tableNodes';
 import { tableCodeLinks } from './tableMentions';
+import { tapStage } from './hoverSelection';
 import { TerrainTableWindow } from './TerrainTableWindow';
 import { fileTypeCounts, OTHER_FILE_TYPE } from './fileTypes';
 import { setTypeColorsOn, useTypeColorsOn } from './typeColorPref';
@@ -217,7 +218,18 @@ function usePageVisible(): boolean {
  * what the map knows about the file printed under it:
  * when it was last touched, and every agent that touched it — each row opens
  * that conversation in the Observatory, or rings its whole footprint on the
- * map. Tap an agent orb → a sheet, and its footprint rings at once.
+ * map.
+ *
+ * AGENTS AND TABLES TAKE TWO CLICKS, files one. Clicking an agent orb rings
+ * its whole footprint and nothing else; clicking the ringed one again opens
+ * its sheet. Clicking a table pins lit everything it's joined to — its
+ * foreign keys, and the ropes out to the code files that touch it — and
+ * clicking the pinned one again opens its card. A double-click is two clicks
+ * on the same body, so it does both at once; the empty canvas clears both.
+ * The rule itself is hoverSelection.ts. This is why: looking at what an agent
+ * has hold of, or at what a table is wired to, is the commonest thing to want
+ * from those bodies, and it used to cost a card thrown over the map and a
+ * dismissal every single time.
  *
  * THE POND floats over the map's own journal country. The card pool and the
  * diary are real vault files — the largest single cluster on the terrain — so
@@ -465,6 +477,16 @@ export function TerrainPage() {
   const [agentWindow, setAgentWindow] = useState<{ from: number; to: number }>({ from: 0, to: 8 });
   const [selected, setSelected] = useState<TerrainNode | null>(null);
   const [footprintSession, setFootprintSession] = useState<string | null>(null);
+  // The table she has CLICKED, by node id — picked out but not opened. One
+  // click picks a table out and lights everything it's joined to (its foreign
+  // keys, and the code files that touch it); clicking the picked-out one again
+  // opens its card. Agents work the same way one state along —
+  // `footprintSession` is their version of this.
+  //
+  // Prompt that produced it: "clicking an agent highlights that agent and the
+  // files it's touching rather than making a popup … a double click on the
+  // agents to make a popup. same for the sql".
+  const [heldTable, setHeldTable] = useState<string | null>(null);
   // The file search (top bar). Non-empty → the map dims to the matching
   // files, the same spotlight an agent tap uses; the two are exclusive
   // (typing clears the agent, tapping an agent clears the query), so they
@@ -1023,12 +1045,17 @@ export function TerrainPage() {
   // most recently touched tile winning — and with no code tile anywhere it
   // opens straight into its full-screen code page, one tap, exactly
   // as before. Same rule as the observatory's file lists (SessionCard), so
-  // code opens the same way from every surface. An agent orb highlights its
-  // footprint immediately AND opens its sheet; empty canvas clears everything.
-  // (Repo/dir hubs are structure, not destinations — taps pass through.)
+  // code opens the same way from every surface. An AGENT ORB and a TABLE take
+  // two clicks instead: the first picks the body out and lights what it holds
+  // or what it's joined to, the second opens it (hoverSelection.ts tapStage).
+  // Empty canvas clears everything. (Repo/dir hubs are structure, not
+  // destinations — taps pass through.)
   //
   // Prompt: "have the terrain tab open in one browser window on one screen,
-  // click a piece of code or an agent, and it opens on another screen".
+  // click a piece of code or an agent, and it opens on another screen" /
+  // "clicking an agent highlights that agent and the files it's touching
+  // rather than making a popup. i want a double click on the agents to make a
+  // popup. same for the sql".
   useEffect(() => {
     const engine = engineRef.current;
     if (!engine) return;
@@ -1038,10 +1065,22 @@ export function TerrainPage() {
         // owns the pond's interactions (its reach target catches most taps;
         // this catches the hit-slop ring around the square).
         if (node.path === POND_TILE_PATH) return;
-        // A table isn't a code file either: it opens its own card (columns,
-        // shape, what it's joined to) instead of the code window.
+        // A table isn't a code file either. TWO STAGES: the first click picks
+        // it out and pins lit everything it's joined to — its foreign keys,
+        // and the ropes to the code files that touch it — so she can read the
+        // wiring without holding the mouse perfectly still. Clicking the
+        // picked-out one again opens its card (columns, shape, joins, code).
+        // A double-click does both in one gesture, which is the point: it's
+        // two clicks on the same body either way, with no timer to wait out
+        // and nothing that behaves differently under a finger.
         if (node.file?.table) {
-          setSelected(node);
+          if (tapStage(node.id, heldTable) === 'open') {
+            setSelected(node);
+            return;
+          }
+          setSelected(null);
+          setHeldTable(node.id);
+          engine.holdFileHover(node.id);
           return;
         }
         if (node.path) {
@@ -1055,13 +1094,27 @@ export function TerrainPage() {
           setFootprintSession((cur) => (cur === node.session!.id ? null : node.session!.id));
           return;
         }
-        setSelected(node);
+        // The same two stages the tables get. The first click spotlights the
+        // agent and rings every file it has touched — which was already what a
+        // tap did, with a card thrown over the top of it. The card is the
+        // SECOND click now, so looking at an agent's territory doesn't cost
+        // her a dismissal every time.
+        if (tapStage(node.session.id, footprintSession) === 'open') {
+          setSelected(node);
+          return;
+        }
+        setSelected(null);
         setFootprintSession(node.session.id);
         setQuery(''); // the agent takes the spotlight over from the search
         acknowledge(node.session.id); // she turned to it — stop the sonar ping
       } else if (node === null) {
+        // Empty map: put everything back. This is the way OUT of both
+        // two-stage selections — clicking a picked-out body again opens it,
+        // so it can't also be the way to un-pick it.
         setSelected(null);
         setFootprintSession(null);
+        setHeldTable(null);
+        engine.holdFileHover(null);
       }
     };
   });

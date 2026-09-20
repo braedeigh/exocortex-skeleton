@@ -19,8 +19,14 @@
  *           key to the table it points at.
  *
  * THE SHELVES. The tables don't float among the dots; they stand in a section
- * of their own beside the vault, arranged like books on shelves (shelfLayout,
- * below). Each shelf is a FAMILY — tables joined to each other by foreign
+ * of their own in the corridor BETWEEN the vault and the app code, arranged
+ * like books on shelves (shelfLayout, below). Between the two because that is
+ * where the database sits in the story: it holds the vault's data and is
+ * written entirely by the app's code, so it is the seam, not an outbuilding
+ * past the edge of one side. The corridor is measured and held open by
+ * terrainCanvas.ts (settleShelves and the 'shelfKeepOut' force); this file
+ * only says how wide and tall the section is, which is what tells the map how
+ * far apart to stand the two repos. Each shelf is a FAMILY — tables joined to each other by foreign
  * keys, read straight from the schema so it can't go stale — with a parent
  * table first and the tables that point at it after. Everything on a shelf
  * stands on one baseline, which is what makes heights comparable: on a shared
@@ -51,7 +57,10 @@
  * to be sized by how much is in there and learn more about the shapes of the
  * tables through this exercise" / "i want them to cluster differently though.
  * maybe a little off in their own section of the personal vault and then more
- * organized" / "B shelves on the outer side away from the app code".
+ * organized" / "B shelves on the outer side away from the app code" — then,
+ * reversing that last one: "i would like for the sql databases to be
+ * positioned centrally between the personal and the code database rather than
+ * being on the right edge".
  */
 import type { TerrainData, TerrainFile, TerrainTable, TerrainTables } from './api';
 import type { TerrainEdge, TerrainNode } from './terrainGraph';
@@ -97,6 +106,31 @@ export function tableSize(table: TerrainTable): TableSize {
 export function tableCollideRadius(table: TerrainTable): number {
   const { width, height } = tableSize(table);
   return Math.hypot(width, height) / 2;
+}
+
+/**
+ * Where the table section's LEFT edge goes when it stands in the corridor
+ * between two repos: centred between the two clusters' facing edges.
+ *
+ * Both edges arrive already projected along `inward` — the direction from the
+ * database's own repo toward the other one, +1 when the other lies to the
+ * right. Projecting is what lets one `Math.max` and one `Math.min` measure
+ * "how far this cluster comes toward that one" without caring which side of
+ * the map either is on; multiplying by `inward` again turns the answer back
+ * into a world x, since it is ±1.
+ *
+ * Centred between the measured EDGES rather than between the repos' anchors,
+ * because the two halves are not the same size — a vault of thousands of
+ * files and a few hundred of app code — and the midpoint of the anchors would
+ * sit inside the bigger cluster.
+ */
+export function corridorLeft(
+  ownInner: number,
+  otherInner: number,
+  inward: 1 | -1,
+  width: number,
+): number {
+  return ((ownInner + otherInner) / 2) * inward - width / 2;
 }
 
 /** The node id the graph gives a table's synthetic file. */

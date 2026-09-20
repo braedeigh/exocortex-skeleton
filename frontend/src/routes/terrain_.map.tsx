@@ -32,7 +32,10 @@ export const Route = createFileRoute('/terrain_/map')({
   // In the address so a refresh keeps the file open and the pane's × is a
   // real "back". A file without its repo (or the reverse) means nothing, so
   // the pair is kept or dropped together; mentions only ride with a file.
-  validateSearch: (raw: Record<string, unknown>): { journey?: string; embed?: boolean } & CodeFileSearch => {
+  // `?solo=1` is the map as the only pane in its tab — where a popped-out
+  // file's × lands (shell/solo.ts reads it off the URL, the route never
+  // does). Kept in the schema for the same reason `embed` is.
+  validateSearch: (raw: Record<string, unknown>): { journey?: string; embed?: boolean; solo?: boolean } & CodeFileSearch => {
     const hasFile = typeof raw.repo === 'string' && raw.repo !== '' && typeof raw.file === 'string' && raw.file !== '';
     // The router parses a bare `mentions=4` as the number 4, so accept both.
     const mentions = typeof raw.mentions === 'number' ? String(raw.mentions) : raw.mentions;
@@ -40,6 +43,7 @@ export const Route = createFileRoute('/terrain_/map')({
     return {
       ...(typeof raw.journey === 'string' && raw.journey ? { journey: raw.journey } : {}),
       ...(raw.embed === '1' || raw.embed === 1 || raw.embed === true ? { embed: true } : {}),
+      ...(raw.solo === '1' || raw.solo === 1 || raw.solo === true ? { solo: true } : {}),
       ...(hasFile ? { repo: raw.repo as string, file: raw.file as string } : {}),
       ...(hasMentions ? { mentions: mentions as string } : {}),
       ...(hasMentions && typeof raw.of === 'string' ? { of: raw.of } : {}),

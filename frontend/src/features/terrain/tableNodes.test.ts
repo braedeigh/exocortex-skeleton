@@ -8,6 +8,7 @@ import {
   describeTableShape,
   LONERS_LABEL,
   SHELF_MAX_WIDTH,
+  corridorLeft,
   foreignKeyEdges,
   formatBytes,
   shelfLayout,
@@ -263,5 +264,31 @@ describe('shelfLayout', () => {
     expect(baselines.size).toBeGreaterThan(1);
     expect(layout.width).toBeLessThanOrEqual(SHELF_MAX_WIDTH);
     expect(layout.shelfLabels).toHaveLength(1);
+  });
+});
+
+/**
+ * Where the section stands when it's between the two repos. The sign work is
+ * the whole risk here: the same two measurements have to place the section in
+ * the gap whichever side of the map the database's repo is on.
+ */
+describe('corridorLeft', () => {
+  it('centres the section between the facing edges, others to the right', () => {
+    // Own dots reach x = 100; the other repo starts at x = 500. Both are
+    // already projected along inward = +1, which leaves them as they are.
+    expect(corridorLeft(100, 500, 1, 200)).toBe(200); // centre 300, half-width 100
+  });
+
+  it('centres it the same way with the others to the LEFT', () => {
+    // A mirror of the case above: own dots reach x = -100, the other repo
+    // starts at x = -500, so projected along inward = -1 they read 100 and 500
+    // again — and the section lands at the mirrored spot.
+    expect(corridorLeft(100, 500, -1, 200)).toBe(-400); // centre -300
+  });
+
+  it('sits in an overlap rather than refusing it', () => {
+    // The clusters start on top of each other, so the "gap" is inverted. The
+    // section still gets a spot — the keep-out force is what parts them.
+    expect(corridorLeft(600, 200, 1, 200)).toBe(300); // centre 400
   });
 });

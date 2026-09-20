@@ -66,3 +66,13 @@
   font-size: var(--font-size-base);
   color: var(--text-muted);
 }
+
+/* The × a solo tab wears (FileCodePage.tsx). The header lines its text up on
+   the baseline, which would hang a 40px button below the title — so the
+   button centres itself instead, and sits at the far right like the ×
+   on the map's file pane. */
+.headerClose {
+  flex: none;
+  align-self: center;
+  margin-left: auto;
+}
