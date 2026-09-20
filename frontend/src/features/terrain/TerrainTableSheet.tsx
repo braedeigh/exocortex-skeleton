@@ -31,7 +31,10 @@ import styles from './TerrainTableSheet.module.css';
  *   CODE THAT TOUCHES IT
  *               the files that create it, write to it, and read it — found by
  *               the server searching the code, so it can't go stale. Each is
- *               a button that opens the file in the map's code window.
+ *               a button that opens the file in the map's code window, landing
+ *               on the first place it names this table and carrying the rest
+ *               so she can step between them (tableMentions.ts →
+ *               FileCodeBody's mention strip).
  *
  * This file is only the words and layout; all of it is drawn from the table
  * description the map already holds (GET /api/observatory/terrain/tables), so
@@ -44,7 +47,10 @@ import styles from './TerrainTableSheet.module.css';
  * Prompt that produced it: "i want them to be sized by how much is in there
  * and learn more about the shapes of the tables through this exercise" / "for
  * each one i want a description of the information it contains and the files
- * that created it and write to it or that otherwise interact with it".
+ * that created it and write to it or that otherwise interact with it" / "when
+ * i click those files in the popup for each data table, it highlights where
+ * the table was mentioned in the code file when i open it up and i can hop
+ * between them if there are multiple".
  */
 
 /** What each `kind` of table means, in a sentence — the difference that

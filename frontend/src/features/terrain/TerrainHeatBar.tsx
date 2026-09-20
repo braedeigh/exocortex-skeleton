@@ -88,7 +88,11 @@ import styles from './TerrainHeatBar.module.css';
  *    staleTypeColor) — a fresh file wears its colour whole, a stale one sinks
  *    into the sky and is gone by the thumb, and the lines into it recede with
  *    it as far as half (staleTypeAlpha), so the limb goes quiet together but
- *    the tree's shape survives. So under Types the thumb is a staleness dial:
+ *    the tree's shape survives. Folders take it too: a hollow folder's
+ *    outline is split between the file types beneath it, each taking the
+ *    share its count earns (folderTypes.ts), and the folder fades out with
+ *    its contents — a branch with nothing live left in it goes entirely,
+ *    label and lines included. So under Types the thumb is a staleness dial:
  *    drag it right and older files come back. A gap sets it
  *    apart from the presets so it doesn't read as a fifth window. The value
  *    itself lives in typeColorPref.ts and stays on across reloads.

@@ -1,3 +1,6 @@
+import { useNavigate } from '@tanstack/react-router';
+import { IconButton } from '../../ui';
+import { isSolo } from '../../shell/solo';
 import { FileCodeBody } from './FileCodeBody';
 import { mentionsFromSearch } from './codeMentions';
 import styles from './FileCodePage.module.css';
@@ -27,6 +30,11 @@ import styles from './FileCodePage.module.css';
  * table on, sent by that table's card on the Terrain map. The body marks them
  * all, lands on the first, and puts arrows above the code to step between them
  * (codeMentions.ts spells the params; FileCodeBody does the stepping).
+ *
+ * In a SOLO tab (a file popped out of the Terrain map — shell/solo.ts) the
+ * header also wears an ×. A popped-out tab starts with no history, so there
+ * is nowhere to go "back" to; the × goes to the Terrain map instead, still
+ * solo, so the tab stays one pane.
  */
 function parseLineRange(lines?: string): { start: number; end: number } | undefined {
   if (!lines) return undefined;
@@ -64,6 +72,8 @@ export function FileCodePage({
   }
 
   const name = path.split('/').filter(Boolean).slice(-1)[0] ?? path;
+  const navigate = useNavigate();
+  const solo = isSolo();
 
   return (
     <div className={styles.page}>
@@ -78,6 +88,27 @@ export function FileCodePage({
         <span className={styles.headerPath} title={path}>
           {path}
         </span>
+        {/* Leave a popped-out file for the Terrain map. Only a solo tab gets
+            this ×: anywhere else the page sits in a tile or behind the tab
+            strip, which already have their own ways out. The tab was opened
+            fresh, so it has no "back" — the × goes to the map, the place the
+            file was popped out of. `solo` is carried along so the map gets
+            the whole tab too, instead of the full workspace appearing around
+            it; a file tapped there opens over it, and ITS × comes back.
+            A push, so the browser's back button returns to this file.
+            Her ask: "when I open the new window, and there is no x button,
+            it takes me to a terrain view." */}
+        {solo ? (
+          <IconButton
+            className={styles.headerClose}
+            aria-label="Close — go to the Terrain map"
+            title="Go to the Terrain map"
+            data-track="code-solo-to-terrain"
+            onClick={() => void navigate({ to: '/terrain/map', search: { solo: true } })}
+          >
+            &times;
+          </IconButton>
+        ) : null}
       </div>
       {/* keyed on file + line range so switching files (or clicking a new
           lines= link to the SAME file) remounts clean — otherwise the

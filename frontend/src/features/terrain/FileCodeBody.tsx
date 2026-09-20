@@ -25,9 +25,17 @@ import styles from './FileCodeBody.module.css';
  * its toggle is on: a red mark by how recently each line was edited, and a
  * gold mark by how recently the function around it ran.
  *
+ * THE MENTION STRIP sits between those and the code, and only when the file
+ * was opened asking about something: a SQL table's card on the Terrain map
+ * hands over every line this file names that table on (`mentions`). Then all
+ * of them are marked down the gutter, one is lit and scrolled to the middle
+ * of the pane, and a sticky strip says how many there are with an arrow each
+ * way to walk them.
+ *
  * Touches: api.ts (the three fetches), syntax.ts (the colour tokens),
  * codeHeatPref.ts (the two toggles' settings), lineEditHeat.ts (an age
- * turned into heat), terrainCanvas.ts and terrainGraph.ts (the map's ramp and
+ * turned into heat), codeMentions.ts (the mention shape and the step
+ * arithmetic), terrainCanvas.ts and terrainGraph.ts (the map's ramp and
  * key labels), FileCodeBody.module.css (the look).
  */
 export interface LineHighlight {
@@ -336,9 +344,17 @@ export function FileCodeBody({
           having the arrow under her thumb when she lands. */}
       {mentionLines.length > 0 && lines ? (
         <div className={styles.mentions}>
+          {/* Say what was looked for when it's known. A link that lost the
+              name still knows the lines, and "7 mentions" is true where "7
+              mentions of " would be a sentence with a hole in it. */}
           <span className={styles.mentionCount}>
-            {mentionLines.length} {mentionLines.length === 1 ? 'mention' : 'mentions'} of{' '}
-            <span className={styles.mentionLabel}>{mentions?.label}</span>
+            {mentionLines.length} {mentionLines.length === 1 ? 'mention' : 'mentions'}
+            {mentions?.label ? (
+              <>
+                {' of '}
+                <span className={styles.mentionLabel}>{mentions.label}</span>
+              </>
+            ) : null}
           </span>
           {mentionLines.length > 1 ? (
             <div className={styles.mentionStep}>
