@@ -43,6 +43,8 @@
  * numbers come from GET /api/observatory/terrain/tables
  * (routes/terrain_tables.py); the rectangle is painted by terrainCanvas.ts;
  * the tap-to-read card is TerrainTableSheet.tsx; TerrainPage.tsx wires them.
+ * The OTHER lines a table wears — out to the code files that touch it, under
+ * a hover — are tableMentions.ts, which pairs them up by node id.
  *
  * Prompt that produced it: "is there a way to visualize sql tables in my
  * terrain view? curious to put my tables on there somewhere" / "i want them

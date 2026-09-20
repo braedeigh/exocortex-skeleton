@@ -93,10 +93,19 @@
  * one keeps the tables it's joined to lit; tapping one reports it through
  * `onTap` like any file, and the page shows its columns.
  *
+ * Hovering a table also draws a rope out to every CODE FILE that touches it,
+ * named where it lands (`setTableCodeLinks`, and the rope pass just before
+ * the edges). Only under a hover, and only the hovered body's own ropes —
+ * every pair at once would be a mat across the whole map. Symmetric: hovering
+ * one of those files draws the same ropes back to the tables it touches.
+ *
  * Prompt that produced it: "i want them to be sized by how much is in there
  * and learn more about the shapes of the tables through this exercise" / "a
  * little off in their own section of the personal vault and then more
- * organized" / "B shelves on the outer side away from the app code".
+ * organized" / "B shelves on the outer side away from the app code" / "i'm
+ * wanting to connect my sql databases to files … when i hover over it to have
+ * lines pop up connecting them to the files that created them and interact
+ * with them".
  */
 import {
   forceCollide,
@@ -3209,10 +3218,23 @@ export class TerrainCanvas {
         : k >= LABEL_MIN_K
           ? this.footprintLabelSet
           : new Set(this.footprintLabels.slice(0, FOOTPRINT_LABEL_CAP));
+    // Name the files at the far end of a hovered table's code ropes, whatever
+    // the spotlight rule above says. A rope to an unnamed dot only answers
+    // half the question — she can see that something touches the table, but
+    // not what — and hovering it IS the gesture that asks, the same way a
+    // spotlit agent's footprint earns its captions.
+    const ropeNamed =
+      this.hoverFile !== null ? (this.codeLinkKin.get(this.hoverFile) ?? null) : null;
     for (const n of this.simNodes) {
       if (this.hiddenFiles.has(n.id)) continue; // no caption for a dot that isn't drawn
       if (n.node.file?.table) continue; // tables are named in their own pass, below
-      if (n.node.kind === 'file' && !(namedFiles !== null && namedFiles.has(n.id))) continue;
+      if (
+        n.node.kind === 'file' &&
+        !(namedFiles !== null && namedFiles.has(n.id)) &&
+        !(ropeNamed !== null && ropeNamed.has(n.id))
+      ) {
+        continue;
+      }
       // Directories caption themselves at readable zoom on the map proper. In
       // the step-back view zoom is not hers to set, so the bound is relevance
       // instead: only the directories the focused agent is actually working
