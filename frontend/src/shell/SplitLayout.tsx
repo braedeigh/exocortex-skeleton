@@ -103,7 +103,7 @@ export function SplitLayout({ chrome, children }: { chrome: ReactNode; children:
 
   if (isSolo()) {
     // Give a solo window the page and nothing else. A file popped out of the
-    // Terrain map (shell/solo.ts) is its own browser window whose whole point
+    // Terrain map (shell/solo.ts) is its own browser tab whose whole point
     // is one pane — so no workspace, no tiles restored from the last layout,
     // and no tab strip. Checked before everything else so it holds at any
     // width: dragging the window narrow must not bring the mobile tabs back.

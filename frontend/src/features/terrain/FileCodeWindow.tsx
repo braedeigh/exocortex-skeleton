@@ -9,7 +9,7 @@ import styles from './FileCodeWindow.module.css';
  * FileCodeWindow — tap a file on the map and read it: an opaque pane INSIDE
  * the terrain page, with the file's name and path across the top and one ×
  * (or Esc) that puts the map back exactly as it was. Beside the × sits a ↗
- * that pops the same file out into its own browser window, where it is the
+ * that pops the same file out into its own browser tab, where it is the
  * only pane (the /code page in solo mode — shell/solo.ts).
  *
  * This file is the frame. The contents are FileCodeBody, shared with the
@@ -87,23 +87,25 @@ export function FileCodeWindow({
               tail. */}
           <div className={styles.path}>&lrm;{path}</div>
         </div>
-        {/* Pop the file out into its own browser window. It opens the /code
-            page in solo mode (shell/solo.ts), where the file is the only
-            pane — no workspace, no tabs — sized like a reading window rather
-            than a full browser. The pane here stays open; × still closes it.
-            `_blank` (not a named window) so each press gives a NEW window and
-            two files can sit side by side. Called straight from the click,
-            because an installed PWA blocks window.open from anywhere else.
-            Hidden from a public visitor: /code is the owner's and would only
-            bounce them home.
+        {/* Pop the file out into its own browser tab. It opens the /code page
+            in solo mode (shell/solo.ts), where the file is the only pane — no
+            workspace, no app tabs. A normal browser tab, not a sized popup:
+            no window features are passed, which is what makes the browser
+            choose a tab, and she can drag it out into a window herself. The
+            pane here stays open; × still closes it. `_blank` (not a named
+            target) so each press gives a NEW tab and two files can be open at
+            once. Called straight from the click, because an installed PWA
+            blocks window.open from anywhere else. Hidden from a public
+            visitor: /code is the owner's and would only bounce them home.
             Her ask: "open a code window in a new browser window by clicking
-            a button, where it becomes the only pane… next to the x button." */}
+            a button, where it becomes the only pane… next to the x button",
+            then: "I think I want it to be a normal browser tab." */}
         {visitor ? null : (
           <IconButton
-            aria-label="Open in a new window"
-            title="Open in a new window"
+            aria-label="Open in a new tab"
+            title="Open in a new tab"
             data-track="terrain-code-popout"
-            onClick={() => window.open(soloCodeHref(repo, path), '_blank', 'popup,width=960,height=1000')}
+            onClick={() => window.open(soloCodeHref(repo, path), '_blank')}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M14 4h6v6" />

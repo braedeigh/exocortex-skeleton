@@ -2,7 +2,7 @@
  * solo.ts — is this window a SOLO window: one page, and nothing else?
  *
  * `/code?repo=…&path=…&solo=1` is a file popped out of the Terrain map into
- * its own browser window (the ↗ button beside the × in
+ * its own browser tab (the ↗ button beside the × in
  * features/terrain/FileCodeWindow.tsx). A normal window on a desktop opens
  * the whole tiling workspace — the Observatory, the tab bars, every tile she
  * had open — and a popped-out file wants none of that: the file is the only
