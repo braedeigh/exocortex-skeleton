@@ -578,6 +578,108 @@ export function heatColor(t: number, ramp: readonly string[]): string {
   return mixHex(ramp[i], ramp[i + 1], u - i);
 }
 
+/**
+ * A folder node's outline — the corner points, before any rounding.
+ *
+ * Folders and repos are drawn as FOLDERS rather than as circles, because the
+ * map's shapes already mean something: circles are things (files, agents),
+ * rectangles are places you put things (the pond, the table shelves). A
+ * folder is a place. Before this, a folder was a circle that differed from a
+ * file only in tone, so the structure and its contents read as one soup.
+ *
+ * The bounding box is the SAME at every zoom. Far out, that box is all there
+ * is — a plain rounded rectangle. Once the body is tall enough on screen to
+ * show it, the tab is cut DOWN into the top edge rather than added on top, so
+ * the silhouette never grows or jumps as she zooms: the notch simply appears
+ * inside the shape she was already looking at. (Same level-of-detail instinct
+ * as the tables, which drop their column bands when they get small.) A notch
+ * a pixel deep is noise on an outline, not a folder, which is what the
+ * threshold is for.
+ *
+ * Pure — the caller rounds the corners and paints it (traceRoundedPolygon).
+ *
+ * Prompt that produced it: "i'm wondering if the folder nodes should be a
+ * different shape and or color … maybe a literal folder, and when i'm zoomed
+ * out it just shows a rounded square or rectangle in the shape the folder is".
+ */
+export const FOLDER_TAB_MIN_PX = 13;
+/** The box a folder of radius r fills — a little wider than tall, the way a
+ * folder is, and about the footprint the circle it replaced had. */
+export function folderBox(r: number): { width: number; height: number } {
+  return { width: r * 2.1, height: r * 1.55 };
+}
+export function folderOutline(
+  cx: number,
+  cy: number,
+  r: number,
+  screenScale: number,
+): [number, number][] {
+  const { width, height } = folderBox(r);
+  const left = cx - width / 2;
+  const right = cx + width / 2;
+  const top = cy - height / 2;
+  const bottom = cy + height / 2;
+  // Too small on screen for a notch to read: the box, and nothing else.
+  if (height * screenScale < FOLDER_TAB_MIN_PX) {
+    return [
+      [left, top],
+      [right, top],
+      [right, bottom],
+      [left, bottom],
+    ];
+  }
+  // The tab keeps the left of the top edge; the body's own top steps down
+  // behind it, joined by a short slanted shoulder so the step reads as a
+  // folder rather than as a bite taken out of a rectangle.
+  const tabHeight = height * 0.26;
+  const tabRight = left + width * 0.44;
+  const bodyTop = top + tabHeight;
+  return [
+    [left, top],
+    [tabRight, top],
+    [tabRight + tabHeight * 0.8, bodyTop],
+    [right, bodyTop],
+    [right, bottom],
+    [left, bottom],
+  ];
+}
+
+/**
+ * Trace a closed outline through `points` with every corner rounded. Leaves
+ * the path current so the caller can fill it, stroke it, or both.
+ *
+ * Starts halfway along the LAST edge, which is the one point on the outline
+ * guaranteed to sit outside every corner's arc — begin at a corner instead
+ * and the first arc has no straight run to start from, which canvas draws as
+ * a stray chord across the shape.
+ */
+function traceRoundedPolygon(
+  ctx: CanvasRenderingContext2D,
+  points: readonly [number, number][],
+  radius: number,
+): void {
+  const count = points.length;
+  ctx.beginPath();
+  ctx.moveTo(
+    (points[count - 1][0] + points[0][0]) / 2,
+    (points[count - 1][1] + points[0][1]) / 2,
+  );
+  for (let i = 0; i < count; i += 1) {
+    const [x, y] = points[i];
+    const [nextX, nextY] = points[(i + 1) % count];
+    const [prevX, prevY] = points[(i + count - 1) % count];
+    // Never round a corner by more than half of either edge it joins, or two
+    // arcs on one short edge overrun each other and the outline knots.
+    const fit = Math.min(
+      radius,
+      Math.hypot(x - prevX, y - prevY) / 2,
+      Math.hypot(nextX - x, nextY - y) / 2,
+    );
+    ctx.arcTo(x, y, nextX, nextY, fit);
+  }
+  ctx.closePath();
+}
+
 function nodeRadius(node: TerrainNode, t: number): number {
   if (node.kind === 'repo') return 11;
   if (node.kind === 'session') return 9; // orbs: fixed — identity, not magnitude
@@ -3063,14 +3165,25 @@ export class TerrainCanvas {
         ctx.fillStyle = mixHex(mixHex(theme.bg, theme.text, 0.22), heatColor(n.t, ramp), 0.5 * n.t);
       }
       if (!bodyDrawn) {
-        ctx.beginPath();
-        ctx.arc(n.x ?? 0, n.y ?? 0, nr, 0, Math.PI * 2);
+        // Folders and repos are drawn AS folders — the one place on this map
+        // where a node isn't a circle (folderOutline says why, and why the
+        // tab comes and goes with the zoom). Everything else is a disc.
+        if (n.node.kind === 'dir' || n.node.kind === 'repo') {
+          const { height } = folderBox(nr);
+          traceRoundedPolygon(ctx, folderOutline(n.x ?? 0, n.y ?? 0, nr, transform.k), height * 0.2);
+        } else {
+          ctx.beginPath();
+          ctx.arc(n.x ?? 0, n.y ?? 0, nr, 0, Math.PI * 2);
+        }
         ctx.fill();
       }
       if (n.node.kind === 'file') this.drawWriteCore(n, nr, now);
       if (n.node.kind !== 'file') {
+        // A repo is drawn with a heavier line than a folder. The two are the
+        // same shape at different ranks, and rank was carried by size alone —
+        // which a hot folder, grown by its children's heat, could eat up.
         ctx.strokeStyle = theme.border;
-        ctx.lineWidth = 1.5 / transform.k;
+        ctx.lineWidth = (n.node.kind === 'repo' ? 2.2 : 1.5) / transform.k;
         ctx.stroke();
       }
       // How this file was touched, when anything on screen touched it: the
