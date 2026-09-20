@@ -11,6 +11,10 @@ import { mentionsToSearch, type CodeMentions } from '../features/terrain/codeMen
  * pane. SplitLayout.tsx reads this and, when it's on, hands the page the
  * whole window with no workspace and no tab strip around it.
  *
+ * The Terrain map can be solo too (`/terrain/map?solo=1`): it is where the ×
+ * on a popped-out file goes (features/terrain/FileCodePage.tsx), so the tab
+ * stays one pane instead of the workspace appearing around the map.
+ *
  * Read off the real URL rather than the router's search object because the
  * shell decides before any route has parsed anything — the same reason, and
  * the same shape, as shell/embed.ts. routes/code.tsx keeps `solo` in its
