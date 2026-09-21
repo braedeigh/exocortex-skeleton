@@ -13,10 +13,10 @@
  *                      two clicks on the same body, so it does both in one
  *                      gesture — no timer to wait out, and nothing that
  *                      behaves differently under a finger than under a mouse.
- *   HOVER VS HOLD      a hover only counts INSIDE what's picked out: a pin is
- *                      the subject until she releases it, a spotlight lets a
- *                      hover narrow onto one of its own members, and a hover
- *                      outside either one is ignored.
+ *   HOVER VS HOLD      a hover only counts INSIDE what's picked out: on one
+ *                      of the selection's own members it narrows onto that
+ *                      member, anywhere outside it is ignored, and letting go
+ *                      falls back to the pin if there is one.
  *   HOME CHAIN         the folders a body is stored inside, which the hover
  *                      keeps lit while the rest of the map steps back.
  *
@@ -47,40 +47,39 @@ export function tapStage(id: string, heldId: string | null): TapStage {
  * Which body the map's lighting should point at — one sentence: A HOVER ONLY
  * COUNTS INSIDE WHAT'S PICKED OUT.
  *
- *   PINNED (`held` — a clicked SQL table) is the subject until she releases
- *   it. No hover moves it: not one of the files at the end of its own ropes
- *   (that would hand the subject to a name the pin itself put there and take
- *   the other names away, the map answering a question she didn't ask at the
- *   exact moment she was reading the answer to the one she did), and not some
- *   dot across the map she was only sweeping past.
+ *   PICKED OUT (`inSelection`) is a spotlit agent's footprint, a search's
+ *   hits, or a pinned table's answer — the set that selection named. A hover
+ *   on one of ITS OWN members narrows onto that member: the map re-answers
+ *   about that dot, lighting the folders it's kept in and whatever else it's
+ *   wired to, while the rest of the selection steps back rather than going
+ *   out. A hover anywhere outside is ignored, and the lighting stays where
+ *   the selection left it. Pass null when nothing is picked out.
  *
- *   SPOTLIT (`inSelection` — an agent's footprint, or a search's hits) is
- *   looser, because it's a TERRITORY rather than a small named set: a hover
- *   on one of its own members narrows onto that member — that file's folders
- *   light, the rest of the footprint steps back — while a hover outside it is
- *   ignored entirely. Pass null when nothing is spotlit. (The canvas also
- *   stops outside dots at the door, since they take no gesture at all while a
- *   selection is up — `isTouchable`. The rule is stated here too, where it
- *   can be read and tested without a browser.)
+ *   `held` — a pinned table — is where the lighting falls back to when the
+ *   cursor is on nothing, so releasing a hover inside the pin's answer
+ *   returns the map to the pin rather than to darkness. It's also why the
+ *   pinned body keeps its own colour throughout (`isSubject` in the canvas):
+ *   narrowing inside a selection asks a second question without cancelling
+ *   the first.
  *
  *   NOTHING PICKED OUT and the hover is the whole subject, which is what
  *   makes pointing at a dot on a fresh map answer anything at all.
  *
  * Prompts that produced it: "i want things to function with a hybrid of how
- * things work now between the agents and the sql" / "when i have an agent or
- * an sql table selected, i want it to retain the coloration for the agent or
- * sql table that it is connected to" / "[hovering one of the spotlit agent's
- * own files should] map onto that file's folders and the agent's other files
- * step back".
+ * things work now between the agents and the sql" / "[hovering one of the
+ * spotlit agent's own files should] map onto that file's folders and the
+ * agent's other files step back" / "if i hover over each one, and it's
+ * connected to more things than just the sql that i touch, it will also show
+ * those threads".
  */
 export function wiringTarget(
   hovered: string | null,
   held: string | null,
   inSelection: ((id: string) => boolean) | null,
 ): string | null {
-  if (held !== null) return held;
-  if (hovered === null) return null;
-  return inSelection === null || inSelection(hovered) ? hovered : null;
+  if (hovered === null) return held;
+  if (inSelection === null || inSelection(hovered)) return hovered;
+  return held;
 }
 
 /**

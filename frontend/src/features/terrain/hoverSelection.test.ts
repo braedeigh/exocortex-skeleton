@@ -4,9 +4,10 @@ import { homeChain, tapStage, wiringTarget } from './hoverSelection';
 /**
  * hoverSelection.test.ts — that the first click never opens anything and the
  * second click on the same body does; that a hover only counts inside what's
- * picked out (a pin holds against any cursor, a spotlight narrows onto its
- * own members and ignores everything else); and that a file's home chain
- * climbs to the repo without a malformed tree hanging the walk.
+ * picked out (narrowing onto one of the selection's own members, ignored
+ * anywhere outside it, falling back to the pin when the cursor is on
+ * nothing); and that a file's home chain climbs to the repo without a
+ * malformed tree hanging the walk.
  */
 
 describe('tapStage', () => {
@@ -36,28 +37,24 @@ describe('wiringTarget', () => {
     expect(wiringTarget(null, null, null)).toBeNull();
   });
 
-  it('narrows onto one of the spotlit files', () => {
+  it('narrows onto one of the selection\'s own members', () => {
     expect(wiringTarget('server.py', null, inFootprint)).toBe('server.py');
   });
 
-  it('ignores a hover outside the spotlight, leaving it lit', () => {
+  it('ignores a hover outside the selection, leaving it lit', () => {
     expect(wiringTarget('elsewhere.py', null, inFootprint)).toBeNull();
   });
 
-  it('keeps the pin while the cursor is on one of its own rope-ends', () => {
-    expect(wiringTarget('store.py', 'table', null)).toBe('table');
+  it('narrows onto a file at the end of a pinned table\'s rope', () => {
+    expect(wiringTarget('store.py', 'table', inFootprint)).toBe('store.py');
   });
 
-  it('keeps the pin while the cursor is somewhere else entirely', () => {
-    expect(wiringTarget('elsewhere.py', 'table', null)).toBe('table');
+  it('keeps the pin while the cursor is somewhere outside its answer', () => {
+    expect(wiringTarget('elsewhere.py', 'table', inFootprint)).toBe('table');
   });
 
-  it('keeps the pin with the cursor off the map', () => {
-    expect(wiringTarget(null, 'table', null)).toBe('table');
-  });
-
-  it('lets the pin outrank a spotlight that is also up', () => {
-    expect(wiringTarget('server.py', 'table', inFootprint)).toBe('table');
+  it('falls back to the pin when the cursor is on nothing', () => {
+    expect(wiringTarget(null, 'table', inFootprint)).toBe('table');
   });
 });
 

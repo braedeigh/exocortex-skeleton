@@ -112,13 +112,15 @@
  * `footprint`), or a pinned table (`heldFile`) — everything outside it is
  * SCENERY: it takes no gesture at all (`isTouchable`, asked by `nodeAt`), so
  * an unselected dot can't be hovered, dragged, pinned or opened, and a click
- * on one reads as a click on empty canvas and gives the map back. Inside the
- * selection the hover is admitted and narrows (`wiringTarget`,
- * hoverSelection.ts): pointing at one of a spotlit agent's own files lights
- * that file's folders — up out of the footprint, which is where they sit —
- * and steps the agent's other files back. A pin is stricter still and holds against
- * any cursor. The picked-out body itself never dims (`isSubject`), so
- * narrowing inside a selection can't cancel it. The faded dots also stop
+ * on one reads as a click on empty canvas and gives the map back. A selection
+ * lights the folders its members are kept in as well as the members
+ * themselves (`footprintLit`), so a spotlit agent shows WHERE it has been
+ * working. Inside the selection a hover is admitted and NARROWS
+ * (`wiringTarget`, hoverSelection.ts): pointing at one of the lit files
+ * re-answers about that file alone — its own folders, its threads, the tables
+ * it touches, the agents holding it — while the rest of the selection steps
+ * back, and letting go returns the map to the selection. The picked-out body
+ * itself never dims (`isSubject`), so narrowing can't cancel it. The faded dots also stop
  * naming themselves while a selection is up (`selectionUp` in the label
  * pass), and hovering one of the names it asked for picks that one out and
  * steps the others back. One fade, `UNSELECTED_FADE`, for everything outside
@@ -1167,10 +1169,18 @@ export class TerrainCanvas {
    * whole node list. Rebuilt with the graph. */
   private parentById = new Map<string, string | null>();
   /** Everything the LIT body is wired to, itself included — recomputed only
-   * when the lighting changes, not per frame. One set, not two: while a table
-   * is pinned the pin IS the lit body (wiringTarget), so there is never a
-   * hover answer sitting beside a different pinned answer. */
+   * when the lighting changes, not per frame. */
   private hoverFileKin: Set<string> = new Set();
+  /** The same for the PINNED table, held apart because a hover inside the
+   * pin's answer narrows onto one member and moves hoverFileKin with it. This
+   * set is what the pin NAMED — what stays touchable, and what a hover has to
+   * land inside to count at all — so it must not move when the cursor does. */
+  private heldFileKin: Set<string> = new Set();
+  /** The spotlight, plus the folders everything in it is kept in. What the
+   * map actually paints in full while a selection is up (`footprint` itself
+   * stays the raw membership: what the selection named, and what can still be
+   * touched). Rebuilt when the spotlight changes or the tree moves. */
+  private footprintLit: Set<string> | null = null;
   private flashTimer: number | null = null;
   /**
    * Code-weather: written lines rising off the file nodes as agents work —
@@ -1558,8 +1568,20 @@ export class TerrainCanvas {
     this.requestDraw();
   }
 
+  /**
+   * Hand over the spotlight — an agent's files and orb, or a search's hits.
+   *
+   * What it paints is that set PLUS the folders everything in it is kept in
+   * (`footprintLit`), so a spotlit agent shows where it has been working and
+   * not just which dots it touched. The raw set is kept as well: it's what the
+   * selection actually named, so it stays the test for what can be touched.
+   *
+   * Prompt that produced it: "i want the folders that each is connected to to
+   * also light up".
+   */
   setFootprint(footprint: Set<string> | null): void {
     this.footprint = footprint;
+    this.footprintLit = footprint === null ? null : this.withHomes(footprint);
     this.requestDraw();
   }
 
@@ -1916,21 +1938,20 @@ export class TerrainCanvas {
   /** Everything a given body is wired to, itself included — its "answer".
    * Recomputed on a hover change, a pin, or a thread refeed; never in the draw
    * loop, which runs far more often. */
+  private withHomes(ids: Iterable<string>): Set<string> {
+    const lit = new Set(ids);
+    for (const id of [...lit]) {
+      for (const folder of homeChain(id, (child) => this.parentById.get(child) ?? null)) {
+        lit.add(folder);
+      }
+    }
+    return lit;
+  }
+
   private kinOf(id: string | null): Set<string> {
     const kin = new Set<string>();
     if (id !== null) {
       kin.add(id);
-      // WHERE IT'S KEPT: every folder it sits inside, up to the repo. The one
-      // answer every dot on the tree has — a file nothing is joined to still
-      // lives somewhere — so pointing at any file at all now dims the map
-      // down to that dot and the boxes around it.
-      //
-      // Prompt that produced it: "when i hover over any given file, it dims
-      // every other file and folder except for the folders that it's
-      // contained within, so that i can see where the file is stored easily".
-      for (const folder of homeChain(id, (child) => this.parentById.get(child) ?? null)) {
-        kin.add(folder);
-      }
       for (const th of this.threads) {
         if (th.sourceId === id) kin.add(th.targetId);
         else if (th.targetId === id) kin.add(th.sourceId);
@@ -1951,13 +1972,24 @@ export class TerrainCanvas {
       // table that it is connected to".
       for (const other of this.sessionKin.get(id) ?? []) kin.add(other);
     }
-    return kin;
+    // WHERE IT'S ALL KEPT: every folder anything in the answer sits inside, up
+    // to its repo. The one answer every dot on the tree has — a file nothing
+    // is joined to still lives somewhere — and it goes for the far ends of the
+    // threads and ropes too, so the answer says where each of the things it
+    // named is stored, not just the body she pointed at.
+    //
+    // Prompts that produced it: "when i hover over any given file, it dims
+    // every other file and folder except for the folders that it's contained
+    // within, so that i can see where the file is stored easily" / "i want the
+    // folders that each is connected to to also light up".
+    return this.withHomes(kin);
   }
 
   /** Re-answer for whatever is lit — the cursor's dot, or the pin that
    * outranks it. */
   private recomputeHoverKin(): void {
     this.hoverFileKin = this.kinOf(this.hoverFile);
+    this.heldFileKin = this.kinOf(this.heldFile);
   }
 
   /**
@@ -1994,7 +2026,7 @@ export class TerrainCanvas {
    */
   private isTouchable(n: SimNode): boolean {
     if (this.footprint !== null) return this.footprint.has(n.id);
-    if (this.heldFile !== null) return this.hoverFileKin.has(n.id);
+    if (this.heldFile !== null) return this.heldFileKin.has(n.id);
     return true;
   }
 
@@ -2002,18 +2034,20 @@ export class TerrainCanvas {
    * Point the wiring highlight at a file dot, or clear it.
    *
    * A hover only counts inside what's PICKED OUT, and the two ways of picking
-   * something out are both handed to the rule here: the pin a click left
-   * (`heldFile`) and the spotlight the page set (`footprint` — an agent's
-   * files, or a search's hits). hoverSelection.ts decides between them; this
-   * only reports what's up. A hover outside the spotlight comes back null, so
-   * sweeping the cursor across the rest of the map can't re-point it.
+   * something out are both handed to the rule here: the spotlight the page
+   * set (`footprint` — an agent's files, or a search's hits) and the answer a
+   * pinned table named (`heldFileKin`). hoverSelection.ts decides; this only
+   * reports what's up. A hover outside comes back as the pin, or as nothing,
+   * so sweeping the cursor across the rest of the map can't re-point it.
    */
   private setHoverFile(id: string | null): void {
-    const next = wiringTarget(
-      id,
-      this.heldFile,
-      this.footprint === null ? null : (other) => this.footprint!.has(other),
-    );
+    const inSelection =
+      this.footprint !== null
+        ? (other: string) => this.footprint!.has(other)
+        : this.heldFile !== null
+          ? (other: string) => this.heldFileKin.has(other)
+          : null;
+    const next = wiringTarget(id, this.heldFile, inSelection);
     if (next === this.hoverFile) return;
     this.hoverFile = next;
     this.recomputeHoverKin();
@@ -2028,16 +2062,21 @@ export class TerrainCanvas {
    * the code ropes lit so she can read them without holding the mouse still,
    * and the page decides what a second click on the same body means.
    *
-   * A pin HOLDS once it's set: while a table is pinned it stays the subject
-   * of the map's lighting, and no hover — on one of its own rope-ends or on
-   * anything else — takes that over. Releasing it is a second click, or a
-   * click on empty canvas.
+   * What it names is then the only thing a gesture can land on, and the only
+   * hover the map will answer: pointing at one of its rope-ends narrows onto
+   * that file — its own folders, its threads, the other tables it touches —
+   * with the pinned table holding its colour throughout, and the lighting
+   * falling back to the pin when the cursor leaves. Releasing it is a second
+   * click on it, or a click on empty canvas.
    *
-   * Prompt that produced it: "i want them to highlight the tables and files
-   * they're connected to on one click and a double click opens it up".
+   * Prompts that produced it: "i want them to highlight the tables and files
+   * they're connected to on one click and a double click opens it up" / "if i
+   * hover over each one, and it's connected to more things than just the sql
+   * that i touch, it will also show those threads".
    */
   holdFileHover(id: string | null): void {
     this.heldFile = id;
+    this.heldFileKin = this.kinOf(id);
     // Clearing the cursor's own hover is what makes the pin the lit body:
     // with nothing hovered the rule falls straight through to the pin.
     this.setHoverFile(null);
@@ -2337,6 +2376,9 @@ export class TerrainCanvas {
     // can't leave the wrong boxes lit.
     this.parentById = new Map(nodes.map((n) => [n.id, n.parentId]));
     if (this.hoverFile !== null || this.heldFile !== null) this.recomputeHoverKin();
+    // ...and the spotlight's folders with it: a rebuild can collapse a chain
+    // differently ("routes/kitchen"), which renames the very folders it lights.
+    if (this.footprint !== null) this.footprintLit = this.withHomes(this.footprint);
 
     // Remember the shape we just laid out, so the next feed can be answered
     // without touching the sim. Built from what was HANDED IN, not from the
@@ -3504,7 +3546,7 @@ export class TerrainCanvas {
       const litLine =
         this.hoverFile !== null && this.hoverFileKin.has(s.id) && this.hoverFileKin.has(t.id);
       const inPrint =
-        litLine || !dimmed || this.footprint!.has(s.id) || this.footprint!.has(t.id);
+        litLine || !dimmed || this.footprintLit!.has(s.id) || this.footprintLit!.has(t.id);
       if (link.kind === 'session') {
         // Orb tethers: identity-accent threads, dashed so they never read as
         // tree structure. The dashes carry a little more weight than the tree
@@ -3589,7 +3631,7 @@ export class TerrainCanvas {
       // Outside the date range: skipped whole, so its rings, write core,
       // run halo and flash go with it.
       if (this.hiddenFiles.has(n.id)) continue;
-      const inPrint = !dimmed || this.footprint!.has(n.id);
+      const inPrint = !dimmed || this.footprintLit!.has(n.id);
       // What the hover lit: the dot under the cursor, everything wired to it,
       // the folders it's kept in — and the picked-out body, which a hover
       // never cancels.
@@ -4056,7 +4098,7 @@ export class TerrainCanvas {
         const sid = n.node.session?.id;
         if (sid === undefined || !this.labeledAgents.has(sid)) continue;
       }
-      const inPrint = litByHover || !dimmed || this.footprint!.has(n.id);
+      const inPrint = litByHover || !dimmed || this.footprintLit!.has(n.id);
       // ...and the same free pass at the spotlight's edge: a dot outside the
       // lit set is named only if pointing at it is still a question the map
       // is willing to answer, which it isn't once something is picked out.
