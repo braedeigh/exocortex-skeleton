@@ -18,6 +18,7 @@ import type { FileTouchKind, TerrainNode } from './terrainGraph';
 import { buildThreads, heatThreads } from './terrainThreads';
 import {
   agentTouchRings,
+  sessionTouchRings,
   alternatingBreath,
   RUN_WINDOW_SECONDS,
   BREATH_INHALE_FRACTION,
@@ -947,23 +948,41 @@ export function TerrainPage() {
 
   /**
    * Which agents the read/write rings speak for: the ones active within the
-   * hour, so their working sets are ringed without her having to tap anything
-   * — but the moment one is spotlit, just that one, so the dimmed map answers
-   * "what did THIS agent touch" rather than staying a chorus.
+   * hour, so their working sets are ringed without her having to tap anything.
+   *
+   * Spotlighting one agent does NOT narrow this. The other agents' rings stay
+   * on the map and recede with their own dots instead — the canvas fades
+   * everything outside the spotlit footprint, rings included, so "whose work
+   * is this" is still answerable about the rest of the map while one agent
+   * holds the light. Dropping them outright made a click erase evidence
+   * rather than quiet it.
+   *
+   * Prompt that produced it: "i want the rings to remain around the dots for
+   * other agents that are not active but i want them to be dimmed".
    *
    * Deliberately the LABELED set rather than every shown agent: under the Open
    * pool a dozen agents' footprints ringed at once is confetti, and the older
    * ones aren't the question. They stay un-ringed until spotlit.
    */
-  const ringSessionIds = useMemo(
-    () => (footprintSession ? new Set([footprintSession]) : labeledAgentIds),
-    [footprintSession, labeledAgentIds],
-  );
+  const ringSessionIds = labeledAgentIds;
 
-  const agentRings = useMemo(
-    () => (visible ? agentTouchRings(visible.nodes, ringSessionIds) : new Map<string, FileTouchKind>()),
-    [visible, ringSessionIds],
-  );
+  /**
+   * File → the touch it wears a ring for. One ring per file, so when several
+   * agents have touched one file the loudest relationship wins
+   * (agentTouchRings) — except on the spotlit agent's own files, where ITS
+   * relationship wins instead. Same override the hovered agent already gets
+   * in the canvas, for the same reason: while one agent is the subject, a
+   * ring on its file has to say what THAT agent did, not what a louder
+   * neighbour did.
+   */
+  const agentRings = useMemo(() => {
+    if (!visible) return new Map<string, FileTouchKind>();
+    const rings = agentTouchRings(visible.nodes, ringSessionIds);
+    if (footprintSession) {
+      for (const [id, kind] of sessionTouchRings(visible.nodes, footprintSession)) rings.set(id, kind);
+    }
+    return rings;
+  }, [visible, ringSessionIds, footprintSession]);
 
   /**
    * The nodes that ARE the journal — what the pond landmark anchors over.
