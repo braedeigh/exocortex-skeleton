@@ -58,7 +58,10 @@ export function tapStage(id: string, heldId: string | null): TapStage {
  *   looser, because it's a TERRITORY rather than a small named set: a hover
  *   on one of its own members narrows onto that member — that file's folders
  *   light, the rest of the footprint steps back — while a hover outside it is
- *   ignored entirely. Pass null when nothing is spotlit.
+ *   ignored entirely. Pass null when nothing is spotlit. (The canvas also
+ *   stops outside dots at the door, since they take no gesture at all while a
+ *   selection is up — `isTouchable`. The rule is stated here too, where it
+ *   can be read and tested without a browser.)
  *
  *   NOTHING PICKED OUT and the hover is the whole subject, which is what
  *   makes pointing at a dot on a fresh map answer anything at all.

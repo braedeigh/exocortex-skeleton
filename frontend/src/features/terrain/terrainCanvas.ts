@@ -109,11 +109,14 @@
  * keep their colour and their line while the cursor is on one of their files.
  *
  * Once a body is PICKED OUT — a spotlit agent, a search (both arrive as
- * `footprint`), or a pinned table (`heldFile`) — the hover is admitted only
- * INSIDE that selection (`wiringTarget`, hoverSelection.ts): pointing at one
- * of a spotlit agent's own files narrows onto it, that file's folders light
- * and the agent's other files step back, while pointing anywhere outside the
- * selection does nothing at all. A pin is stricter still and holds against
+ * `footprint`), or a pinned table (`heldFile`) — everything outside it is
+ * SCENERY: it takes no gesture at all (`isTouchable`, asked by `nodeAt`), so
+ * an unselected dot can't be hovered, dragged, pinned or opened, and a click
+ * on one reads as a click on empty canvas and gives the map back. Inside the
+ * selection the hover is admitted and narrows (`wiringTarget`,
+ * hoverSelection.ts): pointing at one of a spotlit agent's own files lights
+ * that file's folders — up out of the footprint, which is where they sit —
+ * and steps the agent's other files back. A pin is stricter still and holds against
  * any cursor. The picked-out body itself never dims (`isSubject`), so
  * narrowing inside a selection can't cancel it. The faded dots also stop
  * naming themselves while a selection is up (`selectionUp` in the label
@@ -1973,6 +1976,29 @@ export class TerrainCanvas {
   }
 
   /**
+   * Is this body still TOUCHABLE, or is it scenery?
+   *
+   * While something is picked out, only what that selection named answers a
+   * gesture: a spotlit agent's own files and orb, or a pinned table's answer.
+   * Everything else stops being a thing — no drag, no pin, no tap, no cursor,
+   * no hovercard — because a map narrowed to one agent's territory shouldn't
+   * let a dot she was only sweeping past be picked up and moved. A press on
+   * scenery pans the map, and a click on it clears the selection exactly as a
+   * click on empty canvas does: that is the way back out.
+   *
+   * Asked by nodeAt, which every gesture goes through, so this is true or
+   * false in ONE place rather than in five handlers.
+   *
+   * Prompt that produced it: "i don't want them interactable in any way
+   * except the files that are selected by the agent selection".
+   */
+  private isTouchable(n: SimNode): boolean {
+    if (this.footprint !== null) return this.footprint.has(n.id);
+    if (this.heldFile !== null) return this.hoverFileKin.has(n.id);
+    return true;
+  }
+
+  /**
    * Point the wiring highlight at a file dot, or clear it.
    *
    * A hover only counts inside what's PICKED OUT, and the two ways of picking
@@ -2524,6 +2550,7 @@ export class TerrainCanvas {
     for (const n of this.simNodes) {
       if (sessionsOnly && n.node.kind !== 'session') continue;
       if (this.hiddenFiles.has(n.id)) continue; // a hidden dot can't be tapped
+      if (!this.isTouchable(n)) continue; // ...nor can scenery, outside a selection
       const dx = (n.x ?? 0) - wx;
       const dy = (n.y ?? 0) - wy;
       const dist = Math.hypot(dx, dy);
@@ -3470,7 +3497,14 @@ export class TerrainCanvas {
       // out of one corner would bury the foreign keys, which are the lines
       // worth reading.
       if (link.kind !== 'fk' && (isTable(s) || isTable(t))) continue;
-      const inPrint = !dimmed || this.footprint!.has(s.id) || this.footprint!.has(t.id);
+      // A line with BOTH ends inside the lit answer is the hover's own: the
+      // hovered file's chain of folders running up the tree, or a hovered
+      // table's foreign keys. It draws at full strength wherever it runs,
+      // including up out of a spotlight's footprint into the folders above.
+      const litLine =
+        this.hoverFile !== null && this.hoverFileKin.has(s.id) && this.hoverFileKin.has(t.id);
+      const inPrint =
+        litLine || !dimmed || this.footprint!.has(s.id) || this.footprint!.has(t.id);
       if (link.kind === 'session') {
         // Orb tethers: identity-accent threads, dashed so they never read as
         // tree structure. The dashes carry a little more weight than the tree
@@ -3509,17 +3543,10 @@ export class TerrainCanvas {
         ctx.lineWidth = 1 / transform.k;
         ctx.setLineDash([]);
       }
-      // The structure recedes under a file hover as well. Without this the
-      // tree stays at full strength while the dots fall away, and the map
-      // reads as a skeleton with the flesh removed rather than as one thing
-      // stepping back.
-      //
-      // A line with BOTH ends inside the lit answer is spared: the hovered
-      // file's chain of folders stays drawn as a line running up the tree —
-      // which is the thing she's looking for, the path from the dot to where
-      // it's kept — and a hovered table's own foreign keys stay drawn to the
-      // tables they join.
-      const litLine = this.hoverFileKin.has(s.id) && this.hoverFileKin.has(t.id);
+      // The structure recedes under a file hover as well — every line but the
+      // lit one above. Without this the tree stays at full strength while the
+      // dots fall away, and the map reads as a skeleton with the flesh removed
+      // rather than as one thing stepping back.
       if (this.hoverFile !== null && !litLine) ctx.globalAlpha *= 0.22;
       // A line into a stale dot recedes with it (staleEdgeAlpha), so under
       // Types the whole limb goes quiet together instead of the dot leaving a
@@ -3563,15 +3590,19 @@ export class TerrainCanvas {
       // run halo and flash go with it.
       if (this.hiddenFiles.has(n.id)) continue;
       const inPrint = !dimmed || this.footprint!.has(n.id);
-      // A file hover pulls the whole map down around the thread it lit: the
-      // hovered dot and everything wired to it stay full, everything else
-      // recedes. Multiplied into the footprint alpha rather than replacing it,
-      // so a spotlit agent's dimming still holds underneath.
-      const kinAlpha =
-        threadHover === null || this.hoverFileKin.has(n.id) || this.isSubject(n)
-          ? 1
-          : UNSELECTED_FADE;
-      ctx.globalAlpha = (inPrint ? 1 : UNSELECTED_FADE) * kinAlpha;
+      // What the hover lit: the dot under the cursor, everything wired to it,
+      // the folders it's kept in — and the picked-out body, which a hover
+      // never cancels.
+      const litByHover =
+        threadHover !== null && (this.hoverFileKin.has(n.id) || this.isSubject(n));
+      // A file hover pulls the whole map down around what it lit: the lit set
+      // stays full and everything else recedes. The lit set comes UP to full
+      // even where the spotlight had it faded — the folders one of a spotlit
+      // agent's files lives in are outside that agent's footprint, and they
+      // are the whole answer to where the file is kept.
+      const kinAlpha = threadHover === null || litByHover ? 1 : UNSELECTED_FADE;
+      const printAlpha = litByHover || inPrint ? 1 : UNSELECTED_FADE;
+      ctx.globalAlpha = printAlpha * kinAlpha;
       // Never let a node shrink below a visible dot, however far out we are.
       const nr = Math.max(n.radius, minR);
       // Set by a branch that paints its own body (the dark ash+hue file dot),
@@ -3867,7 +3898,7 @@ export class TerrainCanvas {
         // multiply in: the spotlight's (a search, or a tapped agent) and the
         // selected table's, so a ring can't keep shouting over a dot that has
         // gone quiet — whichever of the two selections quieted it.
-        ctx.globalAlpha = ringAlpha * (inPrint ? 1 : UNSELECTED_FADE) * kinAlpha;
+        ctx.globalAlpha = ringAlpha * printAlpha * kinAlpha;
         ctx.strokeStyle = ring === 'read' ? READ_RING : this.orbStroke;
         ctx.lineWidth = 2.4 / transform.k;
         ctx.beginPath();
@@ -3995,14 +4026,16 @@ export class TerrainCanvas {
       // the step-back view zoom is not hers to set, so the bound is relevance
       // instead: only the directories the focused agent is actually working
       // inside get named, however far out the camera happens to be sitting.
-      // ...with one free pass: a folder the HOVERED file is kept in names
-      // itself however far out the camera sits. The hover has already dimmed
-      // the map down to say where this file lives, and an unnamed bright box
-      // answers half of that. Same pass the rope-ends get above.
-      const homeFolder = this.hoverFile !== null && this.hoverFileKin.has(n.id);
+      // ...with one free pass: anything the HOVER lit names itself however far
+      // out the camera sits, and wherever the spotlight left it. A folder the
+      // hovered file is kept in is the clearest case — the hover has already
+      // dimmed the map down to say where this file lives, and an unnamed
+      // bright box answers half of that. Same pass the rope-ends get above.
+      const litByHover =
+        this.hoverFile !== null && (this.hoverFileKin.has(n.id) || this.isSubject(n));
       if (
         n.node.kind === 'dir' &&
-        !homeFolder &&
+        !litByHover &&
         (captioned ? !this.focusDirIds.has(n.id) : k < LABEL_MIN_K)
       )
         continue;
@@ -4023,7 +4056,7 @@ export class TerrainCanvas {
         const sid = n.node.session?.id;
         if (sid === undefined || !this.labeledAgents.has(sid)) continue;
       }
-      const inPrint = !dimmed || this.footprint!.has(n.id);
+      const inPrint = litByHover || !dimmed || this.footprint!.has(n.id);
       // ...and the same free pass at the spotlight's edge: a dot outside the
       // lit set is named only if pointing at it is still a question the map
       // is willing to answer, which it isn't once something is picked out.
@@ -4037,10 +4070,7 @@ export class TerrainCanvas {
       // A name recedes with its body: under a file hover everything outside
       // the lit answer steps back, caption and all, or the map dims while a
       // field of full-ink names sits on top of it unchanged.
-      const kinLabelFade =
-        this.hoverFile === null || this.hoverFileKin.has(n.id) || this.isSubject(n)
-          ? 1
-          : UNSELECTED_FADE;
+      const kinLabelFade = this.hoverFile === null || litByHover ? 1 : UNSELECTED_FADE;
       ctx.globalAlpha =
         (hover !== null && n.node.kind === 'session' && !hovered ? 0.3 : 1) * kinLabelFade;
       if (n.node.kind === 'repo') {
