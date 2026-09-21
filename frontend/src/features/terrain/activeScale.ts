@@ -3,11 +3,13 @@ import { POS_STEPS, posFromValue, valueFromPos } from './TerrainDials';
 /**
  * activeScale.ts — the Active bar's own time axis: five minutes to one week.
  *
- * This is the ruler under the map's Active slider, and it is deliberately NOT
- * the Heat slider's ruler. Heat asks "how far back does the colour remember",
- * measured in days out to a year. Active asks "when did this file last RUN",
- * which is a question about minutes and hours — so the two rows carry two
- * axes, and comparing their thumbs by eye is meaningless on purpose.
+ * This is the ruler under the map's Active slider — the GOLD bar, the one that
+ * sets how recently a file must have RUN to stay lit — and it is deliberately
+ * NOT the Heat slider's ruler. Heat asks "how far back does the colour
+ * remember an edit", measured in days out to a year. Active asks "when did
+ * this file last run", which is a question about minutes and hours — so the
+ * two bars carry two axes, and comparing their thumbs by eye is meaningless on
+ * purpose.
  *
  * The axis is one plain log track and nothing more clever, because a log track
  * already does the condensing that's wanted here: minutes get real travel on
@@ -28,8 +30,9 @@ import { POS_STEPS, posFromValue, valueFromPos } from './TerrainDials';
  * file has run since the sensor started, and the week tail is real travel
  * rather than dead track.
  *
- * Used by TerrainHeatBar.tsx (draws the track and its ruler) and TerrainPage.tsx
- * (holds the window in seconds and hands it to runGlow.ts).
+ * Used by TerrainHeatBar.tsx (draws the track, its gold ramp and its ruler)
+ * and TerrainPage.tsx (holds the window in seconds and hands it to both the
+ * gold fire's half-life and runGlow.ts).
  *
  * Prompts that produced it: "i want for the active to be a 24 hour toggle with
  * minutes and hours marks instead of what it is now that matches heat" → "it

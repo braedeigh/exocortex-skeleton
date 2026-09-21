@@ -292,10 +292,15 @@ const HOVER_LEAVE_MS = 240;
 const FETCH_TIERS: readonly (number | null)[] = [350, 1000, 2500, null];
 
 /**
- * One view's Active setting (notes 8 and 9 in TerrainHeatBar.tsx): whether the
- * run halo is on, and the window it marks — in SECONDS, on an axis that runs
- * from five minutes to a week (activeScale.ts). The heat map and the Types
- * view each carry their own.
+ * One view's Active setting (notes 6 and 8 in TerrainHeatBar.tsx): whether the
+ * run halo is drawn, and GOLD'S WINDOW — in SECONDS, on an axis that runs from
+ * five minutes to a week (activeScale.ts). The heat map and the Types view
+ * each carry their own.
+ *
+ * The window is one number doing one job: how recently a file must have RUN to
+ * still be lit gold on the map, and (when the switch is on) to be ringed. It
+ * used to be only the ring's cutoff, with the fire itself pinned at a fixed
+ * day somewhere else — two owners of one question, one of them invisible.
  *
  * There used to be a `heatCut` here too, turning the colour edge into a filter
  * ("only what's still lit"). It's gone — heat colours the map and doesn't
@@ -307,8 +312,12 @@ interface ViewCuts {
   activeSeconds: number;
 }
 
-/** The halo off, its window parked on the last hour — the map opens unmarked. */
-const NO_CUTS: ViewCuts = { activeGlow: false, activeSeconds: 3600 };
+/** The halo off, gold's window on the last day — so the map opens marked by
+ * nothing and lit exactly as it always has been ("did this code run today",
+ * terrainGraph.ts RUN_WINDOW_SECONDS). The slider starts on that number rather
+ * than under it because gold's window used to BE that constant, fixed; making
+ * it hers to move shouldn't change what she sees on open. */
+const NO_CUTS: ViewCuts = { activeGlow: false, activeSeconds: RUN_WINDOW_SECONDS };
 
 function nextTier(tier: number | null): number | null {
   if (tier === null) return null;
@@ -373,6 +382,28 @@ export function TerrainPage() {
   // payload, and it rides the same live gate so a resting map doesn't poll.
   const roster = useSessionRoster(anyRunning && pageVisible, !visitor);
 
+  // Which view is lit: heat colours, or file-type colours (note 7 in
+  // TerrainHeatBar.tsx). A shared preference (typeColorPref.ts), so a terrain
+  // in another panel flips with this one. Read up here because the Active
+  // setting below is kept PER VIEW, and gold's window comes out of it.
+  const typeColors = useTypeColorsOn();
+
+  // The Active bar's setting, per view (notes 6 and 8 in TerrainHeatBar.tsx):
+  // whether the run halo is drawn, and gold's window. Each view keeps its own,
+  // so a window set up under Types doesn't follow her back to the heat map.
+  //
+  // Page state, not a stored preference — the lit switch on the bar is what
+  // says the halo is running, and that's enough memory for a question she's
+  // asking right now.
+  const [cutsByView, setCutsByView] = useState<Record<'heat' | 'types', ViewCuts>>({
+    heat: { ...NO_CUTS },
+    types: { ...NO_CUTS },
+  });
+  const view: 'heat' | 'types' = typeColors ? 'types' : 'heat';
+  const cuts = cutsByView[view];
+  const setCuts = (patch: Partial<ViewCuts>) =>
+    setCutsByView((prev) => ({ ...prev, [view]: { ...prev[view], ...patch } }));
+
   // The heat WINDOW, in whole days — what the bottom Heat bar sets: how far
   // back a file stays lit, with the thumb as the edge of the colour. A number,
   // not one of three named lenses; the presets are only shortcuts on it.
@@ -392,16 +423,24 @@ export function TerrainPage() {
   const [goldBreathSeconds, setGoldBreathSeconds] = useState<number>(RUN_WINDOW_SECONDS);
   const liveHeatDays = breathing ? breathDays : heatDays;
   const windowSeconds = liveHeatDays * DAY_SECONDS;
-  const goldWindowSeconds = breathing ? goldBreathSeconds : RUN_WINDOW_SECONDS;
+  // Gold's live window, the mirror of liveHeatDays: the Active slider at rest,
+  // the gold breath under Dynamic. It drives the map's gold fire AND the halo,
+  // because they are one question — the Active bar is gold's bar now, not a
+  // second opinion about a window fixed somewhere else.
+  const liveActiveSeconds = breathing ? goldBreathSeconds : cuts.activeSeconds;
   // The decay runs on a half-life a third of the window (terrainGraph.ts,
   // windowToHalfLife) so the glow has run out by the window's edge.
   const halfLife = windowToHalfLife(windowSeconds);
-  const goldHalfLife = windowToHalfLife(goldWindowSeconds);
-  // Any deliberate touch of the slider or a fixed preset ends the breath —
-  // one value, one owner, so the two can never be arguing over it.
+  const goldHalfLife = windowToHalfLife(liveActiveSeconds);
+  // Any deliberate touch of either slider, or of a fixed preset, ends the
+  // breath — one value, one owner, so the two can never be arguing over it.
   const pickHeatDays = (days: number) => {
     setBreathing(false);
     setHeatDays(days);
+  };
+  const pickActiveSeconds = (seconds: number) => {
+    setBreathing(false);
+    setCuts({ activeSeconds: seconds });
   };
   useEffect(() => {
     if (!breathing || !pageVisible) return;
@@ -1308,30 +1347,9 @@ export function TerrainPage() {
 
   // Hand the "Types" toggle to the canvas. The value is a toggle that stays
   // (typeColorPref.ts), so a terrain in another panel flips with this one.
-  const typeColors = useTypeColorsOn();
   useEffect(() => {
     engineRef.current?.setTypeColors(typeColors);
   }, [typeColors]);
-
-  // The two time cuts, per view (note 8 in TerrainHeatBar.tsx). Both off by
-  // default — the map opens whole — and each view keeps its own pair, so a cut
-  // set up under Types doesn't follow her back to the heat map and vice versa.
-  //
-  // Both cutoffs are SET windows, never the live breathing one: under Dynamic
-  // the heat window swells and settles every ten seconds, and a filter riding
-  // it would blink files in and out of existence.
-  //
-  // Page state, not a stored preference — a map that opens mostly empty with
-  // no memory of why is a worse surprise than re-tapping a button. The lit
-  // buttons on the bar are what say a cut is running.
-  const [cutsByView, setCutsByView] = useState<Record<'heat' | 'types', ViewCuts>>({
-    heat: { ...NO_CUTS },
-    types: { ...NO_CUTS },
-  });
-  const view: 'heat' | 'types' = typeColors ? 'types' : 'heat';
-  const cuts = cutsByView[view];
-  const setCuts = (patch: Partial<ViewCuts>) =>
-    setCutsByView((prev) => ({ ...prev, [view]: { ...prev[view], ...patch } }));
 
   // The dots the date range hides. Only worth computing while she's actually
   // narrowed it: unpinned, the range is the whole payload and nothing can be
@@ -1357,12 +1375,18 @@ export function TerrainPage() {
   // The dots the Active bar lights up: everything that RAN inside its window
   // (runGlow.ts). Adds a gold halo and nothing else — no dimming, no hiding,
   // no layout. Only worth computing while the switch is actually lit.
+  //
+  // It rides the LIVE window, breath included, so the ring always agrees with
+  // the thumb the bar is drawing. Safe here in a way it wouldn't be for a
+  // filter: the date range's cutoff still uses only SET values, because a
+  // filter riding the breath would blink dots in and out of existence, while
+  // this only pulses light over dots that never move.
   const glowFiles = useMemo(
     () =>
       visible && cuts.activeGlow
-        ? filesGlowingByRun(visible.nodes, cuts.activeSeconds, now)
+        ? filesGlowingByRun(visible.nodes, liveActiveSeconds, now)
         : new Set<string>(),
-    [visible, cuts.activeGlow, cuts.activeSeconds, now],
+    [visible, cuts.activeGlow, liveActiveSeconds, now],
   );
   useEffect(() => {
     engineRef.current?.setGlowFiles(glowFiles);
@@ -1398,7 +1422,7 @@ export function TerrainPage() {
       counts.push(`${files - hiddenFiles.size} of ${files} files`);
     }
     if (cuts.activeGlow) {
-      parts.push(`Ran · ${formatAge(cuts.activeSeconds)}`);
+      parts.push(`Ran · ${formatAge(liveActiveSeconds)}`);
       // Worth saying out loud, because zero is a real and common answer here:
       // runs are Python-only, so a short window can genuinely light nothing.
       counts.push(`${glowFiles.size} glowing`);
@@ -1750,15 +1774,14 @@ export function TerrainPage() {
             onDays={pickHeatDays}
             ramp={ink ? heatRamps(ink).ember : undefined}
             goldRamp={ink ? heatRamps(ink).gold : undefined}
-            goldSeconds={goldWindowSeconds}
             breathing={breathing}
             onBreathe={() => setBreathing((v) => !v)}
             typeColors={typeColors}
             onTypeColors={setTypeColorsOn}
             activeGlow={cuts.activeGlow}
             onActiveGlow={(on) => setCuts({ activeGlow: on })}
-            activeSeconds={cuts.activeSeconds}
-            onActiveSeconds={(seconds) => setCuts({ activeSeconds: seconds })}
+            activeSeconds={liveActiveSeconds}
+            onActiveSeconds={pickActiveSeconds}
           />
           {/* The agent control: Active button, a window that slides past agents
               over the ranked roster, and a popup list to spotlight one. */}
@@ -1986,7 +2009,7 @@ export function TerrainPage() {
         onClose={closeCodeFile}
         mentions={codeMentions ?? undefined}
         windowSeconds={windowSeconds}
-        runWindowSeconds={goldWindowSeconds}
+        runWindowSeconds={liveActiveSeconds}
         ink={ink ?? undefined}
       >
         {codeFile?.file ? (

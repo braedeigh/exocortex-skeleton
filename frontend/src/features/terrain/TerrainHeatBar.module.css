@@ -1,16 +1,22 @@
-/* TerrainHeatBar — the heat half-life slider (TerrainHeatBar.tsx), now the TOP
-   block of the map's bottom-left stack with the agent bar under it. Same visual
+/* TerrainHeatBar — the map's two fire bars (TerrainHeatBar.tsx), the TOP block
+   of the map's bottom-left stack with the agent bar under it. Same visual
    language as TerrainDials: no background of its own, every text bit carrying
    --ink-halo so it reads over whatever the terrain puts behind it, a 40px grab
    strip and a 28px thumb.
 
-   Two things depart from the dials on purpose. The track carries the map's own
-   colour ramp (--heat-ramp, computed per render in the component) instead of a
-   neutral line — the control doubles as the legend — and it's 10px rather than
-   6px, because a 6px line is a hairline to grab but a *sliver* to read colour
-   from, and this one now has to do both. The per-day ruler is etched over the
-   ramp in white rather than drawn in --text, since --text on a red gradient is
-   mud in either theme. */
+   Two things depart from the dials on purpose. Each track carries its fire's
+   own colour ramp (handed in inline, computed per render in the component)
+   instead of a neutral line — the control doubles as the legend — and it's
+   10px rather than 6px, because a 6px line is a hairline to grab but a *sliver*
+   to read colour from, and these have to do both. The rulers are etched over
+   the ramps in white rather than drawn in --text, since --text on a red or
+   gold gradient is mud in either theme.
+
+   THE TWO ROWS ARE BUILT IDENTICALLY, on purpose: one class set serves both,
+   because Heat and Active are the same instrument pointed at different fires.
+   There used to be a second, thinner gold band crammed onto the Heat row with
+   a ring instead of a thumb, and a bare grey track down on Active — all of
+   that is gone. */
 
 .bar {
   display: flex;
@@ -21,20 +27,21 @@
 /* Label, track, readout. The first column matches TerrainDials' label width so
    every slider on the page lines up down the left even though they're separate
    components. The third holds the bar's own number, and it is a FIXED width
-   rather than auto for the same reason: auto sizes each row to its own
-   contents, so "7d · 1d" and "45m" would end their tracks in different places
-   and leave the stack ragged down the right. 6rem fits the longest either
-   readout gets ("365d · 24h" at 14px). */
+   rather than auto: auto sizes each row to its own contents, so "365d" and
+   "45m" would end their tracks in different places and leave the stack ragged
+   down the right. 3.75rem fits the longest either readout gets ("365d" at
+   14px, with its dot). */
 .row {
   display: grid;
-  grid-template-columns: 3.25rem 1fr 6rem;
+  grid-template-columns: 3.25rem 1fr 3.75rem;
   align-items: center;
   column-gap: var(--space-2);
 }
 
-/* Each bar's name, which is also its filter switch (note 8 in the .tsx).
-   Hollow — a bordered pill over the map — means the bar is only a setting;
-   lit means its window is cutting the map. Sized to the same first column as
+/* The Active bar's name, which is also its halo switch (note 8 in the .tsx).
+   Hollow — a bordered pill over the map — means the bar is only setting gold's
+   window; lit means it is also ringing the files inside it. Nothing here ever
+   cuts the map. Sized to the same first column as
    TerrainDials' labels so every slider on the page still lines up, and to the
    house 40px tap target. */
 .cutButton {
@@ -86,9 +93,9 @@
 
 /* --- the ramp -----------------------------------------------------------
 
-   The map's own colour ramp, hot at the near end and cold at the month end,
-   handed in as an inline background because it's recomputed for the current
-   half-life on every render. Its own element rather than a background on the
+   That fire's own colour ramp, hot at the near end and running out at the
+   thumb, handed in as an inline background because it's recomputed for the
+   current window on every render. Its own element rather than a background on the
    input's track pseudo-element, so the thumb still draws over it and over the
    ruler. Inert to pointers — the slider above owns every gesture here. */
 .ramp {
@@ -104,72 +111,22 @@
   pointer-events: none;
 }
 
-/* --- the split track ----------------------------------------------------
-
-   Two 8px bands with a 4px seam: ember above, gold below (why: note 6 in
-   TerrainHeatBar.tsx). Centred as a pair on the line a single 10px band
-   would sit on. Each band carries its OWN ruler, because the two axes differ
-   — days to a year above, minutes to a day below — so a shared ruler would
-   be a lie on one of them. */
-.rampEmber {
-  height: 8px;
-  transform: translateY(calc(-50% - 6px));
-}
-
-.rampGold {
-  height: 8px;
-  transform: translateY(calc(-50% + 6px));
-}
-
-/* The gold window's marker on the lower band — a ring, not a thumb: gold is
-   pinned at one day and isn't hers to move, so there is nothing here to grab.
-   Inert to pointers for the same reason. Colour set inline from the ramp's
-   hot end so it can never drift from the band it rides. */
-.goldRing {
-  position: absolute;
-  top: calc(50% + 6px);
-  width: 18px;
-  height: 18px;
-  transform: translate(-50%, -50%);
-  border-radius: 50%;
-  border: 3px solid;
-  background: var(--card-bg);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-  pointer-events: none;
-}
-
-/* Split, the accent thumb rides the UPPER (ember) band rather than straddling
-   the seam — same 28px thumb, lifted by the band's offset. */
-.rangeSplit::-webkit-slider-thumb {
-  margin-top: -15px; /* -9px (centred) - 6px (ember band offset) */
-}
-
-.rangeSplit::-moz-range-thumb {
-  transform: translateY(-6px);
-}
-
 /* --- the rulers -----------------------------------------------------------
 
-   Etched over each band, under the thumb. Ticks crowd toward the long end
-   because the tracks are logarithmic; that crowding is the point, so they're
-   drawn at full density rather than thinned. Inert to pointers so a ruler
-   can never eat a drag meant for the slider. One ruler per band, each sized
-   to its band (8px) and sitting on it. */
+   Etched over a band, under the thumb. Ticks crowd toward the long end
+   because both tracks are logarithmic; that crowding is the point, so they're
+   drawn at full density rather than thinned. Inert to pointers so a ruler can
+   never eat a drag meant for the slider. One ruler per bar, centred on that
+   bar's band — the two rulers count in different units (days to a year up
+   top, minutes to a week below), which is why each bar carries its own. */
 .ticks {
   position: absolute;
   left: 0;
   right: 0;
+  top: 50%;
   height: 12px;
   transform: translateY(-50%);
   pointer-events: none;
-}
-
-.ticksEmber {
-  top: calc(50% - 6px);
-}
-
-.ticksGold {
-  top: calc(50% + 6px);
 }
 
 /* Kept inside the 8px band and kept faint — the gradient is the message here
@@ -303,8 +260,9 @@
   white-space: nowrap;
 }
 
-/* A dot in a fire's hot colour before its number, so "7d · 1d" can't be read
-   the wrong way round. */
+/* A dot in that row's fire colour before its number, so a window is tied to
+   its fire without leaning on the row's label. Both rows use it — the ring
+   that used to mark the Active readout is gone with the gold band it echoed. */
 .readoutDot {
   display: inline-block;
   width: 8px;
@@ -316,20 +274,9 @@
   margin-left: 0;
 }
 
-/* The Active readout's marker is a hollow ring, not a filled dot, because that
-   is the shape it draws on the map — a gold halo around a dot that ran
-   (terrainCanvas.ts drawRunHalo). */
-.readoutRing {
-  display: inline-block;
-  width: 9px;
-  height: 9px;
-  border: 2px solid;
-  border-radius: 50%;
-}
-
 @media (max-width: 430px) {
   .row {
-    grid-template-columns: 2.75rem 1fr 5rem;
+    grid-template-columns: 2.75rem 1fr 3.5rem;
     column-gap: var(--space-1);
   }
 
@@ -345,33 +292,4 @@
   .readout {
     gap: 2px;
   }
-}
-
-/* --- the Active row's track ---------------------------------------------
-
-   No ramp: this bar isn't a colour, it's a mark. One grey line, the same
-   weight as the ember band above it — the rows match in BUILD so the
-   instrument reads as one thing, while the rulers underneath them deliberately
-   don't match at all (note 9 in the .tsx): Heat counts days to a year, this
-   counts minutes to a week. */
-.plainTrack::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 50%;
-  height: 10px;
-  transform: translateY(-50%);
-  border-radius: var(--radius-pill);
-  background: color-mix(in srgb, var(--text) 16%, transparent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--text) 18%, transparent);
-  pointer-events: none;
-}
-
-/* The ruler sits centred on that single line, where the split track's two
-   rulers sit on their own bands. */
-.ticksPlain {
-  top: 50%;
-  height: 10px;
-  transform: translateY(-50%);
 }

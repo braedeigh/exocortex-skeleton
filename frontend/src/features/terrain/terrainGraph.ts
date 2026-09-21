@@ -45,13 +45,17 @@ export function windowToHalfLife(windowSeconds: number): number {
 }
 
 /**
- * The GOLD channel's window: a file is gold if it actually RAN inside it.
- * On a fixed preset it's one day — "did this code run today" — whatever the
- * Heat bar says; the slider moves EMBER only. Under Dynamic it takes its own
- * breath (goldBreathWindow below): five minutes out to a day and back,
+ * The GOLD channel's DEFAULT window: a file is gold if it actually RAN inside
+ * it. One day — "did this code run today" — which is where the map's Active
+ * bar opens and what any surface that doesn't set a window of its own gets.
+ *
+ * It is a default and no longer a constant of the map: the Active bar owns
+ * gold's window and runs it from five minutes to a week (activeScale.ts), the
+ * way the Heat bar owns ember's. Under Dynamic gold takes its own breath
+ * instead (goldBreathWindow below): five minutes out to a day and back,
  * ALTERNATING with ember's day-to-month breath — see alternatingBreath. Same
- * shape of decay as ember: fully lit just ran, half a third of the way, gone
- * at the edge.
+ * shape of decay as ember either way: fully lit just ran, half a third of the
+ * way, gone at the edge.
  */
 export const RUN_WINDOW_SECONDS = 24 * 3600;
 export const RUN_HALF_LIFE_SECONDS = windowToHalfLife(RUN_WINDOW_SECONDS);
