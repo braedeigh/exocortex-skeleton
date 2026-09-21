@@ -21,11 +21,11 @@ import type { TerrainNode } from './terrainGraph';
  * the space between two of them isn't a category. Proportion is the thing
  * that can be averaged; hue isn't.
  *
- * The All / Recent / Old switch is felt here too, and that's the point of
+ * Whatever is hiding file dots is felt here too, and that's the point of
  * taking the hidden set as an argument rather than counting the whole tree:
- * on Old, the outline describes the old files that are still on screen, not
- * the folder as it is in general. The three lenses compose instead of being
- * three separate modes.
+ * the outline describes the files still on screen, not the folder as it is in
+ * general. Narrow the date range and the folders re-describe themselves over
+ * what's left. The lenses compose instead of being separate modes.
  *
  * "Commonest" settles ties the same way the legend does (fileTypes.ts
  * fileTypeCounts): Other never wins while any real language is present, and
@@ -128,7 +128,7 @@ export function childTypeCounts(
  * subtree of faded dots would be drawing a box around nothing. So a folder is
  * exactly as present as the most alive thing inside it: one fresh file keeps
  * the whole branch lit, and a branch where everything has gone stale — or has
- * been filtered off the map by All / Recent / Old — goes with it.
+ * been taken off the map by the date range — goes with it.
  *
  * MAX and not a sum or a mean, deliberately: a folder of four hundred dead
  * files and one that changed this morning is a folder she's working in, and

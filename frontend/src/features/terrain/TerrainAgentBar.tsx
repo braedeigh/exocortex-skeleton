@@ -4,22 +4,22 @@ import styles from './TerrainAgentBar.module.css';
 /**
  * TerrainAgentBar — the bottom agent control.
  *
- *   [ Active ▾ ]  ◀──────█████──────▶   [ Agents · 8 ]
+ *   [ Working ▾ ]  ◀──────█████──────▶   [ Agents · 8 ]
  *
  * - **The pool button** opens a popup anchored to itself with two rows of
  *   choices, and its own label becomes whatever you picked:
- *     · WHICH AGENTS — Active (did something within the hour) / Open (not
+ *     · WHICH AGENTS — Working (did something within the hour) / Open (not
  *       archived) / All (the whole roster).
  *     · WHICH SECTION — All / Personal / Orchestra.
  *   Both are server-side facts, so they mean the same thing on every device.
- *   "Active" used to mean a browser-local heartbeat, which was invisible and
+ *   This pool used to mean a browser-local heartbeat, which was invisible and
  *   evaporated half an hour after she looked away.
  * - **The window**: a dual-handle slider that slides over the *chosen pool*,
  *   ranked most-recent-first — not over the calendar (that's the top Dates
  *   dial's job). It is never dimmed or inert now: the button picks the pool,
  *   the window picks a slice of it, and those are two different questions.
- *   Before, Active and the window were two owners of one value, so one of them
- *   had to be switched off to stop them disagreeing.
+ *   Before, the pool and the window were two owners of one value, so one of
+ *   them had to be switched off to stop them disagreeing.
  * - **Agents button**: toggles a popup list of the agents currently shown —
  *   tap a row to spotlight that agent's footprint. No inline chips; the bar
  *   stays a control strip, the list is where identity lives.
@@ -49,8 +49,13 @@ export type AgentPool = 'active' | 'open' | 'all';
  * unreachable from this bar, so the two lists move together. */
 export type AgentSection = '' | 'personal' | 'coding' | 'orchestra';
 
+/* 'active' shows as "Working", not "Active". The word was doing two unrelated
+   jobs one row apart: this button picks a POOL OF AGENTS (worked in the last
+   hour), while the Active bar directly above it puts a window on which FILES
+   ran. Two controls, one label, stacked vertically.
+   Prompt: "i also see that there are 3 bars at once right now". */
 export const POOL_LABELS: Record<AgentPool, string> = {
-  active: 'Active',
+  active: 'Working',
   open: 'Open',
   all: 'All',
 };

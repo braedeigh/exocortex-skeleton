@@ -26,6 +26,7 @@ import {
   BREATH_PERIOD_MS,
   BREATH_TICK_MS,
   fileLastTouch,
+  formatAge,
   filterTerrainData,
   filesOutsideRange,
   relativeAge,
@@ -55,7 +56,7 @@ import { beatNodeIds, scheduleFrames, type Beat } from './journeyReplay';
 import type { TerrainThread } from './terrainThreads';
 import { PondLandmark } from './PondLandmark';
 import { collapseToPondTile, localDayISO, parseCardPath, POND_TILE_PATH } from './pondNodes';
-import { filesHiddenByActivity, type ActivitySide } from './activityFilter';
+import { filesGlowingByRun } from './runGlow';
 import { addTableNodes } from './tableNodes';
 import { tableCodeLinks } from './tableMentions';
 import { tapStage } from './hoverSelection';
@@ -290,20 +291,23 @@ const HOVER_LEAVE_MS = 240;
 const FETCH_TIERS: readonly (number | null)[] = [350, 1000, 2500, null];
 
 /**
- * One view's pair of time cuts (note 8 in TerrainHeatBar.tsx). `heatCut` turns
- * the colour edge into a cut — "only what's still lit"; `activeCut` runs a
- * second, independent edge with its own window, keeping the Recent side of it
- * or the Old. The heat map and the Types view each carry their own of these.
+ * One view's Active setting (notes 8 and 9 in TerrainHeatBar.tsx): whether the
+ * run halo is on, and the window it marks — in SECONDS, on an axis that runs
+ * from five minutes to a week (activeScale.ts). The heat map and the Types
+ * view each carry their own.
+ *
+ * There used to be a `heatCut` here too, turning the colour edge into a filter
+ * ("only what's still lit"). It's gone — heat colours the map and doesn't
+ * decide what's on it. Owner: "the heat map one should be the heat map alone
+ * and not the activity toggle."
  */
 interface ViewCuts {
-  heatCut: boolean;
-  activeCut: boolean;
-  activeDays: number;
-  activeSide: ActivitySide;
+  activeGlow: boolean;
+  activeSeconds: number;
 }
 
-/** Both cuts off, the Active edge parked on a week — the map opens whole. */
-const NO_CUTS: ViewCuts = { heatCut: false, activeCut: false, activeDays: 7, activeSide: 'recent' };
+/** The halo off, its window parked on the last hour — the map opens unmarked. */
+const NO_CUTS: ViewCuts = { activeGlow: false, activeSeconds: 3600 };
 
 function nextTier(tier: number | null): number | null {
   if (tier === null) return null;
@@ -1321,33 +1325,29 @@ export function TerrainPage() {
     [collapsed, customRange, range.from, range.to],
   );
 
-  // One hidden set, three contributors — dates, the heat cut, the active cut.
-  // Everything that takes dots off this map goes through here, because the
-  // canvas skips painting these and moves nothing: a dot that comes back comes
-  // back to the same spot (terrainCanvas.ts setHiddenFiles).
-  const hiddenFiles = useMemo(() => {
-    const all = new Set<string>(hiddenByDates);
-    if (!visible) return all;
-    if (cuts.heatCut) {
-      for (const id of filesHiddenByActivity(visible.nodes, 'recent', heatDays * DAY_SECONDS, now)) {
-        all.add(id);
-      }
-    }
-    if (cuts.activeCut) {
-      for (const id of filesHiddenByActivity(
-        visible.nodes,
-        cuts.activeSide,
-        cuts.activeDays * DAY_SECONDS,
-        now,
-      )) {
-        all.add(id);
-      }
-    }
-    return all;
-  }, [visible, hiddenByDates, cuts, heatDays, now]);
+  // The one hidden set, and the date range is now its only contributor. Both
+  // time filters that used to feed it are gone: heat colours instead of
+  // cutting, and Active marks instead of hiding. What survives is the rule
+  // that made them safe — the canvas skips painting these and moves nothing,
+  // so a dot that comes back comes back to the same spot (terrainCanvas.ts
+  // setHiddenFiles).
+  const hiddenFiles = hiddenByDates;
   useEffect(() => {
     engineRef.current?.setHiddenFiles(hiddenFiles);
   }, [hiddenFiles]);
+  // The dots the Active bar lights up: everything that RAN inside its window
+  // (runGlow.ts). Adds a gold halo and nothing else — no dimming, no hiding,
+  // no layout. Only worth computing while the switch is actually lit.
+  const glowFiles = useMemo(
+    () =>
+      visible && cuts.activeGlow
+        ? filesGlowingByRun(visible.nodes, cuts.activeSeconds, now)
+        : new Set<string>(),
+    [visible, cuts.activeGlow, cuts.activeSeconds, now],
+  );
+  useEffect(() => {
+    engineRef.current?.setGlowFiles(glowFiles);
+  }, [glowFiles]);
   // What the key says while the switch is on: which side of the edge, where
   // the edge is, and how many files that leaves — the count is the answer to
   // "how much of this is old", readable without counting dots.
@@ -1366,24 +1366,30 @@ export function TerrainPage() {
   );
 
   const filterNote = useMemo(() => {
-    if (!visible || hiddenFiles.size === 0) return null;
-    // Name every cut that's running, in the order they sit on screen. Two cuts
-    // compose as an intersection, and some pairs are empty by construction
-    // ("lit in a day" AND "nothing in a month" has no members) — so the count
-    // below is what stops an empty map from reading as a broken one.
+    if (!visible) return null;
+    // Name whatever is acting on the map, in the order the controls sit on
+    // screen. These two don't compose the way the old pair of cuts did — one
+    // takes dots away, the other adds light — so each brings its own number
+    // rather than sharing a single survivor count.
     const parts: string[] = [];
-    if (hiddenByDates.size > 0) parts.push('Dates');
-    if (cuts.heatCut) parts.push(`Lit · ${heatDays}d`);
-    if (cuts.activeCut) {
-      parts.push(`${cuts.activeSide === 'recent' ? 'Active' : 'Idle'} · ${cuts.activeDays}d`);
+    const counts: string[] = [];
+    const files = visible.nodes.filter((n) => n.kind === 'file' && !n.file?.days).length;
+    if (hiddenByDates.size > 0) {
+      parts.push('Dates');
+      counts.push(`${files - hiddenFiles.size} of ${files} files`);
+    }
+    if (cuts.activeGlow) {
+      parts.push(`Ran · ${formatAge(cuts.activeSeconds)}`);
+      // Worth saying out loud, because zero is a real and common answer here:
+      // runs are Python-only, so a short window can genuinely light nothing.
+      counts.push(`${glowFiles.size} glowing`);
     }
     if (parts.length === 0) return null;
-    const files = visible.nodes.filter((n) => n.kind === 'file' && !n.file?.days).length;
     return {
       title: parts.join(' + '),
-      count: `${files - hiddenFiles.size} of ${files} files`,
+      count: counts.join(' · '),
     };
-  }, [visible, hiddenFiles, hiddenByDates, cuts, heatDays]);
+  }, [visible, hiddenFiles, hiddenByDates, cuts, glowFiles]);
 
   // Build the key's type list. Only the files drawn right now are counted,
   // so the legend never names a type that isn't on the map, and each swatch
@@ -1730,14 +1736,10 @@ export function TerrainPage() {
             onBreathe={() => setBreathing((v) => !v)}
             typeColors={typeColors}
             onTypeColors={setTypeColorsOn}
-            heatCut={cuts.heatCut}
-            onHeatCut={(on) => setCuts({ heatCut: on })}
-            activeCut={cuts.activeCut}
-            onActiveCut={(on) => setCuts({ activeCut: on })}
-            activeDays={cuts.activeDays}
-            onActiveDays={(days) => setCuts({ activeDays: days })}
-            activeSide={cuts.activeSide}
-            onActiveSide={(side) => setCuts({ activeSide: side })}
+            activeGlow={cuts.activeGlow}
+            onActiveGlow={(on) => setCuts({ activeGlow: on })}
+            activeSeconds={cuts.activeSeconds}
+            onActiveSeconds={(seconds) => setCuts({ activeSeconds: seconds })}
           />
           {/* The agent control: Active button, a window that slides past agents
               over the ranked roster, and a popup list to spotlight one. */}

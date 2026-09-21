@@ -18,11 +18,16 @@
   padding-bottom: var(--space-1);
 }
 
-/* Label beside the track, matching TerrainDials' first column width so the
-   two sliders line up down the page even though they're separate components. */
+/* Label, track, readout. The first column matches TerrainDials' label width so
+   every slider on the page lines up down the left even though they're separate
+   components. The third holds the bar's own number, and it is a FIXED width
+   rather than auto for the same reason: auto sizes each row to its own
+   contents, so "7d · 1d" and "45m" would end their tracks in different places
+   and leave the stack ragged down the right. 6rem fits the longest either
+   readout gets ("365d · 24h" at 14px). */
 .row {
   display: grid;
-  grid-template-columns: 3.25rem 1fr;
+  grid-template-columns: 3.25rem 1fr 6rem;
   align-items: center;
   column-gap: var(--space-2);
 }
@@ -55,6 +60,21 @@
   border-color: color-mix(in srgb, var(--accent) 60%, transparent);
   background: color-mix(in srgb, var(--accent) 18%, var(--card-bg));
   color: var(--text);
+}
+
+/* Heat's name. Deliberately NOT .cutButton: heat only colours the map now, so
+   there is nothing here to press. Same box as the switch below it so the two
+   rows still line up, minus every affordance that would promise a gesture. */
+.cutLabel {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 var(--space-1);
+  color: var(--text-secondary);
+  text-shadow: var(--ink-halo, none);
+  font-size: var(--font-size-md);
+  font-weight: 600;
 }
 
 .track {
@@ -270,114 +290,21 @@
   margin-left: var(--space-3);
 }
 
-/* The All / Recent / Old control: three buttons joined into one pill, so it
-   reads as a single three-way choice. Same glass, border and 40px height as
-   the presets beside it; the pill's own border and clipped corners do the
-   joining, and a hairline divides the segments. */
-.segments {
-  display: inline-flex;
-  border: 1px solid color-mix(in srgb, var(--text) 22%, transparent);
-  border-radius: var(--radius-pill);
-  background: color-mix(in srgb, var(--card-bg) 55%, transparent);
-  overflow: hidden;
-}
-
-.segment {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 38px; /* 40px with the pill's 1px border top and bottom */
-  padding: 0 var(--space-2);
-  border: 0;
-  border-left: 1px solid color-mix(in srgb, var(--text) 14%, transparent);
-  background: transparent;
-  color: var(--text-secondary);
-  font-family: inherit;
-  font-size: var(--font-size-md);
-  font-weight: 500;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.segment:first-child {
-  border-left: 0;
-}
-
-/* The chosen segment wears the same lit tint as a chosen preset. */
-.segmentOn {
-  color: var(--text);
-  background: color-mix(in srgb, var(--accent) 18%, var(--card-bg));
-}
-
-/* --- Dynamic, lit ------------------------------------------------------
-
-   The button breathes on the same 10s clock as the half-life it just handed
-   to the breath, so the control performs the mode instead of only naming it.
-
-   Three things it deliberately copies from breathHalfLife() rather than
-   inventing: the 10s period, the 4-in / 6-out split (the swell owns the first
-   40% of the timeline, the settle the remaining 60%), and easing at both
-   turns — a linear glow arrives at the top with velocity and reads as a
-   blink. The one thing it does NOT copy is the log interpolation; that's
-   there so the map's *memory* feels even, and opacity is already perceptually
-   flat enough that the eye doesn't need it.
-
-   It's a glow on a pseudo-element with only `opacity` animating — the pill's
-   own background never changes, so nothing here can touch layout or repaint
-   the text. */
-.presetBreathing {
-  position: relative;
-  isolation: isolate;
-}
-
-.presetBreathing::after {
-  content: '';
-  position: absolute;
-  inset: -1px;
-  z-index: -1;
-  border-radius: var(--radius-pill);
-  background: var(--accent);
-  opacity: 0.14;
-  animation: presetBreath 10s infinite;
-}
-
-@keyframes presetBreath {
-  0% {
-    opacity: 0.14;
-    animation-timing-function: ease-in-out;
-  }
-  40% {
-    opacity: 0.5;
-    animation-timing-function: ease-in-out;
-  }
-  100% {
-    opacity: 0.14;
-  }
-}
-
-/* Held at the swell's midpoint rather than switched off — the lit state still
-   has to look distinctly lit when the motion is gone. */
-@media (prefers-reduced-motion: reduce) {
-  .presetBreathing::after {
-    animation: none;
-    opacity: 0.32;
-  }
-}
-
+/* The number for the bar it sits beside. */
 .readout {
   display: inline-flex;
   align-items: center;
+  justify-content: flex-end;
   gap: var(--space-1);
   font-size: var(--font-size-md);
   color: var(--text-muted);
   text-shadow: var(--ink-halo, none);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  margin-left: var(--space-1);
 }
 
-/* The readout names both windows — a dot in each fire's hot colour before its
-   day count, so "7d · 1d" can't be read the wrong way round. */
+/* A dot in a fire's hot colour before its number, so "7d · 1d" can't be read
+   the wrong way round. */
 .readoutDot {
   display: inline-block;
   width: 8px;
@@ -389,9 +316,20 @@
   margin-left: 0;
 }
 
+/* The Active readout's marker is a hollow ring, not a filled dot, because that
+   is the shape it draws on the map — a gold halo around a dot that ran
+   (terrainCanvas.ts drawRunHalo). */
+.readoutRing {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border: 2px solid;
+  border-radius: 50%;
+}
+
 @media (max-width: 430px) {
   .row {
-    grid-template-columns: 2.75rem 1fr;
+    grid-template-columns: 2.75rem 1fr 5rem;
     column-gap: var(--space-1);
   }
 
@@ -399,18 +337,23 @@
     margin-left: calc(2.75rem + var(--space-1));
   }
 
-  /* The readout is the first thing to go when the three presets and the
-     number can't share a line — the slider position already says it. */
+  /* The readouts STAY at this width. They used to be dropped here, back when
+     they shared a line with the presets and the row wrapped without them; each
+     one now sits in its own row's third column, where it costs a short string
+     and nothing else. A window she can only discover by switching it on is
+     worse than a slightly shorter track. */
   .readout {
-    display: none;
+    gap: 2px;
   }
 }
 
 /* --- the Active row's track ---------------------------------------------
 
-   No ramp: this edge isn't a colour, it's a cut. One grey line, the same
-   weight as the ember band above it, so the two rows read as one instrument
-   with two thumbs on one ruler rather than two unrelated sliders. */
+   No ramp: this bar isn't a colour, it's a mark. One grey line, the same
+   weight as the ember band above it — the rows match in BUILD so the
+   instrument reads as one thing, while the rulers underneath them deliberately
+   don't match at all (note 9 in the .tsx): Heat counts days to a year, this
+   counts minutes to a week. */
 .plainTrack::before {
   content: '';
   position: absolute;

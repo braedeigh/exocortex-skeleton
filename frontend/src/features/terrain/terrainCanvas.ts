@@ -270,8 +270,8 @@ export function leanOf(t: number, a: number): number {
  * she's working in, and the dead wood goes dark rather than shouting in the
  * same colour as the living.
  *
- * "Alive" is the union of both fires (glowOf) — edited OR run, the same pair
- * the All / Recent / Old switch counts as activity — and the fade curve is
+ * "Alive" is the union of both fires (glowOf) — edited OR run — and the fade
+ * curve is
  * glowAlpha, the very curve the ember hue fades on over ash. That's on
  * purpose: under Types the type colour simply takes the ember hue's place, so
  * a dot goes out at exactly the moment it would have gone out under heat —
@@ -1188,10 +1188,10 @@ export class TerrainCanvas {
    * already lifted for the surface.
    *
    * Rebuilt only when its answer could have changed — a new graph, a new
-   * surface, or a different set of files hidden by the All / Recent / Old
-   * switch. The hidden set is compared BY IDENTITY, because the page hands
-   * over a freshly built Set only when the filter or the window actually
-   * moved; under Dynamic that would otherwise be a full roll-up every frame.
+   * surface, or a different set of files hidden by the date range. The hidden
+   * set is compared BY IDENTITY, because the page hands over a freshly built
+   * Set only when the range actually moved; under Dynamic that would otherwise
+   * be a full roll-up every frame.
    */
   private folderShareCache: Map<string, { color: string; fraction: number }[]> | null = null;
   private folderSharesKey: ReadonlySet<string> | null = null;
@@ -1204,13 +1204,23 @@ export class TerrainCanvas {
    */
   private folderFadeCache: Map<string, number> = new Map();
   /**
-   * File dots the All / Recent / Old switch has hidden (activityFilter.ts).
-   * Hidden is a PAINT decision, not a layout one: these dots stay in the sim
-   * and keep their places, so flipping the switch moves nothing — they just
-   * aren't drawn, their tree edges and tethers and threads aren't drawn, and
-   * a tap can't land on them.
+   * File dots the date range has put outside the span (TerrainPage
+   * filesOutsideRange) — the only thing that hides a file dot now. Hidden is
+   * a PAINT decision, not a layout one: these dots stay in the sim and keep
+   * their places, so narrowing the range moves nothing — they just aren't
+   * drawn, their tree edges and tethers and threads aren't drawn, and a tap
+   * can't land on them.
    */
   private hiddenFiles: ReadonlySet<string> = new Set();
+  /**
+   * The Active bar's set: every file that RAN inside the window the bar is set
+   * to (runGlow.ts). These dots take a gold halo and nothing else on the map
+   * changes — no dimming, no hiding, no layout. Additive on purpose: the two
+   * dimming rules that already exist (a tapped agent's footprint, a hovered
+   * file's kin) fight each other if a third joins them, so this one only ever
+   * ADDS light.
+   */
+  private glowFiles: ReadonlySet<string> = new Set();
   /**
    * /terrain's ring set: every file the *shown* agents have read or written,
    * ringed all at once without anything being focused or tapped. Same colours
@@ -1480,11 +1490,20 @@ export class TerrainCanvas {
     this.requestDraw();
   }
 
-  /** Hand over the file dots to hide (activityFilter.ts). Pure lighting: no
-   * camera move, no sim wake, one repaint. */
+  /** Hand over the file dots to hide — only the date range does this now
+   * (TerrainPage filesOutsideRange). Pure lighting: no camera move, no sim
+   * wake, one repaint. */
   setHiddenFiles(ids: ReadonlySet<string>): void {
     if (this.hiddenFiles !== ids) this.folderShareCache = null; // folders describe what's still shown
     this.hiddenFiles = ids;
+    this.requestDraw();
+  }
+
+  /** Hand over the file dots to light up — the ones that ran inside the Active
+   * bar's window (runGlow.ts). Pure lighting, exactly like setHiddenFiles: no
+   * camera move, no sim wake, one repaint. */
+  setGlowFiles(ids: ReadonlySet<string>): void {
+    this.glowFiles = ids;
     this.requestDraw();
   }
 
@@ -1604,6 +1623,37 @@ export class TerrainCanvas {
     ctx.beginPath();
     ctx.arc(n.x ?? 0, n.y ?? 0, nr * (0.22 + 0.24 * fresh), 0, Math.PI * 2);
     ctx.fill();
+    ctx.globalAlpha = base;
+  }
+
+  /** The run halo — this file RAN inside the Active bar's window. A gold ring
+   * just outside the dot, gold because running is the gold fire everywhere
+   * else on this map (terrainGraph.ts RUN_WINDOW_SECONDS).
+   *
+   * Binary, not a freshness ramp: the bar's window already decides what counts
+   * as recent, and fading the ring by age would re-state what the dot's own
+   * gold channel is saying underneath it. One ring, one strength — "this is
+   * one of them".
+   *
+   * Drawn OUTSIDE the body so it reads on a dot of any colour, including a
+   * Types-view dot that has no heat colour left. Its alpha multiplies into
+   * whatever the dimming rules already set, the same way drawWriteCore does,
+   * so a haloed dot inside a dimmed region dims with its surroundings instead
+   * of punching through them. */
+  private drawRunHalo(n: SimNode, nr: number): void {
+    if (!this.glowFiles.has(n.id)) return;
+    const { ctx, transform } = this;
+    // Sit the ring clear of the dot's edge at every zoom: proportional when
+    // the dot is big, a fixed screen gap when it's small, so a 4px dot still
+    // gets a ring around it rather than a smudge on top of it.
+    const radius = Math.max(nr * 1.5, nr + 3 / transform.k);
+    const base = ctx.globalAlpha;
+    ctx.globalAlpha = base * 0.85;
+    ctx.strokeStyle = GOLD_HOT;
+    ctx.lineWidth = 2 / transform.k;
+    ctx.beginPath();
+    ctx.arc(n.x ?? 0, n.y ?? 0, radius, 0, Math.PI * 2);
+    ctx.stroke();
     ctx.globalAlpha = base;
   }
 
@@ -3189,7 +3239,7 @@ export class TerrainCanvas {
         const a = byId.get(th.sourceId);
         const b = byId.get(th.targetId);
         if (!a || !b) continue; // one end filtered off the map by a dial
-        if (this.hiddenFiles.has(a.id) || this.hiddenFiles.has(b.id)) continue; // or hidden by the activity switch
+        if (this.hiddenFiles.has(a.id) || this.hiddenFiles.has(b.id)) continue; // or outside the date range
         const ax = a.x ?? 0;
         const ay = a.y ?? 0;
         const bx = b.x ?? 0;
@@ -3388,8 +3438,8 @@ export class TerrainCanvas {
     const minR = MIN_NODE_PX / transform.k;   // world units for a screen-px floor
     const threadHover = this.hoverFile;
     for (const n of this.simNodes) {
-      // Hidden by the All / Recent / Old switch: skipped whole, so its rings,
-      // write core and flash go with it.
+      // Outside the date range: skipped whole, so its rings, write core,
+      // run halo and flash go with it.
       if (this.hiddenFiles.has(n.id)) continue;
       const inPrint = !dimmed || this.footprint!.has(n.id);
       // A file hover pulls the whole map down around the thread it lit: the
@@ -3581,9 +3631,9 @@ export class TerrainCanvas {
         //               that subtree RAN, in the same two hues and on the same
         //               curve as the file dots. Cold, that lands on the plain
         //               border colour, which is where folders started.
-        // The All / Recent / Old switch is felt through the first of those:
-        // the dominant type is counted over the files still on screen, so on
-        // Old the outline describes the old files that are left.
+        // Whatever is hiding dots is felt through the first of those: the
+        // dominant type is counted over the files still on screen, so a
+        // narrowed date range re-describes the outline over what's left.
         folderShares = this.typeColors ? (this.folderSharesOf(n.id) ?? null) : null;
         folderStroke = this.typeColors
           ? (folderShares?.[0].color ?? theme.border)
@@ -3633,6 +3683,9 @@ export class TerrainCanvas {
           ctx.fill();
         }
         if (n.node.kind === 'file') this.drawWriteCore(n, nr, now);
+        // Ran inside the Active bar's window (note 8 in TerrainHeatBar.tsx).
+        if (n.node.kind === 'file') this.drawRunHalo(n, nr);
+
       }
       // How this file was touched, when anything on screen touched it: the
       // backdrop's focused conversation first, else /terrain's shown-agent

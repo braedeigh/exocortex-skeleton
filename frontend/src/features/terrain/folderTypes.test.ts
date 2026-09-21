@@ -12,7 +12,7 @@ import type { TerrainNode } from './terrainGraph';
  * Five things would break silently rather than visibly, which is why they're
  * pinned: that the count goes all the way DOWN and not one level; that the
  * counts are the real file counts (they become the shares of the outline);
- * that the All / Recent / Old switch narrows it; that "Other" never outranks
+ * that the hidden set narrows it; that "Other" never outranks
  * a real language; and that a tie settles the same way every frame, so a
  * folder can't flicker between two colours.
  *
