@@ -105,7 +105,11 @@
  * anything wired to it, and the chain of folders it sits inside (`kinOf` +
  * homeChain, in hoverSelection.ts), so the bright boxes around it are its
  * address — named at any zoom, with the tree lines between them left drawn.
- * That holds only while nothing is PICKED OUT. Once a body is (a spotlit agent, a pinned table, or
+ * Wired to it includes the AGENTS holding it and the TABLES it touches, which
+ * keep their colour and their line while the cursor is on one of their files;
+ * and the picked-out body itself never dims (`isSubject`), so a hover asks a
+ * second question without cancelling the first. That holds only while nothing
+ * is PICKED OUT. Once a body is (a spotlit agent, a pinned table, or
  * a search — `selectionUp` in the label pass), the faded dots stop answering
  * and the named set is whatever the selection asked for; hovering one of
  * THOSE names picks it out and steps the others back. One fade,
@@ -1099,6 +1103,10 @@ export class TerrainCanvas {
   /** Either end of a rope → the node ids at its other ends. The hover reads
    * this; it is rebuilt only when the ropes or the graph change. */
   private codeLinkKin = new Map<string, Set<string>>();
+  /** Which agent orbs have touched which files, either direction — the tether
+   * edges read as a lookup. What keeps an agent lit when the cursor is on one
+   * of its files. Rebuilt with the graph, never in the draw loop. */
+  private sessionKin = new Map<string, Set<string>>();
   /** The folder node(s) the tables hang off (`exo.db`) — pinned at the head of
    * the shelves, and excused from the ordinary folder spring. */
   private shelfHubIds = new Set<string>();
@@ -1926,6 +1934,15 @@ export class TerrainCanvas {
       // drawn below. Symmetric, so hovering one of those FILES lights the
       // tables it touches instead — the same question asked from either end.
       for (const other of this.codeLinkKin.get(id) ?? []) kin.add(other);
+      // ...and the AGENTS that have touched it, which keep their colour and
+      // their tether while the cursor is on one of their files. An agent
+      // holding a file is as much a fact about the file as the folder it sits
+      // in, and the dim shouldn't swallow the thing she picked out to look at.
+      //
+      // Prompt that produced it: "when i have an agent or an sql table
+      // selected, i want it to retain the coloration for the agent or sql
+      // table that it is connected to".
+      for (const other of this.sessionKin.get(id) ?? []) kin.add(other);
     }
     return kin;
   }
@@ -1946,9 +1963,25 @@ export class TerrainCanvas {
    * lights something rather than being dropped. */
   private isWired = (id: string): boolean =>
     (this.parentById.get(id) ?? null) !== null ||
+    this.sessionKin.has(id) ||
     this.foreignKeyKin.has(id) ||
     this.codeLinkKin.has(id) ||
     this.threads.some((th) => th.sourceId === id || th.targetId === id);
+
+  /**
+   * Is this body the one she has PICKED OUT — a spotlit agent's orb, or a
+   * pinned table?
+   *
+   * The picked-out body keeps its full colour under any hover. A hover asks a
+   * second question; it doesn't withdraw the first, and an orb that dimmed
+   * while the cursor wandered would leave her selection looking cancelled.
+   * The files around it still recede, so the hover is answered — it's only
+   * the subject itself that holds.
+   */
+  private isSubject(n: SimNode): boolean {
+    if (n.id === this.heldFile) return true;
+    return this.footprint !== null && n.node.kind === 'session' && this.footprint.has(n.id);
+  }
 
   /** Point the wiring highlight at a file dot, or clear it. A click can pin
    * one lit (holdFileHover), so what's under the cursor and what's pinned are
@@ -2258,6 +2291,20 @@ export class TerrainCanvas {
       if (!this.foreignKeyKin.has(b)) this.foreignKeyKin.set(b, new Set());
       this.foreignKeyKin.get(a)!.add(b);
       this.foreignKeyKin.get(b)!.add(a);
+    }
+
+    // Which agents have touched which files, either direction — the tether
+    // edges as a lookup, built here with the links for the same reason the
+    // foreign keys are.
+    this.sessionKin = new Map();
+    for (const link of this.simLinks) {
+      if (link.kind !== 'session') continue;
+      const a = (link.source as SimNode).id;
+      const b = (link.target as SimNode).id;
+      if (!this.sessionKin.has(a)) this.sessionKin.set(a, new Set());
+      if (!this.sessionKin.has(b)) this.sessionKin.set(b, new Set());
+      this.sessionKin.get(a)!.add(b);
+      this.sessionKin.get(b)!.add(a);
     }
 
     // The tree, as a child → parent lookup: what homeChain climbs to find the
@@ -3522,7 +3569,10 @@ export class TerrainCanvas {
       // hovered dot and everything wired to it stay full, everything else
       // recedes. Multiplied into the footprint alpha rather than replacing it,
       // so a spotlit agent's dimming still holds underneath.
-      const kinAlpha = threadHover === null || this.hoverFileKin.has(n.id) ? 1 : UNSELECTED_FADE;
+      const kinAlpha =
+        threadHover === null || this.hoverFileKin.has(n.id) || this.isSubject(n)
+          ? 1
+          : UNSELECTED_FADE;
       ctx.globalAlpha = (inPrint ? 1 : UNSELECTED_FADE) * kinAlpha;
       // Never let a node shrink below a visible dot, however far out we are.
       const nr = Math.max(n.radius, minR);
@@ -3992,7 +4042,9 @@ export class TerrainCanvas {
       // the lit answer steps back, caption and all, or the map dims while a
       // field of full-ink names sits on top of it unchanged.
       const kinLabelFade =
-        this.hoverFile === null || this.hoverFileKin.has(n.id) ? 1 : UNSELECTED_FADE;
+        this.hoverFile === null || this.hoverFileKin.has(n.id) || this.isSubject(n)
+          ? 1
+          : UNSELECTED_FADE;
       ctx.globalAlpha =
         (hover !== null && n.node.kind === 'session' && !hovered ? 0.3 : 1) * kinLabelFade;
       if (n.node.kind === 'repo') {
@@ -4120,8 +4172,9 @@ export class TerrainCanvas {
       placed.push(box);
 
       // With a table hovered, the names outside its joins step back with
-      // their rectangles.
-      ctx.globalAlpha = kin === null || kin.has(n.id) ? 1 : 0.3;
+      // their rectangles — except the PINNED table's own name, which holds
+      // with its rectangle wherever the cursor has gone (isSubject).
+      ctx.globalAlpha = kin === null || kin.has(n.id) || this.isSubject(n) ? 1 : 0.3;
       if (detailed) {
         ctx.font = `500 ${LABEL_PX}px ${this.fontFamily}`;
         ctx.fillStyle = theme.textMuted;
