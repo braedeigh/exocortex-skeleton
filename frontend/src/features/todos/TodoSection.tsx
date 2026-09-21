@@ -23,10 +23,10 @@ export interface TodoSectionProps {
    * out), the header count reads "shown/total" so hidden items are never
    * silently uncounted. */
   totalCount?: number;
-  /** Current focus-chip filter front (see FocusChips) — a *change* here (not
-   * the value itself) auto-opens this section when it still has something
-   * in it, so filtering a front surfaces its cards instead of leaving
-   * them collapsed (dev note 685eb5fa). */
+  /** Current focus-chip selection (see FocusChips) — a *change* here (not the
+   * value itself) auto-opens this section when it still has something in it,
+   * so changing the filter surfaces its cards instead of leaving them
+   * collapsed (dev note 685eb5fa). Clearing back to All is such a change. */
   focusFronts?: string[];
   onToggle: (id: string) => void;
   onOpenDetail: (item: TodoItem) => void;
@@ -85,6 +85,12 @@ export function TodoSection({
   // actual tap on a focus chip should). Keyed on the joined ids so a new
   // array of the same fronts, which React makes on every render, doesn't
   // count as a change.
+  //
+  // CLEARING the filter counts as a change like any other. It used to be the
+  // one selection change that opened nothing, and it's the one that brings the
+  // most items back: a section left collapsed while a front emptied it stayed
+  // collapsed on the way back to All, so its header count jumped to 22 with no
+  // rows under it and the page read as broken.
   const focusKey = (focusFronts || []).join(',');
   const mountedRef = useRef(false);
   useEffect(() => {
@@ -92,7 +98,7 @@ export function TodoSection({
       mountedRef.current = true;
       return;
     }
-    if (focusKey && itemsRef.current.length > 0) setOpen(true);
+    if (itemsRef.current.length > 0) setOpen(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusKey]);
 

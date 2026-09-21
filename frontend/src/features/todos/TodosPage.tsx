@@ -237,6 +237,10 @@ export function TodosPage() {
     [waitingAll, focusFronts],
   );
   const focusCounts = useMemo(() => computeFocusCounts(sections, serverDate), [sections, serverDate]);
+  // "The selection is showing nothing", which is not the same as "the list is
+  // empty" — the ladder hides behind a single line in that case (see below).
+  const emptySelection =
+    focusFronts.length > 0 && selectedFocusCount(sections, serverDate, focusFronts) === 0;
 
   // Context gating (todo_view_rules): compare the client clock against each
   // front's visibility window. The page re-renders at least every 5s (the
@@ -509,10 +513,18 @@ export function TodosPage() {
                   total this only ever fired when the whole list was empty, so
                   filtering to a front and clearing it rendered four empty
                   section headers instead of this line. */}
-              {focusFronts.length > 0 && selectedFocusCount(sections, serverDate, focusFronts) === 0 ? (
+              {emptySelection ? (
                 <div className={styles.emptyFocus}>Nothing here right now. 🎉</div>
-              ) : (
-                ladderSections.map((section, i) => (
+              ) : null}
+
+              {/* Hide the ladder, don't unmount it. Each section holds its own
+                  open/closed state, so swapping these cards out for the line
+                  above threw that state away — clearing the filter came back to
+                  four collapsed sections, header counts full and no rows under
+                  them. Hidden, they keep that state (and still see the filter
+                  change, so they re-open when their items come back). */}
+              <div style={{ display: emptySelection ? 'none' : undefined }}>
+                {ladderSections.map((section, i) => (
                   <TodoSection
                     key={section.name}
                     label={section.name}
@@ -537,8 +549,8 @@ export function TodosPage() {
                     onMove={todoActions.move}
                     onAddClick={(label) => setAddDraft({ section: label })}
                   />
-                ))
-              )}
+                ))}
+              </div>
 
               <NotNowCard entries={gatedBySection.notNow} fronts={fronts} onOpenDetail={setSelected} />
 
