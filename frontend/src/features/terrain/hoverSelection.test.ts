@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { highlightTarget, tapStage, wiringTarget } from './hoverSelection';
+import { highlightTarget, homeChain, tapStage, wiringTarget } from './hoverSelection';
 
 /**
  * hoverSelection.test.ts — that the first click never opens anything, that
  * the second click on the same body does, that neither a hover nor a pin can
- * light a body with nothing wired to it, and that a pin survives the cursor
- * moving across its own answer.
+ * light a body with nothing wired to it, that a pin survives the cursor
+ * moving across its own answer, and that a file's home chain climbs to the
+ * repo without a malformed tree hanging the walk.
  */
 
 describe('tapStage', () => {
@@ -69,5 +70,37 @@ describe('wiringTarget', () => {
 
   it('refuses to hold a pin with nothing wired to it', () => {
     expect(wiringTarget('store.py', 'lonely', wired, inAnswer)).toBe('store.py');
+  });
+});
+
+describe('homeChain', () => {
+  // A file three folders deep in one repo, the way the graph builds it.
+  const tree: Record<string, string | null> = {
+    'skeleton:file:frontend/src/main.tsx': 'skeleton:dir:frontend/src',
+    'skeleton:dir:frontend/src': 'skeleton:dir:frontend',
+    'skeleton:dir:frontend': 'skeleton',
+    skeleton: null,
+  };
+  const parentOf = (id: string) => tree[id] ?? null;
+
+  it('climbs from a file to its repo, nearest folder first', () => {
+    expect(homeChain('skeleton:file:frontend/src/main.tsx', parentOf)).toEqual([
+      'skeleton:dir:frontend/src',
+      'skeleton:dir:frontend',
+      'skeleton',
+    ]);
+  });
+
+  it('gives a repo at the top of the tree nothing to light', () => {
+    expect(homeChain('skeleton', parentOf)).toEqual([]);
+  });
+
+  it('gives an id the tree has never heard of nothing to light', () => {
+    expect(homeChain('agent-a', parentOf)).toEqual([]);
+  });
+
+  it('ends the walk on a tree that points back at itself', () => {
+    const loop: Record<string, string> = { a: 'b', b: 'c', c: 'a' };
+    expect(homeChain('a', (id) => loop[id] ?? null)).toEqual(['b', 'c']);
   });
 });

@@ -100,8 +100,12 @@
  *
  * Every file dot NAMES ITSELF under the cursor (`hoverLabel`), on a plate of
  * the map's background so the name is readable over a dense field — pointing
- * at something is the gesture that asks "what is this". That holds only while
- * nothing is PICKED OUT. Once a body is (a spotlit agent, a pinned table, or
+ * at something is the gesture that asks "what is this". It also says WHERE IT
+ * IS KEPT: the hover dims the whole map to `UNSELECTED_FADE` except that dot,
+ * anything wired to it, and the chain of folders it sits inside (`kinOf` +
+ * homeChain, in hoverSelection.ts), so the bright boxes around it are its
+ * address — named at any zoom, with the tree lines between them left drawn.
+ * That holds only while nothing is PICKED OUT. Once a body is (a spotlit agent, a pinned table, or
  * a search — `selectionUp` in the label pass), the faded dots stop answering
  * and the named set is whatever the selection asked for; hovering one of
  * THOSE names picks it out and steps the others back. One fade,
@@ -156,7 +160,7 @@ import {
 } from './terrainGraph';
 import type { TerrainThread } from './terrainThreads';
 import type { TableCodeLink } from './tableMentions';
-import { wiringTarget } from './hoverSelection';
+import { homeChain, wiringTarget } from './hoverSelection';
 import { bodyRadius, sameRings } from './ringBodies';
 import { fileTypeOf } from './fileTypes';
 import { childTypeCounts, liveliestBeneath } from './folderTypes';
@@ -1141,6 +1145,10 @@ export class TerrainCanvas {
   /** Set when the table shelves first appear: frame the whole map once more
    * when the physics settles — unless she has taken the camera by then. */
   private refitWhenSettled = false;
+  /** Every node's parent, by id — the tree, one step at a time, so a dot can
+   * be asked which folders it sits inside (homeChain) without walking the
+   * whole node list. Rebuilt with the graph. */
+  private parentById = new Map<string, string | null>();
   /** Everything the hovered file is wired to, itself included — recomputed
    * only when the hover changes, not per frame. */
   private hoverFileKin: Set<string> = new Set();
@@ -1897,6 +1905,17 @@ export class TerrainCanvas {
     const kin = new Set<string>();
     if (id !== null) {
       kin.add(id);
+      // WHERE IT'S KEPT: every folder it sits inside, up to the repo. The one
+      // answer every dot on the tree has — a file nothing is joined to still
+      // lives somewhere — so pointing at any file at all now dims the map
+      // down to that dot and the boxes around it.
+      //
+      // Prompt that produced it: "when i hover over any given file, it dims
+      // every other file and folder except for the folders that it's
+      // contained within, so that i can see where the file is stored easily".
+      for (const folder of homeChain(id, (child) => this.parentById.get(child) ?? null)) {
+        kin.add(folder);
+      }
       for (const th of this.threads) {
         if (th.sourceId === id) kin.add(th.targetId);
         else if (th.targetId === id) kin.add(th.sourceId);
@@ -1919,10 +1938,14 @@ export class TerrainCanvas {
     this.heldFileKin = this.kinOf(this.heldFile);
   }
 
-  /** Is anything actually wired to this dot? Threads, a foreign key, or a code
-   * rope to a table. Lighting up a dot with nothing wired to it would dim the
-   * whole map to say nothing, so neither a hover nor a click may do it. */
+  /** Is anything actually wired to this dot? The folders it's kept in,
+   * threads, a foreign key, or a code rope to a table. Lighting up a dot with
+   * nothing wired to it would dim the whole map to say nothing, so neither a
+   * hover nor a click may do it — but anything sitting on the tree has at
+   * least its folders to name, which is why hovering an ordinary file now
+   * lights something rather than being dropped. */
   private isWired = (id: string): boolean =>
+    (this.parentById.get(id) ?? null) !== null ||
     this.foreignKeyKin.has(id) ||
     this.codeLinkKin.has(id) ||
     this.threads.some((th) => th.sourceId === id || th.targetId === id);
@@ -2236,6 +2259,13 @@ export class TerrainCanvas {
       this.foreignKeyKin.get(a)!.add(b);
       this.foreignKeyKin.get(b)!.add(a);
     }
+
+    // The tree, as a child → parent lookup: what homeChain climbs to find the
+    // folders a dot is kept in. Rebuilt here with the links, never in the draw
+    // loop, and any hover already up is re-answered against it so a refeed
+    // can't leave the wrong boxes lit.
+    this.parentById = new Map(nodes.map((n) => [n.id, n.parentId]));
+    if (this.hoverFile !== null || this.heldFile !== null) this.recomputeHoverKin();
 
     // Remember the shape we just laid out, so the next feed can be answered
     // without touching the sim. Built from what was HANDED IN, not from the
@@ -3438,9 +3468,14 @@ export class TerrainCanvas {
       // tree stays at full strength while the dots fall away, and the map
       // reads as a skeleton with the flesh removed rather than as one thing
       // stepping back.
-      const hoveredKey =
-        link.kind === 'fk' && (s.id === this.hoverFile || t.id === this.hoverFile);
-      if (this.hoverFile !== null && !hoveredKey) ctx.globalAlpha *= 0.22;
+      //
+      // A line with BOTH ends inside the lit answer is spared: the hovered
+      // file's chain of folders stays drawn as a line running up the tree —
+      // which is the thing she's looking for, the path from the dot to where
+      // it's kept — and a hovered table's own foreign keys stay drawn to the
+      // tables they join.
+      const litLine = this.hoverFileKin.has(s.id) && this.hoverFileKin.has(t.id);
+      if (this.hoverFile !== null && !litLine) ctx.globalAlpha *= 0.22;
       // A line into a stale dot recedes with it (staleEdgeAlpha), so under
       // Types the whole limb goes quiet together instead of the dot leaving a
       // full-strength line hanging in the air. Multiplied in rather than set,
@@ -3914,7 +3949,17 @@ export class TerrainCanvas {
       // the step-back view zoom is not hers to set, so the bound is relevance
       // instead: only the directories the focused agent is actually working
       // inside get named, however far out the camera happens to be sitting.
-      if (n.node.kind === 'dir' && (captioned ? !this.focusDirIds.has(n.id) : k < LABEL_MIN_K)) continue;
+      // ...with one free pass: a folder the HOVERED file is kept in names
+      // itself however far out the camera sits. The hover has already dimmed
+      // the map down to say where this file lives, and an unnamed bright box
+      // answers half of that. Same pass the rope-ends get above.
+      const homeFolder = this.hoverFile !== null && this.hoverFileKin.has(n.id);
+      if (
+        n.node.kind === 'dir' &&
+        !homeFolder &&
+        (captioned ? !this.focusDirIds.has(n.id) : k < LABEL_MIN_K)
+      )
+        continue;
       // No name for a folder that isn't painted — under Types a branch with
       // nothing live in it goes entirely, label and all.
       if ((n.node.kind === 'dir' || n.node.kind === 'repo') && this.folderFadeOf(n.id) <= 0.01) continue;
@@ -3943,7 +3988,13 @@ export class TerrainCanvas {
       // Names follow their orbs into the background: with a hover up, the
       // other agents' titles recede alongside their rings rather than sitting
       // there at full weight over a map that's stopped talking about them.
-      ctx.globalAlpha = hover !== null && n.node.kind === 'session' && !hovered ? 0.3 : 1;
+      // A name recedes with its body: under a file hover everything outside
+      // the lit answer steps back, caption and all, or the map dims while a
+      // field of full-ink names sits on top of it unchanged.
+      const kinLabelFade =
+        this.hoverFile === null || this.hoverFileKin.has(n.id) ? 1 : UNSELECTED_FADE;
+      ctx.globalAlpha =
+        (hover !== null && n.node.kind === 'session' && !hovered ? 0.3 : 1) * kinLabelFade;
       if (n.node.kind === 'repo') {
         ctx.font = `700 ${LABEL_PX + 2}px ${this.fontFamily}`;
         ctx.fillStyle = theme.text;
@@ -3982,7 +4033,7 @@ export class TerrainCanvas {
           //
           // Prompt that produced it: "hovering over them would make the
           // hovered one get brighter and the other ones fade".
-          if (pickedOut) ctx.globalAlpha = NAMED_FADE;
+          if (pickedOut) ctx.globalAlpha *= NAMED_FADE;
           ctx.fillStyle = theme.textSecondary;
         }
         ctx.fillText(n.node.label, sx, ty);

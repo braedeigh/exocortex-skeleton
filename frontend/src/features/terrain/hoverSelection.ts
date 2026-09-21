@@ -16,6 +16,8 @@
  *   HOVER VS HOLD      a real hover outranks the pinned selection, a pinned
  *                      selection outranks nothing, and a body with nothing
  *                      wired to it never takes the highlight at all.
+ *   HOME CHAIN         the folders a body is stored inside, which the hover
+ *                      keeps lit while the rest of the map steps back.
  *
  * Used by TerrainPage.tsx (the click) and terrainCanvas.ts (the highlight).
  *
@@ -86,4 +88,32 @@ export function wiringTarget(
 ): string | null {
   if (held !== null && hovered !== null && isWired(held) && isInAnswer(hovered)) return held;
   return highlightTarget(hovered, held, isWired);
+}
+
+/**
+ * The folders a body is stored INSIDE — nearest first, up to the repo.
+ *
+ * This is what a hover keeps lit beside the dot itself. Pointing at a file
+ * dims the rest of the map so the one dot reads alone, and its chain of
+ * containers is the answer to "where is this kept" without her having to read
+ * a path off a card: the boxes that stay bright ARE the folders it's in.
+ *
+ * `parentOf` is the map's tree walked one step at a time. Ids already seen
+ * stop the climb, so a tree that somehow points back at itself ends the walk
+ * instead of hanging the page.
+ *
+ * Prompt that produced it: "when i hover over any given file, it dims every
+ * other file and folder except for the folders that it's contained within, so
+ * that i can see where the file is stored easily".
+ */
+export function homeChain(id: string, parentOf: (id: string) => string | null): string[] {
+  const chain: string[] = [];
+  const seen = new Set<string>([id]);
+  let parent = parentOf(id);
+  while (parent !== null && !seen.has(parent)) {
+    chain.push(parent);
+    seen.add(parent);
+    parent = parentOf(parent);
+  }
+  return chain;
 }
