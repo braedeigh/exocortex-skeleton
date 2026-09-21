@@ -106,15 +106,21 @@
  * homeChain, in hoverSelection.ts), so the bright boxes around it are its
  * address — named at any zoom, with the tree lines between them left drawn.
  * Wired to it includes the AGENTS holding it and the TABLES it touches, which
- * keep their colour and their line while the cursor is on one of their files;
- * and the picked-out body itself never dims (`isSubject`), so a hover asks a
- * second question without cancelling the first. That holds only while nothing
- * is PICKED OUT. Once a body is (a spotlit agent, a pinned table, or
- * a search — `selectionUp` in the label pass), the faded dots stop answering
- * and the named set is whatever the selection asked for; hovering one of
- * THOSE names picks it out and steps the others back. One fade,
- * `UNSELECTED_FADE`, for everything outside a selection, whichever of the
- * three it is — and the touch rings recede on it alongside their dots.
+ * keep their colour and their line while the cursor is on one of their files.
+ *
+ * Once a body is PICKED OUT — a spotlit agent, a search (both arrive as
+ * `footprint`), or a pinned table (`heldFile`) — the hover is admitted only
+ * INSIDE that selection (`wiringTarget`, hoverSelection.ts): pointing at one
+ * of a spotlit agent's own files narrows onto it, that file's folders light
+ * and the agent's other files step back, while pointing anywhere outside the
+ * selection does nothing at all. A pin is stricter still and holds against
+ * any cursor. The picked-out body itself never dims (`isSubject`), so
+ * narrowing inside a selection can't cancel it. The faded dots also stop
+ * naming themselves while a selection is up (`selectionUp` in the label
+ * pass), and hovering one of the names it asked for picks that one out and
+ * steps the others back. One fade, `UNSELECTED_FADE`, for everything outside
+ * a selection, whichever of the three it is — and the touch rings recede on
+ * it alongside their dots.
  *
  * Hovering a table also draws a rope out to every CODE FILE that touches it,
  * named where it lands (`setTableCodeLinks`, and the rope pass just before
@@ -1157,13 +1163,11 @@ export class TerrainCanvas {
    * be asked which folders it sits inside (homeChain) without walking the
    * whole node list. Rebuilt with the graph. */
   private parentById = new Map<string, string | null>();
-  /** Everything the hovered file is wired to, itself included — recomputed
-   * only when the hover changes, not per frame. */
+  /** Everything the LIT body is wired to, itself included — recomputed only
+   * when the lighting changes, not per frame. One set, not two: while a table
+   * is pinned the pin IS the lit body (wiringTarget), so there is never a
+   * hover answer sitting beside a different pinned answer. */
   private hoverFileKin: Set<string> = new Set();
-  /** The same, for the PINNED body — held apart from hoverFileKin so that
-   * sweeping the cursor across the pin's own answer can't redefine what the
-   * answer was. */
-  private heldFileKin: Set<string> = new Set();
   private flashTimer: number | null = null;
   /**
    * Code-weather: written lines rising off the file nodes as agents work —
@@ -1947,26 +1951,11 @@ export class TerrainCanvas {
     return kin;
   }
 
-  /** Re-answer for both the cursor and the pin. They are asked separately
-   * because the pin's answer must NOT move when the cursor does — that is the
-   * whole point of pinning one (see wiringTarget). */
+  /** Re-answer for whatever is lit — the cursor's dot, or the pin that
+   * outranks it. */
   private recomputeHoverKin(): void {
     this.hoverFileKin = this.kinOf(this.hoverFile);
-    this.heldFileKin = this.kinOf(this.heldFile);
   }
-
-  /** Is anything actually wired to this dot? The folders it's kept in,
-   * threads, a foreign key, or a code rope to a table. Lighting up a dot with
-   * nothing wired to it would dim the whole map to say nothing, so neither a
-   * hover nor a click may do it — but anything sitting on the tree has at
-   * least its folders to name, which is why hovering an ordinary file now
-   * lights something rather than being dropped. */
-  private isWired = (id: string): boolean =>
-    (this.parentById.get(id) ?? null) !== null ||
-    this.sessionKin.has(id) ||
-    this.foreignKeyKin.has(id) ||
-    this.codeLinkKin.has(id) ||
-    this.threads.some((th) => th.sourceId === id || th.targetId === id);
 
   /**
    * Is this body the one she has PICKED OUT — a spotlit agent's orb, or a
@@ -1983,14 +1972,21 @@ export class TerrainCanvas {
     return this.footprint !== null && n.node.kind === 'session' && this.footprint.has(n.id);
   }
 
-  /** Point the wiring highlight at a file dot, or clear it. A click can pin
-   * one lit (holdFileHover), so what's under the cursor and what's pinned are
-   * resolved together — hoverSelection.ts holds that rule. A pin outranks a
-   * hover on anything it is already wired to, so reading across a pinned
-   * table's named rope-ends can't quietly hand the subject to one of them. */
+  /**
+   * Point the wiring highlight at a file dot, or clear it.
+   *
+   * A hover only counts inside what's PICKED OUT, and the two ways of picking
+   * something out are both handed to the rule here: the pin a click left
+   * (`heldFile`) and the spotlight the page set (`footprint` — an agent's
+   * files, or a search's hits). hoverSelection.ts decides between them; this
+   * only reports what's up. A hover outside the spotlight comes back null, so
+   * sweeping the cursor across the rest of the map can't re-point it.
+   */
   private setHoverFile(id: string | null): void {
-    const next = wiringTarget(id, this.heldFile, this.isWired, (other) =>
-      this.heldFileKin.has(other),
+    const next = wiringTarget(
+      id,
+      this.heldFile,
+      this.footprint === null ? null : (other) => this.footprint!.has(other),
     );
     if (next === this.hoverFile) return;
     this.hoverFile = next;
@@ -2006,16 +2002,18 @@ export class TerrainCanvas {
    * the code ropes lit so she can read them without holding the mouse still,
    * and the page decides what a second click on the same body means.
    *
-   * A body with nothing wired to it pins nothing — the page still treats the
-   * click as a selection, but the map doesn't dim itself to announce an empty
-   * answer.
+   * A pin HOLDS once it's set: while a table is pinned it stays the subject
+   * of the map's lighting, and no hover — on one of its own rope-ends or on
+   * anything else — takes that over. Releasing it is a second click, or a
+   * click on empty canvas.
    *
    * Prompt that produced it: "i want them to highlight the tables and files
    * they're connected to on one click and a double click opens it up".
    */
   holdFileHover(id: string | null): void {
     this.heldFile = id;
-    this.heldFileKin = this.kinOf(id);
+    // Clearing the cursor's own hover is what makes the pin the lit body:
+    // with nothing hovered the rule falls straight through to the pin.
     this.setHoverFile(null);
   }
 
@@ -3974,10 +3972,8 @@ export class TerrainCanvas {
       (namedFiles !== null && namedFiles.has(id)) || (ropeNamed !== null && ropeNamed.has(id));
     // Has she picked one body out? All three gestures count and mean the same
     // thing — a spotlit agent, a search (both arrive as `footprint`), and a
-    // pinned table. A pin with nothing wired to it doesn't count: it quieted
-    // nothing, so there is no "the rest" for it to be speaking over.
-    const selectionUp =
-      this.footprint !== null || (this.heldFile !== null && this.isWired(this.heldFile));
+    // pinned table.
+    const selectionUp = this.footprint !== null || this.heldFile !== null;
     // Pointing at one of the names picks it OUT of the set rather than adding
     // to it — see the fade at the bottom of this loop.
     const pickedOut = selectionUp && this.hoverLabel !== null && named(this.hoverLabel);

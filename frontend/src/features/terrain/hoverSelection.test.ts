@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { highlightTarget, homeChain, tapStage, wiringTarget } from './hoverSelection';
+import { homeChain, tapStage, wiringTarget } from './hoverSelection';
 
 /**
- * hoverSelection.test.ts — that the first click never opens anything, that
- * the second click on the same body does, that neither a hover nor a pin can
- * light a body with nothing wired to it, that a pin survives the cursor
- * moving across its own answer, and that a file's home chain climbs to the
- * repo without a malformed tree hanging the walk.
+ * hoverSelection.test.ts — that the first click never opens anything and the
+ * second click on the same body does; that a hover only counts inside what's
+ * picked out (a pin holds against any cursor, a spotlight narrows onto its
+ * own members and ignores everything else); and that a file's home chain
+ * climbs to the repo without a malformed tree hanging the walk.
  */
 
 describe('tapStage', () => {
@@ -23,53 +23,41 @@ describe('tapStage', () => {
   });
 });
 
-describe('highlightTarget', () => {
-  const wired = (id: string) => id !== 'lonely';
-
-  it('follows the cursor over a pin', () => {
-    expect(highlightTarget('hovered', 'held', wired)).toBe('hovered');
-  });
-
-  it('falls back to the pin when the cursor is over nothing', () => {
-    expect(highlightTarget(null, 'held', wired)).toBe('held');
-  });
-
-  it('lights nothing when neither is set', () => {
-    expect(highlightTarget(null, null, wired)).toBeNull();
-  });
-
-  it('refuses a hovered body with nothing wired to it, and keeps the pin', () => {
-    expect(highlightTarget('lonely', 'held', wired)).toBe('held');
-  });
-
-  it('refuses a pinned body with nothing wired to it', () => {
-    expect(highlightTarget(null, 'lonely', wired)).toBeNull();
-  });
-});
-
 describe('wiringTarget', () => {
-  const wired = (id: string) => id !== 'lonely';
-  // The pinned table's answer: the code files at the end of its ropes.
-  const inAnswer = (id: string) => id === 'table' || id === 'store.py';
+  // A spotlit agent: its orb and the three files it has touched.
+  const footprint = new Set(['agent-a', 'store.py', 'server.py', 'todos.py']);
+  const inFootprint = (id: string) => footprint.has(id);
 
-  it('keeps the pin while the cursor is inside the answer it pinned', () => {
-    expect(wiringTarget('store.py', 'table', wired, inAnswer)).toBe('table');
+  it('follows the cursor when nothing is picked out', () => {
+    expect(wiringTarget('store.py', null, null)).toBe('store.py');
   });
 
-  it('hands over to a hover on something outside the answer', () => {
-    expect(wiringTarget('elsewhere.py', 'table', wired, inAnswer)).toBe('elsewhere.py');
+  it('lights nothing when neither the cursor nor a pin has anything', () => {
+    expect(wiringTarget(null, null, null)).toBeNull();
   });
 
-  it('falls back to the plain rule when nothing is pinned', () => {
-    expect(wiringTarget('store.py', null, wired, inAnswer)).toBe('store.py');
+  it('narrows onto one of the spotlit files', () => {
+    expect(wiringTarget('server.py', null, inFootprint)).toBe('server.py');
   });
 
-  it('holds the pin when the cursor is over nothing', () => {
-    expect(wiringTarget(null, 'table', wired, inAnswer)).toBe('table');
+  it('ignores a hover outside the spotlight, leaving it lit', () => {
+    expect(wiringTarget('elsewhere.py', null, inFootprint)).toBeNull();
   });
 
-  it('refuses to hold a pin with nothing wired to it', () => {
-    expect(wiringTarget('store.py', 'lonely', wired, inAnswer)).toBe('store.py');
+  it('keeps the pin while the cursor is on one of its own rope-ends', () => {
+    expect(wiringTarget('store.py', 'table', null)).toBe('table');
+  });
+
+  it('keeps the pin while the cursor is somewhere else entirely', () => {
+    expect(wiringTarget('elsewhere.py', 'table', null)).toBe('table');
+  });
+
+  it('keeps the pin with the cursor off the map', () => {
+    expect(wiringTarget(null, 'table', null)).toBe('table');
+  });
+
+  it('lets the pin outrank a spotlight that is also up', () => {
+    expect(wiringTarget('server.py', 'table', inFootprint)).toBe('table');
   });
 });
 

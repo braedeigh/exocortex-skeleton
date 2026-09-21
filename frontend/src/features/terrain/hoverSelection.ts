@@ -1,11 +1,11 @@
 /**
- * hoverSelection.ts — what a gesture on the map MEANS, as two small rules
+ * hoverSelection.ts — what a gesture on the map MEANS, as three small rules
  * kept apart from the things that carry them out.
  *
- * Both rules used to live inside an event handler each — one in the canvas,
- * one in the page — where neither could be checked without a browser. They
- * are short but not obvious, and both have a failure that is invisible rather
- * than loud (a map that dims itself to announce nothing; a click that opens a
+ * They started out inside an event handler each — one in the canvas, one in
+ * the page — where neither could be checked without a browser. They are short
+ * but not obvious, and they fail invisibly rather than loudly (a selection
+ * quietly handed over to whatever dot the cursor passed; a click that opens a
  * card she only meant to look past), so they live here with tests.
  *
  *   TWO-STAGE CLICK    a click on an agent or a table PICKS IT OUT; a click on
@@ -13,9 +13,10 @@
  *                      two clicks on the same body, so it does both in one
  *                      gesture — no timer to wait out, and nothing that
  *                      behaves differently under a finger than under a mouse.
- *   HOVER VS HOLD      a real hover outranks the pinned selection, a pinned
- *                      selection outranks nothing, and a body with nothing
- *                      wired to it never takes the highlight at all.
+ *   HOVER VS HOLD      a hover only counts INSIDE what's picked out: a pin is
+ *                      the subject until she releases it, a spotlight lets a
+ *                      hover narrow onto one of its own members, and a hover
+ *                      outside either one is ignored.
  *   HOME CHAIN         the folders a body is stored inside, which the hover
  *                      keeps lit while the rest of the map steps back.
  *
@@ -43,51 +44,40 @@ export function tapStage(id: string, heldId: string | null): TapStage {
 }
 
 /**
- * Which body the wiring highlight should point at.
+ * Which body the map's lighting should point at — one sentence: A HOVER ONLY
+ * COUNTS INSIDE WHAT'S PICKED OUT.
  *
- * `hovered` is what the cursor is actually over, `held` what a click pinned,
- * and `isWired` says whether anything is joined to a given body. A real hover
- * wins over the pin, so sweeping the cursor across the map still answers about
- * whatever is under it; an unwired body is dropped at BOTH ends, because
- * lighting one would dim the whole map to say nothing.
- */
-export function highlightTarget(
-  hovered: string | null,
-  held: string | null,
-  isWired: (id: string) => boolean,
-): string | null {
-  if (hovered !== null && isWired(hovered)) return hovered;
-  if (held !== null && isWired(held)) return held;
-  return null;
-}
-
-/**
- * Which body the wiring highlight should point at, once something is PINNED.
+ *   PINNED (`held` — a clicked SQL table) is the subject until she releases
+ *   it. No hover moves it: not one of the files at the end of its own ropes
+ *   (that would hand the subject to a name the pin itself put there and take
+ *   the other names away, the map answering a question she didn't ask at the
+ *   exact moment she was reading the answer to the one she did), and not some
+ *   dot across the map she was only sweeping past.
  *
- * `highlightTarget` lets any hover outrank the pin, which is right while
- * nothing is pinned down and wrong the moment something is: a pinned table
- * names the code files at the end of its ropes, and moving the cursor onto
- * one of those names would hand the subject to that file and take the other
- * names away — the map answering a question she didn't ask, at the exact
- * moment she was reading the answer to the one she did.
+ *   SPOTLIT (`inSelection` — an agent's footprint, or a search's hits) is
+ *   looser, because it's a TERRITORY rather than a small named set: a hover
+ *   on one of its own members narrows onto that member — that file's folders
+ *   light, the rest of the footprint steps back — while a hover outside it is
+ *   ignored entirely. Pass null when nothing is spotlit.
  *
- * So a pin HOLDS while the cursor is inside its own answer, and only gives way
- * to a hover on something outside it. `isInAnswer` is that test — everything
- * the pinned body is wired to, itself included. This is what a spotlit agent
- * already does for free: hovering one of its files can't un-spotlight it,
- * because the spotlight isn't a hover at all.
+ *   NOTHING PICKED OUT and the hover is the whole subject, which is what
+ *   makes pointing at a dot on a fresh map answer anything at all.
  *
- * Prompt that produced it: "i want things to function with a hybrid of how
- * things work now between the agents and the sql".
+ * Prompts that produced it: "i want things to function with a hybrid of how
+ * things work now between the agents and the sql" / "when i have an agent or
+ * an sql table selected, i want it to retain the coloration for the agent or
+ * sql table that it is connected to" / "[hovering one of the spotlit agent's
+ * own files should] map onto that file's folders and the agent's other files
+ * step back".
  */
 export function wiringTarget(
   hovered: string | null,
   held: string | null,
-  isWired: (id: string) => boolean,
-  isInAnswer: (id: string) => boolean,
+  inSelection: ((id: string) => boolean) | null,
 ): string | null {
-  if (held !== null && hovered !== null && isWired(held) && isInAnswer(hovered)) return held;
-  return highlightTarget(hovered, held, isWired);
+  if (held !== null) return held;
+  if (hovered === null) return null;
+  return inSelection === null || inSelection(hovered) ? hovered : null;
 }
 
 /**
