@@ -105,8 +105,12 @@
  * anything wired to it, and the chain of folders it sits inside (`kinOf` +
  * homeChain, in hoverSelection.ts), so the bright boxes around it are its
  * address — named at any zoom, with the tree lines between them drawn in the
- * dot's OWN colour (`fileDotInk`), so the path up to where it lives can be
- * followed by eye.
+ * dot's own colour (`fileDotInk`), so the path up to where it lives can be
+ * followed by eye. That colour stops short of GOLD and is floored off the
+ * bottom (`hoverLayers.ts`): gold is already what the data threads are drawn
+ * in, so a chain that reached it read as a thread rather than as an address,
+ * and a stale dot's chain was faintest for exactly the file whose home is
+ * hardest to find.
  * Wired to it includes the AGENTS holding it and the TABLES it touches, which
  * keep their colour and their line while the cursor is on one of their files.
  *
@@ -119,9 +123,14 @@
  * themselves (`footprintLit`), so a spotlit agent shows WHERE it has been
  * working. Inside the selection a hover is admitted and NARROWS
  * (`wiringTarget`, hoverSelection.ts): pointing at one of the lit files
- * re-answers about that file alone — its own folders, its threads, the tables
- * it touches, the agents holding it — while the rest of the selection steps
- * back, and letting go returns the map to the selection. The picked-out body
+ * re-answers about that file — its own folders, its threads, the tables it
+ * touches, the agents holding it — and letting go returns the map to the
+ * selection. Narrowing ADDS an answer rather than replacing one: the
+ * selection's own wiring stays drawn a step quieter behind the hovered file's
+ * (`hoverRecession` / `threadPresence`, hoverLayers.ts), so a pinned table
+ * keeps its ropes out to all of its files and a spotlit agent keeps its
+ * tethers while she reads one of them. Before that, pointing at a member
+ * collapsed the selection to that one dot. The picked-out body
  * itself never dims (`isSubject`), so narrowing can't cancel it. The faded
  * dots stay silent under a selection because they can't be pointed at at all,
  * not because the label pass refuses them; the dot she CAN point at names
@@ -182,6 +191,13 @@ import {
 import type { TerrainThread } from './terrainThreads';
 import type { TableCodeLink } from './tableMentions';
 import { homeChain, wiringTarget } from './hoverSelection';
+import {
+  chainGlow,
+  chainLean,
+  hoverRecession,
+  threadPresence,
+  threadTooCold,
+} from './hoverLayers';
 import { bodyRadius, sameRings } from './ringBodies';
 import { fileTypeOf } from './fileTypes';
 import { childTypeCounts, liveliestBeneath } from './folderTypes';
@@ -1991,6 +2007,25 @@ export class TerrainCanvas {
     return this.withHomes(kin);
   }
 
+  /**
+   * What the SELECTION named, as node ids — a spotlit agent's footprint or a
+   * pinned table's answer, and null when nothing is picked out.
+   *
+   * This is the set that keeps its lines while a file hover is up. Pointing at
+   * one of a selection's own files used to throw the selection's wiring away
+   * and describe that file instead; now the two answers stand together, and
+   * this is the one that has to survive being narrowed onto (hoverLayers.ts).
+   *
+   * Prompt that produced it: "when i'm hovering over a dot that is selected by
+   * an sql table or an agent, it can display the connection with the table or
+   * agent as well as the connections to other tables or files".
+   */
+  private selectionAnswer(): Set<string> | null {
+    if (this.footprint !== null) return this.footprintLit;
+    if (this.heldFile !== null) return this.heldFileKin;
+    return null;
+  }
+
   /** Re-answer for whatever is lit — the cursor's dot, or the pin that
    * outranks it. */
   private recomputeHoverKin(): void {
@@ -3371,6 +3406,7 @@ export class TerrainCanvas {
     ramp: readonly string[],
     goldRamp: readonly string[],
     nowSeconds: number,
+    forChain = false,
   ): string {
     const { theme } = this;
     if (this.typeColors) {
@@ -3385,13 +3421,21 @@ export class TerrainCanvas {
     if (n.node.file && fileCreatedWithin(n.node.file, CREATED_FRESH_WINDOW_SECONDS, nowSeconds)) {
       return CREATED_GREEN;
     }
+    // A CHAIN line takes the same heat colour the dot does, with two
+    // adjustments the dot itself never gets: it stops short of gold, which is
+    // already the threads' ink (chainLean), and it is floored so a stale
+    // file's home is still followable (chainGlow). Both say why in
+    // hoverLayers.ts. The dot's own colour is untouched either way.
+    const lean = forChain ? chainLean(leanOf(n.t, n.a)) : leanOf(n.t, n.a);
+    const glow = forChain ? chainGlow(glowOf(n.t, n.a)) : glowOf(n.t, n.a);
     if (theme.dark) {
-      return mixHex(
-        theme.ash,
-        mixHex(EMBER_HOT, GOLD_HOT, leanOf(n.t, n.a)),
-        glowAlpha(glowOf(n.t, n.a)),
-      );
+      return mixHex(theme.ash, mixHex(EMBER_HOT, GOLD_HOT, lean), glowAlpha(glow));
     }
+    // Light keeps its legacy priority rule for DOTS — anything that ran paints
+    // the gold ramp over its red history. A chain can't use that rule at all,
+    // because the gold end of it is the threads', so it reads the ember ramp
+    // at the union of both heats instead.
+    if (forChain) return heatColor(glow, ramp);
     return n.a > 0 ? heatColor(n.a, goldRamp) : heatColor(n.t, ramp);
   }
 
@@ -3463,16 +3507,29 @@ export class TerrainCanvas {
     if (this.threads.length > 0) {
       const byId = new Map(this.simNodes.map((n) => [n.id, n]));
       const held = this.hoverFile;
+      // The selection's own threads (hoverLayers.ts). A thread with either end
+      // inside what she picked out belongs to that answer, and a hover over one
+      // of its files must not take it away — it stays at exactly the presence
+      // it had before the cursor arrived.
+      //
+      // Prompt that produced it: "when one agent or sql feature is selected,
+      // the threads connecting that file don't disappear when hovering over
+      // another file … i am ok with both showing".
+      const picked = this.selectionAnswer();
       for (const th of this.threads) {
         const mine = held !== null && (th.sourceId === held || th.targetId === held);
-        // Off-hover a cold thread is skipped as invisible. ON hover the
-        // hovered file's own threads are drawn however cold they are: the
+        const ofSelection =
+          picked !== null && (picked.has(th.sourceId) || picked.has(th.targetId));
+        // Which threads are worth drawing, in three tiers (threadTooCold).
+        // A cold thread nobody asked about is skipped as invisible. The
+        // HOVERED file's own threads are drawn however cold they are — the
         // question being asked is "what is this wired to", and a pipe that
-        // hasn't moved in a month is still a pipe. Cold ones stay legibly
-        // cold — the floor below lifts them into view, it doesn't repaint
-        // them as fresh.
-        if (!mine && th.t <= 0.02) continue;
-        if (held !== null && !mine && th.t <= 0.25) continue;
+        // hasn't moved in a month is still a pipe. The SELECTION's threads
+        // keep the floor they had before the hover, so narrowing onto one of
+        // its files neither adds threads nor removes any. Cold ones stay
+        // legibly cold — the floor below lifts them into view, it doesn't
+        // repaint them as fresh.
+        if (threadTooCold(th.t, mine, ofSelection, held !== null)) continue;
         const a = byId.get(th.sourceId);
         const b = byId.get(th.targetId);
         if (!a || !b) continue; // one end filtered off the map by a dial
@@ -3489,13 +3546,13 @@ export class TerrainCanvas {
         // Bow perpendicular to the run, proportional to it, so long threads
         // arc gently and short ones don't loop absurdly.
         const bow = Math.min(len * 0.16, 60);
-        // Hovering a file is asking one question, so the answer gets the
-        // canvas: its own threads go to full opacity with a colour floor that
-        // guarantees a cold one is actually visible, and every other thread
-        // drops to a trace. Same shape as the agent hover one rung along —
-        // the map recedes around what she pointed at rather than clearing.
+        // Hovering a file asks a SECOND question without cancelling the
+        // first: its own threads go to full opacity with a colour floor that
+        // guarantees a cold one is actually visible, the picked-out
+        // selection's threads hold exactly where they were, and only the
+        // threads neither answer named drop to a trace (threadPresence).
         const lit = held === null ? th.t : mine ? Math.max(th.t, 0.42) : th.t;
-        ctx.globalAlpha = held === null ? 0.16 + 0.54 * th.t : mine ? 0.95 : 0.05;
+        ctx.globalAlpha = threadPresence(th.t, mine, ofSelection, held !== null);
         ctx.strokeStyle = heatColor(lit, goldRamp);
         ctx.lineWidth = (0.6 + 1.5 * lit) / transform.k * (mine ? 1.6 : 1);
         ctx.beginPath();
@@ -3508,13 +3565,18 @@ export class TerrainCanvas {
 
     // -- table-to-code ropes: which files touch the hovered table --
     //
-    // Only under a hover, and only the hovered body's own ropes. Every rope at
-    // once would be a solid mat: thirty-odd tables against the files that
-    // touch them is hundreds of lines across the whole map, and the map's
-    // subject is the files, not the database. So this answers one question at
-    // a time — "what code touches THIS table" — and answers it in both
-    // directions, since hovering one of those files draws the same ropes back
-    // to the tables it touches.
+    // Only under a hover, and only the ropes the two live answers own. Every
+    // rope at once would be a solid mat: thirty-odd tables against the files
+    // that touch them is hundreds of lines across the whole map, and the map's
+    // subject is the files, not the database. So this answers the question
+    // asked — "what code touches THIS table" — in both directions, since
+    // hovering one of those files draws the same ropes back to the tables it
+    // touches.
+    //
+    // With a table PINNED, that is TWO answers at once: the pinned table keeps
+    // its ropes out to all of its files, and the file under the cursor draws
+    // its own ropes on top at full strength. Narrowing onto a member of a
+    // selection asks a second question; it doesn't withdraw the first.
     //
     // Blue, the same ink the foreign keys wear, because both lines are about
     // the database; gold is a write passing between files and the accent is
@@ -3540,19 +3602,36 @@ export class TerrainCanvas {
       // to the other sql tables should be a slightly different color".
       const pinnedTable = this.heldFile;
       const otherTableInk = mixHex(theme.evening, theme.textMuted, 0.5);
+      // The two bodies whose ropes are drawn: the one under the cursor, and
+      // the pinned table she narrowed away from. They're the same body until
+      // she moves onto one of its files, at which point the pin keeps its own.
+      const pinKin = pinnedTable !== null ? this.codeLinkKin.get(pinnedTable) : undefined;
       const kin = this.codeLinkKin.get(held);
-      if (kin !== undefined && kin.size > 0) {
-        // One pass for the handful of nodes involved — the hovered body and
-        // whatever is at the other end of its ropes. Cheaper than a map of
+      if ((kin !== undefined && kin.size > 0) || (pinKin !== undefined && pinKin.size > 0)) {
+        // One pass for the handful of nodes involved — the two subjects and
+        // whatever is at the other end of their ropes. Cheaper than a map of
         // every node on the map, which this would otherwise rebuild on every
         // frame the breath draws while she holds a hover.
         const ends = new Map<string, SimNode>();
         for (const n of this.simNodes) {
-          if (n.id === held || kin.has(n.id)) ends.set(n.id, n);
+          if (
+            n.id === held ||
+            n.id === pinnedTable ||
+            kin?.has(n.id) === true ||
+            pinKin?.has(n.id) === true
+          ) {
+            ends.set(n.id, n);
+          }
         }
         ctx.setLineDash([]);
         for (const link of this.tableCodeLinks) {
-          if (link.tableId !== held && link.fileId !== held) continue;
+          // Whose rope is this? The hovered body's ropes are the front answer;
+          // the pinned table's remaining ropes are the standing one behind it.
+          // A rope that is both reads as the hovered one, which is why the
+          // hover test comes first.
+          const ofHover = link.tableId === held || link.fileId === held;
+          const ofPin = pinnedTable !== null && link.tableId === pinnedTable;
+          if (!ofHover && !ofPin) continue;
           const tableNode = ends.get(link.tableId);
           const fileNode = ends.get(link.fileId);
           if (!tableNode || !fileNode) continue;
@@ -3570,7 +3649,11 @@ export class TerrainCanvas {
           const weight = link.verb === 'creates' ? 2.4 : link.verb === 'writes' ? 1.7 : 1.1;
           const ropeInk =
             pinnedTable === null || link.tableId === pinnedTable ? theme.evening : otherTableInk;
-          ctx.globalAlpha = link.verb === 'reads' ? 0.6 : 0.9;
+          // The standing answer steps back behind the front one, but stays
+          // plainly drawn (hoverRecession) — a pinned table whose other ropes
+          // fell to scenery would read as unpinned.
+          ctx.globalAlpha =
+            (link.verb === 'reads' ? 0.6 : 0.9) * hoverRecession(ofHover, ofPin);
           ctx.strokeStyle = ropeInk;
           ctx.lineWidth = weight / transform.k;
           ctx.beginPath();
@@ -3601,9 +3684,12 @@ export class TerrainCanvas {
     if (this.hoverFile !== null) {
       const litBody = this.simNodes.find((n) => n.id === this.hoverFile);
       if (litBody && litBody.node.kind === 'file' && !litBody.node.file?.table) {
-        chainInk = this.fileDotInk(litBody, ramp, goldRamp, now / 1000);
+        chainInk = this.fileDotInk(litBody, ramp, goldRamp, now / 1000, true);
       }
     }
+    // The selection's own lines, so narrowing onto one of its files steps them
+    // back rather than putting them out. Resolved once a frame, like chainInk.
+    const pickedLines = this.selectionAnswer();
     ctx.lineWidth = 1 / transform.k;
     for (const link of this.simLinks) {
       const s = link.source as SimNode;
@@ -3667,11 +3753,20 @@ export class TerrainCanvas {
         ctx.lineWidth = (chainLine ? 1.6 : 1) / transform.k;
         ctx.setLineDash([]);
       }
-      // The structure recedes under a file hover as well — every line but the
-      // lit one above. Without this the tree stays at full strength while the
-      // dots fall away, and the map reads as a skeleton with the flesh removed
-      // rather than as one thing stepping back.
-      if (this.hoverFile !== null && !litLine) ctx.globalAlpha *= 0.22;
+      // Everything but the hover's own line recedes under a file hover —
+      // otherwise the tree stays at full strength while the dots fall away,
+      // and the map reads as a skeleton with the flesh removed rather than as
+      // one thing stepping back. In THREE tiers, not two (hoverRecession): a
+      // line belonging to what she picked out — a spotlit agent's tether to
+      // one of its other files, the tree limb showing where that agent has
+      // been working — steps back but stays plainly there, because pointing
+      // at one member of a selection is a second question and not a retraction
+      // of the first. Only what neither answer named goes to scenery.
+      if (this.hoverFile !== null && !litLine) {
+        const ofSelection =
+          pickedLines !== null && pickedLines.has(s.id) && pickedLines.has(t.id);
+        ctx.globalAlpha *= hoverRecession(false, ofSelection);
+      }
       // A line into a stale dot recedes with it (staleEdgeAlpha), so under
       // Types the whole limb goes quiet together instead of the dot leaving a
       // full-strength line hanging in the air. Multiplied in rather than set,
