@@ -15,7 +15,6 @@ import { UpNowCard } from './UpNowCard';
 import { SnoozedCard } from './SnoozedCard';
 import { StreakSheet } from './StreakSheet';
 import { StreaksRow } from './StreaksRow';
-import { SymptomCard } from './SymptomCard';
 import { TodoFormSheet } from './TodoFormSheet';
 import { TodoSection } from './TodoSection';
 import { TomorrowCard } from './TomorrowCard';
@@ -42,7 +41,6 @@ import {
   useGrowthActions,
   useHabitActions,
   useStreakActions,
-  useSymptomActions,
   useTodayData,
   useTodoActions,
   useReminderActions,
@@ -118,7 +116,6 @@ export function TodosPage() {
   const habitActions = useHabitActions(push);
   const growthActions = useGrowthActions(push);
   const streakActions = useStreakActions(push);
-  const symptomActions = useSymptomActions(push);
   const isPublic = isPublicMode();
 
   const [focusFronts, setFocusFrontsState] = useState<string[]>(readStoredFocus);
@@ -411,7 +408,6 @@ export function TodosPage() {
             onPromote={habitActions.promote}
             onRestore={habitActions.restore}
           />
-          <SymptomCard healthData={data.health_data} serverDate={serverDate} onLog={symptomActions.log} />
         </>
       ) : null}
 

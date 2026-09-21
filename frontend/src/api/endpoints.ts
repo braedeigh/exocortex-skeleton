@@ -4,7 +4,7 @@
  * exo-core — see the header comment on each file there).
  */
 import { api } from './client';
-import type { SymptomDefinitions, TodayData, TodoItem } from '../features/todos/types';
+import type { TodayData, TodoItem } from '../features/todos/types';
 import type { StreakNote } from '../features/habits/types';
 import type {
   AllNotesResponse,
@@ -227,19 +227,6 @@ export function snoozeReminder(id: string, days: number): Promise<OkResponse> {
 
 export function saveReminders(reminders: unknown[]): Promise<OkResponse> {
   return api.post('/api/reminders/save', { reminders });
-}
-
-// --- Symptoms (routes/health.py) ---
-
-/** column -> 0..3 (nose_spray is 0/1). */
-export type SymptomLevels = Record<string, number>;
-
-export function logSymptoms(date: string, symptoms: SymptomLevels): Promise<OkResponse> {
-  return api.post('/api/symptoms', { date, symptoms });
-}
-
-export function getSymptomDefinitions(signal?: AbortSignal): Promise<SymptomDefinitions> {
-  return api.get('/api/symptom-definitions', signal);
 }
 
 // --- Streaks / day counters (routes/streaks.py) — identified by id ---

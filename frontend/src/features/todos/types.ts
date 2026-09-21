@@ -109,9 +109,6 @@ export interface HealthDay {
   [key: string]: unknown;
 }
 
-/** symptom column -> level ("0".."3") -> the user's own definition text. */
-export type SymptomDefinitions = Record<string, Record<string, string>>;
-
 export type ReminderShape = 'circle' | 'square' | 'diamond' | 'triangle' | 'ring';
 export type ReminderSchedule = 'interval' | 'weekly';
 export type ReminderMode = 'log' | 'countdown' | 'track';

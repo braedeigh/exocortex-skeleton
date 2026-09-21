@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { symptomTip } from '../todos/symptomHelpers';
-import { DAY_EDITOR_FIELDS, buildDaySymptomsPayload } from './dotGridHelpers';
+import { DAY_EDITOR_FIELDS, buildDaySymptomsPayload, symptomTip } from './dotGridHelpers';
 import { editorDayLabel, splitFoodNotes } from './foodLogHelpers';
 import type { BodyHealthDay, SymptomDefinitions } from './types';
 import styles from './DayEditor.module.css';
