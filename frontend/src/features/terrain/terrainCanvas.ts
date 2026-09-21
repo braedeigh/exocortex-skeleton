@@ -120,10 +120,11 @@
  * re-answers about that file alone — its own folders, its threads, the tables
  * it touches, the agents holding it — while the rest of the selection steps
  * back, and letting go returns the map to the selection. The picked-out body
- * itself never dims (`isSubject`), so narrowing can't cancel it. The faded dots also stop
- * naming themselves while a selection is up (`selectionUp` in the label
- * pass), and hovering one of the names it asked for picks that one out and
- * steps the others back. One fade, `UNSELECTED_FADE`, for everything outside
+ * itself never dims (`isSubject`), so narrowing can't cancel it. The faded
+ * dots stay silent under a selection because they can't be pointed at at all,
+ * not because the label pass refuses them; the dot she CAN point at names
+ * itself as always, and picks itself out of the selection's other names,
+ * which step back. One fade, `UNSELECTED_FADE`, for everything outside
  * a selection, whichever of the three it is — and the touch rings recede on
  * it alongside their dots.
  *
@@ -4047,22 +4048,27 @@ export class TerrainCanvas {
     // thing — a spotlit agent, a search (both arrive as `footprint`), and a
     // pinned table.
     const selectionUp = this.footprint !== null || this.heldFile !== null;
-    // Pointing at one of the names picks it OUT of the set rather than adding
-    // to it — see the fade at the bottom of this loop.
-    const pickedOut = selectionUp && this.hoverLabel !== null && named(this.hoverLabel);
+    // Pointing at one of the selection's own dots picks it OUT of the set
+    // rather than adding to it — see the fade at the bottom of this loop.
+    // Any dot she can point at while a selection is up IS one of its own,
+    // since nothing outside it takes a hover (isTouchable).
+    const pickedOut = selectionUp && this.hoverLabel !== null;
     for (const n of this.simNodes) {
       if (this.hiddenFiles.has(n.id)) continue; // no caption for a dot that isn't drawn
       if (n.node.file?.table) continue; // tables are named in their own pass, below
       const pointedAt = n.id === this.hoverLabel;
-      // A dot names itself under the cursor ONLY while nothing is picked out.
-      // With a selection up the faded dots are context, not the subject, and
-      // sweeping the cursor over them popping their names one by one buries
-      // the answer she actually asked for under captions she didn't.
+      // A dot names itself under the cursor — pointing at something is the
+      // gesture that asks "what is this", and the answer is its name. The
+      // faded dots outside a selection stay silent, as she asked, but that is
+      // no longer this line's job: they can't be pointed at in the first
+      // place (isTouchable), so the cursor only ever lands on a dot the map is
+      // willing to talk about.
       //
-      // Prompt that produced it: "i want for no names to pop up over the
+      // Prompts that produced it: "i want for no names to pop up over the
       // unselected files that are still showing. i like that the names
-      // otherwise pop up".
-      const namesItself = pointedAt && !selectionUp;
+      // otherwise pop up" / "the things that i hover over don't display the
+      // name of the file anymore".
+      const namesItself = pointedAt;
       if (n.node.kind === 'file' && !namesItself && !named(n.id)) continue;
       // Directories caption themselves at readable zoom on the map proper. In
       // the step-back view zoom is not hers to set, so the bound is relevance
