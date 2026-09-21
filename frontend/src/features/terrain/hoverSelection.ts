@@ -58,3 +58,32 @@ export function highlightTarget(
   if (held !== null && isWired(held)) return held;
   return null;
 }
+
+/**
+ * Which body the wiring highlight should point at, once something is PINNED.
+ *
+ * `highlightTarget` lets any hover outrank the pin, which is right while
+ * nothing is pinned down and wrong the moment something is: a pinned table
+ * names the code files at the end of its ropes, and moving the cursor onto
+ * one of those names would hand the subject to that file and take the other
+ * names away — the map answering a question she didn't ask, at the exact
+ * moment she was reading the answer to the one she did.
+ *
+ * So a pin HOLDS while the cursor is inside its own answer, and only gives way
+ * to a hover on something outside it. `isInAnswer` is that test — everything
+ * the pinned body is wired to, itself included. This is what a spotlit agent
+ * already does for free: hovering one of its files can't un-spotlight it,
+ * because the spotlight isn't a hover at all.
+ *
+ * Prompt that produced it: "i want things to function with a hybrid of how
+ * things work now between the agents and the sql".
+ */
+export function wiringTarget(
+  hovered: string | null,
+  held: string | null,
+  isWired: (id: string) => boolean,
+  isInAnswer: (id: string) => boolean,
+): string | null {
+  if (held !== null && hovered !== null && isWired(held) && isInAnswer(hovered)) return held;
+  return highlightTarget(hovered, held, isWired);
+}

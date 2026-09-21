@@ -100,7 +100,13 @@
  *
  * Every file dot NAMES ITSELF under the cursor (`hoverLabel`), on a plate of
  * the map's background so the name is readable over a dense field — pointing
- * at something is the gesture that asks "what is this".
+ * at something is the gesture that asks "what is this". That holds only while
+ * nothing is PICKED OUT. Once a body is (a spotlit agent, a pinned table, or
+ * a search — `selectionUp` in the label pass), the faded dots stop answering
+ * and the named set is whatever the selection asked for; hovering one of
+ * THOSE names picks it out and steps the others back. One fade,
+ * `UNSELECTED_FADE`, for everything outside a selection, whichever of the
+ * three it is — and the touch rings recede on it alongside their dots.
  *
  * Hovering a table also draws a rope out to every CODE FILE that touches it,
  * named where it lands (`setTableCodeLinks`, and the rope pass just before
@@ -150,7 +156,7 @@ import {
 } from './terrainGraph';
 import type { TerrainThread } from './terrainThreads';
 import type { TableCodeLink } from './tableMentions';
-import { highlightTarget } from './hoverSelection';
+import { wiringTarget } from './hoverSelection';
 import { bodyRadius, sameRings } from './ringBodies';
 import { fileTypeOf } from './fileTypes';
 import { childTypeCounts, liveliestBeneath } from './folderTypes';
@@ -503,6 +509,24 @@ const FOOTPRINT_LABEL_CAP = 12;
 /** Canvas text floor at default zoom — the app-wide 12px rule. Labels are
  * drawn in screen space, so they never shrink below this at any zoom. */
 const LABEL_PX = 12;
+
+/** How much of itself a body keeps when it is NOT part of what she picked out.
+ * One number for all three selections — a spotlit agent, a pinned table, a
+ * search — because they are the same gesture as far as the eye is concerned:
+ * "this, and not those". Faded, never gone: the rest of the map stays on
+ * screen as context, which is the whole reason a spotlight beats a filter.
+ *
+ * Prompt that produced it: "i want things to function with a hybrid of how
+ * things work now between the agents and the sql. i want the rings to remain
+ * in the canvas, but i want them to be faded for both of them when they are
+ * not connected to the thing that i've selected". */
+const UNSELECTED_FADE = 0.22;
+/** How much of itself a NAME keeps when the cursor has picked out a different
+ * name in the same set. Deliberately gentler than UNSELECTED_FADE — these
+ * labels were asked for and are still being read; the hover is only saying
+ * which one of them is under the cursor. Same 0.3 the orb titles and the
+ * shelf names already step back to. */
+const NAMED_FADE = 0.3;
 
 /** The pond tile's square, in WORLD units — it scales with the territory like
  * any map object, unlike the DOM landmark (which is chrome). Sized like one
@@ -1120,6 +1144,10 @@ export class TerrainCanvas {
   /** Everything the hovered file is wired to, itself included — recomputed
    * only when the hover changes, not per frame. */
   private hoverFileKin: Set<string> = new Set();
+  /** The same, for the PINNED body — held apart from hoverFileKin so that
+   * sweeping the cursor across the pin's own answer can't redefine what the
+   * answer was. */
+  private heldFileKin: Set<string> = new Set();
   private flashTimer: number | null = null;
   /**
    * Code-weather: written lines rising off the file nodes as agents work —
@@ -1832,7 +1860,7 @@ export class TerrainCanvas {
     // The breath re-lights these ~7x/s. If she's hovering while that happens,
     // the kin set has to be rebuilt against the new array or the highlight
     // would go on pointing at threads that no longer exist.
-    if (this.hoverFile !== null) this.recomputeHoverKin();
+    if (this.hoverFile !== null || this.heldFile !== null) this.recomputeHoverKin();
     this.requestDraw();
   }
 
@@ -1858,15 +1886,15 @@ export class TerrainCanvas {
       this.codeLinkKin.get(link.tableId)!.add(link.fileId);
       this.codeLinkKin.get(link.fileId)!.add(link.tableId);
     }
-    if (this.hoverFile !== null) this.recomputeHoverKin();
+    if (this.hoverFile !== null || this.heldFile !== null) this.recomputeHoverKin();
     this.requestDraw();
   }
 
-  /** Which nodes the hovered file is threaded to. Recomputed on a hover change
-   * or a thread refeed — never in the draw loop, which runs far more often. */
-  private recomputeHoverKin(): void {
+  /** Everything a given body is wired to, itself included — its "answer".
+   * Recomputed on a hover change, a pin, or a thread refeed; never in the draw
+   * loop, which runs far more often. */
+  private kinOf(id: string | null): Set<string> {
     const kin = new Set<string>();
-    const id = this.hoverFile;
     if (id !== null) {
       kin.add(id);
       for (const th of this.threads) {
@@ -1880,7 +1908,15 @@ export class TerrainCanvas {
       // tables it touches instead — the same question asked from either end.
       for (const other of this.codeLinkKin.get(id) ?? []) kin.add(other);
     }
-    this.hoverFileKin = kin;
+    return kin;
+  }
+
+  /** Re-answer for both the cursor and the pin. They are asked separately
+   * because the pin's answer must NOT move when the cursor does — that is the
+   * whole point of pinning one (see wiringTarget). */
+  private recomputeHoverKin(): void {
+    this.hoverFileKin = this.kinOf(this.hoverFile);
+    this.heldFileKin = this.kinOf(this.heldFile);
   }
 
   /** Is anything actually wired to this dot? Threads, a foreign key, or a code
@@ -1893,9 +1929,13 @@ export class TerrainCanvas {
 
   /** Point the wiring highlight at a file dot, or clear it. A click can pin
    * one lit (holdFileHover), so what's under the cursor and what's pinned are
-   * resolved together — hoverSelection.ts holds that rule. */
+   * resolved together — hoverSelection.ts holds that rule. A pin outranks a
+   * hover on anything it is already wired to, so reading across a pinned
+   * table's named rope-ends can't quietly hand the subject to one of them. */
   private setHoverFile(id: string | null): void {
-    const next = highlightTarget(id, this.heldFile, this.isWired);
+    const next = wiringTarget(id, this.heldFile, this.isWired, (other) =>
+      this.heldFileKin.has(other),
+    );
     if (next === this.hoverFile) return;
     this.hoverFile = next;
     this.recomputeHoverKin();
@@ -1919,6 +1959,7 @@ export class TerrainCanvas {
    */
   holdFileHover(id: string | null): void {
     this.heldFile = id;
+    this.heldFileKin = this.kinOf(id);
     this.setHoverFile(null);
   }
 
@@ -3446,8 +3487,8 @@ export class TerrainCanvas {
       // hovered dot and everything wired to it stay full, everything else
       // recedes. Multiplied into the footprint alpha rather than replacing it,
       // so a spotlit agent's dimming still holds underneath.
-      const kinAlpha = threadHover === null || this.hoverFileKin.has(n.id) ? 1 : 0.15;
-      ctx.globalAlpha = (inPrint ? 1 : 0.22) * kinAlpha;
+      const kinAlpha = threadHover === null || this.hoverFileKin.has(n.id) ? 1 : UNSELECTED_FADE;
+      ctx.globalAlpha = (inPrint ? 1 : UNSELECTED_FADE) * kinAlpha;
       // Never let a node shrink below a visible dot, however far out we are.
       const nr = Math.max(n.radius, minR);
       // Set by a branch that paints its own body (the dark ash+hue file dot),
@@ -3739,7 +3780,11 @@ export class TerrainCanvas {
         ctx.stroke();
       }
       if (ring && ringVisible) {
-        ctx.globalAlpha = ringAlpha * (inPrint ? 1 : 0.22);
+        // The ring is only ever as present as the dot it rings. Both fades
+        // multiply in: the spotlight's (a search, or a tapped agent) and the
+        // selected table's, so a ring can't keep shouting over a dot that has
+        // gone quiet — whichever of the two selections quieted it.
+        ctx.globalAlpha = ringAlpha * (inPrint ? 1 : UNSELECTED_FADE) * kinAlpha;
         ctx.strokeStyle = ring === 'read' ? READ_RING : this.orbStroke;
         ctx.lineWidth = 2.4 / transform.k;
         ctx.beginPath();
@@ -3839,22 +3884,32 @@ export class TerrainCanvas {
     // spotlit agent's footprint earns its captions.
     const ropeNamed =
       this.hoverFile !== null ? (this.codeLinkKin.get(this.hoverFile) ?? null) : null;
+    /** Is this file one of the ones the map has been ASKED to name? */
+    const named = (id: string) =>
+      (namedFiles !== null && namedFiles.has(id)) || (ropeNamed !== null && ropeNamed.has(id));
+    // Has she picked one body out? All three gestures count and mean the same
+    // thing — a spotlit agent, a search (both arrive as `footprint`), and a
+    // pinned table. A pin with nothing wired to it doesn't count: it quieted
+    // nothing, so there is no "the rest" for it to be speaking over.
+    const selectionUp =
+      this.footprint !== null || (this.heldFile !== null && this.isWired(this.heldFile));
+    // Pointing at one of the names picks it OUT of the set rather than adding
+    // to it — see the fade at the bottom of this loop.
+    const pickedOut = selectionUp && this.hoverLabel !== null && named(this.hoverLabel);
     for (const n of this.simNodes) {
       if (this.hiddenFiles.has(n.id)) continue; // no caption for a dot that isn't drawn
       if (n.node.file?.table) continue; // tables are named in their own pass, below
-      // The dot under the cursor always names itself — the same exception the
-      // hovered ORB gets below, for the same reason: pointing at something is
-      // the gesture that asks "what is this", and it deserves an answer
-      // whether or not a spotlight happens to be up.
       const pointedAt = n.id === this.hoverLabel;
-      if (
-        n.node.kind === 'file' &&
-        !pointedAt &&
-        !(namedFiles !== null && namedFiles.has(n.id)) &&
-        !(ropeNamed !== null && ropeNamed.has(n.id))
-      ) {
-        continue;
-      }
+      // A dot names itself under the cursor ONLY while nothing is picked out.
+      // With a selection up the faded dots are context, not the subject, and
+      // sweeping the cursor over them popping their names one by one buries
+      // the answer she actually asked for under captions she didn't.
+      //
+      // Prompt that produced it: "i want for no names to pop up over the
+      // unselected files that are still showing. i like that the names
+      // otherwise pop up".
+      const namesItself = pointedAt && !selectionUp;
+      if (n.node.kind === 'file' && !namesItself && !named(n.id)) continue;
       // Directories caption themselves at readable zoom on the map proper. In
       // the step-back view zoom is not hers to set, so the bound is relevance
       // instead: only the directories the focused agent is actually working
@@ -3878,9 +3933,10 @@ export class TerrainCanvas {
         if (sid === undefined || !this.labeledAgents.has(sid)) continue;
       }
       const inPrint = !dimmed || this.footprint!.has(n.id);
-      // ...and it survives a spotlight, too: a dot she is pointing at outside
-      // the spotlit agent's footprint is still a dot she is pointing at.
-      if (n.node.kind !== 'repo' && dimmed && !inPrint && !pointedAt) continue;
+      // ...and the same free pass at the spotlight's edge: a dot outside the
+      // lit set is named only if pointing at it is still a question the map
+      // is willing to answer, which it isn't once something is picked out.
+      if (n.node.kind !== 'repo' && dimmed && !inPrint && !namesItself) continue;
       const sx = (n.x ?? 0) * k + transform.x;
       const sy = (n.y ?? 0) * k + transform.y;
       if (sx < -80 || sx > this.width + 80 || sy < -40 || sy > this.height + 40) continue;
@@ -3919,6 +3975,14 @@ export class TerrainCanvas {
           ctx.globalAlpha = 1;
           ctx.fillStyle = theme.text;
         } else {
+          // Within a set of names she asked for, hovering one PICKS IT OUT:
+          // the rest step back so the one under the cursor reads alone. Hover
+          // focuses here rather than adding, which is what makes it safe to
+          // sweep across a spotlit agent's footprint or a search's hits.
+          //
+          // Prompt that produced it: "hovering over them would make the
+          // hovered one get brighter and the other ones fade".
+          if (pickedOut) ctx.globalAlpha = NAMED_FADE;
           ctx.fillStyle = theme.textSecondary;
         }
         ctx.fillText(n.node.label, sx, ty);
