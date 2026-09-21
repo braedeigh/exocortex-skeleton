@@ -104,7 +104,9 @@
  * IS KEPT: the hover dims the whole map to `UNSELECTED_FADE` except that dot,
  * anything wired to it, and the chain of folders it sits inside (`kinOf` +
  * homeChain, in hoverSelection.ts), so the bright boxes around it are its
- * address — named at any zoom, with the tree lines between them left drawn.
+ * address — named at any zoom, with the tree lines between them drawn in the
+ * dot's OWN colour (`fileDotInk`), so the path up to where it lives can be
+ * followed by eye.
  * Wired to it includes the AGENTS holding it and the TABLES it touches, which
  * keep their colour and their line while the cursor is on one of their files.
  *
@@ -132,7 +134,10 @@
  * named where it lands (`setTableCodeLinks`, and the rope pass just before
  * the edges). Only under a hover, and only the hovered body's own ropes —
  * every pair at once would be a mat across the whole map. Symmetric: hovering
- * one of those files draws the same ropes back to the tables it touches.
+ * one of those files draws the same ropes back to the tables it touches — and
+ * with a table PINNED, the rope home to it keeps the database blue while the
+ * file's other tables are roped in a greyer one, so the table she picked
+ * doesn't read as just another end.
  *
  * Prompt that produced it: "i want them to be sized by how much is in there
  * and learn more about the shapes of the tables through this exercise" / "a
@@ -3344,6 +3349,52 @@ export class TerrainCanvas {
     }
   }
 
+  /**
+   * The colour a file dot is wearing right now, resolved to one hex.
+   *
+   * Three lenses can decide it, in the order the dot itself is painted: the
+   * Types toggle first, then the 24h created-green, then the heat ramps. On
+   * the dark surface the dot is laid down as two layers — an ash disc with
+   * its hue over it at glow opacity — and this is what those two come to, so
+   * a line drawn in it agrees with the dot it leaves.
+   *
+   * Used by the tree edges: the chain of folders a hovered file is kept in is
+   * drawn in that file's own colour, so the line she follows up the tree
+   * belongs visibly to THAT dot.
+   *
+   * Prompt that produced it: "the line between the file and its folders could
+   * be colored with whatever color is displayed currently in the dot, to be
+   * able to see more easily where it goes to".
+   */
+  private fileDotInk(
+    n: SimNode,
+    ramp: readonly string[],
+    goldRamp: readonly string[],
+    nowSeconds: number,
+  ): string {
+    const { theme } = this;
+    if (this.typeColors) {
+      const path = n.node.path ?? n.node.label;
+      let typeColor = this.typeColorCache.get(path);
+      if (typeColor === undefined) {
+        typeColor = typeDotColor(fileTypeOf(path).color, theme.bg, theme.text);
+        this.typeColorCache.set(path, typeColor);
+      }
+      return staleTypeColor(typeColor, theme.bg, n.t, n.a);
+    }
+    if (n.node.file && fileCreatedWithin(n.node.file, CREATED_FRESH_WINDOW_SECONDS, nowSeconds)) {
+      return CREATED_GREEN;
+    }
+    if (theme.dark) {
+      return mixHex(
+        theme.ash,
+        mixHex(EMBER_HOT, GOLD_HOT, leanOf(n.t, n.a)),
+        glowAlpha(glowOf(n.t, n.a)),
+      );
+    }
+    return n.a > 0 ? heatColor(n.a, goldRamp) : heatColor(n.t, ramp);
+  }
+
   private requestDraw(): void {
     if (this.drawQueued || this.destroyed) return;
     this.drawQueued = true;
@@ -3478,6 +3529,17 @@ export class TerrainCanvas {
     // smear.
     if (this.hoverFile !== null && this.tableCodeLinks.length > 0) {
       const held = this.hoverFile;
+      // Two tones, once a table is PINNED. The rope running back to the pinned
+      // table keeps the database blue; the ropes on to the OTHER tables this
+      // file touches are drawn a shade greyer, so "this is the table I picked"
+      // and "these are the others it's wired to" don't read as one answer.
+      // Same hue either way — both lines are still about the database — and
+      // with nothing pinned every rope is the plain blue it always was.
+      //
+      // Prompt that produced it: "the color of the lines that go from the file
+      // to the other sql tables should be a slightly different color".
+      const pinnedTable = this.heldFile;
+      const otherTableInk = mixHex(theme.evening, theme.textMuted, 0.5);
       const kin = this.codeLinkKin.get(held);
       if (kin !== undefined && kin.size > 0) {
         // One pass for the handful of nodes involved — the hovered body and
@@ -3506,8 +3568,10 @@ export class TerrainCanvas {
           const len = Math.hypot(dx, dy) || 1;
           const bow = Math.min(len * 0.16, 60);
           const weight = link.verb === 'creates' ? 2.4 : link.verb === 'writes' ? 1.7 : 1.1;
+          const ropeInk =
+            pinnedTable === null || link.tableId === pinnedTable ? theme.evening : otherTableInk;
           ctx.globalAlpha = link.verb === 'reads' ? 0.6 : 0.9;
-          ctx.strokeStyle = theme.evening;
+          ctx.strokeStyle = ropeInk;
           ctx.lineWidth = weight / transform.k;
           ctx.beginPath();
           ctx.moveTo(fx, fy);
@@ -3518,7 +3582,7 @@ export class TerrainCanvas {
             ty,
           );
           ctx.stroke();
-          ctx.fillStyle = theme.evening;
+          ctx.fillStyle = ropeInk;
           ctx.beginPath();
           ctx.arc(tx, ty, 2.4 / transform.k + 1, 0, Math.PI * 2);
           ctx.fill();
@@ -3528,6 +3592,18 @@ export class TerrainCanvas {
     }
 
     // -- edges --
+    // What the lit chain is drawn in: the folders a hovered FILE is kept in
+    // hang off it by tree lines, and those lines wear that file's own colour
+    // so the path up to where it lives belongs visibly to that dot. Resolved
+    // once a frame rather than once a line, and only for a plain file —
+    // a table's rectangle has no dot colour to lend.
+    let chainInk: string | null = null;
+    if (this.hoverFile !== null) {
+      const litBody = this.simNodes.find((n) => n.id === this.hoverFile);
+      if (litBody && litBody.node.kind === 'file' && !litBody.node.file?.table) {
+        chainInk = this.fileDotInk(litBody, ramp, goldRamp, now / 1000);
+      }
+    }
     ctx.lineWidth = 1 / transform.k;
     for (const link of this.simLinks) {
       const s = link.source as SimNode;
@@ -3581,9 +3657,14 @@ export class TerrainCanvas {
         ctx.lineWidth = (s.id === this.hoverFile || t.id === this.hoverFile ? 2.2 : 1.4) / transform.k;
         ctx.setLineDash([]);
       } else {
+        // The tree. A lit line — the chain from the hovered dot up to the
+        // folders it's kept in — is drawn in that dot's colour and a little
+        // heavier, so where the file lives is followed by eye rather than
+        // traced; every other tree line stays the map's plain border grey.
+        const chainLine = litLine && chainInk !== null;
         ctx.globalAlpha = inPrint ? 0.55 : 0.15;
-        ctx.strokeStyle = theme.border;
-        ctx.lineWidth = 1 / transform.k;
+        ctx.strokeStyle = chainLine ? chainInk! : theme.border;
+        ctx.lineWidth = (chainLine ? 1.6 : 1) / transform.k;
         ctx.setLineDash([]);
       }
       // The structure recedes under a file hover as well — every line but the
@@ -3772,27 +3853,24 @@ export class TerrainCanvas {
           // (nodeRadius), so a busy file is a big dot of its type's colour.
           // Prompt: "a toggle that overrides the other colors when i toggle
           // it on".
-          const path = n.node.path ?? n.node.label;
-          let typeColor = this.typeColorCache.get(path);
-          if (typeColor === undefined) {
-            typeColor = typeDotColor(fileTypeOf(path).color, theme.bg, theme.text);
-            this.typeColorCache.set(path, typeColor);
-          }
+          //
           // Stale files sink into the sky. The colour says what KIND of file
           // it is; how much of it is left says whether the file is still
           // alive — full at a fresh touch or run, gone by the Heat thumb, so
           // dead wood goes dark (black sky) or blank (light one) instead of
           // shouting in the same colour as the code she's working in. The
           // curve is staleTypeColor, up top, and the Heat slider is its dial.
-          ctx.fillStyle = staleTypeColor(typeColor, theme.bg, n.t, n.a);
+          ctx.fillStyle = this.fileDotInk(n, ramp, goldRamp, now / 1000);
         } else if (fresh) {
-          ctx.fillStyle = CREATED_GREEN;
+          ctx.fillStyle = this.fileDotInk(n, ramp, goldRamp, now / 1000);
         } else if (theme.dark) {
           // Dark: an opaque ASH disc, then the LEAN hue over it at GLOW
           // opacity (vocabulary in the ramp block up top). Both fires share
           // the floor, and a file with both kinds of life turns between them
           // under the breath instead of one hiding the other. Painted here,
           // so the generic fill below is skipped; rings and halos still draw.
+          // fileDotInk resolves this same pair into the one colour the lines
+          // use — keep the two in step.
           const glow = glowOf(n.t, n.a);
           ctx.fillStyle = theme.ash;
           ctx.beginPath();
@@ -3812,7 +3890,7 @@ export class TerrainCanvas {
           // Light (untouched, her call to tune dark first): the old priority
           // rule — anything that ran paints the gold ramp and hides the red
           // history, else the red heat ramp.
-          ctx.fillStyle = n.a > 0 ? heatColor(n.a, goldRamp) : heatColor(n.t, ramp);
+          ctx.fillStyle = this.fileDotInk(n, ramp, goldRamp, now / 1000);
         }
       } else {
         // Folders and repos: an OUTLINE, and what it's painted with. They're
