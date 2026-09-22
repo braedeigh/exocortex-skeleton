@@ -56,6 +56,8 @@ import { JourneyPanel, type ReplayRequest } from './JourneyPanel';
 import { beatNodeIds, scheduleFrames, type Beat } from './journeyReplay';
 import type { TerrainThread } from './terrainThreads';
 import { PondLandmark } from './PondLandmark';
+import { TerrainGuide } from './TerrainGuide';
+import { markGuideDismissed, readGuideDismissed, shouldOpenGuideOnLoad } from './guideOpenPref';
 import { collapseToPondTile, localDayISO, parseCardPath, POND_TILE_PATH } from './pondNodes';
 import { coilWindowLabel, nextCoilWindow, windowCoils } from './coilFolders';
 import { filesGlowingByRun } from './runGlow';
@@ -494,6 +496,17 @@ export function TerrainPage() {
   // button never has to step through it. The rooms themselves are full pages
   // (/terrain/usage, /terrain/sql) that unmount this map entirely.
   const [roomsOpen, setRoomsOpen] = useState(false);
+  // The Guide: what the shapes and colours mean and what a tap does, docked
+  // down the right side with the map still working beside it. Opens by itself
+  // for a first-time visitor and stays closed for the owner (guideOpenPref.ts);
+  // closing it once is remembered, so it never nags.
+  const [guideOpen, setGuideOpen] = useState(() =>
+    shouldOpenGuideOnLoad({ visitor, embed, dismissed: readGuideDismissed() }),
+  );
+  const closeGuide = () => {
+    setGuideOpen(false);
+    markGuideDismissed();
+  };
 
   // --- journey replay ---------------------------------------------------------
   // A captured journey (Wiring room / runtime_trace.py) played back on the
@@ -1678,7 +1691,7 @@ export function TerrainPage() {
   };
 
   return (
-    <div className={styles.page}>
+    <div className={[styles.page, guideOpen ? styles.guideOpen : ''].filter(Boolean).join(' ')}>
       {/* Canvas first and full-bleed: the chrome below floats over it, so the
           map owns the whole page and shows through the controls. */}
       <div ref={wrapRef} className={styles.canvasWrap}>
@@ -1703,6 +1716,7 @@ export function TerrainPage() {
       ) : null}
       {embed ? null : (
       <>
+      <TerrainGuide open={guideOpen} visitor={visitor} onClose={closeGuide} />
       <div className={styles.chrome}>
         <div className={styles.topBar}>
           <h1 className={styles.title}>Terrain</h1>
@@ -1777,6 +1791,21 @@ export function TerrainPage() {
                 &#8635;
               </span>
               {dataAge ? <span className={styles.refreshAge}>{dataAge}</span> : null}
+            </button>
+            {/* The Guide's door: beside the refresh chip because, like it, it
+                is about the map rather than the work. Open for everyone —
+                the panel itself says what a visitor can't reach. */}
+            <button
+              type="button"
+              className={[styles.chip, styles.guideChip, guideOpen ? styles.chipActive : '']
+                .filter(Boolean)
+                .join(' ')}
+              title="Guide — what the map shows and how to use it"
+              aria-label="Guide"
+              aria-expanded={guideOpen}
+              onClick={() => (guideOpen ? closeGuide() : setGuideOpen(true))}
+            >
+              <span aria-hidden="true">?</span> Guide
             </button>
           </div>
           {/* Page tools, pushed to the right edge and away from the map's own

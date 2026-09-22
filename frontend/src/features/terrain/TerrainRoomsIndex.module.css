@@ -14,6 +14,9 @@
 .backdrop {
   position: absolute;
   inset: 0;
+  /* Stop at the Guide's edge when it is docked (TerrainPage.module.css sets
+     --guide-width on the page while the guide is open; unset means 0). */
+  right: var(--guide-width, 0px);
   /* Above every piece of the map's floating chrome (top bar z2, bottom z3,
      colour key z5) — the whole map, controls included, blurs as one. */
   z-index: 9;

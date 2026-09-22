@@ -10,6 +10,9 @@
 .pane {
   position: absolute;
   inset: 0;
+  /* Stop at the Guide's edge when it is docked (TerrainPage.module.css sets
+     --guide-width on the page while the guide is open; unset means 0). */
+  right: var(--guide-width, 0px);
   z-index: 10;
   display: flex;
   flex-direction: column;

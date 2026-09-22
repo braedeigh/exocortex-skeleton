@@ -127,6 +127,10 @@ const BY_FILENAME: Record<string, FileType> = {
  * Anything unrecognised — and a dotfile like `.gitignore`, whose "extension"
  * is really its name — is OTHER_FILE_TYPE.
  */
+/** Every named type, in the order the table lists them — for the Guide's key,
+ * so the swatches it shows are the same objects the dots are painted from. */
+export const FILE_TYPES: FileType[] = Object.values(TYPES);
+
 export function fileTypeOf(path: string): FileType {
   const name = (path.split('/').pop() ?? '').toLowerCase();
   const named = BY_FILENAME[name];

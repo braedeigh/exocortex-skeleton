@@ -207,13 +207,23 @@
   white-space: nowrap;
 }
 
+/* The Guide's door, "? Guide" — the same shape as the Rooms chip, and it
+   folds to its glyph at the same width. */
+.guideChip {
+  gap: var(--space-1);
+  padding: 0 var(--space-3);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 /* Below the tablet breakpoint the toolbar is fighting for room, so the labels
    drop and these become icon chips — the same information, minus the words,
    at the width where the words stop fitting. */
 @media (max-width: 640px) {
   /* font-size:0 collapses the label text node; the glyph span sets its own size
      back, so the chip becomes exactly the icon chip beside it. */
-  .roomChip {
+  .roomChip,
+  .guideChip {
     width: 40px;
     padding: 0;
     gap: 0;
@@ -221,7 +231,8 @@
     line-height: 1;
   }
 
-  .roomChip span {
+  .roomChip span,
+  .guideChip span {
     font-size: var(--font-size-lg);
   }
 }
@@ -259,6 +270,30 @@
   position: relative;
   flex: 1;
   min-height: 0;
+}
+
+/* Make room for the Guide (TerrainGuide.tsx), docked down the right edge:
+   the canvas and both bars stop at its left edge, so the map is genuinely
+   beside the text rather than under it. The canvas's ResizeObserver picks
+   up the new width and the engine redraws into it. On a phone the guide
+   covers the page instead (its own media rule), so nothing here shrinks. */
+.guideOpen {
+  --guide-width: min(440px, 46%);
+}
+
+.guideOpen .canvasWrap {
+  margin-right: var(--guide-width);
+}
+
+.guideOpen .chrome,
+.guideOpen .chromeBottom {
+  right: var(--guide-width);
+}
+
+@media (max-width: 768px) {
+  .guideOpen {
+    --guide-width: 0px;
+  }
 }
 
 .canvas {
