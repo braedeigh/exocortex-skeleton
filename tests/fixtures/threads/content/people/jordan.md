@@ -1,4 +1,4 @@
-# Bryan
+# Jordan
 
 Fixture person for the `thread` tool's own tests — used to exercise
 `link --add-person`/`--remove-person`. Minimal shape only; content doesn't

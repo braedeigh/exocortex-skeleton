@@ -7,7 +7,7 @@ fact-cards with routable sources — so that's what we pin down here.
 
 The threads-architecture (§8 steps 2-3) tests below use a second fixture: a
 copy of tests/fixtures/threads/content, which is a small real DAG (root ->
-mid -> leaf, long-covid -> migraines, plus a broken/retired thread) shared
+mid -> leaf, topic-a -> topic-b, plus a broken/retired thread) shared
 with the Rust `thread` binary's own tests. They exercise the new frontmatter
 fields (fronts/parents/kind/status/distilled), retired filtering, the derived
 tree, backlinks, and the per-thread card inbox.
@@ -165,7 +165,7 @@ def test_talk_unknown_thread_is_404(client, talk_env):
 def vault(tmp_path, monkeypatch):
     """Copy the shared threads fixture content tree into tmp_path and point
     store.CONTENT_DIR at it, so these tests read real DAG-shaped fixtures
-    (migraines/long-covid/root-mid-leaf/broken) instead of one inline file.
+    (topic-b/topic-a/root-mid-leaf/broken) instead of one inline file.
     `_vault()` re-resolves store.CONTENT_DIR fresh per call, so monkeypatching
     it here is enough — no need to touch the routes module itself."""
     content = tmp_path / "content"
@@ -184,9 +184,9 @@ def vault_client(vault):
 
 
 FIXTURE_THREADS = {
-    "migraines": {"fronts": ["health", "job"], "parents": ["long-covid"],
+    "topic-b": {"fronts": ["health", "job"], "parents": ["topic-a"],
                   "kind": "standing", "distilled": "2026-07-10"},
-    "long-covid": {"fronts": ["health"], "parents": [],
+    "topic-a": {"fronts": ["health"], "parents": [],
                    "kind": "standing", "distilled": "2026-07-01"},
     "root-thread": {"fronts": ["health"], "parents": [],
                     "kind": "standing", "distilled": None},
@@ -218,7 +218,7 @@ def test_list_excludes_retired_by_default(vault_client):
     data = vault_client.get("/api/threads").get_json()
     ids = {t["id"] for t in data["threads"]}
     assert "broken-thread" not in ids   # status: retired in the fixture
-    assert "migraines" in ids
+    assert "topic-b" in ids
 
 
 def test_list_include_retired_shows_it(vault_client):
@@ -230,39 +230,39 @@ def test_list_include_retired_shows_it(vault_client):
 def test_list_filters_by_front(vault_client):
     data = vault_client.get("/api/threads?front=job").get_json()
     ids = {t["id"] for t in data["threads"]}
-    assert ids == {"migraines"}   # only thread carrying the "job" front
+    assert ids == {"topic-b"}   # only thread carrying the "job" front
 
 
 def test_list_items_carry_fronts_parents_kind_status(vault_client):
     data = vault_client.get("/api/threads").get_json()
-    migraines = next(t for t in data["threads"] if t["id"] == "migraines")
-    assert migraines["fronts"] == ["health", "job"]
-    assert migraines["parents"] == ["long-covid"]
-    assert migraines["kind"] == "standing"
-    assert migraines["status"] == "active"
+    topic_b = next(t for t in data["threads"] if t["id"] == "topic-b")
+    assert topic_b["fronts"] == ["health", "job"]
+    assert topic_b["parents"] == ["topic-a"]
+    assert topic_b["kind"] == "standing"
+    assert topic_b["status"] == "active"
 
 
 def test_parse_thread_reads_people_cast(vault):
-    # migraines.md's fixture frontmatter carries `people: [michael]`.
-    t = threads.parse_thread(vault / "Threads" / "migraines.md")
-    assert t["people"] == ["michael"]
+    # topic-b.md's fixture frontmatter carries `people: [alex]`.
+    t = threads.parse_thread(vault / "Threads" / "topic-b.md")
+    assert t["people"] == ["alex"]
 
 
 def test_parse_thread_defaults_people_to_empty_list(vault):
-    # long-covid.md predates the people: migration — no key at all.
-    t = threads.parse_thread(vault / "Threads" / "long-covid.md")
+    # topic-a.md predates the people: migration — no key at all.
+    t = threads.parse_thread(vault / "Threads" / "topic-a.md")
     assert t["people"] == []
 
 
 def test_roster_resolves_cast_to_slug_and_name(vault_client):
     data = vault_client.get("/api/threads").get_json()
-    migraines = next(t for t in data["threads"] if t["id"] == "migraines")
-    assert migraines["people"] == [{"slug": "michael", "name": "Michael"}]
+    topic_b = next(t for t in data["threads"] if t["id"] == "topic-b")
+    assert topic_b["people"] == [{"slug": "alex", "name": "Alex"}]
 
 
 def test_detail_resolves_cast_to_slug_and_name(vault_client):
-    t = vault_client.get("/api/thread?name=migraines").get_json()
-    assert t["people"] == [{"slug": "michael", "name": "Michael"}]
+    t = vault_client.get("/api/thread?name=topic-b").get_json()
+    assert t["people"] == [{"slug": "alex", "name": "Alex"}]
 
 
 def test_detail_cast_falls_back_to_titlecased_slug_when_no_people_file(vault, vault_client):
@@ -289,25 +289,25 @@ def test_detail_cast_falls_back_to_titlecased_slug_when_no_people_file(vault, va
 
 def test_tree_nodes_carry_raw_people_slugs(vault_client):
     tree = vault_client.get("/api/threads/tree").get_json()
-    assert tree["nodes"]["migraines"]["people"] == ["michael"]
+    assert tree["nodes"]["topic-b"]["people"] == ["alex"]
 
 
 def test_threads_for_person_finds_cast_membership(vault):
-    out = threads.threads_for_person("michael")
-    assert [t["slug"] for t in out] == ["migraines"]
-    assert out[0]["name"] == "Migraines"
+    out = threads.threads_for_person("alex")
+    assert [t["slug"] for t in out] == ["topic-b"]
+    assert out[0]["name"] == "Topic B"
 
 
 def test_threads_for_person_empty_for_unlisted_person(vault):
-    assert threads.threads_for_person("bryan") == []
+    assert threads.threads_for_person("jordan") == []
 
 
 def test_detail_includes_backlinks(vault_client):
-    # migraines.md's body links [[long-covid]]; long-covid's backlinks
-    # should therefore name migraines.
-    t = vault_client.get("/api/thread?name=long-covid").get_json()
-    assert {b["slug"] for b in t["backlinks"]} == {"migraines"}
-    assert {b["name"] for b in t["backlinks"]} == {"Migraines"}
+    # topic-b.md's body links [[topic-a]]; topic-a's backlinks
+    # should therefore name topic-b.
+    t = vault_client.get("/api/thread?name=topic-a").get_json()
+    assert {b["slug"] for b in t["backlinks"]} == {"topic-b"}
+    assert {b["name"] for b in t["backlinks"]} == {"Topic B"}
 
 
 def test_detail_no_backlinks_for_unlinked_thread(vault_client):
@@ -318,10 +318,10 @@ def test_detail_no_backlinks_for_unlinked_thread(vault_client):
 def test_tree_children_inversion_across_the_chain(vault_client):
     tree = vault_client.get("/api/threads/tree").get_json()
     assert "root-thread" in tree["roots"]
-    assert "long-covid" in tree["roots"]
+    assert "topic-a" in tree["roots"]
     assert tree["nodes"]["root-thread"]["children"] == ["mid-thread"]
     assert tree["nodes"]["mid-thread"]["children"] == ["leaf-thread"]
-    assert tree["nodes"]["long-covid"]["children"] == ["migraines"]
+    assert tree["nodes"]["topic-a"]["children"] == ["topic-b"]
 
 
 def test_tree_excludes_retired_nodes_and_edges_by_default(vault_client):
@@ -348,7 +348,7 @@ def test_tree_multi_parent_node_appears_in_two_children_lists(vault, vault_clien
         "name: Shared Child\n"
         "aliases: []\n"
         "fronts: [health]\n"
-        "parents: [long-covid, root-thread]\n"
+        "parents: [topic-a, root-thread]\n"
         "kind: standing\n"
         "status: active\n"
         "opened: 2026-07-15\n"
@@ -360,26 +360,26 @@ def test_tree_multi_parent_node_appears_in_two_children_lists(vault, vault_clien
         "→ `2026-07-01.0800a`\n"
     )
     tree = vault_client.get("/api/threads/tree").get_json()
-    assert "shared-child" in tree["nodes"]["long-covid"]["children"]
+    assert "shared-child" in tree["nodes"]["topic-a"]["children"]
     assert "shared-child" in tree["nodes"]["root-thread"]["children"]
     assert "shared-child" not in tree["roots"]
 
 
 def test_inbox_filters_by_watermark_oldest_first(vault_client):
-    # migraines distilled: 2026-07-10. A card tagged migraines dated
+    # topic-b distilled: 2026-07-10. A card tagged topic-b dated
     # 2026-07-05 (before) is excluded; 07-12 and 07-14 (after) are included,
     # oldest first.
-    data = vault_client.get("/api/thread/migraines/inbox").get_json()
+    data = vault_client.get("/api/thread/topic-b/inbox").get_json()
     assert [c["id"] for c in data["cards"]] == ["2026-07-12.1200a", "2026-07-14.1655c"]
     assert data["distilled"] == "2026-07-10"
 
 
 def test_inbox_card_carries_full_body_who_and_tags(vault_client):
-    data = vault_client.get("/api/thread/migraines/inbox").get_json()
+    data = vault_client.get("/api/thread/topic-b/inbox").get_json()
     card = data["cards"][0]
     assert card["who"] == "B"
-    assert "migraines" in card["tags"]
-    assert "aura" in card["text"].lower()
+    assert "topic-b" in card["tags"]
+    assert "beta" in card["text"].lower()
 
 
 def test_inbox_no_watermark_includes_all_tagged_cards(vault, vault_client):
@@ -408,36 +408,36 @@ def test_inbox_unknown_slug_is_404(vault_client):
 
 
 # --- GET /api/thread/<slug>/journal ------------------------------------------
-# migraines.md (see fixture above) exercises tagged/cited union + dedupe +
+# topic-b.md (see fixture above) exercises tagged/cited union + dedupe +
 # bare-day in one shot:
 #   - tagged pool cards: 2026-07-05.0900a, 2026-07-12.1200a, 2026-07-14.1655c
-#   - cited by id, found in pool, NOT tagged migraines: 2026-07-08.1841b
-#     (cited twice — under "What it is" and again under the "Trigger map —
-#     heat" bullet — so this also proves the dedupe)
-#   - bare-day `2026-07-13` cited under "Trigger map — heat" -> a day row
+#   - cited by id, found in pool, NOT tagged topic-b: 2026-07-08.1841b
+#     (cited twice — under "What it is" and again under the "Pattern —
+#     timing" bullet — so this also proves the dedupe)
+#   - bare-day `2026-07-13` cited under "Pattern — timing" -> a day row
 #     with that heading as its label
 
 def test_journal_unions_tagged_and_cited_cards_deduped(vault_client):
-    data = vault_client.get("/api/thread/migraines/journal").get_json()
+    data = vault_client.get("/api/thread/topic-b/journal").get_json()
     card_ids = [e["id"] for e in data["entries"] if e["kind"] == "card"]
     assert card_ids == [
         "2026-07-05.0900a", "2026-07-08.1841b", "2026-07-12.1200a", "2026-07-14.1655c",
     ]
-    # cited-by-id card not tagged migraines still carries its pool body/who/ts.
+    # cited-by-id card not tagged topic-b still carries its pool body/who/ts.
     cited = next(e for e in data["entries"] if e.get("id") == "2026-07-08.1841b")
     assert cited["who"] == "B"
     assert cited["ts"] == "2026-07-08 18:41:00"
-    assert "standup" in cited["text"].lower()
+    assert "meeting" in cited["text"].lower()
 
 
 def test_journal_bare_day_citation_becomes_day_row_with_heading_label(vault_client):
-    data = vault_client.get("/api/thread/migraines/journal").get_json()
+    data = vault_client.get("/api/thread/topic-b/journal").get_json()
     day = next(e for e in data["entries"] if e["kind"] == "day")
-    assert day == {"kind": "day", "date": "2026-07-13", "label": "Trigger map — heat", "excerpts": []}
+    assert day == {"kind": "day", "date": "2026-07-13", "label": "Pattern — timing", "excerpts": []}
 
 
 def test_journal_sorts_ascending_day_row_interleaved_by_date(vault_client):
-    data = vault_client.get("/api/thread/migraines/journal").get_json()
+    data = vault_client.get("/api/thread/topic-b/journal").get_json()
     ordering = [(e["kind"], e.get("id") or e["date"]) for e in data["entries"]]
     assert ordering == [
         ("card", "2026-07-05.0900a"),
@@ -449,13 +449,13 @@ def test_journal_sorts_ascending_day_row_interleaved_by_date(vault_client):
 
 
 def test_journal_includes_thread_summary_with_resolved_cast(vault_client):
-    data = vault_client.get("/api/thread/migraines/journal").get_json()
-    assert data["thread"]["id"] == "migraines"
-    assert data["thread"]["name"] == "Migraines"
+    data = vault_client.get("/api/thread/topic-b/journal").get_json()
+    assert data["thread"]["id"] == "topic-b"
+    assert data["thread"]["name"] == "Topic B"
     assert data["thread"]["status"] == "active"
     assert data["thread"]["kind"] == "standing"
     assert data["thread"]["fronts"] == ["health", "job"]
-    assert data["thread"]["people"] == [{"slug": "michael", "name": "Michael"}]
+    assert data["thread"]["people"] == [{"slug": "alex", "name": "Alex"}]
 
 
 def test_journal_cited_id_missing_from_pool_falls_back_to_day_row(vault):
@@ -531,12 +531,12 @@ def test_journal_unknown_slug_is_404(vault_client):
 
 
 # --- mention matches join the union -----------------------------------------
-# long-covid.md's aliases: [long covid, LC] (see fixture above) make it a good
+# topic-a.md's aliases: [topic a, TA] (see fixture above) make it a good
 # subject for the substring-vs-word-boundary distinction.
 
 def test_journal_includes_card_that_only_mentions_an_alias(vault):
-    # Neither tagged `long-covid` nor cited by any fact-card — found purely
-    # because its text mentions the "LC" alias as a standalone word.
+    # Neither tagged `topic-a` nor cited by any fact-card — found purely
+    # because its text mentions the "TA" alias as a standalone word.
     cards_dir = vault / "_system" / "data" / "cards"
     (cards_dir / "2026-07-20.0900a.md").write_text(
         "---\n"
@@ -546,20 +546,20 @@ def test_journal_includes_card_that_only_mentions_an_alias(vault):
         "tags: []\n"
         "kind: line\n"
         "---\n"
-        "Feeling wrecked again, definitely LC flaring up today.\n"
+        "Thinking about it again, definitely TA came up today.\n"
     )
     from flask import Flask
     app = Flask(__name__)
     app.config.update(TESTING=True)
     threads.register(app)
-    data = app.test_client().get("/api/thread/long-covid/journal").get_json()
+    data = app.test_client().get("/api/thread/topic-a/journal").get_json()
     card_ids = [e["id"] for e in data["entries"] if e["kind"] == "card"]
     assert "2026-07-20.0900a" in card_ids
 
 
 def test_journal_excludes_alias_matching_only_as_a_substring(vault):
-    # "LC" appears inside "TLC" — not a word-boundary match, so this card
-    # must NOT join long-covid's journal.
+    # "TA" appears inside "STAT" — not a word-boundary match, so this card
+    # must NOT join topic-a's journal.
     cards_dir = vault / "_system" / "data" / "cards"
     (cards_dir / "2026-07-20.0900a.md").write_text(
         "---\n"
@@ -569,20 +569,20 @@ def test_journal_excludes_alias_matching_only_as_a_substring(vault):
         "tags: []\n"
         "kind: line\n"
         "---\n"
-        "Gave the dog some TLC after the vet visit.\n"
+        "Ran the STAT check after lunch.\n"
     )
     from flask import Flask
     app = Flask(__name__)
     app.config.update(TESTING=True)
     threads.register(app)
-    data = app.test_client().get("/api/thread/long-covid/journal").get_json()
+    data = app.test_client().get("/api/thread/topic-a/journal").get_json()
     card_ids = [e["id"] for e in data["entries"] if e["kind"] == "card"]
     assert "2026-07-20.0900a" not in card_ids
 
 
 def test_journal_thread_payload_echoes_aliases(vault_client):
-    data = vault_client.get("/api/thread/long-covid/journal").get_json()
-    assert data["thread"]["aliases"] == ["long covid", "LC"]
+    data = vault_client.get("/api/thread/topic-a/journal").get_json()
+    assert data["thread"]["aliases"] == ["topic a", "TA"]
 
 
 # --- keeper-authored cards are excluded --------------------------------------
@@ -596,26 +596,26 @@ def test_journal_excludes_keeper_authored_cards(vault):
         "id: 2026-07-20.0900k\n"
         "who: K\n"
         "ts: 2026-07-20 09:00:00\n"
-        "tags: [long-covid]\n"
+        "tags: [topic-a]\n"
         "kind: line\n"
         "---\n"
-        "Keeper commentary about her LC day.\n"
+        "Keeper commentary about her TA day.\n"
     )
     (cards_dir / "2026-07-20.0905b.md").write_text(
         "---\n"
         "id: 2026-07-20.0905b\n"
         "who: B\n"
         "ts: 2026-07-20 09:05:00\n"
-        "tags: [long-covid]\n"
+        "tags: [topic-a]\n"
         "kind: line\n"
         "---\n"
-        "My own words about the LC day.\n"
+        "My own words about the TA day.\n"
     )
     from flask import Flask
     app = Flask(__name__)
     app.config.update(TESTING=True)
     threads.register(app)
-    data = app.test_client().get("/api/thread/long-covid/journal").get_json()
+    data = app.test_client().get("/api/thread/topic-a/journal").get_json()
     card_ids = [e["id"] for e in data["entries"] if e["kind"] == "card"]
     assert "2026-07-20.0905b" in card_ids
     assert "2026-07-20.0900k" not in card_ids
@@ -801,12 +801,12 @@ def test_journal_card_within_rolling_24h_is_editable(vault, vault_client, monkey
         "id: 2026-07-20.1100b\n"
         "who: B\n"
         "ts: 2026-07-20 12:00:00\n"
-        "tags: [migraines]\n"
+        "tags: [topic-b]\n"
         "kind: line\n"
         "---\n"
         "Fresh note, minted right now.\n"
     )
-    data = vault_client.get("/api/thread/migraines/journal").get_json()
+    data = vault_client.get("/api/thread/topic-b/journal").get_json()
     card = next(e for e in data["entries"] if e.get("id") == "2026-07-20.1100b")
     assert card["editable"] is True
 
@@ -819,12 +819,12 @@ def test_journal_card_25h_old_is_not_editable(vault, vault_client, monkeypatch):
         "id: 2026-07-19.1100b\n"
         "who: B\n"
         "ts: 2026-07-19 11:00:00\n"
-        "tags: [migraines]\n"
+        "tags: [topic-b]\n"
         "kind: line\n"
         "---\n"
         "A day-old note, just past the rolling 24h window.\n"
     )
-    data = vault_client.get("/api/thread/migraines/journal").get_json()
+    data = vault_client.get("/api/thread/topic-b/journal").get_json()
     card = next(e for e in data["entries"] if e.get("id") == "2026-07-19.1100b")
     assert card["editable"] is False
 
@@ -837,12 +837,12 @@ def test_journal_card_with_unparseable_ts_is_not_editable(vault, vault_client, m
         "id: 2026-07-20.1200c\n"
         "who: B\n"
         "ts: \n"
-        "tags: [migraines]\n"
+        "tags: [topic-b]\n"
         "kind: line\n"
         "---\n"
         "A card with no usable timestamp.\n"
     )
-    data = vault_client.get("/api/thread/migraines/journal").get_json()
+    data = vault_client.get("/api/thread/topic-b/journal").get_json()
     card = next(e for e in data["entries"] if e.get("id") == "2026-07-20.1200c")
     assert card["editable"] is False
 
@@ -855,12 +855,12 @@ def test_journal_card_reply_to_round_trips(vault, vault_client):
         "who: B\n"
         "ts: 2026-07-20 09:00:00\n"
         "reply_to: 2026-07-14.1655c\n"
-        "tags: [migraines]\n"
+        "tags: [topic-b]\n"
         "kind: line\n"
         "---\n"
-        "Following up on the fluorescent light thing.\n"
+        "Following up on the earlier note.\n"
     )
-    data = vault_client.get("/api/thread/migraines/journal").get_json()
+    data = vault_client.get("/api/thread/topic-b/journal").get_json()
     reply = next(e for e in data["entries"] if e.get("id") == "2026-07-20.0900b")
     assert reply["reply_to"] == "2026-07-14.1655c"
     # A card without reply_to frontmatter at all still round-trips to null.

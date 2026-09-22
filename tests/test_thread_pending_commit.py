@@ -61,9 +61,9 @@ def test_thread_open_with_cards_creates_a_file_that_lints(thread_client, thread_
     change = {
         "id": "open1", "kind": "thread_open", "summary": "", "created": "",
         "payload": {
-            "slug": "night-terrors",
+            "slug": "topic-c",
             "charter": "Waking in a panic mid-sleep. Out: ordinary insomnia.",
-            "name": "Night Terrors",
+            "name": "Topic C",
             "fronts": ["health"],
             "parents": [],
             "kind": "standing",
@@ -77,11 +77,11 @@ def test_thread_open_with_cards_creates_a_file_that_lints(thread_client, thread_
     res = _approve(thread_client, change)
     assert res.status_code == 200
 
-    path = content / "Threads" / "night-terrors.md"
+    path = content / "Threads" / "topic-c.md"
     assert path.exists()
     # Assert through parse_thread, not raw string matching.
     t = threads_routes.parse_thread(path)
-    assert t["name"] == "Night Terrors"
+    assert t["name"] == "Topic C"
     assert t["fronts"] == ["health"]
     assert t["kind"] == "standing"
     assert t["aliases"] == ["terrors"]
@@ -144,11 +144,11 @@ def test_thread_link_adds_a_front(thread_client, thread_vault):
     content, _data = thread_vault
     change = {
         "id": "link1", "kind": "thread_link", "summary": "", "created": "",
-        "payload": {"slug": "long-covid", "add_fronts": ["practice"]},
+        "payload": {"slug": "topic-a", "add_fronts": ["practice"]},
     }
     res = _approve(thread_client, change)
     assert res.status_code == 200
-    t = threads_routes.parse_thread(content / "Threads" / "long-covid.md")
+    t = threads_routes.parse_thread(content / "Threads" / "topic-a.md")
     assert "practice" in t["fronts"]
 
 
@@ -158,13 +158,13 @@ def test_thread_link_edited_payload_from_the_approval_modal_flows_through(thread
     content, _data = thread_vault
     store.write("pending_changes", {"pending": [{
         "id": "link2", "kind": "thread_link", "summary": "", "created": "",
-        "payload": {"slug": "long-covid", "add_fronts": ["job"]},
+        "payload": {"slug": "topic-a", "add_fronts": ["job"]},
     }]})
     res = thread_client.post("/api/pending/approve", json={
         "id": "link2", "payload": {"add_fronts": ["practice"]},
     })
     assert res.status_code == 200
-    t = threads_routes.parse_thread(content / "Threads" / "long-covid.md")
+    t = threads_routes.parse_thread(content / "Threads" / "topic-a.md")
     assert "practice" in t["fronts"]
     assert "job" not in t["fronts"]   # the staged value was overridden, not merged in
 
@@ -246,15 +246,15 @@ def test_threads_without_a_charter_read_as_empty_string_not_missing(thread_vault
 
 def test_thread_link_recuts_a_charter_on_its_own(thread_client, thread_vault):
     content, _data = thread_vault
-    before = threads_routes.parse_thread(content / "Threads" / "long-covid.md")
+    before = threads_routes.parse_thread(content / "Threads" / "topic-a.md")
     change = {
         "id": "link3", "kind": "thread_link", "summary": "", "created": "",
-        "payload": {"slug": "long-covid", "charter": TRICKY_CHARTER},
+        "payload": {"slug": "topic-a", "charter": TRICKY_CHARTER},
     }
     res = _approve(thread_client, change)
     assert res.status_code == 200
 
-    after = threads_routes.parse_thread(content / "Threads" / "long-covid.md")
+    after = threads_routes.parse_thread(content / "Threads" / "topic-a.md")
     assert after["charter"] == TRICKY_CHARTER
     # Charter-only: `link` isn't called at all, so membership is untouched.
     assert after["fronts"] == before["fronts"]
@@ -265,11 +265,11 @@ def test_thread_link_applies_a_charter_and_a_membership_edit_together(thread_cli
     content, _data = thread_vault
     change = {
         "id": "link4", "kind": "thread_link", "summary": "", "created": "",
-        "payload": {"slug": "long-covid", "charter": TRICKY_CHARTER,
+        "payload": {"slug": "topic-a", "charter": TRICKY_CHARTER,
                     "add_fronts": ["practice"]},
     }
     res = _approve(thread_client, change)
     assert res.status_code == 200
-    t = threads_routes.parse_thread(content / "Threads" / "long-covid.md")
+    t = threads_routes.parse_thread(content / "Threads" / "topic-a.md")
     assert t["charter"] == TRICKY_CHARTER
     assert "practice" in t["fronts"]
