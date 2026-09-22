@@ -455,3 +455,27 @@
   font-size: var(--font-size-sm);
   color: var(--text-muted);
 }
+
+/* A VISITOR'S TABLE: the shapes are real, the values were never sent.
+   The cells arrive as blocks the length each value was (routes/
+   terrain_tables.py `_frost_page`), and the blur is what turns a row of
+   blocks into a row that reads as "there is something here, and you can't
+   read it". Purely cosmetic — the privacy already happened on the server. */
+.frostedCell .cell {
+  filter: blur(2.5px);
+  opacity: 0.6;
+  user-select: none;
+}
+
+/* Stands where the search box does for the owner, so the toolbar keeps its
+   shape and the reason the search is gone is said rather than implied. */
+.frostedNote {
+  flex: 1 1 260px;
+  display: flex;
+  align-items: center;
+  min-height: var(--tap-target, 44px);
+  padding: 0 var(--space-3);
+  color: var(--text);
+  opacity: 0.75;
+  font-size: var(--font-size-sm);
+}

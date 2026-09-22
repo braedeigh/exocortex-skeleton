@@ -57,12 +57,7 @@ import { beatNodeIds, scheduleFrames, type Beat } from './journeyReplay';
 import type { TerrainThread } from './terrainThreads';
 import { PondLandmark } from './PondLandmark';
 import { collapseToPondTile, localDayISO, parseCardPath, POND_TILE_PATH } from './pondNodes';
-import {
-  nextUploadWindow,
-  uploadWindowLabel,
-  UPLOAD_WINDOW_DAYS,
-  windowUploads,
-} from './uploadNodes';
+import { coilWindowLabel, nextCoilWindow, windowCoils } from './coilFolders';
 import { filesGlowingByRun } from './runGlow';
 import { addTableNodes } from './tableNodes';
 import { tableCodeLinks } from './tableMentions';
@@ -376,9 +371,12 @@ export function TerrainPage() {
     anyRunning && pageVisible,
     tier,
   );
-  // The database's tables, for the map's table layer (tableNodes.ts). Owner
-  // only — the endpoint is closed to visitors, so they don't ask.
-  const { data: tables, refetch: refetchTables } = useTerrainTables(!visitor);
+  // The database's tables, for the map's table layer (tableNodes.ts). Open to
+  // visitors too since the values were frosted: a stranger gets the tables,
+  // their columns and their shapes, and every cell comes back as blocks
+  // (routes/terrain_tables.py). Her ask: "i want it published but the actual
+  // values inside of the tables will be blurred."
+  const { data: tables, refetch: refetchTables } = useTerrainTables(true);
   useEffect(() => {
     if (data) setAnyRunning((data.sessions ?? []).some((s) => s.running));
   }, [data]);
@@ -642,33 +640,36 @@ export function TerrainPage() {
   const fittedRef = useRef(false);
 
   /**
-   * How much of the uploads archive the coil is showing, in days — a month to
-   * begin with, one step wider each time she taps its centre, and round to a
-   * month again from the far end (uploadNodes.ts).
+   * How far back each coil is open, in days, keyed by its folder — a month to
+   * begin with, one step wider each time she taps that coil's centre, and
+   * round to the start again from the far end (coilFolders.ts). Per coil,
+   * because a chat log and a photo archive don't fill at the same rate and
+   * shouldn't be opened together.
    *
-   * Deliberately NOT persisted, unlike the sticky toggles next door: the coil
-   * opening at a month every time the page loads is what makes "it stays
-   * about the same size unless you interact with it" true across visits and
-   * not just within one. A six-month coil is something she asked for in a
-   * moment, not a setting.
+   * Deliberately NOT persisted, unlike the sticky toggles next door: every
+   * coil opening at its first step on load is what makes "it stays about the
+   * same size unless you interact with it" true across visits and not just
+   * within one. A six-month coil is something she asked for in a moment, not
+   * a setting.
    */
-  const [uploadWindow, setUploadWindow] = useState<number | null>(UPLOAD_WINDOW_DAYS);
+  const [coilWindows, setCoilWindows] = useState<Record<string, number | null>>({});
 
   /**
-   * The uploads archive cut to that window, and re-timed, before anything
-   * else looks at the payload — same slot in the pipeline as the pond's
-   * collapse below, and for the same reason: what reaches the graph should
-   * already be the thing the map means to draw.
+   * Her coil folders cut to their windows, and re-timed, before anything else
+   * looks at the payload — same slot in the pipeline as the pond's collapse
+   * below, and for the same reason: what reaches the graph should already be
+   * the thing the map means to draw.
    *
-   * Two separate jobs, both in uploadNodes.ts: only the window's uploads get
-   * through (the archive is the vault's biggest branch and most of it is old
-   * screenshots), and every one that does has its git history swapped for the
-   * moment in its filename — because an upload's commits record vault
-   * maintenance, not uploading, and the coil is lit by those times.
+   * Two jobs, both in coilFolders.ts: only each window's files get through
+   * (these are the biggest folders in the vault and most of what's in them is
+   * old), and on a 'stamp' coil every one that does has its git history
+   * swapped for the moment in its filename — because for a folder git only
+   * bulk-moves, the commits record vault maintenance rather than anything she
+   * did, and the coil is lit by those times.
    */
   const coiled = useMemo(
-    () => (data ? windowUploads(data, { windowDays: uploadWindow }) : null),
-    [data, uploadWindow],
+    () => (data ? windowCoils(data, { windows: coilWindows }) : null),
+    [data, coilWindows],
   );
 
   /**
@@ -706,7 +707,7 @@ export function TerrainPage() {
     // spiral with a bite out of the outer arm, which reads as a bug rather
     // than as a filter. The window she set on the coil is the only thing that
     // decides how much of it is drawn.
-    const coilIds = coiled?.spiralIds ?? [];
+    const coilIds = (coiled?.coils ?? []).flatMap((coil) => coil.spiralIds);
     if (!searchIds && coilIds.length === 0) return replayPins;
     const all = new Set<string>(replayPins ?? []);
     for (const id of searchIds ?? []) all.add(id);
@@ -1116,19 +1117,21 @@ export function TerrainPage() {
   // The coil, handed over as an ORDER and a centre: the engine pins dot 0
   // innermost and winds the rest out from there (terrainCanvas.setCoilNodes).
   useEffect(() => {
-    // The caption the coil wears under its own name: how far back it's open
-    // and how much of the archive that is — "1mo · 44 of 676". Without it the
-    // centre is a control with no reading on it, and the only way to know
-    // what tapping did is to count dots.
-    const caption = coiled
-      ? `${uploadWindowLabel(uploadWindow)} · ${coiled.shown} of ${coiled.total}`
-      : null;
-    engineRef.current?.setCoilNodes(
-      coiled?.spiralIds ?? [],
-      coiled?.folderId ?? null,
-      coiled && coiled.total > 0 ? caption : null,
+    // Each coil, handed over as an ORDER and a centre: the engine pins dot 0
+    // innermost and winds the rest out from there (terrainCanvas.setCoils).
+    // The caption is the line it wears under its own name — "1mo · 53 of
+    // 685". Without it a centre is a control with no reading on it, and the
+    // only way to know what tapping did is to count dots.
+    engineRef.current?.setCoils(
+      (coiled?.coils ?? []).map((coil) => ({
+        folderId: coil.folderId,
+        ids: coil.spiralIds,
+        caption: `${coilWindowLabel(
+          coilWindows[coil.prefix] === undefined ? coil.windows[0] : coilWindows[coil.prefix],
+        )} · ${coil.shown} of ${coil.total}`,
+      })),
     );
-  }, [coiled, uploadWindow]);
+  }, [coiled, coilWindows]);
 
 
   // "Nothing here" is now a statement about the chosen dials, not just the
@@ -1193,13 +1196,23 @@ export function TerrainPage() {
     const engine = engineRef.current;
     if (!engine) return;
     engine.onTap = (node) => {
-      // The coil's centre is its own control: a tap on the uploads folder
-      // opens the window a step wider — a month, a season, half a year,
-      // everything, and round to a month again — rather than selecting the
-      // folder. It's the one dot on the map that does this, because it's the
-      // one whose whole branch is drawn as a single arrangement.
-      if (node !== null && node.id === coiled?.folderId) {
-        setUploadWindow((open) => nextUploadWindow(open));
+      // A coil's centre is its own control: a tap on one of these folders
+      // opens that coil a step wider — a month, a season, half a year,
+      // everything, and round again — rather than selecting the folder. They
+      // are the only dots on the map that do this, because they're the ones
+      // whose whole branch is drawn as a single arrangement.
+      const tappedCoil = coiled?.coils.find((coil) => coil.folderId === node?.id);
+      if (tappedCoil) {
+        setCoilWindows((open) => {
+          const at = open[tappedCoil.prefix];
+          return {
+            ...open,
+            [tappedCoil.prefix]: nextCoilWindow(
+              at === undefined ? tappedCoil.windows[0] : at,
+              tappedCoil.windows,
+            ),
+          };
+        });
         return;
       }
       if (node?.kind === 'file') {

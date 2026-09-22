@@ -90,6 +90,12 @@ export interface TableRowsPage {
   /** The SQL that produced this page, with its values written in. Missing on
    * a server that predates it. */
   sql?: string;
+  /** Set by the server for a VISITOR: every cell is blocks the length the
+   * value was, never the value (routes/terrain_tables.py `_frost_page`). The
+   * view reads this rather than guessing at who's looking — the data itself
+   * says what it is. Search, filters and sort are ignored server-side on a
+   * frosted page, so the controls that drive them are hidden. */
+  frosted?: boolean;
 }
 
 export interface TableRowWhole {
@@ -101,6 +107,12 @@ export interface TableRowWhole {
 
 /** One column, profiled over the whole table. */
 export interface TableColumnProfile {
+  /** Set by the server for a VISITOR: the counts are real, the EXAMPLES are
+   * gone — no smallest/largest/average and no value list, because those are
+   * the column's contents (routes/terrain_tables.py `_frost_column`). The
+   * card shows what the column is and drops the controls that would filter
+   * or sort by it, since a frosted page ignores both. */
+  frosted?: boolean;
   table: string;
   column: string;
   /** The declared SQLite type ('' when none). */

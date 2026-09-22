@@ -177,6 +177,19 @@ PRESENTABLE_PATHS = (
     # When each line of a file was last edited (git blame). Same front door as
     # the file's text above, so the same visitor lock: git-tracked app code only.
     "/api/observatory/terrain/file/edits",
+    # The database's own tables, as bodies on the map. Opened by the owner's
+    # decision: "i want it published but the actual values inside of the tables
+    # will be blurred." A visitor gets the architecture — tables, columns,
+    # types, row counts, foreign keys, the plain-English notes — and every cell
+    # comes back as blocks the length the value was, frosted server-side in
+    # routes/terrain_tables.py. Search, filters and sort are ignored for a
+    # visitor there, because a matching COUNT is a value read one bit at a
+    # time. The SQL console (/terrain/sql) stays shut: arbitrary reads, not a
+    # described shape.
+    "/api/observatory/terrain/tables",
+    "/api/observatory/terrain/tables/rows",
+    "/api/observatory/terrain/tables/row",
+    "/api/observatory/terrain/tables/column",
     # The food-sourcing map (routes/ecosystem.py, the Ecosystem feature).
     # Reopened 2026-09-17 as the second exhibit: the portfolio frames
     # /food-map?embed=1 and links through to the full page. STREAMS above

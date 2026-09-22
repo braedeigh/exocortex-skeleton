@@ -32,11 +32,24 @@ It also says WHERE on the map the tables belong: which repo holds the data
 directory, and the database file's path inside it, so the tables hang off the
 folder the database really lives in.
 
-Owner only. The map itself is open to visitors (public_config.PUBLIC_PATHS),
-but this endpoint is not in that list, so the auth gate closes it — table and
-column names describe what the owner keeps, the same reason /terrain/sql is
-guarded. That is also why this is its own endpoint rather than a field on the
-terrain payload: that payload is cached and served to visitors too.
+OPEN TO VISITORS, WITH THE VALUES FROSTED (the owner's call: "i want it
+published but the actual values inside of the tables will be blurred"). A
+stranger gets the whole ARCHITECTURE — every table, its columns and types, its
+row count and size, its foreign keys, the plain-English notes, and which code
+files touch it — and never a value out of a row. Each cell arrives as blocks
+the length the value was, so the sheet keeps its real shape and the page reads
+as a blurred table rather than an empty one.
+
+The frosting is done HERE, on the server, in one seam (`_frost_page`,
+`_frost_row`, `_frost_column`): nothing but shape crosses the wire, so no
+client bug can un-blur what was never sent. Two things go with it for a
+visitor, because a count is a value read one bit at a time: SEARCH AND FILTERS
+ARE IGNORED (otherwise "how many rows contain X" answers questions about the
+rows), and so is sort (the order of blurred values is still their order). The
+column profile keeps its counts and loses its examples.
+
+The SQL console (/terrain/sql) stays shut — it is arbitrary reads, not a
+described shape.
 
 Reads exo.db directly and read-only (the same way routes/sqlab.py does),
 because the subject is the tables themselves, not the collections store.py
@@ -321,6 +334,66 @@ def build_tables():
 #   - long cells are cut short in the list (one journal card or one whole
 #     collection can be hundreds of kilobytes) and said to be cut, and the
 #     single-row door returns them whole.
+
+# --- what a VISITOR sees: the shape of a value, never the value --------------
+#
+# One block per character, so a name stays short and a journal card stays long
+# and the sheet looks like itself. Capped, because a 4,000-character card would
+# otherwise draw a 4,000-block smear; past the cap the row is marked `cut`, the
+# same channel the owner's own long values already use.
+_FROST_BLOCK = "\u2592"
+_FROST_TEXT_MAX = 40
+_FROST_NUMBER_BLOCKS = 3
+
+
+def _visitor():
+    """True when this request is a stranger's (server.gate sets view_mode)."""
+    return getattr(request, "view_mode", "authed") == "public"
+
+
+def _frost_cell(value):
+    """One cell as (blocks, was-it-cut). A number gets a fixed three blocks
+    rather than one per digit: the digit count IS the magnitude, which is the
+    kind of thing an amount column is asked to keep."""
+    if value is None:
+        return None, False
+    if isinstance(value, bool):
+        return _FROST_BLOCK, False
+    if isinstance(value, (int, float)):
+        return _FROST_BLOCK * _FROST_NUMBER_BLOCKS, False
+    text = str(value)
+    return _FROST_BLOCK * max(1, min(len(text), _FROST_TEXT_MAX)), len(text) > _FROST_TEXT_MAX
+
+
+def _frost_page(page):
+    """A page of rows with every cell replaced by its shape. Counts, columns
+    and the SQL stay: they describe the table, not what is in it."""
+    rows = []
+    for row in page.get("rows") or []:
+        shaped = [_frost_cell(cell) for cell in row.get("cells") or []]
+        rows.append({**row,
+                     "cells": [cell for cell, _ in shaped],
+                     "cut": [cut for _, cut in shaped]})
+    return {**page, "rows": rows, "frosted": True}
+
+
+def _frost_row(row):
+    """One row opened whole, frosted the same way as a page's cells."""
+    shaped = [_frost_cell(value) for value in row.get("values") or []]
+    return {**row, "values": [value for value, _ in shaped], "frosted": True}
+
+
+# A profile's counts describe the column; its examples ARE the column. These
+# four go; everything else (how full, how many different, what it looks like)
+# stays, because it says what the table is without saying what is in it.
+_FROSTED_PROFILE_FIELDS = ("smallest", "largest", "average", "values")
+
+
+def _frost_column(profile):
+    frosted = {k: v for k, v in profile.items() if k not in _FROSTED_PROFILE_FIELDS}
+    frosted.update({"values": None, "values_complete": False, "frosted": True})
+    return frosted
+
 
 _ROWS_PAGE = 100           # rows per page when the client doesn't say
 _ROWS_PAGE_MAX = 500       # ...and the most it may ask for
@@ -679,6 +752,11 @@ def register(app):
     def observatory_terrain_table_rows():
         table = request.args.get("table", "")
         word = (request.args.get("q") or "").strip()[:200]
+        # A visitor's search and filters are DROPPED, not refused: "how many
+        # rows match X" is a value read one bit at a time, and a page that
+        # quietly shows the whole table is a better answer than an error.
+        if _visitor():
+            word = ""
         offset = _whole_number(request.args.get("offset"), 0, 0, 10_000_000)
         limit = _whole_number(request.args.get("limit"), _ROWS_PAGE, 1, _ROWS_PAGE_MAX)
         # Filters arrive as one JSON list in the query string; the sort as a
@@ -689,6 +767,9 @@ def register(app):
             return jsonify({"error": "filters must be JSON"}), 400
         sort = request.args.get("sort") or None
         descending = request.args.get("dir") == "desc"
+        if _visitor():
+            # Sorting by a frosted column would still order the values.
+            filters, sort, descending = [], None, False
         try:
             page = read_rows(table, word, offset, limit, filters, sort, descending)
         except BadFilter as e:
@@ -701,7 +782,7 @@ def register(app):
             return jsonify({"error": str(e)}), 500
         if page is None:
             return jsonify({"error": "no such table"}), 404
-        return jsonify(page)
+        return jsonify(_frost_page(page) if _visitor() else page)
 
     @app.route("/api/observatory/terrain/tables/row")
     def observatory_terrain_table_row():
@@ -715,7 +796,7 @@ def register(app):
             return jsonify({"error": str(e)}), 500
         if row is None:
             return jsonify({"error": "no such row"}), 404
-        return jsonify(row)
+        return jsonify(_frost_row(row) if _visitor() else row)
 
     @app.route("/api/observatory/terrain/tables/column")
     def observatory_terrain_table_column():
@@ -727,4 +808,4 @@ def register(app):
             return jsonify({"error": str(e)}), 500
         if profile is None:
             return jsonify({"error": "no such column"}), 404
-        return jsonify(profile)
+        return jsonify(_frost_column(profile) if _visitor() else profile)

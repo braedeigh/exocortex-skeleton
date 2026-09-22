@@ -53,6 +53,20 @@ def _ingest(client, payload, secret, gzipped=True):
     return client.post("/api/observatory/terrain/ingest", data=raw, headers=headers)
 
 
+@pytest.fixture(autouse=True)
+def _fresh_caches():
+    """The map payload is cached per file-cap for five minutes inside
+    routes/terrain.py, and the published artifact is held by mtime — both live
+    for the whole process, so one test's map would otherwise be served to the
+    next one whose data dir is empty."""
+    from routes import terrain, terrain_mirror as mirror
+    terrain._terrain_cache.clear()
+    mirror._loaded.update(key=None, payload=None)
+    yield
+    terrain._terrain_cache.clear()
+    mirror._loaded.update(key=None, payload=None)
+
+
 @pytest.fixture
 def secret(data_dir):
     """The shared secret, minted into the test's own data dir."""

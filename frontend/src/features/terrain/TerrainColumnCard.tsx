@@ -180,7 +180,7 @@ export function TerrainColumnCard({
           </div>
           {/* Smallest and largest only mean something for numbers and dates —
               "the smallest bucket is done" is just alphabetical order. */}
-          {data.filled > 0 && (data.looks_like === 'date' || data.looks_like === 'number') ? (
+          {!data.frosted && data.filled > 0 && (data.looks_like === 'date' || data.looks_like === 'number') ? (
             <p className={styles.muted}>
               {data.looks_like === 'date' ? 'Earliest' : 'Smallest'} {shown(data.smallest)} ·{' '}
               {data.looks_like === 'date' ? 'latest' : 'largest'} {shown(data.largest)}
@@ -190,8 +190,15 @@ export function TerrainColumnCard({
             </p>
           ) : null}
 
-          {/* ITS VALUES — tap to keep only the rows that have it. */}
-          {data.values ? (
+          {/* ITS VALUES — tap to keep only the rows that have it. For a
+              visitor there are none: the counts above describe the column,
+              and the values themselves are what was withheld. */}
+          {data.frosted ? (
+            <p className={styles.muted}>
+              Values hidden. The counts above are real — how full this column is and how many
+              different values it holds — but what those values are isn't shown.
+            </p>
+          ) : data.values ? (
             <div className={styles.block}>
               <h4 className={styles.blockTitle}>
                 {data.values_complete ? 'Every value' : `The ${data.values.length} most common values`}
@@ -229,7 +236,11 @@ export function TerrainColumnCard({
             </p>
           )}
 
-          {/* NARROW IT — the controls that suit this kind of column. */}
+          {/* NARROW IT, ORDER, HIDE — all of it drives a server-side filter or
+              sort, and a frosted page ignores both, so a visitor doesn't get
+              controls that would quietly do nothing. */}
+          {data.frosted ? null : (
+          <>
           <div className={styles.block}>
             <h4 className={styles.blockTitle}>Narrow the rows</h4>
             <div className={styles.controls}>
@@ -339,6 +350,8 @@ export function TerrainColumnCard({
               </button>
             </div>
           </div>
+          </>
+          )}
 
           <p className={styles.muted}>
             These counts are for the whole table ({data.total.toLocaleString()} rows), not just the rows
