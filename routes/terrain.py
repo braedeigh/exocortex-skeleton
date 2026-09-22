@@ -647,6 +647,68 @@ def _terrain_live_ids(index, running_ids):
     return live
 
 
+# --- the uploads coil: the archive folder, listed whole ----------------------
+#
+# The map draws the uploads archive as a SPIRAL around its folder node — the
+# last month of uploads by default, widening a step each time she taps the
+# middle (frontend: uploadNodes.ts, spiralLayout.ts). This sends the folder's
+# filenames, uncapped, and nothing else.
+#
+# It has to be uncapped, and that is not a preference. `files` is cut to the
+# hottest N per repo, and an upload's git heat is a lie to begin with: its
+# history records the bulk commits that swept the vault, not the moment she
+# uploaded anything. Measured on this vault, 633 uploads carry 20 distinct
+# touch-sets between them, and the hottest-350 cut leaves exactly ZERO of them
+# standing. A coil built from `files` would have drawn nothing at all and
+# looked like an empty month.
+#
+# FILENAMES ONLY, no times. The upload moment is in the name
+# (`20260326_232944.png`), and the client already has to parse it for the
+# payload fallback — sending a time as well would be a second clock, free to
+# disagree with the first. One parser, on one side.
+#
+# Prompt that produced it: "arrange them into a spiral that only shows like the
+# last month or so of uploads ... but you could click the center to load more".
+
+_UPLOAD_LIST_MAX = 5000   # ceiling on the listing — well past any real archive
+
+
+def _uploads_listing():
+    """The uploads archive as {repo, prefix, paths}, or None if there isn't one.
+
+    The folder is resolved from `store.UPLOAD_ARCHIVE_DIR`, which an install
+    can move with EXOCORTEX_UPLOAD_ARCHIVE_DIR — so WHERE it is is the
+    server's to say, and the client is told rather than assuming. Its repo is
+    whichever terrain repo actually contains it; an archive outside both (a
+    detached data dir) simply has no coil, which is the honest answer.
+
+    Newest first, cut to `_UPLOAD_LIST_MAX`. Sorting by name is sorting by
+    time for a stamped filename, and the client re-sorts on the parsed moment
+    anyway — this ordering only decides which get dropped at the ceiling.
+    """
+    try:
+        archive = Path(store.UPLOAD_ARCHIVE_DIR).resolve()
+    except OSError:
+        return None
+    if not archive.is_dir():
+        return None
+    for repo in observatory._terrain_repos():
+        try:
+            rel = archive.relative_to(Path(repo["root"]).resolve())
+        except (ValueError, OSError):
+            continue
+        prefix = f"{rel.as_posix()}/"
+        try:
+            names = sorted((f.name for f in archive.iterdir() if f.is_file()),
+                           reverse=True)[:_UPLOAD_LIST_MAX]
+        except OSError:
+            # Unreadable mid-scan — never break the whole map over the coil.
+            return None
+        return {"repo": repo["id"], "prefix": prefix,
+                "paths": [f"{prefix}{name}" for name in names]}
+    return None
+
+
 def _cap_files(files_out, file_cap):
     """Cut one repo's file list down to the hottest `file_cap` of them, so the
     client's force-sim stays tractable. Session-attributed files and anything
@@ -850,6 +912,9 @@ def _build_terrain(file_cap=_TERRAIN_FILE_CAP):
             # The pond tile's month, counted in the journal rather than in
             # this payload's (capped) card files. See _pond_days.
             "pond_days": _pond_days(),
+            # The uploads archive listed whole, for the spiral. Uncapped on
+            # purpose — see _uploads_listing.
+            "uploads": _uploads_listing(),
             "repos": repos_out,
             "sessions": sessions_out}
 

@@ -57,6 +57,12 @@ import { beatNodeIds, scheduleFrames, type Beat } from './journeyReplay';
 import type { TerrainThread } from './terrainThreads';
 import { PondLandmark } from './PondLandmark';
 import { collapseToPondTile, localDayISO, parseCardPath, POND_TILE_PATH } from './pondNodes';
+import {
+  nextUploadWindow,
+  uploadWindowLabel,
+  UPLOAD_WINDOW_DAYS,
+  windowUploads,
+} from './uploadNodes';
 import { filesGlowingByRun } from './runGlow';
 import { addTableNodes } from './tableNodes';
 import { tableCodeLinks } from './tableMentions';
@@ -636,6 +642,36 @@ export function TerrainPage() {
   const fittedRef = useRef(false);
 
   /**
+   * How much of the uploads archive the coil is showing, in days — a month to
+   * begin with, one step wider each time she taps its centre, and round to a
+   * month again from the far end (uploadNodes.ts).
+   *
+   * Deliberately NOT persisted, unlike the sticky toggles next door: the coil
+   * opening at a month every time the page loads is what makes "it stays
+   * about the same size unless you interact with it" true across visits and
+   * not just within one. A six-month coil is something she asked for in a
+   * moment, not a setting.
+   */
+  const [uploadWindow, setUploadWindow] = useState<number | null>(UPLOAD_WINDOW_DAYS);
+
+  /**
+   * The uploads archive cut to that window, and re-timed, before anything
+   * else looks at the payload — same slot in the pipeline as the pond's
+   * collapse below, and for the same reason: what reaches the graph should
+   * already be the thing the map means to draw.
+   *
+   * Two separate jobs, both in uploadNodes.ts: only the window's uploads get
+   * through (the archive is the vault's biggest branch and most of it is old
+   * screenshots), and every one that does has its git history swapped for the
+   * moment in its filename — because an upload's commits record vault
+   * maintenance, not uploading, and the coil is lit by those times.
+   */
+  const coiled = useMemo(
+    () => (data ? windowUploads(data, { windowDays: uploadWindow }) : null),
+    [data, uploadWindow],
+  );
+
+  /**
    * The journal collapsed BEFORE anything else looks at the payload: every
    * card file (~1,700 anonymous dots, the biggest and least readable
    * structure on the map) is swapped for ONE synthetic node — the pond tile,
@@ -647,7 +683,10 @@ export function TerrainPage() {
    * quietly under-count it — and the date dial still reaches inside
    * (filterTerrainData filters the tile's day buckets too).
    */
-  const collapsed = useMemo(() => (data ? collapseToPondTile(data, localDayISO()) : null), [data]);
+  const collapsed = useMemo(
+    () => (coiled ? collapseToPondTile(coiled.data, localDayISO()) : null),
+    [coiled],
+  );
 
   // Search runs over the whole payload (not the drawn nodes) so the Files
   // dial can't hide a hit; every hit is then PINNED past the dial's cut
@@ -662,11 +701,18 @@ export function TerrainPage() {
     [searchHits],
   );
   const pins = useMemo(() => {
-    if (!searchIds) return replayPins;
+    // The coil is pinned past the dials whole. It's an arrangement, not a
+    // ranking: the Files dial cutting the cold half of it would leave a
+    // spiral with a bite out of the outer arm, which reads as a bug rather
+    // than as a filter. The window she set on the coil is the only thing that
+    // decides how much of it is drawn.
+    const coilIds = coiled?.spiralIds ?? [];
+    if (!searchIds && coilIds.length === 0) return replayPins;
     const all = new Set<string>(replayPins ?? []);
-    for (const id of searchIds) all.add(id);
+    for (const id of searchIds ?? []) all.add(id);
+    for (const id of coilIds) all.add(id);
     return all;
-  }, [replayPins, searchIds]);
+  }, [replayPins, searchIds, coiled]);
 
   // The dials narrow the payload (time, then count), and the graph is built
   // from what survives — so heat, ages and session lists all describe the
@@ -1067,6 +1113,22 @@ export function TerrainPage() {
   useEffect(() => {
     engineRef.current?.setPondNodes(pondNodeIds);
   }, [pondNodeIds]);
+  // The coil, handed over as an ORDER and a centre: the engine pins dot 0
+  // innermost and winds the rest out from there (terrainCanvas.setCoilNodes).
+  useEffect(() => {
+    // The caption the coil wears under its own name: how far back it's open
+    // and how much of the archive that is — "1mo · 44 of 676". Without it the
+    // centre is a control with no reading on it, and the only way to know
+    // what tapping did is to count dots.
+    const caption = coiled
+      ? `${uploadWindowLabel(uploadWindow)} · ${coiled.shown} of ${coiled.total}`
+      : null;
+    engineRef.current?.setCoilNodes(
+      coiled?.spiralIds ?? [],
+      coiled?.folderId ?? null,
+      coiled && coiled.total > 0 ? caption : null,
+    );
+  }, [coiled, uploadWindow]);
 
 
   // "Nothing here" is now a statement about the chosen dials, not just the
@@ -1131,6 +1193,15 @@ export function TerrainPage() {
     const engine = engineRef.current;
     if (!engine) return;
     engine.onTap = (node) => {
+      // The coil's centre is its own control: a tap on the uploads folder
+      // opens the window a step wider — a month, a season, half a year,
+      // everything, and round to a month again — rather than selecting the
+      // folder. It's the one dot on the map that does this, because it's the
+      // one whose whole branch is drawn as a single arrangement.
+      if (node !== null && node.id === coiled?.folderId) {
+        setUploadWindow((open) => nextUploadWindow(open));
+        return;
+      }
       if (node?.kind === 'file') {
         // The pond tile isn't a code file — the landmark floating over it
         // owns the pond's interactions (its reach target catches most taps;

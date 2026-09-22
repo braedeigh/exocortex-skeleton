@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { subscribeTheme } from '../../theme';
 import { useTerrain, type TerrainData } from './api';
 import { collapseToPondTile, localDayISO } from './pondNodes';
+import { windowUploads } from './uploadNodes';
 import {
   alternatingBreath,
   windowToHalfLife,
@@ -116,17 +117,33 @@ export function TerrainBackdrop({
   const engineRef = useRef<TerrainCanvas | null>(null);
   const fittedRef = useRef(false);
 
-  // The journal collapsed to the pond tile once per payload, not per breath
-  // tick — parsing ~1,700 card filenames at 7fps would be pure waste.
+  /**
+   * The uploads coil, then the journal's pond tile — both once per payload,
+   * not per breath tick: parsing a couple of thousand filenames at 7fps would
+   * be pure waste.
+   *
+   * The backdrop takes EVERY file the payload will give (BACKDROP_TIER is
+   * null — no cap), so without this the wallpaper carries the whole uploads
+   * archive as a spray of several hundred identical dots, which is the exact
+   * thicket the coil exists to undo. It gets the coil at its default month
+   * and no way to widen it: this is wallpaper, and it takes no gestures at
+   * all.
+   */
+  const coiled = useMemo(() => (data ? windowUploads(data) : undefined), [data]);
   const collapsed = useMemo(
-    () => (data ? collapseToPondTile(data, localDayISO()).data : undefined),
-    [data],
+    () => (coiled ? collapseToPondTile(coiled.data, localDayISO()).data : undefined),
+    [coiled],
   );
 
   // The payload lives in a ref because the breath rebuilds the graph on its
   // own clock, outside React's render cycle.
   const dataRef = useRef<TerrainData | undefined>(undefined);
   dataRef.current = collapsed;
+  // The coil rides in a ref for the same reason the payload does: the breath
+  // paints outside React's render cycle. No caption — the wallpaper's centre
+  // isn't a control, so there's nothing for it to report.
+  const coilRef = useRef<ReturnType<typeof windowUploads> | undefined>(undefined);
+  coilRef.current = coiled;
 
   // The focused conversation, in a ref for the same reason — the breath's paint
   // loop (empty-dep effect) reads it to keep the focused agent in the active
@@ -237,6 +254,7 @@ export function TerrainBackdrop({
       });
       // Same node ids every time, so this updates heat in place and never
       // re-warms the layout — the map holds still, only the embers move.
+      engine.setCoilNodes(coilRef.current?.spiralIds ?? [], coilRef.current?.folderId ?? null, null);
       engine.setGraph(graph.nodes, graph.edges);
       if (!fittedRef.current && graph.nodes.length > 0) {
         fittedRef.current = true;

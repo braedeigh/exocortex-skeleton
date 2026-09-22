@@ -191,6 +191,7 @@ import {
 import type { TerrainThread } from './terrainThreads';
 import type { TableCodeLink } from './tableMentions';
 import { homeChain, wiringTarget } from './hoverSelection';
+import { spiralSpots, type SpiralArrangement } from './spiralLayout';
 import {
   chainGlow,
   chainLean,
@@ -198,7 +199,7 @@ import {
   threadPresence,
   threadTooCold,
 } from './hoverLayers';
-import { bodyRadius, sameRings } from './ringBodies';
+import { bodyRadius, NODE_GAP, sameRings } from './ringBodies';
 import { fileTypeOf } from './fileTypes';
 import { childTypeCounts, liveliestBeneath } from './folderTypes';
 import {
@@ -600,6 +601,22 @@ function isPondTile(n: SimNode): boolean {
 function isTable(n: SimNode): boolean {
   return n.node.file?.table !== undefined;
 }
+
+/**
+ * How fast a dot slides out to its place on the coil, per tick.
+ *
+ * This is the "snakes out in a chain" — a dot that has just joined the coil
+ * is born at the centre and eases out along the strand to its spot, so
+ * widening the window pays the chain out from the middle rather than
+ * flickering a hundred dots into existence at once.
+ *
+ * Only the DOTS ease. The coil's collision body is its final size from the
+ * first frame, so the ground clears at once and the chain then fills the
+ * clearing — and because d3 reads a collision radius once, in the force's
+ * initialize(), an eased body would have been a number nothing was reading
+ * anyway.
+ */
+const COIL_EASE = 0.14;
 
 /** A table is never drawn narrower or shorter than this many SCREEN pixels, so
  * zooming far out leaves a field of small marks rather than nothing. Same idea
@@ -1384,6 +1401,47 @@ export class TerrainCanvas {
   /** The last anchor reported, so a still map costs no React renders. */
   private pondReport: PondAnchor | null = null;
 
+  /**
+   * The uploads coil: the archive's folder node with its month of uploads
+   * wound around it in a spiral (uploadNodes.ts picks them, spiralLayout.ts
+   * places them).
+   *
+   * This is the map's THIRD arrangement the physics doesn't decide, after the
+   * pond tile and the table shelves, and it borrows from both. Like the
+   * shelves, every dot is pinned to a spot a pure function worked out, so the
+   * coil keeps its shape instead of being combed out by the springs. Like the
+   * pond, the whole thing is ONE body as far as the collider is concerned —
+   * the folder node carries a collision circle the size of the coil, so the
+   * terrain bumps around the outside of it rather than threading through the
+   * arms.
+   *
+   * The hub itself is NOT pinned: it floats on the ordinary repo anchor and
+   * finds its own place on the map, and the dots ride wherever it lands. That
+   * is why the pins below are offsets from the hub and not absolute points —
+   * an absolute pin would smear the coil behind the hub every time the hub
+   * moved.
+   */
+  private coil: {
+    hub: SimNode;
+    /** In coil order: innermost (newest upload) first. */
+    dots: SimNode[];
+    arrangement: SpiralArrangement;
+    /** Each dot's CURRENT offset from the hub, eased toward its spot. A dot
+     * that has just joined starts at the centre and slides out. */
+    offsets: { x: number; y: number }[];
+  } | null = null;
+  /** The coil's dots in order, and the folder they wind around, as handed in
+   * by the page. Held separately from `coil` because they arrive before the
+   * graph that resolves them into nodes. */
+  private coilIds: readonly string[] = [];
+  private coilFolderId: string | null = null;
+  /** What the coil says about itself under its own name — the window it's
+   * open to and how much of the archive that is. The engine doesn't know
+   * either fact; the page does, and hands the finished line over. */
+  private coilCaption: string | null = null;
+  /** Fast membership for the forces and the paint — rebuilt with the coil. */
+  private coilDotIds: ReadonlySet<string> = new Set();
+
   onTap: ((node: TerrainNode | null) => void) | null = null;
   /** How many nodes she's dragged into place, reported whenever that changes —
    * what the page's "release" control counts. */
@@ -1638,6 +1696,14 @@ export class TerrainCanvas {
    * the circle the ring is drawn on. The single number behind both; see
    * ringBodies.ts. */
   private bodyRadiusOf(n: SimNode): number {
+    // The coil's folder carries the whole spiral as its body — the same move
+    // the pond tile makes, and for the same reason: a hundred pinned dots the
+    // collider knows nothing about would have the rest of the map threading
+    // straight through the arms. One circle, the size of the coil, and the
+    // terrain flows around the outside of it.
+    if (this.coil !== null && n.id === this.coil.hub.id) {
+      return this.coil.arrangement.outerRadius + NODE_GAP;
+    }
     return bodyRadius(n.radius, this.isRinged(n));
   }
 
@@ -2382,6 +2448,7 @@ export class TerrainCanvas {
       .map((e): SimLink => ({ source: byId.get(e.source)!, target: byId.get(e.target)!, kind: e.kind }));
 
     this.placeShelves(byId, repoIds, anchorFor, shelves);
+    this.placeCoil(byId);
 
     // Which tables each table is joined to by a foreign key, either direction
     // — what a hover over a table keeps lit. Rebuilt only here, with the
@@ -2466,7 +2533,17 @@ export class TerrainCanvas {
           .strength((l) =>
             l.kind === 'session'
               ? 0.06
-              : // The shelves are pinned, so no spring may pull on them. A
+              : // The coil's dots are pinned, so the folder rope may not pull
+                // on them — and it's the one thing that could tear the spiral
+                // apart, since every one of those hundred ropes hauls on the
+                // same hub. The strand drawn through the coil says where they
+                // live instead. Only the TREE rope is cut: a session tether
+                // still pulls, which parks an agent's orb beside the photos
+                // it opened, exactly as it does everywhere else.
+                (l.kind ?? 'tree') === 'tree' &&
+                  (this.onCoil(l.source as SimNode) || this.onCoil(l.target as SimNode))
+                ? 0
+                : // The shelves are pinned, so no spring may pull on them. A
                 // link touching a table does nothing at all; the one rope
                 // from the database's folder back into the vault is left
                 // barely taut, or the pinned folder would drag `data/` and
@@ -2484,6 +2561,14 @@ export class TerrainCanvas {
       .force(
         'charge',
         forceManyBody<SimNode>().strength((n) =>
+          // A coil dot pushes on nothing. It can't be pushed itself (it's
+          // pinned), and a hundred of them repelling from inside one small
+          // disc would blow the surrounding map outward far past the
+          // clearing the coil actually needs — which its folder's collision
+          // body already reserves, exactly once.
+          this.onCoil(n)
+            ? 0
+            :
           // A table pushes harder than anything else on the map — about twice
           // a folder — so the ground around the shelves stays clear and the
           // vault's dots settle leaning away from them, not against them.
@@ -2548,10 +2633,18 @@ export class TerrainCanvas {
         // tick makes it move like the heavy thing it is: nudges still land,
         // drift doesn't.
         for (const sn of this.simNodes) {
-          if (!isPondTile(sn)) continue;
+          // Ballast, for the same reason the tile gets it: the coil's folder
+          // is now one of the biggest bodies on the map, and d3 has no mass,
+          // so without this it gets carried by every wave passing through the
+          // crowd — towing a hundred pinned dots behind it.
+          if (!isPondTile(sn) && sn.id !== this.coil?.hub.id) continue;
           sn.vx = (sn.vx ?? 0) * 0.3;
           sn.vy = (sn.vy ?? 0) * 0.3;
         }
+        // The coil rides its hub, and pays its new dots out toward their
+        // spots. Every tick, not on the shelves' slower cadence: the hub
+        // moves every tick and the dots have to move with it.
+        this.settleCoil(COIL_EASE);
         // Keep the table shelves just outside the dots as the dots spread.
         this.ticksSinceLayout += 1;
         if (this.ticksSinceLayout % SHELF_SETTLE_EVERY === 0) this.settleShelves(0.25);
@@ -2564,6 +2657,10 @@ export class TerrainCanvas {
         // dots finally stopped; then the once-only re-frame that includes
         // them, if it was asked for and the camera is still ours to move.
         this.settleShelves(1);
+        // ...and the coil snaps the rest of the way in. A sim that goes still
+        // mid-glide would leave the chain half paid out, frozen, with nothing
+        // left running to finish it.
+        this.settleCoil(1);
         // Quiescence is the natural moment to write the map down: this is the
         // arrangement she'd want back.
         this.saveLayout();
@@ -2677,7 +2774,10 @@ export class TerrainCanvas {
    */
   private canDrag(node: SimNode | null): node is SimNode {
     if (!node) return false;
-    return !isTable(node) && !this.shelfHubIds.has(node.id);
+    // A coil dot is pinned to its spot on the spiral and would be shoved
+    // straight back on the next tick, exactly like a table on its shelf. The
+    // coil's FOLDER is draggable, though, and the whole spiral rides it.
+    return !isTable(node) && !this.shelfHubIds.has(node.id) && !this.onCoil(node);
   }
 
   /**
@@ -2848,6 +2948,38 @@ export class TerrainCanvas {
   }
 
   /** Tint the water — on while she's looking at the landmark, off otherwise. */
+  /**
+   * Hand the engine the coil: the upload dots in order, innermost first, and
+   * the folder node they wind around.
+   *
+   * Order is the geometry — spot 0 is the centre of the spiral — so this is
+   * an array and not a set, unlike setPondNodes above. Pass an empty list to
+   * take the coil off the map and let those dots go back to being ordinary
+   * children of their folder.
+   */
+  setCoilNodes(ids: readonly string[], folderId: string | null, caption: string | null): void {
+    this.coilCaption = caption;
+    const same =
+      folderId === this.coilFolderId &&
+      ids.length === this.coilIds.length &&
+      ids.every((id, i) => id === this.coilIds[i]);
+    if (same) return;
+    this.coilIds = ids;
+    this.coilFolderId = folderId;
+    // Wind it now rather than waiting for the next setGraph. The page hands
+    // the coil over and builds the graph in two separate effects, and their
+    // order isn't ours to rely on: on the first payload this arrives second
+    // as often as first, and a coil that waited would leave the uploads
+    // sprayed across the map until something else happened to rebuild.
+    if (this.simNodes.length === 0) return;
+    this.placeCoil(new Map(this.simNodes.map((n) => [n.id, n])));
+    // The folder just grew a body the size of the whole spiral (or lost one),
+    // and d3 caches collision radii in initialize() — so the forces have to
+    // be told, or the map would go on treating the centre as a plain folder
+    // and thread itself straight through the arms.
+    this.reshapeBodies();
+  }
+
   setPondLit(lit: boolean): void {
     if (this.pondLit === lit) return;
     this.pondLit = lit;
@@ -3123,6 +3255,131 @@ export class TerrainCanvas {
       hub.fx = hub.x = left;
       hub.fy = hub.y = top - 8;
     }
+  }
+
+  /**
+   * Resolve the coil the page asked for into real nodes, and work out its
+   * shape.
+   *
+   * Runs once per setGraph, with the nodes freshly built — never per tick.
+   * The arrangement only depends on HOW MANY dots there are, and that can
+   * only change when the graph does.
+   *
+   * A dot already on the coil keeps the offset it had, so a rebuild that
+   * changes nothing (a heat tick, a refetch) doesn't make the coil jump. A
+   * dot that is NEW to it starts at the centre, which is what pays the chain
+   * out when she widens the window.
+   */
+  private placeCoil(byId: ReadonlyMap<string, SimNode>): void {
+    const before = this.coil;
+    this.coil = null;
+    this.coilDotIds = new Set();
+    const hub = this.coilFolderId ? byId.get(this.coilFolderId) : undefined;
+    if (!hub || this.coilIds.length === 0) return;
+    const dots = this.coilIds.map((id) => byId.get(id)).filter((n): n is SimNode => n !== undefined);
+    if (dots.length === 0) return;
+
+    const arrangement = spiralSpots(dots.length);
+    const held = new Map(before?.dots.map((dot, i) => [dot.id, before.offsets[i]]) ?? []);
+    const offsets = dots.map((dot) => held.get(dot.id) ?? { x: 0, y: 0 });
+    this.coil = { hub, dots, arrangement, offsets };
+    this.coilDotIds = new Set(dots.map((dot) => dot.id));
+    // One settle at full strength so the FIRST frame has the coil already
+    // wound rather than collapsed into its own centre. Only dots carried over
+    // from a previous coil have an offset to keep; the new ones are at the
+    // centre and this pass is what starts them moving.
+    this.settleCoil(before === null ? 1 : COIL_EASE);
+  }
+
+  /**
+   * Pin every upload dot to its spot on the coil, and ease the new ones out
+   * along the strand toward theirs.
+   *
+   * Called every tick, because the hub moves every tick: the offsets are what
+   * ease, and the hub's own position is followed exactly. Doing it the other
+   * way — easing the absolute position toward hub + spot — smears the coil
+   * behind the hub whenever the map shifts it.
+   */
+  private settleCoil(ease: number): void {
+    const coil = this.coil;
+    if (coil === null) return;
+    const hubX = coil.hub.x ?? 0;
+    const hubY = coil.hub.y ?? 0;
+    for (let i = 0; i < coil.dots.length; i += 1) {
+      const dot = coil.dots[i];
+      const spot = coil.arrangement.spots[i];
+      const offset = coil.offsets[i];
+      offset.x += (spot.x - offset.x) * ease;
+      offset.y += (spot.y - offset.y) * ease;
+      // Pinned, exactly like a table on its shelf: fx/fy hold the dot in
+      // place and the physics flows around it. The velocity goes with it, or
+      // the sim keeps integrating a node that isn't allowed to move and the
+      // map never reaches quiescence — it would spin its timer forever.
+      dot.fx = dot.x = hubX + offset.x;
+      dot.fy = dot.y = hubY + offset.y;
+      dot.vx = 0;
+      dot.vy = 0;
+    }
+  }
+
+  /**
+   * Draw the strand: one line running the length of the coil, newest dot to
+   * oldest.
+   *
+   * This is the coil's only line, and it replaces a hundred of them — the
+   * folder ropes are skipped for these dots (see the paint loop), because a
+   * fan out of the centre would fill the spiral solid and say nothing except
+   * "these are in that folder", which standing on the coil already says.
+   *
+   * The strand says something the fan couldn't: it's the ORDER. Following it
+   * out from the middle is walking backwards through her uploads, and the
+   * gaps in it are the weeks she didn't upload anything.
+   *
+   * Drawn under the dots, in the map's plain border grey, and fading toward
+   * the tip so the coil reads as trailing off into the past rather than
+   * stopping dead at whatever the window happens to cut.
+   */
+  private drawCoilStrand(
+    ctx: CanvasRenderingContext2D,
+    transform: ZoomTransform,
+    theme: ThemeInk,
+    dimmed: boolean,
+  ): void {
+    const coil = this.coil;
+    if (coil === null || coil.dots.length < 2) return;
+    // Hidden dots (the Files dial cut below them, the vault toggled off) take
+    // the strand with them — a line running through empty ground would be a
+    // claim about dots that aren't on the map.
+    if (this.hiddenFiles.has(coil.dots[0].id)) return;
+
+    ctx.save();
+    ctx.lineWidth = 1 / transform.k;
+    ctx.strokeStyle = theme.border;
+    ctx.setLineDash([]);
+    // One segment at a time rather than one long path, because each fades a
+    // little further than the last and a single stroke can only hold one
+    // alpha. The coil is a few hundred segments at most — the same order as
+    // the tree edges drawn just above.
+    for (let i = 1; i < coil.dots.length; i += 1) {
+      const from = coil.dots[i - 1];
+      const to = coil.dots[i];
+      if (this.hiddenFiles.has(to.id)) break;
+      const along = i / coil.dots.length;
+      ctx.globalAlpha = (dimmed ? 0.12 : 0.4) * (1 - along * 0.75);
+      ctx.beginPath();
+      ctx.moveTo(from.x ?? 0, from.y ?? 0);
+      ctx.lineTo(to.x ?? 0, to.y ?? 0);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  /** Is this dot wound onto the upload coil? Pinned, so the springs and the
+   * charge must leave it alone, and the tree edge into it isn't drawn — the
+   * strand through the coil says where it lives far better than a hundred
+   * lines fanning out of one folder could. */
+  private onCoil(n: SimNode): boolean {
+    return this.coilDotIds.has(n.id);
   }
 
   /**
@@ -3702,6 +3959,13 @@ export class TerrainCanvas {
       // out of one corner would bury the foreign keys, which are the lines
       // worth reading.
       if (link.kind !== 'fk' && (isTable(s) || isTable(t))) continue;
+      // Nor any rope into a dot on the upload coil — same complaint as the
+      // shelves, one order of magnitude worse: a hundred lines fanning out of
+      // the folder at the coil's centre would fill the spiral solid and bury
+      // the one line that's worth reading there, which is the strand running
+      // along it (drawCoilStrand). A session tether still draws: which agent
+      // opened which photo is exactly what the coil's own shape can't say.
+      if ((link.kind ?? 'tree') === 'tree' && (this.onCoil(s) || this.onCoil(t))) continue;
       // A line with BOTH ends inside the lit answer is the hover's own: the
       // hovered file's chain of folders running up the tree, or a hovered
       // table's foreign keys. It draws at full strength wherever it runs,
@@ -3800,6 +4064,8 @@ export class TerrainCanvas {
       ctx.stroke();
     }
     ctx.setLineDash([]);
+
+    this.drawCoilStrand(ctx, transform, theme, dimmed);
 
     // -- nodes --
     const minR = MIN_NODE_PX / transform.k;   // world units for a screen-px floor
@@ -4302,6 +4568,15 @@ export class TerrainCanvas {
         ctx.font = `600 ${LABEL_PX}px ${this.fontFamily}`;
         ctx.fillStyle = theme.textSecondary;
         ctx.fillText(n.node.label, sx, sy - n.radius * k - 4);
+        // The coil says how far back it goes, right under its own name. The
+        // centre is a control — a tap opens the window a step wider — and a
+        // control with no reading on it is one she has to remember rather
+        // than see. It sits INSIDE the coil's centre hole, which is kept
+        // clear of dots for exactly this (SPIRAL_INNER_RADIUS).
+        if (this.coilCaption !== null && n.id === this.coil?.hub.id) {
+          ctx.fillStyle = theme.textMuted;
+          ctx.fillText(this.coilCaption, sx, sy + n.radius * k + LABEL_PX);
+        }
       } else if (n.node.kind === 'session') {
         // Orb titles in ink (identity color stays on the ring itself).
         ctx.font = `600 ${LABEL_PX}px ${this.fontFamily}`;

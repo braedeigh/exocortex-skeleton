@@ -1216,8 +1216,15 @@ def test_terrain_returns_200_with_missing_sidecars(terrain_client, tmp_path, mon
     resp = terrain_client.get("/api/observatory/terrain")
     assert resp.status_code == 200
     data = resp.get_json()
-    assert set(data.keys()) == {"generated_at", "window_days", "file_cap",
-                                "pond_days", "repos", "sessions"}
+    # Every key the payload carries, named — so a new one has to be added here
+    # deliberately rather than appearing unnoticed. `uploads` is the archive
+    # listing the spiral coil is built from (None here: no archive inside
+    # these fake repo roots), and `generated_ts` is generated_at restated as a
+    # unix second for a visitor in another timezone.
+    assert set(data.keys()) == {"generated_at", "generated_ts", "window_days",
+                                "file_cap", "pond_days", "uploads", "repos",
+                                "sessions"}
+    assert data["uploads"] is None
     assert data["window_days"] is None   # whole history — no server-side horizon
     assert [r["id"] for r in data["repos"]] == ["skeleton", "vault"]
     assert all(r["files"] == [] for r in data["repos"])

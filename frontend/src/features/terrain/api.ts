@@ -121,6 +121,18 @@ export interface TerrainData {
    * pondNodes.ts falls back to counting card files.
    */
   pond_days?: { day: string; touches: number[] }[];
+  /**
+   * The uploads folder listed straight off disk, uncapped, for the spiral
+   * (uploadNodes.ts): the repo it lives in and every filename in it. Paths
+   * only — the upload TIME is read from the filename, by one parser on the
+   * client, so a second clock on the server can't disagree with it.
+   *
+   * Uncapped because it has to be: `repos[].files` is cut to the hottest N,
+   * and measured on this vault that cut leaves 0 of 633 uploads. Optional —
+   * an install whose server predates this sends nothing, and uploadNodes.ts
+   * falls back to whatever uploads did survive the cap.
+   */
+  uploads?: { repo: string; prefix: string; paths: string[] };
 }
 
 export const TERRAIN_KEY = ['terrain'] as const;
