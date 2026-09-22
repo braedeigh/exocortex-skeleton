@@ -10,7 +10,7 @@
  * quiescence (d3-force's own 'end' event — no rAF loop ever idles). Pan/zoom
  * repaints without waking the sim; only a data change (lens, repo toggle,
  * fresh payload) re-warms it. The short-lived timers (flash halos, the
- * code-weather fade, the running-orb pulse) each die with the thing they
+ * code-weather fade, the running-orb pulse, a coil paying out) each die with the thing they
  * animate — none idles either.
  *
  * The map is HERS to arrange, and it stays arranged. Positions, the nodes she
@@ -191,7 +191,8 @@ import {
 import type { TerrainThread } from './terrainThreads';
 import type { TableCodeLink } from './tableMentions';
 import { homeChain, wiringTarget } from './hoverSelection';
-import { spiralSpots, type SpiralArrangement } from './spiralLayout';
+import { spiralSpots, tipCurve, type SpiralArrangement } from './spiralLayout';
+import { STRAIGHTEN_MS, payoutDurationMs, payoutProgress, payoutStepMs } from './coilPayout';
 import {
   chainGlow,
   chainLean,
@@ -492,6 +493,31 @@ export interface CoilPins {
   folderId: string;
   ids: readonly string[];
   caption: string | null;
+  /** Is there more to pull out of it? False draws the tip's curve straight
+   * and takes the tap off it. Absent is true. */
+  canPull?: boolean;
+}
+
+/** A coil's centre under the mouse, located on screen — what the page hangs
+ * the coil's hover card off. Same shape as AgentHover: the CENTRE in client
+ * coordinates and its drawn radius there. */
+export interface CoilHover {
+  folderId: string;
+  x: number;
+  y: number;
+  r: number;
+}
+
+/** A pull in progress: which dots are new at the tip, and when they started
+ * coming out (coilPayout.ts has the timing). */
+interface CoilPayout {
+  /** performance.now() when the pull began. */
+  startedAt: number;
+  /** The first new dot's index on the coil; every dot from here out is new. */
+  firstIndex: number;
+  stepMs: number;
+  /** When the last one is in place, ms after `startedAt`. */
+  durationMs: number;
 }
 
 /** A coil once it's been resolved against the graph and laid out: the real
@@ -502,12 +528,20 @@ interface WoundCoil {
   /** In coil order: innermost (newest) first. */
   dots: SimNode[];
   arrangement: SpiralArrangement;
-  /** Each dot's CURRENT offset from the hub, eased toward its spot. A dot
-   * that has just joined starts at the centre and slides out. */
+  /** Each dot's CURRENT offset from the hub, moving toward its spot. */
   offsets: { x: number; y: number }[];
   /** What this coil says about itself under its own name — the window it's
    * open to, and how much of the folder that is. */
   caption: string | null;
+  canPull: boolean;
+  /** The pull paying out right now, or null. */
+  payout: CoilPayout | null;
+  /** When the tip's curve began straightening (performance.now()), or null
+   * while it's still a curve. -Infinity is "was always straight". */
+  straightFrom: number | null;
+  /** The tip's curve as last drawn, in world units, tip first — what a tap is
+   * tested against. Empty until the first paint. */
+  curve: { x: number; y: number }[];
 }
 
 export interface PondAnchor {
@@ -658,12 +692,15 @@ function isTable(n: SimNode): boolean {
 }
 
 /**
- * How fast a dot slides out to its place on the coil, per tick.
+ * How fast a coil dot eases to a spot that moved, per tick.
  *
- * This is the "snakes out in a chain" — a dot that has just joined the coil
- * is born at the centre and eases out along the strand to its spot, so
- * widening the window pays the chain out from the middle rather than
- * flickering a hundred dots into existence at once.
+ * This covers the SMALL moves: a new file arriving at the centre shifts every
+ * other dot one spot outward, and each eases the short way there while the
+ * newcomer eases out from the middle to spot 0. It is a straight-line ease
+ * toward the spot, not a path along the strand — which is fine for a one-spot
+ * shuffle and would be wrong for anything longer. The LONG move, a pull
+ * bringing older files out at the tip, doesn't use this at all: those dots
+ * come out one at a time on a clock of their own (coilPayout.ts, settleCoils).
  *
  * Only the DOTS ease. The coil's collision body is its final size from the
  * first frame, so the ground clears at once and the chain then fills the
@@ -1486,8 +1523,27 @@ export class TerrainCanvas {
   /** Fast membership for the forces and the paint: is this dot on ANY coil?
    * Rebuilt with the coils. */
   private coilDotIds: ReadonlySet<string> = new Set();
+  /** Dots a pull has put on a coil that haven't come out of its tip yet —
+   * not drawn, not tappable. Refilled by every settleCoils. */
+  private unpaidDots: Set<string> = new Set();
+  /** The pay-out's frame loop, while one is running (runCoilFrames). */
+  private coilFrame: number | null = null;
+  /** The coil whose tip curve is under the mouse, by hub id — drawn brighter. */
+  private hoverTipHubId: string | null = null;
+  /** The last coil centre reported to `onHoverCoil`. */
+  private coilHoverReport: CoilHover | null = null;
+  /** How the last press came in — 'mouse', 'touch' or 'pen'. Handed to onTap,
+   * because a coil's centre answers a mouse and a finger differently: a mouse
+   * has hover to show the coil's card, a finger doesn't. */
+  private lastPointerType = 'mouse';
 
-  onTap: ((node: TerrainNode | null) => void) | null = null;
+  onTap: ((node: TerrainNode | null, how: { pointerType: string }) => void) | null = null;
+  /** A tap on a coil's tip curve — "pull more out". Hands over the folder
+   * node's id; the page decides how far. */
+  onCoilPull: ((folderId: string) => void) | null = null;
+  /** The mouse over a coil's centre, or off it — what the coil's hover card
+   * hangs off. `hard` means drop the card now, no grace (a pan or zoom). */
+  onHoverCoil: ((hover: CoilHover | null, hard?: boolean) => void) | null = null;
   /** How many nodes she's dragged into place, reported whenever that changes —
    * what the page's "release" control counts. */
   onPins: ((count: number) => void) | null = null;
@@ -1557,6 +1613,7 @@ export class TerrainCanvas {
           this.holdHover(null);
           this.setHoverAgent(null);
           this.reportHover(null, true);
+          this.reportCoilHover(null, true);
         }
         this.requestDraw(); // repaint only — pan/zoom never wakes the sim
       });
@@ -1630,6 +1687,10 @@ export class TerrainCanvas {
     this.destroyed = true;
     this.sim?.stop();
     this.stopPulse();
+    if (this.coilFrame !== null) {
+      cancelAnimationFrame(this.coilFrame);
+      this.coilFrame = null;
+    }
     if (this.flashTimer !== null) {
       window.clearInterval(this.flashTimer);
       this.flashTimer = null;
@@ -2774,6 +2835,7 @@ export class TerrainCanvas {
     for (const n of this.simNodes) {
       if (sessionsOnly && n.node.kind !== 'session') continue;
       if (this.hiddenFiles.has(n.id)) continue; // a hidden dot can't be tapped
+      if (this.unpaidDots.has(n.id)) continue; // ...nor one still inside the coil's tip
       if (!this.isTouchable(n)) continue; // ...nor can scenery, outside a selection
       const dx = (n.x ?? 0) - wx;
       const dy = (n.y ?? 0) - wy;
@@ -2807,7 +2869,14 @@ export class TerrainCanvas {
     // Swallow the click a finished drag fires: she moved a dot, she didn't ask
     // to open it.
     if (performance.now() - this.draggedAt < DRAG_CLICK_GRACE_MS) return;
-    this.onTap?.(this.nodeAt(ev)?.node ?? null);
+    // A coil's tip curve first: it lies past the coil's last dot, over open
+    // ground, and a tap there is "pull more out" — never a tap on the map.
+    const pulled = this.coilTipAt(ev);
+    if (pulled !== null) {
+      this.onCoilPull?.(pulled.hub.id);
+      return;
+    }
+    this.onTap?.(this.nodeAt(ev)?.node ?? null, { pointerType: this.lastPointerType });
   };
 
   /**
@@ -2835,6 +2904,7 @@ export class TerrainCanvas {
    * for it to save that position until i refresh the page."
    */
   private handlePointerDown = (ev: PointerEvent): void => {
+    this.lastPointerType = ev.pointerType;
     if (ev.pointerType === 'mouse' && ev.button !== 0) return;
     if (this.dragNode !== null) return; // one node at a time; a second finger is a pinch
     const hit = this.nodeAt(ev);
@@ -2927,9 +2997,16 @@ export class TerrainCanvas {
     if (ev.pointerType !== 'mouse') return;
     const hit = this.nodeAt(ev, true);
     const any = this.nodeAt(ev);
+    // A coil's tip curve lights up under the cursor, so it reads as a thing
+    // to pull; a coil's centre reports itself for its hover card.
+    const tip = this.coilTipAt(ev);
+    this.setHoverTip(tip?.hub.id ?? null);
+    const coilCentre = any !== null && this.coilByHubId.has(any.id) ? any : null;
+    this.reportCoilHover(tip === null ? coilCentre : null);
     // The cursor still turns into a pointer over any tappable node — files
     // open their sheet as well — even though only orbs drive the hover dim.
-    this.canvas.style.cursor = hit || any?.node.kind === 'file' ? 'pointer' : '';
+    this.canvas.style.cursor =
+      tip || coilCentre || hit || any?.node.kind === 'file' ? 'pointer' : '';
     this.setHoverAgent(hit?.node.session?.id ?? null);
     // A file under the cursor lights its own threads. An orb wins if both are
     // under it — the agent hover is the older, louder question.
@@ -2949,7 +3026,76 @@ export class TerrainCanvas {
     this.setHoverFile(null);
     this.setHoverLabel(null);
     this.reportHover(null);
+    this.setHoverTip(null);
+    this.reportCoilHover(null);
   };
+
+  /** Light one coil's tip curve under the cursor, or none. One repaint per
+   * change, nothing more. */
+  private setHoverTip(hubId: string | null): void {
+    if (this.hoverTipHubId === hubId) return;
+    this.hoverTipHubId = hubId;
+    this.requestDraw();
+  }
+
+  /**
+   * Tell the page where the hovered coil centre is, if that has changed —
+   * the same guard as reportHover, for the same reason: a cursor resting on
+   * one centre should cost nothing.
+   */
+  private reportCoilHover(hit: SimNode | null, hard = false): void {
+    if (hit === null) {
+      if (this.coilHoverReport === null && !hard) return;
+      this.coilHoverReport = null;
+      this.onHoverCoil?.(null, hard);
+      return;
+    }
+    const rect = this.canvas.getBoundingClientRect();
+    const [sx, sy] = this.transform.apply([hit.x ?? 0, hit.y ?? 0]);
+    const next: CoilHover = {
+      folderId: hit.id,
+      x: rect.left + sx,
+      y: rect.top + sy,
+      r: hit.radius * this.transform.k,
+    };
+    const prev = this.coilHoverReport;
+    if (
+      prev &&
+      prev.folderId === next.folderId &&
+      Math.abs(prev.x - next.x) < 2 &&
+      Math.abs(prev.y - next.y) < 2
+    ) {
+      return;
+    }
+    this.coilHoverReport = next;
+    this.onHoverCoil?.(next);
+  }
+
+  /**
+   * The coil whose tip curve is under this point, or null.
+   *
+   * Tested against the curve as it was last drawn, a fingertip wide. The
+   * first stretch of it is left out, because that's where the coil's last dot
+   * sits and a tap there means the dot. A straight curve — nothing left to
+   * pull — isn't a target at all, and neither is one on a hidden coil or one
+   * outside a selection (the same rule as every dot, isTouchable).
+   */
+  private coilTipAt(ev: { clientX: number; clientY: number }): WoundCoil | null {
+    if (this.coils.length === 0) return null;
+    const rect = this.canvas.getBoundingClientRect();
+    const [wx, wy] = this.transform.invert([ev.clientX - rect.left, ev.clientY - rect.top]);
+    const reach = (TAP_RADIUS_PX * 0.8) / this.transform.k;
+    for (const coil of this.coils) {
+      if (!coil.canPull || coil.curve.length === 0) continue;
+      if (this.hiddenFiles.has(coil.dots[0].id) || !this.isTouchable(coil.hub)) continue;
+      const skip = Math.floor(coil.curve.length / 4);
+      for (let i = skip; i < coil.curve.length; i += 1) {
+        const p = coil.curve[i];
+        if (Math.hypot(p.x - wx, p.y - wy) <= reach) return coil;
+      }
+    }
+    return null;
+  }
 
   /**
    * Tell the page where the hovered orb is, if that answer has changed. Called
@@ -3336,15 +3482,19 @@ export class TerrainCanvas {
    * change when the graph does.
    *
    * A dot already on its coil keeps the offset it had, so a rebuild that
-   * changes nothing (a heat tick, a refetch) doesn't make the spiral jump. A
-   * dot that is NEW to it starts at the centre, which is what pays the chain
-   * out when she widens a window.
+   * changes nothing (a heat tick, a refetch) doesn't make the spiral jump. New
+   * dots at the outer tip are a PULL and pay out one at a time from the old
+   * tip (settleCoils); a new file at the centre eases in from the middle; a
+   * coil seen for the first time is drawn already wound.
    */
   private placeCoils(byId: ReadonlyMap<string, SimNode>): void {
     const held = new Map<string, { x: number; y: number }>();
+    const before = new Map<string, WoundCoil>();
     for (const coil of this.coils) {
       coil.dots.forEach((dot, i) => held.set(dot.id, coil.offsets[i]));
+      before.set(coil.hub.id, coil);
     }
+    const now = performance.now();
     const wound: WoundCoil[] = [];
     const dotIds = new Set<string>();
     for (const spec of this.coilSpecs) {
@@ -3352,45 +3502,117 @@ export class TerrainCanvas {
       if (!hub || spec.ids.length === 0) continue;
       const dots = spec.ids.map((id) => byId.get(id)).filter((n): n is SimNode => n !== undefined);
       if (dots.length === 0) continue;
+      const arrangement = spiralSpots(dots.length);
+      const was = before.get(hub.id);
+      const canPull = spec.canPull ?? true;
+
+      // Tell a PULL apart from everything else. A pull is new dots all
+      // together at the outer tip, after dots that were already there — the
+      // window widened, and the only thing that grows at the tip is older
+      // files. Those pay out one at a time from the old tip. Anything else
+      // new (a fresh file at the centre) eases in from the middle, and a coil
+      // seen for the first time is simply drawn wound, with nothing moving.
+      const firstNew = dots.findIndex((dot) => !held.has(dot.id));
+      const isPull =
+        was !== undefined &&
+        firstNew > 0 &&
+        dots.slice(firstNew).every((dot) => !held.has(dot.id));
+      let payout: CoilPayout | null = null;
+      if (isPull) {
+        const count = dots.length - firstNew;
+        payout = {
+          startedAt: now,
+          firstIndex: firstNew,
+          stepMs: payoutStepMs(count),
+          durationMs: payoutDurationMs(count),
+        };
+      } else if (was?.payout && firstNew < 0) {
+        // Nothing new — a refetch or a heat tick mid-pull. Keep paying out.
+        payout = was.payout;
+      }
+      const offsets = dots.map((dot, i) => {
+        const kept = held.get(dot.id);
+        if (kept) return kept;
+        if (was === undefined) return { x: arrangement.spots[i].x, y: arrangement.spots[i].y };
+        if (payout !== null && i >= payout.firstIndex) {
+          const from = arrangement.spots[payout.firstIndex - 1];
+          return { x: from.x, y: from.y };
+        }
+        return { x: 0, y: 0 };
+      });
+
+      // The curve straightens once there's nothing left to pull — after the
+      // last dot of the final pull is in place, so the pay-out visibly pushes
+      // the curve all the way out first. A coil that arrives already all the
+      // way out is simply straight.
+      let straightFrom: number | null = null;
+      if (!canPull) {
+        if (payout !== null) straightFrom = payout.startedAt + payout.durationMs;
+        else if (was !== undefined && !was.canPull) straightFrom = was.straightFrom;
+        else if (was !== undefined) straightFrom = now;
+        else straightFrom = -Infinity;
+      }
+
       wound.push({
         hub,
         dots,
-        arrangement: spiralSpots(dots.length),
-        offsets: dots.map((dot) => held.get(dot.id) ?? { x: 0, y: 0 }),
+        arrangement,
+        offsets,
         caption: spec.caption,
+        canPull,
+        payout,
+        straightFrom,
+        curve: was?.curve ?? [],
       });
       for (const dot of dots) dotIds.add(dot.id);
     }
-    const hadNone = this.coils.length === 0;
     this.coils = wound;
     this.coilDotIds = dotIds;
     this.coilByHubId = new Map(wound.map((coil) => [coil.hub.id, coil]));
-    // One settle at full strength so the FIRST frame has every coil already
-    // wound rather than collapsed into its own centre. Only dots carried over
-    // from a previous coil have an offset to keep; the new ones are at the
-    // centre and this pass is what starts them moving.
-    this.settleCoils(hadNone ? 1 : COIL_EASE);
+    this.settleCoils(COIL_EASE);
+    this.runCoilFrames();
   }
 
   /**
-   * Pin every coil's dots to their spots, and ease the new ones out along the
-   * strand toward theirs.
+   * Pin every coil's dots to where they should be this moment: eased toward
+   * their spots, or — for a pull — paid out along the strand on the pull's
+   * clock.
    *
    * Called every tick, because the hubs move every tick: the offsets are what
-   * ease, and each hub's own position is followed exactly. Doing it the other
+   * move, and each hub's own position is followed exactly. Doing it the other
    * way — easing the absolute position toward hub + spot — smears a coil
    * behind its hub whenever the map shifts it.
+   *
+   * A paying-out dot is placed by TIME, not by `ease`, so calling this twice
+   * in one frame (the physics tick and the pay-out's own frame loop) moves it
+   * no further. Each one comes out at the spot before its own — the tip as it
+   * stood a moment ago — and slides one gap along the strand into place, so a
+   * run of them reads as the strand being pushed out of the tip. Until its
+   * moment comes it waits, undrawn, at the tip (`unpaidDots`).
    */
   private settleCoils(ease: number): void {
+    const now = performance.now();
+    this.unpaidDots.clear();
     for (const coil of this.coils) {
       const hubX = coil.hub.x ?? 0;
       const hubY = coil.hub.y ?? 0;
+      const payout = coil.payout;
+      const elapsed = payout ? now - payout.startedAt : 0;
       for (let i = 0; i < coil.dots.length; i += 1) {
         const dot = coil.dots[i];
         const spot = coil.arrangement.spots[i];
         const offset = coil.offsets[i];
-        offset.x += (spot.x - offset.x) * ease;
-        offset.y += (spot.y - offset.y) * ease;
+        if (payout !== null && i >= payout.firstIndex) {
+          const from = coil.arrangement.spots[i - 1];
+          const progress = payoutProgress(elapsed, i - payout.firstIndex, payout.stepMs);
+          if (progress < 0) this.unpaidDots.add(dot.id);
+          const along = Math.max(0, progress);
+          offset.x = from.x + (spot.x - from.x) * along;
+          offset.y = from.y + (spot.y - from.y) * along;
+        } else {
+          offset.x += (spot.x - offset.x) * ease;
+          offset.y += (spot.y - offset.y) * ease;
+        }
         // Pinned, exactly like a table on its shelf: fx/fy hold the dot in
         // place and the physics flows around it. The velocity goes with it,
         // or the sim keeps integrating a node that isn't allowed to move and
@@ -3400,7 +3622,44 @@ export class TerrainCanvas {
         dot.vx = 0;
         dot.vy = 0;
       }
+      if (payout !== null && elapsed >= payout.durationMs) coil.payout = null;
     }
+  }
+
+  /** Is any coil still moving on its own clock — paying out, or its curve
+   * straightening? */
+  private coilsInMotion(): boolean {
+    const now = performance.now();
+    return this.coils.some(
+      (coil) =>
+        coil.payout !== null ||
+        (coil.straightFrom !== null && now - coil.straightFrom < STRAIGHTEN_MS),
+    );
+  }
+
+  /**
+   * The pay-out's own frame loop: one frame at a time for as long as a coil is
+   * paying out or straightening, then nothing.
+   *
+   * It can't ride the physics. The sim puts itself to sleep a few seconds
+   * after a change, and a pull of a few hundred dots can outlast that — the
+   * chain would freeze half paid out. So this asks for frames itself, and
+   * stops itself, which keeps the battery contract: nothing idles.
+   *
+   * It settles with an ease of 0: the small eases are the physics tick's job,
+   * and doing them here too would run them at double speed. The paying-out
+   * dots move on their clock either way.
+   */
+  private runCoilFrames(): void {
+    if (this.coilFrame !== null || this.destroyed || !this.coilsInMotion()) return;
+    const frame = () => {
+      this.coilFrame = null;
+      if (this.destroyed) return;
+      this.settleCoils(0);
+      this.requestDraw();
+      if (this.coilsInMotion()) this.coilFrame = requestAnimationFrame(frame);
+    };
+    this.coilFrame = requestAnimationFrame(frame);
   }
 
   /**
@@ -3444,12 +3703,102 @@ export class TerrainCanvas {
       for (let i = 1; i < coil.dots.length; i += 1) {
         const from = coil.dots[i - 1];
         const to = coil.dots[i];
-        if (this.hiddenFiles.has(to.id)) break;
+        if (this.hiddenFiles.has(to.id) || this.unpaidDots.has(to.id)) break;
         const along = i / coil.dots.length;
         ctx.globalAlpha = (dimmed ? 0.12 : 0.4) * (1 - along * 0.75);
         ctx.beginPath();
         ctx.moveTo(from.x ?? 0, from.y ?? 0);
         ctx.lineTo(to.x ?? 0, to.y ?? 0);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
+  /**
+   * Draw each coil's tip: the strand carrying on past its last dot as a
+   * brighter curve, peeling away into a small dark hole — the coil as a thread
+   * being pulled out of somewhere. Tapping the curve pulls more out.
+   *
+   * It starts wherever the coil's last dot IS this frame, not where it's
+   * headed, so while a pull pays out the curve is pushed along ahead of the
+   * new dots. When there's nothing left to pull it straightens and the hole
+   * fades — the thread has come all the way out.
+   *
+   * Brighter than the strand, in whatever the theme's ink is: near-white on
+   * the dark map, near-black on the light one — a literal white would vanish
+   * into the light theme's lavender-grey. Hovered, it's brighter and thicker
+   * still. Decoration as far as the physics goes: it has no body, so other
+   * dots may drift across it rather than the coil claiming more room.
+   *
+   * Prompt that produced it: "i want like, a white curve to show on the end
+   * of the spiral as if it was coming out of a hole or something in the
+   * background ... maybe it turns into a straight line when it's at the end.
+   * and you can click it to 'pull' more out".
+   */
+  private drawCoilTips(
+    ctx: CanvasRenderingContext2D,
+    transform: ZoomTransform,
+    theme: ThemeInk,
+    dimmed: boolean,
+  ): void {
+    if (this.coils.length === 0) return;
+    const now = performance.now();
+    const k = transform.k;
+    ctx.save();
+    ctx.setLineDash([]);
+    ctx.lineCap = 'round';
+    for (const coil of this.coils) {
+      // Hidden with the strand: no curve hanging in empty ground.
+      if (this.hiddenFiles.has(coil.dots[0].id)) {
+        coil.curve = [];
+        continue;
+      }
+      // The tip is the outermost dot that has come out so far.
+      let last = coil.dots.length - 1;
+      while (last > 0 && this.unpaidDots.has(coil.dots[last].id)) last -= 1;
+      const tipDot = coil.dots[last];
+      const spot = coil.arrangement.spots[last];
+      const straightness =
+        coil.straightFrom === null ? 0 : Math.min(1, (now - coil.straightFrom) / STRAIGHTEN_MS);
+      const curve = tipCurve({ x: tipDot.x ?? 0, y: tipDot.y ?? 0 }, spot.angle, spot.radius, {
+        straightness,
+      });
+      coil.curve = curve;
+      const hovered = this.hoverTipHubId === coil.hub.id;
+      const presence = dimmed ? 0.3 : 1;
+
+      // The hole first, so the thread is drawn coming up out of it. A dark
+      // well with a faint rim, fading away as the curve straightens.
+      const mouth = curve[curve.length - 1];
+      const holeAlpha = (1 - straightness) * presence;
+      if (holeAlpha > 0.01) {
+        const holeR = Math.max(4.5, 3 / k);
+        ctx.globalAlpha = holeAlpha;
+        ctx.fillStyle = theme.dark
+          ? mixHex(theme.bg, '#000000', 0.6)
+          : mixHex(theme.bg, theme.text, 0.5);
+        ctx.beginPath();
+        ctx.arc(mouth.x, mouth.y, holeR, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = holeAlpha * 0.35;
+        ctx.strokeStyle = theme.text;
+        ctx.lineWidth = 1 / k;
+        ctx.stroke();
+      }
+
+      // The thread, one segment at a time so it can fade into the hole —
+      // bright off the tip, dimmer where it goes down into the dark. Straight,
+      // there's no hole to go into, so it just trails off like the strand.
+      ctx.strokeStyle = theme.text;
+      ctx.lineWidth = (hovered ? 3 : 2) / k;
+      for (let i = 1; i < curve.length; i += 1) {
+        const along = i / (curve.length - 1);
+        const bright = hovered ? 1 : 0.8;
+        ctx.globalAlpha = bright * (1 - along * 0.6) * presence;
+        ctx.beginPath();
+        ctx.moveTo(curve[i - 1].x, curve[i - 1].y);
+        ctx.lineTo(curve[i].x, curve[i].y);
         ctx.stroke();
       }
     }
@@ -4163,14 +4512,16 @@ export class TerrainCanvas {
     ctx.setLineDash([]);
 
     this.drawCoilStrands(ctx, transform, theme, dimmed);
+    this.drawCoilTips(ctx, transform, theme, dimmed);
 
     // -- nodes --
     const minR = MIN_NODE_PX / transform.k;   // world units for a screen-px floor
     const threadHover = this.hoverFile;
     for (const n of this.simNodes) {
       // Outside the date range: skipped whole, so its rings, write core,
-      // run halo and flash go with it.
-      if (this.hiddenFiles.has(n.id)) continue;
+      // run halo and flash go with it. Same for a dot still inside a coil's
+      // tip, waiting its turn to come out.
+      if (this.hiddenFiles.has(n.id) || this.unpaidDots.has(n.id)) continue;
       const inPrint = !dimmed || this.footprintLit!.has(n.id);
       // What the hover lit: the dot under the cursor, everything wired to it,
       // the folders it's kept in — and the picked-out body, which a hover
@@ -4590,7 +4941,7 @@ export class TerrainCanvas {
     // since nothing outside it takes a hover (isTouchable).
     const pickedOut = selectionUp && this.hoverLabel !== null;
     for (const n of this.simNodes) {
-      if (this.hiddenFiles.has(n.id)) continue; // no caption for a dot that isn't drawn
+      if (this.hiddenFiles.has(n.id) || this.unpaidDots.has(n.id)) continue; // no caption for a dot that isn't drawn
       if (n.node.file?.table) continue; // tables are named in their own pass, below
       const pointedAt = n.id === this.hoverLabel;
       // A dot names itself under the cursor — pointing at something is the
@@ -4666,9 +5017,9 @@ export class TerrainCanvas {
         ctx.fillStyle = theme.textSecondary;
         ctx.fillText(n.node.label, sx, sy - n.radius * k - 4);
         // The coil says how far back it goes, right under its own name. The
-        // centre is a control — a tap opens the window a step wider — and a
-        // control with no reading on it is one she has to remember rather
-        // than see. It sits INSIDE the coil's centre hole, which is kept
+        // centre is a control — a tap collapses the coil to its first step,
+        // and the curve at its tip pulls it wider — and a control with no
+        // reading on it is one she has to remember rather than see. It sits INSIDE the coil's centre hole, which is kept
         // clear of dots for exactly this (SPIRAL_INNER_RADIUS).
         const captioned = this.coilByHubId.get(n.id);
         if (captioned?.caption) {

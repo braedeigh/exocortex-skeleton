@@ -260,6 +260,7 @@ export function TerrainBackdrop({
           // No caption — the wallpaper's centres aren't controls, so there's
           // nothing for them to report.
           caption: null,
+          canPull: coil.pullTo !== undefined,
         })),
       );
       engine.setGraph(graph.nodes, graph.edges);

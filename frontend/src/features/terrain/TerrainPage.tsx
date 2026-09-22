@@ -658,9 +658,10 @@ export function TerrainPage() {
   const fittedRef = useRef(false);
 
   /**
-   * How far back each coil is open, in days, keyed by its folder — a month to
-   * begin with, one step wider each time she taps that coil's centre, and
-   * round to the start again from the far end (coilFolders.ts). Per coil,
+   * How far back each coil is open, in days, keyed by its folder — its first
+   * step to begin with (a month, by default), one step wider each time she
+   * pulls on the curve at its tip, and back to the first when she taps its
+   * centre (coilFolders.ts). Per coil,
    * because a chat log and a photo archive don't fill at the same rate and
    * shouldn't be opened together.
    *
@@ -1144,9 +1145,8 @@ export function TerrainPage() {
       (coiled?.coils ?? []).map((coil) => ({
         folderId: coil.folderId,
         ids: coil.spiralIds,
-        caption: `${coilWindowLabel(
-          coilWindows[coil.prefix] === undefined ? coil.windows[0] : coilWindows[coil.prefix],
-        )} · ${coil.shown} of ${coil.total}`,
+        caption: `${coilWindowLabel(coil.windowDays)} · ${coil.shown} of ${coil.total}`,
+        canPull: coil.pullTo !== undefined,
       })),
     );
   }, [coiled, coilWindows]);
@@ -1213,6 +1213,15 @@ export function TerrainPage() {
   useEffect(() => {
     const engine = engineRef.current;
     if (!engine) return;
+    // A pull on a coil's tip curve widens that coil to its next step — the
+    // first one that brings anything out (coilFolders.ts pullTo). The engine
+    // pays the new dots out one at a time.
+    engine.onCoilPull = (folderId) => {
+      const pulled = coiled?.coils.find((coil) => coil.folderId === folderId);
+      if (!pulled || pulled.pullTo === undefined) return;
+      const to = pulled.pullTo;
+      setCoilWindows((open) => ({ ...open, [pulled.prefix]: to }));
+    };
     engine.onTap = (node) => {
       // A coil's centre collapses it: a tap on one of these folders closes
       // that coil back to its first step (a month, unless she's set it
