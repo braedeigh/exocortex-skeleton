@@ -3,7 +3,7 @@ import type { TerrainData, TerrainFile } from './api';
 import {
   DEFAULT_COIL_WINDOWS,
   coilWindowLabel,
-  nextCoilWindow,
+  widerCoilWindows,
   parseStampedName,
   windowCoils,
 } from './coilFolders';
@@ -288,20 +288,63 @@ describe('windowCoils', () => {
   });
 });
 
-describe('nextCoilWindow', () => {
-  it('steps out and then back round to the first', () => {
+describe('widerCoilWindows', () => {
+  it('only ever widens — nothing past everything', () => {
     const steps = [31, 92, null];
-    let at = steps[0];
-    const seen = [at];
-    for (let i = 0; i < steps.length; i += 1) {
-      at = nextCoilWindow(at, steps);
-      seen.push(at);
-    }
-    expect(seen).toEqual([...steps, steps[0]]);
+    expect(widerCoilWindows(31, steps)).toEqual([92, null]);
+    expect(widerCoilWindows(null, steps)).toEqual([]);
   });
 
-  it('starts over from a window it has never heard of', () => {
-    expect(nextCoilWindow(7, [31, 92])).toBe(31);
+  it('widens from a window that is not one of the steps', () => {
+    // A collapsed Weekly coil sits at a month its own steps don't name.
+    expect(widerCoilWindows(40, [92, 31, null])).toEqual([92, null]);
+  });
+});
+
+describe('the two controls: pull and collapse', () => {
+  it('pulls to the next step that brings something out, skipping a quiet one', () => {
+    // Nothing between one month and three, so a pull from a month goes
+    // straight to six — a pull always pays out at least one dot.
+    const paths = [stamped(1), stamped(150)];
+    const out = windowCoils(payload([], [listing({ paths })]), { nowSeconds: NOW });
+    expect(out.coils[0].pullTo).toBe(183);
+  });
+
+  it('has nothing to pull once everything is out', () => {
+    const paths = [stamped(1), stamped(400)];
+    const out = windowCoils(payload([], [listing({ paths })]), {
+      nowSeconds: NOW,
+      windows: { 'data/uploads-archive/': null },
+    });
+    expect(out.coils[0].pullTo).toBeUndefined();
+  });
+
+  it('has nothing to pull when the widest step already shows it all', () => {
+    const paths = [stamped(1), stamped(5)];
+    const out = windowCoils(payload([], [listing({ paths })]), { nowSeconds: NOW });
+    expect(out.coils[0].pullTo).toBeUndefined();
+  });
+
+  it('pulls to everything for the undated files alone', () => {
+    // Every dated file is inside the month; only "all" adds the undated one.
+    const paths = [stamped(1), 'data/uploads-archive/notes.txt'];
+    const out = windowCoils(payload([], [listing({ paths })]), { nowSeconds: NOW });
+    expect(out.coils[0].pullTo).toBeNull();
+  });
+
+  it('collapses to its narrowest step, whatever order the file lists them in', () => {
+    const out = windowCoils(
+      payload([], [listing({ paths: [stamped(1)], windows: [183, null, 14] })]),
+      { nowSeconds: NOW },
+    );
+    expect(out.coils[0].collapseTo).toBe(14);
+    expect(out.coils[0].windowDays).toBe(14);
+  });
+
+  it('names the oldest moment showing', () => {
+    const paths = [stamped(1), stamped(10), stamped(60)];
+    const out = windowCoils(payload([], [listing({ paths })]), { nowSeconds: NOW });
+    expect(out.coils[0].oldestShownAt).toBe(parseStampedName(stamped(10).split('/').pop()!));
   });
 });
 

@@ -66,7 +66,11 @@
  * apply to different folders? i have a few other candidates i want to assign
  * this" — generalising the uploads coil, whose own prompt was "arrange them
  * into a spiral that only shows like the last month or so ... but you could
- * click the center to load more".
+ * click the center to load more". The two controls since: "i want like, a
+ * white curve to show on the end of the spiral as if it was coming out of a
+ * hole ... you can click it to 'pull' more out, instead of clicking the middle
+ * file button. i want the middle file button to be something you can click to
+ * hide everything but the last month maybe."
  */
 import type { TerrainData, TerrainFile } from './api';
 
@@ -81,8 +85,8 @@ export interface CoilListing {
   /** Repo-relative, with a trailing slash — `data/uploads-archive/`. */
   prefix: string;
   time: CoilTimeSource;
-  /** The window steps a tap on the centre walks through; `null` is
-   * everything. Per folder, because a chat log and a photo archive don't fill
+  /** The sizes the coil can open to — a pull on its tip widens it a step,
+   * a tap on its centre collapses it to the first; `null` is everything. Per folder, because a chat log and a photo archive don't fill
    * up at remotely the same rate. */
   windows: (number | null)[];
   /** Every file in the folder, repo-relative. Uncapped. */
@@ -103,22 +107,34 @@ export interface CoilListing {
  * exactly the stretch whose heat the breathing can visibly move through. */
 export const DEFAULT_COIL_WINDOWS: readonly (number | null)[] = [31, 92, 183, null];
 
+/** A window as a number you can compare: "everything" is the widest there is. */
+function windowReach(days: number | null): number {
+  return days === null ? Infinity : days;
+}
+
 /**
- * The next window a tap on a coil's centre opens — and, from the last step,
- * back to the first.
+ * Every step wider than the window a coil is open to now, narrowest first —
+ * the places a pull on the coil's tip can take it.
  *
- * It cycles rather than stopping at "everything" because the centre is the
- * only control a coil has: a one-way widen would leave a 600-dot spiral
- * parked on the map with no way back short of a reload.
+ * ONE-WAY, and it can be now. A coil has two controls: the curve at its tip
+ * pulls it wider, and its centre collapses it back to its first step. The
+ * widening used to cycle round to the start because the centre was the only
+ * control there was, and a one-way widen would have parked a 600-dot spiral on
+ * the map with no way back. With the centre as the way back, the pull never
+ * has to double as it.
+ *
+ * Compared by size rather than looked up by position, so a window that isn't
+ * one of the steps (a step list she's just edited, say) still widens to the
+ * next one past it.
  */
-export function nextCoilWindow(
+export function widerCoilWindows(
   days: number | null,
   steps: readonly (number | null)[] = DEFAULT_COIL_WINDOWS,
-): number | null {
-  if (steps.length === 0) return null;
-  const at = steps.indexOf(days);
-  if (at < 0) return steps[0];
-  return steps[(at + 1) % steps.length];
+): (number | null)[] {
+  const reach = windowReach(days);
+  return [...steps]
+    .filter((step) => windowReach(step) > reach)
+    .sort((a, b) => windowReach(a) - windowReach(b));
 }
 
 /** A short name for a window, for the line under a coil's own name. */
@@ -211,11 +227,22 @@ export function coilFileNodeId(repoId: string, path: string): string {
 export interface CoilView {
   prefix: string;
   repoId: string;
-  /** The coil's centre, and the only thing on it she can tap. */
+  /** The coil's centre — the tap that collapses it back to its first step. */
   folderId: string;
   time: CoilTimeSource;
-  /** The steps THIS coil's centre walks through. */
+  /** The sizes THIS coil can open to, narrowest first; `null` is everything. */
   windows: (number | null)[];
+  /** The window it's open to right now. */
+  windowDays: number | null;
+  /** Where a pull on the tip's curve takes it: the first wider step that
+   * actually brings something out. `undefined` when nothing wider would —
+   * the coil is all the way out, and its curve draws straight. */
+  pullTo: number | null | undefined;
+  /** Where a tap on the centre takes it: its first step. */
+  collapseTo: number | null;
+  /** The moment of the oldest dated file on the coil, unix seconds — the far
+   * end of what's showing, for the hover card. Null when none is dated. */
+  oldestShownAt: number | null;
   /** Its files as node ids, NEWEST FIRST — the order spiralLayout.ts lays
    * them in, innermost first. */
   spiralIds: string[];
@@ -273,7 +300,10 @@ export function windowCoils(
   const addByRepo = new Map<string, TerrainFile[]>();
 
   for (const listing of listings) {
-    const windows = listing.windows.length > 0 ? listing.windows : [...DEFAULT_COIL_WINDOWS];
+    // Its sizes, narrowest first — so the first is what it opens and
+    // collapses to, whatever order the data file lists them in.
+    const windows = (listing.windows.length > 0 ? [...listing.windows] : [...DEFAULT_COIL_WINDOWS])
+      .sort((x, y) => windowReach(x) - windowReach(y));
     const openTo = options.windows?.[listing.prefix];
     const windowDays = openTo === undefined ? windows[0] : openTo;
 
@@ -307,23 +337,26 @@ export function windowCoils(
     }
     dated.sort((a, b) => b.at - a.at);
 
-    // The window. It is never allowed to come back empty while the folder
-    // has anything in it: the folder node is the coil's centre AND its only
-    // control, and the trie only emits a folder that holds files — so an
-    // empty month would take the "load more" target off the map with it.
-    const cutoff = windowDays === null ? -Infinity : nowSeconds - windowDays * 86400;
-    let shownDated = dated.filter((u) => u.at >= cutoff);
-    if (shownDated.length === 0 && dated.length > 0) shownDated = dated.slice(0, 1);
+    const shownDated = datedInWindow(dated, windowDays, nowSeconds);
     // The undated only ever appear on "everything" — there's no window they
     // can honestly be said to fall inside.
     const shownUndated = windowDays === null ? undated : [];
     const shownPaths = [...shownDated.map((u) => u.path), ...shownUndated];
+    // Where a pull goes: the first wider step that brings anything out. A
+    // step that would add nothing (a quiet season between two busy ones) is
+    // stepped over, so a pull on the curve always pays out at least one dot
+    // rather than doing nothing she can see.
+    const pullTo = widerCoilWindows(windowDays, windows).find(
+      (step) =>
+        datedInWindow(dated, step, nowSeconds).length + (step === null ? undated.length : 0) >
+        shownPaths.length,
+    );
     // Claimed only once it has something to show. Marking the folder for
     // removal any earlier — before this bail-out — took its files off the map
     // without putting any of them back, and the folder node the trie builds
-    // from them went with it: the coil's centre is also the only control it
-    // has, so a folder that came back empty lost the one target that could
-    // have widened it. A coil with nothing in its window is no coil; it is
+    // from them went with it: the folder node is the coil's centre, which
+    // both anchors its tip and collapses it, so a folder that came back empty
+    // lost the coil's controls with it. A coil with nothing in its window is no coil; it is
     // never no folder.
     if (shownPaths.length === 0) continue;
     dropPrefixes.push(listing.prefix);
@@ -373,6 +406,10 @@ export function windowCoils(
       folderId: coilFolderNodeId(repoId, listing.prefix),
       time: listing.time,
       windows: [...windows],
+      windowDays,
+      pullTo,
+      collapseTo: windows[0],
+      oldestShownAt: shownDated.length > 0 ? shownDated[shownDated.length - 1].at : null,
       spiralIds: shownPaths.map((path) => coilFileNodeId(repoId, path)),
       shown: shownPaths.length,
       total: dated.length + undated.length,
@@ -390,6 +427,24 @@ export function windowCoils(
   });
 
   return { data: { ...data, repos }, coils: views };
+}
+
+/**
+ * The dated files a window lets through, newest first.
+ *
+ * Never empty while the folder has anything dated in it: the folder node is
+ * the coil's centre AND one of its two controls, and the trie only emits a
+ * folder that holds files — so an empty month would take the centre off the
+ * map with it. The newest file stands in for an empty window.
+ */
+function datedInWindow(
+  dated: readonly { path: string; at: number }[],
+  windowDays: number | null,
+  nowSeconds: number,
+): { path: string; at: number }[] {
+  const cutoff = windowDays === null ? -Infinity : nowSeconds - windowDays * 86400;
+  const inside = dated.filter((u) => u.at >= cutoff);
+  return inside.length === 0 && dated.length > 0 ? dated.slice(0, 1) : inside;
 }
 
 /**

@@ -59,7 +59,7 @@ import { PondLandmark } from './PondLandmark';
 import { TerrainGuide } from './TerrainGuide';
 import { markGuideDismissed, readGuideDismissed, shouldOpenGuideOnLoad } from './guideOpenPref';
 import { collapseToPondTile, localDayISO, parseCardPath, POND_TILE_PATH } from './pondNodes';
-import { coilWindowLabel, nextCoilWindow, windowCoils } from './coilFolders';
+import { coilWindowLabel, windowCoils } from './coilFolders';
 import { filesGlowingByRun } from './runGlow';
 import { addTableNodes } from './tableNodes';
 import { tableCodeLinks } from './tableMentions';
@@ -1214,23 +1214,13 @@ export function TerrainPage() {
     const engine = engineRef.current;
     if (!engine) return;
     engine.onTap = (node) => {
-      // A coil's centre is its own control: a tap on one of these folders
-      // opens that coil a step wider — a month, a season, half a year,
-      // everything, and round again — rather than selecting the folder. They
-      // are the only dots on the map that do this, because they're the ones
-      // whose whole branch is drawn as a single arrangement.
+      // A coil's centre collapses it: a tap on one of these folders closes
+      // that coil back to its first step (a month, unless she's set it
+      // otherwise) rather than selecting the folder. The widening lives on
+      // the curve at the coil's tip — see onCoilPull below.
       const tappedCoil = coiled?.coils.find((coil) => coil.folderId === node?.id);
       if (tappedCoil) {
-        setCoilWindows((open) => {
-          const at = open[tappedCoil.prefix];
-          return {
-            ...open,
-            [tappedCoil.prefix]: nextCoilWindow(
-              at === undefined ? tappedCoil.windows[0] : at,
-              tappedCoil.windows,
-            ),
-          };
-        });
+        setCoilWindows((open) => ({ ...open, [tappedCoil.prefix]: tappedCoil.collapseTo }));
         return;
       }
       if (node?.kind === 'file') {
