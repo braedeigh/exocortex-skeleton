@@ -107,6 +107,108 @@ def private_activity_types():
     cfg = store.read("public_view", {})
     return tuple(cfg.get("private_activity_types") or ())
 
+
+# --- Which of the database's tables a visitor may READ ------------------------
+#
+# The Terrain map publishes exo.db's tables as bodies (routes/terrain_tables.py).
+# Since 2026-09-22 the values inside them are governed per TABLE, in the same
+# two words STREAMS uses above:
+#
+#   "public":  a visitor reads the real values
+#   "frosted": a visitor gets blocks the length the value was — the row is
+#              still there, the columns are still there, the counts are still
+#              honest, and nothing inside can be read
+#
+# Her rule, verbatim: "The only ones I care about hiding are specifically my
+# journal rows and personal records of what I've said about myself and others"
+# — and, on what should happen to those: "I want it visible in terms of the
+# columns and rows but no actual information to be readable."
+#
+# So NOTHING IS EVER HIDDEN HERE. Every table keeps every row. The marks below
+# only ever decide whether a value is legible, which means this whole layer can
+# only take frost OFF; it can never open a door that wasn't already open.
+#
+# UNKNOWN TABLE → FROSTED, deliberately, same as STREAMS' unknown-key rule: a
+# table added by a future migration rung in sqlstore.py publishes nothing until
+# someone lists it here on purpose.
+#
+# Two tables are decided PER ROW rather than per table, because half of each is
+# hers and half isn't. Those two rules can't live here — they need to read the
+# row — so they live in routes/terrain_tables.py (`_ROW_RULES`), and they are
+# the only thing about this policy that isn't in this file:
+#   commits  — a skeleton commit's subject is already public on GitHub and
+#              reads in full; a vault commit's subject is frosted.
+#   sessions — a Coding session keeps its title; every other one reads
+#              "Personal"/"Orchestra" and has its id frosted, matching what
+#              routes/terrain.py does to the same sessions on the map.
+TABLES = {
+    # ---- the code and the machine: published in full --------------------
+    # Files and their history, in both repos. Vault PATHS travel here (a
+    # filename is not speech, and her 2026-09-17 call already put every dot
+    # from both repos on the public map) — their CONTENTS never do; the file
+    # endpoint still refuses anything but git-tracked app code to a visitor.
+    "files": "public",
+    "file_paths": "public",
+    "commits": "public",        # ...except vault subjects — see _ROW_RULES
+    "commit_files": "public",
+    "code_files": "public",
+    "code_edges": "public",
+    # What ran, and what it did. Slash-command names, working directories and
+    # transcript paths: her call, "publish".
+    "command_runs": "public",
+    "command_sources": "public",
+    "job_runs": "public",
+    "traces": "public",
+    "trace_spans": "public",
+    # Which files a session touched and when it was working. The activity is
+    # the exhibit; WHOSE session it was is handled by _ROW_RULES on `sessions`.
+    "sessions": "public",       # ...except non-Coding titles and ids
+    "session_files": "public",
+    "session_turns": "public",
+    "attention_segments": "public",
+    # Category names only — no content hangs off either of these here. The
+    # tables that attach them to her actual life (todo_fronts, expenses) are
+    # frosted below.
+    "fronts": "public",
+    "expense_categories": "public",
+
+    # ---- her life: the shape shows, the values don't --------------------
+    # The journal itself: cards are what she wrote, tags are what was said
+    # about them.
+    "cards": "frosted",
+    "card_tags": "frosted",
+    "tags": "frosted",
+    # Dev and idea notes (notestore.py), and the verdicts on them.
+    "notes": "frosted",
+    "note_judgments": "frosted",
+    # THE ONE THAT DOESN'T LOOK LIKE A HAZARD. `docs` is not documentation: it
+    # is every JSON collection stored whole, one row each, contents in a `data`
+    # column — contacts, budget, research, reminders, archivals. STREAMS above
+    # governs the /api/data/* endpoints and has NO SAY over this table, so
+    # publishing it would hand a visitor everything STREAMS hides.
+    "docs": "frosted",
+    # The to-do queue, and the three tables that hang off it. `todo_fronts`
+    # says which area of her life each to-do belongs to.
+    "todos": "frosted",
+    "todo_subtasks": "frosted",
+    "todo_agent_notes": "frosted",
+    "todo_fronts": "frosted",
+    # The filer's proposals and her rulings on them (empty today).
+    "filer_nominations": "frosted",
+    "filer_verdicts": "frosted",
+    # Real cents and the bank's memo line. STREAMS already multiplies every
+    # public dollar figure by a private factor, so publishing these rows would
+    # undo a decision she has already made.
+    "expenses": "frosted",
+    # Health. The names in `habits` are peptides, supplements and somatic
+    # practice, and `habit_aliases` carries the SAME names under every key the
+    # app has ever logged — frosting one without the other publishes both.
+    "habits": "frosted",
+    "habit_aliases": "frosted",
+    "habit_entries": "frosted",
+}
+
+
 # --- What a stranger may reach ------------------------------------------------
 #
 # Three tuples, joined into PUBLIC_PATHS at the bottom:
@@ -184,14 +286,22 @@ PRESENTABLE_PATHS = (
     # When each line of a file was last edited (git blame). Same front door as
     # the file's text above, so the same visitor lock: git-tracked app code only.
     "/api/observatory/terrain/file/edits",
-    # The database's own tables, as bodies on the map. Opened by the owner's
-    # decision: "i want it published but the actual values inside of the tables
-    # will be blurred." A visitor gets the architecture — tables, columns,
-    # types, row counts, foreign keys, the plain-English notes — and every cell
-    # comes back as blocks the length the value was, frosted server-side in
-    # routes/terrain_tables.py. Search, filters and sort are ignored for a
-    # visitor there, because a matching COUNT is a value read one bit at a
-    # time. The SQL console (/terrain/sql) stays shut: arbitrary reads, not a
+    # The database's own tables, as bodies on the map. A visitor gets the
+    # architecture — tables, columns, types, row counts, foreign keys, the
+    # plain-English notes — and then, per table, either the real values or
+    # blocks the length the value was. Which is which is TABLES above; the
+    # frosting is done server-side in routes/terrain_tables.py, so nothing but
+    # shape crosses the wire for a frosted table.
+    #
+    # Her 2026-09-22 call replaced the uniform first cut ("i want it published
+    # but the actual values inside of the tables will be blurred") with a real
+    # line: "Most of the database needs to be readable too, just not the stuff
+    # that is very personal." So the code and machine tables read in full, and
+    # search, filters and sort WORK again for a visitor — restricted to the
+    # columns that are public on every row, because a matching COUNT over a
+    # frosted column is a value read one bit at a time.
+    #
+    # The SQL console (/terrain/sql) stays shut: arbitrary reads, not a
     # described shape.
     "/api/observatory/terrain/tables",
     "/api/observatory/terrain/tables/rows",

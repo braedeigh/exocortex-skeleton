@@ -272,10 +272,18 @@ export function TerrainTableRows({
   const firstShown = data && data.rows.length > 0 ? data.offset + 1 : 0;
   const lastShown = data ? data.offset + data.rows.length : 0;
   const narrowed = search !== '' || filters.length > 0;
-  // A frosted page is a visitor's: the cells are shapes, and the server
-  // ignores search, filters and sort on one — so the controls that drive them
-  // are hidden rather than left to do nothing.
-  const frosted = data?.frosted === true;
+  // A visitor's page carries its own policy: which cells came back as blocks,
+  // and which columns the server will refuse to be asked about. The controls
+  // that drive a locked column are hidden rather than left to do nothing.
+  // Frosting is now per CELL (`row.frosted`), not per page — a table can be
+  // half readable, with a skeleton commit's subject legible and a vault
+  // commit's blocks in the same column of the same page.
+  const lockedColumns = useMemo(
+    () => new Set(data?.locked_columns ?? []),
+    [data?.locked_columns],
+  );
+  // Every column locked = nothing on this table can be searched at all.
+  const searchable = !data || data.columns.some((column) => !lockedColumns.has(column));
 
   // Which of the server's columns to draw, by position — the cells arrive in
   // column order, so hiding a column means skipping its index in every row.
@@ -297,7 +305,7 @@ export function TerrainTableRows({
     <div className={styles.rowsView}>
       {/* SEARCH, NEWEST FIRST, COLUMNS */}
       <div className={styles.toolbar}>
-        {frosted ? (
+        {!searchable ? (
           <span className={styles.frostedNote}>
             Values hidden — each cell is the shape of what's really there
           </span>
@@ -311,7 +319,7 @@ export function TerrainTableRows({
             aria-label={`Search the rows of ${table.name}`}
           />
         )}
-        {timeColumn && !frosted ? (
+        {timeColumn && !lockedColumns.has(timeColumn) ? (
           // One button, three states: newest first → oldest first → stored
           // order. It says what it's CURRENTLY doing, and by which column.
           <button
@@ -479,7 +487,7 @@ export function TerrainTableRows({
                           {column}
                           {filtered ? <span className={styles.filteredDot} aria-label="filtered" /> : null}
                         </button>
-                        {frosted ? null : (
+                        {lockedColumns.has(column) ? null : (
                         <button
                           type="button"
                           className={sortedHere ? styles.sortOn : styles.sortOff}
@@ -518,7 +526,7 @@ export function TerrainTableRows({
                         <td
                           key={i}
                           className={[typeof row.cells[i] === 'number' ? styles.number : '',
-                                      frosted ? styles.frostedCell : ''].filter(Boolean).join(' ') || undefined}
+                                      row.frosted?.[i] ? styles.frostedCell : ''].filter(Boolean).join(' ') || undefined}
                         >
                           <div className={styles.cell}>
                             <Marked value={row.cells[i]} word={search} />

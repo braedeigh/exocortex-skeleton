@@ -237,8 +237,10 @@ export function TerrainColumnCard({
           )}
 
           {/* NARROW IT, ORDER, HIDE — all of it drives a server-side filter or
-              sort, and a frosted page ignores both, so a visitor doesn't get
-              controls that would quietly do nothing. */}
+              sort. The server frosts a profile for exactly the columns it will
+              not accept a filter or sort on, so `frosted` here is the same
+              answer as "locked": a visitor doesn't get controls that would
+              quietly do nothing. */}
           {data.frosted ? null : (
           <>
           <div className={styles.block}>

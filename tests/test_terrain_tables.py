@@ -114,11 +114,14 @@ def test_missing_database_is_an_empty_list(client):
     assert resp.get_json()["tables"] == []
 
 
-def test_visitor_is_refused(data_dir, monkeypatch):
+def test_the_architecture_is_open_to_visitors(data_dir, monkeypatch):
+    """The table layer's front door is public (public_config.PRESENTABLE_PATHS).
+    WHICH VALUES a visitor may read is a separate question, decided per table —
+    tests/test_terrain_tables_public.py holds that line."""
     monkeypatch.delenv("EXOCORTEX_PUBLIC_ONLY", raising=False)
     import server
     visitor = server.app.test_client()
-    assert visitor.get("/api/observatory/terrain/tables").status_code == 401
+    assert visitor.get("/api/observatory/terrain/tables").status_code == 200
 
 
 # --- which code touches a table: the scan --------------------------------------
@@ -306,12 +309,24 @@ def test_unknown_table_is_not_found_rather_than_run_as_sql(client, library):
     assert _rows(client, table="books")[1]["total"] == 5
 
 
-def test_rows_are_closed_to_visitors(data_dir, monkeypatch):
+def test_the_rows_door_is_open_to_visitors_and_frosts_a_personal_table(data_dir, monkeypatch):
+    """Open, not refused — and `todos` is frosted, so what comes back is shape."""
     monkeypatch.delenv("EXOCORTEX_PUBLIC_ONLY", raising=False)
     import server
+    import sqlstore
+    conn = sqlstore.open_db()
+    try:
+        conn.execute("INSERT INTO todos (id, text, bucket, position) VALUES (?, ?, ?, ?)",
+                     ("t1", "ring the clinic back", "today", 0))
+        conn.commit()
+    finally:
+        conn.close()
     visitor = server.app.test_client()
-    assert visitor.get("/api/observatory/terrain/tables/rows?table=todos").status_code == 401
-    assert visitor.get("/api/observatory/terrain/tables/row?table=todos&rowid=1").status_code == 401
+    page = visitor.get("/api/observatory/terrain/tables/rows?table=todos")
+    assert page.status_code == 200
+    body = page.get_json()
+    assert body["frosted"] is True
+    assert "ring the clinic back" not in [c for r in body["rows"] for c in r["cells"]]
 
 
 # --- filtering, sorting, and the SQL that did it ---------------------------------
@@ -436,8 +451,12 @@ def test_unknown_column_is_not_found(client, shelf):
     assert _column(client, 'genre"; DROP TABLE books; --')[0] == 404
 
 
-def test_column_profile_is_closed_to_visitors(data_dir, monkeypatch):
+def test_a_personal_columns_profile_keeps_counts_and_loses_examples(data_dir, monkeypatch):
     monkeypatch.delenv("EXOCORTEX_PUBLIC_ONLY", raising=False)
     import server
+    import sqlstore
+    sqlstore.open_db().close()          # the schema ladder makes exo.db
     visitor = server.app.test_client()
-    assert visitor.get("/api/observatory/terrain/tables/column?table=todos&column=text").status_code == 401
+    got = visitor.get("/api/observatory/terrain/tables/column?table=todos&column=text")
+    assert got.status_code == 200
+    assert got.get_json()["frosted"] is True

@@ -78,6 +78,11 @@ export interface TableRowsPage {
     cells: TableCell[];
     /** Parallel to `cells`: true where the server cut a long value short. */
     cut: boolean[];
+    /** Parallel to `cells`, on a VISITOR's page only: true where this cell is
+     * blocks rather than the value. Per CELL and not per column, because two
+     * tables are decided per row — a skeleton commit's subject is readable
+     * and a vault commit's is not, in the same column of the same page. */
+    frosted?: boolean[];
   }[];
   /** Rows in the whole table. */
   total: number;
@@ -90,12 +95,18 @@ export interface TableRowsPage {
   /** The SQL that produced this page, with its values written in. Missing on
    * a server that predates it. */
   sql?: string;
-  /** Set by the server for a VISITOR: every cell is blocks the length the
-   * value was, never the value (routes/terrain_tables.py `_frost_page`). The
-   * view reads this rather than guessing at who's looking — the data itself
-   * says what it is. Search, filters and sort are ignored server-side on a
-   * frosted page, so the controls that drive them are hidden. */
+  /** Set by the server for a VISITOR: true when ANY cell on this page came
+   * back as blocks rather than a value (routes/terrain_tables.py). The view
+   * reads this rather than guessing at who's looking — the data itself says
+   * what it is. */
   frosted?: boolean;
+  /** Columns that are blocks on every row of this table, for a visitor. */
+  frosted_columns?: string[];
+  /** Columns a visitor may not search, filter or sort on. WIDER than
+   * `frosted_columns`: a column that is public on some rows and frosted on
+   * others is readable but not askable, because a matching COUNT over it
+   * would be a value read one bit at a time. */
+  locked_columns?: string[];
 }
 
 export interface TableRowWhole {
@@ -103,6 +114,9 @@ export interface TableRowWhole {
   rowid: number;
   columns: string[];
   values: TableCell[];
+  /** Set by the server for a VISITOR: true when any value came back as blocks. */
+  frosted?: boolean;
+  frosted_columns?: string[];
 }
 
 /** One column, profiled over the whole table. */

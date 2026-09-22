@@ -32,21 +32,34 @@ It also says WHERE on the map the tables belong: which repo holds the data
 directory, and the database file's path inside it, so the tables hang off the
 folder the database really lives in.
 
-OPEN TO VISITORS, WITH THE VALUES FROSTED (the owner's call: "i want it
-published but the actual values inside of the tables will be blurred"). A
-stranger gets the whole ARCHITECTURE — every table, its columns and types, its
-row count and size, its foreign keys, the plain-English notes, and which code
-files touch it — and never a value out of a row. Each cell arrives as blocks
-the length the value was, so the sheet keeps its real shape and the page reads
-as a blurred table rather than an empty one.
+OPEN TO VISITORS, TABLE BY TABLE. A stranger always gets the whole
+ARCHITECTURE — every table, its columns and types, its row count and size, its
+foreign keys, the plain-English notes, and which code files touch it. What
+they get of the VALUES is decided per table in `public_config.TABLES`, in that
+file's own two words: "public" reads in full, "frosted" comes back as blocks
+the length the value was. Her call (2026-09-22): "Most of the database needs
+to be readable too, just not the stuff that is very personal", and of the
+personal half — "I want it visible in terms of the columns and rows but no
+actual information to be readable."
 
-The frosting is done HERE, on the server, in one seam (`_frost_page`,
-`_frost_row`, `_frost_column`): nothing but shape crosses the wire, so no
-client bug can un-blur what was never sent. Two things go with it for a
-visitor, because a count is a value read one bit at a time: SEARCH AND FILTERS
-ARE IGNORED (otherwise "how many rows contain X" answers questions about the
-rows), and so is sort (the order of blurred values is still their order). The
-column profile keeps its counts and loses its examples.
+NOTHING IS EVER HIDDEN. Every table keeps every row and every column, and the
+counts stay honest, for a stranger exactly as for her; only legibility moves.
+That is what makes this layer safe to change: it can take frost OFF, it can
+never open a door.
+
+The policy is applied HERE, on the server, in one seam (`_visitor_policy` and
+`_VisitorPolicy.apply`), so nothing but shape crosses the wire for a frosted
+table and no client bug can un-blur what was never sent.
+
+SEARCH, FILTERS AND SORT WORK AGAIN for a visitor — restricted to the columns
+that are public on EVERY row (`_VisitorPolicy.locked`). That restriction is the
+subtle half of the design: a matching COUNT over a frosted column is a value
+read one bit at a time, and two tables are public on some rows and frosted on
+others, so their readable-but-conditional columns (commits.subject,
+sessions.title) are readable and NOT searchable. A visitor's disallowed search
+is dropped rather than refused — a page that quietly shows the whole table is a
+better answer to a stranger than an error. The column profile loses its
+examples and its extremes for exactly the columns it may not be asked about.
 
 The SQL console (/terrain/sql) stays shut — it is arbitrary reads, not a
 described shape.
@@ -79,6 +92,7 @@ from pathlib import Path
 
 from flask import jsonify, request
 
+import public_config
 import store
 from routes import observatory
 
@@ -318,6 +332,10 @@ def build_tables():
     for table in tables:
         table["notes"] = notes.get(table["name"])
         table["code"] = code.get(table["name"], {"creates": [], "writes": [], "reads": []})
+        # What a stranger may read of this table's values, straight from the
+        # policy — sent to the owner too, so the map can say at a glance which
+        # bodies are published and which are only shapes.
+        table["visitor"] = public_config.TABLES.get(table["name"], "frosted")
     return {"repo": repo, "path": relpath, "code_repo": "skeleton", "tables": tables}
 
 
@@ -335,12 +353,17 @@ def build_tables():
 #     collection can be hundreds of kilobytes) and said to be cut, and the
 #     single-row door returns them whole.
 
-# --- what a VISITOR sees: the shape of a value, never the value --------------
+# --- what a VISITOR sees: the policy, resolved one table at a time -----------
 #
-# One block per character, so a name stays short and a journal card stays long
-# and the sheet looks like itself. Capped, because a 4,000-character card would
-# otherwise draw a 4,000-block smear; past the cap the row is marked `cut`, the
-# same channel the owner's own long values already use.
+# Every table keeps every row for a stranger; what changes is whether a value
+# is legible. public_config.TABLES marks each table "public" or "frosted" (and
+# anything unlisted frosted), and two tables are decided per ROW below, because
+# half of each is hers and half isn't.
+#
+# A FROSTED CELL BECOMES BLOCKS, one per character, so a name stays short and a
+# journal card stays long and the sheet looks like itself. Capped, because a
+# 4,000-character card would otherwise draw a 4,000-block smear; past the cap
+# the cell is marked `cut`, the same channel the owner's own long values use.
 _FROST_BLOCK = "\u2592"
 _FROST_TEXT_MAX = 40
 _FROST_NUMBER_BLOCKS = 3
@@ -365,22 +388,164 @@ def _frost_cell(value):
     return _FROST_BLOCK * max(1, min(len(text), _FROST_TEXT_MAX)), len(text) > _FROST_TEXT_MAX
 
 
-def _frost_page(page):
-    """A page of rows with every cell replaced by its shape. Counts, columns
-    and the SQL stay: they describe the table, not what is in it."""
-    rows = []
-    for row in page.get("rows") or []:
-        shaped = [_frost_cell(cell) for cell in row.get("cells") or []]
-        rows.append({**row,
-                     "cells": [cell for cell, _ in shaped],
-                     "cut": [cut for _, cut in shaped]})
-    return {**page, "rows": rows, "frosted": True}
+# --- the two tables decided per row ------------------------------------------
+#
+# A row rule answers, for ONE row's cells: which cell positions to frost, and
+# which to replace with a readable stand-in. It returns (frost positions,
+# {position: replacement}).
+#
+# Both rules FAIL TOWARD FROSTED. If the column they judge by is missing — a
+# schema that moved under them — they frost the sensitive column on every row
+# rather than guess, because the cost of guessing wrong is her journal.
+
+_PUBLIC_LANE = "coding"           # the one room whose sessions keep their name
+# The room's own name, worn as a title. Anything this can't place reads as
+# Personal: it is the honest generic, and it is what most of them are. The
+# stored `lane` is NULL for a large share of old sessions, and NULL is not
+# "coding", so those are covered by the default rather than by a guess.
+_LANE_TITLES = {"personal": "Personal", "orchestra": "Orchestra"}
+_LANE_TITLE_DEFAULT = "Personal"
+
+# Tables whose session-id column names a conversation. A session id is a
+# timestamp ("2026-08-19.030356"), so for a session that isn't Coding it is
+# frosted here — the same sessions routes/terrain.py anonymizes on the map.
+_SESSION_ID_COLUMNS = {
+    "session_files": "session_id",
+    "session_turns": "session_id",
+    "attention_segments": "conv",
+}
 
 
-def _frost_row(row):
-    """One row opened whole, frosted the same way as a page's cells."""
-    shaped = [_frost_cell(value) for value in row.get("values") or []]
-    return {**row, "values": [value for value, _ in shaped], "frosted": True}
+def _session_lanes(conn):
+    """Which room each agent session lives in — {id: lane}. 371 rows today, so
+    it is read whole rather than asked per row."""
+    try:
+        return {sid: lane for sid, lane in conn.execute("SELECT id, lane FROM sessions")}
+    except sqlite3.Error:
+        return {}
+
+
+def _commits_row_rule(conn, columns):
+    """A skeleton commit reads in full — those subjects are already public on
+    GitHub. A vault commit's subject is frosted: 69 of them name health care,
+    journal entries and food-guide changes. Everything else about the row (its
+    sha, its repo, when it was authored, by whom) stays public in both, which
+    is what keeps the map's commit heat honest."""
+    subject_at = columns.index("subject") if "subject" in columns else None
+    repo_at = columns.index("repo") if "repo" in columns else None
+    if subject_at is None:
+        return None, set()
+
+    def rule(cells):
+        if repo_at is None or cells[repo_at] != "skeleton":
+            return {subject_at}, {}
+        return set(), {}
+
+    return rule, {"subject"}
+
+
+def _sessions_row_rule(conn, columns):
+    """A Coding session keeps its title and its id. Every other one wears its
+    room's name over a frosted id — the same substitution routes/terrain.py
+    makes to the same sessions on the map, so a visitor sees one story on both
+    surfaces. Its lane, its start and its last activity stay public: they say
+    work happened, which is the exhibit."""
+    lane_at = columns.index("lane") if "lane" in columns else None
+    title_at = columns.index("title") if "title" in columns else None
+    id_at = columns.index("id") if "id" in columns else None
+    positions = {p for p in (title_at, id_at) if p is not None}
+    if not positions:
+        return None, set()
+
+    def rule(cells):
+        lane = cells[lane_at] if lane_at is not None else None
+        if lane == _PUBLIC_LANE:
+            return set(), {}
+        replacements = {}
+        if title_at is not None:
+            replacements[title_at] = _LANE_TITLES.get(lane, _LANE_TITLE_DEFAULT)
+        return ({id_at} if id_at is not None else set()), replacements
+
+    return rule, {c for c in ("title", "id") if c in columns}
+
+
+def _session_id_row_rule(conn, columns, id_column):
+    """The session-id column on a footprint table: frosted unless that session
+    is a Coding one. The rest of the row — which file, how many writes, when —
+    is untouched, so the table still says where the work landed."""
+    id_at = columns.index(id_column) if id_column in columns else None
+    if id_at is None:
+        return None, set()
+    lanes = _session_lanes(conn)
+
+    def rule(cells):
+        if lanes.get(cells[id_at]) == _PUBLIC_LANE:
+            return set(), {}
+        return {id_at}, {}
+
+    return rule, {id_column}
+
+
+class _VisitorPolicy:
+    """What one table looks like to a stranger: which columns are always
+    blocks, which may not be searched, and how to redact a single row.
+
+    `locked` is the set a visitor may not search, filter or sort on, and it is
+    WIDER than `frosted_columns` on purpose. A column that is public on some
+    rows and frosted on others — commits.subject — is perfectly readable, but
+    letting a search reach it would answer "does any vault commit mention X"
+    through the matching count, which is a value read one bit at a time. So a
+    column is searchable only when it is public on EVERY row."""
+
+    def __init__(self, frosted_columns, locked, columns, row_rule=None):
+        self.frosted_columns = frosted_columns
+        self.locked = locked
+        self._frosted_positions = {i for i, c in enumerate(columns) if c in frosted_columns}
+        self._row_rule = row_rule
+
+    def apply(self, cells, cut=None):
+        """One row in, one row out: (cells, cut, frosted) — three lists the
+        same length, so the page can grey exactly the cells it was told to."""
+        cut = cut or [False] * len(cells)
+        frost_positions = set(self._frosted_positions)
+        replacements = {}
+        if self._row_rule is not None:
+            extra, replacements = self._row_rule(cells)
+            frost_positions |= extra
+        cells_out, cut_out, frosted_out = [], [], []
+        for position, value in enumerate(cells):
+            if position in replacements:
+                cells_out.append(replacements[position])
+                cut_out.append(False)
+                frosted_out.append(False)
+            elif position in frost_positions:
+                blocks, was_cut = _frost_cell(value)
+                cells_out.append(blocks)
+                cut_out.append(was_cut)
+                frosted_out.append(True)
+            else:
+                cells_out.append(value)
+                cut_out.append(cut[position] if position < len(cut) else False)
+                frosted_out.append(False)
+        return cells_out, cut_out, frosted_out
+
+
+def _visitor_policy(conn, table, columns):
+    """Resolve public_config.TABLES for one table into something the reader can
+    apply. An unlisted table comes back fully frosted — the fail-closed default
+    that keeps a new migration rung from publishing itself."""
+    mark = public_config.TABLES.get(table, "frosted")
+    if mark != "public":
+        return _VisitorPolicy(list(columns), set(columns), columns)
+
+    row_rule, locked = None, set()
+    if table == "commits":
+        row_rule, locked = _commits_row_rule(conn, columns)
+    elif table == "sessions":
+        row_rule, locked = _sessions_row_rule(conn, columns)
+    elif table in _SESSION_ID_COLUMNS:
+        row_rule, locked = _session_id_row_rule(conn, columns, _SESSION_ID_COLUMNS[table])
+    return _VisitorPolicy([], locked, columns, row_rule)
 
 
 # A profile's counts describe the column; its examples ARE the column. These
@@ -393,6 +558,7 @@ def _frost_column(profile):
     frosted = {k: v for k, v in profile.items() if k not in _FROSTED_PROFILE_FIELDS}
     frosted.update({"values": None, "values_complete": False, "frosted": True})
     return frosted
+
 
 
 _ROWS_PAGE = 100           # rows per page when the client doesn't say
@@ -552,7 +718,8 @@ def _shown_sql(template, params):
     return out
 
 
-def read_rows(table, word="", offset=0, limit=_ROWS_PAGE, filters=None, sort=None, descending=False):
+def read_rows(table, word="", offset=0, limit=_ROWS_PAGE, filters=None, sort=None,
+              descending=False, visitor=False):
     """Read one page of a table's rows — searched, filtered, and sorted.
 
     SEARCH (`word`): keep rows where SOME column contains it (any case, for
@@ -579,11 +746,25 @@ def read_rows(table, word="", offset=0, limit=_ROWS_PAGE, filters=None, sort=Non
         columns = [c[1] for c in info]
         column_types = {c[1]: c[2] or "" for c in info}
 
+        # A visitor's question may only reach the columns that are public on
+        # every row. Narrowing over a locked column is dropped, not refused:
+        # the matching COUNT is the leak, and a page that quietly shows the
+        # whole table is a better answer to a stranger than an error.
+        policy = _visitor_policy(conn, name, columns) if visitor else None
+        askable = [c for c in columns if not policy or c not in policy.locked]
+        if policy is not None:
+            if not askable:
+                word = ""
+            filters = [f for f in (filters or [])
+                       if not (isinstance(f, dict) and f.get("column") in policy.locked)]
+            if sort in policy.locked:
+                sort, descending = None, False
+
         clauses, params = [], []
         if word:
             clauses.append("(" + " OR ".join(
-                f"CAST(\"{c}\" AS TEXT) LIKE ? ESCAPE '\\'" for c in columns) + ")")
-            params += [_like_pattern(word)] * len(columns)
+                f"CAST(\"{c}\" AS TEXT) LIKE ? ESCAPE '\\'" for c in askable) + ")")
+            params += [_like_pattern(word)] * len(askable)
         filters = filters or []
         if not isinstance(filters, list) or len(filters) > _FILTER_MAX:
             raise BadFilter(f"at most {_FILTER_MAX} filters")
@@ -607,15 +788,30 @@ def read_rows(table, word="", offset=0, limit=_ROWS_PAGE, filters=None, sort=Non
             f'SELECT rowid, * FROM "{name}"{where}{order} LIMIT ? OFFSET ?',
             params + [limit, offset]).fetchall()
         rows = []
+        any_frosted = False
         for record in fetched:
             cells, cut = [], []
             for value in record[1:]:
                 shown, was_cut = _show_cell(value, word)
                 cells.append(shown)
                 cut.append(was_cut)
-            rows.append({"rowid": record[0], "cells": cells, "cut": cut})
+            # The policy is applied HERE, to the values on their way out, so a
+            # frosted cell never exists outside this loop.
+            if policy is not None:
+                cells, cut, frosted = policy.apply(cells, cut)
+                any_frosted = any_frosted or any(frosted)
+                rows.append({"rowid": record[0], "cells": cells, "cut": cut,
+                             "frosted": frosted})
+            else:
+                rows.append({"rowid": record[0], "cells": cells, "cut": cut})
         shown_order = "" if not sort else order.replace(", rowid", "")
-        return {"table": name, "columns": columns, "rows": rows, "total": total,
+        visitor_fields = {} if policy is None else {
+            "frosted": any_frosted or bool(policy.frosted_columns),
+            "frosted_columns": policy.frosted_columns,
+            "locked_columns": sorted(policy.locked),
+        }
+        return {**visitor_fields,
+                "table": name, "columns": columns, "rows": rows, "total": total,
                 "matching": matching, "offset": offset, "limit": limit, "search": word,
                 "sort": sort, "descending": bool(sort and descending),
                 "sql": _shown_sql(f'SELECT * FROM "{name}"{where}{shown_order} LIMIT {limit}', params)}
@@ -634,7 +830,7 @@ _VALUE_CHARS_MAX = 60    # a column whose values average longer than this is
 _DATE_LIKE = re.compile(r"^\d{4}-\d{2}-\d{2}")
 
 
-def read_column(table, column):
+def read_column(table, column, visitor=False):
     """Profile one column across the WHOLE table: how full it is, how many
     different values it has, its smallest and largest, and its values with how
     many rows carry each — all of them when they're few, the most common when
@@ -696,7 +892,7 @@ def read_column(table, column):
                           for f in conn.execute(f'PRAGMA foreign_key_list("{name}")')
                           if f[3] == column), None)
         table_notes = load_notes().get(name) or {}
-        return {
+        profile = {
             "table": name, "column": column, "type": declared,
             "primary_key": bool(info[column][5]), "required": bool(info[column][3]),
             "points_at": points_at, "looks_like": looks_like,
@@ -707,14 +903,24 @@ def read_column(table, column):
             "values": values, "values_complete": values_complete,
             "notes": (table_notes.get("columns") or {}).get(column),
         }
+        # A profile is a column read whole. Any column a visitor may not search
+        # loses its examples and its extremes here for the same reason it is
+        # unsearchable: `values` on commits.subject would list vault subjects
+        # outright, and MIN/MAX are two real values.
+        if visitor and column in _visitor_policy(conn, name, list(info)).locked:
+            return _frost_column(profile)
+        return profile
     finally:
         with contextlib.suppress(sqlite3.Error):
             conn.close()
 
 
-def read_row(table, rowid):
+def read_row(table, rowid, visitor=False):
     """Read ONE row whole — every value at full length. None when the table or
-    the row doesn't exist. Binary values are still described, not sent."""
+    the row doesn't exist. Binary values are still described, not sent.
+
+    A visitor's copy goes through the same policy the page does, so the door
+    that opens one row can't be the way around the one that lists them."""
     conn = _open_read_only()
     if conn is None:
         return None
@@ -728,6 +934,11 @@ def read_row(table, rowid):
             return None
         values = [f"<{len(v):,} bytes of binary data>" if isinstance(v, bytes) else v
                   for v in record]
+        if visitor:
+            policy = _visitor_policy(conn, name, columns)
+            values, _, frosted = policy.apply(values)
+            return {"table": name, "rowid": rowid, "columns": columns, "values": values,
+                    "frosted": any(frosted), "frosted_columns": policy.frosted_columns}
         return {"table": name, "rowid": rowid, "columns": columns, "values": values}
     finally:
         with contextlib.suppress(sqlite3.Error):
@@ -752,11 +963,6 @@ def register(app):
     def observatory_terrain_table_rows():
         table = request.args.get("table", "")
         word = (request.args.get("q") or "").strip()[:200]
-        # A visitor's search and filters are DROPPED, not refused: "how many
-        # rows match X" is a value read one bit at a time, and a page that
-        # quietly shows the whole table is a better answer than an error.
-        if _visitor():
-            word = ""
         offset = _whole_number(request.args.get("offset"), 0, 0, 10_000_000)
         limit = _whole_number(request.args.get("limit"), _ROWS_PAGE, 1, _ROWS_PAGE_MAX)
         # Filters arrive as one JSON list in the query string; the sort as a
@@ -767,11 +973,9 @@ def register(app):
             return jsonify({"error": "filters must be JSON"}), 400
         sort = request.args.get("sort") or None
         descending = request.args.get("dir") == "desc"
-        if _visitor():
-            # Sorting by a frosted column would still order the values.
-            filters, sort, descending = [], None, False
         try:
-            page = read_rows(table, word, offset, limit, filters, sort, descending)
+            page = read_rows(table, word, offset, limit, filters, sort, descending,
+                             visitor=_visitor())
         except BadFilter as e:
             return jsonify({"error": str(e)}), 400
         except sqlite3.OperationalError as e:
@@ -782,7 +986,7 @@ def register(app):
             return jsonify({"error": str(e)}), 500
         if page is None:
             return jsonify({"error": "no such table"}), 404
-        return jsonify(_frost_page(page) if _visitor() else page)
+        return jsonify(page)
 
     @app.route("/api/observatory/terrain/tables/row")
     def observatory_terrain_table_row():
@@ -791,21 +995,22 @@ def register(app):
         if rowid is None:
             return jsonify({"error": "rowid is required"}), 400
         try:
-            row = read_row(table, rowid)
+            row = read_row(table, rowid, visitor=_visitor())
         except sqlite3.OperationalError as e:
             return jsonify({"error": str(e)}), 500
         if row is None:
             return jsonify({"error": "no such row"}), 404
-        return jsonify(_frost_row(row) if _visitor() else row)
+        return jsonify(row)
 
     @app.route("/api/observatory/terrain/tables/column")
     def observatory_terrain_table_column():
         try:
-            profile = read_column(request.args.get("table", ""), request.args.get("column", ""))
+            profile = read_column(request.args.get("table", ""),
+                                  request.args.get("column", ""), visitor=_visitor())
         except sqlite3.OperationalError as e:
             if "interrupt" in str(e).lower():
                 return jsonify({"error": "That took too long and was stopped."}), 408
             return jsonify({"error": str(e)}), 500
         if profile is None:
             return jsonify({"error": "no such column"}), 404
-        return jsonify(_frost_column(profile) if _visitor() else profile)
+        return jsonify(profile)
