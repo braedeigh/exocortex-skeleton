@@ -312,19 +312,33 @@ _anon_salt_cache = {"dir": None, "salt": None}
 def _anon_salt():
     """The secret the opaque handles are keyed with, minted on first need.
     Same lock pattern as terrain_mirror.secret(): the common path (the file is
-    already there) never takes the lock at all."""
+    already there) never takes the lock at all.
+
+    NEVER GITIGNORE-ABLE AND NEVER OPTIONAL. It is kept out of the vault repo
+    (its .gitignore, beside the mirror secret) because a salt that travels in a
+    repo is a salt anyone with the repo can undo the handles with.
+
+    A host that can't keep one — a read-only data dir on a mirror — falls back
+    to a salt that lives as long as the process. The handles then stop being
+    stable across a restart, so an orb regroups; that is cosmetic. What it must
+    never do is fail open (a predictable salt) or fail loud (a 500 that takes
+    the whole map down over a file permission). Degrade the cosmetics, keep the
+    privacy."""
     if _anon_salt_cache["dir"] == str(store.DATA_DIR):
         return _anon_salt_cache["salt"]
     path = store.DATA_DIR / "terrain_anon_salt"
-    if not path.exists():
-        path.parent.mkdir(parents=True, exist_ok=True)
-        lock_path = path.with_suffix(".lock")
-        with open(lock_path, "w") as lock_file:
-            fcntl.flock(lock_file, fcntl.LOCK_EX)
-            if not path.exists():
-                path.write_bytes(secrets.token_hex(32).encode())
-                path.chmod(0o600)
-    salt = path.read_bytes().strip()
+    try:
+        if not path.exists():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            lock_path = path.with_suffix(".lock")
+            with open(lock_path, "w") as lock_file:
+                fcntl.flock(lock_file, fcntl.LOCK_EX)
+                if not path.exists():
+                    path.write_bytes(secrets.token_hex(32).encode())
+                    path.chmod(0o600)
+        salt = path.read_bytes().strip()
+    except OSError:
+        salt = secrets.token_hex(32).encode()
     _anon_salt_cache.update(dir=str(store.DATA_DIR), salt=salt)
     return salt
 

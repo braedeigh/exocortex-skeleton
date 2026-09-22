@@ -325,3 +325,24 @@ def test_redacting_twice_changes_nothing(data_dir):
     assert terrain._redact_sessions(once) == once
     # ...and the original was not mutated: the cache holds that exact object.
     assert payload["sessions"][0]["title"] == PERSONAL_TITLE
+
+
+def test_a_host_that_cannot_keep_a_salt_still_anonymizes(data_dir, monkeypatch):
+    """A mirror with a read-only data dir must not 500 the whole map over a
+    salt file, and must not fall back to something guessable. It gets a
+    process-lifetime salt instead: handles stop surviving a restart (an orb
+    regroups, which is cosmetic) and stay opaque (which isn't)."""
+    from routes import terrain
+    monkeypatch.setattr(terrain, "_anon_salt_cache", {"dir": None, "salt": None})
+
+    def _refuse(*args, **kwargs):
+        raise OSError("read-only file system")
+    monkeypatch.setattr(terrain.Path, "write_bytes", _refuse, raising=False)
+    monkeypatch.setattr(terrain.Path, "read_bytes", _refuse, raising=False)
+
+    handle = terrain._opaque_session_id(PERSONAL_ID)
+    assert handle.startswith("anon-")
+    assert PERSONAL_ID not in handle
+    # Stable within the process, or one payload's roster and file cards would
+    # disagree and the orb would lose its own files.
+    assert terrain._opaque_session_id(PERSONAL_ID) == handle
