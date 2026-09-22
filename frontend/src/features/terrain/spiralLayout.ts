@@ -35,8 +35,14 @@
  * files) draws at radius ~86, and the whole folder (685) at ~297 — thirteen
  * times the content for three and a half times the radius.
  *
+ * THE TIP CURVE. Past the last dot the strand carries on as a brighter curve
+ * peeling away into a hole — the coil drawn as a thread being pulled out of
+ * somewhere, and the thing she taps to pull more out (`tipCurve`). When there's
+ * nothing left to pull it straightens.
+ *
  * Used by coilFolders.ts (which decides WHICH files, for WHICH folders) and
- * terrainCanvas.ts (which pins them). Tested in spiralLayout.test.ts.
+ * terrainCanvas.ts (which pins them and draws the curve). Tested in
+ * spiralLayout.test.ts.
  *
  * Prompt that produced it: "arrange them into a spiral that only shows the
  * last month or so of uploads and works with the same heat map as the other
@@ -121,4 +127,94 @@ export function spiralSpots(count: number, options: SpiralOptions = {}): SpiralA
 
   const last = spots[spots.length - 1];
   return { spots, outerRadius: last.radius };
+}
+
+/**
+ * Which way the strand is heading at one of its spots — a unit vector along
+ * the spiral, pointing outward along it (toward older dots).
+ *
+ * Worked out from the spiral's own rule rather than from the neighbouring dot,
+ * so it's right at the very tip, where there's no dot past it to aim at. An
+ * Archimedean spiral moves outward by turnGap/2π per radian while it goes
+ * round by `radius` per radian; the direction is those two added together.
+ */
+export function spiralHeading(
+  angle: number,
+  radius: number,
+  turnGap: number = SPIRAL_TURN_GAP,
+): { x: number; y: number } {
+  const outward = turnGap / (2 * Math.PI);
+  const x = outward * Math.cos(angle) - radius * Math.sin(angle);
+  const y = outward * Math.sin(angle) + radius * Math.cos(angle);
+  const length = Math.hypot(x, y) || 1;
+  return { x: x / length, y: y / length };
+}
+
+/** How long the tip's curve is, in world units — a couple of dots' worth, so
+ * it reads as the strand carrying on rather than as a mark of its own. */
+export const TIP_CURVE_LENGTH = 52;
+
+/** How far the curve turns away from the coil over its length, in radians —
+ * about seventy degrees, a thread peeling off its spool. */
+export const TIP_CURVE_TURN = 1.2;
+
+export interface TipCurveOptions {
+  length?: number;
+  turn?: number;
+  /** 0 is the full peel; 1 is a straight line along the strand. */
+  straightness?: number;
+  /** How many points to draw it with. */
+  samples?: number;
+  turnGap?: number;
+}
+
+/**
+ * The curve that leaves a coil's outer tip: the strand carrying on past its
+ * last dot and peeling away from the coil into the hole it's pulled out of.
+ *
+ * It sets off in the direction the strand is already heading at the tip, so
+ * the two join without a kink, and then bends OUTWARD — away from the coil,
+ * never back into it: the outermost arm sits only one turn-gap inside the tip,
+ * so a curve bending inward would cut straight across it. The bend is an arc
+ * of one steady curvature, which is what a thread under a little tension does.
+ *
+ * `straightness` unbends it. At 1 it's a straight line along the strand —
+ * what the curve turns into when there's nothing left to pull.
+ *
+ * Offsets from the coil's centre, like the spots. The first point is the tip
+ * itself; the last is the mouth of the hole.
+ */
+export function tipCurve(
+  tip: { x: number; y: number },
+  angle: number,
+  radius: number,
+  options: TipCurveOptions = {},
+): { x: number; y: number }[] {
+  const length = options.length ?? TIP_CURVE_LENGTH;
+  const turn = (options.turn ?? TIP_CURVE_TURN) * (1 - clampUnit(options.straightness ?? 0));
+  const samples = Math.max(2, options.samples ?? 16);
+  const heading = spiralHeading(angle, radius, options.turnGap);
+  const startAt = Math.atan2(heading.y, heading.x);
+  // Walk the arc in equal steps, turning a little each step. Turning by a
+  // NEGATIVE angle is outward here: the spiral winds with its angle
+  // increasing, so its heading runs a quarter-turn ahead of the direction
+  // straight out from the centre, and turning back from it heads outward.
+  const points = [{ x: tip.x, y: tip.y }];
+  const step = length / (samples - 1);
+  let x = tip.x;
+  let y = tip.y;
+  for (let i = 1; i < samples; i += 1) {
+    // Heading at the middle of this step, so the arc comes out even
+    // (the midpoint rule) instead of drifting to one side.
+    const along = (i - 0.5) / (samples - 1);
+    const facing = startAt - turn * along;
+    x += Math.cos(facing) * step;
+    y += Math.sin(facing) * step;
+    points.push({ x, y });
+  }
+  return points;
+}
+
+function clampUnit(value: number): number {
+  return Math.min(1, Math.max(0, value));
 }

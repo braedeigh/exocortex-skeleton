@@ -3,6 +3,8 @@ import {
   SPIRAL_DOT_GAP,
   SPIRAL_INNER_RADIUS,
   SPIRAL_TURN_GAP,
+  spiralHeading,
+  tipCurve,
   spiralSpots,
 } from './spiralLayout';
 
@@ -85,5 +87,34 @@ describe('spiralSpots', () => {
     const one = spiralSpots(1);
     expect(one.spots).toHaveLength(1);
     expect(one.spots[0].radius).toBe(SPIRAL_INNER_RADIUS);
+  });
+});
+
+describe('tipCurve', () => {
+  const coil = spiralSpots(60);
+  const tip = coil.spots[coil.spots.length - 1];
+
+  it('sets off along the strand, so the two join without a kink', () => {
+    const [start, next] = tipCurve(tip, tip.angle, tip.radius);
+    const heading = spiralHeading(tip.angle, tip.radius);
+    const length = Math.hypot(next.x - start.x, next.y - start.y);
+    const along = ((next.x - start.x) * heading.x + (next.y - start.y) * heading.y) / length;
+    expect(along).toBeGreaterThan(0.95);
+  });
+
+  it('peels away from the coil rather than cutting back across it', () => {
+    const points = tipCurve(tip, tip.angle, tip.radius);
+    const end = points[points.length - 1];
+    expect(Math.hypot(end.x, end.y)).toBeGreaterThan(tip.radius);
+    for (const p of points) expect(Math.hypot(p.x, p.y)).toBeGreaterThanOrEqual(tip.radius - 0.5);
+  });
+
+  it('is a straight line when there is nothing left to pull', () => {
+    const points = tipCurve(tip, tip.angle, tip.radius, { straightness: 1 });
+    const heading = spiralHeading(tip.angle, tip.radius);
+    for (const p of points) {
+      const across = (p.x - tip.x) * -heading.y + (p.y - tip.y) * heading.x;
+      expect(Math.abs(across)).toBeLessThan(1e-9);
+    }
   });
 });
