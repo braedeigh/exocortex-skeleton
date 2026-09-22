@@ -60,6 +60,7 @@ import runtime_sensor
 import runtime_trace
 import store
 from routes import observatory
+from routes import terrain_mirror
 from routes.tags import _SLUG_RE as _GROWTH_TAG_SLUG_RE
 from scripts.extract_footprints import (_load_events, _parse_ts, _tool_path,
                                         harvest_conversation, harvest_flow_events)
@@ -646,6 +647,36 @@ def _terrain_live_ids(index, running_ids):
     return live
 
 
+def _cap_files(files_out, file_cap):
+    """Cut one repo's file list down to the hottest `file_cap` of them, so the
+    client's force-sim stays tractable. Session-attributed files and anything
+    that RAN in the last day always survive the cut; everything else is ranked
+    by week-half-life-decayed git heat. `None` means no cut at all.
+
+    Its own function because two callers cut the same way: the live build
+    below, and a public mirror re-cutting the one full payload it was
+    published (routes/terrain_mirror.py). Sharing the ranking is what makes a
+    mirror's Files slider land on the same files the private box would have
+    sent for that tier.
+    """
+    if file_cap is None or len(files_out) <= file_cap:
+        return files_out
+    now_ts = time.time()
+
+    def _cap_heat(f):
+        return sum(2 ** (-(now_ts - ts) / _TERRAIN_CAP_HALF_LIFE_SEC)
+                   for ts in (f.get("touches") or []))
+
+    def _ran_today(f):
+        return any(now_ts - ts <= 86400 for ts in (f.get("ran") or []))
+
+    attributed = [f for f in files_out if f.get("sessions") or _ran_today(f)]
+    rest = sorted((f for f in files_out if not (f.get("sessions") or _ran_today(f))),
+                  key=_cap_heat, reverse=True)
+    keep = attributed + rest[:max(0, file_cap - len(attributed))]
+    return sorted(keep, key=lambda f: f["path"])
+
+
 def _build_terrain(file_cap=_TERRAIN_FILE_CAP):
     """The terrain payload: per repo, per file, git touch history merged
     with which bot_chats sessions wrote/read it. Reads footprints.json (see
@@ -766,26 +797,10 @@ def _build_terrain(file_cap=_TERRAIN_FILE_CAP):
             files_out.append({"path": relpath, "touches": data["touches"],
                               "sessions": sessions, "ran": data.get("ran", [])})
 
-        # Cap to the hottest files so the client's force-sim stays tractable.
-        # Session-attributed files and anything that RAN in the last day always
-        # survive; the rest are ranked by week-half-life-decayed git heat.
-        # files_total keeps the cap honest.
+        # Cap to the hottest files, keeping the uncapped count beside it —
+        # files_total is what keeps the cap honest.
         files_total = len(files_out)
-        if file_cap is not None and files_total > file_cap:
-            now_ts = time.time()
-
-            def _cap_heat(f):
-                return sum(2 ** (-(now_ts - ts) / _TERRAIN_CAP_HALF_LIFE_SEC)
-                           for ts in f["touches"])
-
-            def _ran_today(f):
-                return any(now_ts - ts <= 86400 for ts in f["ran"])
-
-            attributed = [f for f in files_out if f["sessions"] or _ran_today(f)]
-            rest = sorted((f for f in files_out if not (f["sessions"] or _ran_today(f))),
-                          key=_cap_heat, reverse=True)
-            keep = attributed + rest[:max(0, file_cap - len(attributed))]
-            files_out = sorted(keep, key=lambda f: f["path"])
+        files_out = _cap_files(files_out, file_cap)
 
         repos_out.append({"id": repo["id"], "name": repo["name"], "root": str(root),
                           "files": files_out, "files_total": files_total})
@@ -819,6 +834,12 @@ def _build_terrain(file_cap=_TERRAIN_FILE_CAP):
     sessions_out.sort(key=lambda s: s.get("last") or "", reverse=True)
 
     return {"generated_at": datetime.now().isoformat(timespec="seconds"),
+            # The same moment as a unix second. generated_at is local wall
+            # time with no zone on it, which is fine for the owner reading her
+            # own map and useless to anyone else: a public mirror's visitor may
+            # be in another timezone, and "how old is this map" has to come out
+            # the same for both of them.
+            "generated_ts": int(time.time()),
             # No window anymore — the payload carries the whole history. null
             # tells the client "don't assume a horizon"; terrainGraph's
             # earliest-touch scan finds the real one.
@@ -1738,6 +1759,17 @@ def register(app):
         The date controls are NOT server-side: the client slices the touch
         timestamps it already has, so dragging them costs no request."""
         file_cap = _terrain_file_cap_arg(request.args.get("limit"))
+        # A PUSH MIRROR draws the map the private box published to it
+        # (routes/terrain_mirror.py), re-cut to this request's tier — it holds
+        # no repos of its own to build one from. Falling through when nothing
+        # has been published keeps the older PULL mirror working unchanged: a
+        # public host with its own copy of the data, refreshed by git or
+        # rsync, still builds its own map below. First one wins, so a box
+        # that has both serves the live one.
+        if config.public_only():
+            payload = terrain_mirror.published(file_cap)
+            if payload is not None:
+                return jsonify(payload)
         index = store.read("bot_chats/index", {})
         anything_running = isinstance(index, dict) and bool(_terrain_running_ids(index))
         ttl = _TERRAIN_LIVE_TTL_SEC if anything_running else _TERRAIN_CACHE_TTL_SEC

@@ -30,7 +30,7 @@ from routes import (
     entities, threads, person, shell, cards, archivals, research,
     research_search, research_sources, research_import, research_text,
     annotations, spa, fronts, tags, wiki, travel, profile, usage, streaks, spinoff,
-    observatory, terrain, terrain_tables, automations, nightcrew, push, claude_auth, run_queue,
+    observatory, terrain, terrain_mirror, terrain_tables, automations, nightcrew, push, claude_auth, run_queue,
     branches, recordings,
     sqlab, sandbox, pond, tabsets, creek,
 )
@@ -1271,6 +1271,7 @@ recordings.register(app)
 sandbox.register(app)
 tabsets.register(app)
 creek.register(app)
+terrain_mirror.register(app)
 
 # --- Startup ---
 # Seed the journaling engine (stream.py + friends) into a fresh CONTENT_DIR — see

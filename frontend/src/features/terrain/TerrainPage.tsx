@@ -603,7 +603,16 @@ export function TerrainPage() {
     const t = window.setInterval(() => bumpAge((n) => n + 1), 30_000);
     return () => window.clearInterval(t);
   }, [pageVisible]);
-  const dataAge = dataUpdatedAt ? relativeAge(dataUpdatedAt / 1000) : null;
+  // On a PUBLIC MIRROR the age that matters is when the private box built this
+  // map, not when the browser fetched it: the mirror serves a stored artifact,
+  // so a visitor re-fetching a frozen map every five seconds would read "now"
+  // forever. Any locally-built map has no published_ts and keeps the fetch age.
+  const publishedSeconds = data?.mirror ? (data.published_ts ?? null) : null;
+  const dataAge = publishedSeconds
+    ? relativeAge(publishedSeconds)
+    : dataUpdatedAt
+      ? relativeAge(dataUpdatedAt / 1000)
+      : null;
   // Live mode already polls every ~5s; spinning the chip on each of those would
   // be a flicker that means nothing. The spin is for a fetch SHE asked for.
   const refreshing = isFetching && !(anyRunning && pageVisible);
@@ -1667,9 +1676,9 @@ export function TerrainPage() {
               title={
                 dataAge === null
                   ? 'Refresh the map'
-                  : dataAge === 'now'
-                    ? 'Refresh the map — fetched just now'
-                    : `Refresh the map — fetched ${dataAge} ago`
+                  : `Refresh the map — ${publishedSeconds ? 'published' : 'fetched'} ${
+                      dataAge === 'now' ? 'just now' : `${dataAge} ago`
+                    }`
               }
               aria-label="Refresh the map"
               disabled={refreshing}

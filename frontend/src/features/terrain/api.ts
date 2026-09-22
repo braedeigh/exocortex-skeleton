@@ -88,6 +88,18 @@ export interface TerrainLiveSession {
 
 export interface TerrainData {
   generated_at: string;
+  /** When this map was BUILT, as a unix second. generated_at is the private
+   * box's local wall time with no zone on it; this is the same moment stated
+   * in a way a visitor in another timezone can subtract from. */
+  generated_ts?: number;
+  /** Set only by a public mirror (routes/terrain_mirror.py): this map was
+   * published in from the private box rather than built here, and these say
+   * when. The refresh chip shows THIS age instead of the fetch age — a
+   * browser can re-fetch a frozen artifact every five seconds, so "fetched
+   * just now" would be true and say nothing about whether the map is live. */
+  mirror?: boolean;
+  published_at?: string;
+  published_ts?: number;
   /** null since the payload went whole-history (the server used to cut at 90
    * days and said so here); kept for old cached payloads, and as the empty-map
    * fallback horizon in terrainEarliestTouch. */

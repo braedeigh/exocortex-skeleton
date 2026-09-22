@@ -138,6 +138,11 @@ _SHELL_PATHS = (
     # hooks POST here from localhost with no session cookie, authenticated by
     # a shared secret checked inside the route itself instead.
     "/api/push/notify",
+    # The terrain-mirror door (routes/terrain_mirror.py): the private box
+    # POSTs its freshly built map here every few seconds, with no session
+    # cookie, authenticated by a shared secret checked inside the route. Only
+    # live on a public-only mirror; 404 on the private site.
+    "/api/observatory/terrain/ingest",
     # The React SPA shell (routes/spa.py) — the app-shell HTML/JS/CSS/
     # manifest/SW must all be reachable to render the public landing at all.
     "/assets/",

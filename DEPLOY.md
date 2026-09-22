@@ -107,6 +107,46 @@ the mirror's service environment: the mirror then answers
 `Content-Security-Policy: frame-ancestors <those>` on `/terrain/map` and
 `frame-ancestors 'none'` everywhere else. Unset, nothing on the mirror can be framed.
 
+### A live map, without publishing the private box
+By default a mirror draws the map from its own copy of the data, so it is only as
+fresh as whatever refreshes that copy (an hourly `git reset --hard` means an hourly
+map). To make it **live**, push instead: run `scripts/publish_terrain.py` on the
+private box and it builds the map there — the same payload that box's own map
+draws from — and POSTs it to the mirror's ingest door every ~15s
+(`deploy/exocortex-terrain-publish.service.template` is the unit).
+
+Why push rather than exposing the private instance: the connection is outbound
+only, so nothing on the internet reaches the machine holding the data, and a
+visitor can't read a personal file because the mirror doesn't have one. The
+privacy stops being a code path that must hold on every request and becomes a
+fact about the mirror's disk. What travels is the map payload and nothing else —
+paths, commit times, session ids and titles, run buckets. Never file contents:
+the mirror's `/terrain/file` serves out of its own app-code checkout and answers
+`private` for everything it doesn't have.
+
+Set up:
+1. `EXOCORTEX_TERRAIN_MIRROR_URL=https://<PUBLIC_DOMAIN>` in the publisher's
+   environment, and `EXOCORTEX_PUBLIC_ONLY=1` on the mirror (the ingest door
+   answers 404 anywhere else, so a leaked secret can't poison a private map).
+2. Copy `<DATA_DIR>/terrain_mirror_secret` — 64 hex characters, minted on first
+   need, chmod 0600 — from either machine to the other. It authenticates
+   `POST /api/observatory/terrain/ingest`, which is exempt from the session gate
+   (`public_config.py`) and so checks the secret itself, in constant time.
+3. Keep both out of git: the secret and `<DATA_DIR>/terrain_mirror/` (the stored
+   map, rewritten every few seconds).
+
+The publisher sends the **uncapped** payload once (~215 KB gzipped) and the mirror
+re-cuts it per request with the same ranking the private box uses, so every tier of
+the visitor's Files slider is correct from the one artifact. It only pushes when the
+map actually changed — `generated_at` is excluded from the comparison — so an idle
+afternoon sends nothing. Until the first push the mirror falls back to building a map from whatever data
+it has of its own, so a pull-style mirror keeps working exactly as before and a
+push-only host simply draws an empty map for its first few seconds. Once a map
+has been published it wins, and the map's refresh chip shows how old the PUBLISHED
+map is rather than how long ago the browser fetched it, so a stopped publisher is
+visible as a number that keeps growing instead of a map pretending to be live.
+Contract: `tests/test_terrain_mirror.py`, `tests/test_publish_terrain.py`.
+
 ## Optional extras
 - `scripts/setup-mac-server.sh` — turn a Mac into an always-on, lid-closed server
 - `scripts/fix_ttyd.sh`, `scripts/ttyd_connect.sh` — embedded web terminal
