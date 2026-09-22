@@ -28,11 +28,23 @@
  *     three flat bands meaning "a commit swept through here". The filename
  *     knows what the commit log doesn't.
  *
- *   'git' — keep the real touches, for a folder whose history IS honest
- *     (pages she edits in place, notes with no date in the name). Note what
- *     this changes: a git coil is ordered by LAST TOUCH, so its centre is
- *     "most recently tended", where a stamp coil's centre is "most recently
- *     made". Both are true statements; they are different statements.
+ *   'git' — WHEN SHE LAST EDITED IT, for a folder whose history is the only
+ *     honest clock it has (pages she edits in place, notes with no date in
+ *     the name). Note what this changes: a git coil's centre is "what I was
+ *     last working in", where a stamp coil's centre is "most recently made".
+ *     Both are true statements; they are different statements, and the
+ *     strand out from a git centre walks back through ATTENTION rather than
+ *     through the calendar.
+ *
+ *     Reading it takes more than taking the last touch. The vault's backup
+ *     cron commits whatever it finds each hour, so an import or a machine
+ *     migration lands as one commit across dozens of pages: measured, 95 of
+ *     206 Journal/Daily pages had their newest touch set by a sweep rather
+ *     than by her. The server discounts those and falls back to the commit
+ *     that created a file when every touch was one — codestore.py
+ *     `folder_edit_times` owns that rule — and sends the answer down with
+ *     the listing, because the payload's own file list is capped and a coil
+ *     folder mostly doesn't survive the cap.
  *
  * What neither source drops is `sessions`: an agent that read or wrote one of
  * these files is real attribution, and on a stamp coil it's the one thing the
@@ -75,6 +87,14 @@ export interface CoilListing {
   windows: (number | null)[];
   /** Every file in the folder, repo-relative. Uncapped. */
   paths: string[];
+  /** For a 'git' coil: when each of `paths` was last edited, ALIGNED WITH IT,
+   * `null` where the history knows nothing. Sent with the listing rather than
+   * read off the payload's files because the payload is cut to the hottest N
+   * per repo and a coil folder loses that cut badly — 7 of tulku/people's 75
+   * survive it (routes/terrain.py `_coil_listings`). Absent from a 'stamp'
+   * coil, whose names already carry the time, and from a server too old to
+   * send it. */
+  times?: (number | null)[];
 }
 
 /** How much a coil shows to begin with, when a folder names no steps of its
@@ -163,6 +183,20 @@ export function parseStampedName(name: string): number | null {
   return null;
 }
 
+/**
+ * Is this file directly inside the folder — its own child, not a grandchild?
+ *
+ * The coil is a statement about the folder's OWN files: the server lists only
+ * those, and a nested directory arrives with its own shape and doesn't belong
+ * on the strand. Membership has to be asked this way rather than with a bare
+ * prefix test, because `receipts/` prefixes `receipts/grocery/photo.jpg` too —
+ * and a coil that claimed that file would drop it from the map without ever
+ * putting it on the spiral, taking the whole subfolder with it.
+ */
+function isDirectlyInside(path: string, prefix: string): boolean {
+  return path.startsWith(prefix) && !path.slice(prefix.length).includes('/');
+}
+
 /** The folder node a coil winds around — the trie's own id for it. */
 export function coilFolderNodeId(repoId: string, prefix: string): string {
   return `${repoId}:dir:${prefix.replace(/\/$/, '')}`;
@@ -225,7 +259,7 @@ export function windowCoils(
   for (const repo of data.repos) {
     for (const file of repo.files) {
       for (const listing of listings) {
-        if (file.path.startsWith(listing.prefix)) {
+        if (isDirectlyInside(file.path, listing.prefix)) {
           fromPayload.set(file.path, { repoId: repo.id, file });
           break;
         }
@@ -242,7 +276,16 @@ export function windowCoils(
     const windows = listing.windows.length > 0 ? listing.windows : [...DEFAULT_COIL_WINDOWS];
     const openTo = options.windows?.[listing.prefix];
     const windowDays = openTo === undefined ? windows[0] : openTo;
-    dropPrefixes.push(listing.prefix);
+
+    // When a 'git' coil is in play, its times ride with the listing, aligned
+    // with `paths`. Read into a map once per folder rather than per file.
+    const timeByPath = new Map<string, number>();
+    if (listing.times) {
+      listing.paths.forEach((path, i) => {
+        const at = listing.times?.[i];
+        if (typeof at === 'number') timeByPath.set(path, at);
+      });
+    }
 
     // Every file in the folder with the moment the coil will order it by.
     // A file the parser can't date is set aside rather than guessed at: it
@@ -254,11 +297,11 @@ export function windowCoils(
     // the map.
     const paths = listing.paths.length > 0
       ? listing.paths
-      : [...fromPayload.keys()].filter((p) => p.startsWith(listing.prefix));
+      : [...fromPayload.keys()].filter((p) => isDirectlyInside(p, listing.prefix));
     const dated: { path: string; at: number }[] = [];
     const undated: string[] = [];
     for (const path of paths) {
-      const at = coilFileMoment(path, listing, fromPayload.get(path)?.file);
+      const at = coilFileMoment(path, listing, fromPayload.get(path)?.file, timeByPath);
       if (at === null) undated.push(path);
       else dated.push({ path, at });
     }
@@ -275,7 +318,15 @@ export function windowCoils(
     // can honestly be said to fall inside.
     const shownUndated = windowDays === null ? undated : [];
     const shownPaths = [...shownDated.map((u) => u.path), ...shownUndated];
+    // Claimed only once it has something to show. Marking the folder for
+    // removal any earlier — before this bail-out — took its files off the map
+    // without putting any of them back, and the folder node the trie builds
+    // from them went with it: the coil's centre is also the only control it
+    // has, so a folder that came back empty lost the one target that could
+    // have widened it. A coil with nothing in its window is no coil; it is
+    // never no folder.
     if (shownPaths.length === 0) continue;
+    dropPrefixes.push(listing.prefix);
 
     const repoId = listing.repo || fromPayload.get(shownPaths[0])?.repoId;
     if (!repoId) continue;
@@ -283,19 +334,29 @@ export function windowCoils(
     const back = addByRepo.get(repoId) ?? [];
     for (const { path, at } of shownDated) {
       const original = fromPayload.get(path)?.file;
+      // A dot is LIT by the same moment it is PLACED by. The heat gradient is
+      // the coil's other half — a bright core cooling down the arms is what
+      // makes it read before you know what it is — so a dot ordered by one
+      // clock and coloured by another would draw a spiral whose colours
+      // disagree with its own shape. Both re-timings below say the same thing
+      // for the same reason: what they throw away is bulk-commit noise.
+      //
+      // 'stamp' takes the moment out of the name. 'git' takes the edit time
+      // the server worked out, which is the de-noised history — keeping the
+      // payload's own touches here would put the swept commit back in as
+      // heat, and for a file that never survived the payload's cut there is
+      // no history to keep at all: it would draw stone cold.
+      //
+      // Agent attribution survives either way, because it's the one thing on
+      // a re-timed coil the geometry can't already say.
+      const served = listing.time !== 'git' || timeByPath.has(path);
       back.push(
-        listing.time === 'git'
-          ? // An honest history is left exactly as it is.
-            (original ?? { path, touches: [], sessions: [] })
-          : {
-              path,
-              // The one honest touch: the moment in the name. The git
-              // history this replaces is bulk-commit noise — see the top.
-              touches: [at],
-              // Agent attribution survives, because it's the only thing on a
-              // stamp coil that the coil's own shape can't say.
-              sessions: original?.sessions ?? [],
-            },
+        served
+          ? { path, touches: [at], sessions: original?.sessions ?? [] }
+          : // No served time — this is the old fallback path, reading the
+            // payload's own newest touch. Its history is all there is, so it
+            // is left exactly as it is.
+            (original ?? { path, touches: [], sessions: [] }),
       );
     }
     // An undated file keeps its real history whatever the source: there is
@@ -321,7 +382,9 @@ export function windowCoils(
 
   const repos = data.repos.map((repo) => {
     const back = addByRepo.get(repo.id) ?? [];
-    const kept = repo.files.filter((file) => !dropPrefixes.some((p) => file.path.startsWith(p)));
+    const kept = repo.files.filter(
+      (file) => !dropPrefixes.some((p) => isDirectlyInside(file.path, p)),
+    );
     if (back.length === 0 && kept.length === repo.files.length) return repo;
     return { ...repo, files: [...kept, ...back] };
   });
@@ -340,9 +403,18 @@ function coilFileMoment(
   path: string,
   listing: CoilListing,
   file: TerrainFile | undefined,
+  timeByPath: ReadonlyMap<string, number>,
 ): number | null {
   if (listing.time === 'git') {
-    // Touches arrive newest-first, which the payload guarantees.
+    // The time the server worked out and sent uncapped — when she last really
+    // edited this, with the backup cron's sweeps discounted (codestore.py
+    // `folder_edit_times`). Preferred over the payload's own history because
+    // most of a coil folder doesn't survive the payload's cut.
+    const served = timeByPath.get(path);
+    if (served !== undefined) return served;
+    // Falling back to the payload's newest touch, for a server that predates
+    // the served times — honest about being second best, the same way the
+    // filename fallback below the listing is. Touches arrive newest-first.
     const newest = file?.touches?.[0];
     return typeof newest === 'number' ? newest : null;
   }

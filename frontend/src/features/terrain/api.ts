@@ -144,14 +144,18 @@ export interface TerrainData {
    *
    * WHICH folders is hers — routes/terrain.py reads it from
    * `data/terrain_coils.json` — so adding one is editing that file, not the
-   * app. Paths only, never times: a stamp coil's moment is read from the
-   * filename by one parser on the client, so a second clock on the server
-   * can't disagree with it.
+   * app.
+   *
+   * A STAMP coil is paths only. Its moment is read out of the filename by one
+   * parser on the client, so a time from the server would be a second clock,
+   * free to disagree with the first. A GIT coil is the other way round: the
+   * client has no way to know when she last edited something, so `times` is
+   * not a second clock, it is the only one.
    *
    * Uncapped because it has to be: `repos[].files` is cut to the hottest N,
-   * and measured on this vault that cut leaves 0 of 633 uploads. Optional —
-   * an install whose server predates this sends nothing, and coilFolders.ts
-   * falls back to whatever survived the cap.
+   * and measured on this vault that cut leaves 0 of 633 uploads and 7 of
+   * tulku/people's 75. Optional — an install whose server predates this sends
+   * nothing, and coilFolders.ts falls back to whatever survived the cap.
    */
   coils?: {
     repo: string;
@@ -159,6 +163,8 @@ export interface TerrainData {
     time: 'stamp' | 'git';
     windows: (number | null)[];
     paths: string[];
+    /** Git coils only: when each of `paths` was last edited, aligned with it. */
+    times?: (number | null)[];
   }[];
 }
 

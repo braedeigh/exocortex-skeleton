@@ -313,3 +313,141 @@ describe('coilWindowLabel', () => {
     expect(coilWindowLabel(null)).toBe('all');
   });
 });
+
+describe('a git coil reads the times the server sent', () => {
+  /**
+   * The payload's file list is cut to the hottest N per repo, and a coil
+   * folder loses that cut badly — measured, 7 of tulku/people's 75 survive.
+   * So the server works out when each file was last EDITED and sends it with
+   * the listing, uncapped. These pin that the client prefers it.
+   */
+  const GIT = {
+    repo: 'vault',
+    prefix: 'tulku/people/',
+    time: 'git' as const,
+    windows: [...DEFAULT_COIL_WINDOWS],
+  };
+
+  it('dates a file the payload never carried', () => {
+    // The case the whole change exists for: nothing from this folder survived
+    // the cap, so the payload knows none of them.
+    const data = payload([], [{
+      ...GIT,
+      paths: ['tulku/people/adam.md', 'tulku/people/asa.md'],
+      times: [NOW - 3 * DAY, NOW - 10 * DAY],
+    }]);
+
+    const { coils, data: out } = windowCoils(data, { nowSeconds: NOW });
+
+    expect(coils[0].shown).toBe(2);
+    expect(coils[0].spiralIds).toEqual([
+      'vault:file:tulku/people/adam.md',
+      'vault:file:tulku/people/asa.md',
+    ]);
+    const byPath = new Map(out.repos[0].files.map((f) => [f.path, f]));
+    expect(byPath.get('tulku/people/adam.md')!.touches).toEqual([NOW - 3 * DAY]);
+  });
+
+  it('prefers the served time over the payload history', () => {
+    // The payload's newest touch here is a backup sweep; the served time is
+    // when she last really edited it. The served one wins.
+    const sweep = NOW - 1 * DAY;
+    const realEdit = NOW - 40 * DAY;
+    const data = payload([file('tulku/people/adam.md', [sweep])], [{
+      ...GIT,
+      paths: ['tulku/people/adam.md'],
+      times: [realEdit],
+    }]);
+
+    const { data: out } = windowCoils(data, { windows: { 'tulku/people/': null }, nowSeconds: NOW });
+
+    expect(out.repos[0].files[0].touches).toEqual([realEdit]);
+  });
+
+  it('falls back to the payload history when the server sends no times', () => {
+    // An install whose server predates the served times — honest about being
+    // second best, rather than drawing an empty coil.
+    const data = payload([file('tulku/people/adam.md', [NOW - 3 * DAY])], [{
+      ...GIT,
+      paths: ['tulku/people/adam.md'],
+    }]);
+
+    const { coils } = windowCoils(data, { nowSeconds: NOW });
+
+    expect(coils[0].shown).toBe(1);
+  });
+
+  it('puts a file the history cannot date on the tip, not off the coil', () => {
+    const data = payload([], [{
+      ...GIT,
+      paths: ['tulku/people/adam.md', 'tulku/people/brand-new.md'],
+      times: [NOW - 3 * DAY, null],
+    }]);
+
+    const open = windowCoils(data, { nowSeconds: NOW });
+    expect(open.coils[0].shown).toBe(1);
+    expect(open.coils[0].total).toBe(2);
+
+    const all = windowCoils(data, { windows: { 'tulku/people/': null }, nowSeconds: NOW });
+    expect(all.coils[0].spiralIds[1]).toBe('vault:file:tulku/people/brand-new.md');
+  });
+});
+
+describe('a coil claims only the folder it is', () => {
+  /**
+   * A coil is a statement about the folder's OWN files, and the server only
+   * ever lists those. Claiming by bare prefix also swallowed every subfolder
+   * — `tulku/Journal/Daily/` prefixes `tulku/Journal/Daily/screenshots/x.png`
+   * too — and dropped those files from the map without ever putting them on
+   * the spiral, at every window including "everything".
+   */
+  it('leaves a subfolder file on the map', () => {
+    const shot = 'tulku/Journal/Daily/screenshots/shot.png';
+    const data = payload([file(shot, [NOW - 2 * DAY])], [{
+      repo: 'vault',
+      prefix: 'tulku/Journal/Daily/',
+      time: 'git' as const,
+      windows: [...DEFAULT_COIL_WINDOWS],
+      paths: ['tulku/Journal/Daily/2026-09-20.md'],
+      times: [NOW - 1 * DAY],
+    }]);
+
+    const { data: out, coils } = windowCoils(data, { nowSeconds: NOW });
+
+    expect(out.repos[0].files.map((f) => f.path)).toContain(shot);
+    expect(coils[0].spiralIds).not.toContain(`vault:file:${shot}`);
+  });
+});
+
+describe('a coil with nothing in its window is never a missing folder', () => {
+  /**
+   * The folder node is the coil's centre AND its only control. Marking the
+   * folder for removal before the empty-window bail-out took its files off
+   * the map without putting any back, so the trie stopped emitting the folder
+   * — and the one target that could have widened the window went with it.
+   */
+  it('keeps the folder on the map when no file can be dated', () => {
+    // Nothing anywhere can date these: no served time, and no history in the
+    // payload for the fallback to read either.
+    const data = payload(
+      [file('tulku/Threads/a.md'), file('tulku/Threads/b.md')],
+      [{
+        repo: 'vault',
+        prefix: 'tulku/Threads/',
+        time: 'git' as const,
+        windows: [...DEFAULT_COIL_WINDOWS],
+        paths: ['tulku/Threads/a.md', 'tulku/Threads/b.md'],
+        times: [null, null],
+      }],
+    );
+
+    const { data: out, coils } = windowCoils(data, { nowSeconds: NOW });
+
+    // No coil — there is nothing honest to wind. But the files stay.
+    expect(coils).toHaveLength(0);
+    expect(out.repos[0].files.map((f) => f.path).sort()).toEqual([
+      'tulku/Threads/a.md',
+      'tulku/Threads/b.md',
+    ]);
+  });
+});

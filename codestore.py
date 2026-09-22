@@ -660,6 +660,72 @@ def touches(repo_id):
     return out
 
 
+# How many files of ONE folder a single commit has to touch before it stops
+# counting as editing and starts counting as a sweep. The one number to turn
+# if a coil reads wrong. Ten is well above a session's real editing and well
+# below the batches that forced this: measured on the vault, the commits that
+# trip it are the 2026-03-26 initial import, the 2026-08-22 machine cutover,
+# and the hourly cron catching up a backlog — 40 Daily pages in one
+# "Auto-backup", 17 Threads in another.
+SWEEP_MIN = 10
+
+
+def folder_edit_times(repo_id, prefix, sweep_min=SWEEP_MIN):
+    """{path: epoch} for the living files directly inside `prefix` — when each
+    was last really EDITED.
+
+    A file's time is its newest touch from a commit that changed FEWER than
+    `sweep_min` files of this same folder. A commit that changed more than
+    that did not edit them, it swept them: the vault's hourly backup cron
+    commits whatever it finds, so an import, a machine migration or a
+    caught-up backlog lands as one commit across dozens of pages, and taking
+    its timestamp as an edit reads as a flat band meaning "a commit passed
+    through here".
+
+    A file whose every touch was a sweep falls back to its FIRST add — the
+    commit that created it. That keeps two promises at once: never undated
+    (an undated dot has to go on the coil's outer tip, which is a worse lie
+    than an approximate time), and a file that is never really edited shows
+    when it was made, which is the honest thing to say about it.
+
+    Counted PER FOLDER, not per commit: a backup sweeping 200 files across
+    the vault but only two of them here really did edit those two.
+
+    The suppression is a DISPLAY decision, made at the query the way the
+    module header says filtering must be — the tables keep every commit.
+    """
+    conn = sqlstore.open_db()
+    try:
+        rows = conn.execute(
+            "SELECT f.path, cf.sha, c.authored_ts, cf.status"
+            " FROM commit_files cf"
+            " JOIN commits c ON c.sha = cf.sha"
+            " JOIN files f ON f.id = cf.file_id"
+            " WHERE f.repo = ? AND f.deleted_at IS NULL"
+            "   AND f.path LIKE ? AND instr(substr(f.path, ?), '/') = 0",
+            (repo_id, prefix + "%", len(prefix) + 1),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    # How much of THIS folder each commit moved — the number the rule reads.
+    folder_span = {}
+    for _path, sha, _ts, _status in rows:
+        folder_span[sha] = folder_span.get(sha, 0) + 1
+
+    edited = {}   # newest touch that was really an edit
+    born = {}     # earliest add, the fallback
+    for path, sha, ts, status in rows:
+        if ts is None:
+            continue
+        if folder_span[sha] < sweep_min and ts > edited.get(path, -1):
+            edited[path] = ts
+        if status == "A" and ts < born.get(path, float("inf")):
+            born[path] = ts
+    return {path: edited.get(path, born[path])
+            for path in set(edited) | set(born)}
+
+
 def growth_series(repo_id):
     """One repo's history as per-day counters, date-ascending — the data under
     the Growth room's charts: [{date, commits, added, removed, born, died}].

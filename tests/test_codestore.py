@@ -409,3 +409,123 @@ def test_update_and_rebuild_agree(data_dir, tmp_path):
         "SELECT f.path, cf.status FROM commit_files cf"
         " JOIN files f ON f.id = cf.file_id ORDER BY cf.sha, f.path")
     assert incremental == rebuilt
+
+
+# --- when a file was last really EDITED ---------------------------------------
+#
+# folder_edit_times answers "when did she last work on this", which is NOT the
+# newest touch: the vault's backup cron commits whatever it finds each hour, so
+# an import or a machine migration lands as one commit across dozens of pages.
+# Taking that as an edit draws a flat band meaning "a commit passed through
+# here", which is the exact thing the coils exist to stop showing. These pin
+# the rule that separates the two, and the fallback that keeps every file
+# dated — an undated dot goes on a coil's outer tip, which is a worse lie than
+# an approximate time.
+
+def _commit_many(repo, paths, message, date):
+    """One commit touching several files at once — a sweep, if it's wide."""
+    for relpath, content in paths.items():
+        path = repo / relpath
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+        _git(repo, "add", relpath)
+    _git(repo, "commit", "-q", "-m", message,
+         env={"GIT_AUTHOR_DATE": date, "GIT_COMMITTER_DATE": date})
+
+
+def _at(repo, rel):
+    return codestore.folder_edit_times("skeleton", rel, sweep_min=3)
+
+
+def test_edit_times_read_the_newest_real_touch(data_dir, tmp_path):
+    repo = _make_repo(tmp_path / "repo")
+    _commit(repo, "pages/a.md", "one", date="2026-06-01T10:00:00")
+    _commit(repo, "pages/a.md", "two", date="2026-07-01T10:00:00")
+    codestore.rebuild(_repos(repo))
+
+    at = _at(repo, "pages/")
+
+    assert time.strftime("%Y-%m-%d", time.localtime(at["pages/a.md"])) == "2026-07-01"
+
+
+def test_a_commit_that_sweeps_the_folder_is_not_an_edit(data_dir, tmp_path):
+    """The backup cron catching up a backlog moved these; she didn't write
+    them. The real edit underneath is what the coil should show."""
+    repo = _make_repo(tmp_path / "repo")
+    _commit(repo, "pages/a.md", "one", date="2026-06-01T10:00:00")
+    _commit(repo, "pages/b.md", "one", date="2026-06-02T10:00:00")
+    _commit(repo, "pages/c.md", "one", date="2026-06-03T10:00:00")
+    _commit_many(repo, {"pages/a.md": "x", "pages/b.md": "x", "pages/c.md": "x"},
+                 "Auto-backup 2026-09-01_0500", "2026-09-01T05:00:00")
+    codestore.rebuild(_repos(repo))
+
+    at = _at(repo, "pages/")
+
+    assert time.strftime("%Y-%m-%d", time.localtime(at["pages/a.md"])) == "2026-06-01"
+    assert time.strftime("%Y-%m-%d", time.localtime(at["pages/c.md"])) == "2026-06-03"
+
+
+def test_a_commit_touching_few_of_this_folder_still_counts(data_dir, tmp_path):
+    """Counted PER FOLDER: a backup sweeping the whole vault but only two
+    files here really did edit those two."""
+    repo = _make_repo(tmp_path / "repo")
+    _commit(repo, "pages/a.md", "one", date="2026-06-01T10:00:00")
+    _commit_many(repo, {"pages/a.md": "x", "other/1.md": "x", "other/2.md": "x",
+                        "other/3.md": "x", "other/4.md": "x"},
+                 "Auto-backup 2026-09-01_0500", "2026-09-01T05:00:00")
+    codestore.rebuild(_repos(repo))
+
+    at = _at(repo, "pages/")
+
+    # Wide commit, but it only moved ONE page here — that's an edit.
+    assert time.strftime("%Y-%m-%d", time.localtime(at["pages/a.md"])) == "2026-09-01"
+
+
+def test_a_file_only_ever_swept_falls_back_to_when_it_was_created(data_dir, tmp_path):
+    """Imported in a batch and never touched since. Its creation is the only
+    honest thing left to say, and saying nothing would strand it on the tip."""
+    repo = _make_repo(tmp_path / "repo")
+    _commit_many(repo, {"pages/a.md": "x", "pages/b.md": "x", "pages/c.md": "x"},
+                 "Initial commit", "2026-03-26T15:00:00")
+    codestore.rebuild(_repos(repo))
+
+    at = _at(repo, "pages/")
+
+    assert set(at) == {"pages/a.md", "pages/b.md", "pages/c.md"}
+    assert time.strftime("%Y-%m-%d", time.localtime(at["pages/a.md"])) == "2026-03-26"
+
+
+def test_edit_times_cover_every_living_file_in_the_folder(data_dir, tmp_path):
+    """The promise the fallback exists to keep: never undated."""
+    repo = _make_repo(tmp_path / "repo")
+    _commit_many(repo, {f"pages/{i}.md": "x" for i in range(6)},
+                 "Initial commit", "2026-03-26T15:00:00")
+    _commit(repo, "pages/0.md", "edited", date="2026-08-01T10:00:00")
+    codestore.rebuild(_repos(repo))
+
+    at = _at(repo, "pages/")
+
+    assert len(at) == 6
+    assert all(isinstance(v, int) for v in at.values())
+
+
+def test_edit_times_ignore_a_subfolders_files(data_dir, tmp_path):
+    """A coil is a statement about the folder's OWN files."""
+    repo = _make_repo(tmp_path / "repo")
+    _commit(repo, "pages/a.md", "one", date="2026-06-01T10:00:00")
+    _commit(repo, "pages/shots/b.png", "one", date="2026-06-02T10:00:00")
+    codestore.rebuild(_repos(repo))
+
+    assert set(_at(repo, "pages/")) == {"pages/a.md"}
+
+
+def test_a_deleted_file_keeps_no_edit_time(data_dir, tmp_path):
+    """Deleted files stay off the map, the same way touches() holds it."""
+    repo = _make_repo(tmp_path / "repo")
+    _commit(repo, "pages/a.md", "one", date="2026-06-01T10:00:00")
+    _commit(repo, "pages/b.md", "one", date="2026-06-02T10:00:00")
+    _git(repo, "rm", "-q", "pages/b.md")
+    _git(repo, "commit", "-q", "-m", "drop")
+    codestore.rebuild(_repos(repo))
+
+    assert set(_at(repo, "pages/")) == {"pages/a.md"}

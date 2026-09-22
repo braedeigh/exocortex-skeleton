@@ -167,3 +167,79 @@ def test_keeps_the_newest_at_the_ceiling(vault, monkeypatch):
         "data/uploads-archive/20260324_120000.png",
         "data/uploads-archive/20260323_120000.png",
     ]
+
+
+# --- a git coil's times ride along the listing --------------------------------
+#
+# Same reason the listing itself exists, one level deeper: `repos[].files` is
+# cut to the hottest N, and a coil folder loses that cut badly — measured on
+# the real vault, 7 of tulku/people's 75 survive it. A git coil reading its
+# times out of the payload could date only those 7 and would strand the other
+# 68 undated on its outer tip. So the server works the times out and sends
+# them uncapped, aligned with `paths`.
+
+def test_a_git_coil_carries_a_time_for_every_path(vault, monkeypatch):
+    _folder(vault, "tulku/people", ["abboody.md", "adam.md", "aetheris.md"])
+    monkeypatch.setattr(terrain.codestore, "folder_edit_times",
+                        lambda repo, prefix, **kw: {
+                            "tulku/people/abboody.md": 1780000000,
+                            "tulku/people/adam.md": 1781000000,
+                            "tulku/people/aetheris.md": 1782000000,
+                        })
+    _configure([{"path": "tulku/people", "time": "git"}])
+
+    listing = terrain._coil_listings()[0]
+
+    # Aligned with paths, one for one — the client zips the two.
+    assert len(listing["times"]) == len(listing["paths"])
+    assert dict(zip(listing["paths"], listing["times"]))[
+        "tulku/people/adam.md"] == 1781000000
+
+
+def test_a_path_the_history_cannot_date_is_sent_as_null(vault, monkeypatch):
+    """An untracked file has no history to read. It goes down as null rather
+    than being dropped, so the two arrays stay aligned."""
+    _folder(vault, "tulku/people", ["abboody.md", "brand-new.md"])
+    monkeypatch.setattr(terrain.codestore, "folder_edit_times",
+                        lambda repo, prefix, **kw: {"tulku/people/abboody.md": 1780000000})
+    _configure([{"path": "tulku/people", "time": "git"}])
+
+    listing = terrain._coil_listings()[0]
+
+    assert len(listing["times"]) == len(listing["paths"]) == 2
+    assert dict(zip(listing["paths"], listing["times"])) == {
+        "tulku/people/abboody.md": 1780000000,
+        "tulku/people/brand-new.md": None,
+    }
+
+
+def test_a_stamp_coil_is_sent_no_times_at_all(vault, monkeypatch):
+    """Its moment is read out of the filename by one parser on the client. A
+    time from the server would be a second clock, free to disagree."""
+    _folder(vault, "data/uploads-archive", ["20260920_140908.png"])
+    called = []
+    monkeypatch.setattr(terrain.codestore, "folder_edit_times",
+                        lambda repo, prefix, **kw: called.append(prefix) or {})
+    _configure([{"path": "data/uploads-archive", "time": "stamp"}])
+
+    listing = terrain._coil_listings()[0]
+
+    assert "times" not in listing
+    assert called == []
+
+
+def test_an_ignored_file_is_left_out_of_the_times_too(vault, monkeypatch):
+    """The two arrays are built from the same list after the ignores run, so a
+    sidecar can't shift every time by one."""
+    _folder(vault, "tulku/people", ["abboody.md", "notes.json"])
+    monkeypatch.setattr(terrain.codestore, "folder_edit_times",
+                        lambda repo, prefix, **kw: {
+                            "tulku/people/abboody.md": 1780000000,
+                            "tulku/people/notes.json": 1799999999,
+                        })
+    _configure([{"path": "tulku/people", "time": "git", "ignore": ["*.json"]}])
+
+    listing = terrain._coil_listings()[0]
+
+    assert listing["paths"] == ["tulku/people/abboody.md"]
+    assert listing["times"] == [1780000000]

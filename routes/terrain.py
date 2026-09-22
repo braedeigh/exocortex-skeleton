@@ -850,12 +850,21 @@ def _terrain_live_ids(index, running_ids):
 #   ]}
 #
 # `time` is the one thing about a folder that can't be inferred by looking at
-# it: 'stamp' reads each file's moment out of its FILENAME and throws the git
-# history away, 'git' keeps the real touches. Stamp is the default and is
-# right for a folder git only ever bulk-moves — measured on the uploads
-# archive, 633 files carry 20 distinct touch-sets between them, 346 of them
-# sharing a single commit, so a coil lit by git would show three flat bands
-# meaning "a commit swept through here".
+# it. 'stamp' reads each file's moment out of its FILENAME and throws the git
+# history away; it is the default and is right for a folder git only ever
+# bulk-moves — measured on the uploads archive, 633 files carry 20 distinct
+# touch-sets between them, 346 of them sharing a single commit, so a coil lit
+# by that history would show three flat bands meaning "a commit swept through
+# here".
+#
+# 'git' means WHEN SHE LAST EDITED IT, which takes more than reading the last
+# touch: the vault's backup cron commits whatever it finds each hour, so an
+# import or a migration lands as one commit across dozens of pages. So a
+# commit that moved ten or more files OF THE SAME FOLDER doesn't count as an
+# edit, and a file whose every touch was a sweep falls back to the commit
+# that created it — codestore.folder_edit_times, which owns that rule and
+# explains it. Measured on the vault, that reading is the difference between
+# 33 and 44 distinct days across tulku/people.
 #
 # LISTED UNCAPPED, and that is not a preference. `files` is cut to the hottest
 # N per repo, and for a bulk-moved folder that ranking is built on a lie to
@@ -952,11 +961,23 @@ def _coil_listings():
         if spec["ignore"]:
             names = [n for n in names
                      if not any(fnmatch(n, g) for g in spec["ignore"])]
-        out.append({"repo": repo_id,
-                    "prefix": prefix,
-                    "time": spec["time"],
-                    "windows": spec["windows"],
-                    "paths": [f"{prefix}{n}" for n in names[:_COIL_LIST_MAX]]})
+        paths = [f"{prefix}{n}" for n in names[:_COIL_LIST_MAX]]
+        # A git coil's times ride ALONG THE LISTING, for exactly the reason
+        # the listing itself exists: `files` is cut to the hottest N per repo,
+        # and a coil folder loses that cut badly — measured, 7 of tulku/people's
+        # 75 survive it. A git coil reading its times out of the payload could
+        # only date those 7 and would strand the other 68 undated on its tip.
+        # One array, aligned with `paths`, uncapped like them.
+        edits = (codestore.folder_edit_times(repo_id, prefix)
+                 if spec["time"] == "git" else {})
+        listing = {"repo": repo_id,
+                   "prefix": prefix,
+                   "time": spec["time"],
+                   "windows": spec["windows"],
+                   "paths": paths}
+        if spec["time"] == "git":
+            listing["times"] = [edits.get(p) for p in paths]
+        out.append(listing)
     return out
 
 
