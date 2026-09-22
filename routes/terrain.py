@@ -849,7 +849,9 @@ def _terrain_live_ids(index, running_ids):
 # file each of those arrives as the biggest structure in its repo and says
 # nothing except "there are a lot of these". The map winds them into spirals
 # instead (frontend: coilFolders.ts, spiralLayout.ts): the last month or so
-# around the folder node, widening a step each time she taps the middle.
+# around the folder node, widening a step each time she pulls the curve at
+# its tip and collapsing when she taps the middle. Its steps can be set from
+# the coil's hover card (`_set_coil_windows`, POST .../coils/windows).
 #
 # WHICH FOLDERS IS HERS, not the app's. It comes from `terrain_coils.json` in
 # the data dir, so adding a coil is editing a data file and reloading — no
@@ -897,6 +899,29 @@ def _terrain_live_ids(index, running_ids):
 
 _COIL_LIST_MAX = 5000   # ceiling per folder — well past any real one here
 _COIL_WINDOWS = [31, 92, 183, None]   # default steps; keep with DEFAULT_COIL_WINDOWS
+_COIL_MAX_STEPS = 8
+_COIL_MAX_DAYS = 3650
+
+
+def _clean_windows(raw):
+    """A coil's step list if it's a sensible one, else None.
+
+    Sensible means what the map can walk: one to eight steps, each a whole
+    number of days (1 to ten years), smallest first with no repeats, and
+    `null` ("everything") allowed only as the last and widest. The map's pull
+    only ever widens and its centre collapses to the first step, so a list out
+    of order or with "everything" in the middle would make a pull go nowhere.
+    """
+    if not isinstance(raw, list) or not 1 <= len(raw) <= _COIL_MAX_STEPS:
+        return None
+    days = raw[:-1] if raw[-1] is None else raw
+    for d in days:
+        # bool is an int in Python; `true` is not a number of days.
+        if isinstance(d, bool) or not isinstance(d, int) or not 1 <= d <= _COIL_MAX_DAYS:
+            return None
+    if any(b <= a for a, b in zip(days, days[1:])):
+        return None
+    return list(raw)
 
 
 def _coil_specs():
@@ -913,9 +938,7 @@ def _coil_specs():
         if not isinstance(raw, dict) or not raw.get("path"):
             continue
         time = raw.get("time") if raw.get("time") in ("stamp", "git") else "stamp"
-        windows = raw.get("windows")
-        if not isinstance(windows, list) or not windows:
-            windows = _COIL_WINDOWS
+        windows = _clean_windows(raw.get("windows")) or _COIL_WINDOWS
         specs.append({"path": str(raw["path"]).strip("/"),
                       "repo": raw.get("repo"),
                       "time": time,
@@ -993,6 +1016,43 @@ def _coil_listings():
             listing["times"] = [edits.get(p) for p in paths]
         out.append(listing)
     return out
+
+
+def _set_coil_windows(repo_id, prefix, windows):
+    """Save the steps for the coil at (repo_id, prefix) into her
+    terrain_coils.json. Returns True when it found that coil.
+
+    Matched the way the listing names it — each entry resolved through
+    _coil_folder to its repo and repo-relative prefix — because that's the
+    only name the map knows it by; the file's own `path` may be spelled with
+    or without a trailing slash, and with or without its repo. Only `windows` is
+    touched: every other entry, every other field, and her `_what`/`_fields`
+    notes are written back exactly as they were.
+
+    With no config file yet, the one default coil (the uploads archive) is
+    written out as the file's first entry, so her steps have somewhere to
+    live and the map goes on showing the same coil.
+    """
+    with store.mutate("terrain_coils", {}) as configured:
+        entries = configured.get("coils")
+        if not isinstance(entries, list) or not entries:
+            spec = _coil_specs()[0]
+            found = _coil_folder(spec)
+            if found is None or found[:2] != (repo_id, prefix):
+                return False
+            configured["coils"] = [{"path": prefix.rstrip("/"), "repo": repo_id,
+                                    "time": spec["time"], "windows": windows}]
+            return True
+        for raw in entries:
+            if not isinstance(raw, dict) or not raw.get("path"):
+                continue
+            # Spelled exactly as _coil_specs reads it, so both resolve alike.
+            spec = {"path": str(raw["path"]).strip("/"), "repo": raw.get("repo")}
+            found = _coil_folder(spec)
+            if found is not None and found[:2] == (repo_id, prefix):
+                raw["windows"] = windows
+                return True
+        return False
 
 
 def _cap_files(files_out, file_cap):
@@ -1740,6 +1800,31 @@ def _writes_in_window(trace, limit=500):
 
 
 def register(app):
+    @app.route("/api/observatory/terrain/coils/windows", methods=["POST"])
+    def terrain_coil_windows():
+        """Set the steps one coil opens to — from the coil's hover card.
+
+        Body: {repo, prefix, windows}. `prefix` is the listing's own (repo-
+        relative, trailing slash). Writes her terrain_coils.json; the next
+        payload carries the new steps. Owner only: this path isn't in
+        public_config.PUBLIC_PATHS, so a visitor never reaches it.
+
+        Prompt that produced it: "i want the hover popup to show both read
+        only details and setting the coil steps."
+        """
+        body = request.get_json(silent=True) or {}
+        repo_id = body.get("repo")
+        prefix = body.get("prefix")
+        windows = _clean_windows(body.get("windows"))
+        if not isinstance(repo_id, str) or not isinstance(prefix, str):
+            return jsonify({"error": "repo and prefix are required"}), 400
+        if windows is None:
+            return jsonify({"error": "windows must be 1-8 whole days, smallest "
+                                     "first, with null (everything) only last"}), 400
+        if not _set_coil_windows(repo_id, prefix, windows):
+            return jsonify({"error": "no such coil"}), 404
+        return jsonify({"ok": True, "windows": windows})
+
     @app.route("/api/observatory/terrain/trace/arm", methods=["POST"])
     def observatory_trace_arm():
         """Arm the tracer: the NEXT request through the app is followed all the

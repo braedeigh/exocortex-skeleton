@@ -243,3 +243,88 @@ def test_an_ignored_file_is_left_out_of_the_times_too(vault, monkeypatch):
 
     assert listing["paths"] == ["tulku/people/abboody.md"]
     assert listing["times"] == [1780000000]
+
+
+# --- setting a coil's steps from the map (POST .../coils/windows) -------------
+
+@pytest.fixture
+def client(vault):
+    from flask import Flask
+    app = Flask(__name__)
+    terrain.register(app)
+    return app.test_client()
+
+
+def _post_windows(client, windows, prefix="tulku/people/", repo="vault"):
+    return client.post("/api/observatory/terrain/coils/windows",
+                       json={"repo": repo, "prefix": prefix, "windows": windows})
+
+
+def test_setting_steps_round_trips_to_the_listing(vault, client):
+    _folder(vault, "tulku/people", ["abboody.md"])
+    _configure([{"path": "tulku/people", "time": "git"}])
+
+    assert _post_windows(client, [14, 31, None]).status_code == 200
+
+    assert terrain._coil_listings()[0]["windows"] == [14, 31, None]
+
+
+def test_setting_steps_leaves_every_other_coil_and_note_alone(vault, client):
+    _folder(vault, "tulku/people", ["abboody.md"])
+    _folder(vault, "data/bot_chats", ["2026-07-23.101356.jsonl"])
+    store.write("terrain_coils", {
+        "_what": "her note",
+        "coils": [{"path": "data/bot_chats", "windows": [7, None], "ignore": ["*.x"]},
+                  {"path": "tulku/people/", "time": "git"}],
+    })
+
+    _post_windows(client, [92, None])
+
+    saved = store.read("terrain_coils", {})
+    assert saved["_what"] == "her note"
+    assert saved["coils"][0] == {"path": "data/bot_chats", "windows": [7, None], "ignore": ["*.x"]}
+    assert saved["coils"][1] == {"path": "tulku/people/", "time": "git", "windows": [92, None]}
+
+
+@pytest.mark.parametrize("windows", [
+    [],                     # nothing to open to
+    [31, None, 92],         # "everything" in the middle
+    [92, 31],               # out of order
+    [31, 31],               # a repeat
+    [0],                    # no days at all
+    [True, 31],             # a bool is not a number of days
+    [31.5],                 # nor is a fraction
+    list(range(1, 10)),     # more steps than a card can hold
+])
+def test_refuses_a_step_list_the_map_cannot_walk(vault, client, windows):
+    _folder(vault, "tulku/people", ["abboody.md"])
+    _configure([{"path": "tulku/people", "windows": [31, None]}])
+
+    assert _post_windows(client, windows).status_code == 400
+    assert store.read("terrain_coils", {})["coils"][0]["windows"] == [31, None]
+
+
+def test_refuses_a_coil_that_is_not_configured(vault, client):
+    _folder(vault, "tulku/people", ["abboody.md"])
+    _configure([{"path": "tulku/people"}])
+
+    assert _post_windows(client, [31], prefix="data/nowhere/").status_code == 404
+
+
+def test_first_save_with_no_config_writes_the_default_coil_out(vault, client):
+    """With no file, the uploads archive is the one coil; saving its steps has
+    to create the file without losing that coil."""
+    _folder(vault, "data/uploads-archive", ["20260920_140908.png"])
+
+    assert _post_windows(client, [7, 31], prefix="data/uploads-archive/").status_code == 200
+
+    listing = terrain._coil_listings()[0]
+    assert listing["prefix"] == "data/uploads-archive/"
+    assert listing["windows"] == [7, 31]
+
+
+def test_a_malformed_step_list_in_the_file_falls_back_to_the_defaults(vault):
+    _folder(vault, "tulku/people", ["abboody.md"])
+    _configure([{"path": "tulku/people", "windows": [92, 31]}])
+
+    assert terrain._coil_listings()[0]["windows"] == [31, 92, 183, None]
