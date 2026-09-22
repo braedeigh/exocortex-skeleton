@@ -134,7 +134,8 @@ def private_activity_types():
 #
 # Two tables are decided PER ROW rather than per table, because half of each is
 # hers and half isn't. Those two rules can't live here — they need to read the
-# row — so they live in routes/terrain_tables.py (`_ROW_RULES`), and they are
+# row — so they live in routes/terrain_tables.py (`_commits_row_rule` and
+# `_sessions_row_rule`, resolved by `_visitor_policy`), and they are
 # the only thing about this policy that isn't in this file:
 #   commits  — a skeleton commit's subject is already public on GitHub and
 #              reads in full; a vault commit's subject is frosted.
@@ -149,7 +150,7 @@ TABLES = {
     # endpoint still refuses anything but git-tracked app code to a visitor.
     "files": "public",
     "file_paths": "public",
-    "commits": "public",        # ...except vault subjects — see _ROW_RULES
+    "commits": "public",        # ...except vault subjects — see the row rules
     "commit_files": "public",
     "code_files": "public",
     "code_edges": "public",
@@ -161,7 +162,7 @@ TABLES = {
     "traces": "public",
     "trace_spans": "public",
     # Which files a session touched and when it was working. The activity is
-    # the exhibit; WHOSE session it was is handled by _ROW_RULES on `sessions`.
+    # the exhibit; WHOSE session it was is handled by the row rule on `sessions`.
     "sessions": "public",       # ...except non-Coding titles and ids
     "session_files": "public",
     "session_turns": "public",
@@ -275,17 +276,35 @@ PRESENTABLE_PATHS = (
     # (terrain._redact_sessions), and covers the published mirror too.
     # What stays locked is file TEXT — the file endpoint refuses
     # anything but git-tracked app code to a visitor (see _visitor_may_read
-    # there) — and everything that writes, arms or streams: the other rooms,
-    # traces, flow, creek and the session roster are deliberately NOT listed.
-    # Exact paths, never a prefix, so a new endpoint under /terrain/ is closed
-    # until someone adds it here on purpose.
+    # there) — and everything that writes, arms, streams or quotes her: the
+    # other rooms, traces, flow (it carries the text being written) and the
+    # session roster are deliberately NOT listed. Exact paths, never a
+    # prefix, so a new endpoint under /terrain/ is closed until someone adds
+    # it here on purpose.
     "/terrain",
     "/terrain/map",
     "/api/observatory/terrain",
     "/api/observatory/terrain/file",
-    # When each line of a file was last edited (git blame). Same front door as
-    # the file's text above, so the same visitor lock: git-tracked app code only.
+    # When each line of a file was last edited (git blame), and when the
+    # function around each line last ran (the runtime sensor). Same front
+    # door as the file's text above, so the same visitor lock: git-tracked
+    # app code only.
     "/api/observatory/terrain/file/edits",
+    "/api/observatory/terrain/file/runs",
+    # One file in a tab of its own — the ↗ on the map's file pane. The page
+    # reads through the three endpoints above and nothing else, so it needs
+    # no lock of its own.
+    "/code",
+    # The threads on the map (routes/creek.py): which app-code file reads or
+    # writes which store collection, with traffic counts. Collection NAMES and
+    # verbatim lines of the shareable code — architecture, never contents.
+    # Only this exact path: the /api/creek/collection/... endpoints below it
+    # return what the data IS, and stay shut.
+    "/api/creek",
+    # The pond landmark's silhouette (routes/pond.py): one row per day, how
+    # many journal cards and how long each was. Counts and lengths, never a
+    # word of a card. The pond itself (/terrain/pond) stays shut.
+    "/api/pond/shape",
     # The database's own tables, as bodies on the map. A visitor gets the
     # architecture — tables, columns, types, row counts, foreign keys, the
     # plain-English notes — and then, per table, either the real values or
