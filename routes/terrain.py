@@ -46,9 +46,12 @@ from fnmatch import fnmatch
 from pathlib import Path
 import ast
 import contextlib
+import fcntl
+import hashlib
 import math
 import os
 import re
+import secrets
 import sqlite3
 import subprocess
 import time
@@ -144,6 +147,16 @@ _TERRAIN_DENYLIST = (
 # snaps to a handful of steps, so this stays small). Keyed by the resolved
 # file cap; None means "no cap — every file". Evicts the oldest slot past
 # _TERRAIN_CACHE_SLOTS so a hostile/looping caller can't grow it without bound.
+#
+# A SLOT HOLDS TWO VIEWS OF ONE BUILD. The payload is view-dependent now —
+# a stranger's copy has its non-Coding sessions anonymized (_redact_sessions)
+# — and the cache is the place that would get that wrong: one payload keyed by
+# file cap alone, handed to owner and visitor alike, means whichever request
+# arrives first decides what the other one sees. So the slot keeps the built
+# payload AND its redacted derivative ("public", computed on first need), and
+# the handler picks by view instead of by arrival. Building is the expensive
+# half and still happens once; redacting is a walk over a list and is memoized
+# beside it.
 _terrain_cache = {}
 
 
@@ -241,6 +254,174 @@ def _visitor_may_read(repo, relpath, resolved):
 def _private_file(repo_id, relpath):
     return jsonify({"error": "private", "private": True,
                     "repo": repo_id, "path": relpath}), 403
+
+
+# --- what a VISITOR may know about a SESSION -----------------------------------
+#
+# The map keeps every orb for a stranger, and all but the Coding ones lose
+# their name. The owner's call: "i want to pull the personal agents from the
+# public display, or maybe make them private and unclickable, and they can say
+# 'personal' as their title" — and, asked where the line falls, "everything
+# that isn't coding should be opaque. activity is fine to show. anonymized orbs
+# keep their lane."
+#
+# So an anonymized session keeps everything that says WORK HAPPENED — its
+# footprint files, its write/read counts, when it last moved, which room it
+# lives in — and loses everything that says WHOSE and WHAT: the title becomes
+# the room's name, the id becomes an opaque handle, and the bot goes. The map
+# doesn't understate its own activity; it just stops narrating her life.
+#
+# WHY THE LANE IS THE RULE. observatory._conv_lane assigns at creation and
+# DERIVES for older entries, and nothing ever derives to Coding — a session
+# only lands there because she put it there. Every other lane can be reached by
+# a guess, and a guess is a bad thing to rest a privacy line on. So Coding is
+# the allowlist, and anything this function can't place — a file-card session
+# the roster has never heard of — is redacted too. Fail toward opaque.
+#
+# IDENTITY TRAVELS TWICE and both copies must go. The top-level sessions[]
+# roster is a few hundred entries; every file ALSO carries its own sessions[]
+# list with the same ids and titles, and there are thousands of those. The file
+# cards are where a visitor lands after tapping a dot, so redacting only the
+# roster would leave every title readable one tap in. One function, both lists.
+#
+# THE HANDLE IS SALTED, and that is not decoration. A session id IS a timestamp
+# ("2026-08-19.030356"), so a bare hash is a lock with the key taped to it: a
+# year of candidate ids is ~31 million hashes, which is seconds of work, and
+# recovering the id republishes to the minute when she was journaling. The salt
+# is a real secret on disk. It's also PERSISTENT rather than per-process,
+# because two gunicorn workers minting different handles for one session would
+# make the same orb two orbs from one poll to the next.
+_PUBLIC_LANE = "coding"           # the one room that keeps its name
+_ANON_ID_PREFIX = "anon-"
+_ANON_ID_HEX = 12                 # 6 bytes of handle — collision-free at this scale
+
+# The room's own name, worn as a title. An unplaceable session reads as
+# Personal: it's the honest generic, and it's what almost all of them are.
+_ANON_TITLES = {"personal": "Personal", "orchestra": "Orchestra"}
+_ANON_TITLE_DEFAULT = "Personal"
+
+
+# Held in memory once read: one redaction hashes every session in the payload —
+# a few thousand of them — and re-reading the file per hash would be that many
+# syscalls for a value that never changes. Keyed by the data dir, not just
+# cached, so a test that re-points store.DATA_DIR gets its own salt rather than
+# the previous test's.
+_anon_salt_cache = {"dir": None, "salt": None}
+
+
+def _anon_salt():
+    """The secret the opaque handles are keyed with, minted on first need.
+    Same lock pattern as terrain_mirror.secret(): the common path (the file is
+    already there) never takes the lock at all."""
+    if _anon_salt_cache["dir"] == str(store.DATA_DIR):
+        return _anon_salt_cache["salt"]
+    path = store.DATA_DIR / "terrain_anon_salt"
+    if not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path = path.with_suffix(".lock")
+        with open(lock_path, "w") as lock_file:
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
+            if not path.exists():
+                path.write_bytes(secrets.token_hex(32).encode())
+                path.chmod(0o600)
+    salt = path.read_bytes().strip()
+    _anon_salt_cache.update(dir=str(store.DATA_DIR), salt=salt)
+    return salt
+
+
+def _opaque_session_id(conv_id):
+    """One session's public handle — stable for as long as the salt is, and
+    not reversible without it. Stable is the whole requirement: the handle is
+    what groups an orb with its footprint files, so it has to come out the
+    same in the roster and on every file card in the same payload."""
+    digest = hashlib.blake2b(str(conv_id).encode("utf-8"),
+                             key=_anon_salt(), digest_size=_ANON_ID_HEX // 2)
+    return _ANON_ID_PREFIX + digest.hexdigest()
+
+
+def _redact_sessions(payload):
+    """The payload as a stranger gets it: every non-Coding session anonymized
+    in BOTH places it appears. Pure — it returns a new payload and never
+    touches the one it was given, because the cached owner copy is the same
+    object.
+
+    Idempotent by the `sessions_redacted` flag, so a mirror can safely redact
+    an artifact that was already redacted on the way out of the private box."""
+    if not isinstance(payload, dict) or payload.get("sessions_redacted"):
+        return payload
+
+    # The roster is the only place a lane is recorded, so it has to be read
+    # before the file cards can be judged.
+    roster = payload.get("sessions")
+    roster = roster if isinstance(roster, list) else []
+    lanes = {s.get("id"): s.get("lane") for s in roster if isinstance(s, dict)}
+
+    def _public(conv_id):
+        return lanes.get(conv_id) == _PUBLIC_LANE
+
+    def _anon_title(conv_id):
+        return _ANON_TITLES.get(lanes.get(conv_id), _ANON_TITLE_DEFAULT)
+
+    # The roster: a Coding session passes through whole; every other one keeps
+    # its lane, its running/open state and its `last` — the activity she said
+    # was fine to show — and loses its name, its id and its bot.
+    sessions_out = []
+    for entry in roster:
+        if not isinstance(entry, dict):
+            continue
+        if _public(entry.get("id")):
+            sessions_out.append(entry)
+            continue
+        anonymized = {k: v for k, v in entry.items() if k != "bot"}
+        anonymized.update(id=_opaque_session_id(entry.get("id")),
+                          title=_anon_title(entry.get("id")),
+                          anon=True)
+        sessions_out.append(anonymized)
+
+    # The file cards: the same two substitutions, on the copy of identity that
+    # rides along with every file. Counts and `last` are untouched — they say
+    # that work happened here, which is the thing the map is for.
+    repos_out = []
+    for repo in payload.get("repos") or []:
+        if not isinstance(repo, dict):
+            repos_out.append(repo)
+            continue
+        files_out = []
+        for entry in repo.get("files") or []:
+            if not isinstance(entry, dict):
+                files_out.append(entry)
+                continue
+            sessions = entry.get("sessions")
+            if not isinstance(sessions, list) or not sessions:
+                files_out.append(entry)
+                continue
+            files_out.append({**entry, "sessions": [
+                session if (isinstance(session, dict) and _public(session.get("id")))
+                else {**session,
+                      "id": _opaque_session_id(session.get("id")),
+                      "title": _anon_title(session.get("id")),
+                      "anon": True}
+                for session in sessions
+                if isinstance(session, dict)]})
+        repos_out.append({**repo, "files": files_out})
+
+    return {**payload, "repos": repos_out, "sessions": sessions_out,
+            "sessions_redacted": True}
+
+
+def _terrain_view(slot):
+    """The right view of a cached slot for THIS request. The owner gets the
+    built payload; a stranger gets its redacted derivative, computed on first
+    need and kept beside it for the rest of the slot's life.
+
+    The choice is made HERE, from request.view_mode, rather than baked into
+    what got built — which is what stops one view being served to the other
+    just because it asked first."""
+    if not _visitor():
+        return slot["payload"]
+    if slot.get("public") is None:
+        slot["public"] = _redact_sessions(slot["payload"])
+    return slot["public"]
 
 
 def _terrain_safe_path(root, relpath):
@@ -1910,17 +2091,17 @@ def register(app):
         ttl = _TERRAIN_LIVE_TTL_SEC if anything_running else _TERRAIN_CACHE_TTL_SEC
         now = time.monotonic()
         slot = _terrain_cache.get(file_cap)
-        if slot is not None and now - slot["computed_at"] < ttl:
-            return jsonify(slot["payload"])
-        _terrain_refresh_history()
-        payload = _build_terrain(file_cap)
-        # Evict oldest-computed slots first — bounded memory even if something
-        # walks every possible ?limit= value.
-        while len(_terrain_cache) >= _TERRAIN_CACHE_SLOTS:
-            oldest = min(_terrain_cache, key=lambda k: _terrain_cache[k]["computed_at"])
-            _terrain_cache.pop(oldest, None)
-        _terrain_cache[file_cap] = {"payload": payload, "computed_at": now}
-        return jsonify(payload)
+        if slot is None or now - slot["computed_at"] >= ttl:
+            _terrain_refresh_history()
+            # Evict oldest-computed slots first — bounded memory even if
+            # something walks every possible ?limit= value.
+            while len(_terrain_cache) >= _TERRAIN_CACHE_SLOTS:
+                oldest = min(_terrain_cache, key=lambda k: _terrain_cache[k]["computed_at"])
+                _terrain_cache.pop(oldest, None)
+            slot = {"payload": _build_terrain(file_cap), "public": None,
+                    "computed_at": now}
+            _terrain_cache[file_cap] = slot
+        return jsonify(_terrain_view(slot))
 
     @app.route("/api/observatory/flow")
     def observatory_flow():

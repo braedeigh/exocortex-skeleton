@@ -18,9 +18,20 @@ personal file because the file ISN'T THERE. The privacy stops being a code
 path that has to hold and becomes a fact about the disk.
 
 What travels is the map payload and nothing else: paths, commit timestamps,
-session ids/titles, run buckets. No file contents ever — a mirror's
+session identity, run buckets. No file contents ever — a mirror's
 /terrain/file serves out of its own skeleton checkout (shareable code, public
 on GitHub already) and answers `private` for everything it doesn't have.
+
+SESSIONS ARRIVE ANONYMIZED, AND ARE ANONYMIZED AGAIN HERE. Every non-Coding
+session loses its name and its id to terrain._redact_sessions before a
+stranger sees it, and the publisher fetches this box's map over HTTP with no
+cookie — so it reads as a stranger and the artifact it pushes is already
+redacted. That is one link, and a mirror is the wrong place to have exactly
+one: a publisher run with a cookie, or pointed at a box that hasn't been
+updated, would push the owner's own copy and this module would serve it
+verbatim. So `published()` redacts what it hands out regardless. The function
+is idempotent (it no-ops on a payload already carrying `sessions_redacted`),
+so the normal path costs a dict lookup and the abnormal one is still safe.
 
 ONE ARTIFACT, EVERY TIER. The publisher sends the UNCAPPED payload once; this
 module re-cuts it per request through terrain._cap_files, the same ranking the
@@ -124,8 +135,9 @@ def _load():
 
 
 def published(file_cap):
-    """The published map, cut to `file_cap` — what this mirror answers
-    GET /api/observatory/terrain with. None when nothing has been published.
+    """The published map, cut to `file_cap` and with its non-Coding sessions
+    anonymized — what this mirror answers GET /api/observatory/terrain with.
+    None when nothing has been published.
 
     Two fields are added that a locally-built payload doesn't carry:
     `mirror` (so the client knows it's looking at a published map) and
@@ -142,6 +154,10 @@ def published(file_cap):
     # Late import: routes/terrain.py imports this module at its top, so the
     # ranking is borrowed at call time rather than at import time.
     from routes import terrain
+    # Anonymize non-Coding sessions, again. Nothing authenticates on a mirror,
+    # so every reader here is a stranger and there is no view to choose
+    # between; a payload that arrived redacted passes straight through.
+    payload = terrain._redact_sessions(payload)
     repos_out = []
     for repo in payload.get("repos") or []:
         if not isinstance(repo, dict):

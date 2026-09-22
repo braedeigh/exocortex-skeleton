@@ -144,3 +144,32 @@ def test_plain_json_is_accepted_too(data_dir, monkeypatch, secret):
     assert _ingest(client, _payload(["store.py"]), secret, gzipped=False).status_code == 200
     got = client.get("/api/observatory/terrain").get_json()
     assert [f["path"] for f in got["repos"][0]["files"]] == ["store.py"]
+
+
+def test_a_mirror_anonymizes_sessions_even_if_the_publisher_did_not(
+        data_dir, monkeypatch, secret):
+    """Sessions reach a stranger anonymized (terrain._redact_sessions), and
+    normally that has already happened on the private box — the publisher
+    fetches with no cookie, so it reads as a visitor. This is the second lock.
+    A publisher run WITH a cookie, or pointed at a box that predates the
+    redaction, would push the owner's own copy; a mirror has no owner to serve
+    it to, so it redacts what it hands out regardless."""
+    client = _client(monkeypatch, mirror=True)
+    raw = _payload(["server.py"])
+    raw["sessions"] = [
+        {"id": "2026-09-20.101500", "title": "Terrain coils", "lane": "coding"},
+        {"id": "2026-09-22.030327", "title": "Morning pages", "lane": "personal"},
+    ]
+    raw["repos"][0]["files"][0]["sessions"] = [
+        {"id": "2026-09-22.030327", "title": "Morning pages", "writes": 2},
+    ]
+    assert _ingest(client, raw, secret).status_code == 200
+
+    body = client.get("/api/observatory/terrain").get_data(as_text=True)
+    assert "Morning pages" not in body and "2026-09-22.030327" not in body
+    assert "Terrain coils" in body   # the Coding session is the exhibit
+
+    got = client.get("/api/observatory/terrain").get_json()
+    assert got["sessions_redacted"] is True
+    card = got["repos"][0]["files"][0]["sessions"][0]
+    assert card["title"] == "Personal" and card["writes"] == 2   # activity survives

@@ -15,6 +15,13 @@ import { api } from '../../api/client';
 export interface TerrainSession {
   id: string;
   title: string;
+  /** A VISITOR's copy of this session, anonymized server-side
+   * (terrain._redact_sessions): `id` is an opaque handle rather than the real
+   * one (session ids are timestamps), and `title` is the room's name —
+   * "Personal" / "Orchestra". Only Coding sessions keep their identity. The
+   * counts and `last` are untouched: the owner's line was "activity is fine
+   * to show". Never set for the owner's own view. */
+  anon?: boolean;
   writes: number;
   reads: number;
   /**
@@ -73,7 +80,10 @@ export interface TerrainRepo {
 export interface TerrainLiveSession {
   id: string;
   title: string;
-  bot: string;
+  /** Anonymized for a visitor — see TerrainSession.anon. `bot` is absent on
+   * these: naming the persona is identity too. */
+  anon?: boolean;
+  bot?: string;
   running: boolean;
   /** Not archived — the map's "Open" pool. A real server-side state, unlike
    * the browser-local heartbeat the agent bar used to call "active".
@@ -100,6 +110,12 @@ export interface TerrainData {
   mirror?: boolean;
   published_at?: string;
   published_ts?: number;
+  /** This payload is a stranger's copy: every non-Coding session has had its
+   * title and id replaced (routes/terrain.py, `_redact_sessions`). Absent for
+   * the owner. The map doesn't branch on it — the orbs are already inert for
+   * a visitor and the hovercard already has no data — it's here so the
+   * payload says out loud which of the two views it is. */
+  sessions_redacted?: boolean;
   /** null since the payload went whole-history (the server used to cut at 90
    * days and said so here); kept for old cached payloads, and as the empty-map
    * fallback horizon in terrainEarliestTouch. */

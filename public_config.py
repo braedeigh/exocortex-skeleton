@@ -163,8 +163,15 @@ _SHELL_PATHS = (
 
 PRESENTABLE_PATHS = (
     # The Terrain map (routes/terrain.py). Open to visitors by the owner's
-    # decision (2026-09-17): every dot from both repos, the session orbs and
-    # their titles. What stays locked is file TEXT — the file endpoint refuses
+    # decision (2026-09-17): every dot from both repos, and the session orbs.
+    # NOT their titles any more — her 2026-09-22 call, "everything that isn't
+    # coding should be opaque; activity is fine to show". A Coding session
+    # keeps its name and its id; every other session keeps its orb, its
+    # footprint and its lane, and wears the room's name ("Personal") over an
+    # opaque handle. Session ids are timestamps, so the id is as telling as
+    # the title and goes with it; the redaction is server-side, in one seam
+    # (terrain._redact_sessions), and covers the published mirror too.
+    # What stays locked is file TEXT — the file endpoint refuses
     # anything but git-tracked app code to a visitor (see _visitor_may_read
     # there) — and everything that writes, arms or streams: the other rooms,
     # traces, flow, creek and the session roster are deliberately NOT listed.
