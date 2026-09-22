@@ -113,18 +113,25 @@ export const CHAIN_GLOW_FLOOR = 0.35;
  *
  * The chain wears its file's own colour so the path up to where that file
  * lives can be followed by eye. A file dot's hue leans from ember to gold as
- * the file goes from edited to RUN (leanOf, in terrainCanvas.ts) — and a
- * file that ran today wears very nearly the same gold the data THREADS are
- * drawn in, off the same ramp. So the chains of run-hot files read as
- * threads: "this is wrong, now some of them are gold".
+ * the file goes from edited to RUN (leanOf, in terrainCanvas.ts) — and the
+ * FOLDER OUTLINES the chain runs between wear that very same lean, rolled up
+ * over what's inside them. So a chain drawn at full lean through a branch of
+ * running code is the colour of the boxes it's connecting, and stops standing
+ * out from the one thing it exists to be told apart from.
  *
- * Gold is a line meaning on this map already, and red is not. So the chain
- * keeps the lean — it still warms with the file, still differs dot to dot —
- * but stops short of gold, landing at a clear orange at the far end. The
- * honest cost, stated because a note here must not lie: a pure-run file's
- * dot is gold while its chain is orange. They no longer match exactly. The
- * chain says WHICH DOT IS MINE, and it can only say that in a voice nothing
- * else on the map is already speaking in.
+ * The chain keeps the lean — it still warms with its file, still differs dot
+ * to dot — but stops short of gold, landing at a clear orange at the far end,
+ * which no folder outline reaches while its subtree is running. The honest
+ * cost, stated because a note here must not lie: a pure-run file's dot is
+ * gold while its chain is orange, so the two no longer match exactly. The
+ * chain's job is to say WHICH DOT IS MINE, and it can only say that in a
+ * voice nothing around it is already speaking in.
+ *
+ * (The first reason for this cap was a different one: the data threads were
+ * drawn in gold too, so run-hot chains read as threads — "this is wrong, now
+ * some of them are gold". The threads have since moved to their own teal, so
+ * that particular collision is gone and only the folder one above is holding
+ * the cap up. Lift CHAIN_LEAN_CAP to 1 and chains match their dots exactly.)
  */
 export function chainLean(lean: number): number {
   return Math.min(Math.max(lean, 0), 1) * CHAIN_LEAN_CAP;

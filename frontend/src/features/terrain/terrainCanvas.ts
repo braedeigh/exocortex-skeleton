@@ -107,10 +107,10 @@
  * address — named at any zoom, with the tree lines between them drawn in the
  * dot's own colour (`fileDotInk`), so the path up to where it lives can be
  * followed by eye. That colour stops short of GOLD and is floored off the
- * bottom (`hoverLayers.ts`): gold is already what the data threads are drawn
- * in, so a chain that reached it read as a thread rather than as an address,
- * and a stale dot's chain was faintest for exactly the file whose home is
- * hardest to find.
+ * bottom (`hoverLayers.ts`): the folder outlines a chain runs between wear
+ * the same ember→gold lean, so a chain at the gold end is the colour of the
+ * boxes it's threading and stops reading as its own line — and a stale dot's
+ * chain was faintest for exactly the file whose home is hardest to find.
  * Wired to it includes the AGENTS holding it and the TABLES it touches, which
  * keep their colour and their line while the cursor is on one of their files.
  *
@@ -230,6 +230,17 @@ import {
  *           per runtime_sensor.py (Python only — the browser half of a click
  *           is invisible to it). Fixed one-day window, whatever the Heat bar
  *           says (terrainGraph.ts RUN_WINDOW_SECONDS). Hot end #ffd700.
+ *   TEAL  — the THREAD channel, and the one that is NOT a heat of its own:
+ *           it's the ink the data threads between files are drawn in, lit on
+ *           the run window so a thread and a dot of equal age are equally
+ *           bright. Threads used to ride the gold ramp itself, on the logic
+ *           that a thread is a write running code just made. On the map that
+ *           collapsed two different statements into one colour — "this file
+ *           RAN" and "this file feeds that one" — and the tree chains, which
+ *           wear their dot's colour, landed in the same gold and read as
+ *           threads too. Gold now says only "it ran"; the wire between files
+ *           is its own greenish teal. Her call: "please make it a different
+ *           color than gold. i'm thinking greenish teal for the file one."
  *   GLOW  — how far off the floor a dot sits: the union of its ember and gold
  *           heats (1 - (1-t)(1-a)), so a little of each glows more than a
  *           little of one. Drives the dot's SIZE, whichever fire lit it.
@@ -256,9 +267,12 @@ import {
  * (read) and purple (modified) RINGS and the green write core; the body's
  * gold now says only "this ran".
  *
- * Everything else that paints heat (hubs, the pond, threads, the key, the heat
- * bar) reads the same two-stop ash→hue ramps through heatRamps(), so nothing
- * on the surface can disagree with the dots.
+ * Everything else that paints heat (hubs, the pond, the key, the heat bar)
+ * reads the same two-stop ash→hue ramps through heatRamps(), so nothing on
+ * the surface can disagree with the dots. The threads read a third ramp built
+ * the same way, off the teal above — same cold end, same curve, different
+ * hue, so they fade in step with everything else while saying their own
+ * thing.
  *
  * Prompt that produced it: "i want for the red and the gold to not compete
  * ... each one is an opacity that fades to like a darker grey color against
@@ -283,20 +297,31 @@ export function glowAlpha(glow: number): number {
 /** The hot ends — both hers. */
 export const EMBER_HOT = '#f14c4c';
 export const GOLD_HOT = '#ffd700';
+/** The THREAD channel's hot end: a greenish teal, hers. Not a third heat —
+ * the wire between two files, given a hue of its own so it stops borrowing
+ * gold's. Far from both fires and from the database blue, and the one line
+ * ink on this map that isn't warm, which is most of why it reads apart at a
+ * glance. */
+export const THREAD_TEAL = '#2ec4b6';
 
 /** The two ramps for a surface. Dark: ash → hue, sampled at five heats
  * through the same glowAlpha curve the dots use, so a colour read off the key
  * is the colour a dot of that heat actually wears. Light: the legacy
  * five-step ramps. heatColor() walks either. */
-export function heatRamps(ink: ThemeInk): { ember: readonly string[]; gold: readonly string[] } {
+export function heatRamps(ink: ThemeInk): {
+  ember: readonly string[];
+  gold: readonly string[];
+  thread: readonly string[];
+} {
   if (ink.dark) {
     const stops = [0, 0.25, 0.5, 0.75, 1];
     return {
       ember: stops.map((t) => mixHex(ink.ash, EMBER_HOT, glowAlpha(t))),
       gold: stops.map((t) => mixHex(ink.ash, GOLD_HOT, glowAlpha(t))),
+      thread: stops.map((t) => mixHex(ink.ash, THREAD_TEAL, glowAlpha(t))),
     };
   }
-  return { ember: HEAT_RAMP_LIGHT, gold: GOLD_RAMP_LIGHT };
+  return { ember: HEAT_RAMP_LIGHT, gold: GOLD_RAMP_LIGHT, thread: THREAD_RAMP_LIGHT };
 }
 
 /** Union of the two heats — a dot's height off the ash floor. */
@@ -378,6 +403,11 @@ export function staleTypeAlpha(t: number, a: number): number {
  * structural difference is load-bearing, not decoration.
  */
 export const GOLD_RAMP_LIGHT = ['#201804', '#4d3a0a', '#8f6d10', '#c9a015', '#ffd700'] as const;
+
+/** The THREAD ramp for the LIGHT surface, built to the same five steps and the
+ * same dark cold end as the two fires, so a thread fades on the light map the
+ * way every other heat does. */
+export const THREAD_RAMP_LIGHT = ['#041f1d', '#0a4c46', '#107f75', '#18a99b', '#2ec4b6'] as const;
 
 /**
  * The write core: a small filled dot at the centre of a file's body, saying an
@@ -3711,7 +3741,7 @@ export class TerrainCanvas {
     if (this.focusConv) this.stepFocusCamera();
     const { ctx, theme, transform } = this;
     const dpr = window.devicePixelRatio || 1;
-    const { ember: ramp, gold: goldRamp } = heatRamps(theme);
+    const { ember: ramp, gold: goldRamp, thread: threadRamp } = heatRamps(theme);
     const dimmed = this.footprint !== null;
     // The agent under the cursor, if the tap-spotlight isn't already speaking.
     // Everything it changes is an ALPHA: the other agents' tethers and rings
@@ -3747,9 +3777,17 @@ export class TerrainCanvas {
     // -- threads: what one file makes, another one eats --
     //
     // Drawn UNDER the tree edges and the dots, because a thread is a current
-    // running beneath the structure rather than part of it. Gold, on the same
-    // ramp the run channel wears, because a thread is a write that running
-    // code just made — the exact thing gold means everywhere else on this map.
+    // running beneath the structure rather than part of it. A greenish TEAL
+    // (THREAD_TEAL), on a ramp built exactly like the two fires' — same cold
+    // end, same curve — so it fades in step with the map while saying its own
+    // thing. These rode the GOLD ramp until she cut them off it: a thread is
+    // a write that running code just made, which is true, but painting it in
+    // the run channel's own hue made "this file RAN" and "this file feeds
+    // that one" the same colour, and the tree chains that wear their dot's
+    // colour landed there too. Gold now says only "it ran".
+    //
+    // Prompt that produced it: "please make it a different color than gold.
+    // i'm thinking greenish teal for the file one."
     //
     // Bowed, not straight. Two files often sit near each other and several
     // threads can share a pair of endpoints' neighbourhood; a straight line
@@ -3810,7 +3848,7 @@ export class TerrainCanvas {
         // threads neither answer named drop to a trace (threadPresence).
         const lit = held === null ? th.t : mine ? Math.max(th.t, 0.42) : th.t;
         ctx.globalAlpha = threadPresence(th.t, mine, ofSelection, held !== null);
-        ctx.strokeStyle = heatColor(lit, goldRamp);
+        ctx.strokeStyle = heatColor(lit, threadRamp);
         ctx.lineWidth = (0.6 + 1.5 * lit) / transform.k * (mine ? 1.6 : 1);
         ctx.beginPath();
         ctx.moveTo(ax, ay);
@@ -3836,7 +3874,7 @@ export class TerrainCanvas {
     // selection asks a second question; it doesn't withdraw the first.
     //
     // Blue, the same ink the foreign keys wear, because both lines are about
-    // the database; gold is a write passing between files and the accent is
+    // the database; teal is a write passing between files and the accent is
     // the agents'. What the file DOES sets the weight: creating is heavier
     // than writing, writing than reading. The dot marks the TABLE end — the
     // thing being acted on — the same way an fk's dot marks the table its key
