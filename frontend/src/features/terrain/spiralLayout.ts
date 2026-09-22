@@ -1,6 +1,5 @@
 /**
- * spiralLayout.ts — where each upload dot sits in the coil, and how big the
- * coil is.
+ * spiralLayout.ts — where each dot sits in a coil, and how big the coil is.
  *
  * Pure geometry: no DOM, no physics, no canvas. Hand it a count, get back a
  * position per dot and the radius of the circle they all fit inside. The map
@@ -10,10 +9,10 @@
  *
  * THE SHAPE IS AN ARCHIMEDEAN SPIRAL — the one whose arms stay a constant
  * distance apart, as opposed to a logarithmic spiral, whose arms fly apart as
- * it grows. Constant spacing is the whole point here: every dot is the same
- * kind of thing (one upload), so no dot should get more room than another,
- * and the gap between arms has to stay readable at the 600th dot as much as
- * the 6th.
+ * it grows. Constant spacing is the whole point here: every dot on a coil is
+ * the same kind of thing (one upload, one chat, one day's page), so no dot
+ * should get more room than another, and the gap between arms has to stay
+ * readable at the 600th dot as much as the 6th.
  *
  * NEWEST AT THE CENTRE, oldest at the tip. Three things fall out of that and
  * they're the reason for it:
@@ -21,34 +20,35 @@
  *     the arms — so the coil reads correctly before you know what it is;
  *   - widening the window is purely ADDITIVE at the outer tip: dot 0 stays
  *     dot 0, so nothing she was already looking at moves;
- *   - the centre is the freshest upload AND the click target, which is the
- *     one place on the coil she has a reason to reach for.
+ *   - the centre is the newest file AND the click target, which is the one
+ *     place on the coil she has a reason to reach for.
  *
- * A NEW UPLOAD, though, shifts every index by one and so turns the whole coil
- * by a single step. That's deliberate and it's small (one dot's worth of
- * angle); it reads as the chain paying out another link.
+ * A NEW FILE, though, shifts every index by one and so turns the whole coil by
+ * a single step. That's deliberate and it's small (one dot's worth of angle);
+ * it reads as the chain paying out another link.
  *
  * HOW BIG IT GETS. Arc length along the spiral is about πR²/b, so laying n
  * dots at arc spacing s with arm spacing b gives R ≈ √(n·s·b/π) — radius
  * grows with the SQUARE ROOT of the count. That's the property that makes
  * "stays about the same size unless you interact with it" true rather than
- * hopeful: on this vault a month of uploads (~110) draws at radius ~118, and
- * every upload ever (~633) draws at ~284. Six times the content, 2.4 times
- * the radius.
+ * hopeful. Measured on the uploads archive, 2026-09-22: a month of it (53
+ * files) draws at radius ~86, and the whole folder (685) at ~297 — thirteen
+ * times the content for three and a half times the radius.
  *
- * Used by uploadNodes.ts (which decides WHICH uploads) and terrainCanvas.ts
- * (which pins them). Tested in spiralLayout.test.ts.
+ * Used by coilFolders.ts (which decides WHICH files, for WHICH folders) and
+ * terrainCanvas.ts (which pins them). Tested in spiralLayout.test.ts.
  *
  * Prompt that produced it: "arrange them into a spiral that only shows the
  * last month or so of uploads and works with the same heat map as the other
  * dots, but you could click the center to load more, so it stays kind of the
  * same size unless you interact with it ... and it would snake out in a chain
- * and enlarge the spiral".
+ * and enlarge the spiral" — later generalised to any folder ("can you make
+ * this into a modular file that I can apply to different folders").
  */
 
-/** The hole at the middle of the coil, in WORLD units. Nothing is placed
- * inside it: it's the folder node's own seat and the target she taps to widen
- * the window, so it has to stay clear and stay big enough to hit. */
+/** The hole at the middle of a coil, in WORLD units. Nothing is placed inside
+ * it: it's the folder node's own seat and the target she taps to widen the
+ * window, so it has to stay clear and stay big enough to hit. */
 export const SPIRAL_INNER_RADIUS = 26;
 
 /** How far apart two NEIGHBOURING dots sit along the strand, in world units.
@@ -121,25 +121,4 @@ export function spiralSpots(count: number, options: SpiralOptions = {}): SpiralA
 
   const last = spots[spots.length - 1];
   return { spots, outerRadius: last.radius };
-}
-
-/**
- * How big the coil would be at `count` dots, without laying out every spot.
- *
- * The closed form behind the block above (R ≈ √(n·s·b/π), lifted by the
- * centre hole), for the one caller that needs a size and not positions: the
- * canvas eases its collision body toward the size the NEXT window would be
- * while the coil is still growing into it.
- *
- * Approximate on purpose, and never used to place anything — `spiralSpots` is
- * the truth. Within half a percent of it at any real window size; it reads
- * high on a nearly-empty coil, because it integrates the strand and a coil of
- * one dot is all hole and no strand. Tested against the real layout.
- */
-export function spiralRadiusEstimate(count: number, options: SpiralOptions = {}): number {
-  const innerRadius = options.innerRadius ?? SPIRAL_INNER_RADIUS;
-  const dotGap = options.dotGap ?? SPIRAL_DOT_GAP;
-  const turnGap = options.turnGap ?? SPIRAL_TURN_GAP;
-  if (count <= 0) return innerRadius;
-  return Math.sqrt((count * dotGap * turnGap) / Math.PI + innerRadius * innerRadius);
 }

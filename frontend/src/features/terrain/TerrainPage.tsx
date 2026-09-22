@@ -1115,7 +1115,7 @@ export function TerrainPage() {
     engineRef.current?.setPondNodes(pondNodeIds);
   }, [pondNodeIds]);
   // The coil, handed over as an ORDER and a centre: the engine pins dot 0
-  // innermost and winds the rest out from there (terrainCanvas.setCoilNodes).
+  // innermost and winds the rest out from there (terrainCanvas.setCoils).
   useEffect(() => {
     // Each coil, handed over as an ORDER and a centre: the engine pins dot 0
     // innermost and winds the rest out from there (terrainCanvas.setCoils).

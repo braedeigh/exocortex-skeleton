@@ -3,12 +3,11 @@ import {
   SPIRAL_DOT_GAP,
   SPIRAL_INNER_RADIUS,
   SPIRAL_TURN_GAP,
-  spiralRadiusEstimate,
   spiralSpots,
 } from './spiralLayout';
 
 /**
- * spiralLayout.test.ts — the coil the upload dots are pinned to.
+ * spiralLayout.test.ts — the coil a folder's dots are pinned to.
  *
  * Four things here would be invisible until they were badly wrong on screen,
  * so they're pinned: the dots are EVENLY spaced (the failure mode of a spiral
@@ -61,7 +60,7 @@ describe('spiralSpots', () => {
   });
 
   it('grows with the square root of the count, not with the count', () => {
-    // The promise the whole design rests on: six times the uploads is nowhere
+    // The promise the whole design rests on: six times the files is nowhere
     // near six times the coil.
     const month = spiralSpots(110).outerRadius;
     const everything = spiralSpots(633).outerRadius;
@@ -86,21 +85,5 @@ describe('spiralSpots', () => {
     const one = spiralSpots(1);
     expect(one.spots).toHaveLength(1);
     expect(one.spots[0].radius).toBe(SPIRAL_INNER_RADIUS);
-  });
-});
-
-describe('spiralRadiusEstimate', () => {
-  it('agrees with the laid-out coil', () => {
-    // The cheap closed form is what the canvas eases its body toward; if it
-    // drifted from the real layout the collider would reserve the wrong
-    // ground and the coil's outer arm would poke out of its own clearing.
-    // Checked from ten dots up: the form integrates the strand and so reads
-    // high on a nearly-empty coil (9% at a single dot, where the answer is
-    // just the centre hole), and that end is never what the canvas eases to.
-    for (const count of [10, 110, 633, 2000]) {
-      const estimated = spiralRadiusEstimate(count);
-      const actual = spiralSpots(count).outerRadius;
-      expect(Math.abs(estimated - actual) / actual).toBeLessThan(0.05);
-    }
   });
 });
