@@ -485,6 +485,31 @@ export interface AgentHover {
 /** Where the journal cluster sits on screen: its CENTRE in client coordinates
  * and the radius it covers there, so the landmark can float over the middle of
  * the water and know how much of the map it's standing on. */
+/** One coil as the page asks for it: the folder at its centre, its files in
+ * coil order (innermost, newest, first), and the line it wears under its own
+ * name. Built by coilFolders.ts, handed over by setCoils. */
+export interface CoilPins {
+  folderId: string;
+  ids: readonly string[];
+  caption: string | null;
+}
+
+/** A coil once it's been resolved against the graph and laid out: the real
+ * nodes, the spiral they're pinned to, and how far along each dot is in
+ * sliding out to its spot. */
+interface WoundCoil {
+  hub: SimNode;
+  /** In coil order: innermost (newest) first. */
+  dots: SimNode[];
+  arrangement: SpiralArrangement;
+  /** Each dot's CURRENT offset from the hub, eased toward its spot. A dot
+   * that has just joined starts at the centre and slides out. */
+  offsets: { x: number; y: number }[];
+  /** What this coil says about itself under its own name — the window it's
+   * open to, and how much of the folder that is. */
+  caption: string | null;
+}
+
 export interface PondAnchor {
   x: number;
   y: number;
@@ -1432,44 +1457,34 @@ export class TerrainCanvas {
   private pondReport: PondAnchor | null = null;
 
   /**
-   * The uploads coil: the archive's folder node with its month of uploads
-   * wound around it in a spiral (uploadNodes.ts picks them, spiralLayout.ts
-   * places them).
+   * The coils: each a folder full of near-identical, time-stamped things —
+   * uploads, chat logs, daily pages — with its contents wound into a spiral
+   * around its own folder node. Which folders is hers (coilFolders.ts, from
+   * a data file); this only knows how to wind one.
    *
-   * This is the map's THIRD arrangement the physics doesn't decide, after the
-   * pond tile and the table shelves, and it borrows from both. Like the
-   * shelves, every dot is pinned to a spot a pure function worked out, so the
+   * These are the map's THIRD arrangement the physics doesn't decide, after
+   * the pond tile and the table shelves, and they borrow from both. Like the
+   * shelves, every dot is pinned to a spot a pure function worked out, so a
    * coil keeps its shape instead of being combed out by the springs. Like the
-   * pond, the whole thing is ONE body as far as the collider is concerned —
-   * the folder node carries a collision circle the size of the coil, so the
-   * terrain bumps around the outside of it rather than threading through the
-   * arms.
+   * pond, each whole coil is ONE body as far as the collider is concerned —
+   * its folder node carries a collision circle the size of the spiral, so the
+   * terrain bumps around the outside rather than threading through the arms.
    *
-   * The hub itself is NOT pinned: it floats on the ordinary repo anchor and
-   * finds its own place on the map, and the dots ride wherever it lands. That
+   * A hub itself is NOT pinned: it floats on the ordinary repo anchor and
+   * finds its own place on the map, and its dots ride wherever it lands. That
    * is why the pins below are offsets from the hub and not absolute points —
-   * an absolute pin would smear the coil behind the hub every time the hub
-   * moved.
+   * an absolute pin would smear the coil behind the hub every time it moved.
    */
-  private coil: {
-    hub: SimNode;
-    /** In coil order: innermost (newest upload) first. */
-    dots: SimNode[];
-    arrangement: SpiralArrangement;
-    /** Each dot's CURRENT offset from the hub, eased toward its spot. A dot
-     * that has just joined starts at the centre and slides out. */
-    offsets: { x: number; y: number }[];
-  } | null = null;
-  /** The coil's dots in order, and the folder they wind around, as handed in
-   * by the page. Held separately from `coil` because they arrive before the
-   * graph that resolves them into nodes. */
-  private coilIds: readonly string[] = [];
-  private coilFolderId: string | null = null;
-  /** What the coil says about itself under its own name — the window it's
-   * open to and how much of the archive that is. The engine doesn't know
-   * either fact; the page does, and hands the finished line over. */
-  private coilCaption: string | null = null;
-  /** Fast membership for the forces and the paint — rebuilt with the coil. */
+  private coils: WoundCoil[] = [];
+  /** The coils as the page asked for them: each folder, its dots in order,
+   * and its caption. Held separately from `coils` because they arrive before
+   * the graph that resolves them into nodes. */
+  private coilSpecs: readonly CoilPins[] = [];
+  /** Every coil's hub, by node id — what bodyRadiusOf, the ballast and the
+   * caption all ask. */
+  private coilByHubId: Map<string, WoundCoil> = new Map();
+  /** Fast membership for the forces and the paint: is this dot on ANY coil?
+   * Rebuilt with the coils. */
   private coilDotIds: ReadonlySet<string> = new Set();
 
   onTap: ((node: TerrainNode | null) => void) | null = null;
@@ -1731,9 +1746,8 @@ export class TerrainCanvas {
     // collider knows nothing about would have the rest of the map threading
     // straight through the arms. One circle, the size of the coil, and the
     // terrain flows around the outside of it.
-    if (this.coil !== null && n.id === this.coil.hub.id) {
-      return this.coil.arrangement.outerRadius + NODE_GAP;
-    }
+    const coil = this.coilByHubId.get(n.id);
+    if (coil !== undefined) return coil.arrangement.outerRadius + NODE_GAP;
     return bodyRadius(n.radius, this.isRinged(n));
   }
 
@@ -2478,7 +2492,7 @@ export class TerrainCanvas {
       .map((e): SimLink => ({ source: byId.get(e.source)!, target: byId.get(e.target)!, kind: e.kind }));
 
     this.placeShelves(byId, repoIds, anchorFor, shelves);
-    this.placeCoil(byId);
+    this.placeCoils(byId);
 
     // Which tables each table is joined to by a foreign key, either direction
     // — what a hover over a table keeps lit. Rebuilt only here, with the
@@ -2667,14 +2681,14 @@ export class TerrainCanvas {
           // is now one of the biggest bodies on the map, and d3 has no mass,
           // so without this it gets carried by every wave passing through the
           // crowd — towing a hundred pinned dots behind it.
-          if (!isPondTile(sn) && sn.id !== this.coil?.hub.id) continue;
+          if (!isPondTile(sn) && !this.coilByHubId.has(sn.id)) continue;
           sn.vx = (sn.vx ?? 0) * 0.3;
           sn.vy = (sn.vy ?? 0) * 0.3;
         }
         // The coil rides its hub, and pays its new dots out toward their
         // spots. Every tick, not on the shelves' slower cadence: the hub
         // moves every tick and the dots have to move with it.
-        this.settleCoil(COIL_EASE);
+        this.settleCoils(COIL_EASE);
         // Keep the table shelves just outside the dots as the dots spread.
         this.ticksSinceLayout += 1;
         if (this.ticksSinceLayout % SHELF_SETTLE_EVERY === 0) this.settleShelves(0.25);
@@ -2690,7 +2704,7 @@ export class TerrainCanvas {
         // ...and the coil snaps the rest of the way in. A sim that goes still
         // mid-glide would leave the chain half paid out, frozen, with nothing
         // left running to finish it.
-        this.settleCoil(1);
+        this.settleCoils(1);
         // Quiescence is the natural moment to write the map down: this is the
         // arrangement she'd want back.
         this.saveLayout();
@@ -2979,33 +2993,59 @@ export class TerrainCanvas {
 
   /** Tint the water — on while she's looking at the landmark, off otherwise. */
   /**
-   * Hand the engine the coil: the upload dots in order, innermost first, and
-   * the folder node they wind around.
+   * Hand the engine its coils: for each, the folder node at the centre, its
+   * dots in order innermost-first, and the line it wears under its name.
    *
-   * Order is the geometry — spot 0 is the centre of the spiral — so this is
-   * an array and not a set, unlike setPondNodes above. Pass an empty list to
-   * take the coil off the map and let those dots go back to being ordinary
-   * children of their folder.
+   * Order is the geometry — dot 0 is the middle of the spiral — so each
+   * coil's dots are an array and not a set, unlike setPondNodes above. Pass
+   * an empty list to take every coil off the map and let those dots go back
+   * to being ordinary children of their folders.
    */
-  setCoilNodes(ids: readonly string[], folderId: string | null, caption: string | null): void {
-    this.coilCaption = caption;
+  setCoils(specs: readonly CoilPins[]): void {
     const same =
-      folderId === this.coilFolderId &&
-      ids.length === this.coilIds.length &&
-      ids.every((id, i) => id === this.coilIds[i]);
+      specs.length === this.coilSpecs.length &&
+      specs.every((spec, i) => {
+        const was = this.coilSpecs[i];
+        return (
+          spec.folderId === was.folderId &&
+          spec.caption === was.caption &&
+          spec.ids.length === was.ids.length &&
+          spec.ids.every((id, j) => id === was.ids[j])
+        );
+      });
     if (same) return;
-    this.coilIds = ids;
-    this.coilFolderId = folderId;
-    // Wind it now rather than waiting for the next setGraph. The page hands
-    // the coil over and builds the graph in two separate effects, and their
-    // order isn't ours to rely on: on the first payload this arrives second
-    // as often as first, and a coil that waited would leave the uploads
-    // sprayed across the map until something else happened to rebuild.
+    const onlyCaptionsMoved =
+      specs.length === this.coilSpecs.length &&
+      specs.every((spec, i) => {
+        const was = this.coilSpecs[i];
+        return (
+          spec.folderId === was.folderId &&
+          spec.ids.length === was.ids.length &&
+          spec.ids.every((id, j) => id === was.ids[j])
+        );
+      });
+    this.coilSpecs = specs;
     if (this.simNodes.length === 0) return;
-    this.placeCoil(new Map(this.simNodes.map((n) => [n.id, n])));
-    // The folder just grew a body the size of the whole spiral (or lost one),
+    // A caption changing is paint, not physics — a coil that only relabelled
+    // itself must not re-wind, or every keystroke's worth of new count would
+    // throw its dots back to the centre to crawl out again.
+    if (onlyCaptionsMoved) {
+      for (let i = 0; i < this.coils.length; i += 1) {
+        const spec = specs.find((sp) => sp.folderId === this.coils[i].hub.id);
+        this.coils[i].caption = spec?.caption ?? null;
+      }
+      this.requestDraw();
+      return;
+    }
+    // Wind them now rather than waiting for the next setGraph. The page hands
+    // the coils over and builds the graph in two separate effects, and their
+    // order isn't ours to rely on: on the first payload this arrives second
+    // as often as first, and a coil that waited would leave its folder
+    // sprayed across the map until something else happened to rebuild.
+    this.placeCoils(new Map(this.simNodes.map((n) => [n.id, n])));
+    // A folder just grew a body the size of its whole spiral (or lost one),
     // and d3 caches collision radii in initialize() — so the forces have to
-    // be told, or the map would go on treating the centre as a plain folder
+    // be told, or the map would go on treating that centre as a plain folder
     // and thread itself straight through the arms.
     this.reshapeBodies();
   }
@@ -3288,126 +3328,138 @@ export class TerrainCanvas {
   }
 
   /**
-   * Resolve the coil the page asked for into real nodes, and work out its
-   * shape.
+   * Resolve the coils the page asked for into real nodes, and work out each
+   * one's shape.
    *
-   * Runs once per setGraph, with the nodes freshly built — never per tick.
-   * The arrangement only depends on HOW MANY dots there are, and that can
-   * only change when the graph does.
+   * Runs once per setGraph, with the nodes freshly built — never per tick. An
+   * arrangement only depends on HOW MANY dots a coil has, and that can only
+   * change when the graph does.
    *
-   * A dot already on the coil keeps the offset it had, so a rebuild that
-   * changes nothing (a heat tick, a refetch) doesn't make the coil jump. A
+   * A dot already on its coil keeps the offset it had, so a rebuild that
+   * changes nothing (a heat tick, a refetch) doesn't make the spiral jump. A
    * dot that is NEW to it starts at the centre, which is what pays the chain
-   * out when she widens the window.
+   * out when she widens a window.
    */
-  private placeCoil(byId: ReadonlyMap<string, SimNode>): void {
-    const before = this.coil;
-    this.coil = null;
-    this.coilDotIds = new Set();
-    const hub = this.coilFolderId ? byId.get(this.coilFolderId) : undefined;
-    if (!hub || this.coilIds.length === 0) return;
-    const dots = this.coilIds.map((id) => byId.get(id)).filter((n): n is SimNode => n !== undefined);
-    if (dots.length === 0) return;
-
-    const arrangement = spiralSpots(dots.length);
-    const held = new Map(before?.dots.map((dot, i) => [dot.id, before.offsets[i]]) ?? []);
-    const offsets = dots.map((dot) => held.get(dot.id) ?? { x: 0, y: 0 });
-    this.coil = { hub, dots, arrangement, offsets };
-    this.coilDotIds = new Set(dots.map((dot) => dot.id));
-    // One settle at full strength so the FIRST frame has the coil already
+  private placeCoils(byId: ReadonlyMap<string, SimNode>): void {
+    const held = new Map<string, { x: number; y: number }>();
+    for (const coil of this.coils) {
+      coil.dots.forEach((dot, i) => held.set(dot.id, coil.offsets[i]));
+    }
+    const wound: WoundCoil[] = [];
+    const dotIds = new Set<string>();
+    for (const spec of this.coilSpecs) {
+      const hub = byId.get(spec.folderId);
+      if (!hub || spec.ids.length === 0) continue;
+      const dots = spec.ids.map((id) => byId.get(id)).filter((n): n is SimNode => n !== undefined);
+      if (dots.length === 0) continue;
+      wound.push({
+        hub,
+        dots,
+        arrangement: spiralSpots(dots.length),
+        offsets: dots.map((dot) => held.get(dot.id) ?? { x: 0, y: 0 }),
+        caption: spec.caption,
+      });
+      for (const dot of dots) dotIds.add(dot.id);
+    }
+    const hadNone = this.coils.length === 0;
+    this.coils = wound;
+    this.coilDotIds = dotIds;
+    this.coilByHubId = new Map(wound.map((coil) => [coil.hub.id, coil]));
+    // One settle at full strength so the FIRST frame has every coil already
     // wound rather than collapsed into its own centre. Only dots carried over
     // from a previous coil have an offset to keep; the new ones are at the
     // centre and this pass is what starts them moving.
-    this.settleCoil(before === null ? 1 : COIL_EASE);
+    this.settleCoils(hadNone ? 1 : COIL_EASE);
   }
 
   /**
-   * Pin every upload dot to its spot on the coil, and ease the new ones out
-   * along the strand toward theirs.
+   * Pin every coil's dots to their spots, and ease the new ones out along the
+   * strand toward theirs.
    *
-   * Called every tick, because the hub moves every tick: the offsets are what
-   * ease, and the hub's own position is followed exactly. Doing it the other
-   * way — easing the absolute position toward hub + spot — smears the coil
-   * behind the hub whenever the map shifts it.
+   * Called every tick, because the hubs move every tick: the offsets are what
+   * ease, and each hub's own position is followed exactly. Doing it the other
+   * way — easing the absolute position toward hub + spot — smears a coil
+   * behind its hub whenever the map shifts it.
    */
-  private settleCoil(ease: number): void {
-    const coil = this.coil;
-    if (coil === null) return;
-    const hubX = coil.hub.x ?? 0;
-    const hubY = coil.hub.y ?? 0;
-    for (let i = 0; i < coil.dots.length; i += 1) {
-      const dot = coil.dots[i];
-      const spot = coil.arrangement.spots[i];
-      const offset = coil.offsets[i];
-      offset.x += (spot.x - offset.x) * ease;
-      offset.y += (spot.y - offset.y) * ease;
-      // Pinned, exactly like a table on its shelf: fx/fy hold the dot in
-      // place and the physics flows around it. The velocity goes with it, or
-      // the sim keeps integrating a node that isn't allowed to move and the
-      // map never reaches quiescence — it would spin its timer forever.
-      dot.fx = dot.x = hubX + offset.x;
-      dot.fy = dot.y = hubY + offset.y;
-      dot.vx = 0;
-      dot.vy = 0;
+  private settleCoils(ease: number): void {
+    for (const coil of this.coils) {
+      const hubX = coil.hub.x ?? 0;
+      const hubY = coil.hub.y ?? 0;
+      for (let i = 0; i < coil.dots.length; i += 1) {
+        const dot = coil.dots[i];
+        const spot = coil.arrangement.spots[i];
+        const offset = coil.offsets[i];
+        offset.x += (spot.x - offset.x) * ease;
+        offset.y += (spot.y - offset.y) * ease;
+        // Pinned, exactly like a table on its shelf: fx/fy hold the dot in
+        // place and the physics flows around it. The velocity goes with it,
+        // or the sim keeps integrating a node that isn't allowed to move and
+        // the map never reaches quiescence — it would spin its timer forever.
+        dot.fx = dot.x = hubX + offset.x;
+        dot.fy = dot.y = hubY + offset.y;
+        dot.vx = 0;
+        dot.vy = 0;
+      }
     }
   }
 
   /**
-   * Draw the strand: one line running the length of the coil, newest dot to
+   * Draw each coil's strand: one line running its length, newest dot to
    * oldest.
    *
-   * This is the coil's only line, and it replaces a hundred of them — the
-   * folder ropes are skipped for these dots (see the paint loop), because a
-   * fan out of the centre would fill the spiral solid and say nothing except
-   * "these are in that folder", which standing on the coil already says.
+   * This is a coil's only line, and it replaces as many as it has dots — the
+   * folder ropes are skipped for them (see the paint loop), because a fan out
+   * of the centre would fill the spiral solid and say nothing except "these
+   * are in that folder", which standing on the coil already says.
    *
    * The strand says something the fan couldn't: it's the ORDER. Following it
-   * out from the middle is walking backwards through her uploads, and the
-   * gaps in it are the weeks she didn't upload anything.
+   * out from the middle is walking backwards through the folder, and the gaps
+   * in it are the stretches when nothing was added.
    *
    * Drawn under the dots, in the map's plain border grey, and fading toward
-   * the tip so the coil reads as trailing off into the past rather than
+   * the tip so a coil reads as trailing off into the past rather than
    * stopping dead at whatever the window happens to cut.
    */
-  private drawCoilStrand(
+  private drawCoilStrands(
     ctx: CanvasRenderingContext2D,
     transform: ZoomTransform,
     theme: ThemeInk,
     dimmed: boolean,
   ): void {
-    const coil = this.coil;
-    if (coil === null || coil.dots.length < 2) return;
-    // Hidden dots (the Files dial cut below them, the vault toggled off) take
-    // the strand with them — a line running through empty ground would be a
-    // claim about dots that aren't on the map.
-    if (this.hiddenFiles.has(coil.dots[0].id)) return;
-
+    if (this.coils.length === 0) return;
     ctx.save();
     ctx.lineWidth = 1 / transform.k;
     ctx.strokeStyle = theme.border;
     ctx.setLineDash([]);
-    // One segment at a time rather than one long path, because each fades a
-    // little further than the last and a single stroke can only hold one
-    // alpha. The coil is a few hundred segments at most — the same order as
-    // the tree edges drawn just above.
-    for (let i = 1; i < coil.dots.length; i += 1) {
-      const from = coil.dots[i - 1];
-      const to = coil.dots[i];
-      if (this.hiddenFiles.has(to.id)) break;
-      const along = i / coil.dots.length;
-      ctx.globalAlpha = (dimmed ? 0.12 : 0.4) * (1 - along * 0.75);
-      ctx.beginPath();
-      ctx.moveTo(from.x ?? 0, from.y ?? 0);
-      ctx.lineTo(to.x ?? 0, to.y ?? 0);
-      ctx.stroke();
+    for (const coil of this.coils) {
+      if (coil.dots.length < 2) continue;
+      // Hidden dots (the Files dial cut below them, the repo toggled off)
+      // take the strand with them — a line running through empty ground
+      // would be a claim about dots that aren't on the map.
+      if (this.hiddenFiles.has(coil.dots[0].id)) continue;
+      // One segment at a time rather than one long path, because each fades a
+      // little further than the last and a single stroke can only hold one
+      // alpha. A coil is a few hundred segments at most — the same order as
+      // the tree edges drawn just above.
+      for (let i = 1; i < coil.dots.length; i += 1) {
+        const from = coil.dots[i - 1];
+        const to = coil.dots[i];
+        if (this.hiddenFiles.has(to.id)) break;
+        const along = i / coil.dots.length;
+        ctx.globalAlpha = (dimmed ? 0.12 : 0.4) * (1 - along * 0.75);
+        ctx.beginPath();
+        ctx.moveTo(from.x ?? 0, from.y ?? 0);
+        ctx.lineTo(to.x ?? 0, to.y ?? 0);
+        ctx.stroke();
+      }
     }
     ctx.restore();
   }
 
-  /** Is this dot wound onto the upload coil? Pinned, so the springs and the
-   * charge must leave it alone, and the tree edge into it isn't drawn — the
-   * strand through the coil says where it lives far better than a hundred
-   * lines fanning out of one folder could. */
+  /** Is this dot wound onto any coil? Pinned, so the springs and the charge
+   * must leave it alone, and the tree edge into it isn't drawn — the strand
+   * along its coil says where it lives far better than a hundred lines
+   * fanning out of one folder could. */
   private onCoil(n: SimNode): boolean {
     return this.coilDotIds.has(n.id);
   }
@@ -4008,7 +4060,7 @@ export class TerrainCanvas {
       // shelves, one order of magnitude worse: a hundred lines fanning out of
       // the folder at the coil's centre would fill the spiral solid and bury
       // the one line that's worth reading there, which is the strand running
-      // along it (drawCoilStrand). A session tether still draws: which agent
+      // along it (drawCoilStrands). A session tether still draws: which agent
       // opened which photo is exactly what the coil's own shape can't say.
       if ((link.kind ?? 'tree') === 'tree' && (this.onCoil(s) || this.onCoil(t))) continue;
       // A line with BOTH ends inside the lit answer is the hover's own: the
@@ -4110,7 +4162,7 @@ export class TerrainCanvas {
     }
     ctx.setLineDash([]);
 
-    this.drawCoilStrand(ctx, transform, theme, dimmed);
+    this.drawCoilStrands(ctx, transform, theme, dimmed);
 
     // -- nodes --
     const minR = MIN_NODE_PX / transform.k;   // world units for a screen-px floor
@@ -4618,9 +4670,10 @@ export class TerrainCanvas {
         // control with no reading on it is one she has to remember rather
         // than see. It sits INSIDE the coil's centre hole, which is kept
         // clear of dots for exactly this (SPIRAL_INNER_RADIUS).
-        if (this.coilCaption !== null && n.id === this.coil?.hub.id) {
+        const captioned = this.coilByHubId.get(n.id);
+        if (captioned?.caption) {
           ctx.fillStyle = theme.textMuted;
-          ctx.fillText(this.coilCaption, sx, sy + n.radius * k + LABEL_PX);
+          ctx.fillText(captioned.caption, sx, sy + n.radius * k + LABEL_PX);
         }
       } else if (n.node.kind === 'session') {
         // Orb titles in ink (identity color stays on the ring itself).

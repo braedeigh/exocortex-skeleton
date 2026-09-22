@@ -647,66 +647,136 @@ def _terrain_live_ids(index, running_ids):
     return live
 
 
-# --- the uploads coil: the archive folder, listed whole ----------------------
+# --- the coils: folders listed whole, to be drawn as spirals ----------------
 #
-# The map draws the uploads archive as a SPIRAL around its folder node — the
-# last month of uploads by default, widening a step each time she taps the
-# middle (frontend: uploadNodes.ts, spiralLayout.ts). This sends the folder's
-# filenames, uncapped, and nothing else.
+# Some folders are one file per near-identical, time-stamped thing — uploads,
+# chat logs, daily journal pages, diary entries. On a map that draws a dot per
+# file each of those arrives as the biggest structure in its repo and says
+# nothing except "there are a lot of these". The map winds them into spirals
+# instead (frontend: coilFolders.ts, spiralLayout.ts): the last month or so
+# around the folder node, widening a step each time she taps the middle.
 #
-# It has to be uncapped, and that is not a preference. `files` is cut to the
-# hottest N per repo, and an upload's git heat is a lie to begin with: its
-# history records the bulk commits that swept the vault, not the moment she
-# uploaded anything. Measured on this vault, 633 uploads carry 20 distinct
-# touch-sets between them, and the hottest-350 cut leaves exactly ZERO of them
-# standing. A coil built from `files` would have drawn nothing at all and
-# looked like an empty month.
+# WHICH FOLDERS IS HERS, not the app's. It comes from `terrain_coils.json` in
+# the data dir, so adding a coil is editing a data file and reloading — no
+# code change, and nothing about her vault's layout baked into a shareable
+# repo. With no such file, the uploads archive is the one default, resolved
+# from store.UPLOAD_ARCHIVE_DIR (which EXOCORTEX_UPLOAD_ARCHIVE_DIR can move).
 #
-# FILENAMES ONLY, no times. The upload moment is in the name
-# (`20260326_232944.png`), and the client already has to parse it for the
-# payload fallback — sending a time as well would be a second clock, free to
-# disagree with the first. One parser, on one side.
+#   {"coils": [
+#      {"path": "data/uploads-archive", "time": "stamp"},
+#      {"path": "tulku/people", "time": "git", "windows": [92, null]},
+#      {"path": "data/write_log", "ignore": ["*.db-shm", "*.db-wal"]}
+#   ]}
 #
-# Prompt that produced it: "arrange them into a spiral that only shows like the
-# last month or so of uploads ... but you could click the center to load more".
+# `time` is the one thing about a folder that can't be inferred by looking at
+# it: 'stamp' reads each file's moment out of its FILENAME and throws the git
+# history away, 'git' keeps the real touches. Stamp is the default and is
+# right for a folder git only ever bulk-moves — measured on the uploads
+# archive, 633 files carry 20 distinct touch-sets between them, 346 of them
+# sharing a single commit, so a coil lit by git would show three flat bands
+# meaning "a commit swept through here".
+#
+# LISTED UNCAPPED, and that is not a preference. `files` is cut to the hottest
+# N per repo, and for a bulk-moved folder that ranking is built on a lie to
+# begin with: measured, the hottest-350 cut leaves exactly ZERO of those 633
+# uploads standing. A coil built from `files` would have drawn nothing at all
+# and looked like an empty month.
+#
+# FILENAMES ONLY, no times. A stamped moment is in the name, and the client
+# already has to parse it for the payload fallback — sending a time as well
+# would be a second clock, free to disagree with the first. One parser, on one
+# side.
+#
+# Prompt that produced it: "can you make this into a modular file that I can
+# apply to different folders? i have a few other candidates i want to assign
+# this".
 
-_UPLOAD_LIST_MAX = 5000   # ceiling on the listing — well past any real archive
+_COIL_LIST_MAX = 5000   # ceiling per folder — well past any real one here
+_COIL_WINDOWS = [31, 92, 183, None]   # default steps; keep with DEFAULT_COIL_WINDOWS
 
 
-def _uploads_listing():
-    """The uploads archive as {repo, prefix, paths}, or None if there isn't one.
+def _coil_specs():
+    """What to wind into a coil: a list of {path, repo, time, windows, ignore}.
 
-    The folder is resolved from `store.UPLOAD_ARCHIVE_DIR`, which an install
-    can move with EXOCORTEX_UPLOAD_ARCHIVE_DIR — so WHERE it is is the
-    server's to say, and the client is told rather than assuming. Its repo is
-    whichever terrain repo actually contains it; an archive outside both (a
-    detached data dir) simply has no coil, which is the honest answer.
-
-    Newest first, cut to `_UPLOAD_LIST_MAX`. Sorting by name is sorting by
-    time for a stamped filename, and the client re-sorts on the parsed moment
-    anyway — this ordering only decides which get dropped at the ceiling.
+    Her file when there is one, else the uploads archive alone — which keeps
+    an install that has never heard of this file behaving exactly as it did.
+    Anything malformed is skipped rather than raised on: a typo in a data file
+    should cost one coil, not the whole map.
     """
-    try:
-        archive = Path(store.UPLOAD_ARCHIVE_DIR).resolve()
-    except OSError:
-        return None
-    if not archive.is_dir():
-        return None
-    for repo in observatory._terrain_repos():
+    configured = store.read("terrain_coils", {}) or {}
+    specs = []
+    for raw in (configured.get("coils") or []):
+        if not isinstance(raw, dict) or not raw.get("path"):
+            continue
+        time = raw.get("time") if raw.get("time") in ("stamp", "git") else "stamp"
+        windows = raw.get("windows")
+        if not isinstance(windows, list) or not windows:
+            windows = _COIL_WINDOWS
+        specs.append({"path": str(raw["path"]).strip("/"),
+                      "repo": raw.get("repo"),
+                      "time": time,
+                      "windows": windows,
+                      "ignore": [g for g in (raw.get("ignore") or []) if isinstance(g, str)]})
+    if specs:
+        return specs
+    # The default, and the only one this repo knows by name. Stated as an
+    # absolute path so it follows EXOCORTEX_UPLOAD_ARCHIVE_DIR wherever it is.
+    return [{"path": Path(store.UPLOAD_ARCHIVE_DIR), "repo": None, "time": "stamp",
+             "windows": _COIL_WINDOWS, "ignore": []}]
+
+
+def _coil_folder(spec):
+    """Resolve one spec to (repo_id, prefix, folder) — or None if it isn't a
+    readable directory inside a terrain repo.
+
+    Refuse any path that escapes its repo. `relative_to` is what enforces it:
+    a `path` of "../../etc" resolves outside every repo root and matches none
+    of them, so it falls off the end rather than being listed."""
+    repos = observatory._terrain_repos()
+    if spec["repo"]:
+        repos = [r for r in repos if r["id"] == spec["repo"]]
+    for repo in repos:
         try:
-            rel = archive.relative_to(Path(repo["root"]).resolve())
+            root = Path(repo["root"]).resolve()
+            folder = (Path(spec["path"]) if Path(spec["path"]).is_absolute()
+                      else root / spec["path"]).resolve()
+            rel = folder.relative_to(root)
         except (ValueError, OSError):
             continue
-        prefix = f"{rel.as_posix()}/"
-        try:
-            names = sorted((f.name for f in archive.iterdir() if f.is_file()),
-                           reverse=True)[:_UPLOAD_LIST_MAX]
-        except OSError:
-            # Unreadable mid-scan — never break the whole map over the coil.
-            return None
-        return {"repo": repo["id"], "prefix": prefix,
-                "paths": [f"{prefix}{name}" for name in names]}
+        if not folder.is_dir():
+            continue
+        return repo["id"], f"{rel.as_posix()}/", folder
     return None
+
+
+def _coil_listings():
+    """Every configured folder, listed whole, for the map's spirals.
+
+    Newest first, cut to `_COIL_LIST_MAX`. Sorting by name is sorting by time
+    for a stamped filename, and the client re-sorts on the parsed moment
+    anyway — this ordering only decides which get dropped at the ceiling.
+    """
+    out = []
+    for spec in _coil_specs():
+        found = _coil_folder(spec)
+        if found is None:
+            continue
+        repo_id, prefix, folder = found
+        try:
+            names = sorted((f.name for f in folder.iterdir() if f.is_file()),
+                           reverse=True)
+        except OSError:
+            # Unreadable mid-scan — never break the whole map over one coil.
+            continue
+        if spec["ignore"]:
+            names = [n for n in names
+                     if not any(fnmatch(n, g) for g in spec["ignore"])]
+        out.append({"repo": repo_id,
+                    "prefix": prefix,
+                    "time": spec["time"],
+                    "windows": spec["windows"],
+                    "paths": [f"{prefix}{n}" for n in names[:_COIL_LIST_MAX]]})
+    return out
 
 
 def _cap_files(files_out, file_cap):
@@ -912,9 +982,9 @@ def _build_terrain(file_cap=_TERRAIN_FILE_CAP):
             # The pond tile's month, counted in the journal rather than in
             # this payload's (capped) card files. See _pond_days.
             "pond_days": _pond_days(),
-            # The uploads archive listed whole, for the spiral. Uncapped on
-            # purpose — see _uploads_listing.
-            "uploads": _uploads_listing(),
+            # Her coil folders, each listed whole. Uncapped on purpose, and
+            # which folders is hers to say — see _coil_listings.
+            "coils": _coil_listings(),
             "repos": repos_out,
             "sessions": sessions_out}
 

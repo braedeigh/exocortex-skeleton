@@ -122,17 +122,28 @@ export interface TerrainData {
    */
   pond_days?: { day: string; touches: number[] }[];
   /**
-   * The uploads folder listed straight off disk, uncapped, for the spiral
-   * (uploadNodes.ts): the repo it lives in and every filename in it. Paths
-   * only — the upload TIME is read from the filename, by one parser on the
-   * client, so a second clock on the server can't disagree with it.
+   * The folders drawn as spiral coils (coilFolders.ts), each listed straight
+   * off disk, uncapped: where it is, where its dots get their time, the
+   * window steps its centre walks through, and every filename in it.
+   *
+   * WHICH folders is hers — routes/terrain.py reads it from
+   * `data/terrain_coils.json` — so adding one is editing that file, not the
+   * app. Paths only, never times: a stamp coil's moment is read from the
+   * filename by one parser on the client, so a second clock on the server
+   * can't disagree with it.
    *
    * Uncapped because it has to be: `repos[].files` is cut to the hottest N,
    * and measured on this vault that cut leaves 0 of 633 uploads. Optional —
-   * an install whose server predates this sends nothing, and uploadNodes.ts
-   * falls back to whatever uploads did survive the cap.
+   * an install whose server predates this sends nothing, and coilFolders.ts
+   * falls back to whatever survived the cap.
    */
-  uploads?: { repo: string; prefix: string; paths: string[] };
+  coils?: {
+    repo: string;
+    prefix: string;
+    time: 'stamp' | 'git';
+    windows: (number | null)[];
+    paths: string[];
+  }[];
 }
 
 export const TERRAIN_KEY = ['terrain'] as const;

@@ -1,0 +1,169 @@
+"""The coil folders the terrain payload lists for the map's spirals.
+
+`_coil_listings` is the one thing standing between a coil and an empty map:
+a bulk-moved folder's files never survive the payload's hottest-N cut (their
+git heat is commit noise), so this listing is the ONLY place those dots come
+from. It is also the only place that says WHERE each folder is and what clock
+its dots run on — a prefix that doesn't match the repo-relative paths in
+`files` would leave the client scanning for a folder that, as far as it can
+tell, isn't there.
+
+All of that fails silently and looks like "a quiet month", so it's pinned
+here. So is the refusal to list a folder outside the repos, which is the one
+failure here that would be worse than silent.
+"""
+import pytest
+
+import store
+from routes import terrain
+
+
+@pytest.fixture
+def vault(data_dir, monkeypatch, tmp_path):
+    """A fake vault repo with the terrain repos pointed at it, so the same
+    relative_to resolution runs that runs against the real one."""
+    root = tmp_path / "vault"
+    (root / "data").mkdir(parents=True)
+    monkeypatch.setattr(store, "UPLOAD_ARCHIVE_DIR", root / "data" / "uploads-archive")
+    monkeypatch.setattr(terrain.observatory, "_terrain_repos", lambda: (
+        {"id": "skeleton", "name": "App code", "root": tmp_path / "skeleton"},
+        {"id": "vault", "name": "Personal vault", "root": root},
+    ))
+    return root
+
+
+def _folder(root, rel, names):
+    folder = root / rel
+    folder.mkdir(parents=True, exist_ok=True)
+    for name in names:
+        (folder / name).write_bytes(b"x")
+    return folder
+
+
+def _configure(coils):
+    store.write("terrain_coils", {"coils": coils})
+
+
+def test_defaults_to_the_uploads_archive_with_no_config(vault):
+    """An install that has never heard of the config file behaves exactly as
+    it did before there was one."""
+    _folder(vault, "data/uploads-archive", ["20260920_140908.png"])
+
+    listings = terrain._coil_listings()
+
+    assert len(listings) == 1
+    assert listings[0]["repo"] == "vault"
+    assert listings[0]["prefix"] == "data/uploads-archive/"
+    assert listings[0]["time"] == "stamp"
+    assert listings[0]["paths"] == ["data/uploads-archive/20260920_140908.png"]
+
+
+def test_lists_several_folders_without_bleeding(vault):
+    _folder(vault, "data/uploads-archive", ["20260920_140908.png"])
+    _folder(vault, "data/bot_chats", ["2026-07-23.101356.jsonl", "2026-07-24.101356.jsonl"])
+    _configure([{"path": "data/uploads-archive"}, {"path": "data/bot_chats"}])
+
+    listings = terrain._coil_listings()
+
+    assert [c["prefix"] for c in listings] == ["data/uploads-archive/", "data/bot_chats/"]
+    assert len(listings[0]["paths"]) == 1
+    assert len(listings[1]["paths"]) == 2
+    # Repo-relative, matching the shape of `repos[].files[].path` — the client
+    # matches the two against each other.
+    assert all(p.startswith("data/bot_chats/") for p in listings[1]["paths"])
+
+
+def test_is_not_capped_the_way_files_are(vault):
+    """The whole point. The payload's own file list would keep none of these."""
+    _folder(vault, "data/uploads-archive",
+            [f"202603{i % 28 + 1:02d}_12{i % 60:02d}00_{i}.png" for i in range(400)])
+
+    assert len(terrain._coil_listings()[0]["paths"]) == 400
+
+
+def test_carries_the_time_source_and_windows_through(vault):
+    _folder(vault, "tulku/people", ["abboody.md"])
+    _configure([{"path": "tulku/people", "time": "git", "windows": [92, None]}])
+
+    listing = terrain._coil_listings()[0]
+
+    assert listing["time"] == "git"
+    assert listing["windows"] == [92, None]
+
+
+def test_an_unknown_time_source_falls_back_to_stamp(vault):
+    """A typo in a data file should cost a sensible default, not the map."""
+    _folder(vault, "data/bot_chats", ["2026-07-23.101356.jsonl"])
+    _configure([{"path": "data/bot_chats", "time": "vibes"}])
+
+    assert terrain._coil_listings()[0]["time"] == "stamp"
+
+
+def test_ignore_globs_keep_sidecars_off_the_coil(vault):
+    """write_log's SQLite sidecars are not entries — they'd each draw a dot."""
+    _folder(vault, "data/write_log",
+            ["2026-08-21.db", "2026-08-21.db-shm", "2026-08-21.db-wal"])
+    _configure([{"path": "data/write_log", "ignore": ["*.db-shm", "*.db-wal"]}])
+
+    assert terrain._coil_listings()[0]["paths"] == ["data/write_log/2026-08-21.db"]
+
+
+def test_refuses_a_path_that_escapes_the_repo(vault, tmp_path):
+    """The one failure here that would be worse than silent. `relative_to` is
+    what enforces it — an escaping path matches no repo root and falls off the
+    end rather than being listed."""
+    (tmp_path / "outside").mkdir()
+    (tmp_path / "outside" / "secret.txt").write_bytes(b"x")
+    _configure([{"path": "../outside"}])
+
+    assert terrain._coil_listings() == []
+
+
+def test_skips_a_folder_that_is_not_there(vault):
+    _folder(vault, "data/bot_chats", ["2026-07-23.101356.jsonl"])
+    _configure([{"path": "data/gone"}, {"path": "data/bot_chats"}])
+
+    assert [c["prefix"] for c in terrain._coil_listings()] == ["data/bot_chats/"]
+
+
+def test_skips_a_malformed_entry(vault):
+    _folder(vault, "data/bot_chats", ["2026-07-23.101356.jsonl"])
+    _configure(["not-a-dict", {}, {"path": "data/bot_chats"}])
+
+    assert [c["prefix"] for c in terrain._coil_listings()] == ["data/bot_chats/"]
+
+
+def test_follows_the_archive_when_the_install_moves_it(vault, monkeypatch):
+    """EXOCORTEX_UPLOAD_ARCHIVE_DIR can put the default folder anywhere in the
+    vault; the prefix has to follow it, because the client is told rather than
+    assuming."""
+    _folder(vault, "elsewhere/shots", ["20260920_140908.png"])
+    monkeypatch.setattr(store, "UPLOAD_ARCHIVE_DIR", vault / "elsewhere" / "shots")
+
+    listing = terrain._coil_listings()[0]
+
+    assert listing["prefix"] == "elsewhere/shots/"
+    assert listing["paths"] == ["elsewhere/shots/20260920_140908.png"]
+
+
+def test_ignores_subfolders(vault):
+    folder = _folder(vault, "data/uploads-archive", ["20260920_140908.png"])
+    _folder(folder, "old", ["20260101_000000.png"])
+
+    assert terrain._coil_listings()[0]["paths"] == [
+        "data/uploads-archive/20260920_140908.png"
+    ]
+
+
+def test_keeps_the_newest_at_the_ceiling(vault, monkeypatch):
+    """Past the ceiling it's the OLDEST that get dropped — a coil is read from
+    its newest dot outward, so that's the end that can be spared."""
+    monkeypatch.setattr(terrain, "_COIL_LIST_MAX", 3)
+    _folder(vault, "data/uploads-archive",
+            [f"2026032{day}_120000.png" for day in (1, 2, 3, 4, 5)])
+
+    assert terrain._coil_listings()[0]["paths"] == [
+        "data/uploads-archive/20260325_120000.png",
+        "data/uploads-archive/20260324_120000.png",
+        "data/uploads-archive/20260323_120000.png",
+    ]

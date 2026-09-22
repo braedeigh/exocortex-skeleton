@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { subscribeTheme } from '../../theme';
 import { useTerrain, type TerrainData } from './api';
 import { collapseToPondTile, localDayISO } from './pondNodes';
-import { windowUploads } from './uploadNodes';
+import { windowCoils } from './coilFolders';
 import {
   alternatingBreath,
   windowToHalfLife,
@@ -118,18 +118,17 @@ export function TerrainBackdrop({
   const fittedRef = useRef(false);
 
   /**
-   * The uploads coil, then the journal's pond tile — both once per payload,
+   * The coil folders, then the journal's pond tile — both once per payload,
    * not per breath tick: parsing a couple of thousand filenames at 7fps would
    * be pure waste.
    *
    * The backdrop takes EVERY file the payload will give (BACKDROP_TIER is
-   * null — no cap), so without this the wallpaper carries the whole uploads
-   * archive as a spray of several hundred identical dots, which is the exact
-   * thicket the coil exists to undo. It gets the coil at its default month
-   * and no way to widen it: this is wallpaper, and it takes no gestures at
-   * all.
+   * null — no cap), so without this the wallpaper carries each coil folder
+   * whole, as a spray of several hundred identical dots — the exact thicket
+   * the coils exist to undo. They get their default first window and no way
+   * to widen it: this is wallpaper, and it takes no gestures at all.
    */
-  const coiled = useMemo(() => (data ? windowUploads(data) : undefined), [data]);
+  const coiled = useMemo(() => (data ? windowCoils(data) : undefined), [data]);
   const collapsed = useMemo(
     () => (coiled ? collapseToPondTile(coiled.data, localDayISO()).data : undefined),
     [coiled],
@@ -142,7 +141,7 @@ export function TerrainBackdrop({
   // The coil rides in a ref for the same reason the payload does: the breath
   // paints outside React's render cycle. No caption — the wallpaper's centre
   // isn't a control, so there's nothing for it to report.
-  const coilRef = useRef<ReturnType<typeof windowUploads> | undefined>(undefined);
+  const coilRef = useRef<ReturnType<typeof windowCoils> | undefined>(undefined);
   coilRef.current = coiled;
 
   // The focused conversation, in a ref for the same reason — the breath's paint
@@ -254,7 +253,15 @@ export function TerrainBackdrop({
       });
       // Same node ids every time, so this updates heat in place and never
       // re-warms the layout — the map holds still, only the embers move.
-      engine.setCoilNodes(coilRef.current?.spiralIds ?? [], coilRef.current?.folderId ?? null, null);
+      engine.setCoils(
+        (coilRef.current?.coils ?? []).map((coil) => ({
+          folderId: coil.folderId,
+          ids: coil.spiralIds,
+          // No caption — the wallpaper's centres aren't controls, so there's
+          // nothing for them to report.
+          caption: null,
+        })),
+      );
       engine.setGraph(graph.nodes, graph.edges);
       if (!fittedRef.current && graph.nodes.length > 0) {
         fittedRef.current = true;
