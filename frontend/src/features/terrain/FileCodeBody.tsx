@@ -111,12 +111,11 @@ export function FileCodeBody({
   // when the function around each line last ran — the runtime sensor, through
   // GET /api/observatory/terrain/file/runs — fetched only while the toggle
   // is on, and again every minute, so code she just used turns gold while
-  // the file is still open. A visitor never gets the toggle: that endpoint
-  // isn't open to them.
+  // the file is still open. A visitor gets it too: the endpoint sits behind
+  // the same app-code-only lock as the file's text.
   // Prompt that produced it: "see which function in a file ran, not just
   // that the file ran".
-  const visitor = typeof window !== 'undefined' && window.VIEW_MODE === 'public';
-  const runOn = useCodeRunOn() && !visitor;
+  const runOn = useCodeRunOn();
   const runs = useTerrainFileRuns(repo, path, runOn && !!data && !data.binary);
   // Read the theme's ink, and build the red's ramp from it.
   // The ink is wanted whenever there's code on screen, not only for the
@@ -263,8 +262,8 @@ export function FileCodeBody({
           ) : null}
           {/* The gold-ran toggle: turn the per-function run colour on or
               off. The same pill as "edits", lit gold. One setting for every
-              file (codeHeatPref.ts). Hidden for binaries, and for a visitor. */}
-          {!data.binary && !visitor ? (
+              file (codeHeatPref.ts). Hidden for binaries. */}
+          {!data.binary ? (
             <button
               type="button"
               className={[styles.heatToggle, runOn ? styles.runToggleOn : ''].filter(Boolean).join(' ')}

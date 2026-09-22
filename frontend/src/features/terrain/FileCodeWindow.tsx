@@ -82,7 +82,6 @@ export function FileCodeWindow({
   // would ellipsize the actual filename away, so the name gets the title
   // line and the full path gets its own line under it.
   const name = path.split('/').filter(Boolean).slice(-1)[0] ?? path;
-  const visitor = window.VIEW_MODE === 'public';
 
   return (
     <div className={styles.pane} role="dialog" aria-label={name}>
@@ -104,25 +103,24 @@ export function FileCodeWindow({
             pane here stays open; × still closes it. `_blank` (not a named
             target) so each press gives a NEW tab and two files can be open at
             once. Called straight from the click, because an installed PWA
-            blocks window.open from anywhere else. Hidden from a public
-            visitor: /code is the owner's and would only bounce them home.
+            blocks window.open from anywhere else. A public visitor gets it
+            too: /code is open to them (public_config.PRESENTABLE_PATHS) and
+            reads through the same app-code-only lock as this pane.
             Her ask: "open a code window in a new browser window by clicking
             a button, where it becomes the only pane… next to the x button",
             then: "I think I want it to be a normal browser tab." */}
-        {visitor ? null : (
-          <IconButton
-            aria-label="Open in a new tab"
-            title="Open in a new tab"
-            data-track="terrain-code-popout"
-            onClick={() => window.open(soloCodeHref(repo, path, mentions), '_blank')}
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M14 4h6v6" />
-              <path d="M20 4l-9 9" />
-              <path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5" />
-            </svg>
-          </IconButton>
-        )}
+        <IconButton
+          aria-label="Open in a new tab"
+          title="Open in a new tab"
+          data-track="terrain-code-popout"
+          onClick={() => window.open(soloCodeHref(repo, path, mentions), '_blank')}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M14 4h6v6" />
+            <path d="M20 4l-9 9" />
+            <path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5" />
+          </svg>
+        </IconButton>
         <IconButton aria-label="Close" onClick={onClose}>
           &times;
         </IconButton>

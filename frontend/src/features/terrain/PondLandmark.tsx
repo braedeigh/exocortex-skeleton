@@ -272,8 +272,12 @@ export function PondLandmark({
     [onReach],
   );
 
+  // Go into the pond. A visitor sees the landmark (its silhouette is counts,
+  // never words) but the pond itself is the journal, so for them the tile
+  // only ever settles back down.
   const enter = () => {
     reach(false);
+    if (typeof window !== 'undefined' && window.VIEW_MODE === 'public') return;
     void navigate({ to: '/terrain/pond' });
   };
 

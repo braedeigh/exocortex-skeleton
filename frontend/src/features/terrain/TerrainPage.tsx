@@ -342,12 +342,17 @@ export function TerrainPage() {
   const router = useRouter();
   const pageVisible = usePageVisible();
   // A logged-out visitor — on the private site's public view or the
-  // public-only mirror. The MAP is public (public_config.PUBLIC_PATHS); the
-  // things around it are not: the session roster, flow, creek, traces, the
-  // rooms, and any file that isn't tracked app code (the server refuses
-  // those with 403 — the window shows "private"). Owner's call, 2026-09-17:
-  // "i am ok with personal stuff showing on the map, just make all personal
-  // files unreadable to visitors, but the code can be interactive."
+  // public-only mirror. The MAP is public (public_config.PUBLIC_PATHS), and
+  // so is everything on it that is shape rather than speech: the dots, the
+  // tables, the threads (creek), the pond's silhouette, and any file that is
+  // tracked app code (the server refuses the rest with 403 — the window
+  // shows "private"). What a visitor still doesn't get is what would quote
+  // her or write for her: the session roster and hovercard, flow (it carries
+  // the text being written), the notes and schedule panels, the rooms, and
+  // the journey recorder. Owner's calls: 2026-09-17, "i am ok with personal
+  // stuff showing on the map, just make all personal files unreadable to
+  // visitors, but the code can be interactive"; 2026-09-22, "make it such
+  // that mudscryer.org shows exactly the UI that i see on my personal".
   const visitor = typeof window !== 'undefined' && window.VIEW_MODE === 'public';
   // The EMBED view (?embed=1, shell/embed.ts): the map as a card inside an
   // <iframe> on the owner's portfolio page. Its one job there is "it's alive"
@@ -837,7 +842,7 @@ export function TerrainPage() {
   // static wiring plus per-collection write freshness, so it changes on the
   // order of minutes, not frames — built once per payload and only re-lit on
   // the breath below.
-  const { data: creek } = useCreek(14, { enabled: !visitor });
+  const { data: creek } = useCreek(14);
   const threads = useMemo(() => buildThreads(creek), [creek]);
 
   // Lit on the SAME window the gold dots ride, gold breath included, so a
@@ -1948,7 +1953,7 @@ export function TerrainPage() {
           while an overlay is up, for the same reason the agent hovercard is:
           it's anchored to a spot on a map she can no longer see. */}
       <PondLandmark
-        anchor={visitor || roomsOpen || codeFile !== null || selected !== null ? null : pondAnchor}
+        anchor={roomsOpen || codeFile !== null || selected !== null ? null : pondAnchor}
         onReach={(reached) => engineRef.current?.setPondLit(reached)}
       />
 

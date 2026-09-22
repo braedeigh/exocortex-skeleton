@@ -1,4 +1,4 @@
-import { createFileRoute, redirect } from '@tanstack/react-router';
+import { createFileRoute } from '@tanstack/react-router';
 import { FileCodePage } from '../features/terrain/FileCodePage';
 import { MENTIONS_PATTERN } from '../features/terrain/codeMentions';
 import { useDeactivateFrames } from '../shell/useIframeView';
@@ -28,8 +28,9 @@ import { useDeactivateFrames } from '../shell/useIframeView';
  * `lines`: a malformed list collapses to undefined (see
  * features/terrain/codeMentions.ts, which spells both ends of this param).
  *
- * Auth-only, same guard as /terrain and /observatory: it reads repo source, so
- * public visitors bounce to '/'.
+ * Open to public visitors since 2026-09-22, like the map's own file pane: the
+ * file endpoint behind it refuses anything but tracked app code to a stranger,
+ * so the page itself needs no guard.
  */
 export interface CodeSearch {
   /** Terrain repo id the path is relative to — 'skeleton' | 'vault'. */
@@ -67,10 +68,6 @@ export const Route = createFileRoute('/code')({
     of: typeof search.of === 'string' && search.of !== '' ? search.of : undefined,
     ...(search.solo === '1' || search.solo === 1 || search.solo === true ? { solo: true } : {}),
   }),
-  beforeLoad: () => {
-    if (typeof window === 'undefined') return;
-    if (window.VIEW_MODE === 'public') throw redirect({ to: '/' });
-  },
   component: CodeRoute,
 });
 

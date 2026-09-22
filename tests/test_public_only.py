@@ -127,6 +127,28 @@ def test_presentable_and_shell_stay_open(mirror):
     assert mirror.get("/manifest.webmanifest").status_code == 200
 
 
+# The map's shape-only companions, opened 2026-09-22 so the public map draws
+# the same threads, pond landmark and file pop-out the owner's does. Each is
+# the exact path: the content endpoints beside them stay shut.
+@pytest.mark.parametrize("path", ["/code", "/api/creek", "/api/pond/shape"])
+def test_map_companions_pass_the_gate(mirror, path):
+    resp = mirror.get(path)
+    assert resp.status_code not in (401, 302), path
+
+
+@pytest.mark.parametrize("path", [
+    "/terrain/pond", "/terrain/sql", "/terrain/flow",
+    "/api/observatory/flow", "/api/observatory", "/api/pond/cards",
+    "/api/creek/collection/todos/now",
+])
+def test_what_would_quote_her_stays_shut(mirror, path):
+    resp = mirror.get(path)
+    if path.startswith("/api/"):
+        assert resp.status_code == 401, path
+    else:
+        assert resp.status_code == 302, path
+
+
 def test_the_three_tiers_do_not_overlap():
     tiers = (set(public_config._SHELL_PATHS), set(public_config.PRESENTABLE_PATHS),
              set(public_config._NOT_YET_PRESENTABLE))
