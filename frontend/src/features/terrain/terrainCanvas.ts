@@ -3796,9 +3796,9 @@ export class TerrainCanvas {
     // perpendicular bow gives each its own arc and makes the direction of the
     // current legible.
     //
-    // Nothing here is capped or culled by count: cold threads simply arrive
-    // with t near zero and draw at an alpha that rounds to nothing. The heat IS
-    // the filter, so what's on screen is what's actually moving.
+    // Nothing here is capped or culled by count, because nothing is drawn
+    // unasked: a thread appears when the cursor is on one of its two dots, or
+    // when a selection or a replay is standing behind it.
     if (this.threads.length > 0) {
       const byId = new Map(this.simNodes.map((n) => [n.id, n]));
       const held = this.hoverFile;
@@ -3813,18 +3813,26 @@ export class TerrainCanvas {
       const picked = this.selectionAnswer();
       for (const th of this.threads) {
         const mine = held !== null && (th.sourceId === held || th.targetId === held);
-        const ofSelection =
-          picked !== null && (picked.has(th.sourceId) || picked.has(th.targetId));
-        // Which threads are worth drawing, in three tiers (threadTooCold).
-        // A cold thread nobody asked about is skipped as invisible. The
-        // HOVERED file's own threads are drawn however cold they are — the
-        // question being asked is "what is this wired to", and a pipe that
-        // hasn't moved in a month is still a pipe. The SELECTION's threads
-        // keep the floor they had before the hover, so narrowing onto one of
-        // its files neither adds threads nor removes any. Cold ones stay
-        // legibly cold — the floor below lifts them into view, it doesn't
-        // repaint them as fresh.
-        if (threadTooCold(th.t, mine, ofSelection, held !== null)) continue;
+        // Threads that stand with no cursor on them: what a pinned table or a
+        // spotlit agent named, and a journey replay's own path, which is
+        // itself the thing being watched (`always`, terrainThreads.ts).
+        const standing =
+          th.always === true ||
+          (picked !== null && (picked.has(th.sourceId) || picked.has(th.targetId)));
+        // Which threads are drawn at all (threadTooCold). A thread nobody
+        // asked about is skipped — at rest the few hundred of them matted
+        // over the app code and buried the tree. The HOVERED dot's own
+        // threads are drawn however cold they are: the question being asked
+        // is "what is this wired to", and a pipe that hasn't moved in a month
+        // is still a pipe. A STANDING thread keeps the ice-cold floor it
+        // always had, so narrowing onto one of its files neither adds threads
+        // nor removes any. Cold ones stay legibly cold — the floor below
+        // lifts them into view, it doesn't repaint them as fresh.
+        //
+        // Prompt that produced it: "please remove the activity threads from
+        // showing unless you are specifically hovering over a dot that has
+        // it".
+        if (threadTooCold(th.t, mine, standing)) continue;
         const a = byId.get(th.sourceId);
         const b = byId.get(th.targetId);
         if (!a || !b) continue; // one end filtered off the map by a dial
@@ -3843,11 +3851,10 @@ export class TerrainCanvas {
         const bow = Math.min(len * 0.16, 60);
         // Hovering a file asks a SECOND question without cancelling the
         // first: its own threads go to full opacity with a colour floor that
-        // guarantees a cold one is actually visible, the picked-out
-        // selection's threads hold exactly where they were, and only the
-        // threads neither answer named drop to a trace (threadPresence).
-        const lit = held === null ? th.t : mine ? Math.max(th.t, 0.42) : th.t;
-        ctx.globalAlpha = threadPresence(th.t, mine, ofSelection, held !== null);
+        // guarantees a cold one is actually visible, and the picked-out
+        // selection's threads hold exactly where they were (threadPresence).
+        const lit = mine ? Math.max(th.t, 0.42) : th.t;
+        ctx.globalAlpha = threadPresence(th.t, mine, standing);
         ctx.strokeStyle = heatColor(lit, threadRamp);
         ctx.lineWidth = (0.6 + 1.5 * lit) / transform.k * (mine ? 1.6 : 1);
         ctx.beginPath();

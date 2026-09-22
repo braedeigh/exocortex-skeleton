@@ -894,7 +894,7 @@ export function TerrainPage() {
               const key = `${b.fromId}>${b.nodeId}`;
               if (!seen.has(key)) {
                 seen.add(key);
-                threads.push({ sourceId: b.fromId, targetId: b.nodeId, collection: `journey:${b.kind}`, lastWrite: null, t: 1 });
+                threads.push({ sourceId: b.fromId, targetId: b.nodeId, collection: `journey:${b.kind}`, lastWrite: null, t: 1, always: true });
               }
             }
             last = b;

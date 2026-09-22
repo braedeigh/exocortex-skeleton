@@ -9,8 +9,12 @@
  * Now the hover ADDS instead. Two answers stand together and are told apart by
  * presence, not by going away: the hovered file's own lines at full strength,
  * the selection's remaining lines a step quieter but still readable, and
- * everything else scenery. Three tiers, one rule, used by all four line
- * channels (tree, threads, ropes, tethers) so none of them can drift.
+ * everything else scenery. Three tiers, one rule, used by the tree, the ropes
+ * and the tethers alike so none of them can drift.
+ *
+ * The THREADS run on their own version of that rule, one tier shorter: they
+ * are drawn only when a hover or a selection names them, and are absent
+ * otherwise rather than receding to scenery. See threadPresence for why.
  *
  * The second half is what keeps those two tiers legible: the lit CHAIN — the
  * tree lines from a hovered file up to the folders it's kept in — is drawn in
@@ -54,53 +58,59 @@ export function hoverRecession(inHoverAnswer: boolean, inSelectionAnswer: boolea
 }
 
 /**
- * What a THREAD paints at, as one absolute alpha across all three tiers.
+ * What a THREAD paints at, as one absolute alpha.
  *
  * The threads are the one channel that sets its alpha outright rather than
  * multiplying, because an ice-cold thread has to be liftable into view when
  * it's the answer to the question — so its heat can't be the only thing
  * deciding whether it's visible.
  *
- * The curve is a floor plus the thread's heat, and a SELECTION's threads keep
- * exactly that curve while a hover is up — the hover doesn't repaint them, it
- * simply doesn't take them away. Only two things move: the hovered file's own
- * threads jump to the front, and everything neither answer named drops to a
- * trace.
+ * A thread nobody asked about paints at NOTHING. Drawn at rest, the few
+ * hundred of them lay a mat of lines over the busiest part of the map — the
+ * app code, where the dots she's reading are — and the tree underneath went
+ * unreadable. So a thread appears only when something names it: the dot under
+ * the cursor owns it, or it's standing on its own (below).
+ *
+ * `inHoverAnswer` — one of this thread's two ends is the dot being pointed at.
+ * `inStandingAnswer` — the thread stands without a cursor: it belongs to what
+ * she picked out (a pinned table, a spotlit agent), or it's part of a journey
+ * replay, which is itself the thing being watched. Those keep the old resting
+ * curve — a floor plus the thread's heat — so pointing at one of their files
+ * neither repaints them nor takes them away.
+ *
+ * Prompt that produced it: "please remove the activity threads from showing
+ * unless you are specifically hovering over a dot that has it".
  */
 export function threadPresence(
   heat: number,
   inHoverAnswer: boolean,
-  inSelectionAnswer: boolean,
-  hoverUp: boolean,
+  inStandingAnswer: boolean,
 ): number {
-  const resting = 0.16 + 0.54 * heat;
-  if (!hoverUp) return resting;
   if (inHoverAnswer) return 0.95;
-  if (inSelectionAnswer) return resting;
-  return 0.05;
+  if (inStandingAnswer) return 0.16 + 0.54 * heat;
+  return 0;
 }
 
 /**
- * Is a thread cold enough to skip drawing entirely?
+ * Is a thread skipped entirely rather than drawn?
  *
- * The heat IS the filter on this map — nothing is capped by count — so a
- * thread that hasn't moved arrives at an alpha that rounds to nothing and is
- * dropped rather than painted. But a thread that's part of an ANSWER is never
- * dropped on heat: "what is this wired to" is a question about the pipe, not
- * about how recently something went through it.
+ * Unasked-for threads are skipped outright — that's the same statement
+ * threadPresence makes with a zero alpha, made early so the map doesn't pay
+ * to stroke a few hundred invisible arcs every frame.
+ *
+ * A thread that IS an answer is never dropped on heat: "what is this wired
+ * to" is a question about the pipe, not about how recently something went
+ * through it. A standing thread keeps the old ice-cold floor, so what a
+ * selection or a replay put on screen stays exactly as it was.
  */
 export function threadTooCold(
   heat: number,
   inHoverAnswer: boolean,
-  inSelectionAnswer: boolean,
-  hoverUp: boolean,
+  inStandingAnswer: boolean,
 ): boolean {
   if (inHoverAnswer) return false;
-  // A selection's threads are culled on the SAME floor they were culled on
-  // before the hover arrived, so pointing at one of its files neither adds
-  // threads nor takes any away.
-  if (inSelectionAnswer) return heat <= 0.02;
-  return hoverUp ? heat <= 0.25 : heat <= 0.02;
+  if (inStandingAnswer) return heat <= 0.02;
+  return true;
 }
 
 /** The furthest toward GOLD a chain line is allowed to lean. */

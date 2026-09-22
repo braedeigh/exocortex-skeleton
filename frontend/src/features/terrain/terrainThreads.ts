@@ -62,6 +62,11 @@ export interface TerrainThread {
   lastWrite: number | null;
   /** 0..1 lit-ness on the map's live lens. Filled in by heatThreads. */
   t: number;
+  /** Draw this thread with nothing hovered and nothing picked out. The
+   * ordinary data threads leave this unset — they appear only when the cursor
+   * or a selection names them. The journey replay sets it, because the path
+   * it lays down IS what's being watched and can't wait for a cursor. */
+  always?: boolean;
 }
 
 function nodeId(path: string): string {

@@ -32,58 +32,48 @@ describe('hoverRecession', () => {
 });
 
 describe('threadPresence', () => {
-  it('is the old heat curve when nothing is hovered', () => {
-    expect(threadPresence(0, false, false, false)).toBeCloseTo(0.16);
-    expect(threadPresence(1, false, false, false)).toBeCloseTo(0.7);
+  it('paints nothing for a thread nobody asked about', () => {
+    // The whole point of the change: at rest the threads are off the map.
+    expect(threadPresence(0, false, false)).toBe(0);
+    expect(threadPresence(1, false, false)).toBe(0);
   });
 
-  it('ranks the three tiers under a hover', () => {
-    const own = threadPresence(0.5, true, false, true);
-    const selected = threadPresence(0.5, false, true, true);
-    const outside = threadPresence(0.5, false, false, true);
-    expect(own).toBeGreaterThan(selected);
-    expect(selected).toBeGreaterThan(outside);
+  it('brings the hovered dot own threads to the front', () => {
+    expect(threadPresence(0.5, true, false)).toBeGreaterThan(
+      threadPresence(0.5, false, true),
+    );
+  });
+
+  it('keeps a standing thread on the old heat curve', () => {
+    // A pinned table, a spotlit agent, or a replay path — drawn with no
+    // cursor on them, at exactly the presence they always had.
+    expect(threadPresence(0, false, true)).toBeCloseTo(0.16);
+    expect(threadPresence(1, false, true)).toBeCloseTo(0.7);
   });
 
   it('lifts a cold thread that is part of an answer', () => {
     // A pipe that has not moved in a month is still a pipe.
-    expect(threadPresence(0, true, false, true)).toBe(threadPresence(1, true, false, true));
+    expect(threadPresence(0, true, false)).toBe(threadPresence(1, true, false));
   });
 
-  it('leaves a selection thread exactly where the hover found it', () => {
-    // "i am ok with both showing" — the hover adds its own answer, it does
-    // not repaint the selection's.
-    for (const heat of [0, 0.3, 1]) {
-      expect(threadPresence(heat, false, true, true)).toBe(
-        threadPresence(heat, false, false, false),
-      );
-    }
+  it('lets the hover win when a thread is in both answers', () => {
+    expect(threadPresence(0.5, true, true)).toBe(threadPresence(0.5, true, false));
   });
 });
 
 describe('threadTooCold', () => {
-  it('drops an ice-cold thread nobody asked about', () => {
-    expect(threadTooCold(0.01, false, false, false)).toBe(true);
+  it('drops every thread nobody asked about, however hot', () => {
+    expect(threadTooCold(0.01, false, false)).toBe(true);
+    expect(threadTooCold(1, false, false)).toBe(true);
   });
 
   it('never drops a thread the hover named, however cold', () => {
-    expect(threadTooCold(0, true, false, true)).toBe(false);
+    expect(threadTooCold(0, true, false)).toBe(false);
   });
 
-  it('culls a selection thread on the same floor it used before the hover', () => {
-    // This is the regression the change exists to prevent: pinning a table and
-    // hovering one of its files used to cull the selection's threads at the
-    // hover floor (0.25), so threads that were plainly visible vanished.
-    for (const heat of [0, 0.01, 0.1, 0.3]) {
-      expect(threadTooCold(heat, false, true, true)).toBe(
-        threadTooCold(heat, false, false, false),
-      );
-    }
-  });
-
-  it('culls harder under a hover than off it', () => {
-    expect(threadTooCold(0.1, false, false, false)).toBe(false);
-    expect(threadTooCold(0.1, false, false, true)).toBe(true);
+  it('keeps a standing thread on the ice-cold floor it always used', () => {
+    expect(threadTooCold(0, false, true)).toBe(true);
+    expect(threadTooCold(0.1, false, true)).toBe(false);
   });
 });
 
