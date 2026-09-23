@@ -51,6 +51,8 @@ import { FileCodeWindow } from './FileCodeWindow';
 import { mentionsFromSearch, type CodeMentions } from './codeMentions';
 import { codeFileNode, searchWithCodeFile, searchWithoutCodeFile, type CodeFileSearch } from './codeFileSearch';
 import { AgentHoverCard } from './AgentHoverCard';
+import { CoilHoverCard } from './CoilHoverCard';
+import { useCoilCard } from './useCoilCard';
 import { TerrainRoomsIndex } from './TerrainRoomsIndex';
 import { JourneyPanel, type ReplayRequest } from './JourneyPanel';
 import { beatNodeIds, scheduleFrames, type Beat } from './journeyReplay';
@@ -672,6 +674,9 @@ export function TerrainPage() {
    * a setting.
    */
   const [coilWindows, setCoilWindows] = useState<Record<string, number | null>>({});
+  /** The coil card: what a coil is showing and the sizes it opens to — up on
+   * a mouse's rest over a coil's centre, or a finger's tap (CoilHoverCard.tsx). */
+  const coilCard = useCoilCard();
 
   /**
    * Her coil folders cut to their windows, and re-timed, before anything else
@@ -1222,16 +1227,31 @@ export function TerrainPage() {
       const to = pulled.pullTo;
       setCoilWindows((open) => ({ ...open, [pulled.prefix]: to }));
     };
-    engine.onTap = (node) => {
+    // The mouse over a coil's centre raises its card; the card owns the timing.
+    engine.onHoverCoil = coilCard.hover;
+    engine.onTap = (node, how) => {
       // A coil's centre collapses it: a tap on one of these folders closes
       // that coil back to its first step (a month, unless she's set it
       // otherwise) rather than selecting the folder. The widening lives on
       // the curve at the coil's tip — see onCoilPull below.
+      //
+      // A finger has no hover to raise the coil's card, so for touch the FIRST
+      // tap on a centre opens the card (which carries a Collapse button) and
+      // a second tap on the same centre collapses — the orbs' and tables'
+      // pick-then-act. A tap anywhere else puts a finger-opened card away.
       const tappedCoil = coiled?.coils.find((coil) => coil.folderId === node?.id);
       if (tappedCoil) {
+        const cardUp = coilCard.card?.pinned && coilCard.card.folderId === tappedCoil.folderId;
+        if (how.pointerType !== 'mouse' && !cardUp) {
+          const anchor = engine.screenAnchorOf(tappedCoil.folderId);
+          if (anchor) coilCard.open(tappedCoil.folderId, anchor);
+          return;
+        }
         setCoilWindows((open) => ({ ...open, [tappedCoil.prefix]: tappedCoil.collapseTo }));
+        coilCard.close();
         return;
       }
+      if (coilCard.card?.pinned) coilCard.close();
       if (node?.kind === 'file') {
         // The pond tile isn't a code file — the landmark floating over it
         // owns the pond's interactions (its reach target catches most taps;
@@ -1956,6 +1976,21 @@ export function TerrainPage() {
           back out. Keep going and the cursor lands IN the card: it holds still,
           the body scrolls down to the reply, and Open goes solid.
           See AgentHoverCard.tsx. */}
+      {/* A coil's card: rest the mouse on a coil's centre, or tap it with a
+          finger. See CoilHoverCard.tsx. */}
+      <CoilHoverCard
+        card={hoverBlocked ? null : coilCard.card}
+        coil={coiled?.coils.find((coil) => coil.folderId === coilCard.card?.folderId)}
+        readOnly={visitor}
+        onEngage={coilCard.engage}
+        onCollapse={() => {
+          const coil = coiled?.coils.find((c) => c.folderId === coilCard.card?.folderId);
+          if (coil) setCoilWindows((open) => ({ ...open, [coil.prefix]: coil.collapseTo }));
+          coilCard.close();
+        }}
+        onClose={coilCard.close}
+      />
+
       <AgentHoverCard
         hover={hoverBlocked || visitor ? null : hover}
         facts={hoverFacts}

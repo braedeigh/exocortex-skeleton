@@ -3030,6 +3030,20 @@ export class TerrainCanvas {
     this.reportCoilHover(null);
   };
 
+  /**
+   * Where a node sits on screen right now — its centre in client coordinates
+   * and its drawn radius there — or null if it isn't on the map. What the
+   * coil card anchors to when a finger opened it, since a tap carries no
+   * hover report to hang it off.
+   */
+  screenAnchorOf(nodeId: string): { x: number; y: number; r: number } | null {
+    const n = this.simNodes.find((sn) => sn.id === nodeId);
+    if (!n) return null;
+    const rect = this.canvas.getBoundingClientRect();
+    const [sx, sy] = this.transform.apply([n.x ?? 0, n.y ?? 0]);
+    return { x: rect.left + sx, y: rect.top + sy, r: n.radius * this.transform.k };
+  }
+
   /** Light one coil's tip curve under the cursor, or none. One repaint per
    * change, nothing more. */
   private setHoverTip(hubId: string | null): void {
@@ -3155,6 +3169,7 @@ export class TerrainCanvas {
         return (
           spec.folderId === was.folderId &&
           spec.caption === was.caption &&
+          (spec.canPull ?? true) === (was.canPull ?? true) &&
           spec.ids.length === was.ids.length &&
           spec.ids.every((id, j) => id === was.ids[j])
         );
@@ -3174,12 +3189,21 @@ export class TerrainCanvas {
     if (this.simNodes.length === 0) return;
     // A caption changing is paint, not physics — a coil that only relabelled
     // itself must not re-wind, or every keystroke's worth of new count would
-    // throw its dots back to the centre to crawl out again.
+    // throw its dots back to the centre to crawl out again. Whether it can be
+    // pulled is paint too (its sizes were edited, its dots didn't move): the
+    // curve straightens or bends back where it stands.
     if (onlyCaptionsMoved) {
-      for (let i = 0; i < this.coils.length; i += 1) {
-        const spec = specs.find((sp) => sp.folderId === this.coils[i].hub.id);
-        this.coils[i].caption = spec?.caption ?? null;
+      const now = performance.now();
+      for (const coil of this.coils) {
+        const spec = specs.find((sp) => sp.folderId === coil.hub.id);
+        coil.caption = spec?.caption ?? null;
+        const canPull = spec?.canPull ?? true;
+        if (canPull !== coil.canPull) {
+          coil.canPull = canPull;
+          coil.straightFrom = canPull ? null : now;
+        }
       }
+      this.runCoilFrames();
       this.requestDraw();
       return;
     }
