@@ -9,8 +9,8 @@
  * coils out of the same shape (coilFolders.ts explains the difference).
  *
  * Bottom half, the steps: one chip per size the coil can open to. A pull on
- * the curve at the coil's tip widens it to the next one on; a tap on its centre
- * collapses it to the first. Save writes them to her terrain_coils.json
+ * the curve at the coil's tip widens it to the next one on; a tap on its centre,
+ * or on the tip once it's straight, collapses it to the first. Save writes them to her terrain_coils.json
  * (routes/terrain.py `_set_coil_windows`) and fetches the map again. A visitor
  * gets the top half only — the save route is owner-only.
  *
@@ -158,7 +158,8 @@ export function CoilHoverCard({ card, coil, readOnly, onEngage, onCollapse, onCl
       {!readOnly && (
         <div className={styles.steps}>
           <div className={styles.stepsLabel}>
-            Sizes it opens to — pull the tip to widen, tap the centre to collapse
+            Sizes it opens to — tap the tip to pull it wider; tap the centre (or the
+            straight tip) to go back to the first
           </div>
           <div className={styles.chips}>
             {chips.map((step) => (

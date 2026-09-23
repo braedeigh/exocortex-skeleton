@@ -756,6 +756,14 @@ const SHELF_CORRIDOR_CLEAR = 260;
  * how deep inside it is. Firm enough to clear a dot in a second or so, soft
  * enough that it slides out rather than being flung across the map. */
 const SHELF_KEEP_OUT_PUSH = 0.35;
+/** How far a coil's tip curve reaches into the dots around it, in world
+ * units past a dot's own radius — about a dot gap, so the thread has a little
+ * clear ground either side of it without the coil claiming a bigger body. */
+const TIP_REPEL_REACH = 18;
+/** How hard the tip curve pushes a dot inside that reach, per tick, as a share
+ * of how far inside it is. Softer than the shelves' keep-out: a nudge aside,
+ * not a wall. */
+const TIP_REPEL_PUSH = 0.12;
 /** How close two agent orbs may sit, in world units, before they push each
  * other apart (spreadOrbs, agentLayout.ts) — about a name's width at the zooms
  * the map is read at, so neighbouring agents' names have room to sit side by
@@ -1561,9 +1569,10 @@ export class TerrainCanvas {
   private lastPointerType = 'mouse';
 
   onTap: ((node: TerrainNode | null, how: { pointerType: string }) => void) | null = null;
-  /** A tap on a coil's tip curve — "pull more out". Hands over the folder
-   * node's id; the page decides how far. */
-  onCoilPull: ((folderId: string) => void) | null = null;
+  /** A tap on a coil's tip curve. Curved, that's "pull more out"; straight
+   * (nothing left to pull), it's "reset", the same as a tap on the centre.
+   * Hands over the folder node's id; the page decides which and how far. */
+  onCoilTip: ((folderId: string) => void) | null = null;
   /** The mouse over a coil's centre, or off it — what the coil's hover card
    * hangs off. `hard` means drop the card now, no grace (a pan or zoom). */
   onHoverCoil: ((hover: CoilHover | null, hard?: boolean) => void) | null = null;
@@ -2727,6 +2736,53 @@ export class TerrainCanvas {
       // The zone is wider on the LEFT by the shelf names' gutter: they are
       // right-aligned to end just before each shelf, and a dot resting under
       // them makes them unreadable.
+      // Push dots gently off each coil's tip curve. The curve has no body in
+      // the collider — the coil's body is the circle round its dots, and
+      // growing that to take in the curve would clear a ring of map for a
+      // thread that only runs one way — so without this, dots drift across
+      // it. This finds each loose dot's nearest point on the curve and
+      // nudges it straight away from there, harder the closer it is, eased
+      // by `alpha` like every force so the map still comes to rest. Pinned
+      // things (coil dots, tables, a dot she's placed) are left alone.
+      //
+      // Prompt that produced it: "these tips also need to have a little bit
+      // of repellance physics too".
+      .force('coilTipRepel', (alpha: number) => {
+        for (const coil of this.coils) {
+          const curve = coil.curve;
+          if (curve.length === 0) continue;
+          // A quick circle round the whole curve, so a dot nowhere near it
+          // costs one distance check instead of one per point.
+          const mid = curve[Math.floor(curve.length / 2)];
+          let span = 0;
+          for (const p of curve) span = Math.max(span, Math.hypot(p.x - mid.x, p.y - mid.y));
+          for (const n of this.simNodes) {
+            if (n.fx != null || n === coil.hub) continue;
+            const x = n.x ?? 0;
+            const y = n.y ?? 0;
+            const reach = n.radius + TIP_REPEL_REACH;
+            if (Math.hypot(x - mid.x, y - mid.y) > span + reach) continue;
+            let nearest = curve[0];
+            let dist = Infinity;
+            for (const p of curve) {
+              const d = Math.hypot(x - p.x, y - p.y);
+              if (d < dist) {
+                dist = d;
+                nearest = p;
+              }
+            }
+            if (dist >= reach) continue;
+            // Straight away from the nearest point; a dot sitting exactly on
+            // it goes out along a fixed direction rather than dividing by 0.
+            const away = dist > 1e-6 ? dist : 1;
+            const dx = dist > 1e-6 ? x - nearest.x : 1;
+            const dy = dist > 1e-6 ? y - nearest.y : 0;
+            const push = ((reach - dist) / away) * TIP_REPEL_PUSH * alpha;
+            n.vx = (n.vx ?? 0) + dx * push;
+            n.vy = (n.vy ?? 0) + dy * push;
+          }
+        }
+      })
       .force('shelfKeepOut', (alpha: number) => {
         const zone = this.shelfZone();
         if (!zone) return;
@@ -2906,10 +2962,11 @@ export class TerrainCanvas {
     // to open it.
     if (performance.now() - this.draggedAt < DRAG_CLICK_GRACE_MS) return;
     // A coil's tip curve first: it lies past the coil's last dot, over open
-    // ground, and a tap there is "pull more out" — never a tap on the map.
-    const pulled = this.coilTipAt(ev);
-    if (pulled !== null) {
-      this.onCoilPull?.(pulled.hub.id);
+    // ground, and a tap there is the coil's — pull, or reset once straight —
+    // never a tap on the map.
+    const tipped = this.coilTipAt(ev);
+    if (tipped !== null) {
+      this.onCoilTip?.(tipped.hub.id);
       return;
     }
     this.onTap?.(this.nodeAt(ev)?.node ?? null, { pointerType: this.lastPointerType });
@@ -3126,9 +3183,9 @@ export class TerrainCanvas {
    *
    * Tested against the curve as it was last drawn, a fingertip wide. The
    * first stretch of it is left out, because that's where the coil's last dot
-   * sits and a tap there means the dot. A straight curve — nothing left to
-   * pull — isn't a target at all, and neither is one on a hidden coil or one
-   * outside a selection (the same rule as every dot, isTouchable).
+   * sits and a tap there means the dot. Curved or straight, it's a target;
+   * one on a hidden coil or outside a selection isn't (the same rule as every
+   * dot, isTouchable).
    */
   private coilTipAt(ev: { clientX: number; clientY: number }): WoundCoil | null {
     if (this.coils.length === 0) return null;
@@ -3136,7 +3193,7 @@ export class TerrainCanvas {
     const [wx, wy] = this.transform.invert([ev.clientX - rect.left, ev.clientY - rect.top]);
     const reach = (TAP_RADIUS_PX * 0.8) / this.transform.k;
     for (const coil of this.coils) {
-      if (!coil.canPull || coil.curve.length === 0) continue;
+      if (coil.curve.length === 0) continue;
       if (this.hiddenFiles.has(coil.dots[0].id) || !this.isTouchable(coil.hub)) continue;
       const skip = Math.floor(coil.curve.length / 4);
       for (let i = skip; i < coil.curve.length; i += 1) {
@@ -3727,7 +3784,14 @@ export class TerrainCanvas {
         dot.vx = 0;
         dot.vy = 0;
       }
-      if (payout !== null && elapsed >= payout.durationMs) coil.payout = null;
+      if (payout !== null && elapsed >= payout.durationMs) {
+        coil.payout = null;
+        // The tip has come to rest somewhere new, maybe on top of dots. Warm
+        // the sleeping physics just enough for the tip's push to move them
+        // off — the same small heat a dragged node gets.
+        const sim = this.sim;
+        if (sim && sim.alpha() < DRAG_ALPHA) sim.alpha(DRAG_ALPHA).restart();
+      }
     }
   }
 
@@ -3823,7 +3887,8 @@ export class TerrainCanvas {
   /**
    * Draw each coil's tip: the strand carrying on past its last dot as a
    * brighter curve, peeling away into a small dark hole — the coil as a thread
-   * being pulled out of somewhere. Tapping the curve pulls more out.
+   * being pulled out of somewhere. Tapping the curve pulls more out; once it's
+   * straight, tapping it resets the coil like a tap on the centre.
    *
    * It starts wherever the coil's last dot IS this frame, not where it's
    * headed, so while a pull pays out the curve is pushed along ahead of the
@@ -3833,8 +3898,8 @@ export class TerrainCanvas {
    * Brighter than the strand, in whatever the theme's ink is: near-white on
    * the dark map, near-black on the light one — a literal white would vanish
    * into the light theme's lavender-grey. Hovered, it's brighter and thicker
-   * still. Decoration as far as the physics goes: it has no body, so other
-   * dots may drift across it rather than the coil claiming more room.
+   * still. It has no body in the collider; a gentle force of its own
+   * (`coilTipRepel`) pushes nearby dots off it instead.
    *
    * Prompt that produced it: "i want like, a white curve to show on the end
    * of the spiral as if it was coming out of a hole or something in the

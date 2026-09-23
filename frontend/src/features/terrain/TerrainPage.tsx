@@ -1218,14 +1218,16 @@ export function TerrainPage() {
   useEffect(() => {
     const engine = engineRef.current;
     if (!engine) return;
-    // A pull on a coil's tip curve widens that coil to its next step — the
-    // first one that brings anything out (coilFolders.ts pullTo). The engine
-    // pays the new dots out one at a time.
-    engine.onCoilPull = (folderId) => {
-      const pulled = coiled?.coils.find((coil) => coil.folderId === folderId);
-      if (!pulled || pulled.pullTo === undefined) return;
-      const to = pulled.pullTo;
-      setCoilWindows((open) => ({ ...open, [pulled.prefix]: to }));
+    // A tap on a coil's tip curve. While it curves, it's a pull: the coil
+    // widens to its next step — the first one that brings anything out
+    // (coilFolders.ts pullTo) — and the engine pays the new dots out one at
+    // a time. Once it's straight there's nothing left to pull, so it resets
+    // the coil to its first step, the same as a tap on the centre.
+    engine.onCoilTip = (folderId) => {
+      const tipped = coiled?.coils.find((coil) => coil.folderId === folderId);
+      if (!tipped) return;
+      const to = tipped.pullTo === undefined ? tipped.collapseTo : tipped.pullTo;
+      setCoilWindows((open) => ({ ...open, [tipped.prefix]: to }));
     };
     // The mouse over a coil's centre raises its card; the card owns the timing.
     engine.onHoverCoil = coilCard.hover;
@@ -1233,7 +1235,7 @@ export function TerrainPage() {
       // A coil's centre collapses it: a tap on one of these folders closes
       // that coil back to its first step (a month, unless she's set it
       // otherwise) rather than selecting the folder. The widening lives on
-      // the curve at the coil's tip — see onCoilPull below.
+      // the curve at the coil's tip — see onCoilTip above.
       //
       // A finger has no hover to raise the coil's card, so for touch the FIRST
       // tap on a centre opens the card (which carries a Collapse button) and
