@@ -490,7 +490,9 @@ export function TerrainPage() {
   // breath — one value, one owner, so the two can never be arguing over it.
   // All time is one more owner of the same value, so it follows the same
   // rule: any other touch takes the window back from it, and pressing it
-  // takes the window back from Dynamic.
+  // takes the window back from Dynamic. Turning it on also lights that fire,
+  // since all of a colour's history is nothing to look at with the colour off.
+  // Turning it off leaves the switch alone.
   const pickHeatDays = (days: number) => {
     setBreathing(false);
     setHeatAllTime(false);
@@ -503,10 +505,12 @@ export function TerrainPage() {
   const pickHeatAllTime = (on: boolean) => {
     setBreathing(false);
     setHeatAllTime(on);
+    if (on) setHeatOn(true);
   };
   const pickActiveAllTime = (on: boolean) => {
     setBreathing(false);
     setCuts({ activeAllTime: on });
+    if (on) setGoldOn(true);
   };
   const toggleBreathing = () => {
     if (!breathing) {

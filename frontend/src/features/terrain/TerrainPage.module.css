@@ -138,8 +138,10 @@
   gap: var(--space-1);
 }
 
-/* Glassy pills, not solid cards: enough tint to read as a control and to
+/* Glassy buttons, not solid cards: enough tint to read as a control and to
    keep the label legible, little enough that the map still shows through.
+   Soft-cornered rather than pill-round, on the same 10px corner as every
+   other button on the map (radius-lg), so the chrome reads as one set.
    Height stays at the house-rule 40px — transparency was the ask, not
    smaller targets. Padding tightens instead. */
 .chip {
@@ -149,7 +151,7 @@
   min-height: 40px;
   padding: 0 var(--space-3);
   border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-lg);
   background: color-mix(in srgb, var(--card-bg) 38%, transparent);
   color: var(--text-secondary);
   text-shadow: var(--ink-halo);

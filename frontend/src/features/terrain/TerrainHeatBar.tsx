@@ -77,7 +77,7 @@ import styles from './TerrainHeatBar.module.css';
  *    bottom-left stack, so the buttons are the first thing the eye lands on
  *    coming down. They're drawn as a SEGMENTED CONTROL — one rectangle split
  *    by lines — because only one of them can be chosen at a time, and one
- *    shared outline says that better than five separate pills do.
+ *    shared outline says that better than five separate buttons do.
  *    Prompt: "i want all those buttons to be made into like, one rectangle
  *    separated by lines".
  * 5. **Dynamic is the one that isn't a point** — it hands both windows to the
@@ -132,7 +132,7 @@ import styles from './TerrainHeatBar.module.css';
  *    they're 'there' but not be so prominent as the others".
  * 8. **Each bar's name is its fire's switch.** Press "Heat" and the red
  *    goes off the map entirely; press "Active" and the gold does. Lit (the
- *    tinted pill) means that fire is painting; hollow means it isn't, and the
+ *    tinted button) means that fire is painting; hollow means it isn't, and the
  *    bar dims to say so. The slider still works while its fire is off, so the
  *    window is where she left it when she turns it back on. Off is off
  *    everywhere that fire shows: an unlit fire adds nothing to a dot's colour
@@ -158,8 +158,12 @@ import styles from './TerrainHeatBar.module.css';
  *    readout shows it. For Active "all time" can be short: runs are
  *    Python-only and the sensor keeps a file's last 50 five-minute buckets
  *    (terrainGraph.ts terrainEarliestRun). Pressing it again, touching the
- *    slider, a preset or Dynamic all hand the window back.
- *    Prompt: "on the right, i want a button on each bar that says 'all time'".
+ *    slider, a preset or Dynamic all hand the window back. Turning it ON also
+ *    switches that bar's fire on — asking to see all of a colour's history
+ *    while the colour is off would show nothing.
+ *    Prompts: "on the right, i want a button on each bar that says 'all
+ *    time'" → "when i toggle all time on, it automatically toggles that bar
+ *    on".
  *
  * Prompts that produced it: "change the day/week/month toggle for the heat map
  * coloring... a bar like the rest, but with tick marks for days, and a label
