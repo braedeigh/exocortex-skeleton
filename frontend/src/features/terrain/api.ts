@@ -51,6 +51,10 @@ export interface TerrainFile {
    * routes/terrain.py. Python only: the sensor can't see the browser, so a
    * .tsx never carries this. Absent when the file never ran on record. */
   ran?: number[];
+  /** Size on disk in bytes — what the file's dot is sized by
+   * (terrainCanvas.ts fileRadius). Null when git remembers the file but the
+   * disk no longer has it; absent on synthetic files and older payloads. */
+  bytes?: number | null;
   /** Synthetic only — the server never sends this. The pond tile
    * (pondNodes.ts) carries the last month of the journal here, bucketed per
    * day and oldest first, so the canvas can draw the month inside its square

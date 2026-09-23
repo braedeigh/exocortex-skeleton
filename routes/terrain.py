@@ -1210,6 +1210,17 @@ def _build_terrain(file_cap=_TERRAIN_FILE_CAP):
         files_total = len(files_out)
         files_out = _cap_files(files_out, file_cap)
 
+        # Each file's size on disk, in bytes — what the map sizes a file dot
+        # by (terrainCanvas.ts fileRadius). Stat'd after the cap so only files
+        # actually sent pay for it. None for a file git remembers but the disk
+        # no longer has (deleted or moved), so the map can draw it at its
+        # smallest rather than guess.
+        for f in files_out:
+            try:
+                f["bytes"] = os.path.getsize(os.path.join(root, f["path"]))
+            except OSError:
+                f["bytes"] = None
+
         repos_out.append({"id": repo["id"], "name": repo["name"], "root": str(root),
                           "files": files_out, "files_total": files_total})
 

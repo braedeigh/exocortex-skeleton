@@ -436,7 +436,8 @@ export function TerrainPage() {
   const [heatDays, setHeatDays] = useState(7);
   // Whether each fire paints at all — the Heat and Active names on the bar are
   // these switches (note 8 in TerrainHeatBar.tsx). Off means that fire adds
-  // nothing to the map: no colour, no size, and for gold no threads either.
+  // nothing to the map: no colour, no folder growth, and for gold no threads
+  // either. File dots are sized by bytes, so they keep their size.
   // Shared by both views and not remembered across reloads.
   const [heatOn, setHeatOn] = useState(true);
   const [goldOn, setGoldOn] = useState(true);
@@ -851,7 +852,7 @@ export function TerrainPage() {
       withTables
         ? // A fire switched off on the bar builds with a zero half-life, which
           // scores every file at zero for that fire (computeFileHeat,
-          // computeRunHeat) — so it adds neither colour nor size anywhere.
+          // computeRunHeat) — so it adds no colour anywhere.
           buildTerrainGraph(withTables, heatOn ? halfLife : 0, undefined, {
             alwaysOrbIds: poolSessionIds,
             runHalfLife: goldOn ? goldHalfLife : 0,

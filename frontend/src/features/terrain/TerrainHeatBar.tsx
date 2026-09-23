@@ -112,9 +112,8 @@ import styles from './TerrainHeatBar.module.css';
  *    because it answers the same question — how the map is lit — but it
  *    doesn't move either slider: on, every file dot wears its file type's
  *    GitHub colour and the heat HUES are overridden (terrainCanvas.ts). The
- *    sliders still work underneath it, and in two ways: heat sets dot SIZE,
- *    and it sets how much of the type colour is left (terrainCanvas.ts
- *    staleTypeColor) — a fresh file wears its colour whole, a stale one sinks
+ *    sliders still work underneath it: they set how much of the type colour
+ *    is left (terrainCanvas.ts staleTypeColor) — a fresh file wears its colour whole, a stale one sinks
  *    into the sky and is gone by the thumb, and the lines into it recede with
  *    it as far as half (staleTypeAlpha), so the limb goes quiet together but
  *    the tree's shape survives. Folders take it too: a hollow folder's
@@ -136,7 +135,8 @@ import styles from './TerrainHeatBar.module.css';
  *    bar dims to say so. The slider still works while its fire is off, so the
  *    window is where she left it when she turns it back on. Off is off
  *    everywhere that fire shows: an unlit fire adds nothing to a dot's colour
- *    OR its size, and with gold off the threads (which are gold's ink) go
+ *    (file dots are sized by bytes, not heat, so their size never changes),
+ *    nor to a folder's size, and with gold off the threads (which are gold's ink) go
  *    too. With both off the map is plain ash — the structure alone. Under
  *    Types the fires are what "stale" is measured by, so turning one off
  *    leaves the other to decide what fades, and turning both off stops the

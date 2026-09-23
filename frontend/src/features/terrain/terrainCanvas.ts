@@ -1050,7 +1050,39 @@ function nodeRadius(node: TerrainNode, t: number): number {
   // Never less than TABLE_MIN_COLLIDE_R, so even a two-column sliver of a
   // table has enough body to push a stray dot off itself.
   if (node.file?.table) return Math.max(tableCollideRadius(node.file.table), TABLE_MIN_COLLIDE_R);
-  return 4 + 9 * t; // file: GLOW (union of ember + gold) scales size — the redundant channel
+  return fileRadius(node.file?.bytes);
+}
+
+/** The byte sizes a file dot's radius runs between: at or under ~300 bytes a
+ * file is the smallest dot, at or over ~300 KB the biggest. */
+const FILE_BYTES_SMALL = 10 ** 2.5;
+const FILE_BYTES_LARGE = 10 ** 5.5;
+const FILE_RADIUS_MIN = 4;
+const FILE_RADIUS_MAX = 13;
+
+/**
+ * Size a file dot by how big the file is on disk — not by heat. Colour says
+ * how recently a file was edited or run; size says how much is in it, so the
+ * two channels answer different questions instead of repeating each other.
+ *
+ * Logarithmic, like the dials: files here run from a few hundred bytes to
+ * megabytes, and on a straight scale nearly every dot would be the minimum
+ * with a few giants. On a log scale each tenfold jump in size adds the same
+ * step of radius — a 3 KB file sits a third of the way up, 30 KB two thirds.
+ * A file gone from disk (bytes null) is the smallest dot. A payload that
+ * doesn't report size at all (bytes absent — an older server, or one not yet
+ * reloaded) draws every file at the middle size rather than all at the
+ * smallest, so the map doesn't look emptied out.
+ *
+ * Prompt: "i want for the dot size of each file to be unrelated to the heat
+ * or activity. i want it to be related to the file size."
+ */
+export function fileRadius(bytes: number | null | undefined): number {
+  if (bytes === undefined) return (FILE_RADIUS_MIN + FILE_RADIUS_MAX) / 2;
+  if (bytes === null || bytes <= FILE_BYTES_SMALL) return FILE_RADIUS_MIN;
+  const span = Math.log10(FILE_BYTES_LARGE) - Math.log10(FILE_BYTES_SMALL);
+  const along = Math.min(1, (Math.log10(bytes) - Math.log10(FILE_BYTES_SMALL)) / span);
+  return FILE_RADIUS_MIN + (FILE_RADIUS_MAX - FILE_RADIUS_MIN) * along;
 }
 
 // -- orb identity color: an app token, never a color from the heat ramp --
@@ -4830,8 +4862,8 @@ export class TerrainCanvas {
         if (this.typeColors) {
           // The "Types" toggle overrides every other HUE. The dot wears its
           // file type's GitHub colour — not green for new, not red or gold
-          // for heat — on both surfaces. Heat still sets the dot's SIZE
-          // (nodeRadius), so a busy file is a big dot of its type's colour.
+          // for heat — on both surfaces. The dot's SIZE is its file size
+          // (fileRadius), so a big file is a big dot of its type's colour.
           // Prompt: "a toggle that overrides the other colors when i toggle
           // it on".
           //

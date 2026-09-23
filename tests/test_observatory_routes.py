@@ -1305,6 +1305,22 @@ def test_footprint_merge_maps_abs_path_to_repo_relative(terrain_client, tmp_path
     ]
 
 
+def test_terrain_files_carry_their_size_on_disk(terrain_client, tmp_path, monkeypatch):
+    # The map sizes each file dot by the file's bytes, so every file sent
+    # says how big it is — and a file git remembers but the disk no longer
+    # has says None rather than a guess.
+    skeleton = _make_git_repo(tmp_path / "skeleton")
+    _commit_file(skeleton, "big.py", "x" * 5000)
+    _commit_file(skeleton, "gone.py", "y\n")
+    (skeleton / "gone.py").unlink()
+    _set_terrain_repos(monkeypatch, skeleton, tmp_path / "empty-vault")
+
+    data = terrain_client.get("/api/observatory/terrain").get_json()
+    skel_out = next(r for r in data["repos"] if r["id"] == "skeleton")
+    by_path = {f["path"]: f for f in skel_out["files"]}
+    assert (by_path["big.py"]["bytes"], by_path["gone.py"]["bytes"]) == (5000, None)
+
+
 def test_live_touches_merge_for_a_running_session(terrain_client, tmp_path, monkeypatch):
     # A mid-turn session's batch footprints are stale; its jsonl must be
     # re-parsed live, REPLACING the batch entry (a live parse of the same log

@@ -170,7 +170,7 @@ export function TerrainGuide({
         <h3 className={styles.heading}>The shapes</h3>
         <ul className={styles.list}>
           <Row mark={<Mark kind="dot" color={ASH} />}>
-            <b>A file.</b> Bigger means hotter: edited or run more recently.
+            <b>A file.</b> Bigger means a bigger file on disk. Its colour says how recently it was edited or run.
           </Row>
           <Row mark={<Mark kind="folder" />}>
             <b>A folder.</b> Hollow, never filled. The two heaviest outlines are the
