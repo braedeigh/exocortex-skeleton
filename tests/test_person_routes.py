@@ -110,8 +110,8 @@ def test_summarize_unknown_slug_404(client):
 
 # --- /api/person/<slug>/threads — the people -> threads reverse index -------
 # Uses the shared tests/fixtures/threads vault (same one test_threads_routes.py
-# and the Rust `thread` binary's own tests read): migraines.md carries
-# `people: [michael]`.
+# and the Rust `thread` binary's own tests read): topic-b.md carries
+# `people: [alex]`.
 
 @pytest.fixture
 def threads_vault_client(tmp_path, monkeypatch):
@@ -125,13 +125,13 @@ def threads_vault_client(tmp_path, monkeypatch):
 
 
 def test_person_threads_lists_cast_membership(threads_vault_client):
-    data = threads_vault_client.get("/api/person/michael/threads").get_json()
-    assert [t["slug"] for t in data["threads"]] == ["migraines"]
-    assert data["threads"][0]["name"] == "Migraines"
+    data = threads_vault_client.get("/api/person/alex/threads").get_json()
+    assert [t["slug"] for t in data["threads"]] == ["topic-b"]
+    assert data["threads"][0]["name"] == "Topic B"
 
 
 def test_person_threads_empty_when_not_in_any_cast(threads_vault_client):
-    data = threads_vault_client.get("/api/person/bryan/threads").get_json()
+    data = threads_vault_client.get("/api/person/jordan/threads").get_json()
     assert data["threads"] == []
 
 

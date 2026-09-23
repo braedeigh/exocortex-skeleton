@@ -39,11 +39,16 @@
  *
  * Two gestures ask, and they ask for different amounts. HOVER (mouse only) is
  * a preview: put the cursor on an orb and every OTHER agent's dotted tethers
- * and file rings fall away, so the one under the cursor is the only agent
- * still speaking — the terrain underneath (heat, dots, hubs, tree edges) is
- * left exactly as it was. TAP is the commitment: the whole map dims to that
+ * and file rings fall away, and every dot, folder, table and line that agent
+ * didn't touch recedes the way it does under a table hover — only its files
+ * and the folders they're kept in stay full (`hoverAgentKin`). Its name shows
+ * whole, on a plate. TAP is the commitment: the whole map dims to that
  * agent's footprint and its files caption themselves. Hover stands down while
  * a tap-spotlight is up, so the two never argue over the same pixels.
+ *
+ * Orb names move out of each other's way (`drawOrbNames`, agentLayout.ts),
+ * orbs keep a wide personal space from each other (the 'orbSpread' force),
+ * and orbs are fenced out of the table section (`fenceOrbsOut`).
  *
  * Hover also reports OUT, through `onHoverAgent`: the conversation id plus
  * where its orb is sitting on screen right now, which is what /terrain hangs
@@ -61,7 +66,9 @@
  *
  * Prompt that produced the hover layer: "if you hover over an agent on
  * terrain, the other rings and lines become grayed out from the other agents
- * to focus on what is showing there."
+ * to focus on what is showing there" / "fade all the other dots that aren't
+ * being touched by that agent upon hovering that agent, similar to how it
+ * works for sql tables".
  *
  * THE POND is one of two things on this map that aren't dots (the database's
  * tables, below, are the other). The card pool used
@@ -191,6 +198,7 @@ import {
 import type { TerrainThread } from './terrainThreads';
 import type { TableCodeLink } from './tableMentions';
 import { homeChain, wiringTarget } from './hoverSelection';
+import { nearestExit, placeOrbNames, spreadOrbs, type Box, type NameAsk } from './agentLayout';
 import { spiralSpots, tipCurve, type SpiralArrangement } from './spiralLayout';
 import { STRAIGHTEN_MS, payoutDurationMs, payoutProgress, payoutStepMs } from './coilPayout';
 import {
@@ -748,6 +756,14 @@ const SHELF_CORRIDOR_CLEAR = 260;
  * how deep inside it is. Firm enough to clear a dot in a second or so, soft
  * enough that it slides out rather than being flung across the map. */
 const SHELF_KEEP_OUT_PUSH = 0.35;
+/** How close two agent orbs may sit, in world units, before they push each
+ * other apart (spreadOrbs, agentLayout.ts) — about a name's width at the zooms
+ * the map is read at, so neighbouring agents' names have room to sit side by
+ * side instead of stacking. Judged by eye. */
+const ORB_PERSONAL_SPACE = 130;
+/** How much of an orb pair's overlap is corrected per tick. Not scaled by the
+ * sim's cooling (like collision), so the tethers can't win it back. */
+const ORB_SPREAD_STRENGTH = 0.6;
 /** The shelves re-measure where the dots are once every this many physics
  * ticks — often enough to glide with the map as it settles, rare enough that
  * walking a few thousand positions costs nothing noticeable. */
@@ -1458,6 +1474,13 @@ export class TerrainCanvas {
    * even if a louder agent also wrote it.
    */
   private hoverRings: Map<string, FileTouchKind> = new Map();
+  /**
+   * What the hovered agent LIGHTS: its orb, every file and table it touched,
+   * and the folders those are kept in — null with no agent hovered. The agent
+   * hover's answer to the question a table hover already answers with
+   * hoverFileKin, and it fades the rest of the map the same way.
+   */
+  private hoverAgentKin: Set<string> | null = null;
   /** The last hover reported to `onHoverAgent`, so a cursor resting on one orb
    * doesn't fire a report (and a React render) per pointermove. */
   private hoverReport: AgentHover | null = null;
@@ -2691,8 +2714,7 @@ export class TerrainCanvas {
       // rectangle nothing else may rest inside. A dot found inside is pushed
       // out harder the deeper in it is, eased by the sim's cooling `alpha`
       // like every other force so the map still comes to rest. Agents' orbs
-      // are left alone: they drift to wherever their files are and belong to
-      // no territory.
+      // are fenced out too, but not here — see the tick handler below.
       //
       // WHICH WAY OUT: through the side facing the dot's OWN repo. That one
       // rule does both jobs. With the section standing between the repos it
@@ -2706,12 +2728,9 @@ export class TerrainCanvas {
       // right-aligned to end just before each shelf, and a dot resting under
       // them makes them unreadable.
       .force('shelfKeepOut', (alpha: number) => {
-        const shelf = this.shelf;
-        if (!shelf || shelf.left === null || shelf.top === null) return;
-        const zoneLeft = shelf.left - SHELF_KEEP_OUT_PAD - SHELF_NAME_GUTTER;
-        const zoneRight = shelf.left + shelf.layout.width + SHELF_KEEP_OUT_PAD;
-        const zoneTop = shelf.top - SHELF_KEEP_OUT_PAD;
-        const zoneBottom = shelf.top + shelf.layout.height + SHELF_KEEP_OUT_PAD;
+        const zone = this.shelfZone();
+        if (!zone) return;
+        const { left: zoneLeft, right: zoneRight, top: zoneTop, bottom: zoneBottom } = zone;
         const zoneMiddle = (zoneLeft + zoneRight) / 2;
         for (const n of this.simNodes) {
           if (isTable(n) || this.shelfHubIds.has(n.id) || n.node.kind === 'session') continue;
@@ -2724,6 +2743,22 @@ export class TerrainCanvas {
             n.vx = (n.vx ?? 0) + (zoneRight - x) * SHELF_KEEP_OUT_PUSH * alpha;
           }
         }
+      })
+      // Keep agents out of each other's personal space. The charge alone lets
+      // two agents that worked on the same files sit almost on top of each
+      // other — their tethers pull both onto the same spot — so orbs also
+      // collide with each other at a much wider gap than their dots need,
+      // leaving room for their names. Orbs only: files and folders don't feel
+      // it, so the tree keeps its shape.
+      //
+      // Prompt that produced it: "i want the agents to push each other apart
+      // more than they do now".
+      .force('orbSpread', () => {
+        spreadOrbs(
+          this.simNodes.filter((n) => n.node.kind === 'session'),
+          ORB_PERSONAL_SPACE,
+          ORB_SPREAD_STRENGTH,
+        );
       })
       .force('x', forceX<SimNode>((n) => anchorFor(n.node.repoId).x).strength((n) => (n.node.kind === 'session' ? 0 : 0.045)))
       .force('y', forceY<SimNode>((n) => anchorFor(n.node.repoId).y).strength((n) => (n.node.kind === 'session' ? 0 : 0.055)))
@@ -2750,6 +2785,7 @@ export class TerrainCanvas {
         // spots. Every tick, not on the shelves' slower cadence: the hub
         // moves every tick and the dots have to move with it.
         this.settleCoils(COIL_EASE);
+        this.fenceOrbsOut();
         // Keep the table shelves just outside the dots as the dots spread.
         this.ticksSinceLayout += 1;
         if (this.ticksSinceLayout % SHELF_SETTLE_EVERY === 0) this.settleShelves(0.25);
@@ -3334,6 +3370,51 @@ export class TerrainCanvas {
       ctx.arc(n.x ?? 0, n.y ?? 0, half * Math.SQRT2 + (3 + 10 * p) / transform.k, 0, Math.PI * 2);
       ctx.stroke();
       ctx.globalAlpha = base;
+    }
+  }
+
+  /**
+   * The table section's keep-out zone, in world units — the shelves' own
+   * rectangle grown by SHELF_KEEP_OUT_PAD all round, and by the names' gutter
+   * on the left. Null until the shelves have been placed.
+   */
+  private shelfZone(): Box | null {
+    const shelf = this.shelf;
+    if (!shelf || shelf.left === null || shelf.top === null) return null;
+    return {
+      left: shelf.left - SHELF_KEEP_OUT_PAD - SHELF_NAME_GUTTER,
+      right: shelf.left + shelf.layout.width + SHELF_KEEP_OUT_PAD,
+      top: shelf.top - SHELF_KEEP_OUT_PAD,
+      bottom: shelf.top + shelf.layout.height + SHELF_KEEP_OUT_PAD,
+    };
+  }
+
+  /**
+   * Keep the agent orbs out of the table section — a hard fence, not a push.
+   *
+   * An agent is tied to every file it touched and settles amid them, so one
+   * that worked in both repos is held in the corridor between them, which is
+   * exactly where the shelves stand. A push that eases with the sim's cooling
+   * (the one the file dots get) loses to dozens of tethers pulling the same
+   * way, so an orb found inside is simply moved to the zone's nearest edge
+   * (nearestExit, agentLayout.ts) and its speed into the fence is dropped.
+   * Runs after each physics step, so the orb is never drawn inside. An orb
+   * she has pinned by hand stays where she put it.
+   *
+   * Prompt that produced it: "i need for the agent dots to be repulsed by the
+   * sql tables, but currently they are not".
+   */
+  private fenceOrbsOut(): void {
+    const zone = this.shelfZone();
+    if (!zone) return;
+    for (const n of this.simNodes) {
+      if (n.node.kind !== 'session' || n.fx != null) continue;
+      const exit = nearestExit(n.x ?? 0, n.y ?? 0, zone);
+      if (!exit) continue;
+      if (exit.x !== n.x) n.vx = 0;
+      if (exit.y !== n.y) n.vy = 0;
+      n.x = exit.x;
+      n.y = exit.y;
     }
   }
 
@@ -3979,6 +4060,13 @@ export class TerrainCanvas {
     this.hoverRings = this.hoverAgent
       ? sessionTouchRings(this.simNodes.map((sn) => sn.node), this.hoverAgent)
       : new Map();
+    // Light what the hovered agent touched, and the folders it's all kept in.
+    // The hover names a conversation; the tethers are keyed by the orb's node
+    // id, so find the orb first.
+    const orb = this.hoverAgent
+      ? this.simNodes.find((sn) => sn.node.kind === 'session' && sn.node.session?.id === this.hoverAgent)
+      : undefined;
+    this.hoverAgentKin = orb ? this.withHomes([orb.id, ...(this.sessionKin.get(orb.id) ?? [])]) : null;
   }
 
   /** The hover that's actually in effect. A committed tap-spotlight outranks
@@ -3986,6 +4074,20 @@ export class TerrainCanvas {
    * dimming rule layered over it would only fight the first. */
   private activeHover(): string | null {
     return this.footprint === null ? this.hoverAgent : null;
+  }
+
+  /**
+   * What the agent hover has lit, when it's the hover in effect — null
+   * otherwise. A file hover outranks it (it's the narrower question, and it
+   * can be up while a hovercard holds the agent), and so does a spotlight,
+   * via activeHover.
+   *
+   * Prompt that produced it: "i also want to fade all the other dots that
+   * aren't being touched by that agent upon hovering that agent, similar to
+   * how it works for sql tables".
+   */
+  private agentLit(): Set<string> | null {
+    return this.activeHover() !== null && this.hoverFile === null ? this.hoverAgentKin : null;
   }
 
   /**
@@ -4172,6 +4274,9 @@ export class TerrainCanvas {
     // Everything it changes is an ALPHA: the other agents' tethers and rings
     // recede, nothing about the terrain itself moves or re-colours.
     const hover = this.activeHover();
+    // ...and what that agent touched, which stays full while the rest of the
+    // map recedes — the dots, the tree, the tables, the names.
+    const agentLit = this.agentLit();
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, this.width, this.height);
@@ -4501,6 +4606,12 @@ export class TerrainCanvas {
           pickedLines !== null && pickedLines.has(s.id) && pickedLines.has(t.id);
         ctx.globalAlpha *= hoverRecession(false, ofSelection);
       }
+      // Recede every line the hovered agent's answer doesn't hold at both
+      // ends, the same way a file hover does. Its own tethers already sort
+      // themselves out above (bright for it, faint for everyone else).
+      if (agentLit !== null && link.kind !== 'session' && !(agentLit.has(s.id) && agentLit.has(t.id))) {
+        ctx.globalAlpha *= hoverRecession(false, false);
+      }
       // A line into a stale dot recedes with it (staleEdgeAlpha), so under
       // Types the whole limb goes quiet together instead of the dot leaving a
       // full-strength line hanging in the air. Multiplied in rather than set,
@@ -4557,7 +4668,10 @@ export class TerrainCanvas {
       // even where the spotlight had it faded — the folders one of a spotlit
       // agent's files lives in are outside that agent's footprint, and they
       // are the whole answer to where the file is kept.
-      const kinAlpha = threadHover === null || litByHover ? 1 : UNSELECTED_FADE;
+      // An agent hover does the same to whatever that agent didn't touch. Orbs
+      // are exempt: they already have their own hover dimming (orbAlpha).
+      const litByAgent = agentLit === null || n.node.kind === 'session' || agentLit.has(n.id);
+      const kinAlpha = (threadHover === null || litByHover) && litByAgent ? 1 : UNSELECTED_FADE;
       const printAlpha = litByHover || inPrint ? 1 : UNSELECTED_FADE;
       ctx.globalAlpha = printAlpha * kinAlpha;
       // Never let a node shrink below a visible dot, however far out we are.
@@ -4964,6 +5078,8 @@ export class TerrainCanvas {
     // Any dot she can point at while a selection is up IS one of its own,
     // since nothing outside it takes a hover (isTouchable).
     const pickedOut = selectionUp && this.hoverLabel !== null;
+    // The orb names met in the loop below, drawn together after it.
+    const orbNames: { ask: NameAsk; text: string; alpha: number; hovered: boolean }[] = [];
     for (const n of this.simNodes) {
       if (this.hiddenFiles.has(n.id) || this.unpaidDots.has(n.id)) continue; // no caption for a dot that isn't drawn
       if (n.node.file?.table) continue; // tables are named in their own pass, below
@@ -5026,10 +5142,14 @@ export class TerrainCanvas {
       // Names follow their orbs into the background: with a hover up, the
       // other agents' titles recede alongside their rings rather than sitting
       // there at full weight over a map that's stopped talking about them.
-      // A name recedes with its body: under a file hover everything outside
-      // the lit answer steps back, caption and all, or the map dims while a
-      // field of full-ink names sits on top of it unchanged.
-      const kinLabelFade = this.hoverFile === null || litByHover ? 1 : UNSELECTED_FADE;
+      // A name recedes with its body: under a file or agent hover everything
+      // outside the lit answer steps back, caption and all, or the map dims
+      // while a field of full-ink names sits on top of it unchanged.
+      const kinLabelFade =
+        (this.hoverFile === null || litByHover) &&
+        (agentLit === null || n.node.kind === 'session' || agentLit.has(n.id))
+          ? 1
+          : UNSELECTED_FADE;
       ctx.globalAlpha =
         (hover !== null && n.node.kind === 'session' && !hovered ? 0.3 : 1) * kinLabelFade;
       if (n.node.kind === 'repo') {
@@ -5051,10 +5171,24 @@ export class TerrainCanvas {
           ctx.fillText(captioned.caption, sx, sy + n.radius * k + LABEL_PX);
         }
       } else if (n.node.kind === 'session') {
-        // Orb titles in ink (identity color stays on the ring itself).
+        // Orb titles aren't drawn here: they're collected and placed together
+        // after this loop, so they can move out of each other's way. The
+        // hovered orb's name is its whole title; the rest are cut short.
         ctx.font = `600 ${LABEL_PX}px ${this.fontFamily}`;
-        ctx.fillStyle = theme.text;
-        ctx.fillText(truncateLabel(n.node.label), sx, sy - n.radius * k - 8);
+        const text = hovered ? n.node.label : truncateLabel(n.node.label);
+        orbNames.push({
+          ask: {
+            id: n.id,
+            x: sx,
+            y: sy,
+            radius: Math.max(n.radius * k, MIN_NODE_PX),
+            width: ctx.measureText(text).width,
+            height: LABEL_PX + 4,
+          },
+          text,
+          alpha: ctx.globalAlpha,
+          hovered,
+        });
       } else {
         // A spotlit agent's files: filename only, a step quieter than the
         // orb's own title above them, so the agent still reads as the subject
@@ -5087,10 +5221,57 @@ export class TerrainCanvas {
       }
     }
 
+    this.drawOrbNames(orbNames);
     this.drawTableLabels(dimmed);
 
     // Last, so the anchor it reports is the one this frame actually drew.
     this.reportPond();
+  }
+
+  /**
+   * Name the agent orbs, without letting the names pile up. Each name takes
+   * the first spot around its orb — above, below, right, left — that covers
+   * no other name and no other orb. The hovered orb says its whole title.
+   *
+   * Prompt that produced it: "i want for the names of the agents to be fully
+   * displayed when i hover over them … so there is less overlap between them".
+   */
+  private drawOrbNames(
+    orbNames: readonly { ask: NameAsk; text: string; alpha: number; hovered: boolean }[],
+  ): void {
+    if (orbNames.length === 0) return;
+    const { ctx, theme } = this;
+    // Place every name so none covers another, hovered orb first — it keeps
+    // the spot right above its orb, and the others make room around it
+    // (placeOrbNames, agentLayout.ts). Screen space, redone every frame, so
+    // it holds at any zoom without moving a single dot.
+    const ordered = [...orbNames].sort((a, b) => Number(b.hovered) - Number(a.hovered));
+    const placed = placeOrbNames(ordered.map((name) => name.ask));
+    ctx.font = `600 ${LABEL_PX}px ${this.fontFamily}`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    // Draw back to front, so the hovered name — first in the order — lands on
+    // top of anything it still touches.
+    for (const name of [...ordered].reverse()) {
+      const spot = placed.get(name.ask.id);
+      if (!spot) continue;
+      const { box } = spot;
+      // The hovered name sits on a plate of the map's own background, the
+      // same plate a pointed-at file's name gets: a full title running across
+      // a busy map has to read at once.
+      if (name.hovered) {
+        ctx.globalAlpha = 0.86;
+        ctx.fillStyle = theme.bg;
+        ctx.fillRect(box.left - 5, box.top - 1, box.right - box.left + 10, box.bottom - box.top + 2);
+      }
+      // Orb titles in ink (identity colour stays on the ring itself).
+      ctx.globalAlpha = name.alpha;
+      ctx.fillStyle = theme.text;
+      ctx.fillText(name.text, box.left, (box.top + box.bottom) / 2);
+    }
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.globalAlpha = 1;
   }
 
   /**
@@ -5113,7 +5294,7 @@ export class TerrainCanvas {
     const k = transform.k;
     if (k < TABLE_LABEL_MIN_K) return;
     const detailed = k >= LABEL_MIN_K;
-    const kin = this.hoverFile !== null ? this.hoverFileKin : null;
+    const kin = this.hoverFile !== null ? this.hoverFileKin : this.agentLit();
 
     const candidates = this.simNodes.filter(
       (n) =>
