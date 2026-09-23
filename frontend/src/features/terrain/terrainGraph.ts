@@ -357,6 +357,21 @@ export function terrainEarliestTouch(data: TerrainData, fallbackTo: number): num
   return earliest;
 }
 
+/** Oldest run anywhere in the payload — how far back the Active bar's "All
+ * time" reaches. Null when nothing has run at all. That's often the honest
+ * answer: runs are Python-only, and the sensor keeps only each file's last 50
+ * five-minute buckets (routes/terrain.py), so "all time" here means "as far
+ * back as the run record goes", which can be hours rather than months. */
+export function terrainEarliestRun(data: TerrainData): number | null {
+  let earliest = Infinity;
+  for (const repo of data.repos) {
+    for (const file of repo.files) {
+      for (const ts of file.ran ?? []) if (ts < earliest) earliest = ts;
+    }
+  }
+  return Number.isFinite(earliest) ? earliest : null;
+}
+
 function inRange(ts: number, from: number, to: number): boolean {
   return ts >= from && ts <= to;
 }

@@ -38,6 +38,7 @@ import {
   halfLifeSeconds,
   filesOutsideRange,
   filterTerrainData,
+  terrainEarliestRun,
   terrainEarliestTouch,
   terrainFileLoaded,
   terrainFileTotal,
@@ -808,6 +809,21 @@ describe('terrain totals and bounds', () => {
   it('falls back to the payload window when nothing carries a timestamp', () => {
     const d = makeData([{ id: 'r', name: 'R', root: '/', files: [] }]);
     expect(terrainEarliestTouch(d, NOW)).toBe(NOW - 90 * DAY);
+  });
+});
+
+describe('terrainEarliestRun', () => {
+  it('finds the oldest run across every repo', () => {
+    const d = makeData([
+      { id: 'a', name: 'A', root: '/', files: [{ ...file('x.py'), ran: [NOW - 600, NOW - 300] }] },
+      { id: 'b', name: 'B', root: '/', files: [{ ...file('y.py'), ran: [NOW - 7200] }] },
+    ]);
+    expect(terrainEarliestRun(d)).toBe(NOW - 7200);
+  });
+
+  it('says null when nothing has run', () => {
+    const d = makeData([{ id: 'r', name: 'R', root: '/', files: [file('a.tsx', [NOW])] }]);
+    expect(terrainEarliestRun(d)).toBeNull();
   });
 });
 

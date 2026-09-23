@@ -295,7 +295,12 @@ export function TerrainGuide({
             <b>1 day / 1 week / 1 month / 1 year</b> set the Heat window. <b>Dynamic</b>
             lets the two windows breathe in turn, until you touch a slider.
           </li>
-          <li><b>Heat</b> is how far back red reaches. <b>Active</b> is how far back gold reaches; the pill switches the gold halo on and off.</li>
+          <li>
+            <b>Heat</b>&rsquo;s slider is how far back red reaches; <b>Active</b>&rsquo;s is how far
+            back gold reaches. Tap either name to switch that colour off the map entirely, and
+            again to bring it back. <b>All time</b> at the end of a bar stretches it back to the
+            oldest edit, or the oldest run, on record.
+          </li>
           <li>
             <b>Working ▾</b> chooses which sessions are drawn (worked this hour, open, or
             all), the slider beside it picks a slice of them newest-first,

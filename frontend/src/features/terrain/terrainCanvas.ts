@@ -1421,14 +1421,14 @@ export class TerrainCanvas {
    */
   private hiddenFiles: ReadonlySet<string> = new Set();
   /**
-   * The Active bar's set: every file that RAN inside the window the bar is set
-   * to (runGlow.ts). These dots take a gold halo and nothing else on the map
-   * changes — no dimming, no hiding, no layout. Additive on purpose: the two
-   * dimming rules that already exist (a tapped agent's footprint, a hovered
-   * file's kin) fight each other if a third joins them, so this one only ever
-   * ADDS light.
+   * Whether "Types" fades stale files out at all. Staleness is read off the two
+   * fires (glowOf), so with BOTH Heat and Active switched off on the bar every
+   * file would count as dead and the whole Types map would sink into the sky.
+   * With no fire to measure by there's nothing to call stale, so the fade is
+   * off and every dot wears its type colour whole. With either fire on, that
+   * fire alone decides.
    */
-  private glowFiles: ReadonlySet<string> = new Set();
+  private staleFade = true;
   /**
    * /terrain's ring set: every file the *shown* agents have read or written,
    * ringed all at once without anything being focused or tapped. Same colours
@@ -1769,11 +1769,11 @@ export class TerrainCanvas {
     this.requestDraw();
   }
 
-  /** Hand over the file dots to light up — the ones that ran inside the Active
-   * bar's window (runGlow.ts). Pure lighting, exactly like setHiddenFiles: no
-   * camera move, no sim wake, one repaint. */
-  setGlowFiles(ids: ReadonlySet<string>): void {
-    this.glowFiles = ids;
+  /** Turn the Types view's stale fade on or off (see staleFade). Pure
+   * lighting: no camera move, no sim wake, one repaint when it flips. */
+  setStaleFade(on: boolean): void {
+    if (this.staleFade === on) return;
+    this.staleFade = on;
     this.requestDraw();
   }
 
@@ -1912,37 +1912,6 @@ export class TerrainCanvas {
     ctx.beginPath();
     ctx.arc(n.x ?? 0, n.y ?? 0, nr * (0.22 + 0.24 * fresh), 0, Math.PI * 2);
     ctx.fill();
-    ctx.globalAlpha = base;
-  }
-
-  /** The run halo — this file RAN inside the Active bar's window. A gold ring
-   * just outside the dot, gold because running is the gold fire everywhere
-   * else on this map (terrainGraph.ts RUN_WINDOW_SECONDS).
-   *
-   * Binary, not a freshness ramp: the bar's window already decides what counts
-   * as recent, and fading the ring by age would re-state what the dot's own
-   * gold channel is saying underneath it. One ring, one strength — "this is
-   * one of them".
-   *
-   * Drawn OUTSIDE the body so it reads on a dot of any colour, including a
-   * Types-view dot that has no heat colour left. Its alpha multiplies into
-   * whatever the dimming rules already set, the same way drawWriteCore does,
-   * so a haloed dot inside a dimmed region dims with its surroundings instead
-   * of punching through them. */
-  private drawRunHalo(n: SimNode, nr: number): void {
-    if (!this.glowFiles.has(n.id)) return;
-    const { ctx, transform } = this;
-    // Sit the ring clear of the dot's edge at every zoom: proportional when
-    // the dot is big, a fixed screen gap when it's small, so a 4px dot still
-    // gets a ring around it rather than a smudge on top of it.
-    const radius = Math.max(nr * 1.5, nr + 3 / transform.k);
-    const base = ctx.globalAlpha;
-    ctx.globalAlpha = base * 0.85;
-    ctx.strokeStyle = GOLD_HOT;
-    ctx.lineWidth = 2 / transform.k;
-    ctx.beginPath();
-    ctx.arc(n.x ?? 0, n.y ?? 0, radius, 0, Math.PI * 2);
-    ctx.stroke();
     ctx.globalAlpha = base;
   }
 
@@ -4100,7 +4069,7 @@ export class TerrainCanvas {
    * and are skipped; a line between two of them stays at full strength.
    */
   private staleEdgeAlpha(a: SimNode, b: SimNode): number {
-    if (!this.typeColors) return 1;
+    if (!this.typeColors || !this.staleFade) return 1;
     let alpha = 1;
     for (const n of [a, b]) {
       // A folder end takes the folder's own fade, and takes it ALL the way
@@ -4147,7 +4116,7 @@ export class TerrainCanvas {
    * background color if there are no files highlighted within its tree".
    */
   private folderFadeOf(id: string): number {
-    if (!this.typeColors) return 1;
+    if (!this.typeColors || !this.staleFade) return 1;
     this.ensureFolderLens();
     return this.folderFadeCache.get(id) ?? 0;
   }
@@ -4230,7 +4199,7 @@ export class TerrainCanvas {
         typeColor = typeDotColor(fileTypeOf(path).color, theme.bg, theme.text);
         this.typeColorCache.set(path, typeColor);
       }
-      return staleTypeColor(typeColor, theme.bg, n.t, n.a);
+      return this.staleFade ? staleTypeColor(typeColor, theme.bg, n.t, n.a) : typeColor;
     }
     if (n.node.file && fileCreatedWithin(n.node.file, CREATED_FRESH_WINDOW_SECONDS, nowSeconds)) {
       return CREATED_GREEN;
@@ -4653,9 +4622,9 @@ export class TerrainCanvas {
     const minR = MIN_NODE_PX / transform.k;   // world units for a screen-px floor
     const threadHover = this.hoverFile;
     for (const n of this.simNodes) {
-      // Outside the date range: skipped whole, so its rings, write core,
-      // run halo and flash go with it. Same for a dot still inside a coil's
-      // tip, waiting its turn to come out.
+      // Outside the date range: skipped whole, so its rings, write core and
+      // flash go with it. Same for a dot still inside a coil's tip, waiting
+      // its turn to come out.
       if (this.hiddenFiles.has(n.id) || this.unpaidDots.has(n.id)) continue;
       const inPrint = !dimmed || this.footprintLit!.has(n.id);
       // What the hover lit: the dot under the cursor, everything wired to it,
@@ -4906,9 +4875,6 @@ export class TerrainCanvas {
           ctx.fill();
         }
         if (n.node.kind === 'file') this.drawWriteCore(n, nr, now);
-        // Ran inside the Active bar's window (note 8 in TerrainHeatBar.tsx).
-        if (n.node.kind === 'file') this.drawRunHalo(n, nr);
-
       }
       // How this file was touched, when anything on screen touched it: the
       // backdrop's focused conversation first, else /terrain's shown-agent

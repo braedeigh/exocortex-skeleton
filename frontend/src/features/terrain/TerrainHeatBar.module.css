@@ -22,28 +22,41 @@
   display: flex;
   flex-direction: column;
   padding-bottom: var(--space-1);
+  /* The bar measures ITSELF for the narrow rules at the bottom of this file,
+     not the window: the map is often a panel beside the Guide or another page,
+     so a wide screen can still hand it a narrow strip. */
+  container-type: inline-size;
 }
 
-/* Label, track, readout. The first column matches TerrainDials' label width so
-   every slider on the page lines up down the left even though they're separate
-   components. The third holds the bar's own number, and it is a FIXED width
-   rather than auto: auto sizes each row to its own contents, so "365d" and
-   "45m" would end their tracks in different places and leave the stack ragged
-   down the right. 3.75rem fits the longest either readout gets ("365d" at
-   14px, with its dot). */
+/* Switch, track, readout, All time. The first column matches TerrainDials'
+   label width so every slider on the page lines up down the left even though
+   they're separate components. The third holds the bar's own number, and it is
+   a FIXED width rather than auto: auto sizes each row to its own contents, so
+   "365d" and "45m" would end their tracks in different places and leave the
+   stack ragged down the right. 3.75rem fits the longest either readout gets
+   ("365d" at 14px, with its dot). The fourth is the All time button, the same
+   words on both rows, so auto lines them up on its own. */
 .row {
   display: grid;
-  grid-template-columns: 3.25rem 1fr 3.75rem;
+  grid-template-columns: 3.25rem 1fr 3.75rem auto;
   align-items: center;
   column-gap: var(--space-2);
 }
 
-/* The Active bar's name, which is also its halo switch (note 8 in the .tsx).
-   Hollow — a bordered pill over the map — means the bar is only setting gold's
-   window; lit means it is also ringing the files inside it. Nothing here ever
-   cuts the map. Sized to the same first column as
-   TerrainDials' labels so every slider on the page still lines up, and to the
-   house 40px tap target. */
+/* A bar whose fire is switched off (note 8 in the .tsx): the ramp and the
+   readout fade back so the row reads as "not painting". The switch itself
+   stays at full strength — it's the way back on — and the slider still works,
+   so nothing here is disabled, only quieted. */
+.rowOff .ramp,
+.rowOff .ticks,
+.rowOff .readout {
+  opacity: 0.3;
+}
+
+/* Each bar's name, which is also its fire's on/off switch (note 8 in the
+   .tsx). Lit — tinted — means that fire is painting on the map; hollow means
+   it's off. Sized to the same first column as TerrainDials' labels so every
+   slider on the page still lines up, and to the house 40px tap target. */
 .cutButton {
   display: inline-flex;
   align-items: center;
@@ -67,21 +80,6 @@
   border-color: color-mix(in srgb, var(--accent) 60%, transparent);
   background: color-mix(in srgb, var(--accent) 18%, var(--card-bg));
   color: var(--text);
-}
-
-/* Heat's name. Deliberately NOT .cutButton: heat only colours the map now, so
-   there is nothing here to press. Same box as the switch below it so the two
-   rows still line up, minus every affordance that would promise a gesture. */
-.cutLabel {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 40px;
-  padding: 0 var(--space-1);
-  color: var(--text-secondary);
-  text-shadow: var(--ink-halo, none);
-  font-size: var(--font-size-md);
-  font-weight: 600;
 }
 
 .track {
@@ -209,7 +207,8 @@
    ABOVE the track now, and still indented to the track's own column rather
    than the label's, so they read as belonging to the slider they move. The
    negative margin pulls the two into one object instead of two stacked rows —
-   they're one control, and the gap was reading as a divider. */
+   they're one control, and the gap was reading as a divider. The window
+   presets sit in one segmented control; Types stands outside it. */
 .presets {
   display: flex;
   align-items: center;
@@ -239,6 +238,70 @@
   border-color: var(--accent);
   color: var(--text);
   background: color-mix(in srgb, var(--accent) 18%, var(--card-bg));
+}
+
+/* The window presets as one rectangle split by lines — a segmented control,
+   because exactly one of them is chosen at a time (note 4 in the .tsx). The
+   outline and rounding belong to the group; each segment is square-edged and
+   draws only the line on its left, so the dividers are single hairlines. The
+   group clips its children so a lit end segment follows the rounded corner. */
+.segmented {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid color-mix(in srgb, var(--text) 22%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--card-bg) 55%, transparent);
+  overflow: hidden;
+}
+
+.segment {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 var(--space-2);
+  border: none;
+  border-left: 1px solid color-mix(in srgb, var(--text) 22%, transparent);
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: var(--font-size-md);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.segment:first-child {
+  border-left: none;
+}
+
+.segmentOn {
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 22%, var(--card-bg));
+}
+
+/* Dynamic, lit, breathes on the same ten-second clock as the windows it
+   drives (terrainGraph.ts BREATH_PERIOD_MS), so the button shows the mode is
+   running without her having to watch the map. Held still for reduced
+   motion. */
+.presetBreathing {
+  animation: segmentBreath 10s ease-in-out infinite;
+}
+
+@keyframes segmentBreath {
+  0%,
+  100% {
+    background: color-mix(in srgb, var(--accent) 12%, var(--card-bg));
+  }
+  40% {
+    background: color-mix(in srgb, var(--accent) 34%, var(--card-bg));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .presetBreathing {
+    animation: none;
+  }
 }
 
 /* Set the Types switch apart from the window presets. It shares the row and
@@ -276,7 +339,7 @@
 
 @media (max-width: 430px) {
   .row {
-    grid-template-columns: 2.75rem 1fr 3.5rem;
+    grid-template-columns: 2.75rem 1fr 3.5rem auto;
     column-gap: var(--space-1);
   }
 
@@ -291,5 +354,30 @@
      worse than a slightly shorter track. */
   .readout {
     gap: 2px;
+  }
+}
+
+/* A narrow bar — the map in a side panel, or beside the open Guide. The
+   segmented control can't wrap without breaking its one rectangle, so it gives
+   up the track indent and tightens its segments instead of running off the
+   edge; the All time pills tighten the same way so the tracks keep their
+   length. Still 40px tall throughout. */
+@container (max-width: 480px) {
+  .presets {
+    margin-left: 0;
+  }
+
+  .segment,
+  .row .preset {
+    padding: 0 var(--space-1);
+  }
+}
+
+/* Narrower still — the map squeezed beside the Guide in a split screen. The
+   segment labels drop to the 12px floor so all five still fit inside the one
+   rectangle rather than running off under the colour key. */
+@container (max-width: 320px) {
+  .segment {
+    font-size: var(--font-size-sm);
   }
 }
