@@ -16,9 +16,9 @@ import styles from './TerrainHeatBar.module.css';
 /**
  * TerrainHeatBar — the map's two fires, one bar each.
  *
- *   [1 day][1 week][1 month][1 year][Dynamic]      [Types]
- *   Heat    ▓▓▓▓▓▓●─────────────────────────────    7d
- *   Active  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓●─────────────────   1d
+ *           [1 day|1 week|1 month|1 year|Dynamic]      [Types]
+ *   (Heat)   ▓▓▓▓▓▓●─────────────────────────────    7d  [All time]
+ *   (Active) ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓●─────────────────   1d  [All time]
  *
  * The map burns in two colours and they answer different questions: EMBER is
  * EDITING, GOLD is RUNNING. There is one bar for each, stacked, and neither
@@ -27,8 +27,10 @@ import styles from './TerrainHeatBar.module.css';
  * - **Heat** (ember, red) sets how far back an EDIT stays lit — one day out
  *   to one year.
  * - **Active** (gold, yellow) sets how recently a file must have RUN to stay
- *   lit — five minutes out to one week (activeScale.ts). Its switch also
- *   rings those files on the map.
+ *   lit — five minutes out to one week (activeScale.ts).
+ *
+ * Each bar's name is that fire's on/off switch (note 8), and each bar ends in
+ * an "All time" button (note 9).
  *
  * On both, the thumb is the EDGE of the colour: fully lit now, half lit a
  * third of the way along, gone at the dot (terrainGraph.ts windowToHalfLife
@@ -73,7 +75,11 @@ import styles from './TerrainHeatBar.module.css';
  *    shortcuts to points on the same track, and they light up when the slider
  *    is on them. They sit ABOVE the tracks: this block is the top of the
  *    bottom-left stack, so the buttons are the first thing the eye lands on
- *    coming down.
+ *    coming down. They're drawn as a SEGMENTED CONTROL — one rectangle split
+ *    by lines — because only one of them can be chosen at a time, and one
+ *    shared outline says that better than five separate pills do.
+ *    Prompt: "i want all those buttons to be made into like, one rectangle
+ *    separated by lines".
  * 5. **Dynamic is the one that isn't a point** — it hands both windows to the
  *    same breath the Observatory backdrop runs on, and the two fires take
  *    TURNS (terrainGraph.ts alternatingBreath), each resting at its smallest.
@@ -124,34 +130,36 @@ import styles from './TerrainHeatBar.module.css';
  *    to hide stale files … the dots turn black or disappear when i am on the
  *    'types' display" → "the lines that go to the dots faded too … to show
  *    they're 'there' but not be so prominent as the others".
- * 8. **One switch on this bar, and it only ever ADDS light.** The pill
- *    reading "Active" is a button: lit, every file that RAN inside the Active
- *    slider's window wears a gold halo on the map; hollow, nothing is marked.
- *    The switch sits where you already look to see which bar you're on. The
- *    slider beside it works either way — it is gold's window whether or not
- *    the halo is drawn.
+ * 8. **Each bar's name is its fire's switch.** Press "Heat" and the red
+ *    goes off the map entirely; press "Active" and the gold does. Lit (the
+ *    tinted pill) means that fire is painting; hollow means it isn't, and the
+ *    bar dims to say so. The slider still works while its fire is off, so the
+ *    window is where she left it when she turns it back on. Off is off
+ *    everywhere that fire shows: an unlit fire adds nothing to a dot's colour
+ *    OR its size, and with gold off the threads (which are gold's ink) go
+ *    too. With both off the map is plain ash — the structure alone. Under
+ *    Types the fires are what "stale" is measured by, so turning one off
+ *    leaves the other to decide what fades, and turning both off stops the
+ *    fade and shows every type colour whole (terrainCanvas.ts staleFade).
+ *    Neither switch hides a dot or moves the layout.
  *
- *    "Heat" is NOT a switch. It used to be one — lit, it cut the map to
- *    "only what's still lit" — and that is gone: heat COLOURS the map and
- *    does not decide what's on it. One bar lights, one bar colours, and
- *    neither takes dots away.
- *    Prompt: "the heat map one should be the heat map alone and not the
- *    activity toggle".
- *
- *    The halo is additive rather than a cut, and that was a correction. As a
- *    cut it was savage: runs are Python-only (routes/terrain.py — the sensor
- *    can't see the browser), so "show only what ran lately" blanked every
- *    .tsx, .css, .md and .json dot on the map and left dozens out of
- *    thousands. Adding light says the same thing and costs nothing.
- *    Prompt: "i just want them to glow, not hide anything".
- *
- *    Nothing on this bar can move the layout, and nothing on it hides a dot
- *    any more either. The rule is runGlow.ts, handed to the canvas as a set
- *    to light up (terrainCanvas.ts setGlowFiles). The switch is off by
- *    default and lives on both views — heat and Types — each keeping its own,
- *    so a window set up under Types doesn't follow her back to the heat map.
- *    Not remembered across reloads, unlike Types: Types is how she likes the
- *    map lit; this is a question she's asking right now.
+ *    This replaces the old arrangement, where "Heat" was a plain label and
+ *    "Active" drew an extra gold ring around files that ran. The ring is
+ *    gone: once the name means "this fire, on or off", a second gold effect
+ *    on the same button would be two meanings for one press.
+ *    Prompt: "when you click heat or active, it toggles that color off or on
+ *    completely rather than what exists now" → "drop the ring".
+ * 9. **"All time" ends each bar.** It sits past the readout, at the track's
+ *    far end, because that is where "further back" already points. Pressed, the
+ *    window reaches back to the oldest thing that fire has on record — the
+ *    oldest edit in the payload for Heat, the oldest run for Active — so the
+ *    fade spreads over the whole history instead of stopping at the thumb. The
+ *    page works that number out and feeds it in as the live value, and the
+ *    readout shows it. For Active "all time" can be short: runs are
+ *    Python-only and the sensor keeps a file's last 50 five-minute buckets
+ *    (terrainGraph.ts terrainEarliestRun). Pressing it again, touching the
+ *    slider, a preset or Dynamic all hand the window back.
+ *    Prompt: "on the right, i want a button on each bar that says 'all time'".
  *
  * Prompts that produced it: "change the day/week/month toggle for the heat map
  * coloring... a bar like the rest, but with tick marks for days, and a label
@@ -215,12 +223,22 @@ export interface TerrainHeatBarProps {
   /** True while file dots are coloured by file type instead of heat (note 7). */
   typeColors?: boolean;
   onTypeColors?: (on: boolean) => void;
-  /** The Active bar: whether the halo is on, and gold's window in SECONDS
-   * (notes 6 and 8). Seconds rather than days because this axis runs down to
-   * five minutes, where a whole number of days has no resolution left. Whole
-   * when she set it, fractional while the gold breath is driving. */
-  activeGlow?: boolean;
-  onActiveGlow?: (on: boolean) => void;
+  /** Whether each fire is painting on the map — the bar names are these
+   * switches (note 8). */
+  heatOn?: boolean;
+  onHeatOn?: (on: boolean) => void;
+  activeOn?: boolean;
+  onActiveOn?: (on: boolean) => void;
+  /** Whether each bar is on "All time" (note 9). While it is, `days` /
+   * `activeSeconds` already carry the all-time window the page worked out. */
+  heatAllTime?: boolean;
+  onHeatAllTime?: (on: boolean) => void;
+  activeAllTime?: boolean;
+  onActiveAllTime?: (on: boolean) => void;
+  /** Gold's window in SECONDS (note 6). Seconds rather than days because this
+   * axis runs down to five minutes, where a whole number of days has no
+   * resolution left. Whole when she set it, fractional while the gold breath
+   * is driving. */
   activeSeconds?: number;
   /** Any call to this ends the breath, exactly like onDays — one value, one
    * owner, on both bars. */
@@ -248,8 +266,14 @@ export function TerrainHeatBar({
   onBreathe,
   typeColors = false,
   onTypeColors,
-  activeGlow = false,
-  onActiveGlow,
+  heatOn = true,
+  onHeatOn,
+  activeOn = true,
+  onActiveOn,
+  heatAllTime = false,
+  onHeatAllTime,
+  activeAllTime = false,
+  onActiveAllTime,
   activeSeconds = 86400,
   onActiveSeconds,
 }: TerrainHeatBarProps) {
@@ -265,39 +289,48 @@ export function TerrainHeatBar({
     ACTIVE_MAX_DAYS,
   );
   const goldHot = goldRamp[goldRamp.length - 1];
+  // A preset only reads as chosen when the slider is really sitting on it —
+  // not while Dynamic or All time is driving the window.
+  const heatFixed = !breathing && !heatAllTime;
   return (
     <div className={styles.bar}>
-      <div className={styles.presets} role="group" aria-label="Heat presets">
-        {PRESETS.map((p) => (
+      <div className={styles.presets}>
+        {/* The window presets as one segmented control (note 4): a single
+            outline, split by lines, because exactly one of these is chosen. */}
+        <div className={styles.segmented} role="group" aria-label="Heat presets">
+          {PRESETS.map((p) => (
+            <button
+              key={p.days}
+              type="button"
+              className={[styles.segment, heatFixed && days === p.days ? styles.segmentOn : '']
+                .filter(Boolean)
+                .join(' ')}
+              aria-pressed={heatFixed && days === p.days}
+              onClick={() => onDays(p.days)}
+            >
+              {p.label}
+            </button>
+          ))}
+          {/* Lit, this segment breathes on the same 10s clock as the value
+              it's driving — so the control is doing the thing it turned on,
+              and you can read the mode off the button without watching the
+              map. */}
           <button
-            key={p.days}
             type="button"
-            className={[styles.preset, !breathing && days === p.days ? styles.presetOn : '']
+            className={[styles.segment, breathing ? `${styles.segmentOn} ${styles.presetBreathing}` : '']
               .filter(Boolean)
               .join(' ')}
-            aria-pressed={!breathing && days === p.days}
-            onClick={() => onDays(p.days)}
+            aria-pressed={breathing}
+            onClick={() => onBreathe?.()}
+            title="Let the windows breathe in turn — one breath reaches back a month of edits, the next widens from the last five minutes of runs out to the day"
           >
-            {p.label}
+            Dynamic
           </button>
-        ))}
-        {/* Lit, this pill breathes on the same 10s clock as the value it's
-            driving — so the control is doing the thing it turned on, and you
-            can read the mode off the button without watching the map. */}
-        <button
-          type="button"
-          className={[styles.preset, breathing ? `${styles.presetOn} ${styles.presetBreathing}` : '']
-            .filter(Boolean)
-            .join(' ')}
-          aria-pressed={breathing}
-          onClick={() => onBreathe?.()}
-          title="Let the windows breathe in turn — one breath reaches back a month of edits, the next widens from the last five minutes of runs out to the day"
-        >
-          Dynamic
-        </button>
+        </div>
         {/* Colour the dots by file type instead of heat, stale ones fading
             out (note 7). A switch, so it reports pressed/unpressed rather
-            than picking a window. */}
+            than picking a window — and it stands outside the segmented
+            control for the same reason. */}
         {onTypeColors ? (
           <button
             type="button"
@@ -312,12 +345,17 @@ export function TerrainHeatBar({
           </button>
         ) : null}
       </div>
-      <div className={styles.row}>
-        {/* Heat's name is only a name (note 8). It was a switch once, cutting
-            the map to what was still lit; now heat colours and nothing else,
-            so this is a label — a pill that looked pressable but wasn't would
-            be a lie about what the bar can do. */}
-        <span className={styles.cutLabel}>Heat</span>
+      <div className={[styles.row, heatOn ? '' : styles.rowOff].filter(Boolean).join(' ')}>
+        {/* Heat's name is the red fire's on/off switch (note 8). */}
+        <button
+          type="button"
+          className={[styles.cutButton, heatOn ? styles.cutOn : ''].filter(Boolean).join(' ')}
+          aria-pressed={heatOn}
+          onClick={() => onHeatOn?.(!heatOn)}
+          title="Turn the red (edited) colour on or off across the whole map"
+        >
+          Heat
+        </button>
         <div className={styles.track}>
           {/* The ramp and the ruler are their own elements UNDER the input,
               rather than a background on the input's track pseudo-element, so
@@ -347,7 +385,7 @@ export function TerrainHeatBar({
               onDays(valueFromPos(Number(e.target.value), HEAT_DAYS_MIN, HEAT_DAYS_MAX))
             }
             aria-label="How far back the map stays lit"
-            aria-valuetext={`${days} ${days === 1 ? 'day' : 'days'}`}
+            aria-valuetext={`${Math.round(days)} ${Math.round(days) === 1 ? 'day' : 'days'}`}
           />
         </div>
         {/* Each bar's readout sits beside that bar, the way TerrainDials puts
@@ -359,19 +397,31 @@ export function TerrainHeatBar({
           <span className={styles.readoutDot} style={{ background: ramp[ramp.length - 1] }} />
           {Math.round(days)}d
         </span>
+        {/* Reach back to the oldest edit on record (note 9). */}
+        <button
+          type="button"
+          className={[styles.preset, heatAllTime && !breathing ? styles.presetOn : '']
+            .filter(Boolean)
+            .join(' ')}
+          aria-pressed={heatAllTime && !breathing}
+          onClick={() => onHeatAllTime?.(!(heatAllTime && !breathing))}
+          title="Stretch the red back to the oldest edit on record"
+        >
+          All time
+        </button>
       </div>
       {/* The Active bar (notes 6 and 8): gold's own question on gold's own
           ruler — five minutes to a week, in minutes and hours, not Heat's
-          days. Built exactly like the Heat bar above it, ramp and all, because
-          it is the other fire and not a lesser control. Lit, the files that ran
-          inside this window also wear a gold halo; nothing is ever hidden. */}
-      <div className={styles.row}>
+          days. Built exactly like the Heat bar above it, ramp, switch and all,
+          because it is the other fire and not a lesser control. */}
+      <div className={[styles.row, activeOn ? '' : styles.rowOff].filter(Boolean).join(' ')}>
+        {/* Active's name is the gold fire's on/off switch (note 8). */}
         <button
           type="button"
-          className={[styles.cutButton, activeGlow ? styles.cutOn : ''].filter(Boolean).join(' ')}
-          aria-pressed={activeGlow}
-          onClick={() => onActiveGlow?.(!activeGlow)}
-          title="Ring every file that has RUN inside this window in gold. Nothing is hidden — running is what the map's gold fire means, and this puts a window on it"
+          className={[styles.cutButton, activeOn ? styles.cutOn : ''].filter(Boolean).join(' ')}
+          aria-pressed={activeOn}
+          onClick={() => onActiveOn?.(!activeOn)}
+          title="Turn the gold (ran) colour on or off across the whole map"
         >
           Active
         </button>
@@ -401,14 +451,26 @@ export function TerrainHeatBar({
             aria-valuetext={formatAge(activeSeconds)}
           />
         </div>
-        {/* The window this bar is set to, readable whether or not the switch
-            is lit — a setting you can't see is one you have to turn on to
-            find. Same grammar as the Heat readout above: a dot in this bar's
-            fire colour, then the number. */}
+        {/* The window this bar is set to, readable whether or not its fire is
+            on — a setting you can't see is one you have to turn on to find.
+            Same grammar as the Heat readout above: a dot in this bar's fire
+            colour, then the number. */}
         <span className={styles.readout}>
           <span className={styles.readoutDot} style={{ background: goldHot }} />
           {formatAge(activeSeconds)}
         </span>
+        {/* Reach back to the oldest run on record (note 9). */}
+        <button
+          type="button"
+          className={[styles.preset, activeAllTime && !breathing ? styles.presetOn : '']
+            .filter(Boolean)
+            .join(' ')}
+          aria-pressed={activeAllTime && !breathing}
+          onClick={() => onActiveAllTime?.(!(activeAllTime && !breathing))}
+          title="Stretch the gold back to the oldest run on record — runs are Python-only and kept for a file's last 50 five-minute buckets, so this can be hours rather than months"
+        >
+          All time
+        </button>
       </div>
     </div>
   );

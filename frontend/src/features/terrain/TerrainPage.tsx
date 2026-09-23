@@ -27,21 +27,23 @@ import {
   BREATH_PERIOD_MS,
   BREATH_TICK_MS,
   fileLastTouch,
-  formatAge,
   filterTerrainData,
   filesOutsideRange,
   relativeAge,
   sessionFootprint,
   sessionFootprintByRecency,
   sessionLastSeconds,
+  terrainEarliestRun,
   terrainEarliestTouch,
   terrainFileLoaded,
   terrainFileTotal,
   heatKeyTicks,
+  HEAT_DAYS_MIN,
   windowToHalfLife,
   SESSION_NODE_PREFIX,
 } from './terrainGraph';
 import { TerrainDials } from './TerrainDials';
+import { ACTIVE_MAX_SECONDS, ACTIVE_MIN_SECONDS } from './activeScale';
 import { TerrainSearch } from './TerrainSearch';
 import { searchTerrainFiles, SEARCH_LABEL_CAP, type TerrainSearchHit } from './terrainSearch';
 import { TerrainHeatBar } from './TerrainHeatBar';
@@ -62,7 +64,6 @@ import { TerrainGuide } from './TerrainGuide';
 import { markGuideDismissed, readGuideDismissed, shouldOpenGuideOnLoad } from './guideOpenPref';
 import { collapseToPondTile, localDayISO, parseCardPath, POND_TILE_PATH } from './pondNodes';
 import { coilWindowLabel, windowCoils } from './coilFolders';
-import { filesGlowingByRun } from './runGlow';
 import { addTableNodes } from './tableNodes';
 import { tableCodeLinks } from './tableMentions';
 import { tapStage } from './hoverSelection';
@@ -297,15 +298,15 @@ const HOVER_LEAVE_MS = 240;
 const FETCH_TIERS: readonly (number | null)[] = [350, 1000, 2500, null];
 
 /**
- * One view's Active setting (notes 6 and 8 in TerrainHeatBar.tsx): whether the
- * run halo is drawn, and GOLD'S WINDOW — in SECONDS, on an axis that runs from
- * five minutes to a week (activeScale.ts). The heat map and the Types view
- * each carry their own.
+ * One view's Active setting (notes 6 and 9 in TerrainHeatBar.tsx): GOLD'S
+ * WINDOW — in SECONDS, on an axis that runs from five minutes to a week
+ * (activeScale.ts) — and whether it's on "All time" instead. The heat map and
+ * the Types view each carry their own.
  *
  * The window is one number doing one job: how recently a file must have RUN to
- * still be lit gold on the map, and (when the switch is on) to be ringed. It
- * used to be only the ring's cutoff, with the fire itself pinned at a fixed
- * day somewhere else — two owners of one question, one of them invisible.
+ * still be lit gold on the map. It used to be only a ring's cutoff, with the
+ * fire itself pinned at a fixed day somewhere else — two owners of one
+ * question, one of them invisible.
  *
  * There used to be a `heatCut` here too, turning the colour edge into a filter
  * ("only what's still lit"). It's gone — heat colours the map and doesn't
@@ -313,16 +314,16 @@ const FETCH_TIERS: readonly (number | null)[] = [350, 1000, 2500, null];
  * and not the activity toggle."
  */
 interface ViewCuts {
-  activeGlow: boolean;
   activeSeconds: number;
+  activeAllTime: boolean;
 }
 
-/** The halo off, gold's window on the last day — so the map opens marked by
- * nothing and lit exactly as it always has been ("did this code run today",
+/** Gold's window on the last day — so the map opens lit exactly as it always
+ * has been ("did this code run today",
  * terrainGraph.ts RUN_WINDOW_SECONDS). The slider starts on that number rather
  * than under it because gold's window used to BE that constant, fixed; making
  * it hers to move shouldn't change what she sees on open. */
-const NO_CUTS: ViewCuts = { activeGlow: false, activeSeconds: RUN_WINDOW_SECONDS };
+const NO_CUTS: ViewCuts = { activeSeconds: RUN_WINDOW_SECONDS, activeAllTime: false };
 
 function nextTier(tier: number | null): number | null {
   if (tier === null) return null;
@@ -401,13 +402,10 @@ export function TerrainPage() {
   // setting below is kept PER VIEW, and gold's window comes out of it.
   const typeColors = useTypeColorsOn();
 
-  // The Active bar's setting, per view (notes 6 and 8 in TerrainHeatBar.tsx):
-  // whether the run halo is drawn, and gold's window. Each view keeps its own,
-  // so a window set up under Types doesn't follow her back to the heat map.
-  //
-  // Page state, not a stored preference — the lit switch on the bar is what
-  // says the halo is running, and that's enough memory for a question she's
-  // asking right now.
+  // The Active bar's window, per view (notes 6 and 9 in TerrainHeatBar.tsx).
+  // Each view keeps its own, so a window set up under Types doesn't follow her
+  // back to the heat map. Page state, not a stored preference — it's a
+  // question she's asking right now.
   const [cutsByView, setCutsByView] = useState<Record<'heat' | 'types', ViewCuts>>({
     heat: { ...NO_CUTS },
     types: { ...NO_CUTS },
@@ -417,10 +415,35 @@ export function TerrainPage() {
   const setCuts = (patch: Partial<ViewCuts>) =>
     setCutsByView((prev) => ({ ...prev, [view]: { ...prev[view], ...patch } }));
 
+  // "Now" comes off the payload, not the wall clock, so it only advances when
+  // fresh data arrives — a live-polling map doesn't jitter its own date range
+  // between renders.
+  const now = useMemo(() => {
+    const stamped = data ? Date.parse(data.generated_at) : NaN;
+    return Number.isFinite(stamped) ? stamped / 1000 : Date.now() / 1000;
+  }, [data]);
+
+  // The oldest touch in the payload: the date range's left edge, and how far
+  // back Heat's "All time" reaches.
+  const earliest = useMemo(
+    () => (data ? terrainEarliestTouch(data, now) : now - 90 * DAY_SECONDS),
+    [data, now],
+  );
+
   // The heat WINDOW, in whole days — what the bottom Heat bar sets: how far
   // back a file stays lit, with the thumb as the edge of the colour. A number,
   // not one of three named lenses; the presets are only shortcuts on it.
   const [heatDays, setHeatDays] = useState(7);
+  // Whether each fire paints at all — the Heat and Active names on the bar are
+  // these switches (note 8 in TerrainHeatBar.tsx). Off means that fire adds
+  // nothing to the map: no colour, no size, and for gold no threads either.
+  // Shared by both views and not remembered across reloads.
+  const [heatOn, setHeatOn] = useState(true);
+  const [goldOn, setGoldOn] = useState(true);
+  // Heat's "All time" (note 9 in TerrainHeatBar.tsx). While on, the window is
+  // worked out from the payload below; heatDays keeps what she last chose, so
+  // switching it off lands back there — the same arrangement as Dynamic.
+  const [heatAllTime, setHeatAllTime] = useState(false);
   // Dynamic mode: the window stops being a setting and rides the same breath
   // the Observatory backdrop runs on — a day out to a month and back every
   // ten seconds. `breathDays` is the live value while it's on; heatDays keeps
@@ -434,26 +457,63 @@ export function TerrainPage() {
   // at its smallest, so yellow is fullest exactly when red is quietest. On
   // any fixed preset gold is the fixed one-day question.
   const [goldBreathSeconds, setGoldBreathSeconds] = useState<number>(RUN_WINDOW_SECONDS);
-  const liveHeatDays = breathing ? breathDays : heatDays;
+  // "All time" for each fire: back to the oldest thing it has on record. Heat
+  // reaches to the oldest edit in the payload (the date range's own left
+  // edge); gold to the oldest run, falling back to the bar's week when nothing
+  // has run. Both are floored at their bar's minimum so a brand-new install
+  // can't produce a zero-length window.
+  const allTimeHeatDays = Math.max(HEAT_DAYS_MIN, (now - earliest) / DAY_SECONDS);
+  const allTimeActiveSeconds = useMemo(() => {
+    const oldestRun = data ? terrainEarliestRun(data) : null;
+    return oldestRun === null
+      ? ACTIVE_MAX_SECONDS
+      : Math.max(ACTIVE_MIN_SECONDS, now - oldestRun);
+  }, [data, now]);
+  // Heat's live window: the breath under Dynamic, the all-time reach under
+  // All time, otherwise the slider.
+  const liveHeatDays = breathing ? breathDays : heatAllTime ? allTimeHeatDays : heatDays;
   const windowSeconds = liveHeatDays * DAY_SECONDS;
-  // Gold's live window, the mirror of liveHeatDays: the Active slider at rest,
-  // the gold breath under Dynamic. It drives the map's gold fire AND the halo,
-  // because they are one question — the Active bar is gold's bar now, not a
-  // second opinion about a window fixed somewhere else.
-  const liveActiveSeconds = breathing ? goldBreathSeconds : cuts.activeSeconds;
+  // Gold's live window, the mirror of liveHeatDays: the gold breath under
+  // Dynamic, the oldest run under All time, otherwise the Active slider. It
+  // drives the map's gold fire — the Active bar is gold's bar, not a second
+  // opinion about a window fixed somewhere else.
+  const liveActiveSeconds = breathing
+    ? goldBreathSeconds
+    : cuts.activeAllTime
+      ? allTimeActiveSeconds
+      : cuts.activeSeconds;
   // The decay runs on a half-life a third of the window (terrainGraph.ts,
   // windowToHalfLife) so the glow has run out by the window's edge.
   const halfLife = windowToHalfLife(windowSeconds);
   const goldHalfLife = windowToHalfLife(liveActiveSeconds);
   // Any deliberate touch of either slider, or of a fixed preset, ends the
   // breath — one value, one owner, so the two can never be arguing over it.
+  // All time is one more owner of the same value, so it follows the same
+  // rule: any other touch takes the window back from it, and pressing it
+  // takes the window back from Dynamic.
   const pickHeatDays = (days: number) => {
     setBreathing(false);
+    setHeatAllTime(false);
     setHeatDays(days);
   };
   const pickActiveSeconds = (seconds: number) => {
     setBreathing(false);
-    setCuts({ activeSeconds: seconds });
+    setCuts({ activeSeconds: seconds, activeAllTime: false });
+  };
+  const pickHeatAllTime = (on: boolean) => {
+    setBreathing(false);
+    setHeatAllTime(on);
+  };
+  const pickActiveAllTime = (on: boolean) => {
+    setBreathing(false);
+    setCuts({ activeAllTime: on });
+  };
+  const toggleBreathing = () => {
+    if (!breathing) {
+      setHeatAllTime(false);
+      setCuts({ activeAllTime: false });
+    }
+    setBreathing(!breathing);
   };
   useEffect(() => {
     if (!breathing || !pageVisible) return;
@@ -580,18 +640,6 @@ export function TerrainPage() {
     to: number;
   } | null>(null);
 
-  // "Now" comes off the payload, not the wall clock, so it only advances when
-  // fresh data arrives — a live-polling map doesn't jitter its own date range
-  // between renders.
-  const now = useMemo(() => {
-    const stamped = data ? Date.parse(data.generated_at) : NaN;
-    return Number.isFinite(stamped) ? stamped / 1000 : Date.now() / 1000;
-  }, [data]);
-
-  const earliest = useMemo(
-    () => (data ? terrainEarliestTouch(data, now) : now - 90 * DAY_SECONDS),
-    [data, now],
-  );
   const totalFiles = useMemo(() => (data ? terrainFileTotal(data) : 0), [data]);
   const loadedFiles = useMemo(() => (data ? terrainFileLoaded(data) : 0), [data]);
 
@@ -797,12 +845,15 @@ export function TerrainPage() {
   const graph = useMemo(
     () =>
       withTables
-        ? buildTerrainGraph(withTables, halfLife, undefined, {
+        ? // A fire switched off on the bar builds with a zero half-life, which
+          // scores every file at zero for that fire (computeFileHeat,
+          // computeRunHeat) — so it adds neither colour nor size anywhere.
+          buildTerrainGraph(withTables, heatOn ? halfLife : 0, undefined, {
             alwaysOrbIds: poolSessionIds,
-            runHalfLife: goldHalfLife,
+            runHalfLife: goldOn ? goldHalfLife : 0,
           })
         : null,
-    [withTables, halfLife, goldHalfLife, poolSessionIds],
+    [withTables, heatOn, halfLife, goldOn, goldHalfLife, poolSessionIds],
   );
 
   // The file whose code page is open, if any — read off the ADDRESS, not held
@@ -866,10 +917,11 @@ export function TerrainPage() {
 
   // Lit on the SAME window the gold dots ride, gold breath included, so a
   // thread and a dot of equal age are equally bright and the two read as one
-  // system rather than two overlays that happen to share a canvas.
+  // system rather than two overlays that happen to share a canvas. With gold
+  // switched off they go dark with it — they're gold's ink.
   const litThreads = useMemo(
-    () => heatThreads(threads, goldHalfLife),
-    [threads, goldHalfLife],
+    () => heatThreads(threads, goldOn ? goldHalfLife : 0),
+    [threads, goldOn, goldHalfLife],
   );
 
   useEffect(() => {
@@ -1066,8 +1118,10 @@ export function TerrainPage() {
   }, [unreadAgents, acknowledged]);
 
   /**
-   * Which agents the read/write rings speak for: the ones active within the
-   * hour, so their working sets are ringed without her having to tap anything.
+   * Which agents the read/write rings speak for: every SHOWN agent, whatever
+   * the pool — so turning on Open rings the files the open agents touched,
+   * without her having to tap anything. The agent window slider is the
+   * control for how many that is; hiding agents empties it.
    *
    * Spotlighting one agent does NOT narrow this. The other agents' rings stay
    * on the map and recede with their own dots instead — the canvas fades
@@ -1076,14 +1130,10 @@ export function TerrainPage() {
    * holds the light. Dropping them outright made a click erase evidence
    * rather than quiet it.
    *
-   * Prompt that produced it: "i want the rings to remain around the dots for
-   * other agents that are not active but i want them to be dimmed".
-   *
-   * Deliberately the LABELED set rather than every shown agent: under the Open
-   * pool a dozen agents' footprints ringed at once is confetti, and the older
-   * ones aren't the question. They stay un-ringed until spotlit.
+   * Prompt that produced it: "when i toggle "open" agents on, they don't show
+   * rings around the files they've interacted with. i want them to show rings."
    */
-  const ringSessionIds = labeledAgentIds;
+  const ringSessionIds = shownAgentIds;
 
   /**
    * File → the touch it wears a ring for. One ring per file, so when several
@@ -1504,28 +1554,12 @@ export function TerrainPage() {
   useEffect(() => {
     engineRef.current?.setHiddenFiles(hiddenFiles);
   }, [hiddenFiles]);
-  // The dots the Active bar lights up: everything that RAN inside its window
-  // (runGlow.ts). Adds a gold halo and nothing else — no dimming, no hiding,
-  // no layout. Only worth computing while the switch is actually lit.
-  //
-  // It rides the LIVE window, breath included, so the ring always agrees with
-  // the thumb the bar is drawing. Safe here in a way it wouldn't be for a
-  // filter: the date range's cutoff still uses only SET values, because a
-  // filter riding the breath would blink dots in and out of existence, while
-  // this only pulses light over dots that never move.
-  const glowFiles = useMemo(
-    () =>
-      visible && cuts.activeGlow
-        ? filesGlowingByRun(visible.nodes, liveActiveSeconds, now)
-        : new Set<string>(),
-    [visible, cuts.activeGlow, liveActiveSeconds, now],
-  );
+  // With both fires off there's nothing to judge staleness by, so the Types
+  // view stops fading files and shows every type colour whole
+  // (terrainCanvas.ts staleFade).
   useEffect(() => {
-    engineRef.current?.setGlowFiles(glowFiles);
-  }, [glowFiles]);
-  // What the key says while the switch is on: which side of the edge, where
-  // the edge is, and how many files that leaves — the count is the answer to
-  // "how much of this is old", readable without counting dots.
+    engineRef.current?.setStaleFade(heatOn || goldOn);
+  }, [heatOn, goldOn]);
   // What the Files dial's readout reports: dots actually PAINTED, so a cut
   // that hides half the map is visible in the number rather than only on the
   // canvas. Tables ride the map as synthetic files and aren't part of the
@@ -1542,29 +1576,13 @@ export function TerrainPage() {
 
   const filterNote = useMemo(() => {
     if (!visible) return null;
-    // Name whatever is acting on the map, in the order the controls sit on
-    // screen. These two don't compose the way the old pair of cuts did — one
-    // takes dots away, the other adds light — so each brings its own number
-    // rather than sharing a single survivor count.
-    const parts: string[] = [];
-    const counts: string[] = [];
+    // Name what's taking dots off the map and how many that leaves. The date
+    // range is the only thing that does now — the fire switches and windows
+    // change colour, never what's on the map.
+    if (hiddenByDates.size === 0) return null;
     const files = visible.nodes.filter((n) => n.kind === 'file' && !n.file?.days).length;
-    if (hiddenByDates.size > 0) {
-      parts.push('Dates');
-      counts.push(`${files - hiddenFiles.size} of ${files} files`);
-    }
-    if (cuts.activeGlow) {
-      parts.push(`Ran · ${formatAge(liveActiveSeconds)}`);
-      // Worth saying out loud, because zero is a real and common answer here:
-      // runs are Python-only, so a short window can genuinely light nothing.
-      counts.push(`${glowFiles.size} glowing`);
-    }
-    if (parts.length === 0) return null;
-    return {
-      title: parts.join(' + '),
-      count: counts.join(' · '),
-    };
-  }, [visible, hiddenFiles, hiddenByDates, cuts, glowFiles]);
+    return { title: 'Dates', count: `${files - hiddenFiles.size} of ${files} files` };
+  }, [visible, hiddenFiles, hiddenByDates]);
 
   // Build the key's type list. Only the files drawn right now are counted,
   // so the legend never names a type that isn't on the map, and each swatch
@@ -1923,11 +1941,17 @@ export function TerrainPage() {
             ramp={ink ? heatRamps(ink).ember : undefined}
             goldRamp={ink ? heatRamps(ink).gold : undefined}
             breathing={breathing}
-            onBreathe={() => setBreathing((v) => !v)}
+            onBreathe={toggleBreathing}
             typeColors={typeColors}
             onTypeColors={setTypeColorsOn}
-            activeGlow={cuts.activeGlow}
-            onActiveGlow={(on) => setCuts({ activeGlow: on })}
+            heatOn={heatOn}
+            onHeatOn={setHeatOn}
+            activeOn={goldOn}
+            onActiveOn={setGoldOn}
+            heatAllTime={heatAllTime}
+            onHeatAllTime={pickHeatAllTime}
+            activeAllTime={cuts.activeAllTime}
+            onActiveAllTime={pickActiveAllTime}
             activeSeconds={liveActiveSeconds}
             onActiveSeconds={pickActiveSeconds}
           />

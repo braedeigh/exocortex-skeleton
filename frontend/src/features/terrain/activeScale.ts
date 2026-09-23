@@ -31,8 +31,8 @@ import { POS_STEPS, posFromValue, valueFromPos } from './TerrainDials';
  * rather than dead track.
  *
  * Used by TerrainHeatBar.tsx (draws the track, its gold ramp and its ruler)
- * and TerrainPage.tsx (holds the window in seconds and hands it to both the
- * gold fire's half-life and runGlow.ts).
+ * and TerrainPage.tsx (holds the window in seconds and turns it into the gold
+ * fire's half-life).
  *
  * Prompts that produced it: "i want for the active to be a 24 hour toggle with
  * minutes and hours marks instead of what it is now that matches heat" → "it
