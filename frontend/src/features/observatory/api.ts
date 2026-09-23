@@ -217,7 +217,9 @@ export function getConversation(
   id: string,
   signal?: AbortSignal,
 ): Promise<{ id: string; meta: SessionMeta; events: unknown[] }> {
-  return api.get(`/api/observatory/conversation/${encodeURIComponent(id)}`, signal);
+  // `lean=1`: the server leaves out tool results, which the page never draws
+  // and which are most of a transcript's weight (routes/observatory.py).
+  return api.get(`/api/observatory/conversation/${encodeURIComponent(id)}?lean=1`, signal);
 }
 
 /** The last thing said in a session — the agent's newest reply, or her ask if

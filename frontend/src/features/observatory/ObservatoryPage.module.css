@@ -623,6 +623,25 @@
 
 /* --- Gap + error turns --------------------------------------------------- */
 
+/* The "Show earlier messages" button at the top of a windowed transcript. */
+.showEarlier {
+  display: block;
+  min-height: 40px;
+  margin: 0 auto var(--space-6);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.showEarlier:hover {
+  color: var(--text);
+}
+
 .gap {
   margin: var(--space-6) 0;
   text-align: center;

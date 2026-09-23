@@ -2166,12 +2166,27 @@ def register(app):
             if isinstance(meta, dict):
                 return jsonify({"id": conv_id, "meta": meta, "events": []})
             return jsonify({"error": "not found"}), 404
+        # Slim view for the session page: leave out the tool results. `?lean=1`
+        # drops every {type:'user'} event that isn't her own message — those
+        # are claude echoing tool output back (file contents, command output,
+        # screenshots), routinely 90%+ of a transcript's bytes, and the page's
+        # reducer ignores them (events.ts, case 'user'). They never make a
+        # turn, so turn indices — what journal highlights are addressed by —
+        # come out identical. Opt-in: without the flag the full log is served,
+        # and the file on disk is untouched (Terrain reads it directly).
+        # Prompt: "only load the last some amount of messages ... maybe make it
+        # load some amount that's easy to load."
+        lean = request.args.get("lean") == "1"
         events = []
         for line in path.read_text().splitlines():
             try:
-                events.append(json.loads(line))
+                event = json.loads(line)
             except ValueError:
                 continue  # a torn line (crash mid-append) shouldn't hide the rest
+            if (lean and isinstance(event, dict) and event.get("type") == "user"
+                    and not isinstance(event.get("text"), str)):
+                continue
+            events.append(event)
         if not isinstance(meta, dict):
             meta = {}
         if isinstance(meta, dict) and meta.get("running"):

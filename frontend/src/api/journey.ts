@@ -7,12 +7,15 @@
  * read the reply back, the render — all of that happens in here, where no
  * Python sensor can see. This module is the sensor for in here.
  *
- * LIVE, by default: while this tab is on screen it keeps a journey open —
- * opening one when the app becomes visible, rolling to a fresh one before the
- * hour is up, closing it when the tab hides — so the deep trace runs exactly
- * while she is looking and never otherwise. `setLive(false)` (the Live switch
- * in the creek / terrain pickers, per device) turns that off; a journey can
- * still be opened by hand then. While one is open:
+ * LIVE, OFF by default (her 09-23 call: "i don't want the live trace on for
+ * now until i can figure out how to make it lightweight"). When on, this tab
+ * keeps a journey open while it's on screen — opening one when the app becomes
+ * visible, rolling to a fresh one before the hour is up, closing it when the
+ * tab hides. It's off by default because a live journey deep-traces every
+ * request that follows a tap, which is exactly a page load's burst of
+ * requests, and measured roughly 2x slower on each. `setLive(true)` (the Live
+ * switch in the creek / terrain pickers, per device) turns it on; a journey
+ * can always be opened by hand. While one is open:
  *
  *   - every fetch that FOLLOWS SOMETHING SHE DID carries `X-Journey-Id: <id>`,
  *     which is what makes the server record that request as part of the same
@@ -45,7 +48,11 @@
 import type { AnyRouter } from '@tanstack/react-router';
 
 const STORAGE_KEY = 'exo-journey';
-const LIVE_KEY = 'exo-journey-live';
+/** Live mode's per-device switch. Renamed from 'exo-journey-live' when the
+ * default flipped to off, so a device that was on only by the old default
+ * starts off; `migrateLiveDefault` below clears the old key. */
+const LIVE_KEY = 'exo-journey-live-v2';
+const OLD_LIVE_KEY = 'exo-journey-live';
 /** A live journey's window; rolled over before it runs out. */
 const LIVE_SECONDS = 3600;
 const ROLL_BEFORE_MS = 90_000;
@@ -137,10 +144,26 @@ export function stopJourney(close = false): void {
 
 export function isLive(): boolean {
   try {
-    return localStorage.getItem(LIVE_KEY) !== '0';
+    return localStorage.getItem(LIVE_KEY) === '1';
   } catch {
-    return true;
+    return false;
   }
+}
+
+/** Switch off, once per device, the live journey the old on-by-default mode
+ * left open. Runs the first time this device sees the new key: it records the
+ * default (off), and closes any journey restored from storage so tracing
+ * stops on this load rather than riding out the rest of its hour. After that
+ * it does nothing, so a journey she opens by hand survives a reload. */
+function migrateLiveDefault(): void {
+  try {
+    if (localStorage.getItem(LIVE_KEY) !== null) return;
+    localStorage.setItem(LIVE_KEY, '0');
+    localStorage.removeItem(OLD_LIVE_KEY);
+  } catch {
+    return;
+  }
+  stopJourney(true);
 }
 
 export function setLive(on: boolean): void {
@@ -319,6 +342,8 @@ export function installJourney(router: AnyRouter): void {
   } catch {
     // ignore
   }
+
+  migrateLiveDefault();
 
   // Opening the app IS something she did: the boot-time fetches count as
   // following it, even though the router hasn't resolved yet.

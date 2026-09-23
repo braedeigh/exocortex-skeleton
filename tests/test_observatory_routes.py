@@ -331,6 +331,22 @@ def test_conversation_endpoint_round_trips(bot_client):
     assert any(c["id"] == conv_id for c in keeper["conversations"])
 
 
+def test_lean_conversation_drops_tool_results_but_keeps_her_messages(bot_client):
+    events = _sse_events(_send(bot_client, text="hello there"))
+    conv_id = events[0]["conversation_id"]
+    # A tool-result echo, as claude writes one into the log mid-turn.
+    path = store.DATA_DIR / "bot_chats" / f"{conv_id}.jsonl"
+    with path.open("a") as f:
+        f.write(json.dumps({"type": "user", "message": {"role": "user", "content": [
+            {"type": "tool_result", "content": "x" * 5000}]}}) + "\n")
+    full = bot_client.get(f"/api/observatory/conversation/{conv_id}").get_json()["events"]
+    lean = bot_client.get(f"/api/observatory/conversation/{conv_id}?lean=1").get_json()["events"]
+    assert any("message" in e for e in full if e.get("type") == "user")
+    assert not any(e.get("type") == "user" and "text" not in e for e in lean)
+    assert lean[0]["text"] == "hello there"
+    assert len(lean) == len(full) - 1
+
+
 def test_never_sent_session_opens_with_its_staged_draft(bot_client):
     # A freshly-minted session (a /spinoff staged draft, or "+ New session")
     # has an index entry but no jsonl until its first send. Opening it must

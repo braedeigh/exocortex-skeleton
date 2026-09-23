@@ -29,6 +29,21 @@ import { useReattach } from './useReattach';
 import { useKeeperRollover } from './useKeeperRollover';
 import styles from './ObservatoryPage.module.css';
 
+/** How many exchanges (her message plus what answered it) a session opens
+ * showing, and how many more each "Show earlier" adds. Drawing a long
+ * session's every reply at once was most of what made opening one slow. */
+const EXCHANGES_SHOWN = 20;
+
+/** Where the drawn window starts: the index of her `exchanges`-th message
+ * counting back from the newest, or 0 when the whole history fits. */
+function firstShownTurn(turns: Turn[], exchanges: number): number {
+  let seen = 0;
+  for (let i = turns.length - 1; i >= 0; i--) {
+    if (turns[i].role === 'user' && ++seen === exchanges) return i;
+  }
+  return 0;
+}
+
 /**
  * The observatory (bot-surface-design §5, Sunflower spec 07-23): not a
  * bubble chat. Her message is an epigraph — small, accent-ruled, hers; the
@@ -122,6 +137,12 @@ export function ObservatoryPage({
   const [roomTitle, setRoomTitle] = useState<string | null>(null);
   const roomLabel = roomTitle ?? 'Observatory';
   const [turns, setTurns] = useState<Turn[]>([]);
+  // How many of her messages (each with its reply) the transcript draws,
+  // counted from the newest. The whole history is still loaded and reduced —
+  // only drawing is windowed — so every turn keeps its true index, which is
+  // what journal highlights are addressed by. "Show earlier" widens it.
+  const [shownExchanges, setShownExchanges] = useState(EXCHANGES_SHOWN);
+  const firstShown = firstShownTurn(turns, shownExchanges);
   const [streaming, setStreaming] = useState(false);
   // Messages sent while a turn is still writing — the Claude Code queued-
   // prompt gesture: they wait as removable rows and fire when the turn ends.
@@ -683,13 +704,25 @@ export function ObservatoryPage({
 
       <div ref={scrollContract.scrollRef} className={styles.scroll}>
         <div ref={scrollContract.columnRef} className={styles.column}>
+          {firstShown > 0 ? (
+            <button
+              type="button"
+              className={styles.showEarlier}
+              onClick={() => setShownExchanges((n) => n + EXCHANGES_SHOWN)}
+            >
+              Show earlier messages
+            </button>
+          ) : null}
           {turns.length === 0 ? (
             <div className={styles.empty}>
               <div className={styles.emptyName}>{roomLabel}</div>
               <div className={styles.emptyHint}>Whenever you&rsquo;re ready.</div>
             </div>
           ) : (
-            turns.map((t, i) => {
+            turns.slice(firstShown).map((t, shownIndex) => {
+              // Keys and indices stay absolute (the turn's place in the whole
+              // history), never its place in the window.
+              const i = firstShown + shownIndex;
               if (t.role === 'user') {
                 return (
                   <UserMessage

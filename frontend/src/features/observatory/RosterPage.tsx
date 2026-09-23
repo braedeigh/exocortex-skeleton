@@ -21,7 +21,6 @@ import { SessionDialog, type SessionDraft } from './SessionDialog';
 import { SessionLane } from './SessionLane';
 import { NightCrewDoor } from './NightCrewDoor';
 import { HelpersDoor } from './HelpersDoor';
-import { fetchNightState, type NightState } from './NightCrewPage';
 import { MemoryMeter } from '../runqueue/MemoryMeter';
 import { useTerrain } from '../terrain/api';
 import { NotesPill } from '../todos/NotesPill';
@@ -160,8 +159,9 @@ const LANE_INTRO: Record<Room, string> = {
  * here and the least like the rest: this page is for scanning what's live, and
  * night crew is finished work read once in the morning off cards with diffs,
  * screenshots and merge buttons. It's /observatory/nightcrew now, and what's
- * left in its old spot is a door carrying its census (NightCrewDoor). This page
- * still fetches /api/nightcrew — once, for that census, never polled.
+ * left in its old spot is a plain door (NightCrewDoor). This page fetches
+ * nothing from /api/nightcrew — that call is slow, so it waits until she
+ * actually walks through the door.
  *
  * THE KEEPER STANDS OUTSIDE ALL OF IT (her 08-03 ask). The one pinned session
  * is hoisted above the rooms into a slot of its own: no lane, no heading, no
@@ -240,16 +240,9 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // The night crew's census, for the DOOR only — the page itself owns the runs
-  // and every action on them now (NightCrewPage). One fetch on mount, never
-  // polled: nothing over there changes while she's looking at this page.
-  const [night, setNight] = useState<NightState | null>(null);
-  useEffect(() => {
-    void fetchNightState().then(setNight);
-  }, []);
 
-  // The Helpers door's census — same one-fetch-on-mount shape as the night
-  // crew's; the page behind the door owns the list.
+  // The Helpers door's census — one fetch on mount, never polled; the page
+  // behind the door owns the list.
   const [helpersState, setHelpersState] = useState<HelpersState | null>(null);
   useEffect(() => {
     void getHelpers().then(setHelpersState).catch(() => setHelpersState(null));
@@ -455,16 +448,12 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
 
           {/* Night crew is a PAGE now, and this is the way in — left exactly
               where its section used to sit, because that's where she already
-              scrolls to look for it. The row carries the census so a place she
-              can't see into still says what's waiting on her. */}
-          <NightCrewDoor
-            runs={night?.runs ?? []}
-            queued={night?.queue?.length ?? 0}
-            spendUsd={night?.spend?.night_usd ?? 0}
-          />
+              scrolls to look for it. It carries no census: that call is slow, so
+              the crew loads only once she clicks through. */}
+          <NightCrewDoor />
 
           {/* The button-fired jobs (triage, recipe/receipt parses, person
-              impressions) — a door like the night crew's, carrying a census,
+              impressions) — a door like the night crew's, but carrying a census,
               where the "System agents — coming later" note used to sit. */}
           <HelpersDoor state={helpersState} />
 

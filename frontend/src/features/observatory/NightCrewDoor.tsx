@@ -1,5 +1,4 @@
 import { useNavigate } from '@tanstack/react-router';
-import type { NightRun } from './NightCrewLane';
 import styles from './NightCrew.module.css';
 
 /**
@@ -17,61 +16,28 @@ import styles from './NightCrew.module.css';
  * exactly where the section was, because that's where she already scrolls to
  * look for it.
  *
- * A DOOR MUST NOT GO SILENT. Same rule as a collapsed room (LaneHead): if
- * something in there is waiting on a verdict, this row has to say so, or the
- * queue becomes a graveyard and the door is what buried it. So the census rides
- * the door — the ready count, what's teed up for tonight, what last night cost
- * — and the row warms when anything is actually waiting. What it does NOT do is
- * pull her through: it goes loud, it doesn't navigate for her.
+ * A PLAIN DOOR, NO CENSUS (her 09-23 call: "i don't want to load the night
+ * crew unless i click on it"). It used to carry a count of what was waiting,
+ * which meant fetching /api/nightcrew — a ~1.5s call — every time the roster
+ * mounted, i.e. every time she came back to it. Now it's only a way in; the
+ * night state loads on NightCrewPage, once she walks through.
  *
  * Deliberately NOT counted by the rail's colour buttons. Those count the
  * sessions the ROOMS draw (roomRoster in sessionFilters.ts); night crew is its
- * own place now and reports itself, here.
+ * own place now, reached through here.
  */
-export function NightCrewDoor({
-  runs,
-  queued,
-  spendUsd,
-}: {
-  runs: NightRun[];
-  /** How many notes are green-lit and would pass the gate tonight. */
-  queued: number;
-  spendUsd: number;
-}) {
+export function NightCrewDoor() {
   const navigate = useNavigate();
-  const live = runs.filter((r) => !r.dismissed);
-  const ready = live.filter((r) => r.status === 'ready').length;
-
-  // The second line, in order of what actually asks something of her: what's
-  // finished but unjudged, else what's still being built, else what's queued
-  // for tonight, else the plain truth that nothing is pending. One sentence —
-  // a door that tried to report everything would be the room it replaced.
-  const building = live.length - ready;
-  const line =
-    ready > 0
-      ? `${ready} finished, waiting on your verdict`
-      : building > 0
-        ? `${building} still being built`
-        : queued > 0
-          ? `Nothing waiting. ${queued} note${queued === 1 ? '' : 's'} teed up for tonight.`
-          : 'Nothing waiting, and nothing green-lit for tonight.';
-
   return (
     <button
       type="button"
-      className={[styles.door, ready > 0 ? styles.doorWanting : ''].filter(Boolean).join(' ')}
+      className={styles.door}
       onClick={() => void navigate({ to: '/observatory/nightcrew' })}
     >
       <span className={styles.doorMain}>
-        <span className={styles.doorTitle}>
-          Night crew
-          {ready > 0 ? <span className={styles.doorReady}>{ready} ready</span> : null}
-        </span>
-        <span className={styles.doorLine}>{line}</span>
+        <span className={styles.doorTitle}>Night crew</span>
+        <span className={styles.doorLine}>Open to see last night's runs.</span>
       </span>
-      {/* Cost sits at the far end, muted: present so a month can't surprise
-          her, quiet so it isn't the first thing she reads at 6 AM. */}
-      <span className={styles.doorSpend}>${spendUsd.toFixed(2)}</span>
       <span className={styles.doorArrow} aria-hidden="true">
         &rarr;
       </span>
