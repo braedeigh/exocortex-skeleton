@@ -9,6 +9,8 @@ receipts into structured line items**.
 <!-- PLUG-IN(OWNER_NAME): the person this workspace serves — appears in the
      "summarize for" lines below. Fill in, or just read "the owner." -->
 
+**Sent here by a BRIEF?** The Kitchen tab's scan button opens one helper session per photo, with a `BRIEF.md` naming that photo. Then that one photo is your whole job — skip the sweeps in "On Startup" and "When done"; other unparsed photos may belong to helper sessions running right now.
+
 ## Subfolder structure
 
 - `grocery/` — receipts uploaded from the Kitchen tab's "📷 Scan receipt" button. **Your job is JUST to transcribe** — read the photo, output a sibling `.parsed.json` file with raw line items. The dashboard's rules-based parser handles categorization downstream. Do NOT touch `data/grocery_trips.json` or `data/kitchen.json` from here.
@@ -28,7 +30,7 @@ This bit us for real: an older version of this doc told you to write `../data/gr
 For each new file in `grocery/` that doesn't have a sibling `<file>.parsed.json`:
 
 1. **Read the photo** following `receipt_scanner.md` (in this same folder) — crop, OCR, extract every line item with name + price + quantity.
-2. **Write a sibling JSON file** at `grocery/<original_filename>.parsed.json` with this shape:
+2. **Write a sibling JSON file** at `grocery/<original_filename>.parsed.json` — the photo's full name, extension included (`2026-09-24-receipt-145650.jpg` → `2026-09-24-receipt-145650.jpg.parsed.json`). The Kitchen import list, the `.imported` marker, and the receipts table all find the file by that name. Shape:
 
 ```json
 {
@@ -41,7 +43,7 @@ For each new file in `grocery/` that doesn't have a sibling `<file>.parsed.json`
   "items_count": 12,
   "line_items": [
     {"name": "GAL ORG WHOLE MILK", "qty": 1, "price": 4.50, "unit_price": null},
-    {"name": "BROCCOLI CROWNS", "qty": 1, "price": 1.05, "unit_price": 0.97}
+    {"name": "BROCCOLI CROWNS", "qty": 1, "price": 1.05, "unit_price": 0.97, "weight": "1.08 lbs"}
   ]
 }
 ```
@@ -77,6 +79,8 @@ The canonical prompt (`receipt_scanner.md`) assumes `sips` (macOS). If you're ru
 - HEIC → JPEG: `heif-convert <file>.HEIC <file>.jpg` (install: `apt install libheif-examples`)
 - Resize/crop: `convert <file> -crop WxH+X+Y -quality 80 <out>` (ImageMagick)
 - Get dimensions: `identify -format "%w %h" <file>`
+
+ImageMagick may not be installed. Pillow is the reliable fallback — in the system `python3`, not necessarily the app's venv. Run `ImageOps.exif_transpose()` first: phone photos are often stored sideways.
 
 If neither toolchain is available, fall back to reading the full image directly with the Read tool — it may work for higher-res photos.
 
