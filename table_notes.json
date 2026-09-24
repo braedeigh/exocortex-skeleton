@@ -1287,5 +1287,320 @@
         "holds": "The worker process that served it."
       }
     }
+  },
+  "foods": {
+    "holds": "One row per food: the thing a recipe asks for or a list names — not necessarily raw (boxed broth counts). Also holds non-food things bought alongside, told apart by kind.",
+    "source": "Written only through foodstore.py (routes/food.py is its HTTP door). Backed up to food_catalog.json after every change and read back from it if the table is ever empty. Never cleared by a rebuild.",
+    "kind": "record",
+    "time_column": "created_at",
+    "columns": {
+      "id": {
+        "holds": "The food's number."
+      },
+      "name": {
+        "holds": "Its main name."
+      },
+      "category": {
+        "holds": "The kitchen's shopping category."
+      },
+      "note": {
+        "holds": "A free note."
+      },
+      "created_at": {
+        "holds": "When the row was made."
+      },
+      "kind": {
+        "holds": "What sort of thing it is.",
+        "values": {
+          "food": "Something eaten.",
+          "household": "Foil, bags, cleaning.",
+          "body": "Shampoo, floss, care.",
+          "other": "Anything else."
+        }
+      },
+      "safety": {
+        "holds": "How it sits with the owner's body; empty means not judged yet.",
+        "values": {
+          "safe": "Fine to eat.",
+          "hurts": "Causes trouble.",
+          "unsure": "Not sure yet."
+        }
+      }
+    }
+  },
+  "food_names": {
+    "holds": "Every way a food has been written, lowercased, and the food it means. This is what makes two spellings the same food.",
+    "source": "Written only through foodstore.py (routes/food.py is its HTTP door). Backed up to food_catalog.json after every change and read back from it if the table is ever empty. Never cleared by a rebuild.",
+    "kind": "record",
+    "time_column": null,
+    "columns": {
+      "name": {
+        "holds": "One spelling, lowercased."
+      },
+      "food_id": {
+        "holds": "The food it means."
+      }
+    }
+  },
+  "products": {
+    "holds": "One tangible thing you can buy — a brand, a size, a store's own item — and the food it is.",
+    "source": "Written only through foodstore.py (routes/food.py is its HTTP door). Backed up to food_catalog.json after every change and read back from it if the table is ever empty. Never cleared by a rebuild. adopt() makes one per receipt line nobody has matched.",
+    "kind": "record",
+    "time_column": null,
+    "columns": {
+      "id": {
+        "holds": "The product's number."
+      },
+      "food_id": {
+        "holds": "The food it is; empty until someone says."
+      },
+      "name": {
+        "holds": "Its name, often as the receipt prints it."
+      },
+      "brand": {
+        "holds": "The brand."
+      },
+      "store": {
+        "holds": "Where it's bought."
+      },
+      "size": {
+        "holds": "The package size."
+      },
+      "note": {
+        "holds": "A free note."
+      }
+    }
+  },
+  "receipt_names": {
+    "holds": "How a store prints a product on a receipt, uppercased — learned once, recognised on every receipt after.",
+    "source": "Written only through foodstore.py (routes/food.py is its HTTP door). Backed up to food_catalog.json after every change and read back from it if the table is ever empty. Never cleared by a rebuild.",
+    "kind": "record",
+    "time_column": null,
+    "columns": {
+      "store": {
+        "holds": "The store, uppercased."
+      },
+      "text": {
+        "holds": "The receipt line's text, uppercased."
+      },
+      "product_id": {
+        "holds": "The product it means."
+      }
+    }
+  },
+  "food_links": {
+    "holds": "A food or a product tied to an ecosystem-map source or a research entry.",
+    "source": "Written only through foodstore.py (routes/food.py is its HTTP door). Backed up to food_catalog.json after every change and read back from it if the table is ever empty. Never cleared by a rebuild.",
+    "kind": "record",
+    "time_column": null,
+    "columns": {
+      "id": {
+        "holds": "The link's number."
+      },
+      "food_id": {
+        "holds": "The food, when the link is about the food."
+      },
+      "product_id": {
+        "holds": "The product, when it's about one product."
+      },
+      "target_id": {
+        "holds": "The other thing's own id."
+      },
+      "note": {
+        "holds": "Why they're linked."
+      },
+      "target": {
+        "holds": "What it links to.",
+        "values": {
+          "ecosystem": "A source on the ecosystem map.",
+          "research": "An entry in the research tool."
+        }
+      }
+    }
+  },
+  "recipe_makes": {
+    "holds": "Which food a recipe makes — so a recipe asking for that food can be met by buying it or by making it.",
+    "source": "Written only through foodstore.py (routes/food.py is its HTTP door). Backed up to food_catalog.json after every change and read back from it if the table is ever empty. Never cleared by a rebuild.",
+    "kind": "record",
+    "time_column": null,
+    "columns": {
+      "recipe_id": {
+        "holds": "The recipe's id in the recipes collection."
+      },
+      "food_id": {
+        "holds": "The food it makes."
+      }
+    }
+  },
+  "meal_rotation": {
+    "holds": "The meals that recur and how many times a week, so what gets eaten is a standing fact rather than a daily log.",
+    "source": "Written only through foodstore.py (routes/food.py is its HTTP door). Backed up to food_catalog.json after every change and read back from it if the table is ever empty. Never cleared by a rebuild.",
+    "kind": "record",
+    "time_column": "since",
+    "columns": {
+      "recipe_id": {
+        "holds": "The recipe."
+      },
+      "per_week": {
+        "holds": "How many times a week it's made."
+      },
+      "since": {
+        "holds": "When it joined the rotation."
+      },
+      "note": {
+        "holds": "A free note."
+      }
+    }
+  },
+  "recipes": {
+    "holds": "One row per recipe.",
+    "source": "Re-read by foodstore.rebuild() from the kitchen's JSON collections, with every name matched to a food as it goes. The kitchen screens still write those collections; wipe this and rebuild.",
+    "kind": "mirror",
+    "time_column": null,
+    "columns": {
+      "id": {
+        "holds": "The recipe's id in the recipes collection."
+      },
+      "name": {
+        "holds": "Its name."
+      },
+      "servings": {
+        "holds": "How many servings."
+      },
+      "prep_min": {
+        "holds": "Prep minutes."
+      },
+      "cook_min": {
+        "holds": "Cook minutes."
+      },
+      "archived": {
+        "holds": "1 when archived."
+      },
+      "parent_id": {
+        "holds": "The recipe this one was adapted from."
+      },
+      "source_url": {
+        "holds": "Where it came from."
+      }
+    }
+  },
+  "recipe_lines": {
+    "holds": "Each ingredient line of each recipe, with the food it resolves to.",
+    "source": "Re-read by foodstore.rebuild() from the kitchen's JSON collections, with every name matched to a food as it goes. The kitchen screens still write those collections; wipe this and rebuild.",
+    "kind": "mirror",
+    "time_column": null,
+    "columns": {
+      "recipe_id": {
+        "holds": "The recipe."
+      },
+      "seq": {
+        "holds": "Its place in the list."
+      },
+      "text": {
+        "holds": "The ingredient as written."
+      },
+      "amount": {
+        "holds": "How much."
+      },
+      "note": {
+        "holds": "The line's note."
+      },
+      "usually_have": {
+        "holds": "1 when the recipe marks it as usually on hand."
+      },
+      "food_id": {
+        "holds": "The food it resolves to; empty when no name matches."
+      }
+    }
+  },
+  "shopping_trips": {
+    "holds": "One shopping trip: date, store, total, and the expense it became.",
+    "source": "Re-read by foodstore.rebuild() from the kitchen's JSON collections, with every name matched to a food as it goes. The kitchen screens still write those collections; wipe this and rebuild. Merges the two trip lists the kitchen keeps, counting a same-day same-store pair once.",
+    "kind": "mirror",
+    "time_column": "date",
+    "columns": {
+      "id": {
+        "holds": "The trip's number (renumbered on every rebuild)."
+      },
+      "date": {
+        "holds": "The day of the trip."
+      },
+      "store": {
+        "holds": "The store."
+      },
+      "total_cents": {
+        "holds": "What it cost, in cents."
+      },
+      "saved_cents": {
+        "holds": "What was saved, in cents."
+      },
+      "units": {
+        "holds": "How many items."
+      },
+      "receipt": {
+        "holds": "The receipt photo's path."
+      },
+      "expense_id": {
+        "holds": "The Money tab's expense for this trip."
+      }
+    }
+  },
+  "shopping_lines": {
+    "holds": "Each line of each receipt, matched to a product and a food.",
+    "source": "Re-read by foodstore.rebuild() from the kitchen's JSON collections, with every name matched to a food as it goes. The kitchen screens still write those collections; wipe this and rebuild.",
+    "kind": "mirror",
+    "time_column": null,
+    "columns": {
+      "trip_id": {
+        "holds": "The trip."
+      },
+      "seq": {
+        "holds": "Its place on the receipt."
+      },
+      "text": {
+        "holds": "The receipt's own text."
+      },
+      "qty": {
+        "holds": "How many."
+      },
+      "price_cents": {
+        "holds": "What the line cost in total, in cents."
+      },
+      "picked_name": {
+        "holds": "The name picked for it when the receipt was imported."
+      },
+      "product_id": {
+        "holds": "The product it matched."
+      },
+      "food_id": {
+        "holds": "The food it matched."
+      }
+    }
+  },
+  "grocery_list": {
+    "holds": "The grocery list as it stands, each item matched to a food.",
+    "source": "Re-read by foodstore.rebuild() from the kitchen's JSON collections, with every name matched to a food as it goes. The kitchen screens still write those collections; wipe this and rebuild.",
+    "kind": "mirror",
+    "time_column": null,
+    "columns": {
+      "seq": {
+        "holds": "Its place on the list."
+      },
+      "text": {
+        "holds": "The item as written."
+      },
+      "amount": {
+        "holds": "How much."
+      },
+      "category": {
+        "holds": "Its shopping category."
+      },
+      "checked": {
+        "holds": "1 when checked off."
+      },
+      "food_id": {
+        "holds": "The food it resolves to."
+      }
+    }
   }
 }

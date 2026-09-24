@@ -42,7 +42,7 @@ import time
 
 import store
 
-_SCHEMA_VERSION = 19
+_SCHEMA_VERSION = 20
 
 
 def _db_path():
@@ -179,6 +179,9 @@ _EXPECTED_TABLES = (
     "traces", "trace_spans",
     "notes", "note_judgments",
     "tool_calls", "tool_call_sources", "turn_results", "ui_events", "requests",
+    "foods", "food_names", "products", "receipt_names", "food_links",
+    "recipe_makes", "meal_rotation",
+    "recipes", "recipe_lines", "shopping_trips", "shopping_lines", "grocery_list",
 )
 
 
@@ -1437,6 +1440,230 @@ def _run_ladder(conn):
         )
         conn.execute("CREATE INDEX IF NOT EXISTS requests_by_day ON requests (day)")
         conn.execute("CREATE INDEX IF NOT EXISTS requests_by_feature ON requests (feature, at)")
+    if version < 20:
+        # Entity #11: the kitchen as connected rows (foodstore.py). Until now
+        # every food was a loose string typed separately in each feature —
+        # "beef chuck roast" in a recipe, "Chuck roast" on the list, "HEB
+        # chuck roast" on the map — so nothing could be joined. These tables
+        # give each food ONE row that everything else points at.
+        #
+        # Two halves, and the difference matters for the rebuild button:
+        #
+        #   HER RECORD (not derived — never on a rebuild): foods, food_names,
+        #   products, receipt_names, food_links, recipe_makes, meal_rotation.
+        #   Decisions she makes once ("these two names are the same food").
+        #   Backed up as the food_catalog.json mirror after every write.
+        #
+        #   DERIVED (wiped and re-read from the kitchen blobs on every
+        #   rebuild): recipes, recipe_lines, shopping_trips, shopping_lines,
+        #   grocery_list. The kitchen screens still write the blobs; these
+        #   rows are a view of them with the names resolved to foods.
+        #
+        # A food: the thing a recipe asks for — "quinoa", "bone broth". Not
+        # necessarily raw; boxed bone broth is as much a food as kale. `kind`
+        # lets the same catalog hold what shares a receipt with the food
+        # (shampoo, foil) without pretending it is edible.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS foods ("
+            "  id INTEGER PRIMARY KEY,"
+            "  name TEXT NOT NULL UNIQUE COLLATE NOCASE,"
+            "  kind TEXT NOT NULL DEFAULT 'food'"
+            "    CHECK (kind IN ('food', 'household', 'body', 'other')),"
+            # The kitchen's shopping category (produce, dairy, @aisles…).
+            "  category TEXT,"
+            # How it sits with her body. NULL means not judged yet, which is
+            # different from 'unsure'.
+            "  safety TEXT CHECK (safety IS NULL OR safety IN ('safe', 'hurts', 'unsure')),"
+            "  note TEXT,"
+            "  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+            ")"
+        )
+        # Every way a food has been written, lowercased. This is what turns a
+        # recipe's "beef chuck roast" and the list's "Chuck roast" into the
+        # same row: both names point here at one food.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS food_names ("
+            "  name TEXT PRIMARY KEY,"
+            "  food_id INTEGER NOT NULL REFERENCES foods(id) ON DELETE CASCADE"
+            ")"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS food_names_by_food ON food_names (food_id)")
+        # A product: one tangible thing on a shelf — "HEB bone broth, 32oz".
+        # Belongs to a food (NULL until someone says which). Where-it-comes-
+        # from lives here rather than on the food, because two brands of the
+        # same food come from two different places.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS products ("
+            "  id INTEGER PRIMARY KEY,"
+            "  food_id INTEGER REFERENCES foods(id) ON DELETE SET NULL,"
+            "  name TEXT NOT NULL,"
+            "  brand TEXT,"
+            "  store TEXT,"
+            "  size TEXT,"
+            "  note TEXT"
+            ")"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS products_by_food ON products (food_id)")
+        # How a store prints a product on a receipt ("PRIME CHUCK ROAST
+        # BNLS"), uppercased. Learned once, recognised on every receipt after.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS receipt_names ("
+            "  store TEXT NOT NULL,"
+            "  text TEXT NOT NULL,"
+            "  product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,"
+            "  PRIMARY KEY (store, text)"
+            ")"
+        )
+        # A food or a product tied to something elsewhere in the app: an
+        # ecosystem-map source or a research entry, by that thing's own id.
+        # Exactly one of food_id / product_id is set.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS food_links ("
+            "  id INTEGER PRIMARY KEY,"
+            "  food_id INTEGER REFERENCES foods(id) ON DELETE CASCADE,"
+            "  product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,"
+            "  target TEXT NOT NULL CHECK (target IN ('ecosystem', 'research')),"
+            "  target_id TEXT NOT NULL,"
+            "  note TEXT,"
+            "  CHECK ((food_id IS NULL) <> (product_id IS NULL))"
+            ")"
+        )
+        # One link per pair. COALESCE because a plain UNIQUE treats every
+        # NULL as distinct, which would let the same link in twice.
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS food_links_once ON food_links"
+            " (target, target_id, COALESCE(food_id, 0), COALESCE(product_id, 0))"
+        )
+        # Which food a recipe makes: the Bone Broth recipe makes "bone
+        # broth", so a recipe asking for bone broth can be met by the box
+        # from the store OR by a batch from the pot. Keyed by the recipe
+        # blob's own id.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS recipe_makes ("
+            "  recipe_id TEXT PRIMARY KEY,"
+            "  food_id INTEGER NOT NULL REFERENCES foods(id) ON DELETE CASCADE"
+            ")"
+        )
+        # The meals that recur, and how often — so "what I eat" is a standing
+        # fact instead of something logged every week.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS meal_rotation ("
+            "  recipe_id TEXT PRIMARY KEY,"
+            "  per_week REAL NOT NULL DEFAULT 1 CHECK (per_week > 0),"
+            "  since TEXT,"
+            "  note TEXT"
+            ")"
+        )
+        # --- derived from here down: foodstore.rebuild() refills these ---
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS recipes ("
+            "  id TEXT PRIMARY KEY,"
+            "  name TEXT NOT NULL,"
+            "  servings INTEGER,"
+            "  prep_min INTEGER,"
+            "  cook_min INTEGER,"
+            "  archived INTEGER NOT NULL DEFAULT 0,"
+            # The recipe this one was adapted from ("my way" versions).
+            "  parent_id TEXT,"
+            "  source_url TEXT"
+            ")"
+        )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS recipe_lines ("
+            "  recipe_id TEXT NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,"
+            "  seq INTEGER NOT NULL,"
+            # Exactly as the recipe writes it.
+            "  text TEXT NOT NULL,"
+            "  amount TEXT,"
+            "  note TEXT,"
+            # The recipe marks salt, oil and spices as usually-on-hand.
+            "  usually_have INTEGER NOT NULL DEFAULT 0,"
+            # Resolved through food_names; NULL = a name nobody has matched.
+            "  food_id INTEGER REFERENCES foods(id) ON DELETE SET NULL,"
+            "  PRIMARY KEY (recipe_id, seq)"
+            ")"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS recipe_lines_by_food ON recipe_lines (food_id)")
+        # One shopping trip, merged from the two trip lists the kitchen keeps
+        # (grocery_trips has line items, kitchen_trips only totals).
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS shopping_trips ("
+            "  id INTEGER PRIMARY KEY,"
+            "  date TEXT NOT NULL,"
+            "  store TEXT,"
+            # Money as integer cents, same reason as the expenses table.
+            "  total_cents INTEGER,"
+            "  saved_cents INTEGER,"
+            "  units INTEGER,"
+            "  receipt TEXT,"
+            # The Money tab's expense row for this trip (expenses.id).
+            "  expense_id TEXT"
+            ")"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS shopping_trips_by_date ON shopping_trips (date)")
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS shopping_lines ("
+            "  trip_id INTEGER NOT NULL REFERENCES shopping_trips(id) ON DELETE CASCADE,"
+            "  seq INTEGER NOT NULL,"
+            # The receipt's own text.
+            "  text TEXT NOT NULL,"
+            "  qty REAL,"
+            # What the line cost in total (qty already multiplied in).
+            "  price_cents INTEGER,"
+            # The name she picked for this line when the receipt was imported.
+            "  picked_name TEXT,"
+            "  product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,"
+            "  food_id INTEGER REFERENCES foods(id) ON DELETE SET NULL,"
+            "  PRIMARY KEY (trip_id, seq)"
+            ")"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS shopping_lines_by_food ON shopping_lines (food_id)")
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS grocery_list ("
+            "  seq INTEGER PRIMARY KEY,"
+            "  text TEXT NOT NULL,"
+            "  amount TEXT,"
+            "  category TEXT,"
+            "  checked INTEGER NOT NULL DEFAULT 0,"
+            "  food_id INTEGER REFERENCES foods(id) ON DELETE SET NULL"
+            ")"
+        )
+        # Two views that answer the first questions worth asking. Dropped and
+        # recreated so a change to one lands on a database that already has
+        # the old version.
+        #
+        # The last time each food was bought, and what it cost then.
+        conn.execute("DROP VIEW IF EXISTS food_last_price")
+        conn.execute(
+            "CREATE VIEW food_last_price AS"
+            " WITH ranked AS ("
+            "   SELECT l.food_id, t.date, l.price_cents, l.qty,"
+            "          ROW_NUMBER() OVER (PARTITION BY l.food_id"
+            "                             ORDER BY t.date DESC, t.id DESC) AS nth,"
+            "          COUNT(*) OVER (PARTITION BY l.food_id) AS times_bought"
+            "   FROM shopping_lines l JOIN shopping_trips t ON t.id = l.trip_id"
+            "   WHERE l.food_id IS NOT NULL AND l.price_cents IS NOT NULL)"
+            " SELECT f.id AS food_id, f.name AS food, r.date AS last_bought,"
+            "        r.price_cents AS last_price_cents, r.qty AS last_qty,"
+            "        r.times_bought"
+            " FROM ranked r JOIN foods f ON f.id = r.food_id WHERE r.nth = 1"
+        )
+        # A rough cost for each recipe: the last price paid for each food it
+        # asks for, skipping what the recipe says is usually on hand. Rough
+        # on purpose — it prices the whole package bought, not the share of
+        # it the recipe uses — and `priced_lines` says how much it knows.
+        conn.execute("DROP VIEW IF EXISTS recipe_cost")
+        conn.execute(
+            "CREATE VIEW recipe_cost AS"
+            " SELECT r.id AS recipe_id, r.name AS recipe,"
+            "        COUNT(*) AS lines_to_buy,"
+            "        COUNT(p.last_price_cents) AS priced_lines,"
+            "        SUM(p.last_price_cents) AS known_cents"
+            " FROM recipes r"
+            " JOIN recipe_lines l ON l.recipe_id = r.id AND l.usually_have = 0"
+            " LEFT JOIN food_last_price p ON p.food_id = l.food_id"
+            " GROUP BY r.id"
+        )
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 
