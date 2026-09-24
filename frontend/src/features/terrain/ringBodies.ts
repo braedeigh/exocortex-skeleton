@@ -15,6 +15,10 @@
  * as you zoom in, which is the price of it being a real feature of the
  * terrain rather than an overlay.
  *
+ * It also sizes a COIL's body (coilBodyRadius): the folder at a spiral's centre
+ * holds the ground for its whole spiral, and the dots wound onto it hold none
+ * of their own (collideRadius).
+ *
  * Prompt that produced it: "for the dots that are actively being read or
  * otherwise modified, i want the outer ring to be the physics that separates
  * them" → "the only thing i care about is if the ring physics causes the dots
@@ -70,4 +74,38 @@ export function sameRings(
     if (b.get(id) !== kind) return false;
   }
   return true;
+}
+
+/**
+ * The circle a coil's folder holds, in world units: the spiral out to its
+ * outermost arm, plus the widest body of any dot on it.
+ *
+ * `outerRadius` measures to the CENTRE of the outermost dot, so the dot's own
+ * body has to be added on top or the outer arm hangs past the clearing and
+ * sits on its neighbours. The widest body is used for the whole rim because
+ * the collider only knows circles — one number for the lot.
+ */
+export function coilBodyRadius(outerRadius: number, dotBodies: readonly number[]): number {
+  return outerRadius + Math.max(NODE_GAP, ...dotBodies);
+}
+
+/**
+ * What the collider is told a node's body is. The same as its body, except a
+ * dot wound onto a coil, which is told zero.
+ *
+ * A coil dot is pinned and sits INSIDE its folder's body, so any body of its
+ * own only overlaps that folder. d3's collide can't move a pinned dot, so it
+ * puts the whole push on the folder — and a spiral is lopsided (it starts at
+ * one side of the hole and ends at one tip), so the pushes never cancel. The
+ * folder got a steady shove every tick, the dots rode along with it, and the
+ * coil walked itself across the map. At zero a dot pushes nothing and nothing
+ * pushes it; the folder's body (coilBodyRadius) already reserves the ground.
+ * Its ring is still drawn on its real body — this is the collider's number
+ * only.
+ *
+ * Prompt that produced it: "for some reason the spirals in terrain are pushing
+ * way apart from everything".
+ */
+export function collideRadius(body: number, onCoil: boolean): number {
+  return onCoil ? 0 : body;
 }

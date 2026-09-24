@@ -208,7 +208,7 @@ import {
   threadPresence,
   threadTooCold,
 } from './hoverLayers';
-import { bodyRadius, NODE_GAP, sameRings } from './ringBodies';
+import { bodyRadius, coilBodyRadius, collideRadius, sameRings } from './ringBodies';
 import { fileTypeOf } from './fileTypes';
 import { childTypeCounts, liveliestBeneath } from './folderTypes';
 import {
@@ -1872,7 +1872,12 @@ export class TerrainCanvas {
     // straight through the arms. One circle, the size of the coil, and the
     // terrain flows around the outside of it.
     const coil = this.coilByHubId.get(n.id);
-    if (coil !== undefined) return coil.arrangement.outerRadius + NODE_GAP;
+    if (coil !== undefined) {
+      return coilBodyRadius(
+        coil.arrangement.outerRadius,
+        coil.dots.map((dot) => bodyRadius(dot.radius, this.isRinged(dot))),
+      );
+    }
     return bodyRadius(n.radius, this.isRinged(n));
   }
 
@@ -2716,8 +2721,10 @@ export class TerrainCanvas {
       // Nothing may enter a node's body — and for a file an agent is touching,
       // the body IS its ring (bodyRadius, ringBodies.ts). Collide separates
       // two nodes to at least the sum of their bodies, so a ring ends up
-      // touching its neighbours at most and never lapping over them.
-      .force('collide', forceCollide<SimNode>((n) => this.bodyRadiusOf(n)))
+      // touching its neighbours at most and never lapping over them. A coil
+      // dot is the exception: it's told zero, or it shoves its own folder
+      // across the map (collideRadius, ringBodies.ts).
+      .force('collide', forceCollide<SimNode>((n) => collideRadius(this.bodyRadiusOf(n), this.onCoil(n))))
       // Keep the dots out of the table section. Charge and collision only
       // push a dot away from one table at a time, which lets it slip BETWEEN
       // two shelves and sit there; this treats the whole section as one
