@@ -337,3 +337,30 @@ export function resolveDayMode(bundle: JournalDayBundle): DayMode {
   if (cards.editable && cards.cards.length === 0 && !journal.content.trim()) return 'empty';
   return 'blob';
 }
+
+/** One piece of a search hit's excerpt — `hit` pieces are the words that
+ * matched, bolded by the search sheet (cardsearch.py _split_snippet). */
+export interface SearchSnippetPiece {
+  text: string;
+  hit: boolean;
+}
+
+/** One card the journal search found (GET /api/journal/search). */
+export interface SearchHit {
+  id: string;
+  day: string;
+  ts: string | null;
+  who: CardWho;
+  kind: string | null;
+  tags: string[];
+  snippet: SearchSnippetPiece[];
+}
+
+export interface SearchResponse {
+  q: string;
+  total: number;
+  hits: SearchHit[];
+}
+
+export type SearchSort = 'relevance' | 'newest' | 'oldest';
+export type SearchWho = '' | CardWho;

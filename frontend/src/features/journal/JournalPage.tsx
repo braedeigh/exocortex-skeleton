@@ -1,3 +1,14 @@
+/**
+ * The journal page: one day at a time. Loads the day's cards (or its older
+ * single-document page), shows them in a stream you can edit, tag, and add
+ * to, and hosts everything that opens over it: the calendar, search, person
+ * and thread popovers, dev notes, and the "n of N" find bar. Jumps between
+ * days go through the URL (`?date=`), so back/forward work.
+ *
+ * Touches: `useJournalData.ts` (every fetch and save), `CardStream.tsx` /
+ * `EntryCard.tsx` (the cards), `SearchSheet.tsx`, `CalendarOverlay.tsx`,
+ * `JournalHeader.tsx`, and the popovers beside them.
+ */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
@@ -16,8 +27,9 @@ import { FindBar } from './FindBar';
 import { JournalHeader } from './JournalHeader';
 import { JournalRail } from './JournalRail';
 import { PersonPopover } from './PersonPopover';
+import { SearchSheet } from './SearchSheet';
 import { ThreadPopover } from './ThreadPopover';
-import type { Card } from './types';
+import type { Card, SearchHit } from './types';
 import { resolveDayMode } from './types';
 import {
   useAddCard,
@@ -216,6 +228,7 @@ export function JournalPage() {
   }, []);
 
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState<CalendarMonth | null>(null);
   const [devNotesOpen, setDevNotesOpen] = useState(false);
   const [popoverSlug, setPopoverSlug] = useState<string | null>(null);
@@ -298,6 +311,14 @@ export function JournalPage() {
     });
   }, [pendingScrollCard, bundle, currentDate, dayQuery.isFetching]);
 
+  /** A search result tapped — close the sheet and land on (and flash) that
+   * card, the same jump the reply-context chip makes. */
+  function openSearchHit(hit: SearchHit) {
+    setSearchOpen(false);
+    setPendingScrollCard({ date: hit.day, cardId: hit.id });
+    if (currentDate !== hit.day) goTo(hit.day);
+  }
+
   function onJournalMention(date: string, slug: string) {
     closeFind();
     setPendingFind({ date, slug });
@@ -362,6 +383,7 @@ export function JournalPage() {
         onPrev={() => bundle?.journal.prev && goTo(bundle.journal.prev)}
         onNext={() => bundle?.journal.next && goTo(bundle.journal.next)}
         onToday={() => serverDate && goTo(serverDate)}
+        onOpenSearch={() => setSearchOpen(true)}
         onOpenCalendar={openCalendar}
         onOpenDevNotes={() => setDevNotesOpen(true)}
       />
@@ -463,6 +485,8 @@ export function JournalPage() {
           }}
         />
       ) : null}
+
+      <SearchSheet open={searchOpen} onClose={() => setSearchOpen(false)} onPick={openSearchHit} />
 
       <DevNotesPanel open={devNotesOpen} onClose={() => setDevNotesOpen(false)} onError={push} />
 

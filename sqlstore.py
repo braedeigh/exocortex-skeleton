@@ -42,7 +42,7 @@ import time
 
 import store
 
-_SCHEMA_VERSION = 22
+_SCHEMA_VERSION = 23
 
 
 def _db_path():
@@ -183,6 +183,9 @@ _EXPECTED_TABLES = (
     "recipe_makes", "meal_rotation",
     "recipes", "recipe_lines", "shopping_trips", "shopping_lines", "grocery_list",
     "receipts",
+    # The journal word index, plus the five storage tables FTS5 keeps behind it.
+    "cards_fts", "cards_fts_data", "cards_fts_idx", "cards_fts_content",
+    "cards_fts_docsize", "cards_fts_config",
 )
 
 
@@ -1710,6 +1713,51 @@ def _run_ladder(conn):
             "  expense_id TEXT"
             ")"
         )
+    if version < 23:
+        # A word index over the journal cards, for the journal's search box
+        # (cardsearch.py reads it). SQLite's built-in full-text search (FTS5),
+        # with the porter stemmer so "bartending" also finds "bartender".
+        #
+        # A STANDALONE index keyed by card id, not an external-content one
+        # pointing at `cards.rowid`: `cards` has a text primary key, so its
+        # hidden rowids may be renumbered by a VACUUM, and an index pointing
+        # at them would quietly start answering with the wrong cards. This
+        # costs a second copy of each body (a few MB) and can't drift.
+        conn.execute(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS cards_fts USING fts5("
+            "  card_id UNINDEXED, body,"
+            "  tokenize = 'porter unicode61 remove_diacritics 2'"
+            ")"
+        )
+        # Keep the index in step with `cards` — three triggers, one per kind
+        # of change. The update one fires only when the body really changed:
+        # the hourly sync rewrites every row, and re-indexing thousands of
+        # unchanged bodies each hour would be pure waste.
+        conn.execute(
+            "CREATE TRIGGER IF NOT EXISTS cards_fts_insert AFTER INSERT ON cards"
+            " BEGIN"
+            "  INSERT INTO cards_fts (card_id, body) VALUES (new.id, new.body);"
+            " END"
+        )
+        conn.execute(
+            "CREATE TRIGGER IF NOT EXISTS cards_fts_update AFTER UPDATE OF body ON cards"
+            " WHEN old.body IS NOT new.body"
+            " BEGIN"
+            "  DELETE FROM cards_fts WHERE card_id = old.id;"
+            "  INSERT INTO cards_fts (card_id, body) VALUES (new.id, new.body);"
+            " END"
+        )
+        conn.execute(
+            "CREATE TRIGGER IF NOT EXISTS cards_fts_delete AFTER DELETE ON cards"
+            " BEGIN"
+            "  DELETE FROM cards_fts WHERE card_id = old.id;"
+            " END"
+        )
+        # Fill it from whatever cards are already mirrored. Wipe-and-refill
+        # rather than insert-missing, so replaying the ladder can never
+        # double an entry — the index is derived, rebuilding it is free.
+        conn.execute("DELETE FROM cards_fts")
+        conn.execute("INSERT INTO cards_fts (card_id, body) SELECT id, body FROM cards")
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 

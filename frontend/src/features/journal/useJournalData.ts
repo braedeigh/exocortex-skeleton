@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useRef, useState } from 'react';
 import { api, ApiError } from '../../api/client';
 import type { ToastItem } from '../../ui';
@@ -15,6 +15,7 @@ import {
   getPeople,
   removeJournalDevNote,
   saveJournalDay,
+  searchJournal,
   updateCard,
   addCard,
   deleteCard as deleteCardRequest,
@@ -23,6 +24,8 @@ import {
 } from '../../api/endpoints';
 import type {
   JournalDayBundle,
+  SearchSort,
+  SearchWho,
   ThreadDetail,
   ThreadJournalResponse,
   ThreadsResponse,
@@ -70,6 +73,24 @@ export function useServerDate() {
   return useQuery({
     queryKey: ['journal', 'serverDate'],
     queryFn: ({ signal }) => getAppData(signal),
+  });
+}
+
+/** The journal search sheet's results, a page at a time ("Show more" asks
+ * for the next). Keeps the last results on screen while a new search loads,
+ * so typing doesn't flash the list empty. Idle until there's a query. */
+export function useJournalSearch(q: string, who: SearchWho, sort: SearchSort) {
+  return useInfiniteQuery({
+    queryKey: ['journal', 'search', q, who, sort],
+    queryFn: ({ pageParam, signal }) => searchJournal({ q, who, sort, offset: pageParam }, signal),
+    initialPageParam: 0,
+    getNextPageParam: (last, pages) => {
+      const loaded = pages.reduce((n, page) => n + page.hits.length, 0);
+      return loaded < last.total ? loaded : undefined;
+    },
+    enabled: q.length > 0,
+    placeholderData: keepPreviousData,
+    retry: false,
   });
 }
 

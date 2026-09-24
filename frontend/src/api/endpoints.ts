@@ -14,6 +14,9 @@ import type {
   DevNotesResponse,
   JournalDay,
   PeopleResponse,
+  SearchResponse,
+  SearchSort,
+  SearchWho,
 } from '../features/journal/types';
 
 /** GET /api/data/:tab — raw tab payload, shape TBD per-tab until exo-core ships types. */
@@ -309,6 +312,17 @@ export interface JournalDatesResponse {
 
 export function getJournalDates(signal?: AbortSignal): Promise<JournalDatesResponse> {
   return api.get('/api/journal/dates', signal);
+}
+
+/** GET /api/journal/search — keyword search over every journal card
+ * (routes/journal_search.py). `offset` pages through `total`. */
+export function searchJournal(
+  params: { q: string; who: SearchWho; sort: SearchSort; offset: number },
+  signal?: AbortSignal,
+): Promise<SearchResponse> {
+  const query = new URLSearchParams({ q: params.q, sort: params.sort, offset: String(params.offset) });
+  if (params.who) query.set('who', params.who);
+  return api.get(`/api/journal/search?${query.toString()}`, signal);
 }
 
 export function getJournalDay(date: string, signal?: AbortSignal): Promise<JournalDay> {
