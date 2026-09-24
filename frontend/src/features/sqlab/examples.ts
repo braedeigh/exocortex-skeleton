@@ -7,8 +7,14 @@
  * and `departments` teaches the syntax and none of the intuition; "which of my
  * habits actually stuck" is a question worth the effort of learning to ask.
  *
+ * The last few do the same over the kitchen's tables (foodstore.py): the food
+ * catalog, the names still unmatched, and the chain from a receipt line to a
+ * product to a food to a recipe.
+ *
  * Prompt that produced this file: "example queries she can click that
  * demonstrate JOIN, GROUP BY, and window functions over her own habits."
+ * Kitchen examples: "build the sql layer [for foods, recipes, receipts] and
+ * then i can play with it."
  */
 
 export interface SqlExample {
@@ -75,5 +81,54 @@ export const EXAMPLES: SqlExample[] = [
     title: 'The other 50 collections',
     teaches: 'The blob side of the same database — one row per collection, JSON in a text column.',
     sql: `SELECT name, LENGTH(data) AS bytes, updated_at\nFROM docs\nORDER BY bytes DESC\nLIMIT 20;`,
+  },
+  {
+    title: 'Kitchen: every food and its names',
+    teaches:
+      'One row per food; food_names holds every way it has been written. More than one name means the matching already did its job.',
+    sql: `SELECT f.id, f.name, f.kind, f.safety,\n       GROUP_CONCAT(n.name, ' · ') AS written_as\nFROM foods f\nLEFT JOIN food_names n ON n.food_id = f.id\nGROUP BY f.id\nORDER BY f.name;`,
+  },
+  {
+    title: 'Kitchen: names nobody has matched',
+    teaches: 'IS NULL finds the gaps — a recipe or list line whose name no food answers to yet.',
+    sql: `SELECT 'recipe' AS found_in, text FROM recipe_lines WHERE food_id IS NULL\nUNION\nSELECT 'grocery list', text FROM grocery_list WHERE food_id IS NULL\nORDER BY text;`,
+  },
+  {
+    title: 'Kitchen: a recipe, line by line',
+    teaches:
+      'Three tables in one row: the recipe line, the food it resolves to, and the last price paid for that food.',
+    sql: `SELECT r.name AS recipe, l.text, l.amount, f.name AS food,\n       IIF(p.last_price_cents IS NULL, NULL, printf('$%.2f', p.last_price_cents / 100.0)) AS last_paid,\n       p.last_bought\nFROM recipes r\nJOIN recipe_lines l ON l.recipe_id = r.id\nLEFT JOIN foods f ON f.id = l.food_id\nLEFT JOIN food_last_price p ON p.food_id = l.food_id\nWHERE r.archived = 0 AND r.name LIKE '%'  -- put part of a recipe name between the %s\nORDER BY r.name, l.seq;`,
+  },
+  {
+    title: 'Kitchen: roughly what each recipe costs',
+    teaches:
+      'recipe_cost is a VIEW — a saved query you can select from like a table. Rough: it prices whole packages. An empty cost means nothing in it has been bought yet.',
+    sql: `SELECT recipe, lines_to_buy, priced_lines,\n       IIF(known_cents IS NULL, NULL, printf('$%.2f', known_cents / 100.0)) AS known_cost\nFROM recipe_cost\nORDER BY known_cents DESC;`,
+  },
+  {
+    title: 'Kitchen: receipt → product → food',
+    teaches: 'The whole chain for the latest trip. A NULL on the right is a receipt line not matched yet.',
+    sql: `SELECT t.date, t.store, l.text AS on_receipt,\n       IIF(l.price_cents IS NULL, NULL, printf('$%.2f', l.price_cents / 100.0)) AS paid,\n       p.name AS product, f.name AS food\nFROM shopping_lines l\nJOIN shopping_trips t ON t.id = l.trip_id\nLEFT JOIN products p ON p.id = l.product_id\nLEFT JOIN foods f ON f.id = l.food_id\nWHERE t.id = (SELECT id FROM shopping_trips\n              WHERE id IN (SELECT trip_id FROM shopping_lines)\n              ORDER BY date DESC LIMIT 1)\nORDER BY l.seq;`,
+  },
+  {
+    title: 'Kitchen: where the grocery money went',
+    teaches: 'GROUP BY over receipt lines, by food. The same numbers the Money tab has as one total per trip.',
+    sql: `SELECT COALESCE(f.name, '(unmatched)') AS food,\n       COUNT(*) AS times_bought,\n       IIF(SUM(l.price_cents) IS NULL, NULL, printf('$%.2f', SUM(l.price_cents) / 100.0)) AS spent\nFROM shopping_lines l\nLEFT JOIN foods f ON f.id = l.food_id\nGROUP BY l.food_id\nORDER BY SUM(l.price_cents) DESC;`,
+  },
+  {
+    title: 'Kitchen: the weekly rotation',
+    teaches: 'The meals that recur, what they roughly cost, and what that comes to in a month.',
+    sql: `SELECT r.name, m.per_week,\n       IIF(c.known_cents IS NULL, NULL, printf('$%.2f', c.known_cents / 100.0)) AS per_batch,\n       IIF(c.known_cents * m.per_week * 52 / 12 IS NULL, NULL, printf('$%.2f', c.known_cents * m.per_week * 52 / 12 / 100.0)) AS per_month\nFROM meal_rotation m\nJOIN recipes r ON r.id = m.recipe_id\nLEFT JOIN recipe_cost c ON c.recipe_id = m.recipe_id;`,
+  },
+  {
+    title: 'Kitchen: organic or not',
+    teaches:
+      'How many times each food was bought organic vs. not. SUM over a 0/1 column counts the 1s; organic lives on the product, so the food stays one row.',
+    sql: `SELECT f.name AS food,\n       SUM(p.organic = 1) AS bought_organic,\n       SUM(p.organic = 0) AS bought_regular\nFROM shopping_lines l\nJOIN products p ON p.id = l.product_id\nJOIN foods f ON f.id = p.food_id\nGROUP BY f.id\nORDER BY bought_organic DESC, f.name;`,
+  },
+  {
+    title: 'Kitchen: every receipt photo',
+    teaches: 'LEFT JOIN keeps the photos that never became a trip — the ones still waiting to be read or imported.',
+    sql: `SELECT r.uploaded_on, r.folder, r.status, r.store,\n       IIF(r.total_cents IS NULL, NULL, printf('$%.2f', r.total_cents / 100.0)) AS total,\n       t.date AS trip, r.expense_id IS NOT NULL AS has_expense, r.path\nFROM receipts r\nLEFT JOIN shopping_trips t ON t.id = r.trip_id\nORDER BY r.uploaded_on;`,
   },
 ];

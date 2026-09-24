@@ -12,7 +12,8 @@ Four endpoints:
                           back, along with the query plan and how long it took.
   POST /api/sql/rebuild — re-derive every typed table from its source
                           (habitstore, expensestore, codestore, cardstore,
-                          todostore), so experimenting is undoable.
+                          todostore, attention, ui events, and the derived
+                          half of foodstore), so experimenting is undoable.
 
 **Why the plan comes back with every result.** The point of this page is to
 build intuition, and `EXPLAIN QUERY PLAN` is where indexes stop being folklore:
@@ -43,6 +44,7 @@ import attentionstore
 import cardstore
 import codestore
 import expensestore
+import foodstore
 import habitstore
 import sqlquery
 import todostore
@@ -68,7 +70,11 @@ TYPED_TABLES = ("habits", "habit_aliases", "habit_entries",
                 "todos", "fronts", "todo_fronts", "todo_subtasks",
                 "attention_segments",
                 "tool_calls", "tool_call_sources", "turn_results",
-                "ui_events", "requests")
+                "ui_events", "requests",
+                "foods", "food_names", "products", "receipt_names", "food_links",
+                "recipe_makes", "meal_rotation",
+                "recipes", "recipe_lines", "shopping_trips", "shopping_lines",
+                "grocery_list", "receipts")
 
 _DATE_KEY = re.compile(r"^\d{4}-\d{2}-\d{2}")
 
@@ -216,8 +222,8 @@ def register(app):
     def sql_rebuild():
         """Re-derive every typed table from its source — the undo button.
 
-        Nothing here can hurt the sources: all six rebuilds only read them
-        (JSON blobs for habits, expenses and to-dos; git + the bot_chats
+        Nothing here can hurt the sources: every rebuild only reads them
+        (JSON blobs for habits, expenses, to-dos and the kitchen; git + the bot_chats
         sidecars for code history; the vault's card pool + deletion cast for
         cards; the append-only day files for attention).
 
@@ -244,6 +250,11 @@ def register(app):
         # scripts/usage_events.py --rebuild, not a button in a request.
         # `requests` has no source but itself and must never be here.
         ui_events = uieventstore.rebuild()
+        # Food: only the derived half (recipes, trips, grocery list) is re-read.
+        # Her catalog — foods, names, products, links — is a record, not a
+        # derivation, and foodstore.rebuild never clears it.
+        food = foodstore.rebuild()
         return jsonify({"ok": True, "habits": habits, "expenses": expenses,
                         "code": code, "cards": cards, "todos": todos,
-                        "attention": attention, "ui_events": ui_events})
+                        "attention": attention, "ui_events": ui_events,
+                        "food": food})

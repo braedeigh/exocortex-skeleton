@@ -5,9 +5,9 @@ Kitchen is the biggest feature: an active grocery list backed by a catalog
 logs, weekly meal-prep defaults, and saved recipes. These tests pin the HTTP
 contract of every pure-JSON route — the parts that can silently break.
 
-NOT covered here: the receipt/recipe *agent pipelines* (scan-receipt,
-parse-recipe-url, parsed-receipts/...) — they shell out to tmux and write to
-module-level receipt dirs, so they're exercised manually, not in unit tests.
+NOT covered here: the receipt/recipe *agent pipelines* (scan-receipt beyond
+its brief, parse-recipe-url, parsed-receipts/...) — they mint helper sessions
+and write to module-level receipt dirs, so they're exercised manually.
 
 Same shape as test_todos_routes: a minimal app with only this blueprint, an
 isolated temp data dir (via the `data_dir` fixture), read back through `store`.
@@ -512,3 +512,25 @@ def test_trip_remove_also_drops_matching_activity_entries(client):
     _post(client, "/api/kitchen/trips/remove", {"date": "2026-06-10"})
     entries = store.read("activity_log", {"entries": []})["entries"]
     assert entries == [{"date": "2026-06-10", "type": "run"}]
+
+
+# --- receipt scan brief ----------------------------------------------------------
+
+def test_scan_receipt_brief_names_the_sibling_the_pipeline_reads(client, tmp_path, monkeypatch):
+    """The helper is told to write `<photo>.<ext>.parsed.json` — the name the
+    parsed-receipts list, the .imported marker, and foodstore's receipts table
+    all look for. Dropping the extension orphans the file from its photo."""
+    import io
+    from routes.kitchen import receipts
+    monkeypatch.setattr(receipts, "GROCERY_RECEIPTS_DIR", tmp_path)
+    monkeypatch.setattr(receipts.shared, "chmod_for_claude", lambda p: None)
+    briefs = []
+    monkeypatch.setattr(receipts.helpers, "mint_helper",
+                        lambda kind, slug, brief, title, model=None: (briefs.append(brief) or ({}, 200)))
+    r = client.post("/api/kitchen/scan-receipt",
+                    data={"photo": (io.BytesIO(b"x"), "IMG.jpg")},
+                    content_type="multipart/form-data")
+    assert r.status_code == 200
+    photo = tmp_path / r.get_json()["filename"]
+    assert photo.exists()
+    assert f"`{photo}.parsed.json`" in briefs[0]

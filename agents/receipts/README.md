@@ -2,11 +2,11 @@
      generic workspace README). -->
 # receipts workspace
 
-Copy this dir into your own vault at `<VAULT_DIR>/receipts`; the app opens
-Claude sessions here (the Kitchen tab's "Scan receipt" / Money-tab receipt
-upload — see `routes/kitchen/receipts.py`, which spawns a "receipts" tmux
-session cwd'd into this folder via `routes/kitchen/shared.py`'s
-`ensure_claude_session`).
+Copy this dir into your own vault at `<VAULT_DIR>/receipts`. The Kitchen
+tab's "Scan receipt" saves the photo into `grocery/` and mints one helper
+session per photo (`routes/kitchen/receipts.py` → `routes/helpers.py`'s
+`mint_helper`). Its `BRIEF.md` points at this folder's `CLAUDE.md` and names
+the photo and the `<photo>.parsed.json` to write beside it.
 
 **Reads:** receipt photos dropped in `grocery/` and this folder's root, plus
 `../data/expense_receipts.json` (read-only). **Writes:** only sibling
