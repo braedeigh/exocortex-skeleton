@@ -2048,5 +2048,95 @@
         "holds": "The Money tab's expense it's attached to."
       }
     }
+  },
+  "cards_fts": {
+    "holds": "The journal's word index: one row per journal card, holding the card's text, organized so the search box can find every card that contains a set of words (with word endings folded, so 'bartending' matches 'bartender').",
+    "source": "Kept up to date automatically by database triggers whenever a row in `cards` is added, changed, or removed (sqlstore.py, rung 23). Read by cardsearch.py for the journal's search box.",
+    "kind": "mirror",
+    "time_column": null,
+    "columns": {
+      "card_id": {
+        "holds": "Which card this is — the id in the `cards` table."
+      },
+      "body": {
+        "holds": "The card's text, as indexed for searching."
+      }
+    }
+  },
+  "cards_fts_data": {
+    "holds": "Internal storage SQLite's full-text search keeps behind the `cards_fts` word index. Not meant to be read directly; rebuilt along with the index. This one holds the index itself, in compressed blocks.",
+    "source": "Kept up to date automatically by database triggers whenever a row in `cards` is added, changed, or removed (sqlstore.py, rung 23). Read by cardsearch.py for the journal's search box.",
+    "kind": "mirror",
+    "time_column": null,
+    "columns": {
+      "id": {
+        "holds": "Which block."
+      },
+      "block": {
+        "holds": "The block's packed index data."
+      }
+    }
+  },
+  "cards_fts_idx": {
+    "holds": "Internal storage SQLite's full-text search keeps behind the `cards_fts` word index. Not meant to be read directly; rebuilt along with the index. This one holds a directory of where each stretch of words lives in the blocks.",
+    "source": "Kept up to date automatically by database triggers whenever a row in `cards` is added, changed, or removed (sqlstore.py, rung 23). Read by cardsearch.py for the journal's search box.",
+    "kind": "mirror",
+    "time_column": null,
+    "columns": {
+      "segid": {
+        "holds": "Which index segment."
+      },
+      "term": {
+        "holds": "The first word this stretch covers."
+      },
+      "pgno": {
+        "holds": "Which page of the segment it starts on."
+      }
+    }
+  },
+  "cards_fts_content": {
+    "holds": "Internal storage SQLite's full-text search keeps behind the `cards_fts` word index. Not meant to be read directly; rebuilt along with the index. This one holds a copy of each indexed card's id and text.",
+    "source": "Kept up to date automatically by database triggers whenever a row in `cards` is added, changed, or removed (sqlstore.py, rung 23). Read by cardsearch.py for the journal's search box.",
+    "kind": "mirror",
+    "time_column": null,
+    "columns": {
+      "id": {
+        "holds": "The index's own row number."
+      },
+      "c0": {
+        "holds": "The card id (the index's first column)."
+      },
+      "c1": {
+        "holds": "The card's text (the index's second column)."
+      }
+    }
+  },
+  "cards_fts_docsize": {
+    "holds": "Internal storage SQLite's full-text search keeps behind the `cards_fts` word index. Not meant to be read directly; rebuilt along with the index. This one holds how many words each card has, used for ranking.",
+    "source": "Kept up to date automatically by database triggers whenever a row in `cards` is added, changed, or removed (sqlstore.py, rung 23). Read by cardsearch.py for the journal's search box.",
+    "kind": "mirror",
+    "time_column": null,
+    "columns": {
+      "id": {
+        "holds": "The index's own row number."
+      },
+      "sz": {
+        "holds": "Word counts, packed."
+      }
+    }
+  },
+  "cards_fts_config": {
+    "holds": "Internal storage SQLite's full-text search keeps behind the `cards_fts` word index. Not meant to be read directly; rebuilt along with the index. This one holds the index's settings.",
+    "source": "Kept up to date automatically by database triggers whenever a row in `cards` is added, changed, or removed (sqlstore.py, rung 23). Read by cardsearch.py for the journal's search box.",
+    "kind": "mirror",
+    "time_column": null,
+    "columns": {
+      "k": {
+        "holds": "A setting's name."
+      },
+      "v": {
+        "holds": "Its value."
+      }
+    }
   }
 }
