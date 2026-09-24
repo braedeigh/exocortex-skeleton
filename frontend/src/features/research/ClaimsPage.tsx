@@ -207,12 +207,15 @@ export function ClaimsPage() {
   return (
     <div className={`${pageStyles.page} ${styles.page}`}>
       <div className={pageStyles.pageHead}>
-        <Link to="/research" search={{}} className={pageStyles.backBtn} title="Back to research" aria-label="Back to research">
-          &#8249;
-        </Link>
         <h1 className={pageStyles.pageTitle}>Claims</h1>
         <span className={pageStyles.pageSub}>every claim beside its sources</span>
         {live ? <span className={styles.livePill}>live</span> : null}
+        {/* The Research tab lands here; the thread directory is the other
+            half of the page, one tap away — the same pill it uses to reach
+            this table, pointing back. */}
+        <Link to="/research" search={{}} className={pageStyles.pageHeadLink} title="Research threads">
+          &#9776; Threads
+        </Link>
       </div>
 
       {/* Filter pills: one row of fronts, one row of that front's topics. */}

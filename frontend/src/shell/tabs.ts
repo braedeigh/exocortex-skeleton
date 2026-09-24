@@ -103,7 +103,10 @@ export function tabForPath(pathname: string): LegacyTab | null {
 /** Non-legacy view routes offered from the More sheet, alongside the remaining tabs. */
 export const VIEW_META = [
   { key: 'journal', label: 'Journal', icon: '📓', to: '/journal' },
-  { key: 'research', label: 'Research', icon: '🔎', to: '/research' },
+  // Research lands on the claims table, the surface she reads; the thread
+  // directory is a tap away from it. Prompt: "i want the research UI you
+  // made to go in the 'research' tab on the dashboard".
+  { key: 'research', label: 'Research', icon: '🔎', to: '/research/claims' },
   { key: 'settings', label: 'Settings', icon: '⚙️', to: '/settings' },
   { key: 'files', label: 'Files', icon: '🗂️', to: '/files' },
   { key: 'notes', label: 'Notes', icon: '📝', to: '/notes' },
