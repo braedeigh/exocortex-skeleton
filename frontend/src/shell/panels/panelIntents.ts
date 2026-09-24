@@ -1,4 +1,5 @@
 import { mentionsToSearch } from '../../features/terrain/codeMentions';
+import { activityUrl } from './activityRouting';
 import type { Intent, IntentKind } from './windowBus';
 
 /**
@@ -56,6 +57,7 @@ export function urlForIntent(intent: Intent): string | null {
     // conversation id travels in ?conv= (see sessionLocation.ts).
     return `/observatory/session?conv=${encodeURIComponent(intent.convId)}`;
   }
+  if (intent.kind === 'activity') return activityUrl(intent.convId);
   // A tmux session isn't a page — only the reading room's terminal takes those.
   return null;
 }

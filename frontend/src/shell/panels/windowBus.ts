@@ -50,7 +50,9 @@ export type Intent =
       /** What those lines name — a table, shown in the file's mention strip. */
       mentionsOf?: string;
     }
-  | { kind: 'session'; name: string };
+  | { kind: 'session'; name: string }
+  /** A session's Activity pane (features/activity/), opened beside it. */
+  | { kind: 'activity'; convId: string };
 
 export type IntentKind = Intent['kind'];
 

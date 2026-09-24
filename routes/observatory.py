@@ -50,6 +50,7 @@ import tempfile
 import threading
 import time
 
+import activityfeed
 import recap_summary
 import store
 import worktrees
@@ -1429,6 +1430,10 @@ def _fork_brief_md(title, surface):
 _PREVIEW_TAIL_BYTES = 262_144
 # What the card can actually hold before it stops being a hovercard.
 _PREVIEW_CHARS = 700
+# How much of a long transcript the Activity pane's first read covers. Enough
+# for the last several turns of a busy session; the older hours are in the
+# conversation itself and in the tool_calls table.
+_ACTIVITY_WINDOW_BYTES = 3 * 1024 * 1024
 
 
 def _message_prose(message):
@@ -2230,6 +2235,64 @@ def register(app):
                         mimetype="text/event-stream",
                         headers={"Cache-Control": "no-cache",
                                  "X-Accel-Buffering": "no"})
+
+    @app.route("/api/observatory/conversation/<conv_id>/activity")
+    def bot_conv_activity(conv_id):
+        """What the agent has been doing: every step, outputs included.
+
+        Serves the Activity pane (frontend/src/features/activity/). The
+        parsing is in activityfeed.py; this route adds where to resume and
+        whether the turn is still live.
+
+        Resumes by byte offset, like the follow stream. `?from=<n>` is the
+        `next` the last reply gave; each poll reads only what was appended
+        since. A first read of a very long session starts near the end
+        (`clipped`). `mtime` is when the transcript last grew, which is how
+        the pane can say "quiet for 3 minutes" while a turn is supposedly
+        running."""
+        if not _CONV_ID_RE.match(conv_id or ""):
+            return jsonify({"error": "invalid conversation id"}), 400
+        meta = store.read("bot_chats/index", {}).get(conv_id)
+        if not isinstance(meta, dict):
+            return jsonify({"error": "not found"}), 404
+        try:
+            offset = max(0, int(request.args.get("from", 0)))
+        except (TypeError, ValueError):
+            offset = 0
+        path = _chats_dir() / f"{conv_id}.jsonl"
+        events, start, next_offset, clipped = activityfeed.read_since(
+            path, offset, _ACTIVITY_WINDOW_BYTES)
+        try:
+            mtime = datetime.fromtimestamp(path.stat().st_mtime).isoformat(
+                timespec="seconds")
+        except OSError:
+            mtime = None
+        return jsonify({
+            "id": conv_id,
+            "title": meta.get("title") or conv_id,
+            "running": _effective_running(conv_id, meta),
+            "mtime": mtime,
+            # Where the read actually began. Different from the `from` the
+            # client sent (a clip, or a rewritten file) means start the list
+            # over rather than append.
+            "start": start,
+            "next": next_offset,
+            "clipped": clipped,
+            "events": events,
+        })
+
+    @app.route("/api/observatory/conversation/<conv_id>/activity/output")
+    def bot_conv_activity_output(conv_id):
+        """One tool call's output, uncut — the Activity pane's "show all"."""
+        if not _CONV_ID_RE.match(conv_id or ""):
+            return jsonify({"error": "invalid conversation id"}), 400
+        tool_use_id = request.args.get("id", "")
+        if not re.match(r"^[A-Za-z0-9_\-]{1,100}$", tool_use_id):
+            return jsonify({"error": "invalid tool call id"}), 400
+        text = activityfeed.full_output(_chats_dir() / f"{conv_id}.jsonl", tool_use_id)
+        if text is None:
+            return jsonify({"error": "not found"}), 404
+        return jsonify({"id": tool_use_id, "output": text})
 
     @app.route("/api/observatory/conversation/<conv_id>/preview")
     def bot_conv_preview(conv_id):

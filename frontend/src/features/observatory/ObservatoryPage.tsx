@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useNavigate } from '@tanstack/react-router';
+import { openActivity } from '../activity/openActivity';
 import { uploadedPathsMessage } from '../phone/phoneLogic';
 import { TermNotesPanel } from '../../shell/TermNotesPanel';
 import { SchedulePanel } from '../../shell/SchedulePanel';
@@ -976,6 +977,23 @@ export function ObservatoryPage({
                 above — and geometric rather than an emoji map, so the muted
                 colour of the off state actually lands on the glyph. */}
             {backdropOn ? '▦' : '▢'}
+          </button>
+          {/* This session's steps, live — every tool call with its output
+              (features/activity/). Beside the session on a wide screen,
+              its own page on a phone. */}
+          <button
+            type="button"
+            className={styles.toolBtn}
+            disabled={!convId}
+            title="Watch this session's activity"
+            aria-label="Watch this session's activity"
+            onClick={() => {
+              const conv = convRef.current ?? convId;
+              if (!conv) return;
+              openActivity(conv, () => void navigate({ to: '/terrain/activity', search: { agent: conv } }));
+            }}
+          >
+            activity
           </button>
           <button
             ref={notesBtnRef}

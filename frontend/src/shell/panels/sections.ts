@@ -51,6 +51,7 @@ export const SECTIONS: Section[] = [
   { id: 'pond', label: 'Pond', icon: '🐟', home: '/terrain/pond', claims: ['/terrain/pond'] },
   { id: 'flow', label: 'Flow', icon: '🫧', home: '/terrain/flow', claims: ['/terrain/flow'] },
   { id: 'workshop', label: 'Workshop', icon: '🛠', home: '/terrain/workshop', claims: ['/terrain/workshop'] },
+  { id: 'activity', label: 'Activity', icon: '🧾', home: '/terrain/activity', claims: ['/terrain/activity'] },
   { id: 'journal', label: 'Journal', icon: '📓', home: '/journal', claims: ['/journal'] },
   // A dashboard sub-tab promoted to a tab of its own, so the food map can be
   // pinned to a panel instead of dug out of the Dashboard's sub-tab row. Has

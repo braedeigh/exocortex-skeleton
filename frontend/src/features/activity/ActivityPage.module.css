@@ -1,0 +1,455 @@
+/* ActivityPage — one session's steps, live (ActivityPage.tsx). The same
+   page bones as the Workshop next door: a full-bleed opaque page with the
+   shared ~320ms slide-in, a header with its way back, and a quiet chip row.
+
+   The list is where the eye goes, so everything else stays small and still.
+   Meaning rides on color, never on size or movement: red is a failure or a
+   refusal, amber is a retry or a rate limit, the accent is a call still
+   running, muted is housekeeping. Rows are ~40px tap targets; code and
+   output sit in the app's one monospace stack at the 12px floor. */
+
+.view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+  background: var(--bg);
+  overflow: hidden;
+  animation: pageIn 320ms cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+
+@keyframes pageIn {
+  from {
+    opacity: 0;
+    transform: translateX(28px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* --- the header ---------------------------------------------------------- */
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.heading {
+  min-width: 0;
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--text);
+}
+
+.sub {
+  margin: 2px 0 0;
+  font-size: var(--font-size-md);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.back {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--text) 22%, transparent);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--card-bg) 55%, transparent);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.back:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.note {
+  margin: var(--space-2) 0;
+  font-size: var(--font-size-md);
+  color: var(--text-muted);
+}
+
+/* --- the status strip ---------------------------------------------------- */
+
+.status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-md);
+  color: var(--text-secondary);
+}
+
+.liveDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.liveOn {
+  background: var(--accent);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.count {
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+}
+
+.countBad {
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 12%, transparent);
+}
+
+.countWarn {
+  color: var(--orange);
+  background: color-mix(in srgb, var(--orange) 12%, transparent);
+}
+
+/* The "is it stuck?" line — the one sentence the pane exists to be able to say. */
+.stall {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--orange) 14%, transparent);
+  color: var(--text);
+  font-size: var(--font-size-md);
+}
+
+/* --- chips --------------------------------------------------------------- */
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-pill);
+  background: var(--card-bg);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--font-size-md);
+  cursor: pointer;
+}
+
+.chipOn {
+  border-color: var(--accent);
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 14%, var(--card-bg));
+}
+
+.chipDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* --- the list ------------------------------------------------------------ */
+
+.listWrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.steps {
+  margin: 0;
+  padding: 0 0 var(--space-6);
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* A step inside a subagent: indented, with a rule down its left edge. */
+.nested {
+  margin-left: var(--space-5);
+  border-left: 2px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  padding-left: var(--space-2);
+}
+
+.time {
+  flex: none;
+  margin-right: var(--space-2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+/* One-line steps: prompts, asides, retries, turn ends. */
+.line {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-md);
+  color: var(--text-secondary);
+}
+
+.clamp {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: pre-wrap;
+}
+
+.prompt {
+  margin-top: var(--space-3);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.said {
+  color: var(--text);
+}
+
+.quiet {
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.warn {
+  background: color-mix(in srgb, var(--orange) 12%, transparent);
+  color: var(--text);
+}
+
+.bad {
+  background: color-mix(in srgb, var(--red) 12%, transparent);
+  color: var(--text);
+}
+
+.end {
+  color: var(--text-muted);
+  border-top: 1px solid var(--border-soft);
+  border-radius: 0;
+}
+
+.errorText {
+  display: block;
+  margin-top: 4px;
+  color: var(--red);
+  white-space: pre-wrap;
+}
+
+/* --- a tool call --------------------------------------------------------- */
+
+.call {
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
+}
+
+.callHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-size-md);
+  text-align: left;
+  cursor: pointer;
+}
+
+.mark {
+  flex: none;
+  width: 1.2em;
+  text-align: center;
+  font-weight: 700;
+}
+
+.toolName {
+  flex: none;
+  font-weight: 700;
+}
+
+.target {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.duration {
+  flex: none;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The mark's color says how the call went. */
+.status_ok .mark {
+  color: var(--green);
+}
+
+.status_running {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.status_running .mark {
+  color: var(--accent);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+.status_error,
+.status_denied {
+  border-color: color-mix(in srgb, var(--red) 55%, transparent);
+}
+
+.status_error .mark,
+.status_denied .mark {
+  color: var(--red);
+}
+
+.status_cut_off .mark {
+  color: var(--orange);
+}
+
+.callBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: 0 var(--space-3) var(--space-3);
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.metaLine {
+  margin: 0;
+  font-size: var(--font-size-md);
+  color: var(--text-secondary);
+}
+
+.problemText {
+  margin: 0;
+  font-size: var(--font-size-md);
+  color: var(--red);
+}
+
+.label {
+  margin-top: var(--space-1);
+  font-size: var(--font-size-sm);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* Inputs and outputs: whole, in monospace, scrolling inside their own box
+   so one long output doesn't push the rest of the list off the screen. */
+.pre {
+  margin: 0;
+  max-height: 260px;
+  overflow: auto;
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.preError {
+  background: color-mix(in srgb, var(--red) 10%, transparent);
+}
+
+.smallBtn {
+  align-self: flex-start;
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--font-size-md);
+  cursor: pointer;
+}
+
+/* Shown only while she's scrolled up reading; one tap brings her back. */
+.followPill {
+  position: absolute;
+  right: var(--space-3);
+  bottom: var(--space-3);
+  min-height: 40px;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-pill);
+  background: var(--card-bg);
+  box-shadow: var(--shadow-card);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  cursor: pointer;
+}
