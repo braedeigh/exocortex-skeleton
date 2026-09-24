@@ -82,7 +82,7 @@ import store  # noqa: E402
 # to start: a collection error is cheap, and discovering it from a clobbered
 # vault is not. (Only on the first pass — see the sentinel above.)
 if _FIRST_PASS:
-    for _name in ("DATA_DIR", "CONTENT_DIR", "UPLOAD_DIR", "UPLOAD_ARCHIVE_DIR",
+    for _name in ("DATA_DIR", "CONTENT_DIR", "UPLOAD_DIR", "UPLOAD_ARCHIVE_DIR", "THUMB_DIR",
                   "RECEIPTS_DIR", "RECIPES_DIR",
                   "ARCHIVALS_DIR", "RECORDINGS_DIR",
                   "TRIAGE_DIR", "SPINOFF_DIR", "PERSON_SKILL_DIR",
@@ -141,6 +141,7 @@ def data_dir(tmp_path, monkeypatch):
     # and still pass. Re-pointed here as well as asserted above.
     monkeypatch.setattr(store, "UPLOAD_ARCHIVE_DIR", tmp_path / "uploads-archive")
     monkeypatch.setattr(store, "RECORDINGS_DIR", tmp_path / "recordings")
+    monkeypatch.setattr(store, "THUMB_DIR", tmp_path / ".thumbs")
     return tmp_path
 
 

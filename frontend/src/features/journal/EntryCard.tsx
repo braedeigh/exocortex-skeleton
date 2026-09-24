@@ -1,8 +1,22 @@
+/**
+ * One journal card: a single thing said, by you or the Keeper, with its time,
+ * tags, and chips (thread, counter, the conversation it came from). Reading,
+ * its words are rendered as light markdown with people and threads
+ * highlighted, and any photos in it show as a thumbnail row underneath
+ * (CardPhotos.tsx). Editing, it becomes a text box with Save/Cancel, a
+ * timestamp button, tag editing, and a delete that asks first.
+ *
+ * Touches: `markdown.ts` + `entityHighlight.ts` (rendering the words),
+ * `photoRefs.ts` + `CardPhotos.tsx` (the photos), `CardStream.tsx` (which
+ * lays the cards out and passes every handler in).
+ */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, IconButton, Sheet } from '../../ui';
 import type { EntityMatcher } from './entityHighlight';
 import { highlightEntities } from './entityHighlight';
 import { mdToHtml } from './markdown';
+import { CardPhotos } from './CardPhotos';
+import { splitPhotos } from './photoRefs';
 import { insertAtCursor, timestampMarker } from './timestampInsert';
 import type { Card } from './types';
 import styles from './EntryCard.module.css';
@@ -118,7 +132,10 @@ export function EntryCard({
     insertAtCursor(el, draft, timestampMarker(), setDraft);
   }
 
-  const bodyHtml = useMemo(() => highlightEntities(mdToHtml(card.body), matcher), [card.body, matcher]);
+  // Split the photos out of the words: the words render as text, the photos
+  // as thumbnails below them. Editing still shows the raw markers.
+  const { text: bodyText, photos } = useMemo(() => splitPhotos(card.body), [card.body]);
+  const bodyHtml = useMemo(() => highlightEntities(mdToHtml(bodyText), matcher), [bodyText, matcher]);
   const isContext = card.kind === 'context';
   const isK = card.who === 'K';
 
@@ -268,10 +285,13 @@ export function EntryCard({
               <span className={styles.replyContextSnippet}>&#8220;{card.reply_context.snippet}&#8221;</span>
             </button>
           ) : null}
-          <div
-            className={`${styles.body} ${isK ? styles.body_K : ''} ${isContext ? styles.body_context : ''}`}
-            dangerouslySetInnerHTML={{ __html: bodyHtml }}
-          />
+          {bodyText || !photos.length ? (
+            <div
+              className={`${styles.body} ${isK ? styles.body_K : ''} ${isContext ? styles.body_context : ''}`}
+              dangerouslySetInnerHTML={{ __html: bodyHtml }}
+            />
+          ) : null}
+          <CardPhotos photos={photos} />
         </>
       )}
 

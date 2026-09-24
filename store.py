@@ -44,6 +44,12 @@ UPLOAD_DIR = DATA_DIR / "uploads"  # personal uploads live in the data layer, no
 # accumulates, so it is the one most likely to get pointed at another disk.
 UPLOAD_ARCHIVE_DIR = Path(os.environ.get(
     "EXOCORTEX_UPLOAD_ARCHIVE_DIR", DATA_DIR / "uploads-archive"))
+# Small cached copies of uploaded photos, for the journal's thumbnails
+# (routes/photos.py makes them on first request). A pure cache: delete the
+# folder and every thumbnail is remade from the original on its next view. A
+# hidden folder in the data dir by default; the vault's .gitignore keeps it out
+# of the hourly backup, since backing up a cache only doubles the photos.
+THUMB_DIR = Path(os.environ.get("EXOCORTEX_THUMB_DIR", DATA_DIR / ".thumbs"))
 # Markdown content (habits, journal, meetings, intro). Defaults to the data dir so a new
 # user is self-contained; override with EXOCORTEX_CONTENT_DIR to point at an existing
 # content store (e.g. a separate journaling system that also reads/writes these files).

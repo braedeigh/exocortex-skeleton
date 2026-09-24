@@ -12,3 +12,6 @@ jsonschema==4.26.0
 pywebpush==2.3.0
 py-vapid==1.9.4
 cryptography==49.0.0
+# Journal photo thumbnails (routes/photos.py): shrinks uploaded photos to small
+# cached JPEGs. Pinned to the version installed on 2026-09-24.
+Pillow==12.3.0
