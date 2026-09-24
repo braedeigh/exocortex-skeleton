@@ -5,15 +5,16 @@
  * note, source}, needs_review}. Highlights render amber until reviewed
  * (green); the server re-resolves every selector against the live doc text
  * (verified/relocated/lost) on each GET, and the pure anchor.ts math turns
- * them into non-overlapping marks. Select text → floating "✎ Annotate" pop →
- * note form (the old prompt()). Each annotation can be sent to research
- * one-off or batched (regular/deep per row), or turned into a composer
- * follow-up carrying the exact quote + reply-chain context.
+ * them into non-overlapping marks — drawn by AnnotatedText.tsx, which also
+ * turns a text selection back into offsets. Select text → floating
+ * "✎ Annotate" pop → note form (the old prompt()). Each annotation can be
+ * sent to research one-off or batched (regular/deep per row), or turned into
+ * a composer follow-up carrying the exact quote + reply-chain context.
  */
 
 import { useEffect, useRef, useState } from 'react';
 import { ApiError } from '../../api/client';
-import { annotationMarkInputs, markSegments } from './anchor';
+import { AnnotatedText, scrollToMark } from './AnnotatedText';
 import { contextChain, resolveDocOwner, truncate } from './helpers';
 import { useResearchCtx } from './ResearchContext';
 import { useAnnotationMutations, useAnnotations, useDocText } from './useResearchData';
@@ -26,6 +27,8 @@ export interface AnnotatorProps {
   doc: string;
   fallbackTitle: string;
   onClose: () => void;
+  /** Open with this highlight already active and scrolled into view. */
+  initialAnnotationId?: string;
 }
 
 interface PendingSelection {
@@ -37,7 +40,7 @@ type NoteForm =
   | { mode: 'create'; start: number; end: number; quote: string }
   | { mode: 'edit'; id: string; quote: string };
 
-export function Annotator({ doc, fallbackTitle, onClose }: AnnotatorProps) {
+export function Annotator({ doc, fallbackTitle, onClose, initialAnnotationId }: AnnotatorProps) {
   const { state, push, mutations, actions, requestConfirm, confirmKey } = useResearchCtx();
 
   const textQuery = useDocText(doc);
@@ -48,7 +51,7 @@ export function Annotator({ doc, fallbackTitle, onClose }: AnnotatorProps) {
   const title = textQuery.data?.title || fallbackTitle || doc;
   const items = annsQuery.data ?? [];
 
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const [activeId, setActiveId] = useState<string | null>(initialAnnotationId ?? null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [modes, setModes] = useState<Record<string, string>>({});
   const [batchMsg, setBatchMsg] = useState('');
@@ -72,46 +75,16 @@ export function Annotator({ doc, fallbackTitle, onClose }: AnnotatorProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [textError]);
 
-  // --- Selection → char offsets. Marks contribute their inner text only, so
-  // the rendered textContent maps 1:1 onto the raw document string.
-  useEffect(() => {
-    function onSelectionEnd() {
-      setTimeout(() => {
-        const container = textRef.current;
-        const sel = window.getSelection();
-        if (!container || !sel || sel.rangeCount === 0 || sel.isCollapsed) {
-          setPop(null);
-          return;
-        }
-        const range = sel.getRangeAt(0);
-        if (!container.contains(range.commonAncestorContainer)) {
-          setPop(null);
-          return;
-        }
-        const pre = range.cloneRange();
-        pre.selectNodeContents(container);
-        pre.setEnd(range.startContainer, range.startOffset);
-        const start = pre.toString().length;
-        const len = range.toString().length;
-        if (!len) {
-          setPop(null);
-          return;
-        }
-        pending.current = { start, end: start + len };
-        const rect = range.getBoundingClientRect();
-        setPop({
-          left: Math.max(8, Math.min(window.innerWidth - 150, rect.left + rect.width / 2 - 65)),
-          top: Math.max(8, rect.top - 48),
-        });
-      }, 10);
-    }
-    document.addEventListener('mouseup', onSelectionEnd);
-    document.addEventListener('touchend', onSelectionEnd);
-    return () => {
-      document.removeEventListener('mouseup', onSelectionEnd);
-      document.removeEventListener('touchend', onSelectionEnd);
-    };
-  }, []);
+  // Float the "Annotate" pop above a fresh selection.
+  // AnnotatedText hands over the character offsets and the selection's
+  // rectangle; the pop is clamped inside the viewport.
+  function onSelectRange(start: number, end: number, _exact: string, rect: DOMRect) {
+    pending.current = { start, end };
+    setPop({
+      left: Math.max(8, Math.min(window.innerWidth - 150, rect.left + rect.width / 2 - 65)),
+      top: Math.max(8, rect.top - 48),
+    });
+  }
 
   function openCreateForm() {
     setPop(null);
@@ -145,15 +118,12 @@ export function Annotator({ doc, fallbackTitle, onClose }: AnnotatorProps) {
     setNoteForm(null);
   }
 
+  // Make one annotation the active one and bring its mark into view.
+  // AnnotatedText scrolls on its own when the active id changes; tapping the
+  // already-active one again still re-scrolls, so the explicit call stays.
   function focusAnn(id: string) {
     setActiveId(id);
-    const container = textRef.current;
-    if (!container) return;
-    // Wait a paint so the active outline is applied before scrolling.
-    requestAnimationFrame(() => {
-      const m = container.querySelector(`mark[data-ann="${CSS.escape(id)}"]`);
-      if (m) m.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    });
+    if (id === activeId) scrollToMark(textRef.current, id);
   }
 
   function deleteAnn(a: Annotation) {
@@ -260,7 +230,6 @@ export function Annotator({ doc, fallbackTitle, onClose }: AnnotatorProps) {
 
   // --- Render ---
 
-  const segments = markSegments(text, annotationMarkInputs(items));
   const sorted = items
     .slice()
     .sort(
@@ -289,30 +258,17 @@ export function Annotator({ doc, fallbackTitle, onClose }: AnnotatorProps) {
             </button>
           </div>
           <div className={styles.main}>
-            <div className={styles.text} ref={textRef}>
-              {textQuery.isLoading ? (
-                <span className={styles.empty}>Loading&hellip;</span>
-              ) : segments.length ? (
-                segments.map((seg, i) =>
-                  seg.mark ? (
-                    <mark
-                      key={i}
-                      data-ann={seg.mark.id}
-                      className={`${styles.mark} ${seg.mark.needsReview ? '' : styles.markReviewed} ${
-                        seg.mark.id === activeId ? styles.markActive : ''
-                      }`}
-                      onClick={() => focusAnn(seg.mark!.id)}
-                    >
-                      {seg.text}
-                    </mark>
-                  ) : (
-                    <span key={i}>{seg.text}</span>
-                  ),
-                )
-              ) : (
-                <span className={styles.empty}>Empty document.</span>
-              )}
-            </div>
+            <AnnotatedText
+              ref={textRef}
+              className={styles.text}
+              text={text}
+              annotations={items}
+              activeId={activeId}
+              loading={textQuery.isLoading}
+              onMarkClick={focusAnn}
+              onSelectRange={onSelectRange}
+              onSelectionClear={() => setPop(null)}
+            />
 
             <div className={styles.list}>
               <div className={styles.batchBar}>
