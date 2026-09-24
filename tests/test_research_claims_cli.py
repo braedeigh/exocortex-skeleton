@@ -196,4 +196,4 @@ def test_add_without_a_session_stamps_the_conversation_it_came_from(data_dir, mo
     monkeypatch.setenv("EXOCORTEX_CONV_ID", "2026-09-24.170000")
     assert main(["add", "--topic", "t1", "--text", "A claim from the desk"]) == 0
     entries = store.read("research.json")["entries"]
-    assert entries[0]["session"] is None and entries[0]["conv_id"] == "2026-09-24.170000"
+    assert entries[0].get("session") is None and entries[0]["conv_id"] == "2026-09-24.170000"
