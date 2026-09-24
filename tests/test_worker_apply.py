@@ -268,3 +268,45 @@ def test_apply_result_deregisters_terminal_tab(data_dir, monkeypatch):
     apply_result(session_id, "answer text")
 
     assert store.read("sessions.json", []) == ["chat"]
+
+
+# ---------------------------------------------------------------------------
+# research-room workers: the reply points back at the conversation
+# ---------------------------------------------------------------------------
+
+def _link_conversation(s_id, conv_id="2026-09-24.101010"):
+    import store
+    with store.mutate("research.json", {}) as data:
+        for s in data["sessions"]:
+            if s["id"] == s_id:
+                s["conv_id"] = conv_id
+
+
+def test_apply_result_copies_the_sessions_conversation_onto_the_reply(data_dir, monkeypatch):
+    q_id, s_id = _seed()
+    _link_conversation(s_id)
+    monkeypatch.setattr(_mod, "_kick_dispatcher", lambda sid: None)
+    reply = apply_result(s_id, "Digest.")
+    assert reply["conv_id"] == "2026-09-24.101010"
+    stored = next(e for e in _read()["entries"] if e["id"] == reply["id"])
+    assert stored["conv_id"] == "2026-09-24.101010"
+
+
+def test_a_legacy_reply_carries_no_conv_id_field(data_dir, monkeypatch):
+    """Absent, never null — a tmux-era session had no conversation."""
+    q_id, s_id = _seed()
+    monkeypatch.setattr(_mod, "_kick_dispatcher", lambda sid: None)
+    reply = apply_result(s_id, "Digest.")
+    assert "conv_id" not in reply
+
+
+def test_a_room_worker_has_no_terminal_tab_to_drop(data_dir, monkeypatch):
+    """The tmux tab cleanup is for legacy records only; a room worker never
+    registered one, and touching sessions.json for it is wasted motion."""
+    q_id, s_id = _seed()
+    _link_conversation(s_id)
+    monkeypatch.setattr(_mod, "_kick_dispatcher", lambda sid: None)
+    dropped = []
+    monkeypatch.setattr(_mod, "_deregister_terminal_tab", lambda sid: dropped.append(sid))
+    apply_result(s_id, "Digest.")
+    assert dropped == []

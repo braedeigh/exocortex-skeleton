@@ -264,3 +264,18 @@ def test_rollup_reads_the_ledgers_own_entries(data_dir):
     written, _ = ledger.rollup(today="2026-08-03")
     assert written == ["2026-08-02"]
     assert store.read(ledger.LEDGER)["days"]["2026-08-02"]["runs"] == 1
+
+
+def test_the_ledger_entry_keeps_the_links_back_to_what_it_paid_for(data_dir):
+    """A research worker's receipt can be walked back three ways: to the
+    research.json session, to the Observatory conversation, and to the Claude
+    session id. Keys always present, None when the run had no such thing."""
+    run = _run(spawn={"type": "research_worker", "session_id": "s1"},
+               conv_id="c1", claude_session="abc")
+    entry = ledger.entry_for(run, ledger.receipt(run, snapshot_fn=lambda: ""))
+    assert entry["research_session"] == "s1"
+    assert entry["conv_id"] == "c1"
+    assert entry["claude_session"] == "abc"
+    bare = ledger.entry_for(_run(spawn={"type": "observatory_turn"}),
+                            ledger.receipt(_run(), snapshot_fn=lambda: ""))
+    assert bare["research_session"] is None and bare["conv_id"] is None

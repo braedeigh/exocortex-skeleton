@@ -19,6 +19,20 @@ So this file is now two things:
   2. the research crew's SPAWNER (spawn_worker) — called BY the run dispatcher
      once a slot opens, not by this script's own main().
 
+WHERE A WORKER RUNS NOW (09-24). It used to be a named tmux pane (`rw-<sid>`)
+that nobody could open from the app, whose Claude session id had to be
+scraped out of the process table after a seven-second sleep so its tokens
+could be counted. A worker is now an Observatory conversation in the
+`research` lane (routes/research_room.py) — visible on the Research page
+while it runs, readable after, stopped with the same Stop button as any
+session. spawn_worker MINTS that conversation and stamps the research record
+with its `conv_id` and the queue's `run_id`; the conversation carries
+`research_session_id` back. Both links are written at spawn, by code, so the
+trace closes without a sleep and without trusting the worker to report its
+own id. The kickoff prompt is written to a file and the run dispatcher's own
+observatory-turn runner (scripts/spinoff_runner.py, detached from cron's
+cgroup) posts it — so the worker never leaves the memory-admission queue.
+
 Still run from cron and still kicked event-driven (routes/research.py's
 `_kick_dispatcher`, scripts/worker_apply_result.py's `_kick_dispatcher`) so a
 batch reaches the queue within seconds instead of at the next tick:
@@ -32,9 +46,11 @@ so the old slot math wouldn't undercount the headroom it was freeing. The run
 dispatcher decides liveness from evidence at admit time, so there's nothing
 left to correct for.
 
-Touches: scripts/run_dispatcher.py (the queue and its `new_run` shape),
-routes/research.py (what queues the sessions), scripts/worker_apply_result.py
-(what closes them out).
+Touches: scripts/run_dispatcher.py (the queue and its `new_run` shape, and
+the runner that posts the kickoff), routes/research_room.py (the mint),
+scripts/research_ctl.py (set_session — the conv/run stamp), routes/research.py
+(what queues the sessions), scripts/worker_apply_result.py (what closes them
+out).
 """
 import argparse
 import fcntl
@@ -42,7 +58,6 @@ import os
 import re
 import subprocess
 import sys
-import time
 from datetime import datetime
 from pathlib import Path
 
@@ -54,13 +69,17 @@ if SKELETON not in sys.path:
     sys.path.insert(0, SKELETON)
 
 import store  # noqa: E402
-from routes.kitchen import shared  # noqa: E402
+from routes import research_room  # noqa: E402
 from scripts import research_ctl  # noqa: E402
 from scripts import run_dispatcher as rd  # noqa: E402
 
 LOCK_NAME = "research_dispatcher.lock"
 LANE = "research"
 KIND = "research_worker"
+# The queue's spawn type for a research worker. "tmux_worker" was the old
+# name; a run queued under it before the move is spawned and probed the same
+# way (run_dispatcher treats both), so nothing waiting at deploy time is lost.
+SPAWN_TYPE = "research_worker"
 MAX_ATTEMPTS = 2
 RESEARCH_DEFAULT = {"topics": [], "entries": [], "sessions": []}
 
@@ -83,18 +102,29 @@ def list_live_workers(tmux_fn, ending=None):
     return {n for n in names if n.startswith("rw-") and n != ending}
 
 
-def recover_dead_workers(data, live_names):
-    """Mutate `data` in place: a worker session stuck "running" whose tmux
-    session isn't live and which never got an llm reply goes back to
-    "queued" — or "failed" after a second dead attempt. Sessions without
-    `worker: True` (research-runner/research-deep/filer) are never touched.
-    Returns the recovered session ids, for the caller's log line."""
+def recover_dead_workers(data, live_names, index=None):
+    """Mutate `data` in place: a worker session stuck "running" with nothing
+    alive behind it and no llm reply goes back to "queued" — or "failed"
+    after a second dead attempt. Sessions without `worker: True`
+    (research-runner/research-deep/filer) are never touched. Returns the
+    recovered session ids, for the caller's log line.
+
+    What counts as alive depends on the record's generation: a room worker
+    (one with a `conv_id`) is alive while its Observatory conversation says
+    `running`; a legacy record is alive while its tmux pane is. `index` is
+    bot_chats/index.json, read here when not handed in."""
     entries = data.get("entries", [])
     recovered = []
     for s in data.get("sessions", []):
         if not s.get("worker") or s.get("status") != "running":
             continue
-        if worker_tmux_name(s["id"]) in live_names:
+        if s.get("conv_id"):
+            if index is None:
+                index = store.read("bot_chats/index", {}) or {}
+            entry = index.get(s["conv_id"]) if isinstance(index, dict) else None
+            if isinstance(entry, dict) and entry.get("running"):
+                continue
+        elif worker_tmux_name(s["id"]) in live_names:
             continue
         has_reply = any(
             e.get("session") == s["id"] and e.get("author") == "llm" for e in entries
@@ -115,13 +145,13 @@ def recover_dead_workers(data, live_names):
 # --- pure logic (no I/O — easy to unit test) ---------------------------------
 
 def worker_tmux_name(session_id):
-    """rw-<session_id>, sanitized the same way spawn_worker names the tmux
-    session it creates.
+    """rw-<session_id>, sanitized the way the tmux era named a worker's pane.
 
-    tmux treats '.' and ':' as target separators and rewrites '_' — any of
-    those would make the name we spawn differ from the name we send-keys /
-    kill against, so the worker could never be prompted or self-close.
-    Collapse everything but [A-Za-z0-9-] to '-'.
+    Nothing spawns a pane any more; this survives so the run dispatcher's
+    probe and scripts/research_doctor.py can still recognise a LEGACY record
+    (one with no `conv_id`) by the pane it would have had. tmux treats '.'
+    and ':' as target separators and rewrites '_', so everything but
+    [A-Za-z0-9-] collapses to '-'.
     """
     return re.sub(r"[^A-Za-z0-9-]", "-", f"rw-{session_id}")[:40]
 
@@ -172,7 +202,7 @@ def runs_to_enqueue(research, queue_data, clock=None):
             continue
         out.append(rd.new_run(
             LANE, KIND,
-            {"type": "tmux_worker", "session_id": session["id"],
+            {"type": SPAWN_TYPE, "session_id": session["id"],
              "mode": session.get("mode", "regular"), "target_id": target},
             mem_class="agent", clock=clock))
     return out
@@ -186,25 +216,79 @@ def describe_run(enqueued):
 
 # --- spawning (called by the run dispatcher, not by main()) ------------------
 
-def spawn_worker(session_id, mode, target_id):
-    """Spawn (or reuse) a named tmux Claude session for one queued worker
-    session, then send it a prompt shaped for its mode:
+def worker_title(session, mode, target_id, research):
+    """What the worker's card says on the Research page: the question it's
+    answering, or the topic it's distilling. Falls back to the session id so
+    a card is never blank."""
+    if mode == "distill":
+        topic = next((t for t in research.get("topics", []) if t.get("id") == target_id), None)
+        name = topic.get("name") if topic else target_id
+        return f"Distill: {name}"[:60]
+    question = next((e for e in research.get("entries", []) if e.get("id") == target_id), None)
+    text = " ".join(((question or {}).get("text") or "").split())
+    return text[:60] if text else f"Research {session.get('id') if session else target_id}"
 
-      * `mode in ("regular", "deep")` — an annotation-batch question.
-        `target_id` is the question entry id; the worker reads its CLAUDE.md
-        from RESEARCH_WORKER_DIR.
-      * `mode == "distill"` — a per-topic distill (see
-        routes/research.py's /api/research/topic/distill). `target_id` is
-        the topic id; the worker reads its CLAUDE.md from
-        RESEARCH_DISTILLER_DIR and gets the topic's name looked up here (the
-        session record only carries the id) so the prompt can name it.
 
-    Either way the worker does its one job, records the result via the
-    APPLY command, then closes itself. The run dispatcher calls this only
-    once a slot actually opens up.
+def worker_skill_file(mode):
+    """The job description for a mode — the CLAUDE.md of the folder that used
+    to be the worker's cwd. It now rides on the conversation as its system
+    prompt (routes/observatory.py's system_prompt_file), so the session stands
+    in the research room and still knows its one job."""
+    folder = store.RESEARCH_DISTILLER_DIR if mode == "distill" else store.RESEARCH_WORKER_DIR
+    return Path(folder) / "CLAUDE.md"
+
+
+def worker_prompt(session_id, mode, target_id, topic_name, apply_cmd):
+    """The kickoff a worker is sent — the same text the tmux era typed, minus
+    the pane to close: SESSION/MODE (or TOPIC), the exact APPLY command, and
+    the one-job sentence."""
+    if mode == "distill":
+        return (
+            f"SESSION={session_id} TOPIC={target_id}: {topic_name}\n"
+            f"APPLY: {apply_cmd}\n"
+            f"Do your one job: follow your distiller instructions (in your system "
+            f"prompt), distill topic '{topic_name}' ({target_id}) into "
+            f"research/edge/{target_id}.md, record via APPLY, then stop."
+        )
+    return (
+        f"SESSION={session_id} MODE={mode}\n"
+        f"APPLY: {apply_cmd}\n"
+        f"Do your one job: follow your worker instructions (in your system prompt), "
+        f"research the one question in session {session_id}, record via APPLY, "
+        f"then stop."
+    )
+
+
+def kickoff_path(name):
+    """Where a worker's kickoff text waits for the runner — beside the queue,
+    in the same folder routes/run_queue.py uses for her own queued turns."""
+    folder = store.DATA_DIR / rd.KICKOFF_DIR
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder / f"{name}.txt"
+
+
+def spawn_worker(session_id, mode, target_id, run_id=None):
+    """Stand up one admitted research worker as a research-room conversation.
+
+    Mints the Observatory conversation (lane `research`, `origin: "research"`,
+    `research_session_id` = this session), stamps the research record with
+    the conversation id and the run id, and writes the kickoff prompt to a
+    file. It does NOT start the turn: the caller — run_dispatcher.spawn_run —
+    hands the conversation and the file to the observatory-turn runner, so a
+    worker is admitted, started and reaped through the same door as every
+    other background run.
+
+      * `mode in ("regular", "deep")` — an annotation-batch question;
+        `target_id` is the question entry id, the skill is
+        RESEARCH_WORKER_DIR/CLAUDE.md.
+      * `mode == "distill"` — a per-topic distill (routes/research.py's
+        /api/research/topic/distill); `target_id` is the topic id, the skill
+        is RESEARCH_DISTILLER_DIR/CLAUDE.md, and the topic's name is looked up
+        here so the prompt can say it.
+
+    Returns {"conv_id", "text_file", "prompt"}.
     """
     skeleton_dir = Path(__file__).resolve().parent.parent
-    tmux_name = worker_tmux_name(session_id)
     apply_cmd = (
         f"EXOCORTEX_DATA_DIR={store.DATA_DIR} "
         f"{skeleton_dir}/venv/bin/python3 "
@@ -212,61 +296,35 @@ def spawn_worker(session_id, mode, target_id):
         f"--session {session_id}"
     )
 
-    # Flip the research record to `running` here, at the moment the process is
-    # actually being started. The research page reads this status, and the run
-    # queue is a separate file it doesn't know about — leaving the session
+    # Flip the research record to `running` here, at the moment the worker is
+    # actually being stood up. The research page reads this status, and the
+    # run queue is a separate file it doesn't know about — leaving the session
     # `queued` while its worker was live would make her own page lie.
     with store.mutate("research.json", dict(RESEARCH_DEFAULT)) as data:
         for s in data.get("sessions", []):
             if s.get("id") == session_id:
                 s["status"] = "running"
 
-    if mode == "distill":
-        topic_id = target_id
-        data = store.read("research.json", {"topics": []})
-        topic = next((t for t in data.get("topics", []) if t["id"] == topic_id), None)
-        topic_name = topic["name"] if topic else topic_id
-        shared.ensure_claude_session(
-            tmux_name, store.RESEARCH_DISTILLER_DIR, dirs=(store.RESEARCH_DISTILLER_DIR,),
-        )
-        prompt = (
-            f"SESSION={session_id} TOPIC={topic_id}: {topic_name} TMUX={tmux_name}\n"
-            f"APPLY: {apply_cmd}\n"
-            f"Do your one job: read your CLAUDE.md, distill topic '{topic_name}' "
-            f"({topic_id}) into research/edge/{topic_id}.md, record via APPLY, then "
-            f"close your tmux session."
-        )
-    else:
-        question_id = target_id
-        shared.ensure_claude_session(
-            tmux_name, store.RESEARCH_WORKER_DIR, dirs=(store.RESEARCH_WORKER_DIR,),
-        )
-        prompt = (
-            f"SESSION={session_id} MODE={mode} TMUX={tmux_name}\n"
-            f"APPLY: {apply_cmd}\n"
-            f"Do your one job: read your CLAUDE.md, research the one question in session "
-            f"{session_id}, record via APPLY, then close your tmux session."
-        )
-    # block=True: the caller is a short-lived script, and the default
-    # daemon-thread send would die with the process before ever typing.
-    shared.send_prompt(tmux_name, prompt, block=True)
+    research = store.read("research.json", dict(RESEARCH_DEFAULT))
+    session = next((s for s in research.get("sessions", []) if s.get("id") == session_id), None)
+    topic = next((t for t in research.get("topics", []) if t.get("id") == target_id), None)
+    topic_name = topic["name"] if topic else target_id
 
-    # Blocking sessionId-capture tail. The caller exits right after spawning,
-    # so if this doesn't happen inline it never happens at all — and without a
-    # sessionId the run's token receipt has no transcript to read.
-    #
-    # Chose this deterministic, code-enforced capture over having the WORKER
-    # record its own sessionId as part of its APPLY step: that would be a
-    # *prompt*-enforced contract, which an LLM agent can simply forget on a bad
-    # day — the exact failure mode research_ctl.py's docstring describes
-    # retiring. Per the hard rule, any failure here (dead tmux session, a race,
-    # whatever) degrades silently to "unset" rather than retrying, blocking
-    # longer, or crashing the run.
-    try:
-        time.sleep(7)
-        research_ctl.capture_session_id(tmux_name, session_id)
-    except Exception:
-        pass
+    # Mint the conversation, then close the trace from the research side.
+    # Two writes to two files, conversation first: a research record naming a
+    # conversation that doesn't exist is the worse of the two half-states.
+    conv_id = research_room.mint_research_conversation(
+        session_id,
+        worker_title(session, mode, target_id, research),
+        model=(session or {}).get("model"),
+        system_prompt_file=worker_skill_file(mode),
+    )
+    research_ctl.set_session(session_id, conv_id=conv_id, run_id=run_id)
+
+    prompt = worker_prompt(session_id, mode, target_id, topic_name, apply_cmd)
+    text_file = kickoff_path(run_id or conv_id)
+    store.write_text_file(text_file, prompt)
+    return {"conv_id": conv_id, "text_file": str(text_file), "prompt": prompt}
 
 
 # --- orchestration ------------------------------------------------------------

@@ -164,8 +164,10 @@ def open_spinoff(slug, start=True, lane=None, worktree=None, model=None,
     live (non-archived) conversation is a rejoin, not a restart, and leaves
     that conversation untouched — including not re-firing it.
 
-    `lane` names the room outright ("personal"/"coding"/"orchestra"); left None it's
-    inherited from the sending session (_inherit_lane). The room supplies cwd
+    `lane` names the room outright ("personal"/"coding"/"orchestra"/"research"
+    — validated against observatory._LANES, so a lane added there is accepted
+    here without a second list to keep in step); left None it's inherited from
+    the sending session (_inherit_lane). The room supplies cwd
     and the safety-net defaults via _lane_profile; act_gate/guard_docs are
     deliberately NOT written onto the entry, same as the create route, so the
     room keeps driving them and moving the card between rooms re-scopes it.
@@ -179,7 +181,8 @@ def open_spinoff(slug, start=True, lane=None, worktree=None, model=None,
     `worktree=False` opts out of the private copy of the repo an ORCHESTRA
     spinoff otherwise gets (see worktrees.py). Only Orchestra gets one at all:
     Coding and Personal are her own hands, and they need the real checkout
-    because that's the one gunicorn serves and the one she refreshes.
+    because that's the one gunicorn serves and the one she refreshes; Research
+    stands in its own folder and never touches the checkout.
 
     `model` pins the child to one of _MODEL_CHOICES ("fable", "opus", …); left
     None it inherits the CLI default like every other conversation. Validated

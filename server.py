@@ -31,8 +31,8 @@ from routes import (
     research_search, research_sources, research_import, research_text,
     annotations, spa, fronts, tags, wiki, travel, profile, usage, streaks, spinoff,
     observatory, terrain, terrain_mirror, terrain_tables, automations, nightcrew, push, claude_auth, run_queue,
-    branches, recordings,
-    sqlab, sandbox, pond, tabsets, creek,
+    branches, recordings, research_room,
+    sqlab, sandbox, pond, tabsets, creek, research_claims,
 )
 from routes.shell import VALID_TABS
 
@@ -1217,6 +1217,7 @@ research_sources.register(app)
 research_import.register(app)
 research_text.register(app)
 annotations.register(app)
+research_claims.register(app)  # the claims table: claims beside their sources (routes/research_claims.py)
 reminders.register(app)
 food_test.register(app)
 terminal.register(app)
@@ -1236,6 +1237,9 @@ if features.enabled("observatory"):
     # and its merge endpoint runs git against the live checkout — with the
     # observatory off, that door must not answer either.
     nightcrew.register(app)
+    # The research room (routes/research_room.py) is a lane of the observatory
+    # — its list opens onto session output, so it rides the same flag.
+    research_room.register(app)
 automations.register(app)
 # The run queue's endpoints are read-mostly and answer for every background
 # crew, not just the observatory — so they register unconditionally, outside the
