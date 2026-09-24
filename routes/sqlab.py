@@ -19,22 +19,11 @@ build intuition, and `EXPLAIN QUERY PLAN` is where indexes stop being folklore:
 run a query, see `SCAN habit_entries`, add an index, run it again, watch it
 become `SEARCH habit_entries USING INDEX`. It costs one extra cheap call.
 
-Safety — this runs arbitrary SQL against the database of record, so it is
-locked down four ways, none of which is sufficient alone:
-
-  1. The connection is opened `mode=ro`. SQLite itself refuses any write, so a
-     statement that slips past the parser check still cannot change anything.
-  2. Exactly one statement per request, checked with sqlite3.complete_statement
-     — no `SELECT 1; DROP TABLE docs`.
-  3. The statement must start with SELECT, WITH, or EXPLAIN. PRAGMA is excluded
-     deliberately: some pragmas write, and a read-only connection's error for
-     them is confusing rather than instructive.
-  4. A wall-clock cap via a progress handler, so a runaway cross join returns an
-     error instead of pinning a gunicorn worker.
-
-Results are capped at MAX_ROWS and the response says when it truncated — a
-silent cut would read as "that's all there is", which is the one lie a learning
-tool must not tell.
+Safety — the query endpoint runs arbitrary SQL against the database of record.
+All of its locks (read-only connection, one statement, SELECT/WITH/EXPLAIN
+only, a wall-clock cap, the announced row cap) live in `sqlquery.py`, which is
+shared with the agents' command line (`scripts/exo_query.py`) so both doors
+are the same door. This file only shapes the response for the console.
 
 Registered in server.py, so it sits behind the app's auth gate like everything
 else. Reads exo.db directly rather than through store.py because the whole
@@ -47,7 +36,6 @@ schema listed and the query plan shown."
 import json
 import re
 import sqlite3
-import time
 
 from flask import jsonify, request
 
@@ -56,12 +44,16 @@ import cardstore
 import codestore
 import expensestore
 import habitstore
-import store
+import sqlquery
 import todostore
 import uieventstore
 
-MAX_ROWS = 500
-TIMEOUT_SECONDS = 5.0
+# The console's caps, kept as names on this module so a test (or a future
+# setting) can change them here without reaching into sqlquery. The query
+# handler reads them at call time for the same reason.
+MAX_ROWS = sqlquery.MAX_ROWS
+TIMEOUT_SECONDS = sqlquery.TIMEOUT_SECONDS
+ALLOWED_STARTS = sqlquery.ALLOWED_STARTS
 
 # The tables that are real columns rather than a JSON blob. Listed rather than
 # sniffed so the map can count them without guessing what qualifies. Note that
@@ -79,35 +71,6 @@ TYPED_TABLES = ("habits", "habit_aliases", "habit_entries",
                 "ui_events", "requests")
 
 _DATE_KEY = re.compile(r"^\d{4}-\d{2}-\d{2}")
-
-# Everything else is rejected before it reaches SQLite. WITH is here so CTEs and
-# window-function queries work — those are most of what's worth learning.
-ALLOWED_STARTS = ("select", "with", "explain")
-
-
-def _read_only_conn():
-    """A connection SQLite itself will not let anything write through."""
-    conn = sqlite3.connect(
-        f"file:{store.DATA_DIR / 'exo.db'}?mode=ro", uri=True, timeout=5
-    )
-    conn.execute("PRAGMA query_only = ON")
-    return conn
-
-
-def _guard(sql):
-    """Return an error string if this isn't a single read-only statement."""
-    stripped = sql.strip().rstrip(";").strip()
-    if not stripped:
-        return "Empty query."
-    if not stripped.lower().startswith(ALLOWED_STARTS):
-        return "Only SELECT, WITH, and EXPLAIN queries are allowed here."
-    # complete_statement is SQLite's own parser: if the text up to the first
-    # semicolon already forms a whole statement, anything after it is a second
-    # one. Needs the trailing ';' to judge completeness.
-    head, sep, tail = stripped.partition(";")
-    if sep and tail.strip() and sqlite3.complete_statement(head + ";"):
-        return "One statement at a time."
-    return None
 
 
 def _unwrap(value):
@@ -154,18 +117,11 @@ def _classify(payload):
     return "scalar", 0
 
 
-def _deadline_handler(deadline):
-    """SQLite calls this every N opcodes; returning non-zero aborts the query."""
-    def handler():
-        return 1 if time.monotonic() > deadline else 0
-    return handler
-
-
 def register(app):
 
     @app.route("/api/sql/schema")
     def sql_schema():
-        conn = _read_only_conn()
+        conn = sqlquery.read_only_connection()
         try:
             tables = [
                 r[0] for r in conn.execute(
@@ -204,7 +160,7 @@ def register(app):
         and one shared axis would flatten every blob into an invisible sliver.
         Two charts, two scales — never one axis pretending to serve both.
         """
-        conn = _read_only_conn()
+        conn = sqlquery.read_only_connection()
         try:
             blobs = []
             for name, text, updated in conn.execute(
@@ -234,48 +190,27 @@ def register(app):
 
     @app.route("/api/sql/query", methods=["POST"])
     def sql_query():
+        """Run one read-only statement through the shared door and shape the
+        answer for the console: `limit` is the cap it was cut at, `ms` how
+        long it took, `plan` always a list (empty when the statement was
+        itself an EXPLAIN). Every refusal is a 400 carrying the plain-English
+        reason — the console shows that text as-is. No deny-list here: the
+        console is the owner's own window, and she may look at everything.
+        """
         sql = ((request.json or {}).get("sql") or "").strip()
-        problem = _guard(sql)
-        if problem:
-            return jsonify({"error": problem}), 400
-
-        conn = _read_only_conn()
-        conn.set_progress_handler(_deadline_handler(time.monotonic() + TIMEOUT_SECONDS), 10_000)
-        try:
-            started = time.monotonic()
-            cur = conn.execute(sql)
-            rows = cur.fetchmany(MAX_ROWS + 1)
-            elapsed = (time.monotonic() - started) * 1000
-            truncated = len(rows) > MAX_ROWS
-            rows = rows[:MAX_ROWS]
-            columns = [d[0] for d in cur.description] if cur.description else []
-
-            plan = []
-            if not sql.lower().startswith("explain"):
-                try:
-                    conn.set_progress_handler(None, 0)
-                    plan = [r[3] for r in conn.execute(f"EXPLAIN QUERY PLAN {sql}")]
-                except sqlite3.Error:
-                    pass  # the plan is a nicety; never fail a good query over it
-            return jsonify({
-                "columns": columns,
-                "rows": [list(r) for r in rows],
-                "truncated": truncated,
-                "limit": MAX_ROWS,
-                "ms": round(elapsed, 1),
-                "plan": plan,
-            })
-        except sqlite3.OperationalError as e:
-            # The progress handler aborts with this same generic message, so say
-            # which one it was rather than showing "interrupted" for a typo.
-            if "interrupted" in str(e).lower():
-                return jsonify({"error": f"Query took longer than {TIMEOUT_SECONDS:.0f}s "
-                                         "and was stopped."}), 400
-            return jsonify({"error": str(e)}), 400
-        except sqlite3.Error as e:
-            return jsonify({"error": str(e)}), 400
-        finally:
-            conn.close()
+        result = sqlquery.run_query(
+            sql, max_rows=MAX_ROWS, timeout_seconds=TIMEOUT_SECONDS
+        )
+        if "error" in result:
+            return jsonify({"error": result["message"]}), 400
+        return jsonify({
+            "columns": result["columns"],
+            "rows": result["rows"],
+            "truncated": result["truncated"],
+            "limit": MAX_ROWS,
+            "ms": result["elapsed_ms"],
+            "plan": result["plan"] or [],
+        })
 
     @app.route("/api/sql/rebuild", methods=["POST"])
     def sql_rebuild():
