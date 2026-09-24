@@ -13,8 +13,8 @@ Claude session over HTTP, rather than only by hand in Python.
     POST /api/food/foods/<id>         change a food's fields
     POST /api/food/foods/<id>/names   {name} — another way it's written
     POST /api/food/merge              {keep, drop} — fold drop into keep
-    POST /api/food/products           {food, name, brand?, store?, size?, receipt_text?}
-    POST /api/food/products/<id>      change a product (food, name, brand…)
+    POST /api/food/products           {food, name, brand?, store?, size?, receipt_text?, organic?}
+    POST /api/food/products/<id>      change a product (food, name, brand, organic…)
     POST /api/food/links              {target, target_id, food? | product_id?}
     POST /api/food/links/<id>/delete
     POST /api/food/makes              {recipe_id, food|null}
@@ -98,7 +98,7 @@ def register(app):
         return _run(foodstore.add_product, _food_ref(body.get("food")), name,
                     brand=body.get("brand"), store_name=body.get("store"),
                     size=body.get("size"), note=body.get("note"),
-                    receipt_text=body.get("receipt_text"))
+                    receipt_text=body.get("receipt_text"), organic=body.get("organic"))
 
     @app.route("/api/food/products/<int:product_id>", methods=["POST"])
     def food_update_product(product_id):

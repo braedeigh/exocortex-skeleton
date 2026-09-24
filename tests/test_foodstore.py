@@ -245,3 +245,68 @@ def test_bad_safety_value_is_refused(client):
     seed_kitchen()
     resp = client.post("/api/food/foods", json={"name": "kale", "safety": "maybe"})
     assert resp.status_code == 400
+
+
+# --- organic -------------------------------------------------------------------
+
+@pytest.mark.parametrize("text,organic", [
+    ("CM ORG WHOLE MILK", 1), ("ORGANIC GREEN KALE", 1), ("HEB ORGANICS BLACK TEA", 1),
+    ("HEB WHOLE MILK", 0), ("ORGANIZER BIN", 0),
+])
+def test_organic_is_read_off_the_receipt_text(data_dir, text, organic):
+    assert foodstore._guess_organic(text) == organic
+
+
+def test_adopt_marks_organic_on_receipt_products(data_dir):
+    seed_kitchen(trips=[trip(lines=(("CM ORG WHOLE MILK", 5.0, "milk"),
+                                    ("HEB WHOLE MILK", 4.0, "milk")))])
+    foodstore.adopt()
+    assert dict(rows("SELECT name, organic FROM products")) == {
+        "CM ORG WHOLE MILK": 1, "HEB WHOLE MILK": 0}
+    # Both cartons are still the one food the list asks for.
+    assert rows("SELECT COUNT(DISTINCT food_id) FROM products")[0][0] == 1
+
+
+def test_adopt_never_overwrites_organic_set_by_hand(data_dir):
+    seed_kitchen(trips=[trip(lines=(("HEB WHOLE MILK", 4.0, "milk"),))])
+    foodstore.adopt()
+    product_id = rows("SELECT id FROM products")[0][0]
+    foodstore.update_product(product_id, organic=1)
+    foodstore.adopt()
+    assert rows("SELECT organic FROM products") == [(1,)]
+
+
+# --- receipts ------------------------------------------------------------------
+
+@pytest.fixture
+def receipts_dir(data_dir, tmp_path, monkeypatch):
+    root = tmp_path / "receipts"
+    (root / "grocery").mkdir(parents=True)
+    monkeypatch.setattr(store, "RECEIPTS_DIR", root)
+    return root
+
+
+def test_every_photo_gets_a_row_with_its_status(receipts_dir):
+    (receipts_dir / "grocery" / "2026-09-01-receipt-1.jpg").write_bytes(b"x" * 10)
+    (receipts_dir / "grocery" / "2026-09-02-receipt-2.jpg").write_bytes(b"x")
+    (receipts_dir / "grocery" / "2026-09-02-receipt-2.jpg.parsed.json").write_text(
+        json.dumps({"store": "HEB", "date": "2026-09-02", "total": 12.5,
+                    "line_items": [{"name": "A"}]}))
+    (receipts_dir / "2026-09-03-heb.heic").write_bytes(b"x")
+    (receipts_dir / "notes.txt").write_text("not a photo")
+    seed_kitchen(trips=[trip("2026-09-01", receipt="receipts/grocery/2026-09-01-receipt-1.jpg")])
+    foodstore.rebuild()
+    got = {r[0]: r[1:] for r in rows(
+        "SELECT path, folder, uploaded_on, status, total_cents, trip_id IS NOT NULL"
+        " FROM receipts")}
+    assert got == {
+        "receipts/grocery/2026-09-01-receipt-1.jpg": ("kitchen", "2026-09-01", "imported", None, 1),
+        "receipts/grocery/2026-09-02-receipt-2.jpg": ("kitchen", "2026-09-02", "read", 1250, 0),
+        "receipts/2026-09-03-heb.heic": ("money", "2026-09-03", "unread", None, 0),
+    }
+
+
+def test_a_receipt_imported_twice_is_one_trip(receipts_dir):
+    seed_kitchen(trips=[trip("2026-06-30"), trip("2026-06-30")])
+    foodstore.rebuild()
+    assert rows("SELECT COUNT(*) FROM shopping_trips")[0][0] == 1

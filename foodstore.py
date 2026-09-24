@@ -15,6 +15,8 @@ becomes one query.
              here, since they share the receipt.
   product  — one tangible thing you buy: "HEB ORG WHITE QUINOA". Belongs to a
              food. Receipts land on products; the map's sources hang off them.
+             Organic or not is marked here, not on the food — the list just
+             says "milk", the receipt knows which carton.
   names    — every way a food has been written (`food_names`) and every way a
              store prints a product (`receipt_names`). Matching happens here.
 
@@ -24,16 +26,19 @@ the functions below and backed up to `food_catalog.json` after every change;
 if the tables are ever empty and that file exists, it is read back in. The
 derived half — recipes, recipe lines, shopping trips and lines, the grocery
 list — is wiped and re-read from the kitchen's JSON collections by `rebuild()`,
-resolving every name as it goes. The kitchen screens are untouched: they still
+resolving every name as it goes. The `receipts` table is derived too, from
+the photos in the receipts folder: one row per photo, what it was read as, and
+which trip and expense it became. The kitchen screens are untouched: they still
 write their blobs, and a rebuild catches these rows up.
 
 **Nothing is merged automatically.** `adopt()` makes one food per name nobody
 has matched yet, which leaves duplicates ("onion", "onions") in plain sight;
 `merge()` is how two become one. Guessing would hide the decision.
 
-Touches: `sqlstore.py` (the tables, rung 20, and two views: food_last_price,
-recipe_cost), `store.py` (reads recipes / kitchen / grocery_trips /
-kitchen_trips / expense_receipts / food_guide), `routes/food.py` (the HTTP
+Touches: `sqlstore.py` (the tables, rungs 20 and 22, and two views:
+food_last_price, recipe_cost), `store.py` (reads recipes / kitchen /
+grocery_trips / kitchen_trips / expense_receipts / food_guide, and the photos
+under store.RECEIPTS_DIR), `routes/food.py` (the HTTP
 seam), `routes/sqlab.py` (lists the tables, calls rebuild), and
 `tests/test_foodstore.py`.
 
@@ -45,6 +50,8 @@ items. i basically eat the same meal prep every week. build the sql layer and
 then i can play with it."
 """
 from decimal import Decimal, ROUND_HALF_UP
+import json
+import re
 
 import sqlstore
 import store
@@ -64,7 +71,7 @@ GUIDE_SAFETY = {"safe": "safe", "hurts": "hurts", "unsure": "unsure"}
 _RECORD_TABLES = (
     ("foods", ("id", "name", "kind", "category", "safety", "note", "created_at")),
     ("food_names", ("name", "food_id")),
-    ("products", ("id", "food_id", "name", "brand", "store", "size", "note")),
+    ("products", ("id", "food_id", "name", "brand", "store", "size", "note", "organic")),
     ("receipt_names", ("store", "text", "product_id")),
     ("food_links", ("id", "food_id", "product_id", "target", "target_id", "note")),
     ("recipe_makes", ("recipe_id", "food_id")),
@@ -77,6 +84,22 @@ def _cents(amount):
     if amount is None or amount == "":
         return None
     return int(Decimal(str(amount)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) * 100)
+
+
+# What a receipt prints for organic. Word-bounded so "ORGANIZER" isn't one.
+_ORGANIC_WORDS = re.compile(r"\b(ORG|ORGANIC|ORGANICS)\b")
+
+# The photo formats the upload routes accept.
+_PHOTO_SUFFIXES = {".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp", ".pdf"}
+
+
+def _guess_organic(text):
+    """Organic or not, read off a receipt line: 1 when it says so, else 0.
+
+    Stores print ORG on organic items reliably, so a line without it is taken
+    as not organic rather than unknown. A guess — set by hand to overrule it.
+    """
+    return 1 if _ORGANIC_WORDS.search(str(text or "").upper()) else 0
 
 
 def _norm(name):
@@ -167,12 +190,12 @@ def _resolver(conn):
 def _refill(conn):
     """Wipe the derived tables and read them back from the kitchen blobs."""
     # Children first, so no foreign key is ever left pointing at nothing.
-    for table in ("recipe_lines", "recipes", "shopping_lines",
+    for table in ("receipts", "recipe_lines", "recipes", "shopping_lines",
                   "shopping_trips", "grocery_list"):
         conn.execute(f"DELETE FROM {table}")
     names, receipts = _resolver(conn)
     counts = {"recipes": 0, "recipe_lines": 0, "trips": 0,
-              "shopping_lines": 0, "grocery_list": 0}
+              "shopping_lines": 0, "grocery_list": 0, "receipts": 0}
 
     # Recipes and their lines, each line resolved to a food by name.
     for r in store.read("recipes.json", {"recipes": []}).get("recipes") or []:
@@ -214,8 +237,14 @@ def _refill(conn):
         if (t.get("date"), _receipt_key(t.get("store"))) not in seen:
             trips.append(t)
     trips.sort(key=lambda t: t.get("date") or "")
+    # The same receipt imported twice is one trip, not two.
+    seen_receipts = set()
     for t in trips:
         receipt = t.get("receipt")
+        if receipt:
+            if receipt in seen_receipts:
+                continue
+            seen_receipts.add(receipt)
         photo = receipt.rsplit("/", 1)[-1] if receipt else None
         cur = conn.execute(
             "INSERT INTO shopping_trips (date, store, total_cents, saved_cents, units,"
@@ -240,6 +269,8 @@ def _refill(conn):
                  picked, product_id, food_id))
             counts["shopping_lines"] += 1
 
+    counts["receipts"] = _fill_receipts(conn, expense_by_photo)
+
     # The grocery list as it stands right now.
     for seq, item in enumerate(store.read("kitchen.json", {}).get("items") or []):
         text = (item.get("name") or "").strip()
@@ -252,6 +283,55 @@ def _refill(conn):
              1 if item.get("checked") else 0, names.get(_norm(text))))
         counts["grocery_list"] += 1
     return counts
+
+
+def _fill_receipts(conn, expense_by_photo):
+    """One row per receipt photo in the receipts folder, with what it became.
+
+    Top-level photos came in through the Money tab, grocery/ ones through the
+    Kitchen tab's scan button. A sibling `<photo>.parsed.json` means it has
+    been read; a `<photo>.parsed.imported` marker means it became a trip.
+    """
+    root = store.RECEIPTS_DIR
+    if not root.is_dir():
+        return 0
+    trip_by_path = dict(conn.execute(
+        "SELECT receipt, id FROM shopping_trips WHERE receipt IS NOT NULL"))
+    expense_by_path = dict(conn.execute(
+        "SELECT receipt, expense_id FROM shopping_trips WHERE expense_id IS NOT NULL"))
+    made = 0
+    for photo in sorted(root.rglob("*")):
+        if not photo.is_file() or photo.suffix.lower() not in _PHOTO_SUFFIXES:
+            continue
+        rel = photo.relative_to(root)
+        path = f"receipts/{rel.as_posix()}"
+        parsed = photo.with_name(photo.name + ".parsed.json")
+        read = {}
+        if parsed.exists():
+            try:
+                read = json.loads(parsed.read_text())
+            except (OSError, ValueError):
+                read = {}
+        if photo.with_name(photo.name + ".parsed.imported").exists() or path in trip_by_path:
+            status = "imported"
+        elif parsed.exists():
+            status = "read"
+        else:
+            status = "unread"
+        # The upload names every file YYYY-MM-DD-…; anything else has no date.
+        day = re.match(r"\d{4}-\d{2}-\d{2}", photo.name)
+        conn.execute(
+            "INSERT INTO receipts (path, folder, bytes, uploaded_on, store, receipt_date,"
+            " total_cents, line_count, status, trip_id, expense_id)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (path, "kitchen" if len(rel.parts) > 1 else "money", photo.stat().st_size,
+             day.group(0) if day else None, read.get("store"), read.get("date"),
+             _cents(read.get("total")),
+             len(read["line_items"]) if isinstance(read.get("line_items"), list) else None,
+             status, trip_by_path.get(path),
+             expense_by_path.get(path) or expense_by_photo.get(photo.name)))
+        made += 1
+    return made
 
 
 def rebuild():
@@ -332,12 +412,23 @@ def adopt():
                             (store_key, text)).fetchone():
                 continue
             cur = conn.execute(
-                "INSERT INTO products (food_id, name, store) VALUES (?,?,?)",
-                (names.get(_norm(picked)) if picked else None, text, store_name))
+                "INSERT INTO products (food_id, name, store, organic) VALUES (?,?,?,?)",
+                (names.get(_norm(picked)) if picked else None, text, store_name,
+                 _guess_organic(text)))
             conn.execute(
                 "INSERT INTO receipt_names (store, text, product_id) VALUES (?,?,?)",
                 (store_key, text, cur.lastrowid))
             made["products"] += 1
+
+        # Organic or not for every product still unmarked, read off the
+        # receipt text it was learned from. Never touches a value already set.
+        for product_id, text in conn.execute(
+                "SELECT p.id, COALESCE(MIN(r.text), p.name) FROM products p"
+                " LEFT JOIN receipt_names r ON r.product_id = p.id"
+                " WHERE p.organic IS NULL GROUP BY p.id").fetchall():
+            conn.execute("UPDATE products SET organic = ? WHERE id = ?",
+                         (_guess_organic(text), product_id))
+            made["organic_marked"] = made.get("organic_marked", 0) + 1
     rebuild()
     return made
 
@@ -424,14 +515,19 @@ def merge(keep, drop):
 
 
 def add_product(food, name, brand=None, store_name=None, size=None, note=None,
-                receipt_text=None):
+                receipt_text=None, organic=None):
     """Create a product under a food, optionally with the text a receipt prints
-    for it. Returns the new product id."""
+    for it. Organic is read off the receipt text unless given. Returns the new
+    product id."""
+    if organic is None and receipt_text:
+        organic = _guess_organic(receipt_text)
     with _Write() as conn:
         food_id = _food_id(conn, food) if food is not None else None
         cur = conn.execute(
-            "INSERT INTO products (food_id, name, brand, store, size, note)"
-            " VALUES (?,?,?,?,?,?)", (food_id, name, brand, store_name, size, note))
+            "INSERT INTO products (food_id, name, brand, store, size, note, organic)"
+            " VALUES (?,?,?,?,?,?,?)",
+            (food_id, name, brand, store_name, size, note,
+             None if organic is None else int(bool(organic))))
         if receipt_text:
             conn.execute(
                 "INSERT INTO receipt_names (store, text, product_id) VALUES (?,?,?)"
@@ -442,13 +538,13 @@ def add_product(food, name, brand=None, store_name=None, size=None, note=None,
 
 
 def update_product(product_id, **fields):
-    """Change a product's food, name, brand, store, size or note."""
+    """Change a product's food, name, brand, store, size, note or organic."""
     with _Write() as conn:
         if "food" in fields:
             food = fields.pop("food")
             fields["food_id"] = _food_id(conn, food) if food is not None else None
         allowed = {k: v for k, v in fields.items()
-                   if k in ("food_id", "name", "brand", "store", "size", "note")}
+                   if k in ("food_id", "name", "brand", "store", "size", "note", "organic")}
         if allowed:
             conn.execute(
                 f"UPDATE products SET {', '.join(k + ' = ?' for k in allowed)} WHERE id = ?",
@@ -515,11 +611,12 @@ def catalog():
         }
         for name, fid in conn.execute("SELECT name, food_id FROM food_names ORDER BY name"):
             foods[fid]["names"].append(name)
-        for pid, fid, name, brand, store_name, size in conn.execute(
-                "SELECT id, food_id, name, brand, store, size FROM products"
+        for pid, fid, name, brand, store_name, size, organic in conn.execute(
+                "SELECT id, food_id, name, brand, store, size, organic FROM products"
                 " WHERE food_id IS NOT NULL ORDER BY name"):
             foods[fid]["products"].append({"id": pid, "name": name, "brand": brand,
-                                           "store": store_name, "size": size})
+                                           "store": store_name, "size": size,
+                                           "organic": organic})
         for lid, fid, target, target_id, note in conn.execute(
                 "SELECT id, food_id, target, target_id, note FROM food_links"
                 " WHERE food_id IS NOT NULL"):

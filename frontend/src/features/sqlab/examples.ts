@@ -120,4 +120,15 @@ export const EXAMPLES: SqlExample[] = [
     teaches: 'The meals that recur, what they roughly cost, and what that comes to in a month.',
     sql: `SELECT r.name, m.per_week,\n       IIF(c.known_cents IS NULL, NULL, printf('$%.2f', c.known_cents / 100.0)) AS per_batch,\n       IIF(c.known_cents * m.per_week * 52 / 12 IS NULL, NULL, printf('$%.2f', c.known_cents * m.per_week * 52 / 12 / 100.0)) AS per_month\nFROM meal_rotation m\nJOIN recipes r ON r.id = m.recipe_id\nLEFT JOIN recipe_cost c ON c.recipe_id = m.recipe_id;`,
   },
+  {
+    title: 'Kitchen: organic or not',
+    teaches:
+      'How many times each food was bought organic vs. not. SUM over a 0/1 column counts the 1s; organic lives on the product, so the food stays one row.',
+    sql: `SELECT f.name AS food,\n       SUM(p.organic = 1) AS bought_organic,\n       SUM(p.organic = 0) AS bought_regular\nFROM shopping_lines l\nJOIN products p ON p.id = l.product_id\nJOIN foods f ON f.id = p.food_id\nGROUP BY f.id\nORDER BY bought_organic DESC, f.name;`,
+  },
+  {
+    title: 'Kitchen: every receipt photo',
+    teaches: 'LEFT JOIN keeps the photos that never became a trip — the ones still waiting to be read or imported.',
+    sql: `SELECT r.uploaded_on, r.folder, r.status, r.store,\n       IIF(r.total_cents IS NULL, NULL, printf('$%.2f', r.total_cents / 100.0)) AS total,\n       t.date AS trip, r.expense_id IS NOT NULL AS has_expense, r.path\nFROM receipts r\nLEFT JOIN shopping_trips t ON t.id = r.trip_id\nORDER BY r.uploaded_on;`,
+  },
 ];

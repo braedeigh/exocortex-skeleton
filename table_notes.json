@@ -1343,7 +1343,7 @@
     }
   },
   "products": {
-    "holds": "One tangible thing you can buy — a brand, a size, a store's own item — and the food it is.",
+    "holds": "One tangible thing you can buy — a brand, a size, a store's own item — and the food it is. Organic or not is marked here, since the food itself doesn't care.",
     "source": "Written only through foodstore.py (routes/food.py is its HTTP door). Backed up to food_catalog.json after every change and read back from it if the table is ever empty. Never cleared by a rebuild. adopt() makes one per receipt line nobody has matched.",
     "kind": "record",
     "time_column": null,
@@ -1368,6 +1368,14 @@
       },
       "note": {
         "holds": "A free note."
+      },
+      "organic": {
+        "holds": "Whether it's organic.",
+        "values": {
+          "1": "Organic.",
+          "0": "Not organic.",
+          "null": "Not known yet."
+        }
       }
     }
   },
@@ -1600,6 +1608,56 @@
       },
       "food_id": {
         "holds": "The food it resolves to."
+      }
+    }
+  },
+  "receipts": {
+    "holds": "One row per receipt photo in the receipts folder: which door it came in by, when it was uploaded, what it was read as, and which shopping trip and expense it became.",
+    "source": "Re-read by foodstore.rebuild() from the photos in the receipts folder and the .parsed.json transcription beside each. The photos are the record; wipe this and rebuild.",
+    "kind": "mirror",
+    "time_column": "uploaded_on",
+    "columns": {
+      "path": {
+        "holds": "Where the photo is, in the form the trips use: receipts/grocery/<file>."
+      },
+      "folder": {
+        "holds": "Which door it came in by.",
+        "values": {
+          "kitchen": "The Kitchen tab's scan button (the grocery/ folder).",
+          "money": "Attached to an expense on the Money tab (the folder's top level)."
+        }
+      },
+      "bytes": {
+        "holds": "The photo's size."
+      },
+      "uploaded_on": {
+        "holds": "The day it was uploaded, from the file name — not the file's clock, which copying restamps."
+      },
+      "store": {
+        "holds": "The store it was read as."
+      },
+      "receipt_date": {
+        "holds": "The date printed on the receipt."
+      },
+      "total_cents": {
+        "holds": "The total printed on it, in cents."
+      },
+      "line_count": {
+        "holds": "How many item lines were read."
+      },
+      "status": {
+        "holds": "How far along it is.",
+        "values": {
+          "unread": "Nobody has read the photo yet.",
+          "read": "Transcribed, not yet imported as a trip.",
+          "imported": "It became a shopping trip."
+        }
+      },
+      "trip_id": {
+        "holds": "The shopping trip it became."
+      },
+      "expense_id": {
+        "holds": "The Money tab's expense it's attached to."
       }
     }
   }

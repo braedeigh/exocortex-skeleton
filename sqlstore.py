@@ -42,7 +42,7 @@ import time
 
 import store
 
-_SCHEMA_VERSION = 20
+_SCHEMA_VERSION = 22
 
 
 def _db_path():
@@ -182,6 +182,7 @@ _EXPECTED_TABLES = (
     "foods", "food_names", "products", "receipt_names", "food_links",
     "recipe_makes", "meal_rotation",
     "recipes", "recipe_lines", "shopping_trips", "shopping_lines", "grocery_list",
+    "receipts",
 )
 
 
@@ -1663,6 +1664,51 @@ def _run_ladder(conn):
             " JOIN recipe_lines l ON l.recipe_id = r.id AND l.usually_have = 0"
             " LEFT JOIN food_last_price p ON p.food_id = l.food_id"
             " GROUP BY r.id"
+        )
+    if version < 22:
+        # (21 is the research tables, built on a parallel branch; the ladder
+        # replays any rung whose tables are missing, so the two land safely
+        # in either order.)
+        #
+        # Whether a product is organic. On the product, not the food: the
+        # grocery list says "milk" and doesn't care, while the receipt knows
+        # which carton it was. NULL = not known; foodstore fills it from the
+        # receipt text ("ORG", "ORGANIC") and never overwrites a value set by
+        # hand. ALTER-and-swallow-duplicate, the same shape rung 14 uses, so
+        # a replay of the ladder doesn't fail on a column already there.
+        try:
+            conn.execute(
+                "ALTER TABLE products ADD COLUMN organic INTEGER"
+                " CHECK (organic IS NULL OR organic IN (0, 1))")
+        except sqlite3.OperationalError as exc:
+            if "duplicate column" not in str(exc):
+                raise
+        # Every receipt photo on disk, one row each (foodstore.rebuild reads
+        # the receipts folder). DERIVED: the photos and their .parsed.json
+        # transcriptions are the record; wipe this and rebuild.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS receipts ("
+            # Same form the trips use: 'receipts/grocery/<file>'.
+            "  path TEXT PRIMARY KEY,"
+            # Which door it came in by: 'kitchen' (the Kitchen tab's scan
+            # button, the grocery/ folder) or 'money' (attached to an expense
+            # on the Money tab, the folder's top level).
+            "  folder TEXT NOT NULL,"
+            "  bytes INTEGER,"
+            # The day it was uploaded, from the file name the upload gave it.
+            # Not the file's clock: copying the folder between machines
+            # restamps that.
+            "  uploaded_on TEXT,"
+            # What the photo was read as — NULL until it has been read.
+            "  store TEXT,"
+            "  receipt_date TEXT,"
+            "  total_cents INTEGER,"
+            "  line_count INTEGER,"
+            "  status TEXT NOT NULL"
+            "    CHECK (status IN ('unread', 'read', 'imported')),"
+            "  trip_id INTEGER REFERENCES shopping_trips(id) ON DELETE SET NULL,"
+            "  expense_id TEXT"
+            ")"
         )
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
