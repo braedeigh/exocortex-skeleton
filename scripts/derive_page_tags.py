@@ -71,6 +71,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import sqlstore                                  # noqa: E402
 import store                                     # noqa: E402
+from apiseam import (_read, _symbol_paths, backend_index,   # noqa: E402,F401
+                     endpoint_functions, module_for)
 
 SKELETON = Path(__file__).resolve().parents[1]
 NAMESPACE = "page"
@@ -104,90 +106,10 @@ UNMAPPED = ("global", "rodeo")
 SPINE = {"server.py", "store.py", "sqlstore.py"}
 
 
-def _read(path):
-    """Read a source file, or an empty string. A file that can't be read must
-    not take the whole derivation down with it."""
-    try:
-        return path.read_text(encoding="utf-8")
-    except OSError:
-        return ""
+# The seam primitives live in apiseam.py now, because codegraph.py needs the
+# same four to draw its frontend-to-backend edges and two copies of this
+# matching would drift apart. Imported rather than re-implemented.
 
-
-# --- the backend: which module answers a call -------------------------------
-
-def backend_index(root=None):
-    """Every `/api/...` path the Flask side registers, and the module that
-    owns it. Read out of the decorators, so it is true of the code as it is
-    today."""
-    root = Path(root or SKELETON)
-    index = {}
-    modules = sorted((root / "routes").rglob("*.py")) + [root / "server.py"]
-    for module in modules:
-        for match in re.finditer(r"@app\.route\(\s*['\"](/api/[^'\"]*)", _read(module)):
-            index.setdefault(match.group(1),
-                             module.relative_to(root).as_posix())
-    return index
-
-
-def module_for(call, index):
-    """The route module most likely to serve one `/api/...` call.
-
-    Matched on path SEGMENTS rather than string equality, because the
-    registered path carries Flask's placeholders (`/api/person/<slug>`) and
-    the caller carries a real value or a template hole. The second segment
-    must agree — that's the family, `/api/kitchen/...` — and the best score
-    across the first three wins. No agreement, no guess: a wrong module is
-    worse for orientation than a short list.
-    """
-    wanted = [part for part in call.strip("/").split("/") if part][:3]
-    if len(wanted) < 2:
-        return None
-    best = None
-    for path, module in index.items():
-        have = [part for part in path.strip("/").split("/") if part][:3]
-        if len(have) < 2 or have[1] != wanted[1]:
-            continue
-        score = sum(1 for a, b in zip(wanted, have) if a == b or b.startswith("<"))
-        if best is None or score > best[0]:
-            best = (score, module)
-    return best[1] if best else None
-
-
-# --- the frontend: which calls a page makes ---------------------------------
-
-def _symbol_paths(text, functions=None):
-    """Every exported symbol in one TypeScript module -> the `/api` paths it
-    reaches: the ones written in its own body, plus the ones any endpoint
-    helper it calls by name writes for it.
-
-    Symbol granularity is the whole point. `features/journal/useJournalData`
-    exports hooks for cards, threads, to-dos and dev notes together, and two
-    thirds of the pages import something from it — so following the FILE puts
-    the journal's whole backend on the Car page. Following only the symbols a
-    page actually named keeps the Threads page's `useThreads` and leaves the
-    rest behind.
-    """
-    symbols = {}
-    for chunk in re.split(r"\nexport (?:async )?(?:function|const) ", "\n" + text)[1:]:
-        name = re.match(r"(\w+)", chunk)
-        if not name:
-            continue
-        body = re.split(r"\nexport ", chunk)[0]
-        paths = set(re.findall(r"['\"`](/api/[A-Za-z0-9_/-]*)", body))
-        for helper, helper_paths in (functions or {}).items():
-            if re.search(r"\b%s\b" % re.escape(helper), body):
-                paths |= helper_paths
-        symbols[name.group(1)] = paths
-    return symbols
-
-
-def endpoint_functions(root=None):
-    """`frontend/src/api/endpoints.ts`: each exported helper -> the `/api`
-    paths it calls. Most feature modules call through these helpers rather
-    than writing the path themselves, so without this step half the pages
-    resolve to no backend at all."""
-    root = Path(root or SKELETON)
-    return _symbol_paths(_read(root / "frontend/src/api/endpoints.ts"))
 
 
 # A feature borrowing from another feature:

@@ -42,7 +42,7 @@ import time
 
 import store
 
-_SCHEMA_VERSION = 17
+_SCHEMA_VERSION = 18
 
 
 def _db_path():
@@ -177,6 +177,7 @@ _EXPECTED_TABLES = (
     "command_runs", "command_sources",
     "code_files", "code_edges",
     "traces", "trace_spans",
+    "notes", "note_judgments",
 )
 
 
@@ -945,7 +946,7 @@ def _run_ladder(conn):
             "    REFERENCES filer_nominations(id) ON DELETE CASCADE,"
             "  verdict TEXT NOT NULL"
             "    CHECK (verdict IN ('accepted','rejected','redirected')),"
-            "  at TEXT NOT NULL,"
+            "  at TEXT,"
             # Who ruled. 'her' is the only value that counts as ground truth
             # for training; anything else is a machine agreeing with itself and
             # must be filterable out of the training set.
@@ -1004,7 +1005,7 @@ def _run_ladder(conn):
         conn.execute(
             "CREATE TABLE IF NOT EXISTS command_runs ("
             "  uuid TEXT PRIMARY KEY,"
-            "  at TEXT NOT NULL,"
+            "  at TEXT,"
             "  day TEXT NOT NULL,"
             "  hour INTEGER NOT NULL,"
             "  name TEXT NOT NULL,"
@@ -1127,6 +1128,18 @@ def _run_ladder(conn):
             "  parent_id TEXT"
             ")"
         )
+        # Self-heal a `traces` made before parent_id existed. A create that
+        # tolerates an existing table skips it entirely, so a column added to
+        # this rung AFTER the table was first created never lands — and the
+        # miss stays invisible until something forces a replay. It surfaced
+        # here as the index below failing with "no such column: parent_id" on
+        # a database whose traces table had nine columns instead of ten.
+        # Same ALTER-and-swallow-duplicate shape rung 14 uses.
+        try:
+            conn.execute("ALTER TABLE traces ADD COLUMN parent_id TEXT")
+        except sqlite3.OperationalError as e:
+            if "duplicate column" not in str(e):
+                raise
         conn.execute(
             "CREATE INDEX IF NOT EXISTS traces_by_parent ON traces (parent_id)"
         )
@@ -1154,6 +1167,120 @@ def _run_ladder(conn):
         conn.execute(
             "CREATE INDEX IF NOT EXISTS trace_spans_by_dst"
             " ON trace_spans (dst_repo, dst)"
+        )
+    if version < 18:
+        # Entity #9: her notes, one row each (see notestore.py). Every other
+        # typed table in this file is a REPORT rebuilt from a blob in `docs`;
+        # this is the first one that is the DESTINATION — the app writes here,
+        # and dev_notes.json / idea_notes.json become photographs of these rows
+        # rather than the other way round. There is deliberately no rebuild():
+        # there would be nothing to rebuild from.
+        #
+        # Dev notes and idea notes share ONE table, told apart by `kind`,
+        # because "send this to ideas" then becomes an UPDATE of one column.
+        # The old move — delete from one document, append to the other — kept
+        # the note's id and date only because the code remembered to. Here the
+        # row never moves, so keeping them is not something anyone can forget.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS notes ("
+            # Which of the two panels the note lives in: friction ('dev') or a
+            # want ('idea').
+            "  kind TEXT NOT NULL CHECK (kind IN ('dev','idea')),"
+            # Her note's permanent id. Text with NO shape rule: almost all are
+            # 8 hex characters from secrets.token_hex(4), but one was typed by
+            # hand ('store-future'), and a format check would refuse it.
+            "  id TEXT NOT NULL,"
+            # Which page's panel she wrote it on. Free text on purpose — mostly
+            # the same slugs the `page` tags use, plus four that are not pages
+            # at all ('global', 'general', 'rodeo', 'usage'). A CHECK listing
+            # the real pages would refuse a note on any of those.
+            "  page TEXT NOT NULL,"
+            "  text TEXT NOT NULL,"
+            # 'YYYY-MM-DD HH:MM', local, exactly as the document stores it. NOT
+            # converted to a real timestamp: the conversion would have to invent
+            # a timezone and seconds that were never recorded, and this string
+            # already sorts correctly as text.
+            "  created TEXT,"
+            # Where the note sits in its page's list. A table is a bag of rows
+            # with no order of its own, and `created` cannot supply one — six
+            # pairs of notes share a minute, one of which is a note beginning
+            # '^' that refers to the note above it. This is also the column a
+            # drag-to-rearrange would write.
+            "  position INTEGER NOT NULL,"
+            # The night crew's question, when a worker could not tell what the
+            # note meant (scripts/nightcrew_run.py). Cleared when she edits the
+            # text, because her amended words answer the ask. A COLUMN rather
+            # than a table on purpose: one blob of prose, one per note, never
+            # filtered or searched — a table would hold exactly one row per
+            # parent and nothing to join on.
+            "  questions TEXT,"
+            # Any key a writer puts on a note that has no column here, kept
+            # verbatim as JSON. A blob took any shape for free; a table does
+            # not, and quietly dropping a field some later feature adds would
+            # be data loss nothing announces. Empty for all 192 notes today —
+            # if it is ever filled, that is the signal something wants a real
+            # column.
+            "  extra TEXT,"
+            # When this ROW last changed — not when she wrote the note. Never
+            # appears in the exported document.
+            "  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),"
+            # (kind, id) rather than id alone, because the two kinds really do
+            # overlap for one write: undoing a send-to-ideas puts the note back
+            # in dev notes and SAVES before removing it from ideas
+            # (routes/devnotes.py), so for that moment the same id is both.
+            "  PRIMARY KEY (kind, id)"
+            ")"
+        )
+        # The one question every reader asks: give me this page's notes, in
+        # order. Matches the ORDER BY as_document() uses.
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS notes_by_page"
+            " ON notes (kind, page, position)"
+        )
+        # What she decided about a note, and when — the append-only record
+        # devnote_judgments.py describes, now rows instead of a list inside the
+        # note. Its own table because a note has a GROWING LIST of judgments,
+        # and a column holds one value: the alternative is JSON in a column,
+        # which is the blob problem this rung exists to end.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS note_judgments ("
+            "  note_kind TEXT NOT NULL,"
+            "  note_id TEXT NOT NULL,"
+            # Which judgment this is: 1st, 2nd, 3rd. Load-bearing, because the
+            # LAST entry is the note's current verdict and `at` cannot order
+            # them — it is stamped to the minute, and changing her mind twice
+            # inside one minute is an ordinary thing.
+            "  seq INTEGER NOT NULL,"
+            "  verdict TEXT NOT NULL"
+            "    CHECK (verdict IN ('approved','unsure','denied','open')),"
+            # Her own words about the ruling. The document calls this key
+            # `note`; renamed here because `note` beside `note_id` in a table
+            # called note_judgments reads as the wrong thing.
+            "  comment TEXT,"
+            # 'outdated' or 'completed', and only on a denial. A closed
+            # vocabulary is what makes denials countable — the point of
+            # recording them is to see how many notes died of rot versus of
+            # already being done.
+            "  reason TEXT,"
+            # Minute-resolution, and in two formats across her history
+            # ('2026-05-14 08:02' and '2026-08-06T13:15'). Kept verbatim: the
+            # record should not look tidier than it was.
+            "  at TEXT,"
+            # Who appended it. Live values: 'her' (she tapped), 'card' (the
+            # morning card), 'review' (a pass that re-read her own comments and
+            # downgraded four approvals). 'moon' and 'edit' exist in the code
+            # and have never fired. This column is what keeps a judgment made
+            # on her behalf from reading as one she made.
+            "  by TEXT,"
+            # Same safety valve as `extra` on notes above.
+            "  extra TEXT,"
+            "  PRIMARY KEY (note_kind, note_id, seq),"
+            # Delete a note and its rulings go with it, enforced here rather
+            # than by every caller remembering. Needs PRAGMA foreign_keys=ON,
+            # which _connect sets.
+            "  FOREIGN KEY (note_kind, note_id) REFERENCES notes(kind, id)"
+            "    ON DELETE CASCADE"
+            ")"
         )
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")

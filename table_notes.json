@@ -989,5 +989,89 @@
         "holds": "When it ended, on the same clock."
       }
     }
+  },
+  "notes": {
+    "holds": "One row per note the owner has written on a page — the small capture panels at the bottom of most pages, where friction (\"this is bugging me\") and wants (\"this could…\") get jotted down. Both kinds live here together, told apart by a column, with the page it was written on, its words, when it was written, and where it sits in that page's list.",
+    "source": "Written directly by the app through notestore.py every time a note is added, edited, moved or deleted. This is the first table here that is the DESTINATION rather than a copy: the two notes files in the data folder are one-way exports of these rows, kept current so the hourly backup stays readable, and never read back.",
+    "kind": "store",
+    "time_column": "updated_at",
+    "columns": {
+      "kind": {
+        "holds": "Which of the two panels the note belongs to. Moving a note between them changes this one value, so the note keeps its identity and its date.",
+        "values": {
+          "dev": "a note about friction — something that is bugging her",
+          "idea": "a note about a want — something that could exist"
+        }
+      },
+      "id": {
+        "holds": "The note's permanent name. Plain text with no fixed shape: most are generated, but one can be typed by hand."
+      },
+      "page": {
+        "holds": "Which page's panel the note was written on. Free text, mostly matching the page names used elsewhere, plus a few that are not pages at all."
+      },
+      "text": {
+        "holds": "The note itself, in the owner's own words."
+      },
+      "created": {
+        "holds": "When the note was written, to the minute, kept exactly as it was recorded rather than converted."
+      },
+      "position": {
+        "holds": "Where the note sits in its page's list. A table has no order of its own, and the date cannot supply one when two notes share a minute — so this is what keeps a note that refers to the one above it in the right place."
+      },
+      "questions": {
+        "holds": "A question left on the note by an overnight worker that could not tell what it meant. Cleared when the note is edited, because the amended words answer the question. Empty for most notes."
+      },
+      "extra": {
+        "holds": "Anything written onto a note that has no column of its own, kept as JSON so it cannot be silently lost. Normally empty — if it fills up, that is the sign something deserves a real column."
+      },
+      "updated_at": {
+        "holds": "When this ROW last changed, in UTC. Only the notes that actually changed are restamped, so this really does answer \"when did this note last move\"."
+      }
+    }
+  },
+  "note_judgments": {
+    "holds": "One row per ruling the owner has made about a note: whether she wants it, is unsure about it, or has refused it — with her own words about why, when she said it, and who wrote the ruling down. A note can be ruled on many times; nothing is ever overwritten, so changing her mind is itself part of the record.",
+    "source": "Written by the app through notestore.py whenever a verdict is given — from a note's own card, from the morning card, or on her behalf when editing a note reopens a question. The only copy: these are decisions that cannot be regenerated from anything.",
+    "kind": "store",
+    "time_column": "at",
+    "columns": {
+      "note_kind": {
+        "holds": "Which note this ruling is about, first half — the note's kind. Together with note_id it points at exactly one note, and a ruling for a note that does not exist cannot be stored."
+      },
+      "note_id": {
+        "holds": "Which note this ruling is about, second half — the note's name. Delete the note and its rulings go with it automatically."
+      },
+      "seq": {
+        "holds": "Which ruling this is: the first, the second, and so on. The LAST one is the note's verdict right now. Needed because the timestamp is only accurate to the minute, and a mind can change twice in one minute."
+      },
+      "verdict": {
+        "holds": "What she decided.",
+        "values": {
+          "approved": "she wants it — the green light overnight work runs on",
+          "unsure": "she cannot tell what the note meant. Not a refusal: adding context to the note reopens it",
+          "denied": "she does not want it, with a reason",
+          "open": "never ruled on, or reopened. A note with no rulings at all reads as this too"
+        }
+      },
+      "comment": {
+        "holds": "Her own words about the ruling, when she wrote any. Often the most useful part of the row."
+      },
+      "reason": {
+        "holds": "Why something was refused. Only a refusal carries one, and only from a fixed short list — which is what makes refusals countable.",
+        "values": {
+          "outdated": "the note no longer describes anything real",
+          "completed": "the thing the note asked for is already done"
+        }
+      },
+      "at": {
+        "holds": "When the ruling was made, to the minute. Kept in whatever form it was recorded, which varies by vintage."
+      },
+      "by": {
+        "holds": "Who wrote the ruling down — the owner tapping a button, a card acting on her behalf, or an automatic reopen. This is what keeps a ruling made for her from reading as one she made herself."
+      },
+      "extra": {
+        "holds": "Anything on a ruling that has no column of its own, kept as JSON rather than dropped. Normally empty."
+      }
+    }
   }
 }

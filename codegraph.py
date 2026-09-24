@@ -18,8 +18,9 @@ FILE ON DISK, and an edge is only drawn when the destination exists — an
 unresolvable relative import is a parse error worth seeing, not a silent gap.
 
 WHAT AN EDGE MEANS, exactly, because this is the part that is easy to
-overclaim: an edge says **A imports from B**, plus which names it pulled
-across. It does NOT say A called B at runtime, and it cannot — a file that
+overclaim: an edge of kind `import` says **A imports from B**, plus which names it
+pulled across; an edge of kind `http` says a frontend file names an `/api`
+path that a route module registers (apiseam.py). It does NOT say A called B at runtime, and it cannot — a file that
 imports a helper it never invokes gets an edge here just the same. The
 observed, actually-executed half of the picture is `runtime_sensor.py`'s job;
 this is the map of what CAN flow, which is what makes it complete. The two are
@@ -54,6 +55,7 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
+import apiseam
 import codestore
 import sqlstore
 
@@ -345,6 +347,16 @@ def build(repos=None):
                     continue            # a file importing itself is not a flow
                 edges.append((repo_id, path, dst_repo, dst, "import",
                               json.dumps(sorted(symbols))))
+
+    # Cross the one gap the import graph cannot: a React file doesn't import
+    # `routes/todos.py`, it names the string `/api/todos` and a request
+    # carries it over. apiseam.py reads those calls and matches each to the
+    # module whose decorator registers it, so a walk can start at a .tsx and
+    # come out at a table. Same claim as an import edge — a thing that CAN
+    # flow, read out of the source — which is why it lives in the same table
+    # under its own `kind`.
+    for repo_id, root in repos:
+        edges.extend(apiseam.seam_edges(repo_id, root, index[repo_id]))
     return files, edges
 
 

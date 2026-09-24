@@ -259,6 +259,32 @@ def _sql_backed(name: str) -> bool:
     return not _SQL_OFF and _key(name) in SQL_COLLECTIONS
 
 
+# Collections whose rows live in TYPED TABLES rather than as one blob row in
+# `docs` — notestore.py owns these two. A subset of SQL_COLLECTIONS on purpose:
+# they are still SQL-backed (the creek's traffic map and the usage doctor both
+# read that set to say how a collection is stored), they are simply stored as
+# rows. Being a subset also means EXOCORTEX_SQL_OFF=1 still drops them all the
+# way back to plain files, which stays safe because the mirror is written after
+# every commit.
+TYPED_COLLECTIONS = frozenset(("dev_notes", "idea_notes"))
+
+
+def _backend(name):
+    """Which module owns this collection's storage — None means a plain file.
+
+    The one place the three-way choice is made, so read/write/mutate each ask
+    once instead of growing their own copy of it. Both modules expose the same
+    get/put/mutate contract, which is what lets the callers stay identical.
+    """
+    if not _sql_backed(name):
+        return None
+    if _key(name) in TYPED_COLLECTIONS:
+        import notestore
+        return notestore
+    import sqlstore
+    return sqlstore
+
+
 # --- Per-collection op counters (architecture telemetry) ---------------------
 # Every read()/write()/mutate() bumps an in-process counter keyed by
 # (caller, collection, kind); roughly once a minute the counters fold into
@@ -462,9 +488,9 @@ def read(name, default=None):
 def _read(name, default=None):
     """read() minus the telemetry hook — mutate()'s internal read path (a
     mutate counts as ONE write, not a read + two writes)."""
-    if _sql_backed(name):
-        import sqlstore
-        return sqlstore.get(_key(name), default)
+    backend = _backend(name)
+    if backend is not None:
+        return backend.get(_key(name), default)
     path = _path(name)
     if not path.exists():
         return {} if default is None else default
@@ -538,9 +564,9 @@ def _write(name, data):
     """write() minus the telemetry hook — mutate()'s internal write path."""
     import schemas
     schemas.validate(_key(name), data)
-    if _sql_backed(name):
-        import sqlstore
-        sqlstore.put(_key(name), data)
+    backend = _backend(name)
+    if backend is not None:
+        backend.put(_key(name), data)
         return
     write_file(name, data)
 
@@ -601,11 +627,11 @@ def mutate(name, default=None):
     busiest SQL collection by far, is 0% redundant).
     """
     wl_on = _writelog_enabled()
-    if _sql_backed(name):
+    backend = _backend(name)
+    if backend is not None:
         _stats_count(name, "writes")
-        import sqlstore
         import schemas
-        with sqlstore.mutate(_key(name), default) as data:
+        with backend.mutate(_key(name), default) as data:
             wl_before, wl_ok = _writelog_snapshot_copy(data) if wl_on else (None, False)
             _stats_enter_mutate()
             try:
