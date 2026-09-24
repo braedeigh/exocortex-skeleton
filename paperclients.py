@@ -5,11 +5,16 @@ Rust-translation-friendly rules (see labrador-port-spec.md): errors are values �
 every public function returns `{"ok": True, ...}` or `{"ok": False, "error": "<code>"}`,
 never raises across this module's boundary. Error codes: `"not_found"` (404 / no
 match), `"http_<code>"` (other HTTP status), `"network"` (anything else — DNS,
-timeout, bad JSON). Stdlib only (urllib, json, re, time, html.parser) — no new
-pip deps.
+timeout, bad JSON). Stdlib only (urllib, json, re, time, html.parser, subprocess)
+— no new pip deps. PDFs are read by shelling out to poppler's `pdftotext`
+binary (no pypdf): the binary name lives in one constant, `PDFTOTEXT_BIN`,
+which the `EXOCORTEX_PDFTOTEXT` env var overrides (a full path, or another
+name on PATH). `pdftotext_available()` says whether it can be found.
 
-All network I/O funnels through the `_get`/`_get_json` pair at the bottom of this
-file — tests monkeypatch those two names, never `urllib` directly. Every public
+All network I/O funnels through `_get_bytes` / `_get` / `_get_json` at the
+bottom of this file — tests monkeypatch those names, never `urllib` directly.
+`_get_bytes` is the one true socket (raw bytes + content type, with an optional
+byte cap); `_get` decodes it to text; `_get_json` parses that. Every public
 function sleeps `RATE_LIMIT_S` first (labrador's politeness convention: these are
 free public APIs with informal rate limits, not ours to hammer).
 
@@ -25,7 +30,9 @@ Shapes:
     (the NCBI idconv lookup, factored out so both `pmc_pdf_url` and
     routes/research_text.py's doi-fallback strategy can share it)
   - `pmc_pdf_url(doi)` -> `{"ok": True, "pmcid": str, "pdf_url": str}` | `{"ok": False, "error": ...}`
-    (v0 produces the link only — no fetch/pdftotext. # TODO(2): fetch + pdftotext layer.)
+    (builds the Europe PMC render link only; it does not fetch. The annotator
+    stores it in `meta["pdf_url"]`, and routes/research_text.py feeds that to
+    `fetch_pdf_text` when the time comes to read it.)
   - `extract_doi(text) -> str | None` — pure, no I/O.
   - `html_to_text(html) -> {"title": str, "text": str}` — pure; stdlib
     `html.parser.HTMLParser`-based readability extraction (script/style/noscript/
@@ -34,8 +41,20 @@ Shapes:
     full-text XML (`<p>`/`<sec>`/`<title>` become paragraph breaks).
   - `extract_pmcid(text) -> str | None` — pure, regex `PMC\\d+`.
   - `fetch_page_text(url) -> {"ok": True, "title", "text"} | error` — GET + html_to_text.
-    `"not_html"` when the response isn't html/text (e.g. a PDF landed here —
-    the route surfaces this as `"pdf_extraction_unavailable"`. # TODO(2): pypdf/pdftotext layer).
+    `"not_html"` when the response isn't html/text. HTML-only by design; the
+    PDF-aware entry point is `fetch_url_text`.
+  - `fetch_pdf_text(url, *, max_bytes, timeout) -> (text, None) | (None, error)` —
+    GET the bytes, run `pdftotext -layout` over them. Errors: `"not_pdf"` (neither
+    the content type nor the leading bytes say PDF), `"pdf_too_large"` (over
+    `max_bytes`), `"pdftotext_missing"` (binary not found), `"pdf_extract_failed"`
+    (nonzero exit or timeout), `"pdf_no_text"` (ran fine, produced nothing —
+    a scanned image), plus the usual network codes. Note the tuple shape, not a
+    dict — it is the one function here whose caller wants the two halves apart.
+  - `fetch_url_text(url) -> {"ok": True, "title", "text", "kind": "page"|"pdf"} | error`
+    — ONE GET, then: a PDF (by `Content-Type: application/pdf` or a body that
+    starts with `%PDF-`) goes to the pdftotext path, html/text goes to
+    html_to_text, anything else is `"not_html"`. This is what research_text calls.
+  - `pdftotext_available() -> bool` — is the `PDFTOTEXT_BIN` binary on PATH.
   - `fetch_pmc_fulltext(pmcid) -> {"ok": True, "text"} | error` — GET Europe PMC's
     fullTextXML + xml_to_text. `"no_fulltext"` on 404 (NCBI's own endpoint has bot
     protection, hence Europe PMC — same reasoning as `pmc_pdf_url`).
@@ -44,7 +63,10 @@ Shapes:
 # which falls back to a placeholder mailto — set a real contact email in the service env.
 """
 import json
+import os
 import re
+import shutil
+import subprocess
 import time
 import urllib.error
 import urllib.parse
@@ -53,6 +75,13 @@ from html.parser import HTMLParser
 
 RATE_LIMIT_S = 0.2
 TIMEOUT_S = 20
+
+# The PDF reader: poppler's pdftotext, looked up by name on PATH unless the
+# env var points somewhere else. Read at call time (not bound into the
+# functions) so a test can point it at a name that doesn't exist.
+PDFTOTEXT_BIN = os.environ.get("EXOCORTEX_PDFTOTEXT", "pdftotext")
+PDF_MAX_BYTES = 25_000_000
+PDF_TIMEOUT_S = 60
 
 _DOI_PREFIX_RE = re.compile(r"(https?://)?(dx\.)?doi\.org/", re.IGNORECASE)
 _DOI_RE = re.compile(r"10\.\d{4,9}/\S+")
@@ -408,7 +437,9 @@ def lookup_pmcid(doi):
 
 def pmc_pdf_url(doi):
     """Fallback PDF link via PubMed Central, for when Unpaywall has no OA copy.
-    v0 produces the link only. # TODO(2): fetch + pdftotext layer."""
+    Builds the Europe PMC render URL and stops there — no fetch. Reading the
+    PDF behind it is `fetch_pdf_text`'s job, once the annotator has stored the
+    link in the entry's `meta["pdf_url"]`."""
     looked_up = lookup_pmcid(doi)
     if not looked_up.get("ok"):
         return looked_up
@@ -422,23 +453,118 @@ def pmc_pdf_url(doi):
 
 # --- page / fulltext fetchers (routes/research_text.py) ----------------------
 
-def fetch_page_text(url):
-    """GET an arbitrary web page and extract readable text via html_to_text.
-    Browser-ish User-Agent so ordinary doc/blog sites don't 403 an obvious
-    script; redirects are followed (urllib does this by default). A non-html/
-    text content type (most commonly a PDF) -> `{"ok": False, "error": "not_html"}`
-    — the route surfaces that as "pdf_extraction_unavailable".
-    # TODO(2): a pypdf/pdftotext layer so PDF urls work too."""
-    time.sleep(RATE_LIMIT_S)
-    try:
-        body, content_type = _get(url, {"User-Agent": _BROWSER_UA}, want_content_type=True)
-    except Exception as e:
-        return {"ok": False, "error": _error_code(e)}
+def _page_result(body, content_type):
+    """Turn a fetched text body into the page-text result shape.
+    Anything whose content type is neither html nor text is refused as
+    `not_html`; a missing content type is given the benefit of the doubt."""
     content_type = (content_type or "").lower()
     if content_type and "html" not in content_type and "text" not in content_type:
         return {"ok": False, "error": "not_html"}
     extracted = html_to_text(body)
     return {"ok": True, "title": extracted["title"], "text": extracted["text"]}
+
+
+def fetch_page_text(url):
+    """GET an arbitrary web page and extract readable text via html_to_text.
+    Browser-ish User-Agent so ordinary doc/blog sites don't 403 an obvious
+    script; redirects are followed (urllib does this by default). HTML-only:
+    a non-html/text content type -> `{"ok": False, "error": "not_html"}`.
+    Callers that might meet a PDF want `fetch_url_text` instead."""
+    time.sleep(RATE_LIMIT_S)
+    try:
+        body, content_type = _get(url, {"User-Agent": _BROWSER_UA}, want_content_type=True)
+    except Exception as e:
+        return {"ok": False, "error": _error_code(e)}
+    return _page_result(body, content_type)
+
+
+def pdftotext_available():
+    """Is the PDF reader installed? True when `PDFTOTEXT_BIN` resolves on PATH."""
+    return shutil.which(PDFTOTEXT_BIN) is not None
+
+
+def _looks_like_pdf(raw, content_type):
+    """Decide whether a fetched body is a PDF.
+    Either the server says so (`application/pdf`) or the bytes do — every PDF
+    starts with the magic `%PDF-`, and servers routinely mislabel PDFs as
+    `application/octet-stream`, so the sniff is the one that matters."""
+    return "application/pdf" in (content_type or "").lower() or raw[:5] == b"%PDF-"
+
+
+def _pdf_bytes_to_text(raw, timeout):
+    """Run pdftotext over PDF bytes already in hand -> (text, None) | (None, error).
+    `pdftotext -layout - -` reads the PDF on stdin and writes plain text to
+    stdout, so nothing touches disk. A binary that isn't there is
+    `pdftotext_missing`; a crash or a hang past `timeout` is `pdf_extract_failed`;
+    a clean run that yields no text at all (a scanned image, say) is `pdf_no_text`
+    rather than a "success" with nothing in it."""
+    try:
+        completed = subprocess.run(
+            [PDFTOTEXT_BIN, "-layout", "-", "-"],
+            input=raw, capture_output=True, timeout=timeout,
+        )
+    except FileNotFoundError:
+        return None, "pdftotext_missing"
+    except (subprocess.TimeoutExpired, OSError):
+        return None, "pdf_extract_failed"
+    if completed.returncode != 0:
+        return None, "pdf_extract_failed"
+    text = _clean_extracted_text(completed.stdout.decode("utf-8", errors="replace"))
+    if not text:
+        return None, "pdf_no_text"
+    return text, None
+
+
+def fetch_pdf_text(url, *, max_bytes=None, timeout=None):
+    """GET a PDF and return its text -> (text, None) | (None, error_code).
+    Same politeness sleep and browser-ish User-Agent as the page fetcher. The
+    download is capped: `_get_bytes` stops reading one byte past `max_bytes`,
+    so an oversized file costs at most the cap, not the whole thing, and comes
+    back as `pdf_too_large`. A body that isn't a PDF at all (an HTML landing
+    page where Unpaywall promised a PDF) is `not_pdf`, so the caller can fall
+    through to reading it as a page. The cap and timeout default to the module
+    constants, read here at call time rather than baked in at import."""
+    max_bytes = PDF_MAX_BYTES if max_bytes is None else max_bytes
+    timeout = PDF_TIMEOUT_S if timeout is None else timeout
+    time.sleep(RATE_LIMIT_S)
+    try:
+        raw, content_type = _get_bytes(url, {"User-Agent": _BROWSER_UA}, max_bytes=max_bytes)
+    except Exception as e:
+        return None, _error_code(e)
+    if len(raw) > max_bytes:
+        return None, "pdf_too_large"
+    if not _looks_like_pdf(raw, content_type):
+        return None, "not_pdf"
+    return _pdf_bytes_to_text(raw, timeout)
+
+
+def fetch_url_text(url, *, max_bytes=None, timeout=None):
+    """GET a url and read it whatever it turns out to be: a PDF or a page.
+    One request, then dispatch on what came back — a PDF (by content type or
+    the `%PDF-` magic) goes through pdftotext, html/text through html_to_text,
+    and anything else is `not_html`. Result carries `kind: "pdf"|"page"` so the
+    caller can say which it was. The byte cap applies to both kinds; a page
+    over it is treated the same as an oversized PDF (`pdf_too_large`) since
+    nothing that big is a readable article either way. Cap and timeout default
+    to the module constants, read at call time."""
+    max_bytes = PDF_MAX_BYTES if max_bytes is None else max_bytes
+    timeout = PDF_TIMEOUT_S if timeout is None else timeout
+    time.sleep(RATE_LIMIT_S)
+    try:
+        raw, content_type = _get_bytes(url, {"User-Agent": _BROWSER_UA}, max_bytes=max_bytes)
+    except Exception as e:
+        return {"ok": False, "error": _error_code(e)}
+    if len(raw) > max_bytes:
+        return {"ok": False, "error": "pdf_too_large"}
+    if _looks_like_pdf(raw, content_type):
+        text, error = _pdf_bytes_to_text(raw, timeout)
+        if error:
+            return {"ok": False, "error": error}
+        return {"ok": True, "title": "", "text": text, "kind": "pdf"}
+    result = _page_result(raw.decode("utf-8", errors="replace"), content_type)
+    if result.get("ok"):
+        result["kind"] = "page"
+    return result
 
 
 def fetch_pmc_fulltext(pmcid):
@@ -459,17 +585,28 @@ def fetch_pmc_fulltext(pmcid):
     return {"ok": True, "text": jats_to_text(body)}
 
 
-# --- the one network seam (tests monkeypatch these two, never urllib) --------
+# --- the one network seam (tests monkeypatch these, never urllib) -------------
 
-def _get(url, headers=None, want_content_type=False):
-    """Raw GET -> decoded text body (or `(body, content_type)` when
-    `want_content_type`). Raises urllib.error.HTTPError/URLError on failure."""
+def _get_bytes(url, headers=None, max_bytes=None):
+    """Raw GET -> `(bytes, content_type)`. The only place urllib is called.
+    With `max_bytes` set it reads one byte past the cap and stops, so the
+    caller can tell "over the limit" apart from "exactly at it" without ever
+    downloading the rest. Raises urllib.error.HTTPError/URLError on failure."""
     req = urllib.request.Request(url, headers=headers or {})
     with urllib.request.urlopen(req, timeout=TIMEOUT_S) as resp:
-        body = resp.read().decode("utf-8", errors="replace")
-        if want_content_type:
-            return body, resp.headers.get("Content-Type", "")
-        return body
+        raw = resp.read(max_bytes + 1) if max_bytes is not None else resp.read()
+        return raw, resp.headers.get("Content-Type", "")
+
+
+def _get(url, headers=None, want_content_type=False):
+    """GET -> decoded text body (or `(body, content_type)` when
+    `want_content_type`). A thin decode over `_get_bytes`; kept as its own
+    name because the text clients and their tests are written against it."""
+    raw, content_type = _get_bytes(url, headers)
+    body = raw.decode("utf-8", errors="replace")
+    if want_content_type:
+        return body, content_type
+    return body
 
 
 def _get_json(url, headers=None):
