@@ -187,17 +187,29 @@ def check_annotations(annotations):
     return findings
 
 
-def check_worker_sessions(research, live_names, tmux_available, clock):
-    """6. Worker sessions "running" whose tmux isn't live (tmux-dependent —
-    skipped when tmux is unavailable); sessions "queued" for more than 24h
-    (not tmux-dependent, always runs)."""
+def check_worker_sessions(research, live_names, tmux_available, clock, index=None):
+    """6. Worker sessions "running" with nothing alive behind them; sessions
+    "queued" for more than 24h (always runs).
+
+    What counts as alive depends on the record's generation, the same rule
+    the dispatcher's recovery uses: a room worker (one with a `conv_id`) is
+    alive while its Observatory conversation says `running`; a legacy record
+    is alive while its tmux pane is (skipped when tmux is unavailable).
+    `index` is bot_chats/index.json, read here when not handed in."""
     findings = []
     now = clock()
     for s in research.get("sessions", []):
-        if tmux_available and s.get("worker") and s.get("status") == "running":
-            name = dispatcher.worker_tmux_name(s.get("id"))
-            if name not in live_names:
-                findings.append(f"session {s.get('id')}: status running but tmux {name!r} is not live")
+        if s.get("worker") and s.get("status") == "running":
+            if s.get("conv_id"):
+                if index is None:
+                    index = store.read("bot_chats/index", {}) or {}
+                entry = index.get(s["conv_id"]) if isinstance(index, dict) else None
+                if not (isinstance(entry, dict) and entry.get("running")):
+                    findings.append(f"session {s.get('id')}: status running but its Observatory conversation {s['conv_id']!r} is not running")
+            elif tmux_available:
+                name = dispatcher.worker_tmux_name(s.get("id"))
+                if name not in live_names:
+                    findings.append(f"session {s.get('id')}: status running but tmux {name!r} is not live")
         if s.get("status") == "queued":
             created = s.get("created")
             try:
