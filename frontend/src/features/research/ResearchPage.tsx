@@ -20,7 +20,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useSearch } from '@tanstack/react-router';
+import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { ToastStack } from '../../ui';
 import { NotesPill } from '../todos/NotesPill';
 import { useToasts } from '../journal/useJournalData';
@@ -403,6 +403,10 @@ export function ResearchPage() {
         <div className={styles.pageHead}>
           <h1 className={styles.pageTitle}>Research</h1>
           <span className={styles.pageSub}>what I&rsquo;m learning, what I trust, what&rsquo;s still open</span>
+          {/* The door to the claims table — every claim beside its sources. */}
+          <Link to="/research/claims" search={{}} className={styles.pageHeadLink}>
+            &#9776; Claims table
+          </Link>
         </div>
 
         {researchQuery.isLoading ? (

@@ -86,3 +86,20 @@ def get_profile():
         "owner_email": _resolve("owner_email", "EXOCORTEX_OWNER_EMAIL", ""),
         "app_name": _resolve("app_name", "EXOCORTEX_APP_NAME", "Exocortex"),
     }
+
+
+# Tables the agents' SQL door refuses to read. scripts/exo_query.py passes this
+# to sqlquery.run_query as its deny-list; comma-separated table names in
+# EXOCORTEX_SQL_AGENT_DENY_TABLES, blank meaning no table is fenced. It is
+# blank by default ON PURPOSE: the owner chose to let agents read every table.
+# It exists as the one-line fence for later — the day she wants agents kept
+# out of, say, `tool_calls` (whose rows can carry other people's words
+# verbatim), this env var is the whole change; no code moves. The browser's
+# own SQL console never consults it: that window is hers. Parsed at import
+# time like the display identity above; the CLI reads
+# config.SQL_AGENT_DENY_TABLES at call time, so a test can monkeypatch it.
+SQL_AGENT_DENY_TABLES = frozenset(
+    name.strip()
+    for name in os.environ.get("EXOCORTEX_SQL_AGENT_DENY_TABLES", "").split(",")
+    if name.strip()
+)

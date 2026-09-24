@@ -1,0 +1,32 @@
+/* ResearchPage — only what the room adds on top of the helpers-page rows
+   (HelpersPage.module.css) and the shared page chrome
+   (NightCrewPage.module.css): the "+ New research session" button and the
+   small research-session reference on a worker's row. */
+
+/* A full-width ~44px tap target above the list — the one action on the page. */
+.newButton {
+  width: 100%;
+  min-height: 44px;
+  margin: 0 0 var(--space-4);
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-lg, 12px);
+  background: var(--surface);
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 180ms ease,
+    color 180ms ease;
+}
+
+.newButton:hover {
+  background: var(--accent);
+  color: var(--surface);
+}
+
+.sessionRef {
+  color: var(--text-muted);
+}

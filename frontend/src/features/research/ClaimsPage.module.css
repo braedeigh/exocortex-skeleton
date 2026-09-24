@@ -1,0 +1,442 @@
+/* ClaimsPage.module.css — the claims table beside its sources. Two columns
+ * on a wide screen (the same .main / left / right flex as the annotator),
+ * stacked under 720px where the detail takes over once a claim is picked.
+ * Chips, buttons and the page frame come from ResearchPage.module.css; the
+ * source text's marks from AnnotatedText.module.css. */
+
+/* The table wants more room than the research directory's 800px. */
+.page {
+  max-width: 1280px;
+}
+
+.livePill {
+  margin-left: auto;
+  align-self: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ongoing);
+  border: 1px solid var(--ongoing);
+  border-radius: var(--radius-pill);
+  padding: 4px 10px;
+}
+
+.filters {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: var(--space-3);
+}
+
+.pillRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+/* --- Two columns ------------------------------------------------------ */
+
+.main {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+}
+
+.table {
+  flex: 1;
+  min-width: 0;
+  background: var(--card-bg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.detail {
+  flex: none;
+  width: 46%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* The "‹ all claims" bar only exists on a narrow screen. */
+.backBar {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .main {
+    flex-direction: column;
+  }
+
+  .detail {
+    width: 100%;
+  }
+
+  /* One column shows at a time: the table until a claim is picked. */
+  .main .detail {
+    display: none;
+  }
+
+  .main.detailOpen .table {
+    display: none;
+  }
+
+  .main.detailOpen .detail {
+    display: flex;
+  }
+
+  .backBar {
+    display: flex;
+    align-items: center;
+    min-height: var(--tap-target);
+    padding: 0 14px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+    background: var(--card-bg);
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    font-family: inherit;
+  }
+}
+
+/* --- The table ---------------------------------------------------------- */
+
+/* Header and rows share one grid: claim text | value | verdict | sources. */
+.tableHead,
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 110px 120px 64px;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 14px;
+  text-align: left;
+}
+
+.tableHead {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+}
+
+.row {
+  width: 100%;
+  min-height: 48px;
+  border: none;
+  border-top: 1px solid var(--border-soft);
+  background: none;
+  color: var(--text);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.row:first-of-type {
+  border-top: none;
+}
+
+.rowSelected {
+  background: rgba(124, 92, 191, 0.12);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.cellText {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cellValue,
+.cellVerdict,
+.cellSources {
+  min-width: 0;
+}
+
+.cellVerdict {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.cellSources {
+  text-align: center;
+}
+
+/* Two lines of the claim; the detail column shows it whole. */
+.rowText {
+  font-size: 14px;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.rowTopics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.topicTag {
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--bg);
+  border-radius: var(--radius-pill);
+  padding: 2px 8px;
+}
+
+.rowValue {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.rowSources {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+/* Read-only chips inside a row (the row itself is the tap target). */
+.smallChip {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .tableHead {
+    display: none;
+  }
+
+  /* A row folds into text on top, the numbers beneath. */
+  .row {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .cellValue,
+  .cellVerdict,
+  .cellSources {
+    display: inline-flex;
+    text-align: left;
+  }
+
+  .rowSources::after {
+    content: ' sources';
+    font-weight: 400;
+  }
+}
+
+/* --- The detail column ---------------------------------------------------- */
+
+.stepRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.stepCount {
+  flex: 1;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.claimCard {
+  background: var(--card-bg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
+  padding: 14px 16px;
+}
+
+.claimHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.claimDate {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.claimText {
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.valueBlock {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.valueAmount {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.valueLine {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.sourcesHead {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.sourceRow {
+  padding: 10px 0;
+  border-top: 1px solid var(--border-soft);
+}
+
+.sourceRow:first-of-type {
+  border-top: none;
+}
+
+.sourceRowOpen {
+  box-shadow: inset 3px 0 0 var(--accent);
+  padding-left: 10px;
+}
+
+.sourceMain {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sourceText {
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--text);
+}
+
+.sourceNote {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.sourceQuote {
+  font-size: 12px;
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.sourceChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+  align-items: center;
+}
+
+/* --- The source pane beneath the sources --------------------------------- */
+
+.sourcePane {
+  background: var(--card-bg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
+  padding: 12px 16px 16px;
+}
+
+.sourcePaneHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.sourcePaneTitle {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.closeBtn {
+  flex: none;
+  min-width: var(--tap-target);
+  min-height: var(--tap-target);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text);
+  font-size: 22px;
+  cursor: pointer;
+}
+
+.citingHead {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+/* The scroll box for the source's text; marks come from AnnotatedText. */
+.sourceDoc {
+  margin-top: 12px;
+  max-height: 60vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+}
+
+/* --- Notes ------------------------------------------------------------------ */
+
+.emptyNote {
+  padding: 12px 14px;
+  font-size: 13px;
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.errorNote {
+  padding: 12px 14px;
+  font-size: 13px;
+  color: var(--red);
+}

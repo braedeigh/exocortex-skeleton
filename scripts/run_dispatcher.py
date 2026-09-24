@@ -38,9 +38,11 @@ Touches:
     file admits).
   - scripts/usage_ledger.py — receipts at reap, and the throttle test.
   - scripts/research_dispatcher.py — the research crew's adapter; its
-    spawn_worker() is what a tmux_worker run actually calls.
+    spawn_worker() is what a research_worker run calls to mint the worker's
+    research-room conversation before the runner below starts it.
   - scripts/spinoff_runner.py — hosts an Observatory turn outside gunicorn,
-    which is how a queued session of hers gets started.
+    which is how a queued session of hers — and, since 09-24, a research
+    worker — gets started.
   - data/scheduled_runs.json — the Automations pause switch, honored the same
     way every other cron script here honors it.
 
@@ -284,7 +286,11 @@ def settle(run, probe_result, now):
     Returns one of "done", "failed", "requeued", "throttled".
     """
     error = probe_result.get("error")
-    for field in ("claude_session", "claude_cwd", "model"):
+    # Backfill the ids a receipt needs, never overwriting what the run already
+    # knows. conv_id is here for a research worker: its conversation is
+    # minted at spawn, after admission wrote the run, so the probe is the
+    # first chance to learn it if the spawn's own write-back was missed.
+    for field in ("claude_session", "claude_cwd", "model", "conv_id"):
         if probe_result.get(field) and not run.get(field):
             run[field] = probe_result[field]
 
@@ -328,6 +334,11 @@ def describe(admitted, settled, paused):
 
 # --- probing: how we know a run is still alive -------------------------------
 
+# The research crew's spawn types: the current name and the one runs queued
+# before the move to the research room still carry. Spawned and probed alike.
+RESEARCH_SPAWN_TYPES = ("research_worker", "tmux_worker")
+
+
 def _live_tmux_names(tmux_fn):
     result = tmux_fn("list-sessions -F '#{session_name}'")
     if result.returncode != 0:
@@ -356,20 +367,45 @@ def make_probe(tmux_fn=None, clock=None, log_mtime_fn=None):
         spawn = run.get("spawn") or {}
         kind = spawn.get("type")
 
-        if kind == "tmux_worker":
+        if kind in RESEARCH_SPAWN_TYPES:
+            # A research worker is done when the research record says so: a
+            # done/failed status, or an llm reply filed under its session.
+            # Completion is judged there rather than on the conversation
+            # because APPLY closes the record before the turn ends, and the
+            # record is what her Research page reads.
             sid = spawn.get("session_id")
-            name = research_dispatcher.worker_tmux_name(sid) if sid else None
             session = next((s for s in research.get("sessions", [])
                             if s.get("id") == sid), None) or {}
             has_reply = any(e.get("session") == sid and e.get("author") == "llm"
                             for e in research.get("entries", []))
+            completed = has_reply or session.get("status") in ("done", "failed")
+            conv_id = run.get("conv_id") or session.get("conv_id")
+            entry = index.get(conv_id) if (conv_id and isinstance(index, dict)) else None
+            entry = entry if isinstance(entry, dict) else {}
+            if conv_id:
+                # A room worker is alive the way any observatory turn is:
+                # the index says running AND a witness has moved recently
+                # (quiet_seconds) — the flag alone is what this file refuses
+                # to trust.
+                quiet = quiet_seconds(conv_id, entry, clock(), log_mtime_fn)
+                alive = bool(entry.get("running")) and quiet is not None and quiet < STALE_SEC
+            else:
+                # A LEGACY record (spawned into tmux before the move) has no
+                # conversation; its pane is the only witness left.
+                name = research_dispatcher.worker_tmux_name(sid) if sid else None
+                alive = bool(name and name in live_names)
             return {
-                "alive": bool(name and name in live_names),
-                "completed": has_reply or session.get("status") in ("done", "failed"),
-                "error": session.get("error"),
-                "claude_session": session.get("claude_session"),
+                "alive": alive,
+                "completed": completed,
+                "error": session.get("error") or entry.get("last_error"),
+                "conv_id": conv_id,
+                # The Claude session id is kept for the ledger; the cwd is
+                # deliberately NOT taken from the conversation, so the receipt
+                # sums the conversation's own log (conv_totals) rather than
+                # time-slicing a transcript that isn't the record here.
+                "claude_session": session.get("claude_session") or entry.get("claude_session_id"),
                 "claude_cwd": session.get("claude_cwd"),
-                "model": session.get("model"),
+                "model": session.get("model") or entry.get("model"),
             }
 
         if kind == "observatory_turn":
@@ -413,15 +449,38 @@ def spawn_run(run):
     crew is a new entry here rather than a new branch inside the logic."""
     spawn = run.get("spawn") or {}
     kind = spawn.get("type")
-    if kind == "tmux_worker":
+    if kind in RESEARCH_SPAWN_TYPES:
+        # A research worker is two steps: the crew's adapter mints the
+        # research-room conversation and writes the kickoff file, then the
+        # SAME runner every queued observatory turn uses posts it. The
+        # conversation id and file are written back onto the queue entry
+        # first, so the reaper and the receipt can find them.
         from scripts import research_dispatcher
-        research_dispatcher.spawn_worker(
-            spawn.get("session_id"), spawn.get("mode", "regular"), spawn.get("target_id"))
+        minted = research_dispatcher.spawn_worker(
+            spawn.get("session_id"), spawn.get("mode", "regular"), spawn.get("target_id"),
+            run_id=run.get("id"))
+        run["conv_id"] = minted["conv_id"]
+        run["spawn"] = dict(spawn, conv_id=minted["conv_id"], text_file=minted["text_file"])
+        run["log_offset"] = conv_log_size(minted["conv_id"])
+        record_spawn(run["id"], conv_id=run["conv_id"], spawn=run["spawn"],
+                     log_offset=run["log_offset"])
+        _spawn_observatory_turn(run)
         return
     if kind == "observatory_turn":
         _spawn_observatory_turn(run)
         return
     raise RuntimeError(f"unknown spawn type {kind!r}")
+
+
+def record_spawn(run_id, **fields):
+    """Write what a spawn learned (its conversation id, the kickoff file) onto
+    the queue entry. Its own short mutate, after admission's has closed: the
+    admitted dict run_once hands the spawner is a copy from a lock that has
+    already been released, so changing it in memory changes nothing on disk."""
+    with store.mutate(QUEUE, queue_default()) as data:
+        for r in data.get("runs", []):
+            if r.get("id") == run_id:
+                r.update(fields)
 
 
 def _spawn_observatory_turn(run):

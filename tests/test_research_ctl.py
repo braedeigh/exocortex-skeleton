@@ -463,3 +463,44 @@ def test_set_session_missing_session_raises(data_dir):
     # No stray session record was created.
     data = _read()
     assert len(data["sessions"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# set_session — the research-room links (conv_id / run_id)
+# ---------------------------------------------------------------------------
+
+def test_set_session_links_the_conversation_and_the_run(data_dir):
+    _, session_id = _seed()
+    session = set_session(session_id, conv_id="2026-09-24.101010", run_id="rq-0924-101010-research_wor")
+    assert session["conv_id"] == "2026-09-24.101010"
+    assert session["run_id"] == "rq-0924-101010-research_wor"
+    # The transcript link is untouched — absent stays absent.
+    assert "claude_session" not in session
+
+
+def test_set_session_adds_a_link_without_erasing_an_earlier_one(data_dir):
+    _, session_id = _seed()
+    set_session(session_id, "abc-sessionid", claude_cwd="/proj")
+    session = set_session(session_id, conv_id="c1")
+    assert session["claude_session"] == "abc-sessionid"
+    assert session["claude_cwd"] == "/proj"
+    assert session["conv_id"] == "c1"
+
+
+def test_set_session_cli_takes_conv_and_run(data_dir, monkeypatch):
+    _, session_id = _seed()
+    monkeypatch.setattr(_mod.sys, "argv", ["research_ctl.py", "set-session", "--session", session_id,
+                                          "--conv", "c1", "--run", "rq-1"])
+    with pytest.raises(SystemExit) as exc:
+        _mod.main()
+    assert exc.value.code == 0
+    session = next(s for s in _read()["sessions"] if s["id"] == session_id)
+    assert session["conv_id"] == "c1" and session["run_id"] == "rq-1"
+
+
+def test_set_session_cli_refuses_a_call_that_links_nothing(data_dir, monkeypatch):
+    _, session_id = _seed()
+    monkeypatch.setattr(_mod.sys, "argv", ["research_ctl.py", "set-session", "--session", session_id])
+    with pytest.raises(SystemExit) as exc:
+        _mod.main()
+    assert exc.value.code == 1

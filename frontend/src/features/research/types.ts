@@ -191,6 +191,83 @@ export interface DocTextResponse {
   text: string;
 }
 
+// --- Claims table (GET /api/research/claims, /claims/<id>, /sources/<id>/claims) ---
+
+/** '' = not judged yet; the same tap-cycle vocabulary as a claim entry. */
+export type ClaimVerdict = '' | 'real' | 'shaky' | 'interesting';
+
+/** The measured thing a claim asserts, when it has one: "subject measure =
+ * amount unit (basis, year)", plus the evidence tier the session assigned. */
+export interface ClaimValue {
+  subject: string;
+  measure: string;
+  amount: number | null;
+  unit: string;
+  basis: string;
+  year: number | null;
+  tier: string;
+}
+
+export interface Claim {
+  id: string;
+  text: string;
+  verdict: ClaimVerdict;
+  /** topic ids */
+  topics: string[];
+  /** front ids */
+  fronts: string[];
+  created: string;
+  /** 'owner' | 'llm' | a session/agent name */
+  author: string;
+  reviewed: boolean;
+  source_count: number;
+  value: ClaimValue | null;
+}
+
+/** How a source bears on the claim it is linked to. */
+export type SourceStance = 'supports' | 'contradicts' | 'context';
+
+/** The passage in the source's text that backs the link — the same shape as
+ * an Annotation's selector, flattened, so the claims page can open the doc
+ * scrolled to it. */
+export interface ClaimSourceAnnotation {
+  id: string;
+  doc: string;
+  char_start: number;
+  char_end: number;
+  exact: string;
+  note: string;
+}
+
+export interface ClaimSource {
+  id: string;
+  text: string;
+  url: string;
+  verdict: string;
+  stance: SourceStance;
+  note: string;
+  annotation: ClaimSourceAnnotation | null;
+  /** annotation doc id, e.g. "entry:<id>" */
+  doc: string;
+  /** the doc has extracted text to read (GET /api/annotations/doc-text) */
+  has_text: boolean;
+}
+
+export interface ClaimsListResponse {
+  claims: Claim[];
+}
+
+export interface ClaimDetailResponse {
+  claim: Claim;
+  sources: ClaimSource[];
+  value: ClaimValue | null;
+}
+
+export interface SourceClaimsResponse {
+  source: { id: string; text: string; url: string };
+  claims: Claim[];
+}
+
 // --- Composer (page-local state, matches the old _rsrchComposer) ---
 
 export interface ContextItem {

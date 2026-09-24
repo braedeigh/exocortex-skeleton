@@ -42,7 +42,8 @@ Usage (each subcommand does ONE store.mutate and prints OK/ERROR):
         --session <id> --status done --report "..."
 
     EXOCORTEX_DATA_DIR=/path/to/data python3 research_ctl.py set-session \\
-        --session <id> --claude-session <sessionId> [--claude-cwd <cwd>]
+        --session <id> [--claude-session <sessionId>] [--claude-cwd <cwd>] \\
+        [--conv <observatory conversation id>] [--run <run queue id>]
 
 Can also be imported and called directly:
     from scripts.research_ctl import reply, apply, file, create_topic, close, set_session
@@ -261,12 +262,19 @@ def capture_session_id(tmux_name, session_id):
         return False
 
 
-def set_session(session_id, claude_session, claude_cwd=None):
-    """Link a session record to the Claude Code transcript backing it —
-    sets `claude_session` (and, if given, `claude_cwd`) — so a later
-    token-usage receipt can find and time-slice the right JSONL (see
-    scripts/claude_transcripts.py). Idempotent: calling it again with the
-    same values is a no-op change-wise. Touches no other field.
+def set_session(session_id, claude_session=None, claude_cwd=None,
+                conv_id=None, run_id=None):
+    """Link a research session record to the things that ran it.
+
+    Two generations of link, both kept: `claude_session` + `claude_cwd` point
+    at a Claude Code transcript (the tmux era — a token receipt time-slices
+    that JSONL, see scripts/claude_transcripts.py); `conv_id` + `run_id` point
+    at the Observatory conversation and the run-queue entry a room worker ran
+    as (the research room — scripts/research_dispatcher.py stamps both at
+    spawn, so the trace closes in both directions without anyone sleeping and
+    scraping for a session id). Each field is written only when given, so a
+    later call can add a link without erasing an earlier one. Idempotent.
+    Touches no other field.
 
     Raises:
         ValueError: if the session is not found — same convention as every
@@ -278,9 +286,14 @@ def set_session(session_id, claude_session, claude_cwd=None):
         if session is None:
             raise ValueError(f"Session not found: {session_id!r}")
 
-        session["claude_session"] = claude_session
+        if claude_session is not None:
+            session["claude_session"] = claude_session
         if claude_cwd is not None:
             session["claude_cwd"] = claude_cwd
+        if conv_id is not None:
+            session["conv_id"] = conv_id
+        if run_id is not None:
+            session["run_id"] = run_id
 
     return session
 
@@ -317,8 +330,14 @@ def _cmd_close(args):
 
 
 def _cmd_set_session(args):
-    session = set_session(args.session, args.claude_session, claude_cwd=args.claude_cwd)
-    print(f"OK: session {session['id']!r} linked to claude session {session['claude_session']!r}")
+    if not any((args.claude_session, args.claude_cwd, args.conv, args.run)):
+        raise ValueError("set-session needs at least one of --claude-session, "
+                         "--claude-cwd, --conv, --run")
+    session = set_session(args.session, args.claude_session, claude_cwd=args.claude_cwd,
+                          conv_id=args.conv, run_id=args.run)
+    links = ", ".join(f"{k}={session.get(k)!r}"
+                      for k in ("claude_session", "conv_id", "run_id") if session.get(k))
+    print(f"OK: session {session['id']!r} linked ({links})")
 
 
 def main():
@@ -359,11 +378,16 @@ def main():
     p_close.set_defaults(func=_cmd_close)
 
     p_set_session = sub.add_parser(
-        "set-session", help="Link a session record to its Claude Code transcript."
+        "set-session",
+        help="Link a session record to what ran it: a Claude Code transcript "
+             "(--claude-session/--claude-cwd) and/or an Observatory conversation "
+             "and run-queue entry (--conv/--run).",
     )
     p_set_session.add_argument("--session", required=True)
-    p_set_session.add_argument("--claude-session", required=True, dest="claude_session")
+    p_set_session.add_argument("--claude-session", default=None, dest="claude_session")
     p_set_session.add_argument("--claude-cwd", default=None, dest="claude_cwd")
+    p_set_session.add_argument("--conv", default=None, help="Observatory conversation id")
+    p_set_session.add_argument("--run", default=None, help="run queue entry id")
     p_set_session.set_defaults(func=_cmd_set_session)
 
     args = parser.parse_args()

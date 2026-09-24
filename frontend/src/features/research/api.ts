@@ -2,14 +2,16 @@
  * api.ts — every endpoint the research workspace talks to, one thin typed
  * helper each (same pattern as src/api/endpoints.ts, kept feature-local).
  * Backend: routes/research.py, research_sources.py, research_text.py,
- * research_search.py, research_import.py, annotations.py, plus server.py's
- * GET /api/data/research.
+ * research_search.py, research_import.py, annotations.py, the claims table
+ * endpoints under /api/research/claims, plus server.py's GET /api/data/research.
  */
 
 import { api, ApiError } from '../../api/client';
 import type {
   AnnotationContent,
   AnnotationsResponse,
+  ClaimDetailResponse,
+  ClaimsListResponse,
   DocTextResponse,
   LibraryFileResponse,
   LibraryResponse,
@@ -17,6 +19,7 @@ import type {
   ResearchHealth,
   ResearchState,
   SearchHit,
+  SourceClaimsResponse,
 } from './types';
 
 // --- State ---
@@ -205,6 +208,32 @@ export function editAnnotation(body: {
 
 export function removeAnnotation(id: string): Promise<AnnotationsResponse> {
   return api.post('/api/annotations/remove', { id });
+}
+
+// --- Claims table (claims ↔ sources, with the passage behind each link) ---
+
+export interface ClaimsFilter {
+  topic?: string;
+  front?: string;
+}
+
+/** GET /api/research/claims?topic=&front= — newest first is the page's job. */
+export function getClaims(filter: ClaimsFilter, signal?: AbortSignal): Promise<ClaimsListResponse> {
+  const params = new URLSearchParams();
+  if (filter.topic) params.set('topic', filter.topic);
+  if (filter.front) params.set('front', filter.front);
+  const query = params.toString();
+  return api.get(`/api/research/claims${query ? `?${query}` : ''}`, signal);
+}
+
+/** GET /api/research/claims/<id> — one claim with every source linked to it. */
+export function getClaim(id: string, signal?: AbortSignal): Promise<ClaimDetailResponse> {
+  return api.get(`/api/research/claims/${encodeURIComponent(id)}`, signal);
+}
+
+/** GET /api/research/sources/<id>/claims — every claim citing one source. */
+export function getSourceClaims(id: string, signal?: AbortSignal): Promise<SourceClaimsResponse> {
+  return api.get(`/api/research/sources/${encodeURIComponent(id)}/claims`, signal);
 }
 
 // --- Error message mapping (parity with the old alerts) ---

@@ -297,7 +297,8 @@ _ANON_ID_HEX = 12                 # 6 bytes of handle — collision-free at this
 
 # The room's own name, worn as a title. An unplaceable session reads as
 # Personal: it's the honest generic, and it's what almost all of them are.
-_ANON_TITLES = {"personal": "Personal", "orchestra": "Orchestra"}
+_ANON_TITLES = {"personal": "Personal", "orchestra": "Orchestra",
+                "research": "Research"}
 _ANON_TITLE_DEFAULT = "Personal"
 
 

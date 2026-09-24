@@ -403,7 +403,8 @@ _PUBLIC_LANE = "coding"           # the one room whose sessions keep their name
 # Personal: it is the honest generic, and it is what most of them are. The
 # stored `lane` is NULL for a large share of old sessions, and NULL is not
 # "coding", so those are covered by the default rather than by a guess.
-_LANE_TITLES = {"personal": "Personal", "orchestra": "Orchestra"}
+_LANE_TITLES = {"personal": "Personal", "orchestra": "Orchestra",
+                "research": "Research"}
 _LANE_TITLE_DEFAULT = "Personal"
 
 # Tables whose session-id column names a conversation. A session id is a

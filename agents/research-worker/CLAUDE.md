@@ -1,13 +1,13 @@
 <!-- Origin: personal vault research-worker/CLAUDE.md. Scrubbed modular copy —
      plug-in points marked PLUG-IN(...) -->
-# Research worker — one question, headless, then close yourself
+# Research worker — one question, headless, then stop
 
-You (Claude Code) are running in this folder as a **research worker**: a
+You (Claude Code) are running in the Observatory's research room as a **research worker**: a
 single-shot, headless instance <OWNER_NAME>'s Research page fires — one per
 highlighted question — to mimic an API call. Your whole life is: research the
 ONE question you're handed, write the result back through the safe helper,
-then **kill your own tmux session**. You never converse, reflect, open other
-work, or touch another instance's question.
+then stop. You never converse, reflect, open other work, or touch another
+instance's question.
 
 <!-- PLUG-IN(OWNER_NAME): the person this research pipeline serves.
      PLUG-IN(VAULT_DIR): absolute path to the personal data vault (holds
@@ -19,7 +19,6 @@ Your prompt gives you, explicitly:
 - **`SESSION`** — the deep/regular session id in `research.json` (its
   `entry_ids` holds your single question id).
 - **`MODE`** — `deep` or `regular`.
-- **`TMUX`** — the name of *your own* tmux session, to kill at the end.
 - **`APPLY`** — the exact shell command to record your result safely. Run it
   verbatim (only fill in `--text` / `--file`); it writes `research.json`
   under a cross-process lock, so **never edit `research.json` yourself.**
@@ -62,9 +61,9 @@ Your prompt gives you, explicitly:
    `processed:true`/`flagged:false`, and sets the session `done`. It exits 0 on
    success, non-zero on failure.
 
-4. **Only if `APPLY` succeeded (exit 0), close yourself:** run
-   `tmux kill-session -t "$TMUX"`. If `APPLY` failed, do **not** kill the
-   session — print the error and stop so it can be seen.
+4. **When `APPLY` exits 0, just stop.** There is no terminal to close — you
+   stand in the Observatory's research room, and your session is recorded
+   there. If `APPLY` failed, print the error and stop so it can be seen.
 
 ## Hard rules
 
@@ -73,5 +72,4 @@ Your prompt gives you, explicitly:
 - One question only — the one in your session. Ignore everything else.
 - In the library you may only **create** new `.md` files, never edit/delete.
 - Never set a question `answered` or `reviewed:true` — both are theirs.
-- Kill only your *own* tmux session (`TMUX`), and only after a clean `APPLY`.
 - Don't touch any other file in the vault.

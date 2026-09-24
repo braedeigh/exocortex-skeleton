@@ -27,11 +27,15 @@ What it does (all inside one store.mutate):
     question to inherit topics from, nothing to mark processed/unflagged),
     and sets session report to "Distilled → research/<file>" (or
     "Distilled." with no file).
-  - Either way: sets session status="done".
+  - Either way: sets session status="done", and copies the session's
+    `conv_id` (the Observatory conversation a room worker ran as — stamped by
+    scripts/research_dispatcher.py at spawn) onto the reply entry, so a reply
+    in research.json points straight back at the conversation that wrote it.
 
 Once the mutate closes, it also kicks scripts/research_dispatcher.py (fire
 and forget) so the next queued worker gets admitted right away instead of
-waiting for cron — see _kick_dispatcher below.
+waiting for cron — see _kick_dispatcher below. The tmux terminal-tab cleanup
+runs only for a LEGACY session (no `conv_id`): a room worker never had a tab.
 """
 import argparse
 import os
@@ -139,6 +143,11 @@ def apply_result(session_id, text, file=None):
         }
         if file:
             reply["file"] = file
+        # Close the trace from the reply's side: a room worker's reply names
+        # the conversation it was written in. Legacy tmux sessions have no
+        # conv_id and get no field — absent, never null.
+        if session.get("conv_id"):
+            reply["conv_id"] = session["conv_id"]
         entries.append(reply)
 
         if question is not None:
@@ -167,10 +176,13 @@ def apply_result(session_id, text, file=None):
         except Exception:
             pass
 
-    try:
-        _deregister_terminal_tab(session_id)
-    except Exception:
-        pass  # a stale tab is cosmetic; never fail a successful apply over it
+    # Only a legacy tmux worker has a terminal tab to drop; a room worker ran
+    # as an Observatory conversation and has nothing in sessions.json.
+    if not session.get("conv_id"):
+        try:
+            _deregister_terminal_tab(session_id)
+        except Exception:
+            pass  # a stale tab is cosmetic; never fail a successful apply over it
     try:
         _kick_dispatcher(session_id)
     except Exception:

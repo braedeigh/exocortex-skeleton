@@ -451,3 +451,112 @@ def test_quiet_seconds_takes_the_freshest_of_the_two_witnesses(data_dir):
 
 def test_quiet_seconds_is_none_when_neither_witness_exists(data_dir):
     assert rd.quiet_seconds("c1", {}, NOW, lambda conv_id: None) is None
+
+
+# --- make_probe: research workers, judged by the research record --------------
+# A research worker used to be probed by its tmux pane. It runs as a
+# research-room conversation now, so liveness is the conversation's (the same
+# two witnesses as an observatory turn) and completion is the research
+# record's — done/failed, or an llm reply filed under the session.
+
+def _research_index(entry):
+    (store.DATA_DIR / "bot_chats").mkdir(parents=True, exist_ok=True)
+    store.write("bot_chats/index", {"c1": entry})
+
+
+def _research_json(status="running", conv_id="c1", entries=None, **extra):
+    store.write("research.json", {
+        "topics": [], "entries": entries or [],
+        "sessions": [dict({"id": "s1", "status": status, "conv_id": conv_id,
+                           "worker": True, "entry_ids": ["q1"]}, **extra)],
+    })
+
+
+def _research_run(**extra):
+    return _run(id="a", status="running",
+                spawn={"type": "research_worker", "session_id": "s1"}, **extra)
+
+
+def _research_probe(log_age_sec=5, live_tmux=()):
+    class _Tmux:
+        returncode = 0 if live_tmux else 1
+        stdout = "\n".join(live_tmux)
+    mtime = None if log_age_sec is None else (NOW - timedelta(seconds=log_age_sec)).timestamp()
+    return rd.make_probe(tmux_fn=lambda *a, **kw: _Tmux(), clock=lambda: NOW,
+                         log_mtime_fn=lambda conv_id: mtime)
+
+
+def test_a_room_worker_is_alive_while_its_conversation_is_running_and_moving(data_dir):
+    _research_index({"running": True, "last_at": NOW.isoformat()})
+    _research_json()
+    result = _research_probe()(_research_run())
+    assert result["alive"] is True and result["completed"] is False
+    # The conversation id reaches the run through the probe, even when the
+    # run entry never learned it — settle backfills it for the receipt.
+    assert result["conv_id"] == "c1"
+
+
+def test_a_room_worker_whose_conversation_went_quiet_is_not_alive(data_dir):
+    stale = (NOW - timedelta(seconds=rd.STALE_SEC + 300)).isoformat()
+    _research_index({"running": True, "last_at": stale})
+    _research_json()
+    assert _research_probe(log_age_sec=rd.STALE_SEC + 300)(_research_run())["alive"] is False
+
+
+def test_a_room_worker_is_completed_when_the_research_record_closes(data_dir):
+    _research_index({"running": False, "last_at": NOW.isoformat()})
+    _research_json(status="done")
+    result = _research_probe()(_research_run())
+    assert result["alive"] is False and result["completed"] is True
+
+
+def test_an_llm_reply_under_the_session_also_counts_as_completed(data_dir):
+    _research_index({"running": False, "last_at": NOW.isoformat()})
+    _research_json(status="running", entries=[{"id": "r1", "author": "llm", "session": "s1"}])
+    assert _research_probe()(_research_run())["completed"] is True
+
+
+def test_the_conversations_last_error_reaches_a_research_probe(data_dir):
+    _research_index({"running": False, "last_at": NOW.isoformat(), "last_error": "claude exited 1"})
+    _research_json(status="running")
+    assert _research_probe()(_research_run())["error"] == "claude exited 1"
+
+
+def test_a_legacy_tmux_worker_is_still_judged_by_its_pane(data_dir):
+    """A record spawned before the move has no conv_id; its pane is the only
+    witness left, under either spawn-type name."""
+    _research_index({})
+    _research_json(conv_id=None)
+    live = _research_probe(live_tmux=("rw-s1",))
+    dead = _research_probe(live_tmux=())
+    legacy = _run(id="a", status="running", spawn={"type": "tmux_worker", "session_id": "s1"})
+    assert live(legacy)["alive"] is True
+    assert dead(legacy)["alive"] is False
+    assert live(_research_run())["alive"] is True
+
+
+def test_settle_backfills_the_conversation_id_from_the_probe():
+    run = _run(status="running")
+    rd.settle(run, {"alive": False, "completed": True, "conv_id": "c9"}, NOW)
+    assert run["conv_id"] == "c9"
+
+
+def test_spawning_a_research_worker_writes_its_conversation_back_onto_the_queue(data_dir, monkeypatch):
+    """spawn_run gets a COPY of the admitted entry, so what the spawn learns
+    has to be written back on purpose — or the reaper and the receipt would
+    look for a conversation the queue never heard of."""
+    from scripts import research_dispatcher
+    _write([_research_run()])
+    monkeypatch.setattr(research_dispatcher, "spawn_worker",
+                        lambda sid, mode, target, run_id=None:
+                        {"conv_id": "c1", "text_file": "/tmp/k.txt", "prompt": "go"})
+    launched = []
+    monkeypatch.setattr(rd, "_spawn_observatory_turn", lambda run: launched.append(run))
+
+    rd.spawn_run(_research_run())
+
+    stored = _runs()[0]
+    assert stored["conv_id"] == "c1"
+    assert stored["spawn"]["conv_id"] == "c1" and stored["spawn"]["text_file"] == "/tmp/k.txt"
+    assert stored["spawn"]["type"] == "research_worker"
+    assert launched[0]["conv_id"] == "c1"

@@ -203,15 +203,27 @@ def _cli_default_model():
 # frontend/src/features/observatory/api.ts is the list with a room, ALL_LANES is
 # the list that exists. Bringing the room back is a one-line change there.
 #
+# RESEARCH is the fourth lane (09-24): her research desk, and the ground every
+# dispatched research worker stands on now that they've left tmux. Rooted in
+# store.RESEARCH_ROOM_DIR — a folder whose CLAUDE.md teaches the room how to
+# read her tables and how to write research back (scripts/research_ctl.py) —
+# so a session there knows the research pipeline the way a Coding session
+# knows the checkout. Gates OFF: she runs these herself, and a worker's every
+# write already lands `reviewed: false` for her to check, so the act-gate has
+# nothing to add. It is a DOOR on the roster, not a room block (like Helpers):
+# routes/research_room.py lists it, frontend sessionFilters.roomRoster hides
+# it from the rooms.
+#
 # Per-session overrides (`act_gate` / `guard_docs` written explicitly) still
 # win over the lane default — see _conv_config.
-_LANES = ("orchestra", "personal", "coding")
+_LANES = ("orchestra", "personal", "coding", "research")
 _DEFAULT_LANE = "orchestra"
 
 # The rooms she watches — no act-gate, no doc-guard, because she's sitting
-# right there. Named once so a fourth room can't quietly inherit autonomy by
+# right there (or, for Research, because every write is already hers to
+# review). Named once so a fifth room can't quietly inherit autonomy by
 # being spelled into a condition somewhere; anything not on this list asks.
-_WATCHED_LANES = ("personal", "coding")
+_WATCHED_LANES = ("personal", "coding", "research")
 
 
 def _root_dir():
@@ -235,11 +247,18 @@ def _lane_profile(lane):
     `--resume` from elsewhere fails), which is why the lane is chosen up front
     rather than inferred later.
 
-    Two switches, three rooms: Personal stands at the shared root, Coding and
-    Orchestra stand in the app checkout; Personal and Coding just act, only
+    Two switches, four rooms: Personal stands at the shared root, Research in
+    the research-room folder, Coding and Orchestra in the app checkout; only
     Orchestra asks."""
     watched = lane in _WATCHED_LANES
-    return {"cwd": _root_dir() if lane == "personal" else str(store.BUILD_DIR),
+    # Where each lane stands. Anything not named here is the app checkout.
+    if lane == "personal":
+        cwd = _root_dir()
+    elif lane == "research":
+        cwd = str(store.RESEARCH_ROOM_DIR)
+    else:
+        cwd = str(store.BUILD_DIR)
+    return {"cwd": cwd,
             "allowed_tools": list(_BUILDER_TOOLS),
             "act_gate": not watched, "guard_docs": not watched}
 
@@ -267,8 +286,15 @@ def _conv_lane(entry):
     cwd = entry.get("cwd")
     if not cwd:
         return "orchestra"
+    # Place the session by the ground it stands on. The research room is its
+    # own folder, so a session rooted there can only be Research; the app
+    # checkout is Orchestra (never Coding — see above); anywhere else is
+    # Personal.
     try:
-        return ("orchestra" if Path(cwd).resolve() == Path(store.BUILD_DIR).resolve()
+        resolved = Path(cwd).resolve()
+        if resolved == Path(store.RESEARCH_ROOM_DIR).resolve():
+            return "research"
+        return ("orchestra" if resolved == Path(store.BUILD_DIR).resolve()
                 else "personal")
     except (OSError, ValueError, RuntimeError):
         return "orchestra"
@@ -1909,8 +1935,9 @@ def register(app):
         The lane picks cwd and the two safety-net defaults (see _lane_profile):
         `orchestra` roots in the app checkout and asks before irreversible
         work; `coding` roots in the app checkout and just acts; `personal`
-        roots at the parent of both repos and just acts. All three carry the
-        full builder toolkit — the lane gates asking, not ability.
+        roots at the parent of both repos and just acts; `research` roots in
+        the research-room folder and just acts. All four carry the full
+        builder toolkit — the lane gates asking, not ability.
 
         `act_gate`/`guard_docs` are deliberately NOT written here: leaving them
         absent is what lets the lane keep driving them, so moving a session

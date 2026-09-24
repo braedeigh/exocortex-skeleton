@@ -6,11 +6,13 @@ import {
   closeConversation,
   createSession,
   getHelpers,
+  getResearchRoom,
   getSessions,
   isRoom,
   toLane,
   updateConversation,
   type HelpersState,
+  type ResearchRoomState,
   type Room,
   type SessionMeta,
 } from './api';
@@ -21,6 +23,7 @@ import { SessionDialog, type SessionDraft } from './SessionDialog';
 import { SessionLane } from './SessionLane';
 import { NightCrewDoor } from './NightCrewDoor';
 import { HelpersDoor } from './HelpersDoor';
+import { ResearchDoor } from './ResearchDoor';
 import { MemoryMeter } from '../runqueue/MemoryMeter';
 import { useTerrain } from '../terrain/api';
 import { NotesPill } from '../todos/NotesPill';
@@ -244,8 +247,10 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
   // The Helpers door's census — one fetch on mount, never polled; the page
   // behind the door owns the list.
   const [helpersState, setHelpersState] = useState<HelpersState | null>(null);
+  const [researchState, setResearchState] = useState<ResearchRoomState | null>(null);
   useEffect(() => {
     void getHelpers().then(setHelpersState).catch(() => setHelpersState(null));
+    void getResearchRoom().then(setResearchState).catch(() => setResearchState(null));
   }, []);
 
   // ONE terrain poll for the whole page, passed down to both lanes — two
@@ -456,6 +461,12 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
               impressions) — a door like the night crew's, but carrying a census,
               where the "System agents — coming later" note used to sit. */}
           <HelpersDoor state={helpersState} />
+
+          {/* The research room — her desk sessions and the dispatched research
+              workers, which left tmux for this lane. A door like the two
+              above; the sessions themselves stay out of the rooms
+              (sessionFilters.roomRoster). */}
+          <ResearchDoor state={researchState} />
 
           {/* Seeded from the '+' she actually pressed, and NOT seeded at all
               from the rail's — that one gets a null lane, which makes the sheet

@@ -198,6 +198,10 @@ export function matchesFilter(
  *   origin helper     button-fired jobs (triage, recipe/receipt parses, person
  *                     impressions), which belong to the Helpers room at the
  *                     bottom of the roster and are reached through its door
+ *   lane research     her research desk and the dispatched research workers,
+ *                     which belong to the Research room behind its own door
+ *                     (ResearchDoor → /observatory/research); matched on the
+ *                     lane OR the `research` origin, same as the server's list
  *
  * WHY THIS IS A FUNCTION AND NOT A LINE IN THE PAGE. It used to be a line in
  * the page — inside the room split only — while the counts were taken over the
@@ -211,7 +215,14 @@ export function matchesFilter(
  * [prompt: "why does the orange one say 32 when i don't have that many open and
  * why does the red one say 3 when i don't see any"] */
 export function roomRoster(sessions: SessionMeta[]): SessionMeta[] {
-  return sessions.filter((s) => !s.pinned && s.origin !== 'nightcrew' && s.origin !== 'helper');
+  return sessions.filter(
+    (s) =>
+      !s.pinned &&
+      s.origin !== 'nightcrew' &&
+      s.origin !== 'helper' &&
+      s.origin !== 'research' &&
+      s.lane !== 'research',
+  );
 }
 
 /** How many sessions sit under each button — the number on its face, and (for

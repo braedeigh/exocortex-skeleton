@@ -56,13 +56,19 @@ export interface PendingApproval {
  *              It has no room on the roster and the pickers don't offer it;
  *              its history stays reachable under Past sessions.
  *
+ *   research   her research desk, and where dispatched research workers run
+ *              now (they left tmux, 09-24). Rooted in the research-room
+ *              folder, ungated — every write it makes lands reviewed:false
+ *              for her to check. A DOOR on the roster (ResearchDoor →
+ *              /observatory/research), not a room block, like Helpers.
+ *
  * Personal and Coding differ by GROUND. */
-export type Lane = 'orchestra' | 'personal' | 'coding';
+export type Lane = 'orchestra' | 'personal' | 'coding' | 'research';
 
 /** Every lane the client can name — used for PARSING and LABELLING (the archive
  * scopes and chips), not for deciding what the roster draws. Orchestra is in
  * here because sessions still carry it; see ROOMS for what's actually offered. */
-export const ALL_LANES: Lane[] = ['personal', 'coding', 'orchestra'];
+export const ALL_LANES: Lane[] = ['personal', 'coding', 'research', 'orchestra'];
 
 /** The rooms the Observatory actually DRAWS and offers, in the order the roster
  * stacks them. Split from ALL_LANES when Orchestra was retired: a lane can
@@ -94,6 +100,7 @@ export function toLane(value: string | undefined): Lane {
 export const LANE_LABEL: Record<Lane, string> = {
   personal: 'Personal',
   coding: 'Coding',
+  research: 'Research',
   orchestra: 'Orchestra',
 };
 
@@ -105,6 +112,7 @@ export const LANE_LABEL: Record<Lane, string> = {
 export const LANE_BLURB: Record<Lane, string> = {
   personal: 'Rooted where both repos meet, so it can reach your vault. Just acts — you’re the one watching.',
   coding: 'Rooted in the app code, where the build happens. Just acts — you’re the one watching.',
+  research: 'Rooted in the research room, with a read-only door onto your tables. Just acts — everything it writes waits for your review.',
   orchestra: 'Rooted in the app code. Stops and asks before anything irreversible.',
 };
 
@@ -612,4 +620,34 @@ export interface HelpersState {
  * newest first. Drawn by HelpersDoor (census) and HelpersPage (the list). */
 export function getHelpers(signal?: AbortSignal): Promise<HelpersState> {
   return api.get('/api/helpers', signal);
+}
+
+/** One row of the Research room's list: her own desk sessions and the
+ * dispatched workers alike. `research_session_id` is set on a worker — the
+ * research.json session it served — and absent on a desk session. */
+export interface ResearchRoomSession {
+  id: string;
+  title: string;
+  started: string;
+  last_at: string;
+  running: boolean;
+  archived: string | null;
+  last_error: string | null;
+  origin: string | null;
+  research_session_id: string | null;
+  tokens?: { output: number; cost_usd: number };
+}
+
+export interface ResearchRoomState {
+  sessions: ResearchRoomSession[];
+  running: number;
+  failed: number;
+  /** The model picker's choices, so the page's "+" sheet matches the roster's. */
+  model_choices: string[];
+}
+
+/** Every research-lane session, archived included, newest first
+ * (routes/research_room.py). */
+export function getResearchRoom(signal?: AbortSignal): Promise<ResearchRoomState> {
+  return api.get('/api/research-room', signal);
 }
