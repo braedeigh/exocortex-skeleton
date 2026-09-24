@@ -469,3 +469,55 @@ def test_tag_echoes_into_the_sql_mirror_immediately(client):
     finally:
         conn.close()
     assert tags == {"khalil", "ezra"}
+
+
+# --- edit history ----------------------------------------------------------------
+# stream.py writes the edit log and the `edited:` stamp (tested in
+# tools/stream/test_stream.py); these check the routes read them back right.
+
+def _write_edit_log(vault, *entries):
+    import json
+    path = vault / "_system" / "data" / "edited_cards.jsonl"
+    path.write_text("".join(json.dumps(e) + "\n" for e in entries) + "{garbled\n")
+
+
+def test_edited_stamp_comes_through_on_the_card(client, vault):
+    path = vault / "_system" / "data" / "cards" / "2026-07-08.0734b.md"
+    path.write_text(LINE_CARD.replace("kind: line\n", "kind: line\nedited: 2026-09-24 16:05:00\n"))
+    cards_ = client.get("/api/cards/2026-07-08").get_json()
+    assert _by_id(cards_, "2026-07-08.0734b")["edited"] == "2026-09-24 16:05:00"
+    assert _by_id(cards_, "2026-07-08.2114k")["edited"] is None
+
+
+def test_history_lists_every_version_oldest_first(client, vault):
+    _write_edit_log(
+        vault,
+        {"edited_at": "2026-09-24 16:00:00", "by": "cards-route", "id": "2026-07-08.0734b",
+         "day": "2026-07-08", "before": "v1", "after": "v2"},
+        {"edited_at": "2026-09-25 08:00:00", "by": "cli", "id": "2026-07-08.0734b",
+         "day": "2026-07-08", "before": "v2", "after": "v3"},
+        {"edited_at": "2026-09-25 09:00:00", "by": "cli", "id": "2026-07-08.2114k",
+         "day": "2026-07-08", "before": "other", "after": "card"},
+    )
+    versions = client.get("/api/cards/2026-07-08.0734b/history").get_json()["versions"]
+    assert [(v["before"], v["after"]) for v in versions] == [("v1", "v2"), ("v2", "v3")]
+
+
+def test_day_lists_edits_made_that_day_to_other_days_entries(client, vault):
+    _write_edit_log(
+        vault,
+        {"edited_at": "2026-09-24 16:00:00", "id": "2026-07-08.0734b", "day": "2026-07-08",
+         "before": "v1", "after": "draft"},
+        {"edited_at": "2026-09-24 17:00:00", "id": "2026-07-08.0734b", "day": "2026-07-08",
+         "before": "draft", "after": "final words"},
+        # Edited on its own day: shows as the card's chip, not a separate row.
+        {"edited_at": "2026-09-24 18:00:00", "id": "2026-09-24.0900b", "day": "2026-09-24",
+         "before": "typo", "after": "fixed"},
+    )
+    edits = client.get("/api/cards/2026-09-24").get_json()["edits"]
+    assert edits == [{"card_id": "2026-07-08.0734b", "card_day": "2026-07-08",
+                      "edited_at": "2026-09-24 17:00:00", "snippet": "final words"}]
+
+
+def test_history_rejects_a_bad_id(client):
+    assert client.get("/api/cards/not-an-id/history").status_code == 400

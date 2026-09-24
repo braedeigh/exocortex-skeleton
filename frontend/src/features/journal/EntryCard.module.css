@@ -79,6 +79,30 @@
   background: color-mix(in srgb, var(--accent) 20%, transparent);
 }
 
+/* "✎ edited Sep 24" — the entry was changed after it was written. Quieter
+   than a thread chip (it's a fact about the entry, not a link out), same
+   size, opens the edit history. */
+.editedChip {
+  border: 1px dashed var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  line-height: 1;
+  padding: var(--space-1) var(--space-2);
+  min-height: 28px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+}
+
+.editedChip:hover {
+  color: var(--text-secondary);
+  border-color: var(--text-muted);
+}
+
 /* Margin-note chip — one button spanning the whole row that jumps to the
    parent entry in place. Keeps the old look (accent left border, muted,
    single line); the date/snippet spans inside just lay out the two bits of

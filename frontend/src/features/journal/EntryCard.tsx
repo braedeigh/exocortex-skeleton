@@ -4,7 +4,9 @@
  * its words are rendered as light markdown with people and threads
  * highlighted, and any photos in it show as a thumbnail row underneath
  * (CardPhotos.tsx). Editing, it becomes a text box with Save/Cancel, a
- * timestamp button, tag editing, and a delete that asks first. In search
+ * timestamp button, tag editing, and a delete that asks first. An entry
+ * that's been changed wears an "edited" chip opening its history
+ * (EditHistorySheet.tsx). In search
  * results it's read-only, with the matching words lit (searchMarks.ts).
  *
  * Touches: `markdown.ts` + `entityHighlight.ts` (rendering the words),
@@ -17,6 +19,7 @@ import type { EntityMatcher } from './entityHighlight';
 import { highlightEntities } from './entityHighlight';
 import { mdToHtml } from './markdown';
 import { CardPhotos } from './CardPhotos';
+import { EditHistorySheet } from './EditHistorySheet';
 import { splitPhotos } from './photoRefs';
 import { marksToHtml, stripMarks } from './searchMarks';
 import { insertAtCursor, timestampMarker } from './timestampInsert';
@@ -65,6 +68,12 @@ export interface EntryCardProps {
 }
 
 /** "8:46 AM" from "YYYY-MM-DD HH:MM:SS" — string ops only, no Date/timezone games. */
+/** "Sep 24" from an `edited` stamp ("YYYY-MM-DD HH:MM:SS") — display only. */
+function formatEditedDay(stamp: string): string {
+  const date = new Date(`${stamp.slice(0, 10)}T12:00:00`);
+  return Number.isNaN(date.getTime()) ? stamp.slice(0, 10) : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
 function cardClock(ts: string): string {
   const h = parseInt(ts.slice(11, 13), 10);
   const m = ts.slice(14, 16);
@@ -113,6 +122,7 @@ export function EntryCard({
   const [draft, setDraft] = useState(card.body);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [tagDraft, setTagDraft] = useState('');
+  const [historyOpen, setHistoryOpen] = useState(false);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
 
   // What she types becomes a slug the pool accepts ("Dating & Romance" ->
@@ -169,6 +179,19 @@ export function EntryCard({
       <div className={styles.meta}>
         <span className={`${styles.who} ${isK ? styles.who_K : styles.who_B}`}>{card.who}</span>
         <span className={styles.time}>{cardClock(card.ts)}</span>
+        {/* The entry was changed after it was written: say when, and open
+            what it used to say. The time above stays the original one. */}
+        {card.edited ? (
+          <button
+            type="button"
+            className={styles.editedChip}
+            onClick={() => setHistoryOpen(true)}
+            title="See what it said before"
+            data-track="card-edited-chip"
+          >
+            &#9998; edited {formatEditedDay(card.edited)}
+          </button>
+        ) : null}
         {card.tags
           .filter((t) => threadNames?.has(t))
           .map((t) => (
@@ -317,6 +340,15 @@ export function EntryCard({
           <CardPhotos photos={photos} />
         </>
       )}
+
+      {card.edited ? (
+        <EditHistorySheet
+          cardId={card.id}
+          currentBody={card.body || stripMarks(markedBody ?? '')}
+          open={historyOpen}
+          onClose={() => setHistoryOpen(false)}
+        />
+      ) : null}
 
       <Sheet open={confirmOpen} onClose={() => setConfirmOpen(false)} title="Delete this entry?">
         <p className={styles.confirmPreview}>{card.body.slice(0, 80)}{card.body.length > 80 ? '…' : ''}</p>

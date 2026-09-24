@@ -57,6 +57,24 @@
   padding: var(--space-1) var(--space-2);
 }
 
+/* A marker you can tap (the ✎ edit rows): same look as the others, plus a
+   comfortable hit area and a hover. */
+.markerButton {
+  width: 100%;
+  min-height: 40px;
+  align-items: center;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.markerButton:hover {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
 .markerCheck {
   color: var(--accent);
   font-size: var(--font-size-sm);

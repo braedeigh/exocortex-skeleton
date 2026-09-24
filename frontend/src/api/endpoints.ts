@@ -10,6 +10,7 @@ import type {
   AllNotesResponse,
   BacklinksResponse,
   Card,
+  CardHistoryResponse,
   CardsResponse,
   DevNotesResponse,
   JournalDay,
@@ -333,6 +334,11 @@ export function saveJournalDay(date: string, content: string): Promise<OkRespons
 
 export function getCards(date: string, signal?: AbortSignal): Promise<CardsResponse> {
   return api.get(`/api/cards/${date}`, signal);
+}
+
+/** GET /api/cards/<id>/history — a card's earlier versions (routes/cards.py). */
+export function getCardHistory(id: string, signal?: AbortSignal): Promise<CardHistoryResponse> {
+  return api.get(`/api/cards/${encodeURIComponent(id)}/history`, signal);
 }
 
 export function updateCard(id: string, body: string): Promise<Card> {

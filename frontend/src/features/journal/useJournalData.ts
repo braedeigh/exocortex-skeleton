@@ -251,8 +251,10 @@ export function useUpdateCard(date: string, onError: (message: string) => void) 
   return useMutation({
     mutationFn: (vars: { id: string; body: string }) => updateCard(vars.id, vars.body),
     onError: (err) => onError(errorMessage(err, 'Save failed')),
-    onSuccess: () => {
+    onSuccess: (_card, vars) => {
       void queryClient.invalidateQueries({ queryKey: journalDayKey(date) });
+      // The save added a version to the entry's edit history.
+      void queryClient.invalidateQueries({ queryKey: ['journal', 'card-history', vars.id] });
     },
   });
 }

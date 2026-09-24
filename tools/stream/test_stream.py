@@ -396,6 +396,82 @@ class EditCardTests(StreamTestCase):
         self.assertEqual(stream.read_card(cid).body, "edited via cli")
 
 
+class EditHistoryTests(StreamTestCase):
+    """An edit keeps the old text, stamps the card, and shows on the day it
+    was made — the owner's rule: changes are marked on the date they happen."""
+
+    def _log(self):
+        path = stream.edited_log_path()
+        return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+
+    def test_edit_logs_the_text_before_and_after(self):
+        cid = stream.record(who="B", body="first words", ts=datetime(2026, 7, 6, 9, 0, 0))
+        stream.edit_card(cid, "second words", by="owner", now=datetime(2026, 9, 24, 16, 5, 0))
+        entry = self._log()[0]
+        self.assertEqual(
+            (entry["id"], entry["before"], entry["after"], entry["edited_at"], entry["by"]),
+            (cid, "first words", "second words", "2026-09-24 16:05:00", "owner"),
+        )
+
+    def test_every_edit_is_kept_in_order(self):
+        cid = stream.record(who="B", body="v1", ts=datetime(2026, 7, 6, 9, 0, 0))
+        stream.edit_card(cid, "v2", now=datetime(2026, 9, 24, 16, 0, 0))
+        stream.edit_card(cid, "v3", now=datetime(2026, 9, 25, 8, 0, 0))
+        self.assertEqual([(e["before"], e["after"]) for e in self._log()], [("v1", "v2"), ("v2", "v3")])
+
+    def test_edit_stamps_the_card_but_keeps_its_time(self):
+        cid = stream.record(who="B", body="v1", ts=datetime(2026, 7, 6, 9, 0, 0))
+        stream.edit_card(cid, "v2", now=datetime(2026, 9, 24, 16, 5, 0))
+        card = stream.read_card(cid)
+        self.assertEqual((card.ts, card.edited), ("2026-07-06 09:00:00", "2026-09-24 16:05:00"))
+
+    def test_unedited_card_has_no_edited_line(self):
+        cid = stream.record(who="B", body="never touched", ts=datetime(2026, 7, 6, 9, 0, 0))
+        self.assertNotIn("edited:", stream.card_path(cid).read_text(encoding="utf-8"))
+
+    def test_saving_the_same_text_is_not_an_edit(self):
+        cid = stream.record(who="B", body="same", ts=datetime(2026, 7, 6, 9, 0, 0))
+        stream.edit_card(cid, "same\n", now=datetime(2026, 9, 24, 16, 5, 0))
+        self.assertIsNone(stream.read_card(cid).edited)
+        self.assertFalse(stream.edited_log_path().exists())
+
+    def test_edit_shows_on_the_day_it_was_made(self):
+        cid = stream.record(who="B", body="old news", ts=datetime(2026, 7, 6, 9, 0, 0))
+        stream.record(who="B", body="a line on the edit day", ts=datetime(2026, 9, 24, 15, 0, 0))
+        stream.edit_card(cid, "the corrected account of it", now=datetime(2026, 9, 24, 16, 5, 0))
+        day_text = (stream.daily_dir() / "2026-09-24.md").read_text(encoding="utf-8")
+        self.assertIn("✎ edited an entry from 2026-07-06: “the corrected account of it” — 4:05 PM", day_text)
+
+    def test_same_day_edit_gets_no_separate_marker(self):
+        cid = stream.record(who="B", body="typo hre", ts=datetime(2026, 9, 24, 15, 0, 0))
+        stream.edit_card(cid, "typo here", now=datetime(2026, 9, 24, 15, 1, 0))
+        self.assertEqual(stream.edit_markers("2026-09-24"), [])
+
+    def test_several_edits_to_one_card_in_a_day_show_once(self):
+        cid = stream.record(who="B", body="v1", ts=datetime(2026, 7, 6, 9, 0, 0))
+        stream.edit_card(cid, "v2", now=datetime(2026, 9, 24, 16, 0, 0))
+        stream.edit_card(cid, "v3", now=datetime(2026, 9, 24, 17, 0, 0))
+        markers = stream.edit_markers("2026-09-24")
+        self.assertEqual([(m.card_id, m.edited_at, m.snippet) for m in markers],
+                         [(cid, "2026-09-24 17:00:00", "v3")])
+
+    def test_a_garbled_log_line_is_skipped(self):
+        cid = stream.record(who="B", body="v1", ts=datetime(2026, 7, 6, 9, 0, 0))
+        stream.edit_card(cid, "v2", now=datetime(2026, 9, 24, 16, 0, 0))
+        with stream.edited_log_path().open("a", encoding="utf-8") as fh:
+            fh.write("{not json\n")
+        self.assertEqual(len(stream.load_edit_log()), 1)
+
+    def test_cli_edit_records_who_asked(self):
+        stream.record(who="B", body="hi", ts=datetime(2026, 7, 6, 14, 20, 0))
+        result = subprocess.run(
+            [sys.executable, STREAM_PY, "edit", "2026-07-06.1420b", "--by", "cards-route"],
+            input="hello\n", capture_output=True, text=True, env=dict(os.environ),
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(self._log()[0]["by"], "cards-route")
+
+
 class DeleteCardTests(StreamTestCase):
     def test_delete_removes_card_file(self):
         cid = stream.record(who="B", body="a", ts=datetime(2026, 7, 6, 15, 0, 0))

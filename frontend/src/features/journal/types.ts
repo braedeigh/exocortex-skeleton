@@ -48,6 +48,12 @@ export interface Card {
    * ⟨session⟩" chip that opens the room back up.
    */
   session?: string | null;
+  /**
+   * When the card's text was last changed ("YYYY-MM-DD HH:MM:SS"), or
+   * null/absent if it never was. Shown as an "edited" chip that opens the
+   * card's history (EditHistorySheet.tsx); the old text lives in the edit log.
+   */
+  edited?: string | null;
 }
 
 export interface CardsResponse {
@@ -72,6 +78,29 @@ export interface CardsResponse {
    * the web weave of the rendered markdown's "⏹ retired day count" lines.
    */
   retirements?: StreakRetirement[];
+  /**
+   * Edits made on this day to entries from other days (routes/cards.py
+   * _edits_made_on) — woven into the stream as "✎ edited an entry from …"
+   * rows that jump to the entry.
+   */
+  edits?: CardEdit[];
+}
+
+/** One "✎ edited an entry from …" row in the day stream. */
+export interface CardEdit {
+  card_id: string;
+  /** The edited entry's own day. */
+  card_day: string;
+  /** When the edit was made, "YYYY-MM-DD HH:MM:SS". */
+  edited_at: string;
+  /** The start of the entry's new text. */
+  snippet: string;
+}
+
+/** GET /api/cards/<id>/history — every change to one card, oldest first. */
+export interface CardHistoryResponse {
+  id: string;
+  versions: { edited_at: string; by: string | null; before: string; after: string }[];
 }
 
 /** One "⏹ retired day count" row in the day stream. */

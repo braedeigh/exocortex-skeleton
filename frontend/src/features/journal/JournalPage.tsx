@@ -349,8 +349,9 @@ export function JournalPage() {
     });
   }, [pendingScrollCard, bundle, currentDate, dayQuery.isFetching]);
 
-  /** "Open day" on a search result — leave search mode and land on (and
-   * flash) that entry, the same jump the reply-context chip makes. */
+  /** Land on (and flash) one entry on its own day, leaving search mode if
+   * on — "Open day" on a search result, and a ✎ edit row. The same jump the
+   * reply-context chip makes. */
   function openSearchDay(date: string, cardId: string) {
     setPendingScrollCard({ date, cardId });
     goTo(date);
@@ -511,6 +512,8 @@ export function JournalPage() {
                 sessionNames={sessionNames}
                 onOpenSession={openSession}
                 retirements={dayQuery.data?.cards.retirements ?? []}
+                edits={dayQuery.data?.cards.edits ?? []}
+                onOpenEdited={openSearchDay}
                 addSaving={addCard.isPending}
                 onComposeSave={async (body) => {
                   try {

@@ -12,6 +12,13 @@ API over that pool for the journal-day UI:
   - POST /api/cards/tag      — add tags to a card (tags are the thread link)
   - POST /api/cards/untag    — remove tags from a card
   - POST /api/cards/delete   — remove a card
+  - GET  /api/cards/<id>/history — every earlier version of a card's text,
+                                from the edit log stream.py keeps
+
+Edits are never silent: stream.py's edit verb stamps the card `edited:`,
+keeps the old text in `_system/data/edited_cards.jsonl`, and the day an
+edit was MADE lists it (the `edits` field of the day GET), so a change
+shows on the date it happened.
 
 Reads parse the frontmatter directly (fast, no subprocess). Mutations never
 touch the files themselves — they shell out to the vault's own `stream.py`,
@@ -19,6 +26,7 @@ which re-renders the derived daily file / month index / manifests after every
 write. Editing/deleting a card file by hand here would silently desync those
 derived views from the pool.
 """
+import json
 import re
 import subprocess
 import sys
@@ -54,6 +62,10 @@ def _stream_py():
     return _content_dir() / "_system" / "stream.py"
 
 
+def _edit_log_path():
+    return _content_dir() / "_system" / "data" / "edited_cards.jsonl"
+
+
 def _card_path(cid):
     return _pool_dir() / f"{cid}.md"
 
@@ -85,6 +97,9 @@ def _card_dict(meta, body, fallback_id=None):
         # The observatory conversation this card was highlighted out of, when
         # it came from there. Most cards have none.
         "session": session,
+        # When the text was last changed, or None if it never was. The chip
+        # that opens the card's edit history.
+        "edited": meta.get("edited") if meta.get("edited") not in (None, "null", "") else None,
         "body": body.strip("\n"),
     }
 
@@ -98,6 +113,50 @@ def _read_card(cid):
         return None
     meta, body = _parse_frontmatter(text)
     return _card_dict(meta, body, fallback_id=cid)
+
+
+def _load_edit_log():
+    """Every line of the edit log, oldest first. Never raises: no file means
+    no edits, and a garbled line is skipped (stream.py's load_edit_log does
+    the same for the rendered day files)."""
+    try:
+        lines = _edit_log_path().read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    entries = []
+    for line in lines:
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(entry, dict) and isinstance(entry.get("edited_at"), str) and entry.get("id"):
+            entries.append(entry)
+    return entries
+
+
+def _edits_made_on(date):
+    """The edits made on `date` to entries from OTHER days — the "✎ edited an
+    entry from …" rows the day view weaves in. Same rule as stream.py's
+    edit_markers (which puts them in the rendered day file): a same-day edit
+    shows only as the card's own "edited" chip, and several edits to one card
+    that day show once, at the last."""
+    latest = {}
+    for entry in _load_edit_log():
+        if entry["edited_at"][:10] != date or entry.get("day") == date:
+            continue
+        latest.pop(entry["id"], None)  # re-insert, so order follows the last edit
+        latest[entry["id"]] = entry
+    out = []
+    for entry in latest.values():
+        words = str(entry.get("after") or "").split()
+        snippet = " ".join(words[:12]) + ("…" if len(words) > 12 else "")
+        out.append({
+            "card_id": entry["id"],
+            "card_day": str(entry.get("day") or entry["id"][:10]),
+            "edited_at": entry["edited_at"],
+            "snippet": snippet,
+        })
+    return out
 
 
 def _run_stream(*args, stdin=None):
@@ -264,7 +323,23 @@ def register(app):
             # Day counters retired on this day — the web view weaves these ⏹
             # rows between entries, same as the rendered markdown does.
             "retirements": retirements_for(date),
+            # Edits made on this day to entries from other days — woven in
+            # as "✎ edited an entry from …" rows.
+            "edits": _edits_made_on(date),
         })
+
+    @app.route("/api/cards/<cid>/history")
+    def card_history(cid):
+        """Every change to one card's text, oldest first, each with the text
+        before and after. Empty for a card never edited."""
+        if not CARD_ID_RE.match(cid):
+            return jsonify({"error": "invalid card id"}), 400
+        versions = [
+            {"edited_at": e["edited_at"], "by": e.get("by"),
+             "before": e.get("before", ""), "after": e.get("after", "")}
+            for e in _load_edit_log() if e["id"] == cid
+        ]
+        return jsonify({"id": cid, "versions": versions})
 
     @app.route("/api/cards/add", methods=["POST"])
     def add_card():
@@ -318,7 +393,7 @@ def register(app):
         if not (body or "").strip():
             return jsonify({"error": "body cannot be empty"}), 400
         try:
-            result = _run_stream("edit", cid, stdin=body)
+            result = _run_stream("edit", cid, "--by", "cards-route", stdin=body)
         except subprocess.TimeoutExpired:
             return jsonify({"error": "timed out editing card"}), 400
         if result.returncode != 0:
