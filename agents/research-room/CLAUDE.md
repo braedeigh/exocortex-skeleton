@@ -60,10 +60,21 @@ hand edit of `research.json`:
 - `close --session <id> --status done|failed --report "..."`.
 - `set-session --session <id> [--conv <conversation>] [--run <run id>]` —
   link a research session to what ran it (the dispatcher does this for you).
-- `claim add` / `claim link` / `claim value` — the claims verbs: a claim is a
-  single checkable statement; `link` ties it to its source entry; `value`
-  records the number or verdict it carries. (See `research_ctl.py --help`
-  for the exact arguments on this install.)
+Claims have their own door, `scripts/research_claims.py` (same `cd` and
+`EXOCORTEX_DATA_DIR` as above):
+
+- `add --session <id> --topic <topic id> --text "..."` — one checkable
+  statement; prints the new claim id.
+- `source --session <id> --topic <topic id> --url <url> --text "citation"` —
+  a source entry; a url already in the pool prints the existing id instead.
+- `link <claim id> <source id> [--stance supports|contradicts|context]
+  [--passage "exact quote"]` — ties a claim to a source. The passage is
+  located in the source's real text and highlighted there; if the words are
+  not found, the link is refused. Offsets are never invented.
+- `value <claim id> --subject <thing> --measure <what> --amount <n> --unit <u>
+  [--basis "per 100 g"] [--year YYYY] [--tier <ground>]` — the number a
+  claim carries, so it can be tabulated and joined.
+- `show <claim id>` — the claim with its sources, as JSON.
 
 Reports go in `<VAULT_DIR>/research/<slug>.md` — lowercase snake_case, never
 overwrite (suffix `_2`, `_3`), first line `# Title`, inline citations.
