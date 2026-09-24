@@ -187,3 +187,13 @@ def test_show_prints_the_claim_detail_as_json(seeded, capsys):
     assert detail["claim"]["id"] == CLAIM
     assert [s["id"] for s in detail["sources"]] == [SOURCE]
     assert main(["show", "nope"]) == 1
+
+
+def test_add_without_a_session_stamps_the_conversation_it_came_from(data_dir, monkeypatch):
+    """A desk session in the research room has no research session id; the
+    claim still lands, tagged with the Observatory conversation that wrote it."""
+    store.write("research.json", {"topics": [{"id": "t1", "name": "T", "status": "active", "created": "2026-09-24 10:00", "fronts": []}], "entries": [], "sessions": []})
+    monkeypatch.setenv("EXOCORTEX_CONV_ID", "2026-09-24.170000")
+    assert main(["add", "--topic", "t1", "--text", "A claim from the desk"]) == 0
+    entries = store.read("research.json")["entries"]
+    assert entries[0]["session"] is None and entries[0]["conv_id"] == "2026-09-24.170000"

@@ -19,13 +19,13 @@ each verb is a single store.mutate or one researchstore helper.
 Verbs (each prints to stdout, exit code 1 with the reason on stderr):
 
     EXOCORTEX_DATA_DIR=/path/to/data python3 research_claims.py add \\
-        --session <sid> --topic <tid> [--topic <tid> ...] --text "..." [--verdict real|shaky|interesting]
+        [--session <sid>] --topic <tid> [--topic <tid> ...] --text "..." [--verdict real|shaky|interesting]
         Creates a kind "claim" entry on those topics; prints the new entry id.
         The verdict is the agent's own reading of the claim at birth; the owner
         can still overrule it, since the entry arrives unreviewed.
 
     EXOCORTEX_DATA_DIR=/path/to/data python3 research_claims.py source \\
-        --session <sid> --topic <tid> [--topic ...] --url <url> --text "title / citation"
+        [--session <sid>] --topic <tid> [--topic ...] --url <url> --text "title / citation"
         Creates a kind "source" entry — unless a source with that url already
         exists, in which case its id is printed and nothing is created. One url,
         one source row, however many sessions cite it.
@@ -88,7 +88,9 @@ def _check_session_and_topics(data, session_id, topic_ids):
     """Refuse a session or topic id the pool does not have. An agent that
     types a topic id from memory would otherwise quietly fork the taxonomy —
     research_ctl's create-topic is the door for a new topic."""
-    if not any(s.get("id") == session_id for s in data.get("sessions", [])):
+    # A dispatched worker names its research session; a desk session in the
+    # research room has none and leaves it off — then only the topics are checked.
+    if session_id is not None and not any(s.get("id") == session_id for s in data.get("sessions", [])):
         raise ValueError(f"Session not found: {session_id!r}")
     known = {t.get("id") for t in data.get("topics", [])}
     missing = [t for t in topic_ids if t not in known]
@@ -113,6 +115,13 @@ def _llm_entry(entries, kind, text, topic_ids, session_id, **over):
         "reviewed": False,
         "session": session_id,
     }
+    # Stamp the Observatory conversation this was written from, when there is
+    # one (the Observatory sets EXOCORTEX_CONV_ID on every session it runs),
+    # so "which conversation wrote this claim" stays a join even with no
+    # research session in play.
+    conv_id = os.environ.get("EXOCORTEX_CONV_ID")
+    if conv_id:
+        entry["conv_id"] = conv_id
     entry.update(over)
     return entry
 
@@ -282,14 +291,14 @@ def build_parser():
     verbs = parser.add_subparsers(dest="verb", required=True)
 
     p_add = verbs.add_parser("add", help="Create an llm claim entry; prints its id.")
-    p_add.add_argument("--session", required=True)
+    p_add.add_argument("--session", default=None, help="research session id; optional for a desk session in the research room")
     p_add.add_argument("--topic", action="append", required=True, help="topic id; repeatable")
     p_add.add_argument("--text", required=True)
     p_add.add_argument("--verdict", default="", choices=[v for v in CLAIM_VERDICTS if v])
     p_add.set_defaults(func=_cmd_add)
 
     p_source = verbs.add_parser("source", help="Create an llm source entry, deduped on url; prints its id.")
-    p_source.add_argument("--session", required=True)
+    p_source.add_argument("--session", default=None, help="research session id; optional for a desk session in the research room")
     p_source.add_argument("--topic", action="append", required=True, help="topic id; repeatable")
     p_source.add_argument("--url", required=True)
     p_source.add_argument("--text", required=True, help="title or citation")
