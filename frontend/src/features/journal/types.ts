@@ -354,6 +354,9 @@ export interface SearchHit {
   kind: string | null;
   tags: string[];
   snippet: SearchSnippetPiece[];
+  /** The card's whole text with each matching word wrapped in the
+   * searchMarks.ts markers — what the results pane renders. */
+  marked_body: string;
 }
 
 export interface SearchResponse {
@@ -362,5 +365,12 @@ export interface SearchResponse {
   hits: SearchHit[];
 }
 
-export type SearchSort = 'relevance' | 'newest' | 'oldest';
 export type SearchWho = '' | CardWho;
+
+/** What the journal is searching for — mirrors the /journal URL's q/who/from/to. */
+export interface SearchFilters {
+  q: string;
+  who: SearchWho;
+  from: string;
+  to: string;
+}

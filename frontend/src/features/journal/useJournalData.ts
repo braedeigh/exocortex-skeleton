@@ -24,8 +24,7 @@ import {
 } from '../../api/endpoints';
 import type {
   JournalDayBundle,
-  SearchSort,
-  SearchWho,
+  SearchFilters,
   ThreadDetail,
   ThreadJournalResponse,
   ThreadsResponse,
@@ -76,19 +75,20 @@ export function useServerDate() {
   });
 }
 
-/** The journal search sheet's results, a page at a time ("Show more" asks
- * for the next). Keeps the last results on screen while a new search loads,
- * so typing doesn't flash the list empty. Idle until there's a query. */
-export function useJournalSearch(q: string, who: SearchWho, sort: SearchSort) {
+/** The journal search results, a page at a time — the results pane asks
+ * for the next page as she scrolls near the bottom. Keeps the last results on
+ * screen while a new search loads, so typing doesn't flash the pane empty.
+ * Idle until there's a query. */
+export function useJournalSearch(filters: SearchFilters) {
   return useInfiniteQuery({
-    queryKey: ['journal', 'search', q, who, sort],
-    queryFn: ({ pageParam, signal }) => searchJournal({ q, who, sort, offset: pageParam }, signal),
+    queryKey: ['journal', 'search', filters.q, filters.who, filters.from, filters.to],
+    queryFn: ({ pageParam, signal }) => searchJournal(filters, pageParam, signal),
     initialPageParam: 0,
     getNextPageParam: (last, pages) => {
       const loaded = pages.reduce((n, page) => n + page.hits.length, 0);
       return loaded < last.total ? loaded : undefined;
     },
-    enabled: q.length > 0,
+    enabled: filters.q.length > 0,
     placeholderData: keepPreviousData,
     retry: false,
   });

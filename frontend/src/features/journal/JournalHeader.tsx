@@ -1,9 +1,12 @@
 /**
  * The bar across the top of the journal: previous/next day arrows, the day's
- * name, a "Today" button when you're elsewhere, and icon buttons that open
- * search, the calendar, and the journal's dev notes. It only reports taps;
+ * name, a "Today" button when you're elsewhere, the search box
+ * (JournalSearchBar.tsx, passed in as `search`), and icon buttons for the
+ * calendar and the journal's dev notes. On a phone the search box drops to
+ * its own full-width row under the date. It only reports taps;
  * JournalPage.tsx decides what each one does.
  */
+import type { ReactNode } from 'react';
 import { Button, IconButton } from '../../ui';
 import styles from './JournalHeader.module.css';
 
@@ -15,7 +18,8 @@ export interface JournalHeaderProps {
   onPrev: () => void;
   onNext: () => void;
   onToday: () => void;
-  onOpenSearch: () => void;
+  /** The search box, placed beside the date. */
+  search: ReactNode;
   onOpenCalendar: () => void;
   onOpenDevNotes: () => void;
 }
@@ -27,7 +31,7 @@ function formatDayLabel(dateStr: string): string {
   return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 }
 
-export function JournalHeader({ date, prev, next, isToday, onPrev, onNext, onToday, onOpenSearch, onOpenCalendar, onOpenDevNotes }: JournalHeaderProps) {
+export function JournalHeader({ date, prev, next, isToday, onPrev, onNext, onToday, search, onOpenCalendar, onOpenDevNotes }: JournalHeaderProps) {
   return (
     <div className={styles.nav}>
       <IconButton aria-label="Previous day" onClick={onPrev} disabled={!prev} data-track="day-prev">
@@ -42,14 +46,7 @@ export function JournalHeader({ date, prev, next, isToday, onPrev, onNext, onTod
           Today
         </Button>
       ) : null}
-      <IconButton
-        aria-label="Search the journal"
-        title="Search the journal"
-        onClick={onOpenSearch}
-        data-track="journal-search-open-sheet"
-      >
-        &#128269;
-      </IconButton>
+      <div className={styles.search}>{search}</div>
       <IconButton
         aria-label="Open calendar"
         title="Jump to a date"

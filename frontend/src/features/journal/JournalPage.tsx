@@ -5,11 +5,16 @@
  * and thread popovers, dev notes, and the "n of N" find bar. Jumps between
  * days go through the URL (`?date=`), so back/forward work.
  *
+ * Search mode: typing in the top bar's search box puts `?q=` (and any
+ * filters) in the URL, and the pane shows SearchResults instead of the day.
+ * Changing day, or "Open day" on a result, leaves search mode.
+ *
  * Touches: `useJournalData.ts` (every fetch and save), `CardStream.tsx` /
- * `EntryCard.tsx` (the cards), `SearchSheet.tsx`, `CalendarOverlay.tsx`,
+ * `EntryCard.tsx` (the cards), `JournalSearchBar.tsx` + `SearchFilterRow.tsx` +
+ * `SearchResults.tsx` (search), `CalendarOverlay.tsx`,
  * `JournalHeader.tsx`, and the popovers beside them.
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { ToastStack } from '../../ui';
@@ -27,9 +32,11 @@ import { FindBar } from './FindBar';
 import { JournalHeader } from './JournalHeader';
 import { JournalRail } from './JournalRail';
 import { PersonPopover } from './PersonPopover';
-import { SearchSheet } from './SearchSheet';
+import { JournalSearchBar } from './JournalSearchBar';
+import { SearchFilterRow } from './SearchFilterRow';
+import { SearchResults } from './SearchResults';
 import { ThreadPopover } from './ThreadPopover';
-import type { Card, SearchHit } from './types';
+import type { Card, SearchFilters } from './types';
 import { resolveDayMode } from './types';
 import {
   useAddCard,
@@ -93,6 +100,38 @@ export function JournalPage() {
   function goTo(date: string) {
     void navigate({ search: { date } });
   }
+
+  // What's being searched for, read from the URL ('' = not searching).
+  const filters: SearchFilters = useMemo(
+    () => ({ q: search.q ?? '', who: search.who ?? '', from: search.from ?? '', to: search.to ?? '' }),
+    [search.q, search.who, search.from, search.to],
+  );
+  const searching = filters.q !== '';
+  const activeFilterCount = [filters.who, filters.from, filters.to].filter(Boolean).length;
+  const [filtersOpen, setFiltersOpen] = useState(activeFilterCount > 0);
+
+  /** Change the search in the URL; empty values drop out of it. Starting a
+   * search adds a history step (so Back returns to the day); refining one
+   * replaces it, so Back doesn't walk through every word typed. */
+  const setSearch = useCallback(
+    (changes: Partial<SearchFilters>) => {
+      void navigate({
+        search: (prev) => {
+          const next = { ...prev, ...changes };
+          return {
+            date: prev.date,
+            q: next.q || undefined,
+            who: next.who || undefined,
+            from: next.from || undefined,
+            to: next.to || undefined,
+          };
+        },
+        replace: Boolean(search.q) && changes.q !== '',
+      });
+    },
+    [navigate, search.q],
+  );
+  const setQuery = useCallback((q: string) => setSearch({ q }), [setSearch]);
 
   /** The reply-context chip's single tap target: queue the parent card to be
    * scrolled/flashed once its day is on screen, and navigate there unless
@@ -228,7 +267,6 @@ export function JournalPage() {
   }, []);
 
   const [calendarOpen, setCalendarOpen] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState<CalendarMonth | null>(null);
   const [devNotesOpen, setDevNotesOpen] = useState(false);
   const [popoverSlug, setPopoverSlug] = useState<string | null>(null);
@@ -311,12 +349,11 @@ export function JournalPage() {
     });
   }, [pendingScrollCard, bundle, currentDate, dayQuery.isFetching]);
 
-  /** A search result tapped — close the sheet and land on (and flash) that
-   * card, the same jump the reply-context chip makes. */
-  function openSearchHit(hit: SearchHit) {
-    setSearchOpen(false);
-    setPendingScrollCard({ date: hit.day, cardId: hit.id });
-    if (currentDate !== hit.day) goTo(hit.day);
+  /** "Open day" on a search result — leave search mode and land on (and
+   * flash) that entry, the same jump the reply-context chip makes. */
+  function openSearchDay(date: string, cardId: string) {
+    setPendingScrollCard({ date, cardId });
+    goTo(date);
   }
 
   function onJournalMention(date: string, slug: string) {
@@ -383,19 +420,39 @@ export function JournalPage() {
         onPrev={() => bundle?.journal.prev && goTo(bundle.journal.prev)}
         onNext={() => bundle?.journal.next && goTo(bundle.journal.next)}
         onToday={() => serverDate && goTo(serverDate)}
-        onOpenSearch={() => setSearchOpen(true)}
+        search={
+          <JournalSearchBar
+            query={filters.q}
+            onQueryChange={setQuery}
+            filtersOpen={filtersOpen}
+            onToggleFilters={() => setFiltersOpen((open) => !open)}
+            activeFilterCount={activeFilterCount}
+          />
+        }
         onOpenCalendar={openCalendar}
         onOpenDevNotes={() => setDevNotesOpen(true)}
       />
 
+      {filtersOpen ? <SearchFilterRow filters={filters} onChange={setSearch} /> : null}
+
       <JournalRail onOpenPerson={setPopoverSlug} onError={push} />
 
       <div
-        className={`${styles.body} ${mode === 'cards' ? styles.bodyCards : ''}`}
+        className={`${styles.body} ${mode === 'cards' && !searching ? styles.bodyCards : ''}`}
         ref={bodyRef}
         onClick={onBodyClick}
       >
-        {dayQuery.isLoading ? (
+        {searching ? (
+          <SearchResults
+            filters={filters}
+            matcher={matcher}
+            threadNames={threadNames}
+            counterNames={counterNames}
+            onOpenThread={(slug) => void navigateTo({ to: '/threads/$slug', params: { slug } })}
+            onOpenCounter={openCounter}
+            onOpenDay={openSearchDay}
+          />
+        ) : dayQuery.isLoading ? (
           <div className={styles.loading}>Loading…</div>
         ) : !bundle ? (
           // Error only when there's nothing to show — a failed background poll
@@ -485,8 +542,6 @@ export function JournalPage() {
           }}
         />
       ) : null}
-
-      <SearchSheet open={searchOpen} onClose={() => setSearchOpen(false)} onPick={openSearchHit} />
 
       <DevNotesPanel open={devNotesOpen} onClose={() => setDevNotesOpen(false)} onError={push} />
 

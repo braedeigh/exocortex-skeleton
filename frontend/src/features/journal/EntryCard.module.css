@@ -274,3 +274,13 @@
   font-family: inherit;
   font-size: var(--font-size-base);
 }
+
+/* A word that matched the journal search (searchMarks.ts), lit inside a
+   result card's text. */
+.body :global(mark.search-hit) {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  color: inherit;
+  font-weight: 700;
+  border-radius: 3px;
+  padding: 0 1px;
+}

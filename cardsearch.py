@@ -133,8 +133,11 @@ def search(q, who=None, date_from=None, date_to=None, sort="relevance",
 
     `who` is "B" or "K" (the owner or the Keeper); dates are inclusive
     YYYY-MM-DD bounds. Cards deleted or missing from disk are never returned.
-    Each hit: {"id", "day", "ts", "who", "kind", "tags", "snippet"}, where
-    snippet is the list of pieces from _split_snippet. Raises ValueError for
+    Each hit: {"id", "day", "ts", "who", "kind", "tags", "snippet",
+    "marked_body"}: snippet is a short excerpt as _split_snippet pieces;
+    marked_body is the card's whole text with each hit wrapped in
+    _HIT_START/_HIT_END (control characters, never in her writing), for the
+    journal to render as a full card. Raises ValueError for
     a query with nothing to search for (empty, or only -words).
     """
     fts_query = to_fts_query(q)
@@ -169,10 +172,13 @@ def search(q, who=None, date_from=None, date_to=None, sort="relevance",
         ).fetchone()[0]
         rows = conn.execute(
             "SELECT c.id, c.day, c.ts, c.who, c.kind,"
-            f"  snippet(cards_fts, 1, ?, ?, '…', {_SNIPPET_WORDS})"
+            f"  snippet(cards_fts, 1, ?, ?, '…', {_SNIPPET_WORDS}),"
+            # The whole text too, with every hit wrapped in the same markers,
+            # so the journal can show the full card with its matches lit.
+            "  highlight(cards_fts, 1, ?, ?)"
             " FROM cards_fts JOIN cards c ON c.id = cards_fts.card_id"
             f" WHERE {where_sql} ORDER BY {order_sql} LIMIT ? OFFSET ?",
-            [_HIT_START, _HIT_END, *params, limit, offset],
+            [_HIT_START, _HIT_END, _HIT_START, _HIT_END, *params, limit, offset],
         ).fetchall()
         # Fetch the tags for just the cards on this page, in one query.
         tags = {}
@@ -197,7 +203,8 @@ def search(q, who=None, date_from=None, date_to=None, sort="relevance",
         "total": total,
         "hits": [
             {"id": cid, "day": day, "ts": ts, "who": who_, "kind": kind,
-             "tags": tags.get(cid, []), "snippet": _split_snippet(marked or "")}
-            for cid, day, ts, who_, kind, marked in rows
+             "tags": tags.get(cid, []), "snippet": _split_snippet(marked or ""),
+             "marked_body": marked_body or ""}
+            for cid, day, ts, who_, kind, marked, marked_body in rows
         ],
     }

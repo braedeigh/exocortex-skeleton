@@ -170,3 +170,9 @@ def test_total_counts_past_the_page(pool, client):
         _write_card(pool, f"2026-09-18.120{minute}b", "bartending")
     body = client.get("/api/journal/search?q=bartending&limit=2").get_json()
     assert (body["total"], len(body["hits"])) == (5, 2)
+
+
+def test_marked_body_is_the_whole_card_with_hits_wrapped(pool, client):
+    _write_card(pool, "2026-09-18.1746b", "Tired today.\n\nGot feedback from Tate on Instagram")
+    hit = client.get("/api/journal/search?q=tate").get_json()["hits"][0]
+    assert hit["marked_body"] == "Tired today.\n\nGot feedback from \x02Tate\x03 on Instagram"
