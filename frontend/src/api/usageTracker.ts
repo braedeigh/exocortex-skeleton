@@ -20,6 +20,11 @@
  * committed twice: once to the tab, and once to the conversation id from
  * `?conv=` when there is one. Two views of one measurement, never two
  * measurements — see routes/usage.py for why they don't sum equal.
+ *
+ * Events: every tracked tap and every page open is ALSO queued as its own
+ * event with a clock, and flushed beside the counters. The counters answer
+ * "how many"; the events answer "when, and in which conversation" — see
+ * uieventstore.py, which keeps them as day files plus a table.
  */
 import type { AnyRouter } from '@tanstack/react-router';
 import { convFromLocation, deriveValidTabs, tabFromPathname } from './usageBeacon';
@@ -44,11 +49,22 @@ interface Segment {
   ended: number;
 }
 
+/** One tap on a tracked control, or one page coming into view, in epoch
+ * ms. The server converts to its own local clock — see uieventstore.py. */
+interface UiEvent {
+  kind: 'click' | 'open';
+  tab: string;
+  conv: string | null;
+  control?: string;
+  at: number;
+}
+
 interface BatchBody {
   time?: Record<string, number>;
   clicks?: Record<string, Record<string, number>>;
   sessions?: Record<string, number>;
   segments?: Segment[];
+  events?: UiEvent[];
 }
 
 /** Force-close an open segment at this length so a long unbroken sitting is
@@ -58,6 +74,7 @@ interface BatchBody {
 const MAX_SEGMENT_MS = 10 * 60_000;
 /** Don't let the queue grow without bound if flushes keep failing offline. */
 const MAX_QUEUED_SEGMENTS = 500;
+const MAX_QUEUED_EVENTS = 1000;
 
 /**
  * Install the dwell clock + click counter + flush queue. Call once in
@@ -99,6 +116,17 @@ export function installUsageTracker(router: AnyRouter): void {
   let segStart: number | null = null;
   let segEnd = 0;
   let queuedSegments: Segment[] = [];
+  let queuedEvents: UiEvent[] = [];
+
+  /** Queue one event; oldest dropped first if the queue overflows offline. */
+  function queueEvent(event: UiEvent): void {
+    queuedEvents.push(event);
+    if (queuedEvents.length > MAX_QUEUED_EVENTS) {
+      queuedEvents = queuedEvents.slice(-MAX_QUEUED_EVENTS);
+    }
+  }
+  // The page she landed on is an open too — the first one.
+  if (currentTab) queueEvent({ kind: 'open', tab: currentTab, conv: currentConv, at: Date.now() });
 
   /** Close the open segment, if any, and queue it. */
   function closeSegment(): void {
@@ -180,13 +208,16 @@ export function installUsageTracker(router: AnyRouter): void {
     // never chops one sitting into thirty-second pieces.
     const segments = queuedSegments;
     queuedSegments = [];
+    const events = queuedEvents;
+    queuedEvents = [];
 
     const body: BatchBody = {};
     if (Object.keys(time).length > 0) body.time = time;
     if (Object.keys(clicks).length > 0) body.clicks = clicks;
     if (Object.keys(sessions).length > 0) body.sessions = sessions;
     if (segments.length > 0) body.segments = segments;
-    if (!body.time && !body.clicks && !body.sessions && !body.segments) return;
+    if (events.length > 0) body.events = events;
+    if (!body.time && !body.clicks && !body.sessions && !body.segments && !body.events) return;
 
     lastFlush = now;
     const json = JSON.stringify(body);
@@ -263,6 +294,8 @@ export function installUsageTracker(router: AnyRouter): void {
       lastClickTs = e.timeStamp;
       const page = (pendingClicks[currentTab] ??= {});
       page[name] = (page[name] ?? 0) + 1;
+      // The same tap, as an event with a clock.
+      queueEvent({ kind: 'click', tab: currentTab, conv: currentConv, control: name, at: Date.now() });
     },
     true,
   );
@@ -287,6 +320,7 @@ export function installUsageTracker(router: AnyRouter): void {
     closeSegment();
     currentTab = nextTab;
     currentConv = nextConv;
+    if (currentTab) queueEvent({ kind: 'open', tab: currentTab, conv: currentConv, at: Date.now() });
     flush(false);
   });
 }

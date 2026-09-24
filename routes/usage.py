@@ -61,6 +61,7 @@ from flask import request, jsonify
 import attentionstore
 import commandstore
 import store
+import uieventstore
 
 _TAB_RE = re.compile(r"^[a-z0-9_-]{1,40}$")
 _CONTROL_RE = re.compile(r"^[a-z0-9:._-]{1,60}$")
@@ -171,6 +172,16 @@ def register(app):
                 # breaks the request it rode in on. The counters above are
                 # already persisted by here, and losing a segment costs a gap
                 # in a drawing — not a number that silently goes wrong.
+                pass
+        # Events — every tap and page open with its own clock — ride along
+        # the same way and land the same way: an append-only JSONL per day
+        # in the vault, mirrored into exo.db (see uieventstore.py). Same
+        # rule as segments: drop the bad ones, keep the good ones, never
+        # fail the request.
+        if body.get("events"):
+            try:
+                uieventstore.record(body.get("events"))
+            except Exception:
                 pass
         return jsonify({"ok": True})
 

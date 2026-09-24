@@ -58,6 +58,7 @@ import expensestore
 import habitstore
 import store
 import todostore
+import uieventstore
 
 MAX_ROWS = 500
 TIMEOUT_SECONDS = 5.0
@@ -73,7 +74,9 @@ TYPED_TABLES = ("habits", "habit_aliases", "habit_entries",
                 "sessions", "session_files",
                 "cards", "card_tags",
                 "todos", "fronts", "todo_fronts", "todo_subtasks",
-                "attention_segments")
+                "attention_segments",
+                "tool_calls", "tool_call_sources", "turn_results",
+                "ui_events", "requests")
 
 _DATE_KEY = re.compile(r"^\d{4}-\d{2}-\d{2}")
 
@@ -300,6 +303,12 @@ def register(app):
         cards = cardstore.rebuild()
         todos = todostore.rebuild()
         attention = attentionstore.rebuild()
+        # ui_events has the same day-file record attention has, so it
+        # rebuilds the same way. tool_calls and turn_results are derived
+        # too, but from gigabytes of logs — that rebuild is
+        # scripts/usage_events.py --rebuild, not a button in a request.
+        # `requests` has no source but itself and must never be here.
+        ui_events = uieventstore.rebuild()
         return jsonify({"ok": True, "habits": habits, "expenses": expenses,
                         "code": code, "cards": cards, "todos": todos,
-                        "attention": attention})
+                        "attention": attention, "ui_events": ui_events})

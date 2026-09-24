@@ -89,6 +89,13 @@ def log_request(response):
         access_logger.info(f"{request.method} {request.path} → {response.status_code}")
     return response
 
+# The same request, as a ROW: requestlog.py queues one per /api/ request into
+# exo.db's `requests` table (batched, fail-open). The access log above stays
+# for tailing; the table is the record, because the log rotates and, across
+# several workers, loses lines.
+import requestlog
+requestlog.install(app)
+
 
 # The dashboard polls /api/version + /api/data/<tab> every 5s (static/js/polling.js)
 # and again on every visibilitychange, re-downloading the full JSON payload (up to

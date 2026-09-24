@@ -1073,5 +1073,219 @@
         "holds": "Anything on a ruling that has no column of its own, kept as JSON rather than dropped. Normally empty."
       }
     }
+  },
+  "tool_calls": {
+    "holds": "Every tool an agent ran: when, which tool, what it was pointed at (the file, the command, the search pattern), the full input as JSON (capped), and once the result came back, how long it took, how big the result was and whether it errored. Subagent calls carry the call that spawned them.",
+    "source": "Built by toolcallstore.py by reading the Observatory's conversation logs under the data folder's bot_chats/ and Claude Code's own transcripts under ~/.claude/projects. Re-readable at any time, so it can be dropped and rebuilt with scripts/usage_events.py --rebuild.",
+    "kind": "mirror",
+    "time_column": "at",
+    "columns": {
+      "tool_use_id": {
+        "holds": "The call's own id, the same in both sources. Reading the same call twice can't insert it twice."
+      },
+      "source": {
+        "holds": "Which record it was first read from: observatory (the app's own log) or claude (the harness's transcript). Terminal work only ever has the second."
+      },
+      "conv": {
+        "holds": "The Observatory conversation, when it was one — joins to sessions.id. Empty for terminal work."
+      },
+      "session_id": {
+        "holds": "Claude Code's own session id."
+      },
+      "parent_tool_use_id": {
+        "holds": "The Agent call this ran under, when a subagent made it."
+      },
+      "at": {
+        "holds": "When the call was made, local time with milliseconds."
+      },
+      "day": {
+        "holds": "The day, split out for counting."
+      },
+      "hour": {
+        "holds": "The hour of day, 0–23."
+      },
+      "name": {
+        "holds": "The tool: Bash, Read, Edit, Grep, Agent …"
+      },
+      "target": {
+        "holds": "The one handle worth searching: the file, the command, the pattern, the url."
+      },
+      "input": {
+        "holds": "The whole input as JSON, cut at 4000 characters."
+      },
+      "input_truncated": {
+        "holds": "1 if the input was cut."
+      },
+      "result_at": {
+        "holds": "When the result came back. Empty if it never did."
+      },
+      "duration_ms": {
+        "holds": "How long the tool took, from call to result."
+      },
+      "result_chars": {
+        "holds": "How big the result was. The result itself is not copied; the logs hold it."
+      },
+      "is_error": {
+        "holds": "1 if the tool reported an error."
+      },
+      "cwd": {
+        "holds": "The folder the session was working in."
+      },
+      "model": {
+        "holds": "The model that made the call."
+      }
+    }
+  },
+  "tool_call_sources": {
+    "holds": "Bookkeeping for the tool-call scan: one row per log file, saying how far into it has been read, the last clock seen there, and how many turn results it held so far.",
+    "source": "Written by toolcallstore.py as it scans. If wiped, the next scan starts from the top.",
+    "kind": "mirror",
+    "time_column": "scanned_at",
+    "columns": {
+      "path": {
+        "holds": "One log file on disk."
+      },
+      "size": {
+        "holds": "How many bytes of it have been read."
+      },
+      "scanned_at": {
+        "holds": "When it was last scanned."
+      },
+      "last_at": {
+        "holds": "The last timestamp seen in it, so a turn result read on the next scan can still be dated."
+      },
+      "results": {
+        "holds": "How many turn results have been read from it — the next one's number."
+      }
+    }
+  },
+  "turn_results": {
+    "holds": "One row per Observatory turn: how it ended, how long it took, and what it cost in tokens and dollars.",
+    "source": "Built by toolcallstore.py from the result event the harness writes at the end of every turn in the bot_chats logs. Re-readable, so it can be dropped and rebuilt.",
+    "kind": "mirror",
+    "time_column": "at",
+    "columns": {
+      "conv": {
+        "holds": "The conversation — joins to sessions.id."
+      },
+      "seq": {
+        "holds": "Which turn of that conversation this was: 1st, 2nd …"
+      },
+      "session_id": {
+        "holds": "Claude Code's own session id."
+      },
+      "at": {
+        "holds": "When the turn ended, taken from the last stamped line before the result."
+      },
+      "day": {
+        "holds": "The day, split out for counting."
+      },
+      "subtype": {
+        "holds": "success, or the harness's name for how it failed."
+      },
+      "stop_reason": {
+        "holds": "Why the model stopped: end_turn, max_tokens …"
+      },
+      "is_error": {
+        "holds": "1 if the turn failed."
+      },
+      "duration_ms": {
+        "holds": "Wall time of the whole turn."
+      },
+      "duration_api_ms": {
+        "holds": "Time spent waiting on the model."
+      },
+      "num_turns": {
+        "holds": "How many model round-trips the turn took."
+      },
+      "cost_usd": {
+        "holds": "What the harness reckoned the turn cost."
+      },
+      "input_tokens": {
+        "holds": "Fresh input tokens."
+      },
+      "cache_creation_tokens": {
+        "holds": "Tokens written to the prompt cache."
+      },
+      "cache_read_tokens": {
+        "holds": "Tokens read back from the cache."
+      },
+      "output_tokens": {
+        "holds": "Tokens the model wrote."
+      },
+      "thinking_tokens": {
+        "holds": "Of the output, how many were thinking."
+      },
+      "model": {
+        "holds": "The model that served the turn."
+      }
+    }
+  },
+  "ui_events": {
+    "holds": "Every tap on a tracked control and every page open, one row each: what kind, which tab, which conversation if any, which control, and when.",
+    "source": "Rebuilt by uieventstore.py from the per-day event log files under the data folder's ui_events/, which are the truth.",
+    "kind": "mirror",
+    "time_column": "at",
+    "columns": {
+      "id": {
+        "holds": "The event's number."
+      },
+      "kind": {
+        "holds": "click (a control was tapped) or open (a page came into view)."
+      },
+      "tab": {
+        "holds": "Which tab of the app."
+      },
+      "conv": {
+        "holds": "The agent conversation, when the tab was a chat — joins to sessions.id."
+      },
+      "control": {
+        "holds": "The control's tracking name, for a click. Empty for an open."
+      },
+      "at": {
+        "holds": "When, local time with milliseconds."
+      },
+      "day": {
+        "holds": "The day, split out for counting."
+      }
+    }
+  },
+  "requests": {
+    "holds": "Every /api/ request the web app served: when, the method and path, which feature it belongs to, the status it returned, how long it took, and which worker served it.",
+    "source": "Written by requestlog.py from the request itself, in small batches. Nothing else holds these rows: the access log they replace rotates and drops lines across workers. Never rebuilt.",
+    "kind": "record",
+    "time_column": "at",
+    "columns": {
+      "id": {
+        "holds": "The request's number."
+      },
+      "at": {
+        "holds": "When it was served, local time with milliseconds."
+      },
+      "day": {
+        "holds": "The day, split out for counting."
+      },
+      "hour": {
+        "holds": "The hour of day, 0–23."
+      },
+      "method": {
+        "holds": "GET, POST, DELETE …"
+      },
+      "path": {
+        "holds": "The url path."
+      },
+      "feature": {
+        "holds": "The first part of the path after /api/ — habits, todos, observatory — the same word the daily usage counts use."
+      },
+      "status": {
+        "holds": "The HTTP status returned."
+      },
+      "duration_ms": {
+        "holds": "How long the app took to answer."
+      },
+      "pid": {
+        "holds": "The worker process that served it."
+      }
+    }
   }
 }

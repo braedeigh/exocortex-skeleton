@@ -42,7 +42,7 @@ import time
 
 import store
 
-_SCHEMA_VERSION = 18
+_SCHEMA_VERSION = 19
 
 
 def _db_path():
@@ -178,6 +178,7 @@ _EXPECTED_TABLES = (
     "code_files", "code_edges",
     "traces", "trace_spans",
     "notes", "note_judgments",
+    "tool_calls", "tool_call_sources", "turn_results", "ui_events", "requests",
 )
 
 
@@ -1282,6 +1283,160 @@ def _run_ladder(conn):
             "    ON DELETE CASCADE"
             ")"
         )
+    if version < 19:
+        # Entity #10: the usage record, event by event (the four tables below
+        # share one idea, so they share one rung). Until now most of what the
+        # owner did was counted at write time — clicks per page per DAY,
+        # requests per feature per DAY — and a count has no clock: it cannot
+        # be laid beside a journal card or a file write, and it cannot be
+        # asked a question it wasn't shaped for. Every counter can be rebuilt
+        # from events; no event can be rebuilt from a counter. So these
+        # tables keep the events, and the counters become a view of them.
+        #
+        # One clock for all four: LOCAL naive ISO with milliseconds
+        # ('2026-09-24T12:56:29.403'), the clock attention_segments keeps,
+        # with the fraction kept because tool calls land several to a second
+        # and their order matters. String-comparable with every other table.
+        #
+        # Which agent tool ran, on what, and how it went (toolcallstore.py).
+        # DERIVED: every row is re-readable from the conversation logs under
+        # data/bot_chats/ and from Claude Code's own transcripts under
+        # ~/.claude/projects, so the table can be dropped and rebuilt. The
+        # tool call's own id is the key, and it is the same id in both
+        # sources, which is what lets the two be walked without counting the
+        # Observatory's turns twice.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS tool_calls ("
+            "  tool_use_id TEXT PRIMARY KEY,"
+            # Which record it was first read from: 'observatory' (bot_chats)
+            # or 'claude' (the harness's transcripts). A tmux or terminal
+            # session only ever has the second.
+            "  source TEXT NOT NULL,"
+            # The Observatory conversation, when this was one — joins to
+            # sessions.id, and through it to lane. NULL for terminal work.
+            "  conv TEXT,"
+            # Claude Code's own session uuid, present in both sources.
+            "  session_id TEXT,"
+            # The Agent call this ran under, when a subagent made it.
+            "  parent_tool_use_id TEXT,"
+            "  at TEXT NOT NULL,"
+            "  day TEXT NOT NULL,"
+            "  hour INTEGER NOT NULL,"
+            "  name TEXT NOT NULL,"
+            # The one handle worth an index: the file for Read/Edit/Write,
+            # the command for Bash, the pattern for Grep/Glob, the url for a
+            # fetch. Bounded to a few hundred characters.
+            "  target TEXT,"
+            # The whole input as JSON, capped (input_truncated says when).
+            # This is the granular part: the command that ran, the edit that
+            # was made. It is the owner's own record and lives in her vault.
+            "  input TEXT,"
+            "  input_truncated INTEGER NOT NULL DEFAULT 0,"
+            # Filled in when the matching tool_result line is read. NULL
+            # means the result never came back (a killed turn) or hasn't
+            # been scanned yet.
+            "  result_at TEXT,"
+            "  duration_ms INTEGER,"
+            "  result_chars INTEGER,"
+            "  is_error INTEGER,"
+            "  cwd TEXT,"
+            "  model TEXT"
+            ")"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS tool_calls_by_day ON tool_calls (day)")
+        conn.execute("CREATE INDEX IF NOT EXISTS tool_calls_by_name ON tool_calls (name, at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS tool_calls_by_conv ON tool_calls (conv, at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS tool_calls_by_session ON tool_calls (session_id, at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS tool_calls_by_target ON tool_calls (target)")
+        # The incremental watermark, same shape as command_sources: how far
+        # into each log file has been read, plus the last clock seen there
+        # so a turn's result (which carries no timestamp of its own) can be
+        # dated even when the scan resumes mid-turn.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS tool_call_sources ("
+            "  path TEXT PRIMARY KEY,"
+            "  size INTEGER NOT NULL,"
+            "  scanned_at TEXT NOT NULL,"
+            "  last_at TEXT,"
+            "  results INTEGER NOT NULL DEFAULT 0"
+            ")"
+        )
+        # What each Observatory turn cost and how it ended (toolcallstore.py,
+        # from the `result` event the harness emits at the end of a turn).
+        # DERIVED from the same bot_chats logs. `seq` is the turn's ordinal
+        # within its conversation; the result event has no id of its own.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS turn_results ("
+            "  conv TEXT NOT NULL,"
+            "  seq INTEGER NOT NULL,"
+            "  session_id TEXT,"
+            "  at TEXT,"
+            "  day TEXT,"
+            "  subtype TEXT,"
+            "  stop_reason TEXT,"
+            "  is_error INTEGER,"
+            "  duration_ms INTEGER,"
+            "  duration_api_ms INTEGER,"
+            "  num_turns INTEGER,"
+            "  cost_usd REAL,"
+            "  input_tokens INTEGER,"
+            "  cache_creation_tokens INTEGER,"
+            "  cache_read_tokens INTEGER,"
+            "  output_tokens INTEGER,"
+            "  thinking_tokens INTEGER,"
+            "  model TEXT,"
+            "  PRIMARY KEY (conv, seq)"
+            ")"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS turn_results_by_day ON turn_results (day)")
+        # Every tap on a tracked control and every page open, as events
+        # (uieventstore.py). DERIVED, exactly like attention_segments: the
+        # record is an append-only JSONL per day under data/ui_events/,
+        # backed up by the vault's hourly commit; wipe this and rebuild().
+        # feature_usage's per-day click counts are untouched and now
+        # redundant — they are what these rows sum to.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS ui_events ("
+            "  id INTEGER PRIMARY KEY,"
+            # 'click' (a [data-track] control) or 'open' (a tab came into
+            # view, whether by navigation or first load).
+            "  kind TEXT NOT NULL,"
+            "  tab TEXT NOT NULL,"
+            "  conv TEXT,"
+            # The control's data-track name; NULL for an open.
+            "  control TEXT,"
+            "  at TEXT NOT NULL,"
+            "  day TEXT NOT NULL"
+            ")"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS ui_events_by_day ON ui_events (day)")
+        conn.execute("CREATE INDEX IF NOT EXISTS ui_events_by_tab ON ui_events (tab, at)")
+        # Every /api/ request the web app served (requestlog.py). NOT
+        # derived — the access log it replaces rotates every few hours and,
+        # with several gunicorn workers each rotating it independently,
+        # loses and duplicates lines. This table is the only reliable copy,
+        # written from the request path itself, so like job_runs it must
+        # never be on a rebuild button.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS requests ("
+            "  id INTEGER PRIMARY KEY,"
+            "  at TEXT NOT NULL,"
+            "  day TEXT NOT NULL,"
+            "  hour INTEGER NOT NULL,"
+            "  method TEXT NOT NULL,"
+            "  path TEXT NOT NULL,"
+            # The first path segment after /api/ — the same 'feature' the
+            # daily rollup used, so the two agree.
+            "  feature TEXT,"
+            "  status INTEGER NOT NULL,"
+            "  duration_ms INTEGER,"
+            # The worker process that served it, for telling one worker's
+            # slowness from the app's.
+            "  pid INTEGER"
+            ")"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS requests_by_day ON requests (day)")
+        conn.execute("CREATE INDEX IF NOT EXISTS requests_by_feature ON requests (feature, at)")
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 

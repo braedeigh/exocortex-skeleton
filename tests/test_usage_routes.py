@@ -336,3 +336,23 @@ def test_commands_route_rejects_a_bad_window(client, transcripts):
     transcripts("spark")
     assert client.get("/api/usage/commands?days=0").status_code == 400
     assert client.get("/api/usage/commands?days=soon").status_code == 400
+
+
+def test_batch_events_land_in_day_file(client, data_dir):
+    """Events ride along on the batch and land as a day file plus mirror
+    rows; a bad one is dropped without failing the good ones."""
+    import time
+    import sqlstore
+    now_ms = int(time.time() * 1000)
+    res = client.post("/api/usage/batch", json={"events": [
+        {"kind": "click", "tab": "todos", "control": "card-edit", "at": now_ms},
+        {"kind": "open", "tab": "todos", "at": now_ms},
+        {"kind": "click", "tab": "todos", "control": "not valid!", "at": now_ms},
+    ]})
+    assert res.status_code == 200
+    assert (data_dir / "ui_events" / f"{today()}.jsonl").read_text().count("\n") == 2
+    conn = sqlstore.open_db()
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM ui_events").fetchone()[0] == 2
+    finally:
+        conn.close()
