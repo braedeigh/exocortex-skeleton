@@ -62,7 +62,8 @@ def research_dir(data_dir, monkeypatch):
 
 def _healthy_research():
     return {
-        "topics": [{"id": "t1", "name": "Topic One", "status": "active", "created": "2026-07-01 09:00"}],
+        "topics": [{"id": "t1", "name": "Topic One", "status": "active", "created": "2026-07-01 09:00",
+                    "fronts": []}],
         "entries": [
             {"id": "q1", "kind": "question", "text": "Why?", "topics": ["t1"], "url": "",
              "verdict": "", "status": "open", "reply_to": None, "created": "2026-07-01 09:00"},
@@ -124,13 +125,17 @@ def test_reply_to_cycle_found(research_dir):
 
 # --- 2. duplicate ids / topic refs ---------------------------------------------
 
-def test_duplicate_entry_id_found(research_dir):
+def test_duplicate_entry_id_cannot_reach_the_doctor(research_dir):
+    """Entries are rows keyed by id (researchstore.py), so a document with the
+    same id twice collapses to one entry on the way in — the doctor's
+    duplicate check has nothing left to find, and says so."""
     research = _healthy_research()
     dup = dict(research["entries"][0])
     research["entries"].append(dup)
     _write_research(research)
+    assert [e["id"] for e in store.read("research.json")["entries"]].count("q1") == 1
     findings, _notes, _fixes = doctor.run(tmux_fn=_fake_tmux([]))
-    assert any("duplicate entry id" in f and "q1" in f for f in findings)
+    assert not any("duplicate entry id" in f for f in findings)
 
 
 def test_missing_topic_ref_found(research_dir):

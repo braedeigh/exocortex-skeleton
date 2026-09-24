@@ -42,7 +42,7 @@ import time
 
 import store
 
-_SCHEMA_VERSION = 19
+_SCHEMA_VERSION = 21
 
 
 def _db_path():
@@ -179,6 +179,10 @@ _EXPECTED_TABLES = (
     "traces", "trace_spans",
     "notes", "note_judgments",
     "tool_calls", "tool_call_sources", "turn_results", "ui_events", "requests",
+    "research_topics", "research_topic_fronts",
+    "research_entries", "research_entry_topics", "research_entry_context",
+    "research_sessions", "research_session_entries", "research_session_topics",
+    "research_annotations", "claim_sources", "claim_values",
 )
 
 
@@ -1437,6 +1441,285 @@ def _run_ladder(conn):
         )
         conn.execute("CREATE INDEX IF NOT EXISTS requests_by_day ON requests (day)")
         conn.execute("CREATE INDEX IF NOT EXISTS requests_by_feature ON requests (feature, at)")
+    # Rung 20 belongs to another branch (the food tables) and is deliberately
+    # skipped here: the ladder is `if version < N`, so a gap costs nothing and
+    # two branches landing in either order each find their own rung to climb.
+    if version < 21:
+        # Entity #11: the research pool as rows (see researchstore.py). The
+        # research document — topics, entries, sessions — and the annotations
+        # document were two blobs in `docs`; these tables replace them the way
+        # rung 18 replaced the notes blob: the app writes HERE, research.json /
+        # annotations.json become photographs of these rows, and the routes
+        # keep seeing the old document because researchstore rebuilds it.
+        #
+        # Why now: a claim ("X does Y") needs to point at the sources that back
+        # it, with a stance and the exact highlighted passage — a link between
+        # two rows, with its own columns. A blob can only nest, and a claim's
+        # sources are not inside it; they are other entries. `claim_sources`
+        # and `claim_values` below are the first tables that only make sense
+        # once entries are rows.
+        #
+        # Every list in the document keeps its order through a `position` (or
+        # `seq`) column: the live entries are in neither created-order nor
+        # id-order, and id text sorts '-10' before '-2'.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS research_topics ("
+            # The slugified name ('wearables-signal-taxonomy'), with '-2', '-3'
+            # on a collision. Text, no shape rule.
+            "  id TEXT PRIMARY KEY,"
+            "  name TEXT NOT NULL,"
+            # 'active', 'dormant' or 'settled' (routes/research.py). Not a
+            # CHECK: the vocabulary is the route's to change.
+            "  status TEXT,"
+            # 'YYYY-MM-DD HH:MM', local, kept verbatim.
+            "  created TEXT,"
+            # Where the topic sits in the document's list.
+            "  position INTEGER NOT NULL DEFAULT 0,"
+            # Any key with no column of its own, kept verbatim as JSON so a
+            # blob-era field is never silently dropped. Empty today.
+            "  extra TEXT,"
+            # When this ROW last changed — not when she made the topic. Never
+            # appears in the document.
+            "  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+            ")"
+        )
+        # Which life domains a topic sits on — ids from fronts.json, one row
+        # per (topic, front). Its own table because it is a list, and because
+        # "which topics are on the health front" is a question worth an index.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS research_topic_fronts ("
+            "  topic_id TEXT NOT NULL REFERENCES research_topics(id) ON DELETE CASCADE,"
+            "  front TEXT NOT NULL,"
+            # Order within the topic's `fronts` list.
+            "  seq INTEGER NOT NULL,"
+            "  PRIMARY KEY (topic_id, front)"
+            ")"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS research_topic_fronts_by_front"
+            " ON research_topic_fronts (front)"
+        )
+        # The pool itself: one row per atomic entry, whatever its kind.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS research_entries ("
+            # 'YYYY-MM-DD.HHMM' with '-2', '-3' ... on a same-minute collision.
+            "  id TEXT PRIMARY KEY,"
+            # The four kinds routes/research.py accepts. This one IS a CHECK,
+            # because everything downstream (claim_sources, the claims view)
+            # keys off it.
+            "  kind TEXT NOT NULL CHECK (kind IN ('note','source','claim','question')),"
+            "  text TEXT NOT NULL,"
+            "  url TEXT,"
+            # Per kind: claims carry ''/real/shaky/interesting, sources
+            # ''/verified, the rest ''. Enforced by the route, not here.
+            "  verdict TEXT,"
+            # Questions carry 'open'/'answered'; every other kind ''.
+            "  status TEXT,"
+            # The entry this one answers, when it is a reply. Loose reference
+            # on purpose — replies to a since-deleted entry exist.
+            "  reply_to TEXT,"
+            # 'YYYY-MM-DD HH:MM', local, kept verbatim.
+            "  created TEXT,"
+            # 'llm' when the runner wrote it back; NULL means the owner's own.
+            "  author TEXT,"
+            # Three yes/no flags, stored 0/1, NULL when the document never set
+            # them — the document shows the key only when it was set, so the
+            # difference between 'false' and 'never said' is kept.
+            "  reviewed INTEGER,"
+            "  flagged INTEGER,"
+            "  processed INTEGER,"
+            # The session that produced an llm reply. Loose reference: the
+            # session rows are rebuilt from the same document and may lag.
+            "  session TEXT,"
+            # The passage the owner was pointing at when she wrote this.
+            "  re_quote TEXT,"
+            # The research library file an llm reply left behind.
+            "  file TEXT,"
+            # Where an imported entry came from ('note:<file>', research_import).
+            "  origin TEXT,"
+            # Where the entry sits in the document's list — the order the
+            # blob kept, which is neither created-order nor id-order.
+            "  position INTEGER NOT NULL DEFAULT 0,"
+            # Keys with no column, kept verbatim as JSON: today that is a
+            # source's fetched `meta` block (routes/research_sources.py), a
+            # nested record that belongs to a later rung.
+            "  extra TEXT,"
+            "  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+            ")"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS research_entries_by_kind"
+            " ON research_entries (kind, position)"
+        )
+        # Which topics an entry is tagged with — the `topics` list, one row per
+        # tag. topic_id is indexed but NOT a foreign key: an entry may keep the
+        # id of a topic that no longer exists, and the blob allowed that.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS research_entry_topics ("
+            "  entry_id TEXT NOT NULL REFERENCES research_entries(id) ON DELETE CASCADE,"
+            "  topic_id TEXT NOT NULL,"
+            "  seq INTEGER NOT NULL,"
+            "  PRIMARY KEY (entry_id, topic_id)"
+            ")"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS research_entry_topics_by_topic"
+            " ON research_entry_topics (topic_id)"
+        )
+        # The entries an entry was written in the context of — the
+        # `context_ids` list. Its own table rather than JSON in `extra` so
+        # "what was written with this entry in view" can be asked of the
+        # database. Loose references, same as reply_to.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS research_entry_context ("
+            "  entry_id TEXT NOT NULL REFERENCES research_entries(id) ON DELETE CASCADE,"
+            "  seq INTEGER NOT NULL,"
+            "  context_id TEXT NOT NULL,"
+            "  PRIMARY KEY (entry_id, seq)"
+            ")"
+        )
+        # One research-runner run: what was sent, and what came of it.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS research_sessions ("
+            # Same id scheme as entries.
+            "  id TEXT PRIMARY KEY,"
+            "  created TEXT,"
+            # 'queued', 'running', 'done', 'failed' — the dispatcher's words.
+            "  status TEXT,"
+            # The one-line report the runner leaves behind.
+            "  report TEXT,"
+            # 'regular', 'deep' or 'distill'; NULL on the oldest sessions.
+            "  mode TEXT,"
+            # 1 when the session is queued for scripts/research_dispatcher.py
+            # rather than spawned directly. NULL when the document never said.
+            "  worker INTEGER,"
+            # How many times the dispatcher has tried to run it.
+            "  attempts INTEGER,"
+            # The Claude session and working directory the runner used.
+            "  claude_session TEXT,"
+            "  claude_cwd TEXT,"
+            # Two seams for a later phase: the Observatory conversation that
+            # ran this session, and the run-queue id. Nullable; nothing here
+            # writes them yet.
+            "  conv_id TEXT,"
+            "  run_id TEXT,"
+            "  position INTEGER NOT NULL DEFAULT 0,"
+            "  extra TEXT,"
+            "  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+            ")"
+        )
+        # The entries a session was sent — its `entry_ids` list, in order.
+        # Loose references: the runner has sent entries that were later deleted.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS research_session_entries ("
+            "  session_id TEXT NOT NULL REFERENCES research_sessions(id) ON DELETE CASCADE,"
+            "  seq INTEGER NOT NULL,"
+            "  entry_id TEXT NOT NULL,"
+            "  PRIMARY KEY (session_id, seq)"
+            ")"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS research_session_entries_by_entry"
+            " ON research_session_entries (entry_id)"
+        )
+        # The union of topics across what a session was sent — its `topics`.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS research_session_topics ("
+            "  session_id TEXT NOT NULL REFERENCES research_sessions(id) ON DELETE CASCADE,"
+            "  topic_id TEXT NOT NULL,"
+            "  seq INTEGER NOT NULL,"
+            "  PRIMARY KEY (session_id, topic_id)"
+            ")"
+        )
+        # A highlighted passage in a document, with a note on it — the
+        # annotations blob (routes/annotations.py) as rows. The document's
+        # nested `selector` and `content` maps are flattened into columns;
+        # researchstore folds them back when it rebuilds the document.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS research_annotations ("
+            # 'ann-YYYY-MM-DD.HHMM' with '-2', '-3' ... on a collision. The
+            # prefix keeps these out of the entry-id namespace.
+            "  id TEXT PRIMARY KEY,"
+            # Which document: 'entry:<entry id>' for an extracted source text,
+            # 'note:<file>' for a research markdown. docstore.py is the one
+            # place that knows what a doc id means.
+            "  doc TEXT NOT NULL,"
+            # The selector: character offsets into the document's text as it
+            # was when the highlight was made, and the exact words there.
+            # Whether they still resolve is recomputed on read, never stored.
+            "  char_start INTEGER,"
+            "  char_end INTEGER,"
+            "  exact TEXT,"
+            # The content map's three conventional keys: what kind of mark
+            # ('highlight'), the note on it, and who made it ('human'/'llm').
+            "  kind TEXT,"
+            "  note TEXT,"
+            "  source TEXT,"
+            # 1 when a machine made it and no one has looked yet. A human
+            # annotating IS the review, so theirs are born 0.
+            "  needs_review INTEGER,"
+            "  created TEXT,"
+            "  position INTEGER NOT NULL DEFAULT 0,"
+            # Keys with no column — including any content or selector key
+            # beyond the ones above — kept verbatim as JSON.
+            "  extra TEXT,"
+            "  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+            ")"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS research_annotations_by_doc"
+            " ON research_annotations (doc, position)"
+        )
+        # Which sources back which claim, and how. The first table here that
+        # only exists because entries are rows: a link between two of them,
+        # with a stance and (optionally) the exact highlighted passage that
+        # is the evidence. Both ends are real foreign keys — delete either
+        # entry and the link goes with it.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS claim_sources ("
+            "  claim_id TEXT NOT NULL REFERENCES research_entries(id) ON DELETE CASCADE,"
+            "  source_id TEXT NOT NULL REFERENCES research_entries(id) ON DELETE CASCADE,"
+            # What the source says about the claim.
+            "  stance TEXT NOT NULL DEFAULT 'supports'"
+            "    CHECK (stance IN ('supports','contradicts','context')),"
+            # The highlighted passage that is the evidence, when one was
+            # marked. Deleting the annotation keeps the link and blanks this.
+            "  annotation_id TEXT REFERENCES research_annotations(id) ON DELETE SET NULL,"
+            # Why this source is on this claim, in the linker's words.
+            "  note TEXT,"
+            "  created TEXT,"
+            "  PRIMARY KEY (claim_id, source_id)"
+            ")"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS claim_sources_by_source"
+            " ON claim_sources (source_id)"
+        )
+        # The number inside a claim, when it has one: "X does Y" pulled apart
+        # into subject / measure / amount / unit so claims can be compared and
+        # laid beside other records. One per claim, so the claim id is the key.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS claim_values ("
+            "  claim_id TEXT PRIMARY KEY REFERENCES research_entries(id) ON DELETE CASCADE,"
+            # What the claim is about, as plain text. Deliberately NOT a
+            # foreign key to anything: it is meant to match a name in another
+            # table later (a food, say) without that table having to exist.
+            "  subject TEXT,"
+            # What was measured ('protein', 'half-life').
+            "  measure TEXT,"
+            "  amount REAL,"
+            "  unit TEXT,"
+            # Per what ('100 g', 'per day').
+            "  basis TEXT,"
+            # The year the figure is from.
+            "  year INTEGER,"
+            # How far the figure is trusted, in free text ('verified',
+            # 'works-but-unverified'). Free on purpose: the vocabulary is
+            # still being found.
+            "  tier TEXT,"
+            "  extra TEXT"
+            ")"
+        )
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 

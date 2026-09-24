@@ -122,6 +122,11 @@ RESEARCH_WORKER_DIR = Path(os.environ.get("EXOCORTEX_RESEARCH_WORKER_DIR", DATA_
 # reviewed answers into research/edge/<topic-id>.md instead of answering one
 # question.
 RESEARCH_DISTILLER_DIR = Path(os.environ.get("EXOCORTEX_RESEARCH_DISTILLER_DIR", DATA_DIR.parent / "research-distiller"))
+# Research room: the owner's own research desk in the Observatory (lane
+# `research`, routes/research_room.py) and the ground every dispatched research
+# worker now stands on instead of a tmux pane. Its CLAUDE.md is the skill —
+# same idea as RESEARCH_WORKER_DIR; deploy copies agents/research-room/ here.
+RESEARCH_ROOM_DIR = Path(os.environ.get("EXOCORTEX_RESEARCH_ROOM_DIR", DATA_DIR.parent / "research-room"))
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -260,13 +265,18 @@ def _sql_backed(name: str) -> bool:
 
 
 # Collections whose rows live in TYPED TABLES rather than as one blob row in
-# `docs` — notestore.py owns these two. A subset of SQL_COLLECTIONS on purpose:
-# they are still SQL-backed (the creek's traffic map and the usage doctor both
-# read that set to say how a collection is stored), they are simply stored as
-# rows. Being a subset also means EXOCORTEX_SQL_OFF=1 still drops them all the
-# way back to plain files, which stays safe because the mirror is written after
-# every commit.
-TYPED_COLLECTIONS = frozenset(("dev_notes", "idea_notes"))
+# `docs` — notestore.py owns the two notes collections, researchstore.py owns
+# research and annotations. A subset of SQL_COLLECTIONS on purpose: they are
+# still SQL-backed (the creek's traffic map and the usage doctor both read that
+# set to say how a collection is stored), they are simply stored as rows. Being
+# a subset also means EXOCORTEX_SQL_OFF=1 still drops them all the way back to
+# plain files, which stays safe because the mirror is written after every
+# commit.
+TYPED_COLLECTIONS = frozenset(("dev_notes", "idea_notes", "research", "annotations"))
+_TYPED_MODULES = {
+    "dev_notes": "notestore", "idea_notes": "notestore",
+    "research": "researchstore", "annotations": "researchstore",
+}
 
 
 def _backend(name):
@@ -279,8 +289,8 @@ def _backend(name):
     if not _sql_backed(name):
         return None
     if _key(name) in TYPED_COLLECTIONS:
-        import notestore
-        return notestore
+        import importlib
+        return importlib.import_module(_TYPED_MODULES[_key(name)])
     import sqlstore
     return sqlstore
 

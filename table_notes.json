@@ -1287,5 +1287,393 @@
         "holds": "The worker process that served it."
       }
     }
+  },
+  "research_topics": {
+    "holds": "One row per research topic — a lens over the pool of entries, not a folder. A topic has a name, a status, and the life domains it sits on (in research_topic_fronts).",
+    "source": "Written by the app through researchstore.py whenever a topic is added, edited or removed on the Research page. The database is the record; research.json in the data folder is a one-way export of these rows and the two tables below, never read back.",
+    "kind": "store",
+    "time_column": "updated_at",
+    "columns": {
+      "id": {
+        "holds": "The topic's permanent name: its title made into a slug, with a number added on a collision."
+      },
+      "name": {
+        "holds": "The topic's title, as the owner typed it."
+      },
+      "status": {
+        "holds": "Whether the topic is being worked on.",
+        "values": {
+          "active": "in play",
+          "dormant": "set aside for now",
+          "settled": "answered or closed"
+        }
+      },
+      "created": {
+        "holds": "When the topic was made, to the minute, kept exactly as recorded."
+      },
+      "position": {
+        "holds": "Where the record sits in its list in the document. The list order is data: the live entries are in neither date order nor id order, so nothing else could supply it."
+      },
+      "extra": {
+        "holds": "Anything written onto the record that has no column of its own, kept as JSON so it cannot be silently lost. Normally empty."
+      },
+      "updated_at": {
+        "holds": "When this ROW last changed, in UTC. Only rows whose content changed are restamped; a row that merely moved down the list when a neighbour was deleted is not."
+      }
+    }
+  },
+  "research_topic_fronts": {
+    "holds": "Which life domains (fronts) each research topic sits on — one row per topic-and-front pair. A topic on the health front and the finances front has two rows here.",
+    "source": "Written by researchstore.py alongside research_topics whenever a topic's fronts change. The front names come from the fronts table.",
+    "kind": "store",
+    "time_column": null,
+    "columns": {
+      "topic_id": {
+        "holds": "Which topic. Points at research_topics; deleting the topic deletes these rows."
+      },
+      "front": {
+        "holds": "Which life domain, by its id in the fronts table."
+      },
+      "seq": {
+        "holds": "Where this front sits in the topic's list of fronts."
+      }
+    }
+  },
+  "research_entries": {
+    "holds": "The research pool itself: one row per entry the owner (or the research runner on her behalf) has written — a note, a source, a claim, or a question — with its text, its verdict, whether it has been sent to or came back from a runner session, and the passage it was written about.",
+    "source": "Written by the app through researchstore.py from the Research page, the runner scripts, and the source importer. The database is the record; research.json is a one-way export of these rows, never read back.",
+    "kind": "store",
+    "time_column": "updated_at",
+    "columns": {
+      "id": {
+        "holds": "The entry's permanent name: the minute it was made, with a number added when two land in the same minute."
+      },
+      "kind": {
+        "holds": "What sort of entry this is.",
+        "values": {
+          "note": "a thought in the owner's words",
+          "source": "a document or link being read",
+          "claim": "a statement that could be true or false",
+          "question": "something still open"
+        }
+      },
+      "text": {
+        "holds": "The entry itself."
+      },
+      "url": {
+        "holds": "A link, when the entry has one — mostly on sources. Blank otherwise."
+      },
+      "verdict": {
+        "holds": "What the owner concluded about it. Claims are marked real, shaky or interesting; sources are marked verified; everything else stays blank."
+      },
+      "status": {
+        "holds": "For questions, whether it is still open or has been answered. Blank for every other kind."
+      },
+      "reply_to": {
+        "holds": "The entry this one answers, when it is a reply. May point at an entry that has since been deleted."
+      },
+      "created": {
+        "holds": "When the entry was written, to the minute, kept exactly as recorded."
+      },
+      "author": {
+        "holds": "Who wrote it: 'llm' when the research runner wrote it back; empty means the owner did."
+      },
+      "reviewed": {
+        "holds": "For an entry the runner wrote, whether the owner has signed off on it. Empty when never set.",
+        "values": {
+          "1": "signed off",
+          "0": "not yet"
+        }
+      },
+      "flagged": {
+        "holds": "Whether the owner has queued this entry to send to a runner session. Empty when never set.",
+        "values": {
+          "1": "queued",
+          "0": "not queued"
+        }
+      },
+      "processed": {
+        "holds": "Whether a runner session has dealt with this entry. Empty when never set.",
+        "values": {
+          "1": "dealt with",
+          "0": "not yet"
+        }
+      },
+      "session": {
+        "holds": "The runner session that produced this entry, when the runner wrote it."
+      },
+      "re_quote": {
+        "holds": "The passage the owner was pointing at when she wrote this entry."
+      },
+      "file": {
+        "holds": "The library file a runner reply left behind, when it wrote one."
+      },
+      "origin": {
+        "holds": "Where an imported entry came from, for entries pulled in from a research markdown file."
+      },
+      "position": {
+        "holds": "Where the record sits in its list in the document. The list order is data: the live entries are in neither date order nor id order, so nothing else could supply it."
+      },
+      "extra": {
+        "holds": "Anything written onto the entry that has no column of its own, kept as JSON. Today this holds a source's fetched metadata block (title, authors, journal and so on)."
+      },
+      "updated_at": {
+        "holds": "When this ROW last changed, in UTC. Only rows whose content changed are restamped; a row that merely moved down the list when a neighbour was deleted is not."
+      }
+    }
+  },
+  "research_entry_topics": {
+    "holds": "Which topics each entry is tagged with — one row per entry-and-topic pair. An entry can carry several topics or none.",
+    "source": "Written by researchstore.py alongside research_entries whenever an entry's topics change. The topic id is not checked against research_topics: an entry may keep the id of a topic that was later removed.",
+    "kind": "store",
+    "time_column": null,
+    "columns": {
+      "entry_id": {
+        "holds": "Which entry. Points at research_entries; deleting the entry deletes these rows."
+      },
+      "topic_id": {
+        "holds": "Which topic, by its id. Not enforced — may name a topic that no longer exists."
+      },
+      "seq": {
+        "holds": "Where this topic sits in the entry's list of topics."
+      }
+    }
+  },
+  "research_entry_context": {
+    "holds": "Which other entries were in view when an entry was written — the context it replies into. One row per entry-and-context pair, in order.",
+    "source": "Written by researchstore.py alongside research_entries. The context ids are not checked against research_entries: they may name entries that were later deleted.",
+    "kind": "store",
+    "time_column": null,
+    "columns": {
+      "entry_id": {
+        "holds": "Which entry was written. Points at research_entries; deleting the entry deletes these rows."
+      },
+      "seq": {
+        "holds": "Where this context entry sits in the list."
+      },
+      "context_id": {
+        "holds": "The id of an entry that was in view."
+      }
+    }
+  },
+  "research_sessions": {
+    "holds": "One row per research-runner run: a batch of the owner's entries sent to a Claude session, with what mode it ran in, whether it finished, and the one-line report it left.",
+    "source": "Written by the app through researchstore.py when the owner sends entries, and by the research dispatcher script as it queues, runs and finishes sessions. The database is the record; research.json is a one-way export.",
+    "kind": "store",
+    "time_column": "updated_at",
+    "columns": {
+      "id": {
+        "holds": "The session's permanent name, in the same minute-based scheme as entries."
+      },
+      "created": {
+        "holds": "When the session was made, to the minute, kept exactly as recorded."
+      },
+      "status": {
+        "holds": "How far the session has got.",
+        "values": {
+          "queued": "waiting for the dispatcher",
+          "running": "in progress",
+          "done": "finished",
+          "failed": "gave up"
+        }
+      },
+      "report": {
+        "holds": "The one-line report the runner left behind, or an error message when it failed."
+      },
+      "mode": {
+        "holds": "What kind of run it was. Empty on the oldest sessions.",
+        "values": {
+          "regular": "engage with a batch of flagged entries",
+          "deep": "a single-question deep dive",
+          "distill": "synthesize one topic's reviewed replies into a library file"
+        }
+      },
+      "worker": {
+        "holds": "Whether the session was queued for the dispatcher script rather than started directly. Empty when never set.",
+        "values": {
+          "1": "queued for the dispatcher",
+          "0": "started directly"
+        }
+      },
+      "attempts": {
+        "holds": "How many times the dispatcher has tried to run it."
+      },
+      "claude_session": {
+        "holds": "The Claude session the runner used, when one was recorded."
+      },
+      "claude_cwd": {
+        "holds": "The working directory the runner used, when one was recorded."
+      },
+      "conv_id": {
+        "holds": "The Observatory conversation that ran this session. Empty until something records it."
+      },
+      "run_id": {
+        "holds": "The run-queue item that ran this session. Empty until something records it."
+      },
+      "position": {
+        "holds": "Where the record sits in its list in the document. The list order is data: the live entries are in neither date order nor id order, so nothing else could supply it."
+      },
+      "extra": {
+        "holds": "Anything written onto the record that has no column of its own, kept as JSON so it cannot be silently lost. Normally empty."
+      },
+      "updated_at": {
+        "holds": "When this ROW last changed, in UTC. Only rows whose content changed are restamped; a row that merely moved down the list when a neighbour was deleted is not."
+      }
+    }
+  },
+  "research_session_entries": {
+    "holds": "Which entries each session was sent, in order — one row per session-and-entry pair.",
+    "source": "Written by researchstore.py alongside research_sessions. The entry id is not checked against research_entries: a session may have been sent an entry that was later deleted.",
+    "kind": "store",
+    "time_column": null,
+    "columns": {
+      "session_id": {
+        "holds": "Which session. Points at research_sessions; deleting the session deletes these rows."
+      },
+      "seq": {
+        "holds": "Where this entry sits in the session's list."
+      },
+      "entry_id": {
+        "holds": "The id of an entry that was sent. Not enforced."
+      }
+    }
+  },
+  "research_session_topics": {
+    "holds": "Which topics a session covered — the union of the topics on the entries it was sent. One row per session-and-topic pair.",
+    "source": "Written by researchstore.py alongside research_sessions.",
+    "kind": "store",
+    "time_column": null,
+    "columns": {
+      "session_id": {
+        "holds": "Which session. Points at research_sessions; deleting the session deletes these rows."
+      },
+      "topic_id": {
+        "holds": "Which topic, by its id. Not enforced."
+      },
+      "seq": {
+        "holds": "Where this topic sits in the session's list."
+      }
+    }
+  },
+  "research_annotations": {
+    "holds": "One row per highlighted passage in a document — a source's extracted text or a research markdown file — with the note made on it, who made it, and where in the text it was.",
+    "source": "Written by the app through researchstore.py from the annotation routes (the highlighter on the Research page) and directly by the claims helpers. The database is the record; annotations.json is a one-way export of these rows.",
+    "kind": "store",
+    "time_column": "updated_at",
+    "columns": {
+      "id": {
+        "holds": "The annotation's permanent name: 'ann-' plus the minute it was made, with a number added on a collision."
+      },
+      "doc": {
+        "holds": "Which document was highlighted: 'entry:' plus an entry id for a source's extracted text, or 'note:' plus a file name for a research markdown."
+      },
+      "char_start": {
+        "holds": "Where the highlight starts, as a character count into the document's text as it was at the time."
+      },
+      "char_end": {
+        "holds": "Where the highlight ends, likewise."
+      },
+      "exact": {
+        "holds": "The exact words that were highlighted, so the passage can be found again if the text shifts."
+      },
+      "kind": {
+        "holds": "What sort of mark it is — 'highlight' today."
+      },
+      "note": {
+        "holds": "The note written on the highlight, if any."
+      },
+      "source": {
+        "holds": "Who made the annotation.",
+        "values": {
+          "human": "the owner",
+          "llm": "a Claude session"
+        }
+      },
+      "needs_review": {
+        "holds": "Whether a machine-made annotation is still waiting for the owner to look at it. A human's own annotations start already reviewed.",
+        "values": {
+          "1": "waiting for review",
+          "0": "reviewed, or made by the owner"
+        }
+      },
+      "created": {
+        "holds": "When the annotation was made, to the minute."
+      },
+      "position": {
+        "holds": "Where the record sits in its list in the document. The list order is data: the live entries are in neither date order nor id order, so nothing else could supply it."
+      },
+      "extra": {
+        "holds": "Anything written onto the annotation, its note map, or its position map that has no column of its own, kept as JSON. Normally empty."
+      },
+      "updated_at": {
+        "holds": "When this ROW last changed, in UTC. Only rows whose content changed are restamped; a row that merely moved down the list when a neighbour was deleted is not."
+      }
+    }
+  },
+  "claim_sources": {
+    "holds": "Which sources back which claims — one row per claim-and-source pair, saying whether the source supports, contradicts, or merely contextualises the claim, and optionally pointing at the exact highlighted passage that is the evidence.",
+    "source": "Written by researchstore.py's link helpers from the claims view. Deleting either the claim or the source deletes the link; deleting the annotation keeps the link and blanks the pointer to it.",
+    "kind": "store",
+    "time_column": "created",
+    "columns": {
+      "claim_id": {
+        "holds": "The claim. Points at research_entries."
+      },
+      "source_id": {
+        "holds": "The source. Points at research_entries."
+      },
+      "stance": {
+        "holds": "What the source says about the claim.",
+        "values": {
+          "supports": "the source backs it",
+          "contradicts": "the source argues against it",
+          "context": "the source is relevant without taking a side"
+        }
+      },
+      "annotation_id": {
+        "holds": "The highlighted passage that is the evidence, when one was marked. Points at research_annotations; blanked if that annotation is deleted."
+      },
+      "note": {
+        "holds": "Why this source is on this claim, in the linker's words."
+      },
+      "created": {
+        "holds": "When the link was made, to the minute."
+      }
+    }
+  },
+  "claim_values": {
+    "holds": "The number inside a claim, when it has one: what the claim is about, what was measured, the amount and unit, per what, from which year, and how far it is trusted. One row per claim at most.",
+    "source": "Written by researchstore.py's set_claim_value helper from the claims view. Deleting the claim deletes its value.",
+    "kind": "store",
+    "time_column": null,
+    "columns": {
+      "claim_id": {
+        "holds": "The claim this value belongs to. Points at research_entries."
+      },
+      "subject": {
+        "holds": "What the claim is about, as plain text — meant to match a name elsewhere (a food, say) without being tied to it."
+      },
+      "measure": {
+        "holds": "What was measured, such as 'protein' or 'half-life'."
+      },
+      "amount": {
+        "holds": "The number."
+      },
+      "unit": {
+        "holds": "The unit the number is in."
+      },
+      "basis": {
+        "holds": "Per what — '100 g', 'per day'."
+      },
+      "year": {
+        "holds": "The year the figure is from."
+      },
+      "tier": {
+        "holds": "How far the figure is trusted, in free words such as 'verified' or 'works-but-unverified'."
+      },
+      "extra": {
+        "holds": "Anything written onto the record that has no column of its own, kept as JSON so it cannot be silently lost. Normally empty."
+      }
+    }
   }
 }
