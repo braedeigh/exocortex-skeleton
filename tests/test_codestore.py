@@ -224,6 +224,27 @@ def test_sync_sessions_makes_the_footprints_joinable(data_dir, tmp_path):
     assert _rows("SELECT first_seen FROM files WHERE path = 'uncommitted.py'") == [(None,)]
 
 
+def test_sessions_carry_their_real_lane_and_keeper_flag(data_dir, tmp_path):
+    # Older sessions never stored a lane — SQL used to show them blank. And
+    # every session says bot="keeper", so that column can't find the journal.
+    (data_dir / "bot_chats").mkdir()
+    store.write("bot_chats/index", {
+        "vault-old": {"bot": "keeper", "cwd": str(tmp_path / "vault")},
+        "build-old": {"bot": "keeper", "cwd": str(store.BUILD_DIR)},
+        "coding-new": {"bot": "keeper", "lane": "coding", "cwd": str(store.BUILD_DIR)},
+        "the-keeper": {"bot": "keeper", "journal": True, "cwd": str(tmp_path / "vault")},
+    })
+    store.write("bot_chats/footprints", {})
+    codestore.sync_sessions(())
+    rows = {r[0]: (r[1], r[2]) for r in _rows("SELECT id, lane, is_keeper FROM sessions")}
+    assert rows == {
+        "vault-old": ("personal", 0),
+        "build-old": ("orchestra", 0),
+        "coding-new": ("coding", 0),
+        "the-keeper": ("personal", 1),
+    }
+
+
 def test_sync_sessions_is_a_full_rederive(data_dir, tmp_path):
     repo = _make_repo(tmp_path / "repo")
     _commit(repo, "app.py", "x\n")

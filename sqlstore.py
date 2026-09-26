@@ -42,7 +42,7 @@ import time
 
 import store
 
-_SCHEMA_VERSION = 24
+_SCHEMA_VERSION = 25
 
 
 def _db_path():
@@ -503,7 +503,8 @@ def _run_ladder(conn):
             "  day TEXT NOT NULL,"
             # Full timestamp from the frontmatter (local, 'YYYY-MM-DD HH:MM:SS').
             "  ts TEXT,"
-            # 'B' = the owner, 'K' = the Keeper.
+            # 'B' = the owner, 'K' = the Keeper, 'S' = the system (a reminder
+            # the app sent — neither of theirs). Free text, so no migration.
             "  who TEXT NOT NULL DEFAULT 'B',"
             "  kind TEXT,"
             # Card id this one answers (the K-question/B-answer pairing).
@@ -2038,6 +2039,19 @@ def _run_ladder(conn):
             "  extra TEXT"
             ")"
         )
+    if version < 25:
+        # Mark the real Keeper sessions. `bot` says "keeper" on nearly every
+        # session (a leftover default from when the Keeper was the only bot),
+        # so it can't tell the journal apart from a coding session; a
+        # journaling session can (lanes.is_keeper). The `lane` column beside
+        # it is now filled by derivation for sessions that never stored one
+        # (codestore.sync_sessions). Same ALTER-and-swallow-duplicate shape
+        # rung 14 uses, so a replayed ladder doesn't fail on it.
+        try:
+            conn.execute("ALTER TABLE sessions ADD COLUMN is_keeper INTEGER NOT NULL DEFAULT 0")
+        except sqlite3.OperationalError as e:
+            if "duplicate column" not in str(e):
+                raise
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 
