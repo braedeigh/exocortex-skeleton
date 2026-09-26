@@ -25,9 +25,9 @@ Buy-organic-or-not for the grocery list (estimatestore.py):
     GET  /api/food/list-verdicts      each list item with its research verdict
                                       and Claude's estimate, plus the vocab,
                                       whether a run is going, and the last run
-    GET  /api/food/evidence?name=     what her research tables hold about one
-                                      list item: claims and measurements, each
-                                      with its studies (links included)
+    GET  /api/food/page?name=         one food's page under Research: verdict,
+                                      estimate, claims and measurements
+    GET  /api/food/pages              every food with what's known about it
     POST /api/food/estimates/run      {force?} — start scripts/estimate_organic.py
     POST /api/food/estimates/<id>/review   {review: unreviewed|confirmed|disputed}
 
@@ -165,13 +165,19 @@ def register(app):
                     last_run=estimatestore.last_run())
         return jsonify(view)
 
-    # The popup's "From your research": every claim and number about one item.
-    @app.route("/api/food/evidence")
-    def food_evidence():
+    # A food's own page under Research, and the list of every food's page.
+    @app.route("/api/food/page")
+    def food_page():
         name = (request.args.get("name") or "").strip()
         if not name:
             return jsonify({"ok": False, "error": "missing name"}), 400
-        return jsonify(estimatestore.evidence(name))
+        view = estimatestore.food_page(name)
+        view["vocab"] = estimatestore.vocab()
+        return jsonify(view)
+
+    @app.route("/api/food/pages")
+    def food_pages():
+        return jsonify(estimatestore.food_index())
 
     # Start an estimate run for the list items with none yet. Launched in its
     # own session, the same way routes/spinoff.py launches its runner, and

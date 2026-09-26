@@ -101,6 +101,9 @@ export function TablesPage() {
         <Link to="/research/claims" search={{}} className={pageStyles.pageHeadLink} title="The claims table">
           &#9776; Claims
         </Link>
+        <Link to="/research/foods" className={`${pageStyles.pageHeadLink} ${claimStyles.nextHeadLink}`} title="Every food">
+          Foods
+        </Link>
       </div>
 
       {/* Pick a table — or make one, or open the hazard map. */}

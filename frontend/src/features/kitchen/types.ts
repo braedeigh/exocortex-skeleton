@@ -178,6 +178,7 @@ export type VerdictReview = 'unreviewed' | 'confirmed' | 'disputed';
 export interface ResearchVerdict {
   id: number;
   verdict: OrganicVerdict;
+  reasoning: string | null;
   review: VerdictReview;
   author: 'llm' | 'owner';
   grounds: number;
@@ -266,8 +267,26 @@ export interface EvidenceMeasure {
   sources: EvidenceSource[];
 }
 
-export interface FoodEvidence {
+/** One food's page under Research (GET /api/food/page). */
+export interface FoodPageData {
   name: string;
+  food: { id: number; name: string; kind: string; category: string | null } | null;
+  research: ResearchVerdict | null;
+  estimate: OrganicEstimate | null;
   claims: EvidenceClaim[];
   measures: EvidenceMeasure[];
+  vocab: { verdicts: Record<OrganicVerdict, string>; qualifiers: Record<string, string> };
+}
+
+/** Every food, for the Foods page (GET /api/food/pages). */
+export interface FoodIndexData {
+  foods: {
+    id: number;
+    name: string;
+    category: string | null;
+    research: OrganicVerdict | null;
+    estimate: { verdict: OrganicVerdict; confidence: string } | null;
+    evidence: number;
+  }[];
+  verdicts: Record<OrganicVerdict, string>;
 }

@@ -53,9 +53,10 @@ def test_run_is_refused_while_one_is_going(client):
         assert client.post("/api/food/estimates/run", json={}).status_code == 409
 
 
-def test_evidence_needs_a_name(client):
-    assert client.get("/api/food/evidence").status_code == 400
+def test_food_page_answers_with_vocab(client):
+    body = client.get("/api/food/page?name=Kale").get_json()
+    assert (body["food"]["name"], body["vocab"]["verdicts"]["organic"]) == ("kale", "buy organic")
 
 
-def test_evidence_answers_for_a_name_with_no_research(client):
-    assert client.get("/api/food/evidence?name=Kale").get_json()["claims"] == []
+def test_food_pages_lists_the_catalog(client):
+    assert [f["name"] for f in client.get("/api/food/pages").get_json()["foods"]] == ["kale"]

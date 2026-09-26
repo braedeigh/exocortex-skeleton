@@ -81,30 +81,9 @@
   border-top: 1px solid var(--border);
 }
 
-.sectionHead {
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-  margin-bottom: 6px;
-}
-
-.subHead {
-  font-size: 13px;
-  font-weight: 700;
-  margin: 12px 0 4px;
-}
-
 .verdictLine {
   font-size: 18px;
   font-weight: 700;
-}
-
-.confidence {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-secondary);
 }
 
 .meta {
@@ -118,125 +97,16 @@
   line-height: 1.5;
 }
 
-.qualifiers {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.qualifier {
-  padding: 4px 10px;
-  border-radius: 12px;
-  background: var(--card-bg);
-  border: 1px solid var(--border);
-  font-size: 13px;
-  color: var(--text-secondary);
-}
-
-.contaminants {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.contaminant {
-  padding: 6px 0;
-  font-size: 14px;
-  line-height: 1.45;
-}
-
-.linkBtn {
-  display: inline-flex;
-  align-items: center;
-  min-height: 40px;
-  margin-top: 6px;
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--accent);
-  text-decoration: none;
-}
-
-.reviewRow {
+.pageBtn {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
+  min-height: 44px;
   margin-top: 12px;
-}
-
-.reviewRow .meta {
-  flex: 1;
-}
-
-.reviewBtn {
-  min-height: 40px;
-  padding: 6px 16px;
-  border-radius: 16px;
-  border: 1px solid var(--border);
-  background: none;
-  color: var(--text-secondary);
-  font-family: inherit;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.reviewBtnOn {
-  border-color: var(--accent);
+  border-radius: 22px;
   background: var(--accent);
   color: #fff;
-}
-
-.footnote {
-  margin-top: 10px;
-  font-size: 12px;
-  color: var(--text-muted);
-  font-style: italic;
-}
-
-/* ---- her research, in the popup ---- */
-
-.evidence {
-  margin: 4px 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.evidenceItem {
-  padding: 8px 0;
-}
-
-.evidenceItem + .evidenceItem {
-  border-top: 1px dashed var(--border);
-}
-
-.evidenceText {
-  font-size: 14px;
-  line-height: 1.45;
-  margin-bottom: 2px;
-}
-
-.usedTag {
-  margin-left: 6px;
-  padding: 1px 8px;
-  border-radius: 10px;
-  background: rgba(124, 92, 191, 0.15);
-  color: var(--accent);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.sources {
-  display: flex;
-  flex-direction: column;
-  margin-top: 4px;
-}
-
-.sourceLink {
-  display: inline-flex;
-  align-items: center;
-  min-height: 40px;
-  font-size: 13px;
-  color: var(--accent);
-  text-decoration: underline;
-  overflow-wrap: anywhere;
+  font-size: 15px;
+  font-weight: 700;
+  text-decoration: none;
 }

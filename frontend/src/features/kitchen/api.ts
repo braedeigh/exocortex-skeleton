@@ -5,7 +5,8 @@
  */
 import { api, ApiError } from '../../api/client';
 import type {
-  FoodEvidence,
+  FoodIndexData,
+  FoodPageData,
   FoodTest,
   KitchenData,
   ListVerdicts,
@@ -30,8 +31,12 @@ export function getListVerdicts(signal?: AbortSignal) {
   return api.get<ListVerdicts>('/api/food/list-verdicts', signal);
 }
 
-export function getFoodEvidence(name: string, signal?: AbortSignal) {
-  return api.get<FoodEvidence>(`/api/food/evidence?name=${encodeURIComponent(name)}`, signal);
+export function getFoodPage(name: string, signal?: AbortSignal) {
+  return api.get<FoodPageData>(`/api/food/page?name=${encodeURIComponent(name)}`, signal);
+}
+
+export function getFoodIndex(signal?: AbortSignal) {
+  return api.get<FoodIndexData>('/api/food/pages', signal);
 }
 
 export function runEstimates(force = false) {

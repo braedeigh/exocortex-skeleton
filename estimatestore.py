@@ -268,6 +268,15 @@ def _list_items():
             yield name, item.get("category"), bool(item.get("checked"))
 
 
+# A research verdict on the whole food (not about one hazard only), with its
+# reasoning and how many measurements it rests on. Keyed by food id.
+_RESEARCH_SQL = (
+    "SELECT j.food_id, j.id, j.verdict, j.reasoning, j.review, j.author,"
+    " (SELECT COUNT(*) FROM judgment_grounds g WHERE g.judgment_id = j.id)"
+    " FROM food_judgments j WHERE j.lens = ? AND j.hazard_id IS NULL")
+_RESEARCH_KEYS = ("id", "verdict", "reasoning", "review", "author", "grounds")
+
+
 def list_view(lens="health"):
     """Every grocery-list item with what is known about buying it organic.
 
@@ -284,10 +293,8 @@ def list_view(lens="health"):
         # with how many measurements each rests on.
         research = {}
         for row in conn.execute(
-                "SELECT j.food_id, j.id, j.verdict, j.review, j.author,"
-                " (SELECT COUNT(*) FROM judgment_grounds g WHERE g.judgment_id = j.id)"
-                " FROM food_judgments j WHERE j.lens = ? AND j.hazard_id IS NULL", (lens,)):
-            research[row[0]] = dict(zip(("id", "verdict", "review", "author", "grounds"), row[1:]))
+                _RESEARCH_SQL, (lens,)):
+            research[row[0]] = dict(zip(_RESEARCH_KEYS, row[1:]))
         estimates = {
             row[1]: _estimate_dict(row) for row in conn.execute(
                 f"SELECT {', '.join(_COLUMNS)} FROM food_estimates WHERE lens = ?", (lens,))
@@ -454,6 +461,63 @@ def evidence_counts(names):
     finally:
         conn.close()
     return counts
+
+
+# --- a page per food ----------------------------------------------------------
+
+def food_page(name, lens="health"):
+    """Everything about buying one food organic, for its page under Research:
+    the food (or None when no food answers to the name), the research verdict,
+    Claude's estimate, and every claim and measurement with its studies."""
+    conn = _read_conn()
+    try:
+        row = conn.execute(
+            "SELECT f.id, f.name, f.kind, f.category FROM food_names n"
+            " JOIN foods f ON f.id = n.food_id WHERE n.name = ?",
+            (foodstore._norm(name),)).fetchone()
+        food = dict(zip(("id", "name", "kind", "category"), row)) if row else None
+        research = estimate = None
+        if food:
+            research_row = conn.execute(_RESEARCH_SQL + " AND j.food_id = ?",
+                                        (lens, food["id"])).fetchone()
+            if research_row:
+                research = dict(zip(_RESEARCH_KEYS, research_row[1:]))
+            estimate_row = conn.execute(
+                f"SELECT {', '.join(_COLUMNS)} FROM food_estimates WHERE food_id = ? AND lens = ?",
+                (food["id"], lens)).fetchone()
+            if estimate_row:
+                estimate = _estimate_dict(estimate_row)
+    finally:
+        conn.close()
+    found = evidence(name)
+    return {"name": food["name"] if food else name, "food": food, "research": research,
+            "estimate": estimate, "claims": found["claims"], "measures": found["measures"]}
+
+
+def food_index(lens="health"):
+    """Every food in the catalog (kind 'food'), each with its research verdict,
+    its estimate, and how much research is about it — the Foods page's list.
+    Foods with something known come first, then alphabetical."""
+    conn = _read_conn()
+    try:
+        foods = conn.execute(
+            "SELECT id, name, category FROM foods WHERE kind = 'food' ORDER BY name COLLATE NOCASE"
+        ).fetchall()
+        research = {row[0]: row[2] for row in conn.execute(_RESEARCH_SQL, (lens,))}
+        estimates = {food_id: (verdict, confidence) for food_id, verdict, confidence in conn.execute(
+            "SELECT food_id, verdict, confidence FROM food_estimates WHERE lens = ?", (lens,))}
+    finally:
+        conn.close()
+    counts = evidence_counts([name for _id, name, _category in foods])
+    rows = []
+    for food_id, name, category in foods:
+        estimate = estimates.get(food_id)
+        rows.append({"id": food_id, "name": name, "category": category,
+                     "research": research.get(food_id),
+                     "estimate": {"verdict": estimate[0], "confidence": estimate[1]} if estimate else None,
+                     "evidence": counts.get(name, 0)})
+    rows.sort(key=lambda r: not (r["research"] or r["estimate"] or r["evidence"]))
+    return {"foods": rows, "verdicts": dict(hazardstore.VERDICTS)}
 
 
 # --- the estimate run ---------------------------------------------------------

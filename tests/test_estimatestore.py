@@ -242,3 +242,24 @@ def test_claim_goes_to_the_most_specific_food_in_the_catalog(research):
     foodstore.add_food("yukon potatoes")
     assert (estimatestore.evidence("potatoes")["claims"],
             [c["id"] for c in estimatestore.evidence("yukon potatoes")["claims"]]) == ([], [CLAIM])
+
+
+# --- a page per food ---------------------------------------------------------------
+
+def test_food_page_gathers_verdict_estimate_and_claims(research):
+    foodstore.add_food("yukon potatoes")
+    hazardstore.judge("yukon potatoes", "health", "organic", reasoning="residues", author="owner")
+    estimatestore.save("yukon potatoes", answer("yukon potatoes"))
+    page = estimatestore.food_page("Yukon Potatoes")
+    assert (page["research"]["reasoning"], page["estimate"]["verdict"], [c["id"] for c in page["claims"]]) == \
+        ("residues", "organic", [CLAIM])
+
+
+def test_food_page_for_a_name_with_no_food_still_answers(research):
+    page = estimatestore.food_page("dragonfruit")
+    assert (page["food"], page["claims"]) == (None, [])
+
+
+def test_food_index_lists_known_foods_first_and_skips_household(kitchen):
+    estimatestore.save("rice", answer("Rice"))
+    assert [f["name"] for f in estimatestore.food_index()["foods"]] == ["rice", "kale"]

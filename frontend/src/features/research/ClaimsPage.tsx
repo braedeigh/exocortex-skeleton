@@ -220,6 +220,10 @@ export function ClaimsPage() {
         <Link to="/research/tables" search={{}} className={`${pageStyles.pageHeadLink} ${styles.nextHeadLink}`} title="Research tables">
           &#9638; Tables
         </Link>
+        {/* A page per food — buy organic or not, with its claims and studies. */}
+        <Link to="/research/foods" className={`${pageStyles.pageHeadLink} ${styles.nextHeadLink}`} title="Every food">
+          Foods
+        </Link>
       </div>
 
       {/* Filter pills: one row of fronts, one row of that front's topics. */}
