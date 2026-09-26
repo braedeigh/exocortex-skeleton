@@ -30,7 +30,7 @@ import { useToasts } from '../journal/useJournalData';
 import { researchErrorMessage } from './api';
 import { HazardMap } from './HazardMap';
 import { NewTableForm } from './NewTableForm';
-import { TableDetail } from './TableDetail';
+import { JudgmentCard, TableDetail } from './TableDetail';
 import { cellHeadline, cellReview, formatAmount, isMeasure } from './tableMath';
 import { REVIEW_CLASS } from './tableStyles';
 import type { CellEntry, JudgmentSummary, MeasureSummary, TableColumn, TableView, TablesVocab } from './types';
@@ -46,6 +46,9 @@ export interface TablesSearch {
   col?: string;
   view?: 'map' | 'new';
   all?: boolean;
+  /** One verdict on its own, outside any table — where the kitchen's grocery
+   * list links to. */
+  verdict?: number;
 }
 
 const ROUTE_ID = '/research_/tables' as const;
@@ -133,6 +136,13 @@ export function TablesPage() {
 
       {tablesError ? (
         <div className={claimStyles.errorNote}>{tablesError}</div>
+      ) : search.verdict && !search.table && !search.view ? (
+        <div className={claimStyles.claimCard}>
+          <button type="button" className={claimStyles.backBar} onClick={() => go({ verdict: undefined })}>
+            &#8249; all tables
+          </button>
+          <JudgmentCard id={search.verdict} vocab={vocab} mutations={mutations} />
+        </div>
       ) : search.view === 'new' && vocab ? (
         <NewTableForm
           vocab={vocab}

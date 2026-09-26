@@ -204,7 +204,10 @@ function MeasureCard({ id, mutations }: { id: number; mutations: Mutations }) {
 }
 
 /** One verdict in full: what, why, the numbers under it, and her review. */
-function JudgmentCard({ id, vocab, mutations }: { id: number; vocab: TablesVocab | undefined; mutations: Mutations }) {
+/** One verdict in full, with its review buttons. Also opened on its own by
+ * TablesPage when linked to with ?verdict=<id> (the kitchen's grocery list
+ * links here). */
+export function JudgmentCard({ id, vocab, mutations }: { id: number; vocab: TablesVocab | undefined; mutations: Mutations }) {
   const query = useJudgment(id);
   const judgment: JudgmentDetail | undefined = query.data;
   if (query.isLoading) return <div className={pageStyles.loading}>Loading&hellip;</div>;

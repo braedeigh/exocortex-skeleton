@@ -7,6 +7,8 @@ import { api, ApiError } from '../../api/client';
 import type {
   FoodTest,
   KitchenData,
+  ListVerdicts,
+  VerdictReview,
   ParsedReceiptMeta,
   ParsedRecipeMeta,
   Recipe,
@@ -19,6 +21,20 @@ import type { LearnRule } from './receiptHelpers';
 
 export function getKitchenData(signal?: AbortSignal) {
   return api.get<KitchenData>('/api/data/kitchen', signal);
+}
+
+// --- Buy organic or not, per grocery-list item (routes/food.py) ---
+
+export function getListVerdicts(signal?: AbortSignal) {
+  return api.get<ListVerdicts>('/api/food/list-verdicts', signal);
+}
+
+export function runEstimates(force = false) {
+  return api.post<{ ok: boolean }>('/api/food/estimates/run', { force });
+}
+
+export function reviewEstimate(id: number, review: VerdictReview) {
+  return api.post<{ ok: boolean }>(`/api/food/estimates/${id}/review`, { review });
 }
 
 // --- Grocery list ---

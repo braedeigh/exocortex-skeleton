@@ -2420,5 +2420,65 @@
         "holds": "Its value."
       }
     }
+  },
+  "food_estimates": {
+    "holds": "Claude's estimate of whether a food is worth buying organic, made from general knowledge rather than measurements. The grocery list shows it until real research exists; a research verdict (food_judgments) always outranks it.",
+    "source": "Written only through estimatestore.py (scripts/estimate_organic.py asks the model; the owner reviews through routes/food.py). Backed up to food_estimates.json after every change and read back from it if the table is ever empty.",
+    "kind": "record",
+    "time_column": "created_at",
+    "columns": {
+      "id": {
+        "holds": "The estimate's number."
+      },
+      "food_id": {
+        "holds": "The food. Points at foods."
+      },
+      "lens": {
+        "holds": "What the estimate weighs — today always 'health'."
+      },
+      "verdict": {
+        "holds": "The estimate.",
+        "values": {
+          "organic": "Buy organic.",
+          "some": "Organic helps some.",
+          "conventional": "Conventional is fine.",
+          "open": "Open question — can't say."
+        }
+      },
+      "confidence": {
+        "holds": "How sure the model said it was — its own rough sense, not a measured probability.",
+        "values": {
+          "high": "Broad, consistent evidence.",
+          "medium": "Some evidence, some gaps.",
+          "low": "Few or disputed studies."
+        }
+      },
+      "summary": {
+        "holds": "Why, in two to four plain sentences."
+      },
+      "qualifiers": {
+        "holds": "A JSON list of short words that shade the estimate (estimatestore.QUALIFIERS), like 'organic doesn't touch the main risk'."
+      },
+      "contaminants": {
+        "holds": "A JSON list of what else is known to get into this food besides pesticide residue — PFAS, heavy metals, mycotoxins and the like — each with what is known, whether organic helps, and how solid the evidence is."
+      },
+      "model": {
+        "holds": "Which model made the estimate."
+      },
+      "review": {
+        "holds": "Whether the owner has looked at it.",
+        "values": {
+          "unreviewed": "Not looked at yet — every fresh estimate starts here.",
+          "confirmed": "She agrees.",
+          "disputed": "She doesn't."
+        }
+      },
+      "reviewed_at": {
+        "holds": "When she last marked it."
+      },
+      "created_at": {
+        "holds": "When the model made it."
+      }
+    }
   }
 }

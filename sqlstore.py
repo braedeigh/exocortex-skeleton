@@ -42,7 +42,7 @@ import time
 
 import store
 
-_SCHEMA_VERSION = 25
+_SCHEMA_VERSION = 26
 
 
 def _db_path():
@@ -2225,6 +2225,38 @@ def _run_ladder(conn):
             " FROM food_judgments j"
             " JOIN foods f ON f.id = j.food_id"
             " LEFT JOIN hazards h ON h.id = j.hazard_id"
+        )
+    if version < 26:
+        # Rung 26: Claude's estimate of buy-organic-or-not for a food, made
+        # from what the model already knows rather than from measurements —
+        # the grocery list shows it until real research exists. Kept apart
+        # from food_judgments on purpose: a verdict there must rest on
+        # numbers, and a guess must never pass as one. Written only by
+        # estimatestore.py.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS food_estimates ("
+            "  id INTEGER PRIMARY KEY,"
+            "  food_id INTEGER NOT NULL REFERENCES foods(id) ON DELETE CASCADE,"
+            # The vocabulary lives in hazardstore.LENSES.
+            "  lens TEXT NOT NULL,"
+            "  verdict TEXT NOT NULL"
+            "    CHECK (verdict IN ('organic','some','conventional','open')),"
+            "  confidence TEXT NOT NULL CHECK (confidence IN ('high','medium','low')),"
+            # Why, in two to four plain sentences.
+            "  summary TEXT NOT NULL,"
+            # JSON: a list of words from estimatestore.QUALIFIERS.
+            "  qualifiers TEXT NOT NULL DEFAULT '[]',"
+            # JSON: what else is known to get into this food besides
+            # pesticide residue (PFAS, heavy metals…), each with whether
+            # organic helps and how solid the evidence is.
+            "  contaminants TEXT NOT NULL DEFAULT '[]',"
+            "  model TEXT,"
+            "  review TEXT NOT NULL DEFAULT 'unreviewed'"
+            "    CHECK (review IN ('unreviewed','confirmed','disputed')),"
+            "  reviewed_at TEXT,"
+            "  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),"
+            "  UNIQUE (food_id, lens)"
+            ")"
         )
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")

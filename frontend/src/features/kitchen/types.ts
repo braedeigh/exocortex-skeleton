@@ -168,3 +168,64 @@ export interface FoodTest {
   cleared_baseline_on?: string;
   notes?: string;
 }
+
+// --- Buy organic or not (routes/food.py list-verdicts → estimatestore.py) ---
+
+export type OrganicVerdict = 'organic' | 'some' | 'conventional' | 'open';
+export type VerdictReview = 'unreviewed' | 'confirmed' | 'disputed';
+
+/** A research verdict on the whole food — rests on measured numbers. */
+export interface ResearchVerdict {
+  id: number;
+  verdict: OrganicVerdict;
+  review: VerdictReview;
+  author: 'llm' | 'owner';
+  grounds: number;
+}
+
+/** Something else known to get into a food, besides pesticide residue. */
+export interface Contaminant {
+  name: string;
+  known: string;
+  organic_helps: 'yes' | 'partly' | 'no' | 'unknown';
+  evidence: 'established' | 'suggestive' | 'speculative';
+}
+
+/** Claude's estimate, from general knowledge rather than measurements. */
+export interface OrganicEstimate {
+  id: number;
+  verdict: OrganicVerdict;
+  confidence: 'high' | 'medium' | 'low';
+  summary: string;
+  qualifiers: string[];
+  contaminants: Contaminant[];
+  model: string | null;
+  review: VerdictReview;
+  created_at: string;
+}
+
+export interface ListVerdictItem {
+  name: string;
+  checked: boolean;
+  food_id: number | null;
+  kind: string;
+  research: ResearchVerdict | null;
+  estimate: OrganicEstimate | null;
+}
+
+export interface EstimateRun {
+  started: string;
+  finished: string | null;
+  asked: number;
+  saved: string[];
+  failures: { food: string; error: string }[];
+}
+
+export interface ListVerdicts {
+  lens: string;
+  items: ListVerdictItem[];
+  pending: number;
+  running: boolean;
+  last_run: EstimateRun | null;
+  vocab: { verdicts: Record<OrganicVerdict, string>; qualifiers: Record<string, string> };
+}

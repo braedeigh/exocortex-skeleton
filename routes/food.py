@@ -20,15 +20,32 @@ Claude session over HTTP, rather than only by hand in Python.
     POST /api/food/makes              {recipe_id, food|null}
     POST /api/food/rotation           {recipe_id, per_week|null, since?, note?}
 
+Buy-organic-or-not for the grocery list (estimatestore.py):
+
+    GET  /api/food/list-verdicts      each list item with its research verdict
+                                      and Claude's estimate, plus the vocab,
+                                      whether a run is going, and the last run
+    POST /api/food/estimates/run      {force?} — start scripts/estimate_organic.py
+    POST /api/food/estimates/<id>/review   {review: unreviewed|confirmed|disputed}
+
 A food may be given as its id or as any name it goes by. Bad input (an unknown
 food, a name another food already has, a value a CHECK refuses) comes back as
 a 400 with the reason, never a 500.
 """
+import os
 import sqlite3
+import subprocess
+import sys
 
 from flask import jsonify, request
 
+import estimatestore
 import foodstore
+import store
+
+# The estimate run, started detached so it outlives this request and worker.
+_ESTIMATE_SCRIPT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                "scripts", "estimate_organic.py")
 
 
 def _food_ref(value):
@@ -135,3 +152,32 @@ def register(app):
         return _run(foodstore.set_rotation, body["recipe_id"],
                     per_week=body.get("per_week", 1), since=body.get("since"),
                     note=body.get("note"))
+
+    # The grocery list's buy-organic chips: what's known per item, and the
+    # words to show it in.
+    @app.route("/api/food/list-verdicts")
+    def food_list_verdicts():
+        view = estimatestore.list_view()
+        view.update(vocab=estimatestore.vocab(), running=estimatestore.running(),
+                    last_run=estimatestore.last_run())
+        return jsonify(view)
+
+    # Start an estimate run for the list items with none yet. Launched in its
+    # own session, the same way routes/spinoff.py launches its runner, and
+    # refused while one is already going.
+    @app.route("/api/food/estimates/run", methods=["POST"])
+    def food_estimates_run():
+        if estimatestore.running():
+            return jsonify({"ok": False, "error": "an estimate run is already going"}), 409
+        command = [sys.executable, _ESTIMATE_SCRIPT]
+        if (request.json or {}).get("force"):
+            command.append("--force")
+        with open(store.DATA_DIR / "estimate_organic.log", "ab") as log:
+            subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
+                             env=dict(os.environ, EXOCORTEX_DATA_DIR=str(store.DATA_DIR)),
+                             start_new_session=True)
+        return jsonify({"ok": True})
+
+    @app.route("/api/food/estimates/<int:estimate_id>/review", methods=["POST"])
+    def food_estimate_review(estimate_id):
+        return _run(estimatestore.review, estimate_id, (request.json or {}).get("review"))

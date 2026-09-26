@@ -1,5 +1,18 @@
+/**
+ * GroceryListCard.tsx — the grocery list on the Kitchen tab.
+ *
+ * What this file does: draws the list grouped by store section (or aisle),
+ * each row with its check circle, note, location badge, safety tag and
+ * remove button, then a "Got it" group for what's been checked off. Around
+ * the list: the scan-receipt banners and the bulk buttons. Each unchecked row
+ * also gets a buy-organic chip that opens a popup with the why
+ * (OrganicVerdict.tsx). Every write goes through the actions KitchenPage.tsx
+ * passes in (useKitchenData.ts); a logged-out visitor sees the list read-only
+ * and no organic chips.
+ */
 import { useRef, useState } from 'react';
 import { groupGroceryItems, kitchenCats, nextSafetyTag } from './catalogHelpers';
+import { EstimateBar, OrganicChip, OrganicModal, useListVerdicts } from './OrganicVerdict';
 import { locationOptions, locationValue } from './receiptHelpers';
 import type { GroceryItem, KitchenData, ParsedReceiptMeta } from './types';
 import styles from './kitchen.module.css';
@@ -151,6 +164,11 @@ export function GroceryListCard({
   const showReceiptBanner = allChecked && !receiptDismissed && !isPublic;
   const groups = groupGroceryItems(unchecked, categoryOrder, categoryLabels, aislesMap);
 
+  // Buy organic or not, per item: the chip on each row and the popup it opens.
+  const verdicts = useListVerdicts(items.map((i) => i.name), !isPublic);
+  const [organicOpen, setOrganicOpen] = useState<string | null>(null);
+  const organicItem = organicOpen ? verdicts.byName.get(organicOpen) : undefined;
+
   function handleToggle(item: GroceryItem) {
     const wasLastUnchecked = !item.checked && unchecked.length === 1;
     void actions.toggle(item.name).then(() => {
@@ -258,6 +276,8 @@ export function GroceryListCard({
         </div>
       ) : null}
 
+      {!isPublic ? <EstimateBar data={verdicts.data} running={verdicts.running} onStarted={verdicts.markStarted} /> : null}
+
       {items.length ? (
         <div className={styles.card}>
           {groups.map((g, gi) => (
@@ -314,6 +334,9 @@ export function GroceryListCard({
                       <button type="button" className={styles.addNoteBtn} title="Add a note" onClick={() => onEditNote(item.name)}>
                         + note
                       </button>
+                    ) : null}
+                    {!isPublic ? (
+                      <OrganicChip item={verdicts.byName.get(item.name)} onOpen={() => setOrganicOpen(item.name)} />
                     ) : null}
                     <AisleBadge
                       item={item}
@@ -389,6 +412,10 @@ export function GroceryListCard({
       ) : (
         <div className={styles.emptyState}>Nothing on the list — add an item below</div>
       )}
+
+      {organicItem && verdicts.data ? (
+        <OrganicModal item={organicItem} data={verdicts.data} onClose={() => setOrganicOpen(null)} />
+      ) : null}
     </div>
   );
 }

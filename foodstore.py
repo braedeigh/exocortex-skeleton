@@ -508,6 +508,10 @@ def merge(keep, drop):
         conn.execute("UPDATE hazard_measures SET food_id = ? WHERE food_id = ?", (keep_id, drop_id))
         conn.execute("UPDATE OR IGNORE food_judgments SET food_id = ? WHERE food_id = ?",
                      (keep_id, drop_id))
+        # Claude's estimates (estimatestore.py) move the same way: keep's own
+        # estimate wins, drop's is deleted with it below.
+        conn.execute("UPDATE OR IGNORE food_estimates SET food_id = ? WHERE food_id = ?",
+                     (keep_id, drop_id))
         # Keep's judgments win; drop fills only what keep left empty.
         conn.execute(
             "UPDATE foods SET"
@@ -517,10 +521,13 @@ def merge(keep, drop):
             " WHERE id = ?", (drop_id, drop_id, drop_id, keep_id))
         conn.execute("DELETE FROM foods WHERE id = ?", (drop_id,))
     rebuild()
-    # The research tables keep their own backup file, and the move above
-    # changed their rows; imported here because hazardstore imports this module.
+    # The research tables and the estimates keep their own backup files, and
+    # the move above changed their rows; imported here because both import
+    # this module.
+    import estimatestore
     import hazardstore
     hazardstore.refresh_mirror()
+    estimatestore.refresh_mirror()
     return keep_id
 
 
