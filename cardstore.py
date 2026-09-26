@@ -49,8 +49,10 @@ from pathlib import Path
 import sqlstore
 import store
 
-# date.HHMM + b/k + optional counter — the only shape stream.py mints.
-_CARD_ID_RE = re.compile(r"^\d{4}-\d{2}-\d{2}\.\d{4}[bk]\d*$")
+# The only card-id shape stream.py mints: date.HHMM + the speaker's letter (b owner, k keeper, s system) + optional
+# counter. A card whose name doesn't match is skipped by the sync — so a
+# speaker missing here is a speaker silently missing from exo.db.
+_CARD_ID_RE = re.compile(r"^\d{4}-\d{2}-\d{2}\.\d{4}[bks]\d*$")
 
 
 def pool_dir() -> Path:

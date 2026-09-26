@@ -170,14 +170,18 @@ export function EntryCard({
     return markedBody === undefined ? html : marksToHtml(html);
   }, [bodyText, matcher, markedBody]);
   const isContext = card.kind === 'context';
-  const isK = card.who === 'K';
+  // The speaker badge: each of the three speakers has its own look, so a
+  // system reminder never passes for her words or the keeper's.
+  const whoClass = card.who === 'K' ? styles.who_K : card.who === 'S' ? styles.who_S : styles.who_B;
 
   const classes = [styles.card, isContext ? styles.context : '', editing ? styles.editing : ''].filter(Boolean).join(' ');
 
   return (
     <div className={classes} data-card-id={card.id}>
       <div className={styles.meta}>
-        <span className={`${styles.who} ${isK ? styles.who_K : styles.who_B}`}>{card.who}</span>
+        <span className={`${styles.who} ${whoClass}`} title={card.who === 'S' ? 'System reminder' : undefined}>
+          {card.who}
+        </span>
         <span className={styles.time}>{cardClock(card.ts)}</span>
         {/* The entry was changed after it was written: say when, and open
             what it used to say. The time above stays the original one. */}

@@ -1,6 +1,7 @@
 /**
  * The journal search's filters: a row that opens under the top bar when ⚙
- * is tapped. Narrows the search to who said it (you, or the Keeper) and to a
+ * is tapped. Narrows the search to who said it (you, the Keeper, or the
+ * system's reminders) and to a
  * range of days. Every change goes straight into the page address, like the
  * search words do, so back/forward and bookmarks keep them.
  *
@@ -14,6 +15,7 @@ const WHO_CHOICES: { value: SearchWho; label: string }[] = [
   { value: '', label: 'Everyone' },
   { value: 'B', label: 'Me' },
   { value: 'K', label: 'Keeper' },
+  { value: 'S', label: 'System' },
 ];
 
 export interface SearchFilterRowProps {

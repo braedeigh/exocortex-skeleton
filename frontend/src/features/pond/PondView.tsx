@@ -29,6 +29,17 @@ import { loadPondView, POND_VIEW_KEY, type WorkLayer } from './savedView';
 import { FileCodeBody } from '../terrain/FileCodeBody';
 import styles from './PondView.module.css';
 
+// Who a card is from, as the pond names and draws it: her, the Keeper, or the
+// system (a reminder the app sent). One place, so the dot, the hover and the
+// detail panel can't disagree — they used to call everything not the
+// Keeper's "You", which would have put system reminders in her voice.
+const WHO_NAME: Record<string, string> = { B: 'You', K: 'Keeper', S: 'System' };
+const whoName = (who: string) => WHO_NAME[who] ?? 'You';
+const whoDotClass = (who: string) =>
+  who === 'K' ? styles.fromKeeper : who === 'S' ? styles.fromSystem : styles.fromOwner;
+const whoHoverClass = (who: string) =>
+  who === 'K' ? styles.hoverDotKeeper : who === 'S' ? styles.hoverDotSystem : styles.hoverDotOwner;
+
 /**
  * PondView — the journal drawn as a place.
  *
@@ -296,6 +307,7 @@ function WorkDetail({
         <div className={styles.workSessionMeta}>
           {session ? (
             <>
+              {session.is_keeper ? 'keeper · ' : ''}
               {session.lane ? `${session.lane} · ` : ''}
               open {clockOf(session.started)}–{clockOf(session.last_at)}
               {session.worked_from && session.worked_to
@@ -1101,7 +1113,7 @@ export function PondView() {
                         type="button"
                         className={[
                           mode === 'clock' ? styles.dot : styles.wordCard,
-                          placed.card.who === 'K' ? styles.fromKeeper : styles.fromOwner,
+                          whoDotClass(placed.card.who),
                           lit && !isLit ? styles.dimmed : '',
                           // Once the rest is hidden, everything left IS the
                           // thread — marking each one says nothing.
@@ -1261,16 +1273,11 @@ export function PondView() {
                   }}
                 >
                   <div className={styles.hoverHead}>
-                    <span
-                      className={
-                        hover.card.who === 'K' ? styles.hoverDotKeeper : styles.hoverDotOwner
-                      }
-                      aria-hidden="true"
-                    />
+                    <span className={whoHoverClass(hover.card.who)} aria-hidden="true" />
                     <span className={styles.hoverTitle}>
                       {dayLabel(hover.card.day)}
                       {clockOf(hover.card.ts) ? ` · ${clockOf(hover.card.ts)}` : ''}
-                      {` · ${hover.card.who === 'K' ? 'Keeper' : 'You'}`}
+                      {` · ${whoName(hover.card.who)}`}
                     </span>
                   </div>
                   <div className={styles.hoverBody}>{hover.card.body}</div>
@@ -1302,9 +1309,9 @@ export function PondView() {
               <div className={styles.detailHead}>
                 <span className={styles.detailMeta}>
                   {detail.data?.card
-                    ? `${detail.data.card.day}${clockOf(detail.data.card.ts) ? ` · ${clockOf(detail.data.card.ts)}` : ''} · ${
-                        detail.data.card.who === 'K' ? 'Keeper' : 'You'
-                      }`
+                    ? `${detail.data.card.day}${clockOf(detail.data.card.ts) ? ` · ${clockOf(detail.data.card.ts)}` : ''} · ${whoName(
+                        detail.data.card.who,
+                      )}`
                     : 'Loading…'}
                 </span>
                 <button

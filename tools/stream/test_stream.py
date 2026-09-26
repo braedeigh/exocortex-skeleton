@@ -140,6 +140,27 @@ class IdCollisionTests(StreamTestCase):
         self.assertEqual(cid_b, "2026-07-06.0843b")
         self.assertEqual(cid_k, "2026-07-06.0843k")
 
+
+class SystemSpeakerTests(StreamTestCase):
+    """S — a reminder the app sent: its own speaker, id letter and day line."""
+
+    def test_system_card_mints_with_an_s_id(self):
+        ts = datetime(2026, 10, 16, 18, 0, 0)
+        cid = stream.record(who="S", body="Reminder (set by you): Permafest", ts=ts)
+        self.assertEqual(cid, "2026-10-16.1800s")
+        self.assertEqual(stream.read_card(cid).who, "S")
+
+    def test_system_card_renders_as_its_own_line(self):
+        ts = datetime(2026, 10, 16, 18, 0, 0)
+        stream.record(who="S", body="Reminder: Permafest", ts=ts)
+        day = stream.render_day("2026-10-16")
+        text = day.read_text() if hasattr(day, "read_text") else str(day)
+        self.assertIn("S: Reminder: Permafest", text)
+
+    def test_unknown_speaker_is_still_refused(self):
+        with self.assertRaises(stream.StreamError):
+            stream.record(who="X", body="nobody")
+
     def test_concurrent_records_same_minute_lose_nothing(self):
         # The mint->write TOCTOU guard: N threads recording in the same minute
         # for the same speaker must produce N distinct cards — the pool lock

@@ -729,6 +729,14 @@
 .fromKeeper { opacity: 0.72; font-style: italic; }
 .dot.fromKeeper { background-color: var(--text-muted); opacity: 0.4; }
 
+/* A system reminder — the app speaking, neither voice. An outlined dot in the
+   accent color: visible where it landed in her day, never mistaken for hers. */
+.fromSystem { opacity: 0.8; border: 1px dashed var(--border); }
+.dot.fromSystem {
+  background-color: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
 /* Emphasis, not a filter — the unlit pond stays drawn, just quieter, so a
    thread is seen in the context of everything else that was happening.
    (Doubled selectors on purpose: they must outweigh `.dot.fromKeeper`'s own
@@ -785,7 +793,8 @@
 /* The dot restated at the terrain hovercard's size, in the pond's own two
    inks — the card confirms which KIND of dot you're on. */
 .hoverDotOwner,
-.hoverDotKeeper {
+.hoverDotKeeper,
+.hoverDotSystem {
   flex: none;
   width: 8px;
   height: 8px;
@@ -794,6 +803,7 @@
 
 .hoverDotOwner { background: var(--text-secondary); }
 .hoverDotKeeper { background: var(--text-muted); }
+.hoverDotSystem { box-shadow: inset 0 0 0 1.5px var(--accent); }
 
 .hoverTitle {
   font-size: var(--font-size-sm);
