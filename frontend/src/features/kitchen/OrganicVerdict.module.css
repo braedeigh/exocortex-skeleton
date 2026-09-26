@@ -192,3 +192,51 @@
   color: var(--text-muted);
   font-style: italic;
 }
+
+/* ---- her research, in the popup ---- */
+
+.evidence {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.evidenceItem {
+  padding: 8px 0;
+}
+
+.evidenceItem + .evidenceItem {
+  border-top: 1px dashed var(--border);
+}
+
+.evidenceText {
+  font-size: 14px;
+  line-height: 1.45;
+  margin-bottom: 2px;
+}
+
+.usedTag {
+  margin-left: 6px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: rgba(124, 92, 191, 0.15);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.sources {
+  display: flex;
+  flex-direction: column;
+  margin-top: 4px;
+}
+
+.sourceLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  font-size: 13px;
+  color: var(--accent);
+  text-decoration: underline;
+  overflow-wrap: anywhere;
+}

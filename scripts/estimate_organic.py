@@ -3,8 +3,9 @@
 worth buying organic — and write the answers as estimates.
 
 What this file does: it takes every food on the grocery list that has no
-estimate yet (estimatestore.to_estimate), asks `claude -p` about them in
-batches of ten, checks each answer against estimatestore's vocabulary, and
+estimate yet (estimatestore.to_estimate), gathers what her research tables
+hold about each (estimatestore.evidence — claims with their figures), asks
+`claude -p` about them in batches of ten with that research in the prompt, checks each answer against estimatestore's vocabulary, and
 saves the ones that pass. An answer that fails the check is reported, never
 half-saved. One run at a time: a second run while one is going exits at once.
 The Kitchen page starts this through POST /api/food/estimates/run
@@ -62,8 +63,11 @@ For each food, give:
 - "summary": 2-4 plain sentences on why. Say what organic does and doesn't change for this food, including pesticide residue. No invented figures, no invented study names; if you mention a number, it must be one you are confident is widely reported.
 - "qualifiers": zero or more of these keys, only where they really apply:
 {qualifiers}
+- "claims": the ids of the research claims listed under that food (if any) that your answer actually relies on. Cite only ids listed under that same food; never invent one. An empty list is fine.
 - "contaminants": what ELSE is genuinely known to get into this particular food, apart from synthetic pesticide residue — for example PFAS, lead, cadmium, arsenic, mercury, mycotoxins (aflatoxin, ochratoxin), dioxins/PCBs, nitrates, BPA or phthalates from packaging, microplastics, veterinary drug residues. List only ones with real documented relevance to this food; an empty list is a fine answer. Each entry:
   {{"name": "...", "known": "1-2 sentences on what is actually established for this food", "organic_helps": "yes|partly|no|unknown", "evidence": "established|suggestive|speculative"}}
+
+Some foods below come with claims from the reader's own research library — figures pulled from studies they have collected, each with an id. Where these speak to the question, lean on them over general knowledge and say so in the summary ("your USDA figures show…"); where they don't, say what you know from general knowledge and mark it as that. A claim may be about a close stand-in (e.g. "yukon potatoes" for potatoes); treat it as such.
 
 Foods:
 {foods}
@@ -71,10 +75,26 @@ Foods:
 Answer with ONLY a JSON array, one object per food in the same order, each with "food" set to the food's name exactly as given above. No prose before or after it."""
 
 
-def build_prompt(names):
+def _claim_lines(evidence):
+    """One line per claim her tables hold about a food, for the prompt: its id,
+    what was measured on what, and the sentence itself."""
+    lines = []
+    for claim in evidence["claims"]:
+        figures = "; ".join(
+            f"{v['subject']}: {v['measure']} {v['amount']:g} {v['unit']}"
+            + (f" ({v['year']})" if v.get("year") else "")
+            for v in claim["values"] if v.get("amount") is not None)
+        lines.append(f"    [{claim['id']}] {figures} — {claim['text'][:300]}")
+    return lines
+
+
+def build_prompt(names, evidence_by_name=None):
     qualifiers = "\n".join(f'    "{key}" — {words}' for key, words in estimatestore.QUALIFIERS.items())
-    foods = "\n".join(f"- {name}" for name in names)
-    return PROMPT.format(qualifiers=qualifiers, foods=foods)
+    blocks = []
+    for name in names:
+        blocks.append(f"- {name}")
+        blocks += _claim_lines((evidence_by_name or {}).get(name, {"claims": []}))
+    return PROMPT.format(qualifiers=qualifiers, foods="\n".join(blocks))
 
 
 def run_claude(prompt):
@@ -105,8 +125,11 @@ def estimate(items, ask=run_claude):
     for start in range(0, len(items), BATCH_SIZE):
         batch = items[start:start + BATCH_SIZE]
         names = [name for name, _category in batch]
+        # Her research about each food goes into the prompt, and only those
+        # claim ids may be cited back.
+        evidence_by_name = {name: estimatestore.evidence(name) for name in names}
         try:
-            answers = parse_answer(ask(build_prompt(names)))
+            answers = parse_answer(ask(build_prompt(names, evidence_by_name)))
         except (ValueError, RuntimeError, subprocess.TimeoutExpired, OSError) as exc:
             failures.extend({"food": name, "error": str(exc)} for name in names)
             continue
@@ -120,7 +143,8 @@ def estimate(items, ask=run_claude):
                 continue
             try:
                 food_id = estimatestore.food_for_item(name, category)
-                estimatestore.save(food_id, answer, model=MODEL)
+                offered = [claim["id"] for claim in evidence_by_name[name]["claims"]]
+                estimatestore.save(food_id, answer, model=MODEL, offered_claims=offered)
                 saved.append(name)
             except ValueError as exc:
                 failures.append({"food": name, "error": str(exc)})
@@ -135,7 +159,9 @@ def main(argv=None):
 
     items = estimatestore.to_estimate(force=args.force)
     if args.dry_run:
-        print(build_prompt([name for name, _ in items]) if items else "nothing to estimate")
+        names = [name for name, _ in items]
+        print(build_prompt(names, {n: estimatestore.evidence(n) for n in names})
+              if items else "nothing to estimate")
         return 0
 
     # One run at a time: hold the lock for the whole run; a second run leaves.

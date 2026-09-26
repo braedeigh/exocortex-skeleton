@@ -2462,6 +2462,9 @@
       "contaminants": {
         "holds": "A JSON list of what else is known to get into this food besides pesticide residue — PFAS, heavy metals, mycotoxins and the like — each with what is known, whether organic helps, and how solid the evidence is."
       },
+      "claims": {
+        "holds": "A JSON list of the owner's research claims (research_entries ids) the estimate drew on. The model is shown the claims about the food and may cite only those."
+      },
       "model": {
         "holds": "Which model made the estimate."
       },

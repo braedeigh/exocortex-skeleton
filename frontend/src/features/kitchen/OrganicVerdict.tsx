@@ -6,8 +6,10 @@
  * (from general knowledge), and draws them. GroceryListCard.tsx puts an
  * OrganicChip on each row; tapping it opens OrganicModal with the why — the
  * summary, the qualifiers, and what else is known to get into that food — plus
- * her confirm/dispute on the estimate and a link into the research. The
- * EstimateBar above the list starts an estimate run for items with none.
+ * her confirm/dispute on the estimate. Above that, "Your research" lists every
+ * claim and measurement her research tables hold about the food, each linking
+ * into the Research page and out to the studies themselves. The EstimateBar
+ * above the list starts an estimate run for items with none.
  *
  * A research verdict is drawn solid; an estimate is drawn dashed with "≈" in
  * front, so a guess never looks like research. Server: routes/food.py
@@ -21,9 +23,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { useState } from 'react';
-import { getListVerdicts, reviewEstimate, runEstimates } from './api';
+import { getFoodEvidence, getListVerdicts, reviewEstimate, runEstimates } from './api';
 import { Modal } from './Modal';
-import type { ListVerdictItem, ListVerdicts, OrganicVerdict, VerdictReview } from './types';
+import type { EvidenceClaim, EvidenceMeasure, EvidenceSource, ListVerdictItem, ListVerdicts, OrganicVerdict, VerdictReview } from './types';
 import styles from './OrganicVerdict.module.css';
 
 const VERDICTS_KEY = ['kitchen', 'list-verdicts'] as const;
@@ -78,7 +80,16 @@ function isStarting(startedAt: number | null) {
 export function OrganicChip({ item, onOpen }: { item: ListVerdictItem | undefined; onOpen: () => void }) {
   if (!item || item.kind !== 'food') return null;
   const shown = item.research ?? item.estimate;
-  if (!shown) return null;
+  // No verdict or guess yet, but her research has something: a quiet chip
+  // that still opens the popup, so the studies are one tap away.
+  if (!shown) {
+    if (!item.evidence) return null;
+    return (
+      <button type="button" className={`${styles.chip} ${styles.verdictOpen} ${styles.chipGuess}`} title="Your research on this — tap to read" onClick={onOpen}>
+        research
+      </button>
+    );
+  }
   const guess = !item.research;
   const disputed = shown.review === 'disputed';
   return (
@@ -145,9 +156,10 @@ export function OrganicModal({ item, data, onClose }: { item: ListVerdictItem; d
 
   return (
     <Modal title={item.name} onClose={onClose}>
-      {/* The research verdict, when there is one — it outranks the estimate. */}
+      {/* Her research: the verdict if there is one (it outranks the guess),
+          then every claim and number her tables hold, each with its studies. */}
       <section className={styles.section}>
-        <div className={styles.sectionHead}>Research</div>
+        <div className={styles.sectionHead}>Your research</div>
         {research ? (
           <>
             <div className={`${styles.verdictLine} ${VERDICT_CLASS[research.verdict]}`}>{words[research.verdict]}</div>
@@ -155,17 +167,11 @@ export function OrganicModal({ item, data, onClose }: { item: ListVerdictItem; d
               rests on {research.grounds} measurement{research.grounds === 1 ? '' : 's'} · {REVIEW_WORDS[research.review]}
             </div>
             <Link to="/research/tables" search={{ verdict: research.id }} className={styles.linkBtn}>
-              Open the research →
+              Open the verdict →
             </Link>
           </>
-        ) : (
-          <>
-            <div className={styles.meta}>No research on this food yet.</div>
-            <Link to="/research/tables" search={{}} className={styles.linkBtn}>
-              Research tables →
-            </Link>
-          </>
-        )}
+        ) : null}
+        <EvidenceList name={item.name} usedByGuess={estimate?.claims ?? []} />
       </section>
 
       {/* Claude's estimate: the why, the qualifiers, and what else gets in. */}
@@ -231,5 +237,98 @@ export function OrganicModal({ item, data, onClose }: { item: ListVerdictItem; d
         )}
       </section>
     </Modal>
+  );
+}
+
+/** Every claim and measurement her tables hold about one food, fetched when
+ * the popup opens. Each claim links to itself on the Claims page and out to
+ * each study it rests on; a figure measured on a stand-in says so. */
+function EvidenceList({ name, usedByGuess }: { name: string; usedByGuess: string[] }) {
+  const query = useQuery({ queryKey: ['kitchen', 'evidence', name], queryFn: ({ signal }) => getFoodEvidence(name, signal) });
+  if (query.isLoading) return <div className={styles.meta}>Loading your research…</div>;
+  if (query.isError || !query.data) return <div className={styles.meta}>Could not load your research.</div>;
+  const { claims, measures } = query.data;
+  if (!claims.length && !measures.length) {
+    return (
+      <>
+        <div className={styles.meta}>Nothing in your research tables about this food yet.</div>
+        <Link to="/research/claims" search={{}} className={styles.linkBtn}>
+          Your claims →
+        </Link>
+      </>
+    );
+  }
+  return (
+    <ul className={styles.evidence}>
+      {claims.map((claim) => (
+        <ClaimRow key={claim.id} claim={claim} name={name} used={usedByGuess.includes(claim.id)} />
+      ))}
+      {measures.map((measure) => (
+        <MeasureRow key={measure.id} measure={measure} />
+      ))}
+    </ul>
+  );
+}
+
+function ClaimRow({ claim, name, used }: { claim: EvidenceClaim; name: string; used: boolean }) {
+  const unreviewed = claim.author === 'llm' && !claim.reviewed;
+  return (
+    <li className={styles.evidenceItem}>
+      <div className={styles.evidenceText}>{claim.text}</div>
+      {claim.values.map((value, index) => (
+        <div key={index} className={styles.meta}>
+          {value.measure}
+          {value.amount != null ? ` · ${value.amount} ${value.unit}` : ''}
+          {value.year ? ` · ${value.year}` : ''}
+          {value.subject.toLowerCase() !== name.toLowerCase() ? ` · measured on ${value.subject}` : ''}
+        </div>
+      ))}
+      <div className={styles.meta}>
+        {claim.verdict ? `you marked it ${claim.verdict}` : unreviewed ? 'found by an agent, not reviewed yet' : ''}
+        {used ? <span className={styles.usedTag}>Claude’s guess used this</span> : null}
+      </div>
+      <SourceLinks sources={claim.sources} />
+      <Link to="/research/claims" search={{ claim: claim.id }} className={styles.linkBtn}>
+        Open in your research →
+      </Link>
+    </li>
+  );
+}
+
+function MeasureRow({ measure }: { measure: EvidenceMeasure }) {
+  return (
+    <li className={styles.evidenceItem}>
+      <div className={styles.evidenceText}>
+        {measure.hazard}: {measure.amount} {measure.unit}
+        {measure.year ? ` (${measure.year})` : ''}
+      </div>
+      <div className={styles.meta}>
+        {measure.measured_on ? `measured on ${measure.measured_on} · ` : ''}
+        {REVIEW_WORDS[measure.review]}
+      </div>
+      <SourceLinks sources={measure.sources} />
+    </li>
+  );
+}
+
+/** The studies themselves: each opens the original in a new tab. A source
+ * that argues against the claim says so. */
+function SourceLinks({ sources }: { sources: EvidenceSource[] }) {
+  if (!sources.length) return <div className={styles.meta}>no study linked</div>;
+  return (
+    <div className={styles.sources}>
+      {sources.map((source) =>
+        source.url ? (
+          <a key={source.id} href={source.url} target="_blank" rel="noopener noreferrer" className={styles.sourceLink}>
+            {source.stance === 'contradicts' ? 'against: ' : ''}
+            {source.title} ↗
+          </a>
+        ) : (
+          <span key={source.id} className={styles.meta}>
+            {source.title}
+          </span>
+        ),
+      )}
+    </div>
   );
 }

@@ -43,6 +43,7 @@ not pesticides."
 """
 import fcntl
 import json
+import re
 import sqlite3
 
 import foodstore
@@ -75,8 +76,8 @@ ORGANIC_HELPS = ("yes", "partly", "no", "unknown")
 EVIDENCE = ("established", "suggestive", "speculative")
 
 _COLUMNS = ("id", "food_id", "lens", "verdict", "confidence", "summary", "qualifiers",
-            "contaminants", "model", "review", "reviewed_at", "created_at")
-_JSON_COLUMNS = ("qualifiers", "contaminants")
+            "contaminants", "claims", "model", "review", "reviewed_at", "created_at")
+_JSON_COLUMNS = ("qualifiers", "contaminants", "claims")
 
 
 # --- backup: the mirror, and reading it back ---------------------------------
@@ -111,7 +112,8 @@ def _restore_if_empty(conn):
             conn.execute(
                 f"INSERT OR IGNORE INTO food_estimates ({', '.join(_COLUMNS)})"
                 f" VALUES ({', '.join('?' * len(_COLUMNS))})",
-                tuple(record.get(column) for column in _COLUMNS))
+                tuple(record.get(column, "[]" if column in _JSON_COLUMNS else None)
+                      for column in _COLUMNS))
         except sqlite3.IntegrityError:
             continue
     return True
@@ -160,11 +162,13 @@ def _read_conn():
 
 # --- checking what the model sent -------------------------------------------
 
-def clean(fields):
+def clean(fields, offered_claims=()):
     """Check an estimate's fields and return them tidied, or raise ValueError
     naming what is wrong. Unknown qualifiers are dropped rather than refused —
     a model inventing a word shouldn't lose the whole estimate — but a bad
-    verdict, confidence, or contaminant field is refused."""
+    verdict, confidence, or contaminant field is refused. A cited claim must
+    be one of `offered_claims`, the ones the model was actually shown: citing
+    anything else is refused, since that is a made-up reference."""
     verdict = fields.get("verdict")
     if verdict not in hazardstore.VERDICTS:
         raise ValueError(f"bad verdict {verdict!r}; one of {', '.join(hazardstore.VERDICTS)}")
@@ -191,26 +195,31 @@ def clean(fields):
             raise ValueError(f"{name}: evidence must be one of {', '.join(EVIDENCE)}")
         contaminants.append({"name": name, "known": known,
                              "organic_helps": item["organic_helps"], "evidence": item["evidence"]})
+    claims = [str(c) for c in dict.fromkeys(fields.get("claims") or [])]
+    unknown = [c for c in claims if c not in set(offered_claims)]
+    if unknown:
+        raise ValueError(f"cited claims it wasn't shown: {', '.join(unknown)}")
     return {"verdict": verdict, "confidence": confidence, "summary": summary,
-            "qualifiers": qualifiers, "contaminants": contaminants}
+            "qualifiers": qualifiers, "contaminants": contaminants, "claims": claims}
 
 
 # --- writing ------------------------------------------------------------------
 
-def save(food, fields, *, lens="health", model=None):
+def save(food, fields, *, lens="health", model=None, offered_claims=()):
     """Store an estimate for one food through one lens, replacing any earlier
     one (a fresh estimate starts unreviewed). Returns its id."""
     if lens not in hazardstore.LENSES:
         raise ValueError(f"bad lens {lens!r}; one of {', '.join(hazardstore.LENSES)}")
-    tidy = clean(fields)
+    tidy = clean(fields, offered_claims)
     with _Write() as conn:
         food_id = foodstore._food_id(conn, food)
         conn.execute("DELETE FROM food_estimates WHERE food_id = ? AND lens = ?", (food_id, lens))
         return conn.execute(
             "INSERT INTO food_estimates (food_id, lens, verdict, confidence, summary,"
-            " qualifiers, contaminants, model) VALUES (?,?,?,?,?,?,?,?)",
+            " qualifiers, contaminants, claims, model) VALUES (?,?,?,?,?,?,?,?,?)",
             (food_id, lens, tidy["verdict"], tidy["confidence"], tidy["summary"],
-             json.dumps(tidy["qualifiers"]), json.dumps(tidy["contaminants"]), model),
+             json.dumps(tidy["qualifiers"]), json.dumps(tidy["contaminants"]),
+             json.dumps(tidy["claims"]), model),
         ).lastrowid
 
 
@@ -263,8 +272,8 @@ def list_view(lens="health"):
     """Every grocery-list item with what is known about buying it organic.
 
     Per item: the food it resolves to (or None), the food's kind, the research
-    verdict on the whole food if there is one, and Claude's estimate if there
-    is one. `pending` counts the food items with no estimate yet — exactly
+    verdict on the whole food if there is one, Claude's estimate if there is
+    one, and how many claims and measurements her tables hold about it. `pending` counts the food items with no estimate yet — exactly
     what the estimate run fills. (A researched item is still estimated: the
     estimate's contaminant notes are worth having beside the research.)"""
     conn = _read_conn()
@@ -286,13 +295,15 @@ def list_view(lens="health"):
     finally:
         conn.close()
 
+    listed = list(_list_items())
+    counts = evidence_counts([name for name, _category, _checked in listed])
     items, pending = [], 0
-    for name, category, checked in _list_items():
+    for name, category, checked in listed:
         food_id = names.get(foodstore._norm(name))
         kind = kinds.get(food_id) if food_id else foodstore.NON_FOOD_CATEGORIES.get(category, "food")
         item = {"name": name, "category": category, "checked": checked, "food_id": food_id,
                 "kind": kind, "research": research.get(food_id),
-                "estimate": estimates.get(food_id)}
+                "estimate": estimates.get(food_id), "evidence": counts.get(name, 0)}
         if kind == "food" and not item["estimate"]:
             pending += 1
         items.append(item)
@@ -304,6 +315,145 @@ def to_estimate(lens="health", force=False):
     estimate yet (every food item, with `force`). Returns (name, category)."""
     return [(item["name"], item["category"]) for item in list_view(lens)["items"]
             if item["kind"] == "food" and (force or not item["estimate"])]
+
+
+# --- her research about one food ----------------------------------------------
+
+def _words(text):
+    """A name as a set of words for matching: lowercased, punctuation dropped,
+    plurals folded ("potatoes" → "potato", "onions" → "onion")."""
+    words = set()
+    for word in re.findall(r"[a-z]+", str(text or "").lower()):
+        if word.endswith("oes"):
+            word = word[:-2]
+        elif word.endswith("s") and not word.endswith("ss") and len(word) > 3:
+            word = word[:-1]
+        words.add(word)
+    return words
+
+
+def _about(subject_words, food_word_sets, catalog_word_sets=()):
+    """Whether a claim's subject is about this food: every word of one of the
+    food's names appears in the subject, and no food in the catalog matches it
+    more specifically. So "yukon potatoes" is about "potatoes" unless the
+    catalog also has "yukon potatoes"; "sweet potatoes" goes to "sweet
+    potatoes" when that is a food; and "cornmeal" is never "corn" (a
+    different word)."""
+    mine = max((len(words) for words in food_word_sets if words and words <= subject_words),
+               default=0)
+    if not mine:
+        return False
+    best = max((len(words) for words in catalog_word_sets if words and words <= subject_words),
+               default=0)
+    return mine >= best
+
+
+def _catalog_word_sets(conn):
+    """Every food name in the catalog as a word set, for _about's specificity check."""
+    return [w for w in (_words(n) for (n,) in conn.execute("SELECT name FROM food_names")) if w]
+
+
+def _food_word_sets(conn, name):
+    """Every way this food is written, as word sets: the list's own spelling,
+    plus each name the food catalog files under the same food."""
+    sets = [_words(name)]
+    row = conn.execute("SELECT food_id FROM food_names WHERE name = ?",
+                       (foodstore._norm(name),)).fetchone()
+    if row:
+        sets += [_words(n) for (n,) in conn.execute(
+            "SELECT name FROM food_names WHERE food_id = ?", (row[0],))]
+        sets += [_words(n) for (n,) in conn.execute(
+            "SELECT name FROM foods WHERE id = ?", (row[0],))]
+    return [s for s in sets if s]
+
+
+def _source_rows(conn, sql, params):
+    return [
+        {"id": sid, "title": " ".join(str(text or "").split()), "url": url or None,
+         "stance": stance}
+        for sid, text, url, stance in conn.execute(sql, params)
+    ]
+
+
+def evidence(name):
+    """What her research tables hold about one food, with every study behind it.
+
+    Two kinds of row, both from exo.db:
+      claims    — research claims whose number is about this food (claim_values
+                  subject matched by _about), each with its sources and the
+                  source's stance. `subject` is kept as written, so a claim
+                  about "yukon potatoes" shows that it was yukon potatoes.
+      measures  — numbers in the research tables (hazard_measures) for this
+                  food, each with the study it came from.
+    Claims about a whole category ("organic crops (all)") are not included;
+    they are about no food in particular."""
+    conn = _read_conn()
+    try:
+        word_sets = _food_word_sets(conn, name)
+        catalog = _catalog_word_sets(conn)
+        claims = {}
+        for (claim_id, text, verdict, author, reviewed, subject, measure, amount,
+             unit, basis, year, tier) in conn.execute(
+                "SELECT e.id, e.text, e.verdict, e.author, e.reviewed, v.subject, v.measure,"
+                " v.amount, v.unit, v.basis, v.year, v.tier"
+                " FROM claim_values v JOIN research_entries e ON e.id = v.claim_id"
+                " ORDER BY e.id"):
+            if not _about(_words(subject), word_sets, catalog):
+                continue
+            claim = claims.setdefault(claim_id, {
+                "id": claim_id, "text": " ".join(str(text or "").split()),
+                "verdict": verdict or None, "author": author or None,
+                "reviewed": reviewed, "values": []})
+            claim["values"].append({"subject": subject, "measure": measure, "amount": amount,
+                                    "unit": unit, "basis": basis, "year": year, "tier": tier})
+        for claim in claims.values():
+            claim["sources"] = _source_rows(
+                conn, "SELECT s.id, s.text, s.url, c.stance FROM claim_sources c"
+                " JOIN research_entries s ON s.id = c.source_id WHERE c.claim_id = ?"
+                " ORDER BY c.created", (claim["id"],))
+
+        measures = []
+        row = conn.execute("SELECT food_id FROM food_names WHERE name = ?",
+                           (foodstore._norm(name),)).fetchone()
+        if row:
+            for (measure_id, hazard, measure, amount, unit, year, measured_on, review_mark,
+                 source_id) in conn.execute(
+                    "SELECT m.id, h.name, m.measure, m.amount, m.unit, m.year, m.measured_on,"
+                    " m.review, m.source_id FROM hazard_measures m"
+                    " JOIN hazards h ON h.id = m.hazard_id WHERE m.food_id = ?"
+                    " ORDER BY h.name, m.year", (row[0],)):
+                measures.append({
+                    "id": measure_id, "hazard": hazard, "measure": measure, "amount": amount,
+                    "unit": unit, "year": year, "measured_on": measured_on,
+                    "review": review_mark,
+                    "sources": _source_rows(
+                        conn, "SELECT id, text, url, NULL FROM research_entries WHERE id = ?",
+                        (source_id,)) if source_id else []})
+    finally:
+        conn.close()
+    return {"name": name, "claims": list(claims.values()), "measures": measures}
+
+
+def evidence_counts(names):
+    """How many claims and measurements her tables hold for each name — the
+    list's cheap version of evidence(), one pass over the claim values."""
+    conn = _read_conn()
+    try:
+        subjects = [(claim_id, _words(subject)) for claim_id, subject in
+                    conn.execute("SELECT claim_id, subject FROM claim_values")]
+        measure_counts = dict(conn.execute(
+            "SELECT food_id, COUNT(*) FROM hazard_measures GROUP BY food_id"))
+        catalog = _catalog_word_sets(conn)
+        counts = {}
+        for name in names:
+            word_sets = _food_word_sets(conn, name)
+            claim_ids = {cid for cid, words in subjects if _about(words, word_sets, catalog)}
+            row = conn.execute("SELECT food_id FROM food_names WHERE name = ?",
+                               (foodstore._norm(name),)).fetchone()
+            counts[name] = len(claim_ids) + (measure_counts.get(row[0], 0) if row else 0)
+    finally:
+        conn.close()
+    return counts
 
 
 # --- the estimate run ---------------------------------------------------------

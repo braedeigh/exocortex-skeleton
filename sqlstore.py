@@ -42,7 +42,7 @@ import time
 
 import store
 
-_SCHEMA_VERSION = 26
+_SCHEMA_VERSION = 27
 
 
 def _db_path():
@@ -2258,6 +2258,12 @@ def _run_ladder(conn):
             "  UNIQUE (food_id, lens)"
             ")"
         )
+    if version < 27:
+        # Rung 27: which of her research claims an estimate drew on (JSON list
+        # of claim ids), so the popup can say the guess leaned on her studies.
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(food_estimates)")}
+        if "claims" not in columns:
+            conn.execute("ALTER TABLE food_estimates ADD COLUMN claims TEXT NOT NULL DEFAULT '[]'")
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 

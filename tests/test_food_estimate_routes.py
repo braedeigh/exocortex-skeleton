@@ -51,3 +51,11 @@ def test_run_is_refused_while_one_is_going(client):
     with open(estimatestore.lock_path(), "w") as held:
         fcntl.flock(held, fcntl.LOCK_EX)
         assert client.post("/api/food/estimates/run", json={}).status_code == 409
+
+
+def test_evidence_needs_a_name(client):
+    assert client.get("/api/food/evidence").status_code == 400
+
+
+def test_evidence_answers_for_a_name_with_no_research(client):
+    assert client.get("/api/food/evidence?name=Kale").get_json()["claims"] == []

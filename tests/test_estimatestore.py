@@ -163,3 +163,82 @@ def test_to_estimate_skips_household_and_already_estimated(kitchen):
 def test_prompt_names_every_qualifier(kitchen):
     prompt = estimate_organic.build_prompt(["Kale"])
     assert all(key in prompt for key in estimatestore.QUALIFIERS)
+
+
+# --- her research about a food ---------------------------------------------------
+
+SOURCE = "2026-09-24.1000"
+CLAIM = "2026-09-24.1000-2"
+OTHER_CLAIM = "2026-09-24.1000-3"
+
+
+@pytest.fixture
+def research(kitchen):
+    """One source, a claim about yukon potatoes backed by it, and a claim about
+    cornmeal — which must not count as corn."""
+    import researchstore
+
+    def entry(eid, kind, text, **over):
+        base = {"id": eid, "kind": kind, "text": text, "topics": [], "url": "", "verdict": "",
+                "status": "", "reply_to": None, "created": "2026-09-24 10:00"}
+        base.update(over)
+        return base
+
+    store.write("research.json", {"topics": [], "sessions": [], "entries": [
+        entry(SOURCE, "source", "USDA PDP 2023 summary", url="https://example.org/pdp"),
+        entry(CLAIM, "claim", "Yukon potatoes: 92.7% had residues", author="llm"),
+        entry(OTHER_CLAIM, "claim", "Cornmeal: 25.9% had residues", author="llm"),
+    ]})
+    researchstore.link_claim_source(CLAIM, SOURCE)
+    researchstore.set_claim_value(CLAIM, subject="yukon potatoes", measure="pesticide residue",
+                                  amount=92.7, unit="% of samples", year=2023)
+    researchstore.set_claim_value(OTHER_CLAIM, subject="cornmeal", measure="pesticide residue",
+                                  amount=25.9, unit="% of samples", year=2023)
+    return kitchen
+
+
+def test_evidence_finds_a_claim_about_a_stand_in_with_its_study_link(research):
+    claims = estimatestore.evidence("Potatoes")["claims"]
+    assert [(c["id"], c["values"][0]["subject"], c["sources"][0]["url"]) for c in claims] == \
+        [(CLAIM, "yukon potatoes", "https://example.org/pdp")]
+
+
+def test_evidence_does_not_count_cornmeal_as_corn(research):
+    assert estimatestore.evidence("corn")["claims"] == []
+
+
+def test_list_counts_evidence_per_item(research):
+    store.write("kitchen.json", {"items": [{"name": "Potatoes"}, {"name": "Kale"}]})
+    assert {i["name"]: i["evidence"] for i in estimatestore.list_view()["items"]} == \
+        {"Potatoes": 1, "Kale": 0}
+
+
+def test_estimate_may_cite_a_claim_it_was_shown(research):
+    foodstore.add_food("potatoes")
+    estimatestore.save("potatoes", answer("potatoes", claims=[CLAIM]), offered_claims=[CLAIM])
+    store.write("kitchen.json", {"items": [{"name": "Potatoes"}]})
+    assert items_by_name()["Potatoes"]["estimate"]["claims"] == [CLAIM]
+
+
+def test_estimate_citing_a_claim_it_was_not_shown_is_refused(research):
+    foodstore.add_food("potatoes")
+    with pytest.raises(ValueError):
+        estimatestore.save("potatoes", answer("potatoes", claims=[OTHER_CLAIM]), offered_claims=[CLAIM])
+
+
+def test_run_puts_her_claims_in_the_prompt(research):
+    seen = []
+
+    def ask(prompt):
+        seen.append(prompt)
+        return json.dumps([answer("Potatoes", claims=[CLAIM])])
+    saved, failures = estimate_organic.estimate([("Potatoes", "produce")], ask=ask)
+    assert (saved, CLAIM in seen[0]) == (["Potatoes"], True)
+
+
+def test_claim_goes_to_the_most_specific_food_in_the_catalog(research):
+    """With 'yukon potatoes' in the catalog, the yukon claim is its, not 'potatoes''."""
+    foodstore.add_food("potatoes")
+    foodstore.add_food("yukon potatoes")
+    assert (estimatestore.evidence("potatoes")["claims"],
+            [c["id"] for c in estimatestore.evidence("yukon potatoes")["claims"]]) == ([], [CLAIM])

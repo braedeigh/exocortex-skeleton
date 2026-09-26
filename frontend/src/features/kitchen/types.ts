@@ -199,6 +199,8 @@ export interface OrganicEstimate {
   summary: string;
   qualifiers: string[];
   contaminants: Contaminant[];
+  /** Ids of her research claims the estimate drew on. */
+  claims: string[];
   model: string | null;
   review: VerdictReview;
   created_at: string;
@@ -211,6 +213,8 @@ export interface ListVerdictItem {
   kind: string;
   research: ResearchVerdict | null;
   estimate: OrganicEstimate | null;
+  /** How many claims and measurements her research tables hold about it. */
+  evidence: number;
 }
 
 export interface EstimateRun {
@@ -228,4 +232,42 @@ export interface ListVerdicts {
   running: boolean;
   last_run: EstimateRun | null;
   vocab: { verdicts: Record<OrganicVerdict, string>; qualifiers: Record<string, string> };
+}
+
+/** A study behind a claim or a measurement, from her research pool. */
+export interface EvidenceSource {
+  id: string;
+  title: string;
+  url: string | null;
+  stance: 'supports' | 'contradicts' | 'context' | null;
+}
+
+/** One research claim about a food, with its figures and studies. */
+export interface EvidenceClaim {
+  id: string;
+  text: string;
+  verdict: string | null;
+  author: string | null;
+  reviewed: number | null;
+  values: { subject: string; measure: string; amount: number | null; unit: string; basis: string | null; year: number | null; tier: string | null }[];
+  sources: EvidenceSource[];
+}
+
+/** One number in the research tables about a food, with its study. */
+export interface EvidenceMeasure {
+  id: number;
+  hazard: string;
+  measure: string;
+  amount: number;
+  unit: string;
+  year: number | null;
+  measured_on: string | null;
+  review: VerdictReview;
+  sources: EvidenceSource[];
+}
+
+export interface FoodEvidence {
+  name: string;
+  claims: EvidenceClaim[];
+  measures: EvidenceMeasure[];
 }
