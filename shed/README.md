@@ -6,6 +6,6 @@ the router, and `server.py` none of them look here. Each folder has a `SHED.md` 
 was, why it was set down, and how to bring it back (`/shed restore <id>`).
 
 ## In the shed
-*(empty — nothing shed yet)*
+- [orchestra-2026-09-25](orchestra-2026-09-25/SHED.md) — Orchestra spinoffs' private copy of the code (per-spinoff worktree mint); the ask-first lane itself stays
 
 ## Restored

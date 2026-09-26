@@ -43,9 +43,10 @@ def spinoff_client(data_dir, monkeypatch):
     # reads. Cleared here so "no sender" tests mean it, and so the room tests
     # below set the sender themselves.
     monkeypatch.delenv("EXOCORTEX_CONV_ID", raising=False)
-    # An Orchestra mint now cuts a real git worktree. Tests must never do that
-    # to the live checkout, so the cut is recorded instead of run; the real git
-    # behaviour is covered against a throwaway repo in test_worktrees.py.
+    # Spinoffs no longer cut worktrees, but a regression would cut a REAL one
+    # in the live checkout — so any call is recorded instead of run, and the
+    # tests below assert there were none. Real git behaviour is covered
+    # against a throwaway repo in test_worktrees.py.
     mints = []
     def fake_mint(slug, base="HEAD"):
         mints.append(slug)
@@ -258,9 +259,8 @@ def test_a_spinoff_lands_in_the_senders_room(spinoff_client, monkeypatch):
 
 
 def test_an_orchestra_sender_spins_off_into_orchestra(spinoff_client, monkeypatch):
-    # An Orchestra child no longer stands in the shared checkout — it gets its
-    # own worktree (see the worktree tests below). The room is what's asserted
-    # here; the ground it picks is that section's business.
+    # The room is what's asserted here; the ground it picks (the shared
+    # checkout, no worktree) is the section below's business.
     _sender(monkeypatch, lane="orchestra")
     _write_brief(store.SPINOFF_DIR, "stays-orchestra")
     body = _post(spinoff_client, "stays-orchestra").get_json()
@@ -324,75 +324,19 @@ def test_the_room_drives_the_safety_nets_rather_than_being_pinned(spinoff_client
     assert config["act_gate"] is False and config["guard_docs"] is False
 
 
-# --- the private copy of the checkout (worktrees.py) -------------------------
-# Only Orchestra gets one. That room is the unwatched one, and two unwatched
-# agents editing one folder is how sessions have twice committed each other's
-# half-written files. Coding and Personal are her own hands and need the real
-# checkout — it's the one gunicorn serves and the one she refreshes.
+# --- no spinoff gets a private copy of the checkout ---------------------------
+# Orchestra spinoffs used to be minted their own git worktree; that is in the
+# shed (shed/orchestra-2026-09-25/SHED.md). Every room now works in its lane's
+# own cwd, and only the steward's adopt-mode (below) stands in a worktree.
 
-def test_an_orchestra_spinoff_is_rooted_in_its_own_worktree(spinoff_client):
-    _write_brief(store.SPINOFF_DIR, "isolated")
-    body = _post(spinoff_client, "isolated", room="orchestra").get_json()
-
-    assert spinoff_client._mints == ["isolated"]
-    entry = _index()[body["conversation_id"]]
-    assert entry["cwd"] == body["worktree"]
-    assert entry["cwd"] != str(store.BUILD_DIR)
-    assert entry["branch"].startswith("agent/isolated-")
-
-
-def test_her_own_rooms_stay_in_the_real_checkout(spinoff_client):
-    """Coding and Personal must keep the live edit-refresh loop — a worktree
-    session can't see its change in the browser, and that's the whole reason
-    those two rooms exist."""
-    for room in ("coding", "personal"):
-        _write_brief(store.SPINOFF_DIR, f"hers-{room}")
-        body = _post(spinoff_client, f"hers-{room}", room=room).get_json()
+def test_no_room_mints_a_worktree_for_a_spinoff(spinoff_client):
+    for room in ("coding", "personal", "orchestra"):
+        _write_brief(store.SPINOFF_DIR, f"shared-{room}")
+        body = _post(spinoff_client, f"shared-{room}", room=room).get_json()
         entry = _index()[body["conversation_id"]]
         assert entry.get("worktree") is None
         assert entry["cwd"] == observatory._lane_profile(room)["cwd"]
     assert spinoff_client._mints == []
-
-
-def test_the_opt_out_keeps_an_orchestra_spinoff_in_the_shared_checkout(spinoff_client):
-    _write_brief(store.SPINOFF_DIR, "shared-on-purpose")
-    body = _post(spinoff_client, "shared-on-purpose",
-                 room="orchestra", worktree=False).get_json()
-
-    assert spinoff_client._mints == []
-    assert _index()[body["conversation_id"]]["cwd"] == str(store.BUILD_DIR)
-
-
-def test_a_rejoin_never_cuts_a_second_worktree(spinoff_client):
-    """The bug worth naming: a live spinoff re-opened must not get a fresh
-    copy — and must certainly not have its running agent's directory
-    re-created underneath it."""
-    _write_brief(store.SPINOFF_DIR, "rejoined")
-    first = _post(spinoff_client, "rejoined", room="orchestra").get_json()
-
-    again = _post(spinoff_client, "rejoined", room="orchestra").get_json()
-
-    assert again["newly_spawned"] is False
-    assert again["conversation_id"] == first["conversation_id"]
-    assert spinoff_client._mints == ["rejoined"]
-
-
-def test_a_spinoff_whose_worktree_fails_still_runs_and_says_so(spinoff_client, monkeypatch):
-    """Degraded is still usable — the same call _launch_runner makes — but it
-    is never silent: without the flag nobody could tell which sessions are
-    sharing a tree, which is the exact thing the copy exists to remove."""
-    def boom(slug, base="HEAD"):
-        raise spinoff.worktrees.WorktreeError("no space left")
-    monkeypatch.setattr(spinoff.worktrees, "mint", boom)
-    _write_brief(store.SPINOFF_DIR, "degraded")
-
-    body = _post(spinoff_client, "degraded", room="orchestra").get_json()
-
-    assert body["ok"] is True
-    assert "no space left" in body["worktree_failed"]
-    entry = _index()[body["conversation_id"]]
-    assert entry["cwd"] == str(store.BUILD_DIR)
-    assert "no space left" in entry["worktree_failed"]
 
 
 def test_unknown_model_is_refused_without_touching_the_index(spinoff_client):
@@ -422,7 +366,7 @@ def test_no_model_means_no_field_so_the_cli_default_drives(spinoff_client):
 
 
 # --- adopt-mode: standing a spinoff on an EXISTING branch (the steward seam) --
-# `branch` switches the worktree from mint to adopt. Same door, a mode — the
+# `branch` stands the child on an existing branch. Same door, a mode — the
 # steward endpoint (routes/branches.py) and any future escalation spawner both
 # come through here rather than growing organs of their own.
 
@@ -451,8 +395,7 @@ def test_a_branch_spinoff_adopts_instead_of_minting(spinoff_client, monkeypatch,
 
 
 def test_a_failed_adoption_refuses_the_whole_spawn(spinoff_client, monkeypatch):
-    """Unlike a failed mint (degrade to the shared checkout, flag it), a failed
-    adoption refuses: a session that believes it stands on a branch and
+    """A failed adoption refuses the whole spawn: a session that believes it stands on a branch and
     doesn't is the lie the worktree exists to prevent."""
     def boom(slug, branch):
         raise spinoff.worktrees.WorktreeError("branch is checked out elsewhere")
@@ -470,14 +413,6 @@ def test_a_failed_adoption_refuses_the_whole_spawn(spinoff_client, monkeypatch):
 def test_adoption_outside_orchestra_is_a_caller_bug(spinoff_client):
     _write_brief(store.SPINOFF_DIR, "steward-lost")
     r = _post(spinoff_client, "steward-lost", room="coding", branch="agent/x")
-    assert r.status_code == 400
-    assert _index() == {}
-
-
-def test_adoption_without_a_worktree_is_a_caller_bug(spinoff_client):
-    _write_brief(store.SPINOFF_DIR, "steward-bare")
-    r = _post(spinoff_client, "steward-bare", room="orchestra",
-              branch="agent/x", worktree=False)
     assert r.status_code == 400
     assert _index() == {}
 

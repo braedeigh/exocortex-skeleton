@@ -7,8 +7,8 @@ never typed/shell-interpolated anywhere — only the fixed, short kickoff senten
 below is ever staged.
 
 A spinoff lands in the ROOM ITS SENDER IS STANDING IN — a /spinoff run from a
-Personal-room session mints a Personal child, from Orchestra an Orchestra one —
-unless the caller names a room outright. The room isn't decoration: it picks the
+Personal-room session mints a Personal child, from Coding a Coding one — unless
+the caller names a room outright. The room isn't decoration: it picks the
 child's cwd and whether it stops to ask before irreversible work (_lane_profile
 in routes/observatory.py), so a spinoff off a conversation about the vault used
 to land rooted in the app checkout, gated, in a different room from the work it
@@ -16,14 +16,11 @@ came out of. The sender is identified by EXOCORTEX_CONV_ID, which observatory.py
 puts in every turn's environment; see _inherit_lane for what happens when
 there's no sender to read.
 
-An ORCHESTRA spinoff also gets its OWN COPY of the app checkout — a git
-worktree on its own `agent/<slug>` branch, minted here and used as its cwd for
-life (worktrees.py). That room is the unwatched one, and two unwatched agents
-editing one folder is how sessions have twice committed each other's
-half-written files. Coding and Personal do NOT get one: those are her own
-hands, and they need the real checkout because that's what gunicorn serves and
-what she refreshes. The trade an Orchestra session makes is that it cannot see
-its change in a browser — its proof is a test run.
+A spinoff works in the shared checkout; it never gets a fresh copy of the repo
+of its own. (It used to, in the Orchestra room — that part is in the shed:
+shed/orchestra-2026-09-25/SHED.md.) The one exception is the steward door:
+given an EXISTING agent/* branch, the child is stood on that branch in its own
+git worktree (worktrees.adopt), because that branch's work lives nowhere else.
 
 A spun-off session STARTS WORKING IMMEDIATELY — she doesn't have to open it, or
 even be at the machine. A turn is hosted by a detached thread in whichever
@@ -160,8 +157,7 @@ def _live_conv_for(index, slug):
                  and not entry.get("archived")), None)
 
 
-def open_spinoff(slug, start=True, lane=None, worktree=None, model=None,
-                 branch=None):
+def open_spinoff(slug, start=True, lane=None, model=None, branch=None):
     """Core shared by the route and scripts/spinoff_open.py (the agents' door).
 
     Mints (or rejoins) an Observatory conversation for the spinoff and, by
@@ -186,26 +182,19 @@ def open_spinoff(slug, start=True, lane=None, worktree=None, model=None,
     original, because two agents editing one session's files is the failure it
     exists to avoid.
 
-    `worktree=False` opts out of the private copy of the repo an ORCHESTRA
-    spinoff otherwise gets (see worktrees.py). Only Orchestra gets one at all:
-    Coding and Personal are her own hands, and they need the real checkout
-    because that's the one gunicorn serves and the one she refreshes; Research
-    stands in its own folder and never touches the checkout.
-
     `model` pins the child to one of _MODEL_CHOICES ("fable", "opus", …); left
     None it inherits the CLI default like every other conversation. Validated
     here the same way `lane` is, and written onto the entry at mint so even
     the kickoff turn runs on the pinned model — the interim pin-after-spawn
     trick only caught the second turn onward.
 
-    `branch` switches the worktree from MINT to ADOPT: instead of cutting a
-    new `agent/<slug>-<date>` branch, the child is stood on the EXISTING
-    agent/* branch named — the steward door (routes/branches.py), and the
-    same seam a future checker-escalation spawner calls: one door, a mode,
-    not a new organ. Adopt-mode never degrades to the shared checkout the
-    way a failed mint does — a session that believes it stands on a branch
-    and doesn't is the exact lie the worktree exists to prevent — so a
-    failed adoption refuses the whole spawn.
+    `branch` stands the child on an EXISTING agent/* branch, in its own git
+    worktree — the steward door (routes/branches.py), and the same seam a
+    future checker-escalation spawner calls: one door, a mode, not a new
+    organ. Without `branch` there is no worktree at all. A failed adoption
+    refuses the whole spawn rather than falling back to the shared checkout —
+    a session that believes it stands on a branch and doesn't is the exact
+    lie the worktree exists to prevent.
     """
     if not SLUG_RE.match(slug or ""):
         return {"error": "bad slug"}, 400
@@ -237,33 +226,24 @@ def open_spinoff(slug, start=True, lane=None, worktree=None, model=None,
                 "lane": _conv_lane(snapshot[cid]), "brief": str(brief)}, 200
 
     # The room decides where the child is rooted — the app checkout for Coding,
-    # the parent of both repos for Personal, its OWN copy of the checkout for
-    # Orchestra — and cwd is the one thing a session can never change
-    # afterwards, which is why it's settled here at birth.
+    # the parent of both repos for Personal — and cwd is the one thing a
+    # session can never change afterwards, which is why it's settled here at
+    # birth.
     room = lane or _inherit_lane(snapshot)
-    if branch is not None and (room != "orchestra" or worktree is False):
-        # Adoption IS a worktree on that branch — there is no shared-checkout
-        # version of standing on a branch, so the combination is a caller bug,
-        # refused loudly rather than quietly ignored.
-        return {"error": "adopting a branch needs the orchestra room "
-                         "and its worktree"}, 400
+    if branch is not None and room != "orchestra":
+        # Adoption is steward work, which runs in the gated room — nobody is
+        # watching it. Any other room here is a caller bug, refused loudly.
+        return {"error": "adopting a branch needs the orchestra room"}, 400
     profile = _lane_profile(room)
-    cwd, wt_path, wt_branch, wt_error = profile["cwd"], None, None, None
-    if room == "orchestra" and worktree is not False:
+    cwd, wt_path, wt_branch = profile["cwd"], None, None
+    # Stand a steward on its branch, in its own worktree. Only with `branch`;
+    # a plain spinoff stays in the room's cwd.
+    if branch:
         try:
-            wt_path, wt_branch = (worktrees.adopt(slug, branch) if branch
-                                  else worktrees.mint(slug))
+            wt_path, wt_branch = worktrees.adopt(slug, branch)
             cwd = str(wt_path)
         except (worktrees.WorktreeError, OSError, subprocess.SubprocessError) as e:
-            if branch:
-                # Adopt-mode refuses instead of degrading — see the docstring.
-                return {"error": f"couldn't stand on {branch}: {e}"}, 409
-            # A spinoff that couldn't get its own copy still runs, in the shared
-            # checkout — the same "degraded is still usable" call _launch_runner
-            # makes. But it is NOT silent: the flag rides on the entry so the
-            # card can say so, because the whole point of the copy is that
-            # nobody has to remember which sessions are sharing a tree.
-            wt_error = f"{type(e).__name__}: {e}"
+            return {"error": f"couldn't stand on {branch}: {e}"}, 409
 
     kickoff = (f"Read {brief} and follow its Protocol section exactly — "
                "it defines this session's job.")
@@ -289,10 +269,8 @@ def open_spinoff(slug, start=True, lane=None, worktree=None, model=None,
             if wt_path:
                 index[conv_id]["worktree"] = str(wt_path)
                 index[conv_id]["branch"] = wt_branch
-            if wt_error:
-                index[conv_id]["worktree_failed"] = wt_error
 
-    # Somebody else minted this slug while we were cutting the copy. Theirs
+    # Somebody else minted this slug while we were adopting the branch. Theirs
     # wins (it's the one in the index); ours is an orphan directory nothing
     # points at, so it goes back — outside the lock, like every git call here.
     if raced:
@@ -318,7 +296,6 @@ def open_spinoff(slug, start=True, lane=None, worktree=None, model=None,
         "brief": str(brief),
         "worktree": str(wt_path) if wt_path else None,
         "branch": wt_branch,
-        "worktree_failed": wt_error,
     }, 200
 
 
@@ -504,15 +481,11 @@ def register(app):
         # the two of them are called out loud.
         data = request.json or {}
         lane = data.get("lane") or data.get("room")
-        # `worktree: false` keeps an Orchestra spinoff in the shared checkout.
-        # Absent means yes — the protection has to be the default, or it's only
-        # there when somebody remembers to ask for it.
         payload, status = open_spinoff(
             data.get("slug", ""), lane=(lane or "").strip() or None,
-            worktree=False if data.get("worktree") is False else None,
             model=(data.get("model") or "").strip() or None,
-            # `branch` = adopt an EXISTING agent/* branch instead of minting a
-            # new one — the steward door and the future escalation spawner
+            # `branch` = stand on an EXISTING agent/* branch in its own
+            # worktree — the steward door and the future escalation spawner
             # both come through here.
             branch=(data.get("branch") or "").strip() or None)
         return jsonify(payload), status
