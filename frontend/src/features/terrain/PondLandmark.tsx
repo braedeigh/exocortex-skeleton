@@ -20,6 +20,7 @@ import {
 } from '../pond/savedView';
 import { HEAT_RAMP_LIGHT, heatColor, heatRamps, readThemeInk } from './terrainCanvas';
 import type { PondAnchor, ThemeInk } from './terrainCanvas';
+import { hoverBridge, paneRoom, placeLabel, placePane, type PanePlacement } from './pondPlacement';
 import styles from './PondLandmark.module.css';
 
 /**
@@ -38,14 +39,17 @@ import styles from './PondLandmark.module.css';
  *             month-of-days square with a real collision body (pondNodes.ts /
  *             terrainCanvas.ts) — so a second water drawing floating over it
  *             would just cover the thing it stands for. At rest this is only
- *             the name beneath the square, the lit-thread chip, and a
- *             transparent reach target sized to the tile.
- *   REACHED   hover, focus, or a first tap: it eases up into a real pane, a
- *             miniature of the pond's WORDS arrangement, the filter display
- *             appears, and the water under the tile lights on the canvas so
- *             she can see WHICH part of the map this is a picture of. The way
- *             in is the "Open the pond" button — a click on the drawing
- *             itself belongs to time now, not to navigation.
+ *             the name floating just above the square, the lit-thread chip,
+ *             and a transparent reach target laid over the tile.
+ *   REACHED   hover, focus, or a first tap: a real pane rises out of the
+ *             square and opens ABOVE it (below, or over it, only when the
+ *             screen has no room) — a miniature of the pond's WORDS
+ *             arrangement, with the name as its header and the filter display
+ *             under it — and the water under the tile lights on the canvas so
+ *             she can see WHICH part of the map this is a picture of. Opening
+ *             beside the tile rather than on it is what keeps that visible.
+ *             The way in is the "Open the pond" button — a click on the
+ *             drawing itself belongs to time now, not to navigation.
  *
  * THE PANE is the reached drawing: one small rectangle per card, as tall as
  * that card had words in it, stacked up a column per day with a gap between
@@ -64,8 +68,9 @@ import styles from './PondLandmark.module.css';
  * and paint.
  *
  * Anchored in WORLD position, drawn at SCREEN-LOCKED size: the engine reports
- * where the journal cluster is sitting (onPondMove) and this follows it through
- * every pan and zoom, but never shrinks with it. That's how map labels work,
+ * where the pond tile's square is sitting (onPondMove) and this follows it
+ * through every pan and zoom, but never shrinks with it. Where each piece lands
+ * relative to that square is pondPlacement.ts. That's how map labels work,
  * and it's what keeps the type legible at every zoom — the house floor is 12px
  * and a canvas-drawn label would break it constantly.
  *
@@ -96,7 +101,7 @@ import styles from './PondLandmark.module.css';
 const CRUDE_COLUMNS = 12;
 
 /** The resting reach target's bounds, in CSS px. It tracks the tile's own
- * on-screen size (see below) between these: never under the 44px house floor
+ * on-screen side between these: never under the 44px house floor
  * for a touch target, and capped so that even zoomed far into a now
  * cluster-sized tile, the hover zone stays the pond rather than the whole
  * viewport. */
@@ -182,10 +187,8 @@ export function PondLandmark({
     if (!reached) setScrollX(0);
   }, [reached]);
 
-  // At rest the box is the reach target over the canvas-drawn tile, sized to
-  // the anchor the engine reports (the tile's reach, already in screen px).
-  const restSide = clamp((anchor?.r ?? REST_MIN) * 1.4, REST_MIN, REST_MAX);
-  const box = reached ? { w: pane.w, h: pane.h } : { w: restSide, h: restSide };
+  // Size the resting reach target to the tile's square as drawn on screen.
+  const restSide = clamp((anchor?.half ?? 0) * 2, REST_MIN, REST_MAX);
 
   const columns = useMemo(
     () => bucketShape(shape.data?.days ?? [], CRUDE_COLUMNS),
@@ -371,24 +374,33 @@ export function PondLandmark({
   };
 
   // --- resizing -------------------------------------------------------------
-  // The box is centred on its anchor (translate -50%), so the corner only moves
-  // half as far as the box grows. Doubling the delta puts the corner back under
-  // her finger, which is the only thing a resize handle has to get right.
-  const resizeFrom = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
-  const onResizeDown = (e: React.PointerEvent) => {
+  // Keep the grip under her finger, whichever way the pane is pinned. It is
+  // centred on the tile horizontally, so the width grows both ways and the
+  // delta is doubled. Vertically it depends on the placement: an ABOVE pane
+  // is pinned at its bottom (the grip sits top-right and dragging up grows
+  // it), a BELOW pane at its top (grip bottom-right, drag down), and an OVER
+  // pane is centred, so its delta doubles too. The height is capped at the
+  // room that placement has, so a drag never shoves the pane over the tile.
+  const resizeFrom = useRef<
+    { x: number; y: number; w: number; h: number; placement: PanePlacement } | null
+  >(null);
+  const onResizeDown = (placement: PanePlacement) => (e: React.PointerEvent) => {
     e.stopPropagation();
     (e.target as Element).setPointerCapture?.(e.pointerId);
-    resizeFrom.current = { x: e.clientX, y: e.clientY, w: pane.w, h: pane.h };
+    resizeFrom.current = { x: e.clientX, y: e.clientY, w: pane.w, h: pane.h, placement };
     busy.current = true;
   };
   const onResizeMove = (e: React.PointerEvent) => {
     const from = resizeFrom.current;
-    if (!from) return;
+    if (!from || !anchor) return;
     e.stopPropagation();
+    const dy = e.clientY - from.y;
+    const grow = from.placement === 'above' ? -dy : from.placement === 'below' ? dy : dy * 2;
+    const room = paneRoom(anchor, { width: window.innerWidth, height: window.innerHeight });
     setPane((p) => ({
       ...p,
       w: clamp(from.w + (e.clientX - from.x) * 2, PANE_MIN.w, window.innerWidth - 24),
-      h: clamp(from.h + (e.clientY - from.y) * 2, PANE_MIN.h, window.innerHeight - 24),
+      h: clamp(from.h + grow, PANE_MIN.h, Math.max(PANE_MIN.h, room[from.placement])),
     }));
   };
   const onResizeUp = () => {
@@ -403,25 +415,28 @@ export function PondLandmark({
 
   if (!anchor) return null;
 
-  // Kept clear of the viewport edges so a pond near the rim doesn't get cut
-  // off — the landmark is chrome, and chrome shouldn't need panning to read.
-  const half = { w: box.w / 2, h: box.h / 2 };
-  const margin = 12;
-  const left = clamp(anchor.x, half.w + margin, window.innerWidth - half.w - margin);
-  const top = clamp(
-    anchor.y,
-    half.h + margin,
-    window.innerHeight - half.h - margin - (reached ? 16 : 20),
-  );
+  // Place every piece off the tile's square — see pondPlacement.ts.
+  const viewport = { width: window.innerWidth, height: window.innerHeight };
+  const label = placeLabel(anchor, viewport);
+  const paneBox = placePane(anchor, { width: pane.w, height: pane.h }, viewport);
+  const bridge = hoverBridge(anchor, restSide, paneBox);
 
   const empty = shape.data !== undefined && columns.length === 0;
   const overflowing = layout.columns.some((c) => c.overflow);
   const caption = paneCaption(layout);
+  const placementClass =
+    paneBox.placement === 'above'
+      ? styles.above
+      : paneBox.placement === 'below'
+        ? styles.below
+        : styles.over;
 
   return (
+    // The layer spans the viewport but takes no pointer events itself — only
+    // its pieces do. Hover is judged on the layer, so moving between pieces
+    // (tile → bridge → pane) never counts as leaving the landmark.
     <div
-      className={[styles.landmark, reached ? styles.reached : styles.atRest].join(' ')}
-      style={{ left, top, width: box.w, height: box.h }}
+      className={styles.layer}
       aria-label={
         reached
           ? `The pond — ${shape.data?.cards.toLocaleString() ?? ''} cards${caption ? `, showing ${caption}` : ''}`
@@ -442,136 +457,176 @@ export function PondLandmark({
       }}
     >
       {/* RESTING: the drawing is the canvas tile underneath — this is only the
-          way to reach it. A mouse never notices the target (hovering already
-          reached it), but a touch needs somewhere to tap, and the house floor
-          is 40px. */}
+          way to reach it, laid exactly over the square, plus the name above.
+          A mouse never notices the target (hovering already reached it), but
+          a touch needs somewhere to tap, and the house floor is 40px. */}
       {!reached ? (
-        <button
-          type="button"
-          className={styles.reachTarget}
-          aria-label="Open the pond"
-          onClick={() => reach(true)}
+        <>
+          <button
+            type="button"
+            className={styles.reachTarget}
+            style={{
+              left: anchor.x - restSide / 2,
+              top: anchor.y - restSide / 2,
+              width: restSide,
+              height: restSide,
+            }}
+            aria-label="Open the pond"
+            onClick={() => reach(true)}
+          />
+          <div className={styles.restLabel} style={{ left: label.x, top: label.y }}>
+            {/* THE FILTER DISPLAY at rest: only the lit thread, as one quiet
+                chip over the name. One word saying what the pond is currently
+                about is worth more here than a row of settings. */}
+            {facets.some((f) => f.kind === 'lit') ? (
+              <span className={styles.filters}>
+                {facets
+                  .filter((f) => f.kind === 'lit')
+                  .map((f) => (
+                    <span key={`${f.kind}:${f.label}`} className={styles.chipLit}>
+                      {f.label}
+                    </span>
+                  ))}
+              </span>
+            ) : null}
+            <span className={styles.nameText}>Pond</span>
+            {empty ? <span className={styles.note}>nothing in the pool yet</span> : null}
+          </div>
+        </>
+      ) : null}
+
+      {/* REACHED: an invisible strip joining the tile to the pane, so the
+          mouse can travel between them without the pane closing. */}
+      {reached ? (
+        <span
+          className={styles.bridge}
+          style={{ left: bridge.left, top: bridge.top, width: bridge.width, height: bridge.height }}
+          aria-hidden="true"
         />
       ) : null}
 
-      <div className={styles.stack}>
-        <div className={styles.name}>
-          <span className={styles.nameText}>Pond</span>
-          {reached && shape.data ? (
-            <span className={styles.count}>{shape.data.cards.toLocaleString()} cards</span>
-          ) : null}
-          {/* The stretch on screen. The ramp is relative to this window, so
-              saying which window it is keeps the colour from being a claim
-              about today. */}
-          {reached && caption ? <span className={styles.caption}>{caption}</span> : null}
-        </div>
-
-        {empty ? <span className={styles.note}>nothing in the pool yet</span> : null}
-
-        {/* THE FILTER DISPLAY. At rest only the lit thread shows, and only as a
-            single quiet chip: the landmark is small, and one word saying what
-            the pond is currently about is worth more there than a row of
-            settings. Reached, it says everything she set. */}
-        {facets.length > 0 ? (
-          <span className={styles.filters}>
-            {(reached ? facets : facets.filter((f) => f.kind === 'lit')).map((f) => (
-              <span
-                key={`${f.kind}:${f.label}`}
-                className={f.kind === 'lit' ? styles.chipLit : styles.chip}
-              >
-                {f.label}
-              </span>
-            ))}
-          </span>
-        ) : null}
-
-        {/* REACHED: the pane. One mark per card, sized by how much was written,
-            filling each day's column from the bottom. */}
-        {reached ? (
-          <div
-            ref={drawRef}
-            className={styles.draw}
-            onPointerDown={onPointerDown}
-            onPointerMove={onPointerMove}
-            onPointerUp={endPointer}
-            onPointerCancel={endPointer}
-          >
-            <canvas ref={canvasRef} className={styles.canvas} aria-hidden="true" />
-
-            {/* A day with more in it than the pane is tall went over the rim.
-                Said with a soft fade rather than a clipped edge, and only when
-                it's actually happening — pinching out is the answer. */}
-            {overflowing ? <span className={styles.rim} aria-hidden="true" /> : null}
-
-            {sized.isPending ? <span className={styles.note}>reading the pond…</span> : null}
-
-            <button
-              type="button"
-              className={`${styles.step} ${styles.stepBack}`}
-              aria-label={`Back one ${pane.jump}`}
-              disabled={layout.scrollX >= layout.maxScroll}
-              onClick={() => jumpBy(1)}
-            >
-              ‹
-            </button>
-            <button
-              type="button"
-              className={`${styles.step} ${styles.stepFwd}`}
-              aria-label={`Forward one ${pane.jump}`}
-              disabled={layout.scrollX <= 0}
-              onClick={() => jumpBy(-1)}
-            >
-              ›
-            </button>
-          </div>
-        ) : null}
-
-        {/* Her voice against the Keeper's, as a hairline under the water. The
-            one fact about the pond's contents that fits at this size. */}
-        {reached ? (
-          <span className={styles.ownBar} aria-hidden="true">
-            <span className={styles.ownFill} style={{ width: `${Math.round(ownShare * 100)}%` }} />
-          </span>
-        ) : null}
-
-        {/* The jump unit and the way in, on one row. The unit is a filter on
-            time, so it belongs beside the drawing rather than in a settings
-            shelf; the door is a real button because a click on the drawing now
-            belongs to panning. */}
-        {reached ? (
-          <div className={styles.footer}>
-            <div className={styles.segmented} role="group" aria-label="Jump by">
-              {(['week', 'month'] as PaneJump[]).map((unit) => (
-                <button
-                  key={unit}
-                  type="button"
-                  className={pane.jump === unit ? styles.segOn : styles.seg}
-                  aria-pressed={pane.jump === unit}
-                  onClick={() => setPane((p) => ({ ...p, jump: unit }))}
-                >
-                  {unit === 'week' ? 'Week' : 'Month'}
-                </button>
-              ))}
-            </div>
-            <button type="button" className={styles.enter} onClick={enter}>
-              Open the pond →
-            </button>
-          </div>
-        ) : null}
-      </div>
-
-      {/* The corner. Dragging it changes how much TIME is on screen, not how
-          big the marks are — that's the pinch. */}
+      {/* REACHED: the pane, rising out of the tile. The name is its header,
+          the filters under it, then the drawing and one row of controls. */}
       {reached ? (
-        <span
-          className={styles.resize}
-          role="separator"
-          aria-label="Resize the pond pane"
-          onPointerDown={onResizeDown}
-          onPointerMove={onResizeMove}
-          onPointerUp={onResizeUp}
-          onPointerCancel={onResizeUp}
-        />
+        <div
+          className={`${styles.pane} ${placementClass}`}
+          style={{
+            left: paneBox.left,
+            top: paneBox.top,
+            width: paneBox.width,
+            height: paneBox.height,
+          }}
+        >
+          <div className={styles.stack}>
+            <div className={styles.name}>
+              <span className={styles.nameText}>Pond</span>
+              {shape.data ? (
+                <span className={styles.count}>{shape.data.cards.toLocaleString()} cards</span>
+              ) : null}
+              {/* The stretch on screen. The ramp is relative to this window, so
+                  saying which window it is keeps the colour from being a claim
+                  about today. */}
+              {caption ? <span className={styles.caption}>{caption}</span> : null}
+            </div>
+
+            {empty ? <span className={styles.note}>nothing in the pool yet</span> : null}
+
+            {/* THE FILTER DISPLAY, reached: everything she set. */}
+            {facets.length > 0 ? (
+              <span className={styles.filters}>
+                {facets.map((f) => (
+                  <span
+                    key={`${f.kind}:${f.label}`}
+                    className={f.kind === 'lit' ? styles.chipLit : styles.chip}
+                  >
+                    {f.label}
+                  </span>
+                ))}
+              </span>
+            ) : null}
+
+            {/* The drawing. One mark per card, sized by how much was written,
+                filling each day's column from the bottom. */}
+            <div
+              ref={drawRef}
+              className={styles.draw}
+              onPointerDown={onPointerDown}
+              onPointerMove={onPointerMove}
+              onPointerUp={endPointer}
+              onPointerCancel={endPointer}
+            >
+              <canvas ref={canvasRef} className={styles.canvas} aria-hidden="true" />
+
+              {/* A day with more in it than the pane is tall went over the rim.
+                  Said with a soft fade rather than a clipped edge, and only when
+                  it's actually happening — pinching out is the answer. */}
+              {overflowing ? <span className={styles.rim} aria-hidden="true" /> : null}
+
+              {sized.isPending ? <span className={styles.note}>reading the pond…</span> : null}
+
+              <button
+                type="button"
+                className={`${styles.step} ${styles.stepBack}`}
+                aria-label={`Back one ${pane.jump}`}
+                disabled={layout.scrollX >= layout.maxScroll}
+                onClick={() => jumpBy(1)}
+              >
+                ‹
+              </button>
+              <button
+                type="button"
+                className={`${styles.step} ${styles.stepFwd}`}
+                aria-label={`Forward one ${pane.jump}`}
+                disabled={layout.scrollX <= 0}
+                onClick={() => jumpBy(-1)}
+              >
+                ›
+              </button>
+            </div>
+
+            {/* Her voice against the Keeper's, as a hairline under the water. The
+                one fact about the pond's contents that fits at this size. */}
+            <span className={styles.ownBar} aria-hidden="true">
+              <span className={styles.ownFill} style={{ width: `${Math.round(ownShare * 100)}%` }} />
+            </span>
+
+            {/* The jump unit and the way in, on one row. The unit is a filter on
+                time, so it belongs beside the drawing rather than in a settings
+                shelf; the door is a real button because a click on the drawing now
+                belongs to panning. */}
+            <div className={styles.footer}>
+              <div className={styles.segmented} role="group" aria-label="Jump by">
+                {(['week', 'month'] as PaneJump[]).map((unit) => (
+                  <button
+                    key={unit}
+                    type="button"
+                    className={pane.jump === unit ? styles.segOn : styles.seg}
+                    aria-pressed={pane.jump === unit}
+                    onClick={() => setPane((p) => ({ ...p, jump: unit }))}
+                  >
+                    {unit === 'week' ? 'Week' : 'Month'}
+                  </button>
+                ))}
+              </div>
+              <button type="button" className={styles.enter} onClick={enter}>
+                Open the pond →
+              </button>
+            </div>
+          </div>
+
+          {/* The corner grip. Dragging it changes how much TIME is on screen,
+              not how big the marks are — that's the pinch. It sits on the
+              pane's free corner: top-right when the pane is above the tile. */}
+          <span
+            className={styles.resize}
+            role="separator"
+            aria-label="Resize the pond pane"
+            onPointerDown={onResizeDown(paneBox.placement)}
+            onPointerMove={onResizeMove}
+            onPointerUp={onResizeUp}
+            onPointerCancel={onResizeUp}
+          />
+        </div>
       ) : null}
     </div>
   );

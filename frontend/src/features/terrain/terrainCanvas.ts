@@ -552,10 +552,13 @@ interface WoundCoil {
   curve: { x: number; y: number }[];
 }
 
+/** Where the pond tile sits on screen, in client px: its centre, and half
+ * the side of its square as drawn right now (so the landmark can hang its
+ * name off the square's top edge and open its pane clear of it). */
 export interface PondAnchor {
   x: number;
   y: number;
-  r: number;
+  half: number;
 }
 
 interface SimNode extends SimulationNodeDatum {
@@ -1618,7 +1621,7 @@ export class TerrainCanvas {
    */
   onHoverAgent: ((hover: AgentHover | null, hard?: boolean) => void) | null = null;
   /**
-   * Where the journal cluster is sitting on screen right now, in client
+   * Where the pond tile is sitting on screen right now, in client
    * coordinates — what the pond landmark hangs off, the same way the agent
    * hovercard hangs off `onHoverAgent`. null when no journal files are drawn
    * (the vault hidden, or the Files dial cut below them).
@@ -4081,25 +4084,45 @@ export class TerrainCanvas {
     ctx.setLineDash([]);
   }
 
-  /** Tell the page where the water is, if that answer has moved. */
-  private reportPond(): void {
+  /**
+   * The pond's square in WORLD units: the tile's own centre and half-side,
+   * exactly as drawPondTile paints it.
+   *
+   * The tile, not the journal set's centroid: the set also holds the diary
+   * files, which are still loose dots elsewhere on the map, so averaging over
+   * it pulled the landmark's name and pane off the square and inflated its
+   * reach by however spread out the diary happened to be. Only an install
+   * with no tile (nothing in the card pool) falls back to the centroid.
+   */
+  private pondSquare(): { x: number; y: number; half: number } | null {
+    for (const node of this.simNodes) {
+      if (!isPondTile(node) || !this.pondIds?.has(node.id)) continue;
+      const side = Math.max(POND_TILE_SIDE, POND_TILE_MIN_PX / this.transform.k);
+      return { x: node.x ?? 0, y: node.y ?? 0, half: side / 2 };
+    }
     const centre = this.pondCentre();
-    if (!centre) {
+    return centre ? { x: centre.x, y: centre.y, half: centre.r } : null;
+  }
+
+  /** Tell the page where the pond tile is, if that answer has moved. */
+  private reportPond(): void {
+    const square = this.pondSquare();
+    if (!square) {
       if (this.pondReport === null) return;
       this.pondReport = null;
       this.onPondMove?.(null);
       return;
     }
     const rect = this.canvas.getBoundingClientRect();
-    const [sx, sy] = this.transform.apply([centre.x, centre.y]);
+    const [sx, sy] = this.transform.apply([square.x, square.y]);
     const next: PondAnchor = {
       x: rect.left + sx,
       y: rect.top + sy,
-      r: centre.r * this.transform.k,
+      half: square.half * this.transform.k,
     };
     const prev = this.pondReport;
     if (prev && Math.abs(prev.x - next.x) < 1 && Math.abs(prev.y - next.y) < 1
-        && Math.abs(prev.r - next.r) < 1) {
+        && Math.abs(prev.half - next.half) < 1) {
       return;
     }
     this.pondReport = next;
