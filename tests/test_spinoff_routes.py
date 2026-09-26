@@ -558,3 +558,69 @@ def test_kickoff_paperwork_is_pruned_but_recent_diagnostics_survive(data_dir):
     spinoff._prune_kickoffs()
 
     assert not old.exists() and new.exists()
+
+
+# --- the offer: a Go button in her chat instead of "shall I?" -----------------
+# The sender stages an offer on its own conversation (scripts/spinoff_offer.py);
+# her tap on Go is the confirm. Go arrives as a web request with no
+# EXOCORTEX_CONV_ID, so the room has to come from the sender's entry.
+
+def _offer_from(monkeypatch, *slugs, lane="personal", room=None):
+    sender = _sender(monkeypatch, lane=lane)
+    for slug in slugs:
+        _write_brief(store.SPINOFF_DIR, slug, f"# Spinoff: title of {slug}\n")
+    payload, status = spinoff.offer_spinoff(sender, list(slugs), lane=room)
+    assert status == 200, payload
+    # What follows is her tap in the browser, not the agent's turn.
+    monkeypatch.delenv("EXOCORTEX_CONV_ID")
+    return sender
+
+
+def test_an_offer_refuses_a_slug_with_no_brief_yet(spinoff_client, monkeypatch):
+    sender = _sender(monkeypatch)
+    payload, status = spinoff.offer_spinoff(sender, ["unwritten"])
+    assert status == 400
+    assert "spinoff_offer" not in _index()[sender]
+
+
+def test_the_offer_reads_back_with_each_brief_title(spinoff_client, monkeypatch):
+    sender = _offer_from(monkeypatch, "keeper-chat")
+    offer = spinoff_client.get(f"/api/spinoff/offer/{sender}").get_json()["offer"]
+    assert offer["sessions"] == [{"slug": "keeper-chat", "title": "title of keeper-chat"}]
+
+
+def test_go_spawns_into_the_senders_room_and_takes_the_offer(spinoff_client, monkeypatch):
+    sender = _offer_from(monkeypatch, "one", "two", lane="personal")
+    body = spinoff_client.post(f"/api/spinoff/offer/{sender}/go").get_json()
+    assert [s["slug"] for s in body["spawned"]] == ["one", "two"]
+    assert {s["lane"] for s in body["spawned"]} == {"personal"}
+    assert "spinoff_offer" not in _index()[sender]
+
+
+def test_a_named_room_on_the_offer_beats_the_senders(spinoff_client, monkeypatch):
+    sender = _offer_from(monkeypatch, "elsewhere", lane="personal", room="coding")
+    body = spinoff_client.post(f"/api/spinoff/offer/{sender}/go").get_json()
+    assert body["spawned"][0]["lane"] == "coding"
+
+
+def test_a_second_go_spawns_nothing(spinoff_client, monkeypatch):
+    """A double tap, or a second open window, must not start the work twice."""
+    sender = _offer_from(monkeypatch, "once")
+    spinoff_client.post(f"/api/spinoff/offer/{sender}/go")
+    r = spinoff_client.post(f"/api/spinoff/offer/{sender}/go")
+    assert r.status_code == 409
+    assert len(spinoff_client._launches) == 1
+
+
+def test_dismiss_clears_the_offer_without_spawning(spinoff_client, monkeypatch):
+    sender = _offer_from(monkeypatch, "not-now")
+    spinoff_client.post(f"/api/spinoff/offer/{sender}/dismiss")
+    assert spinoff_client.get(f"/api/spinoff/offer/{sender}").get_json()["offer"] is None
+    assert spinoff_client._launches == []
+
+
+def test_a_new_offer_replaces_the_old_one(spinoff_client, monkeypatch):
+    sender = _offer_from(monkeypatch, "first-draft")
+    _write_brief(store.SPINOFF_DIR, "second-draft")
+    spinoff.offer_spinoff(sender, ["second-draft"])
+    assert _index()[sender]["spinoff_offer"]["slugs"] == ["second-draft"]

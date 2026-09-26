@@ -111,26 +111,43 @@ for it. Same reason `scripts/nightcrew_run.py` runs the tests itself rather than
 believing the worker. Don't reintroduce a prose artifact that sits beside the
 evidence pretending to be it.
 
-## 3. Spawn — confirm, then stage the session
+## 3. Offer — a Go button, not a question
 
-Show the owner what you're about to spawn — slug + one-line task summary per
-session — and **wait for their go**. This starts a real agent doing real work;
-never skip the confirm.
-
-On yes, for each task (from the skeleton checkout):
+Show the owner what you'd spawn: the slug and a one-line task summary per
+session. Then, instead of asking "go?", **offer it** (from the skeleton
+checkout), with every slug in one call:
 
 ```
-EXOCORTEX_DATA_DIR=<data dir> ./venv/bin/python3 scripts/spinoff_open.py <slug>
+EXOCORTEX_DATA_DIR=<data dir> ./venv/bin/python3 scripts/spinoff_offer.py <slug> [<slug> ...]
 ```
 
 (The env var matters: without it the script resolves the repo's default
 `data/` instead of the instance's real data dir, and won't find your brief.)
 
+That puts a **Go** card at the bottom of her chat, listing each brief's title.
+End your turn there: one short line saying the Go button is up. Don't ask
+"shall I?" too. Her tap on Go IS the confirm. It starts the sessions, takes her
+to the first one, and that session asks whether to close this chat. You don't
+spawn anything yourself, and you won't see the tap.
+
+She can also ignore the card and keep talking. If what she says changes the
+plan, edit the brief (same slug) or write a new one, and run
+`spinoff_offer.py` again; a new offer replaces the old card. If she says "go"
+in words instead of tapping, spawn directly with `spinoff_open.py <slug>`, the
+same door the button uses.
+
+**Not in an Observatory session** (a terminal, where there's no chat to put a
+button in): `spinoff_offer.py` refuses with "no EXOCORTEX_CONV_ID". Then fall
+back to the old way: ask in words, **wait for their go** (this starts a real
+agent doing real work, so never skip the confirm), and on yes run
+`scripts/spinoff_open.py <slug>` for each.
+
 **The room comes along by itself — don't name one unless they did.** A spinoff
 lands in the room THIS conversation is in: spun off from a Personal session it's
 Personal, from a Coding session it's Coding. That's inherited from your own
-session id, so the plain command above is the right one almost always. Two cases
-where you say it outright, with `--room coding` / `--room personal`:
+session id, so the plain commands above are the right ones almost always. Two
+cases where you say it outright, with `--room coding` / `--room personal` (both
+scripts take it):
 
 - **They specified.** "put it in personal", "that one's coding."
 - **You're not in a room at all** — a terminal session, not an Observatory one.
@@ -164,9 +181,10 @@ for her". They can't double-fire: whichever send lands first pops both fields,
 and a second send into a running conversation is refused with a 409. A
 `started: false` is the one case where she really does have to open it.
 
-Tell the owner the session(s) are **running now**, which room each went to
-(`lane`), and what each is working on. Her sequencing decision is therefore
-YOURS, made before you spawn, not hers made at the door: if two spinoffs would
+When YOU spawned (the terminal path, or she said "go" in words), tell the owner
+the session(s) are **running now**, which room each went to (`lane`), and what
+each is working on. Either way, the sequencing decision is YOURS, made before
+you offer, not hers made at the door: if two spinoffs would
 edit the same files they must not be spawned together — propose combining them
 into one session, or spawn the first and hold the second until it ships. If
 `newly_spawned` came back false, tell her the spinoff session already exists in

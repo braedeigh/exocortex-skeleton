@@ -651,3 +651,30 @@ export interface ResearchRoomState {
 export function getResearchRoom(signal?: AbortSignal): Promise<ResearchRoomState> {
   return api.get('/api/research-room', signal);
 }
+
+/** A /spinoff the agent staged as a Go button on this conversation
+ * (routes/spinoff.py offer_spinoff). `sessions` carries each brief's title. */
+export interface SpinoffOffer {
+  slugs: string[];
+  offered: string;
+  lane?: string;
+  sessions: { slug: string; title: string }[];
+}
+
+export interface SpinoffGoResult {
+  ok: boolean;
+  spawned: { slug: string; conversation_id: string; lane: string; newly_spawned: boolean; started: boolean }[];
+  errors: { slug: string; error: string }[];
+}
+
+export function getSpinoffOffer(convId: string, signal?: AbortSignal): Promise<{ offer: SpinoffOffer | null }> {
+  return api.get(`/api/spinoff/offer/${encodeURIComponent(convId)}`, signal);
+}
+
+export function goSpinoffOffer(convId: string): Promise<SpinoffGoResult> {
+  return api.post(`/api/spinoff/offer/${encodeURIComponent(convId)}/go`, {});
+}
+
+export function dismissSpinoffOffer(convId: string): Promise<{ ok: true }> {
+  return api.post(`/api/spinoff/offer/${encodeURIComponent(convId)}/dismiss`, {});
+}

@@ -32,6 +32,14 @@ standalone CLI door can't be that, and neither can a request. So the mint hands
 off to scripts/spinoff_runner.py, launched detached, which posts the kickoff
 through the real send route and stays alive until the turn ends.
 
+Before any of that, the sender usually OFFERS rather than spawns: the skill
+calls scripts/spinoff_offer.py, which puts `spinoff_offer` on the sender's own
+conversation, and her chat grows a Go button (frontend SpinoffOffer.tsx). Go
+(POST /api/spinoff/offer/<conv>/go) runs open_spinoff for each slug and takes
+her to the new session, which asks whether to close the one she came from.
+Not tapping it and simply talking on is the other answer; the offer waits
+until she taps Go or ×, or the agent offers again.
+
 The entry keeps `draft`+`autostart` anyway, as the fallback for a runner that
 never starts: opening the session then fires the kickoff the old way. The two
 can't both land — whichever send arrives first pops both fields, and a second
@@ -49,7 +57,7 @@ from flask import jsonify, request
 
 import store
 import worktrees
-from routes.observatory import (_BUILDER_TOOLS, _DEFAULT_LANE, _LANES,
+from routes.observatory import (_BUILDER_TOOLS, _CONV_ID_RE, _DEFAULT_LANE, _LANES,
                                 _MODEL_CHOICES, _chats_dir, _conv_lane,
                                 _lane_profile, _new_conv_id, _now)
 
@@ -354,7 +362,139 @@ def _launch_runner(conv_id, kickoff):
         return False
 
 
+# --- The offer: a Go button instead of "shall I?" ----------------------------
+# The sender stages the spawn on its OWN conversation and ends its turn; the
+# chat shows a Go card. Same shape as request_input in routes/observatory.py:
+# the agent reaches this through one script (scripts/spinoff_offer.py), never
+# by writing the index itself. Her tap is the confirm the skill used to ask for
+# in words, so a Go never spawns anything she wasn't shown.
+#
+# Prompt: "Make it such that the /spinoff skill comes with a UI. instead of it
+# asking go, I can click a "go" button that emerges at the bottom of the chat,
+# or just keep talking. Then it takes me to that chat and prompts me to close
+# the existing chat or not"
+
+_OFFER_MAX_SLUGS = 6   # "spin off 1 and 3", not a batch job
+
+
+def _brief_title(slug):
+    """The one-line title from the brief's `# Spinoff: <title>` heading, or the
+    slug when the heading isn't there — the Go card names each session by it."""
+    try:
+        first = (store.SPINOFF_DIR / slug / "BRIEF.md").read_text().splitlines()[0]
+    except (OSError, IndexError):
+        return slug
+    title = re.sub(r"^#\s*(Spinoff:\s*)?", "", first).strip()
+    return title or slug
+
+
+def offer_spinoff(conv_id, slugs, lane=None):
+    """Stage a Go button on `conv_id` for these briefs. Returns (payload, status).
+
+    Every slug must already have its brief, checked NOW rather than at Go — the
+    card shouldn't offer a session that can't start. A new offer REPLACES the
+    old one: when the agent re-offers after she's talked it through, the button
+    she sees is the current plan, not the first draft of it. `lane` is kept for
+    Go; left None, Go lands the sessions in the sender's room like any spinoff."""
+    if not (conv_id and _CONV_ID_RE.match(str(conv_id))):
+        return {"error": "invalid conversation id"}, 400
+    slugs = list(dict.fromkeys(slugs or []))
+    if not slugs:
+        return {"error": "no slugs to offer"}, 400
+    if len(slugs) > _OFFER_MAX_SLUGS:
+        return {"error": f"at most {_OFFER_MAX_SLUGS} spinoffs per offer"}, 400
+    for slug in slugs:
+        if not SLUG_RE.match(slug):
+            return {"error": f"bad slug {slug!r}"}, 400
+        if not (store.SPINOFF_DIR / slug / "BRIEF.md").exists():
+            return {"error": f"no brief for {slug!r} — write it first"}, 400
+    if lane is not None and lane not in _LANES:
+        return {"error": f"unknown room {lane!r}"}, 400
+    offer = {"slugs": slugs, "offered": _now()}
+    if lane:
+        offer["lane"] = lane
+    _chats_dir()
+    with store.mutate("bot_chats/index", {}) as index:
+        entry = index.get(conv_id)
+        if not isinstance(entry, dict):
+            return {"error": "not found"}, 404
+        entry["spinoff_offer"] = offer
+    return {"ok": True, "spinoff_offer": offer}, 200
+
+
+def read_offer(conv_id):
+    """The staged offer on `conv_id` with each slug's title, or None."""
+    entry = store.read("bot_chats/index", {}).get(conv_id)
+    offer = entry.get("spinoff_offer") if isinstance(entry, dict) else None
+    if not isinstance(offer, dict) or not offer.get("slugs"):
+        return None
+    return dict(offer, sessions=[{"slug": slug, "title": _brief_title(slug)}
+                                 for slug in offer["slugs"]])
+
+
+def go_offer(conv_id):
+    """Her Go: spawn every offered spinoff. Returns (payload, status).
+
+    The offer is TAKEN under the lock before anything spawns, so a double tap
+    (or two open windows) can't start the work twice — the second Go finds
+    nothing and says so. The room is the offer's own, else the SENDER'S: a Go
+    arrives as a web request, which carries no EXOCORTEX_CONV_ID for
+    _inherit_lane to read, so the sender is named here instead.
+
+    One slug failing doesn't stop the rest; each comes back as spawned or with
+    its error, and the client opens the first that spawned."""
+    _chats_dir()
+    with store.mutate("bot_chats/index", {}) as index:
+        entry = index.get(conv_id)
+        if not isinstance(entry, dict):
+            return {"error": "not found"}, 404
+        offer = entry.pop("spinoff_offer", None)
+        room = _conv_lane(entry)
+    if not isinstance(offer, dict) or not offer.get("slugs"):
+        return {"error": "nothing offered here (already started?)"}, 409
+    lane = offer.get("lane") or room
+    spawned, errors = [], []
+    # Outside the lock: open_spinoff takes it itself, and launches runners.
+    for slug in offer["slugs"]:
+        payload, status = open_spinoff(slug, lane=lane)
+        if status == 200:
+            spawned.append({"slug": slug,
+                            "conversation_id": payload["conversation_id"],
+                            "lane": payload["lane"],
+                            "newly_spawned": payload["newly_spawned"],
+                            "started": payload.get("started", False)})
+        else:
+            errors.append({"slug": slug, "error": payload.get("error", "failed")})
+    return {"ok": bool(spawned), "spawned": spawned, "errors": errors}, 200
+
+
+def dismiss_offer(conv_id):
+    """Her ×: the button goes, nothing spawns. Idempotent."""
+    _chats_dir()
+    with store.mutate("bot_chats/index", {}) as index:
+        entry = index.get(conv_id)
+        if not isinstance(entry, dict):
+            return {"error": "not found"}, 404
+        entry.pop("spinoff_offer", None)
+    return {"ok": True}, 200
+
+
 def register(app):
+
+    # The Go card's three doors: read what's offered, start it, or wave it off.
+    @app.route("/api/spinoff/offer/<conv_id>", methods=["GET"])
+    def spinoff_offer_read(conv_id):
+        return jsonify({"offer": read_offer(conv_id)})
+
+    @app.route("/api/spinoff/offer/<conv_id>/go", methods=["POST"])
+    def spinoff_offer_go(conv_id):
+        payload, status = go_offer(conv_id)
+        return jsonify(payload), status
+
+    @app.route("/api/spinoff/offer/<conv_id>/dismiss", methods=["POST"])
+    def spinoff_offer_dismiss(conv_id):
+        payload, status = dismiss_offer(conv_id)
+        return jsonify(payload), status
 
     @app.route("/api/spinoff/open", methods=["POST"])
     def spinoff_open():

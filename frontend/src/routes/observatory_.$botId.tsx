@@ -14,12 +14,16 @@ import { useDeactivateFrames } from '../shell/useIframeView';
  * session-carried config): nothing downstream reads its value, every live
  * caller fills it with the fixed placeholder 'session', and it's kept only
  * so old bookmarks and cached PWA clients keep routing here without a crash.
+ * `?from=<id>` rides along when a spinoff's Go button brought her here; the
+ * page then asks whether to close that chat (SpinoffOffer.tsx).
  * The `observatory_.` filename un-nests from /observatory, same trick as
  * threads_.$slug.tsx.
  */
 export const Route = createFileRoute('/observatory_/$botId')({
-  validateSearch: (search: Record<string, unknown>): { conv?: string } =>
-    typeof search.conv === 'string' && search.conv ? { conv: search.conv } : {},
+  validateSearch: (search: Record<string, unknown>): { conv?: string; from?: string } => ({
+    ...(typeof search.conv === 'string' && search.conv ? { conv: search.conv } : {}),
+    ...(typeof search.from === 'string' && search.from ? { from: search.from } : {}),
+  }),
   beforeLoad: () => {
     if (typeof window === 'undefined') return;
     if (window.VIEW_MODE === 'public') throw redirect({ to: '/' });
@@ -30,10 +34,10 @@ export const Route = createFileRoute('/observatory_/$botId')({
 function ObservatoryChatRoute() {
   useDeactivateFrames();
   const { botId } = Route.useParams();
-  const { conv } = Route.useSearch();
+  const { conv, from } = Route.useSearch();
   if (conv === 'latest') return <LatestConvResolver botId={botId} />;
   // Remount on bot OR conversation change so turn state never bleeds across.
-  return <ObservatoryPage key={`${botId}:${conv ?? 'new'}`} botId={botId} convId={conv} />;
+  return <ObservatoryPage key={`${botId}:${conv ?? 'new'}`} botId={botId} convId={conv} cameFrom={from} />;
 }
 
 /** Swap ?conv=latest for a real conversation id — the pinned Keeper session

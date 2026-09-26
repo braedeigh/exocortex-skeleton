@@ -6,6 +6,7 @@ import { TermNotesPanel } from '../../shell/TermNotesPanel';
 import { SchedulePanel } from '../../shell/SchedulePanel';
 import { TerrainBackdrop } from '../terrain/TerrainBackdrop';
 import { ConversationApprovals } from '../approvals/ConversationApprovals';
+import { CloseSourcePrompt, SpinoffOffer } from './SpinoffOffer';
 import { setTerrainBackdropOn, useTerrainBackdropOn } from '../terrain/backdropPref';
 import { createSession, getConversation, getSessions, isOutOfMemory, journalOutput, stopConversation, streamSend } from './api';
 import { MemoryPrompt } from '../runqueue/MemoryPrompt';
@@ -110,11 +111,15 @@ function firstShownTurn(turns: Turn[], exchanges: number): number {
 export function ObservatoryPage({
   botId,
   convId,
+  cameFrom,
   onOpenConversation,
   onTitleChange,
 }: {
   botId: string;
   convId?: string;
+  /** The chat a spinoff Go brought her here from (`?from=`), which this page
+   * offers to close. See SpinoffOffer.tsx. */
+  cameFrom?: string;
   onOpenConversation?: (convId: string) => void;
   /** Docked mode: report this session's title so the pane's tab can wear it
    * instead of a generic label. null while it's still unresolved. */
@@ -705,6 +710,7 @@ export function ObservatoryPage({
 
       <div ref={scrollContract.scrollRef} className={styles.scroll}>
         <div ref={scrollContract.columnRef} className={styles.column}>
+          {convId && cameFrom && cameFrom !== convId ? <CloseSourcePrompt convId={convId} from={cameFrom} /> : null}
           {firstShown > 0 ? (
             <button
               type="button"
@@ -807,6 +813,9 @@ export function ObservatoryPage({
               latest words — Approve / edit / Deny in place. Not the
               window-wide sheet: features/approvals/ConversationApprovals. */}
           {convId ? <ConversationApprovals convId={convId} /> : null}
+          {/* A /spinoff this agent staged shows up as a Go card here, under its
+              latest words: features/observatory/SpinoffOffer. */}
+          {convId ? <SpinoffOffer convId={convId} writing={writing} pinned={sessionPinned === true} /> : null}
           {messageQueue.queued.map((q, i) => (
             <div key={i} className={styles.queuedRow}>
               <span className={styles.queuedTag}>queued</span>
