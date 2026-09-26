@@ -471,6 +471,40 @@ def _chats_dir():
     return d
 
 
+def _is_journalstart(text):
+    """True when a send is the Keeper's wake command (`/journalstart`, with or
+    without arguments after it)."""
+    first = (text or "").strip().split(None, 1)
+    return bool(first) and first[0] == "/journalstart"
+
+
+def attach_boot_package(conv_id):
+    """Build the Keeper's boot package and save it as this conversation's
+    snapshot. Returns the file's path (for `system_prompt_file`), or None if it
+    couldn't be written.
+
+    Built ONCE, at the wake, and frozen: every later turn that day appends the
+    same file to the system prompt, so the Keeper's picture of its morning
+    never shifts under it mid-conversation, and an unchanging prefix is what
+    prompt caching rewards. Why a system prompt at all: a slash command's
+    `!` output is swapped for a "too large, saved to <file>" note well below
+    the package's ~214 KB (measured 2026-09-25), so the command itself can't
+    carry it. See scripts/boot_context.py for what goes in."""
+    try:
+        from scripts import boot_context
+        text = boot_context.build()
+        folder = _chats_dir() / "boot"
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / f"{conv_id}.md"
+        path.write_text(text, encoding="utf-8")
+        return str(path)
+    except Exception:
+        # A failed build must not cost the wake: /journalstart's own text
+        # tells a Keeper with no package in its system prompt to read the
+        # boot files by hand.
+        return None
+
+
 def _new_conv_id(index):
     """Legible timestamp id, '-2'-suffixed on same-second collisions (the
     same shape as terminal.py's schedule ids)."""
@@ -520,12 +554,14 @@ def _build_cmd(config, resume_sid):
     settings = _session_settings(config, tools)
     if settings:
         cmd += ["--settings", json.dumps(settings)]
+    # Add the session's extra system prompt by PATH, not by contents. Claude
+    # reads the file itself, so there's no size limit — the contents used to go
+    # in as one argv string, and Linux refuses any single argument over 128 KB,
+    # which a Keeper's ~214 KB boot package is. A missing file is skipped: a
+    # broken persona ref shouldn't kill the turn; the session just runs bare.
     prompt_file = config.get("system_prompt_file")
-    if prompt_file:
-        try:
-            cmd += ["--append-system-prompt", Path(prompt_file).read_text()]
-        except OSError:
-            pass  # a broken persona ref shouldn't kill the turn; the session just runs bare
+    if prompt_file and Path(prompt_file).is_file():
+        cmd += ["--append-system-prompt-file", str(prompt_file)]
     return cmd
 
 
@@ -2639,6 +2675,15 @@ def register(app):
                 if card_prompt:
                     entry["last_prompt"] = card_prompt
             resume_sid = entry.get("claude_session_id")
+            # Attach the boot package when this send wakes a Keeper. Any chat
+            # can be woken this way — the pinned one the 3 AM rollover makes
+            # (which also attaches it, in scripts/keeper_rollover.py) or one
+            # she opens and types /journalstart into — and from here on every
+            # turn in it carries the package in its system prompt.
+            if _is_journalstart(text):
+                boot_path = attach_boot_package(conv_id)
+                if boot_path:
+                    entry["system_prompt_file"] = boot_path
             # Journal is opt-in per session (the pinned Keeper session
             # carries journal:true) — everything else logs to its own jsonl
             # only. Conversation-only now: no bot-level factor.

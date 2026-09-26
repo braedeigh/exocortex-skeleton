@@ -355,12 +355,23 @@ def _open(dry_run=False, set_running=None):
             "cwd": new_cwd,
             "running": True,
         }
+        # Attach the boot package: the new Keeper wakes with its rules, recent
+        # journal and Coming up already in its system prompt, instead of
+        # hunting for the files itself. Stored on the entry so every later
+        # turn today carries the same snapshot (routes/observatory.py
+        # _conv_config reads it back).
+        boot_path = rr.attach_boot_package(conv_id)
+        if boot_path:
+            index[conv_id]["system_prompt_file"] = boot_path
     if set_running is not None:
         set_running.append(conv_id)
     if killed:
         _log(f"archived+unpinned {killed} prior pinned Keeper session(s)")
+    _log(f"boot package: {boot_path or 'NOT built — keeper will read by hand'}")
 
     bot = dict(rr._bot("keeper") or {}, allowed_tools=KEEPER_TOOLS)
+    if boot_path:
+        bot["system_prompt_file"] = boot_path
     _run_turn_sync(bot, "/journalstart", conv_id, None, new_cwd)
     _log(f"opened new pinned conv {conv_id}")
     return conv_id

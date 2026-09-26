@@ -376,8 +376,8 @@ def build_front_brief(front_id):
 def write_front_brief(front_id):
     """Write the brief to disk and return its path, or None if there's no such
     front / nothing to say. The path is what goes on the session's
-    `system_prompt_file`, which routes/observatory.py feeds to
-    `--append-system-prompt` at spawn time."""
+    `system_prompt_file`, which routes/observatory.py hands to
+    `--append-system-prompt-file` at spawn time."""
     text = build_front_brief(front_id)
     if not text.strip():
         return None
