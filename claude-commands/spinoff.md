@@ -83,11 +83,6 @@ their system — you build WITH their input, never around it. In order:
    the conversation, not in a file. Short: what changed, what it could break,
    and what you're not sure about. Do NOT claim your work passes; say what you
    actually ran. Say it even if you parked or failed; especially then.
-An Orchestra session works in its OWN copy of the checkout (a git worktree, see
-worktrees.py) on branch `agent/<slug>-<date>`, so it can't collide with anything
-else running — but it also can't see its change in the running site, and its
-work reaches the app only when the owner merges that branch. Commit to it early
-and name your commits.
 
 ## Result
 <Leave empty. One line at the end — the outcome, plainly.>
@@ -133,21 +128,19 @@ EXOCORTEX_DATA_DIR=<data dir> ./venv/bin/python3 scripts/spinoff_open.py <slug>
 
 **The room comes along by itself — don't name one unless they did.** A spinoff
 lands in the room THIS conversation is in: spun off from a Personal session it's
-Personal, from an Orchestra session it's Orchestra. That's inherited from your
-own session id, so the plain command above is the right one almost always. Two
-cases where you say it outright, with `--room personal` / `--room orchestra`:
+Personal, from a Coding session it's Coding. That's inherited from your own
+session id, so the plain command above is the right one almost always. Two cases
+where you say it outright, with `--room coding` / `--room personal`:
 
-- **They specified.** "put it in personal", "that one should be orchestra."
+- **They specified.** "put it in personal", "that one's coding."
 - **You're not in a room at all** — a terminal session, not an Observatory one.
-  Then there's nothing to inherit and it falls to `orchestra`, the room that
-  stops and asks. If the work is really vault-side or hers-in-real-time, pass
-  `--room personal`; otherwise let it default.
+  Then there's nothing to inherit, so always name one: `--room coding` for app
+  work, `--room personal` if the work is vault-side or hers-in-real-time.
 
-The room isn't cosmetic: it sets where the child is rooted (Orchestra = the app
+The room isn't cosmetic: it sets where the child is rooted (Coding = the app
 checkout, Personal = the parent of both repos, where it sees code and vault as
-peers) and whether it stops to ask before irreversible work (Orchestra asks,
-Personal acts). The reply's `lane` is the room it actually landed in — tell her
-which room each session went to when you report back.
+peers). The reply's `lane` is the room it actually landed in — tell her which
+room each session went to when you report back.
 
 (Same narrow-door doctrine as `scripts/stage_change.py` — agents shell out to
 the script; the app's own UI uses `POST /api/spinoff/open`, both wrapping the
