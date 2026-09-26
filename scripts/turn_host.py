@@ -161,6 +161,14 @@ def main():
                               live_path=live_path)
     finally:
         done.set()
+        # Start whatever was waiting on this turn to end — her approval's
+        # retry cue, a Coming up reminder. This is the moment the
+        # conversation frees up, so this is where the queue moves; the next
+        # turn gets its own host process, so this one can still exit.
+        try:
+            observatory.drain_followups(conv_id)
+        except Exception as e:
+            print(f"follow-up drain failed: {e}", file=sys.stderr)
         # Write the last window down before the process goes. The sensor's
         # background thread is a daemon and dies with `main` returning, so a
         # turn shorter than one cycle would otherwise leave no trace of having

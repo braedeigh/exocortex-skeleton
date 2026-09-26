@@ -243,7 +243,9 @@ def when_label(start_text, today, end_text=""):
     return f"in {days} days"
 
 
-def _when_text(date_text, time_text, end_text=""):
+def when_text(date_text, time_text, end_text=""):
+    """A date (and time, and end date) as a person says it: 'Sat Oct 17–Sun
+    Oct 18, 10:00 AM'."""
     start = _parse_date(date_text)
     text = start.strftime("%a %b %-d") if start else date_text
     end = _parse_date(end_text)
@@ -263,19 +265,26 @@ def format_block(today=None, todos=None):
     if not items and not rows:
         lines.append("Nothing dated in the window.")
         return "\n".join(lines) + "\n"
+    # One list, soonest first: events, topics and due to-dos interleaved by
+    # date, so "in 5 days" never sits below "in 22 days".
+    entries = []
     for it in items:
         label = when_label(it["date"], today, it.get("end_date", ""))
         what = "Bring up" if it.get("kind") == "topic" else "Event"
+        who = "the keeper" if it.get("created_by") == "keeper" else "you"
         line = (f"- **{label}** — {what}: {it['title']} "
-                f"({_when_text(it['date'], it.get('time', ''), it.get('end_date', ''))}; "
-                f"set by {it.get('created_by', '?')})")
+                f"({when_text(it['date'], it.get('time', ''), it.get('end_date', ''))}; "
+                f"added by {who})")
         if it.get("note"):
             line += f" — {it['note']}"
-        lines.append(line)
+        entries.append(((it["date"], it.get("time") or ""), line))
     for r in rows:
         label = when_label(r["date"], today)
-        lines.append(f"- **{label}** — To-do due: {r['title']} "
-                     f"({_when_text(r['date'], r['time'])}; to-do {r['todo_id']})")
+        entries.append(((r["date"], r["time"]),
+                        f"- **{label}** — To-do due: {r['title']} "
+                        f"({when_text(r['date'], r['time'])}; to-do {r['todo_id']})"))
+    entries.sort(key=lambda pair: pair[0])
+    lines.extend(line for _, line in entries)
     return "\n".join(lines) + "\n"
 
 

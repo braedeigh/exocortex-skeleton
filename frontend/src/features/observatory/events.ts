@@ -16,6 +16,11 @@
  *                                              just dashed
  * - {type:'decision', decision, command}       a gated command she approved or
  *                                              denied — shown with the command
+ * - {type:'reminder', text, source}            a Coming up reminder the app
+ *                                              sent at its set time — shown as
+ *                                              System, never as her words;
+ *                                              source = who set it (manual =
+ *                                              her, keeper = a Keeper)
  * - {type:'off-record-gap'}                    a cue the app fired for her (a
  *                                              red card's resume nudge), plus
  *                                              every off-record turn logged
@@ -34,10 +39,12 @@
  */
 
 export interface Turn {
-  role: 'user' | 'assistant' | 'gap' | 'error' | 'decision';
+  role: 'user' | 'assistant' | 'gap' | 'error' | 'decision' | 'reminder';
   /** user/error: the text. assistant: committed markdown (authoritative).
-   * decision: the exact command she approved/denied. */
+   * decision: the exact command she approved/denied. reminder: what it says. */
   text: string;
+  /** reminder only: who set it — 'manual' (her) or 'keeper'. */
+  source?: 'manual' | 'keeper';
   /** assistant only: in-flight delta text not yet confirmed by a message. */
   buffer: string;
   /** assistant only: still streaming. */
@@ -140,6 +147,14 @@ export function applyEvent(turns: Turn[], raw: unknown): Turn[] {
       // it's a visible record of what she did — not a blank "off the record".
       const t = turn('decision', typeof e.command === 'string' ? e.command : '');
       t.decision = e.decision === 'deny' ? 'deny' : 'approve';
+      turns.push(t);
+      return turns;
+    }
+    case 'reminder': {
+      // A reminder the app sent into the chat at its set time. Its own turn
+      // kind so it's drawn as System — the keeper's reply follows as usual.
+      const t = turn('reminder', typeof e.text === 'string' ? e.text : '');
+      t.source = e.source === 'keeper' ? 'keeper' : 'manual';
       turns.push(t);
       return turns;
     }

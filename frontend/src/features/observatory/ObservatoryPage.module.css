@@ -708,6 +708,30 @@
   overflow: hidden;
 }
 
+/* A System reminder — same left-ruled card as a decision, dashed so it reads
+   as the app speaking rather than either voice in the conversation. */
+.reminder {
+  margin: var(--space-4) 0;
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--border);
+  border-left: 3px solid var(--accent);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.reminderLabel {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.reminderText {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* --- Empty state: literary minimum --------------------------------------- */
 
 .empty {

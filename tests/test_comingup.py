@@ -93,7 +93,14 @@ def test_format_block_names_the_creator_and_the_time(data_dir):
     _add(title="Doctor", date="2026-10-02", time="15:00", created_by="keeper")
     block = comingup.format_block(TODAY, todos={})
     assert "## Coming up" in block
-    assert "in 7 days" in block and "3:00 PM" in block and "set by keeper" in block
+    assert "in 7 days" in block and "3:00 PM" in block and "added by the keeper" in block
+
+
+def test_format_block_interleaves_events_and_todos_by_date(data_dir):
+    _add(title="Festival", date="2026-10-17", lead_days=30)
+    todos = {"now": {"items": [{"id": "car", "text": "Car shop", "due_by": "2026-10-01"}]}}
+    block = comingup.format_block(TODAY, todos=todos)
+    assert block.index("Car shop") < block.index("Festival")
 
 
 def test_format_block_says_so_when_empty(data_dir):

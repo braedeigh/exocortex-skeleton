@@ -330,13 +330,15 @@ def _open(dry_run=False, set_running=None):
         return None
 
     rr._chats_dir()
+    retired = []
     with store.mutate("bot_chats/index", {}) as index:
         killed = 0
-        for meta in index.values():
+        for cid, meta in index.items():
             if isinstance(meta, dict) and meta.get("bot") == "keeper" \
                     and meta.get("pinned") and not meta.get("archived"):
                 meta["archived"] = rr._now()
                 meta["pinned"] = False
+                retired.append(cid)
                 killed += 1
         conv_id = rr._new_conv_id(index)
         # .get, not [..]: a bots.json keeper entry without a cwd falls back to
@@ -369,10 +371,20 @@ def _open(dry_run=False, set_running=None):
         _log(f"archived+unpinned {killed} prior pinned Keeper session(s)")
     _log(f"boot package: {boot_path or 'NOT built — keeper will read by hand'}")
 
+    # Hand over any reminder still waiting on yesterday's Keeper: reminders
+    # always go to whichever Keeper is current, never into an archived one.
+    for old_id in retired:
+        moved = rr.move_system_followups(old_id, conv_id)
+        if moved:
+            _log(f"moved {moved} waiting reminder(s) from {old_id} to {conv_id}")
+
     bot = dict(rr._bot("keeper") or {}, allowed_tools=KEEPER_TOOLS)
     if boot_path:
         bot["system_prompt_file"] = boot_path
     _run_turn_sync(bot, "/journalstart", conv_id, None, new_cwd)
+    # The wake turn is done: start anything that was waiting (a reminder that
+    # came due while it ran) — the same end-of-turn step turn_host.py takes.
+    rr.drain_followups(conv_id)
     _log(f"opened new pinned conv {conv_id}")
     return conv_id
 
