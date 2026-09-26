@@ -337,7 +337,7 @@ export function EntryCard({
           ) : null}
           {bodyText || !photos.length ? (
             <div
-              className={`${styles.body} ${isK ? styles.body_K : ''} ${isContext ? styles.body_context : ''}`}
+              className={`${styles.body} ${card.who === 'K' ? styles.body_K : ''} ${isContext ? styles.body_context : ''}`}
               dangerouslySetInnerHTML={{ __html: bodyHtml }}
             />
           ) : null}
