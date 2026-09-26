@@ -16,8 +16,8 @@ import { TAB_ROUTES, VALID_TABS } from '../tabs';
  * backwards would make the Pond tab impossible to ever show as active.
  *
  * WHEN TWO CLAIMS ARE THE SAME LENGTH, the one listed first wins. That's why
- * Ecosystem sits ABOVE Dashboard below: both claim /ecosystem exactly, and if
- * Dashboard came first the Ecosystem tab could never light up. Move it and
+ * Ecosystem and Kitchen sit ABOVE Dashboard below: each shares an exact claim
+ * with Dashboard, and if Dashboard came first their tabs could never light up. Move it and
  * sections.test.ts will say so.
  *
  * A section with NO claims is a pure shortcut: it can be pinned and clicked,
@@ -59,9 +59,14 @@ export const SECTIONS: Section[] = [
   // Prompt: "i want to be able to access my ecosystem map on my tabs on the
   // right side of the split screen ... i just need it in the dropdown menu"
   { id: 'ecosystem', label: 'Ecosystem', icon: '🌱', home: '/ecosystem', claims: ['/ecosystem'] },
+  // Kitchen, promoted the same way and for the same reason — it has to stay
+  // ahead of Dashboard too. Prompt: "currently can't see my kitchen view from
+  // the desktop. add a tab to the desktop please such that i can click into it
+  // from there"
+  { id: 'kitchen', label: 'Kitchen', icon: '🍳', home: '/kitchen', claims: ['/kitchen'] },
   // The dashboard is fifteen routes wearing one name (tabs.ts), and its own
-  // sub-tab row is how you move between them. Ecosystem is claimed above too;
-  // it stays in this list so the Dashboard's sub-tab row still works there.
+  // sub-tab row is how you move between them. Ecosystem and Kitchen are claimed
+  // above too; they stay in this list so the Dashboard's sub-tab row still works there.
   {
     id: 'dashboard',
     label: 'Dashboard',

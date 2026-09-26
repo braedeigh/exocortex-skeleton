@@ -17,7 +17,7 @@ describe('which section a page belongs to', () => {
 
   it('treats every dashboard route as the one Dashboard section', () => {
     expect(sectionForUrl('/todos')?.id).toBe('dashboard');
-    expect(sectionForUrl('/kitchen')?.id).toBe('dashboard');
+    expect(sectionForUrl('/money')?.id).toBe('dashboard');
     expect(sectionForUrl('/travel')?.id).toBe('dashboard');
   });
 
@@ -27,6 +27,11 @@ describe('which section a page belongs to', () => {
     expect(sectionForUrl('/ecosystem')?.id).toBe('ecosystem');
     expect(sectionForUrl('/ecosystem?recipe=abc')?.id).toBe('ecosystem');
     expect(pageLabel('/ecosystem')).toBe('Ecosystem');
+  });
+
+  it('gives /kitchen to Kitchen even though Dashboard claims the same path', () => {
+    expect(sectionForUrl('/kitchen')?.id).toBe('kitchen');
+    expect(pageLabel('/kitchen')).toBe('Kitchen');
   });
 
   it('is not fooled by a path that merely starts the same way', () => {
