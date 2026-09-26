@@ -1676,6 +1676,288 @@
       }
     }
   },
+  "hazards": {
+    "holds": "One row per hazard on the map: a specific thing that can be in food (lead, chlorpropham) or a family of them (heavy metal, pesticide).",
+    "source": "Written only through hazardstore.py (routes/research_tables.py is the owner's door, scripts/research_tables.py the agents'). Backed up to research_tables.json after every change and read back from it if the tables are ever empty.",
+    "kind": "record",
+    "time_column": "created_at",
+    "columns": {
+      "id": {
+        "holds": "The hazard's number."
+      },
+      "name": {
+        "holds": "Its main name."
+      },
+      "note": {
+        "holds": "A free note."
+      },
+      "created_at": {
+        "holds": "When it was put on the map."
+      }
+    }
+  },
+  "hazard_names": {
+    "holds": "Every way a hazard gets written ('total arsenic' for arsenic), lowercased, so a finding can name it however its source did.",
+    "source": "Written only through hazardstore.py (routes/research_tables.py is the owner's door, scripts/research_tables.py the agents'). Backed up to research_tables.json after every change and read back from it if the tables are ever empty.",
+    "kind": "record",
+    "time_column": null,
+    "columns": {
+      "name": {
+        "holds": "The name, lowercased with spaces collapsed."
+      },
+      "hazard_id": {
+        "holds": "The hazard it means. Points at hazards."
+      }
+    }
+  },
+  "hazard_parents": {
+    "holds": "Which families each hazard belongs to — the lines of the hazard map. A hazard can have several parents (DDE is a pesticide residue and a persistent pollutant); a loop is refused.",
+    "source": "Written only through hazardstore.py (routes/research_tables.py is the owner's door, scripts/research_tables.py the agents'). Backed up to research_tables.json after every change and read back from it if the tables are ever empty.",
+    "kind": "record",
+    "time_column": null,
+    "columns": {
+      "hazard_id": {
+        "holds": "The hazard. Points at hazards."
+      },
+      "parent_id": {
+        "holds": "A family it is a kind of. Points at hazards."
+      }
+    }
+  },
+  "hazard_measures": {
+    "holds": "One number about one food and one hazard — how much of it is in the food, or how often it was found — with the study it came from and the owner's review of it.",
+    "source": "Written only through hazardstore.py (routes/research_tables.py is the owner's door, scripts/research_tables.py the agents'). Backed up to research_tables.json after every change and read back from it if the tables are ever empty. Numbers the claims already carried were brought in by import_claim_values.",
+    "kind": "record",
+    "time_column": "created_at",
+    "columns": {
+      "id": {
+        "holds": "The measurement's number."
+      },
+      "food_id": {
+        "holds": "The food. Points at foods."
+      },
+      "hazard_id": {
+        "holds": "The hazard. Points at hazards."
+      },
+      "measure": {
+        "holds": "What kind of number it is.",
+        "values": {
+          "concentration": "How much is in the food, in ppb (µg/kg).",
+          "detection_rate": "The share of tested samples it was found in, in %."
+        }
+      },
+      "amount": {
+        "holds": "The number, in the unit below."
+      },
+      "unit": {
+        "holds": "ppb for a concentration, % for a detection rate."
+      },
+      "as_reported": {
+        "holds": "The figure as the source printed it, when it had to be converted. Empty when it didn't."
+      },
+      "sample_size": {
+        "holds": "How many samples the figure is from, when the source says."
+      },
+      "basis": {
+        "holds": "What the figure summarizes — 'mean', 'median', 'single highest sample'."
+      },
+      "year": {
+        "holds": "The year the figure is from."
+      },
+      "measured_on": {
+        "holds": "What the study actually tested, when it was a stand-in for this food. Empty means the food itself."
+      },
+      "source_id": {
+        "holds": "The study the number came from. Points at research_entries; emptied if the source is deleted."
+      },
+      "annotation_id": {
+        "holds": "The exact passage in the source that states it. Points at research_annotations."
+      },
+      "claim_id": {
+        "holds": "The prose claim this number belongs to. Points at research_entries."
+      },
+      "tier": {
+        "holds": "What ground it stands on — primary source read, secondary summary, inference."
+      },
+      "note": {
+        "holds": "A free note."
+      },
+      "author": {
+        "holds": "Who wrote the current version.",
+        "values": {
+          "llm": "A research agent.",
+          "owner": "The owner, by hand."
+        }
+      },
+      "review": {
+        "holds": "Whether the owner has looked at it.",
+        "values": {
+          "unreviewed": "Not looked at yet — everything an agent writes starts here, and goes back here when an agent changes it.",
+          "confirmed": "The owner checked it and it stands. What she writes herself is born confirmed.",
+          "disputed": "The owner thinks it is wrong. A verdict resting on a disputed number shows as shaken."
+        }
+      },
+      "reviewed_at": {
+        "holds": "When the owner last marked it confirmed or disputed."
+      },
+      "created_at": {
+        "holds": "When it was first recorded."
+      },
+      "updated_at": {
+        "holds": "When its content last changed."
+      }
+    }
+  },
+  "food_judgments": {
+    "holds": "A verdict about one food through one lens (health, sustainability): buy organic or not. With a hazard, the verdict is about that hazard only.",
+    "source": "Written only through hazardstore.py (routes/research_tables.py is the owner's door, scripts/research_tables.py the agents'). Backed up to research_tables.json after every change and read back from it if the tables are ever empty.",
+    "kind": "record",
+    "time_column": "created_at",
+    "columns": {
+      "id": {
+        "holds": "The verdict's number."
+      },
+      "food_id": {
+        "holds": "The food. Points at foods."
+      },
+      "lens": {
+        "holds": "What the verdict weighs — 'health' or 'sustainability'."
+      },
+      "hazard_id": {
+        "holds": "The one hazard the verdict is about, or empty for the food as a whole. Points at hazards."
+      },
+      "verdict": {
+        "holds": "The verdict.",
+        "values": {
+          "organic": "Buy organic.",
+          "some": "Organic helps some.",
+          "conventional": "Conventional is fine.",
+          "open": "Open question — not enough to say."
+        }
+      },
+      "reasoning": {
+        "holds": "Why, in words."
+      },
+      "tier": {
+        "holds": "What ground it stands on."
+      },
+      "author": {
+        "holds": "Who wrote the current version.",
+        "values": {
+          "llm": "A research agent.",
+          "owner": "The owner, by hand."
+        }
+      },
+      "review": {
+        "holds": "Whether the owner has looked at it.",
+        "values": {
+          "unreviewed": "Not looked at yet — everything an agent writes starts here, and goes back here when an agent changes it.",
+          "confirmed": "The owner checked it and it stands. What she writes herself is born confirmed.",
+          "disputed": "The owner thinks it is wrong. A verdict resting on a disputed number shows as shaken."
+        }
+      },
+      "reviewed_at": {
+        "holds": "When the owner last marked it."
+      },
+      "created_at": {
+        "holds": "When it was first made."
+      },
+      "updated_at": {
+        "holds": "When it last changed."
+      }
+    }
+  },
+  "judgment_grounds": {
+    "holds": "Which measurements each verdict rests on.",
+    "source": "Written only through hazardstore.py (routes/research_tables.py is the owner's door, scripts/research_tables.py the agents'). Backed up to research_tables.json after every change and read back from it if the tables are ever empty.",
+    "kind": "record",
+    "time_column": null,
+    "columns": {
+      "judgment_id": {
+        "holds": "The verdict. Points at food_judgments."
+      },
+      "measure_id": {
+        "holds": "A number it rests on. Points at hazard_measures."
+      }
+    }
+  },
+  "hazard_history": {
+    "holds": "Every earlier version of a measurement or verdict — what it said before it was changed or deleted, kept whole.",
+    "source": "Written by hazardstore.py just before it changes or deletes a measurement or verdict. Never edited afterwards.",
+    "kind": "record",
+    "time_column": "replaced_at",
+    "columns": {
+      "id": {
+        "holds": "The history entry's number."
+      },
+      "kind": {
+        "holds": "Which kind of row it was.",
+        "values": {
+          "measure": "A measurement (hazard_measures).",
+          "judgment": "A verdict (food_judgments)."
+        }
+      },
+      "row_id": {
+        "holds": "The id of the row it was an earlier version of."
+      },
+      "snapshot": {
+        "holds": "The whole row as it was, as JSON."
+      },
+      "replaced_by": {
+        "holds": "Who made the change ('llm' or 'owner'), or 'deleted'."
+      },
+      "replaced_at": {
+        "holds": "When it was replaced."
+      }
+    }
+  },
+  "research_tables": {
+    "holds": "The grids the owner directs: which foods run down the side, which branch of the hazard map runs across (or, for a verdict table, the lenses), and which kind of number the cells show.",
+    "source": "Written only through hazardstore.py (routes/research_tables.py is the owner's door, scripts/research_tables.py the agents'). Backed up to research_tables.json after every change and read back from it if the tables are ever empty.",
+    "kind": "record",
+    "time_column": "created_at",
+    "columns": {
+      "id": {
+        "holds": "The table's number."
+      },
+      "name": {
+        "holds": "Its name."
+      },
+      "kind": {
+        "holds": "What the cells hold.",
+        "values": {
+          "measures": "Numbers: foods × hazards.",
+          "judgments": "Verdicts: foods × lenses."
+        }
+      },
+      "topic_id": {
+        "holds": "The research topic it belongs to, if any. Not checked against research_topics."
+      },
+      "hazard_id": {
+        "holds": "The branch of the hazard map whose children are the columns; empty means the top of the map. Points at hazards."
+      },
+      "measure": {
+        "holds": "Which kind of number the cells show ('concentration' or 'detection_rate'); empty shows every kind."
+      },
+      "foods": {
+        "holds": "Which foods are the rows.",
+        "values": {
+          "all": "Every food.",
+          "recipes": "Foods any recipe uses.",
+          "rotation": "Foods a recipe on the meal rotation uses."
+        }
+      },
+      "note": {
+        "holds": "A free note."
+      },
+      "position": {
+        "holds": "Where the table sits in her list."
+      },
+      "created_at": {
+        "holds": "When it was made."
+      }
+    }
+  },
   "foods": {
     "holds": "One row per food: the thing a recipe asks for or a list names — not necessarily raw (boxed broth counts). Also holds non-food things bought alongside, told apart by kind.",
     "source": "Written only through foodstore.py (routes/food.py is its HTTP door). Backed up to food_catalog.json after every change and read back from it if the table is ever empty. Never cleared by a rebuild.",

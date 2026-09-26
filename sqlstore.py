@@ -42,7 +42,7 @@ import time
 
 import store
 
-_SCHEMA_VERSION = 24
+_SCHEMA_VERSION = 25
 
 
 def _db_path():
@@ -190,6 +190,8 @@ _EXPECTED_TABLES = (
     "research_entries", "research_entry_topics", "research_entry_context",
     "research_sessions", "research_session_entries", "research_session_topics",
     "research_annotations", "claim_sources", "claim_values",
+    "hazards", "hazard_names", "hazard_parents", "hazard_measures",
+    "food_judgments", "judgment_grounds", "hazard_history", "research_tables",
 )
 
 
@@ -2037,6 +2039,192 @@ def _run_ladder(conn):
             "  tier TEXT,"
             "  extra TEXT"
             ")"
+        )
+    if version < 25:
+        # Research tables (hazardstore.py): what is IN a food, number by
+        # number, each tied to the study it came from and to the owner's
+        # review of it — and, kept apart, the verdicts drawn from those
+        # numbers. Four layers: a hazard map (a kind-of graph she arranges),
+        # measurements (food × hazard × measure → a number), judgments (food ×
+        # lens → a verdict, grounded on measurements), and the tables she
+        # directs (saved views over the first three).
+        #
+        # Every hazard is a node; `hazard_parents` says which kinds it is a
+        # kind of. More than one parent is allowed on purpose: DDE is both a
+        # pesticide residue and a persistent pollutant, and a strict tree would
+        # make her pick one.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS hazards ("
+            "  id INTEGER PRIMARY KEY,"
+            "  name TEXT NOT NULL UNIQUE COLLATE NOCASE,"
+            "  note TEXT,"
+            "  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+            ")"
+        )
+        # Every way a hazard gets written ('total arsenic' → arsenic), stored
+        # lowercased. Matching happens here, the way food_names does it.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS hazard_names ("
+            "  name TEXT PRIMARY KEY,"
+            "  hazard_id INTEGER NOT NULL REFERENCES hazards(id) ON DELETE CASCADE"
+            ")"
+        )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS hazard_parents ("
+            "  hazard_id INTEGER NOT NULL REFERENCES hazards(id) ON DELETE CASCADE,"
+            "  parent_id INTEGER NOT NULL REFERENCES hazards(id) ON DELETE CASCADE,"
+            "  PRIMARY KEY (hazard_id, parent_id),"
+            "  CHECK (hazard_id <> parent_id)"
+            ")"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS hazard_parents_by_parent ON hazard_parents (parent_id)"
+        )
+        # One number about one food: how much of a hazard is in it, or how
+        # often it was found. Never more than one number per row; two studies
+        # on the same food and hazard are two rows.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS hazard_measures ("
+            "  id INTEGER PRIMARY KEY,"
+            "  food_id INTEGER NOT NULL REFERENCES foods(id) ON DELETE CASCADE,"
+            "  hazard_id INTEGER NOT NULL REFERENCES hazards(id) ON DELETE CASCADE,"
+            # What kind of number: 'concentration' (how much, in ppb) or
+            # 'detection_rate' (share of samples it was found in, in %). The
+            # vocabulary lives in hazardstore.MEASURES, not a CHECK.
+            "  measure TEXT NOT NULL,"
+            "  amount REAL NOT NULL,"
+            "  unit TEXT NOT NULL,"
+            # The figure exactly as the source printed it, when it had to be
+            # converted ('0.012 mg/kg' stored as 12 ppb).
+            "  as_reported TEXT,"
+            "  sample_size INTEGER,"
+            # What the number is a summary of ('mean of TDS samples').
+            "  basis TEXT,"
+            "  year INTEGER,"
+            # When the study tested something standing in for this food
+            # ('sirloin steak' for chuck roast), what it was. NULL = the food itself.
+            "  measured_on TEXT,"
+            # The study, the exact passage in it, and the prose claim this
+            # number came from. Loose on delete: the number outlives a
+            # deleted entry, and the grid shows it as unsourced.
+            "  source_id TEXT REFERENCES research_entries(id) ON DELETE SET NULL,"
+            "  annotation_id TEXT REFERENCES research_annotations(id) ON DELETE SET NULL,"
+            "  claim_id TEXT REFERENCES research_entries(id) ON DELETE SET NULL,"
+            # What ground it stands on, in the research room's words.
+            "  tier TEXT,"
+            "  note TEXT,"
+            "  author TEXT NOT NULL DEFAULT 'llm' CHECK (author IN ('llm','owner')),"
+            "  review TEXT NOT NULL DEFAULT 'unreviewed'"
+            "    CHECK (review IN ('unreviewed','confirmed','disputed')),"
+            "  reviewed_at TEXT,"
+            "  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),"
+            "  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+            ")"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS hazard_measures_by_food ON hazard_measures (food_id, hazard_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS hazard_measures_by_hazard ON hazard_measures (hazard_id)"
+        )
+        # A verdict about one food through one lens ('health',
+        # 'sustainability'): buy organic or not. With a hazard, the verdict is
+        # about that hazard alone — "organic does nothing for cadmium".
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS food_judgments ("
+            "  id INTEGER PRIMARY KEY,"
+            "  food_id INTEGER NOT NULL REFERENCES foods(id) ON DELETE CASCADE,"
+            # The vocabulary lives in hazardstore.LENSES.
+            "  lens TEXT NOT NULL,"
+            "  hazard_id INTEGER REFERENCES hazards(id) ON DELETE CASCADE,"
+            "  verdict TEXT NOT NULL"
+            "    CHECK (verdict IN ('organic','some','conventional','open')),"
+            "  reasoning TEXT,"
+            "  tier TEXT,"
+            "  author TEXT NOT NULL DEFAULT 'llm' CHECK (author IN ('llm','owner')),"
+            "  review TEXT NOT NULL DEFAULT 'unreviewed'"
+            "    CHECK (review IN ('unreviewed','confirmed','disputed')),"
+            "  reviewed_at TEXT,"
+            "  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),"
+            "  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+            ")"
+        )
+        # One verdict per food, lens and hazard — "no hazard" counted as one
+        # value, which a plain UNIQUE would not do (SQL treats NULLs as distinct).
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS food_judgments_one_per_lens"
+            " ON food_judgments (food_id, lens, IFNULL(hazard_id, 0))"
+        )
+        # Which measurements a verdict rests on. When one of them is disputed,
+        # the verdict shows as shaken.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS judgment_grounds ("
+            "  judgment_id INTEGER NOT NULL REFERENCES food_judgments(id) ON DELETE CASCADE,"
+            "  measure_id INTEGER NOT NULL REFERENCES hazard_measures(id) ON DELETE CASCADE,"
+            "  PRIMARY KEY (judgment_id, measure_id)"
+            ")"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS judgment_grounds_by_measure ON judgment_grounds (measure_id)"
+        )
+        # What a measurement or verdict said before it was changed. Edits are
+        # never silent: the old version is kept here whole, as JSON.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS hazard_history ("
+            "  id INTEGER PRIMARY KEY,"
+            "  kind TEXT NOT NULL CHECK (kind IN ('measure','judgment')),"
+            "  row_id INTEGER NOT NULL,"
+            "  snapshot TEXT NOT NULL,"
+            "  replaced_by TEXT,"
+            "  replaced_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+            ")"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS hazard_history_by_row ON hazard_history (kind, row_id)"
+        )
+        # The tables she directs: saved views. A 'measures' table shows foods
+        # down the side and one branch of the hazard map across the top; a
+        # 'judgments' table shows foods down the side and the lenses across.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS research_tables ("
+            "  id INTEGER PRIMARY KEY,"
+            "  name TEXT NOT NULL UNIQUE COLLATE NOCASE,"
+            "  kind TEXT NOT NULL CHECK (kind IN ('measures','judgments')),"
+            # The research topic this table belongs to. Loose, like an entry's topics.
+            "  topic_id TEXT,"
+            # Measures tables: the branch whose children are the columns, and
+            # which kind of number the cells show.
+            "  hazard_id INTEGER REFERENCES hazards(id) ON DELETE SET NULL,"
+            "  measure TEXT,"
+            # Which foods are the rows: 'all', 'recipes' (in any recipe) or
+            # 'rotation' (in a recipe on the meal rotation).
+            "  foods TEXT NOT NULL DEFAULT 'all' CHECK (foods IN ('all','recipes','rotation')),"
+            "  note TEXT,"
+            "  position INTEGER NOT NULL DEFAULT 0,"
+            "  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+            ")"
+        )
+        # Two views for the SQL console: every measurement and every verdict
+        # with its names spelled out, so a query needs no joins.
+        conn.execute("DROP VIEW IF EXISTS hazard_findings")
+        conn.execute(
+            "CREATE VIEW hazard_findings AS"
+            " SELECT m.id, f.name AS food, h.name AS hazard, m.measure, m.amount, m.unit,"
+            "        m.year, m.measured_on, m.tier, m.review, m.author,"
+            "        s.text AS source, s.url AS source_url"
+            " FROM hazard_measures m"
+            " JOIN foods f ON f.id = m.food_id"
+            " JOIN hazards h ON h.id = m.hazard_id"
+            " LEFT JOIN research_entries s ON s.id = m.source_id"
+        )
+        conn.execute("DROP VIEW IF EXISTS food_verdicts")
+        conn.execute(
+            "CREATE VIEW food_verdicts AS"
+            " SELECT j.id, f.name AS food, j.lens, h.name AS hazard, j.verdict,"
+            "        j.reasoning, j.tier, j.review, j.author"
+            " FROM food_judgments j"
+            " JOIN foods f ON f.id = j.food_id"
+            " LEFT JOIN hazards h ON h.id = j.hazard_id"
         )
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")

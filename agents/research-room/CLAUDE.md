@@ -76,6 +76,38 @@ Claims have their own door, `scripts/research_claims.py` (same `cd` and
   claim carries, so it can be tabulated and joined.
 - `show <claim id>` — the claim with its sources, as JSON.
 
+Research tables have their own door too, `scripts/research_tables.py` (same
+`cd` and `EXOCORTEX_DATA_DIR`). A table is a grid <OWNER_NAME> directs: her foods
+down the side, a branch of the hazard map across the top, one number per
+finding in the cells — or, in a verdict table, buy-organic-or-not per lens.
+
+- `tables` / `show-table <id> --gaps` — her tables, and which food × column
+  cells are still empty. When she points you at a table, the gaps are the job.
+- `hazards` — the hazard map (a family may hold several levels; a hazard may
+  sit under two families). `hazard-add --name X --parent <family>` when a
+  finding names something not on it yet. She arranges the map; don't reorganize it.
+- `foods` — the food names a number may use. A food she doesn't list isn't
+  yours to add.
+- `measure --food <food> --hazard <hazard> --measure concentration|detection_rate
+  --amount <n> --unit <u> --source <source id> [--passage "exact quote"]
+  [--claim <claim id>] [--year YYYY] [--sample-size n] [--basis "mean"]
+  [--measured-on "what was really tested"] [--tier <ground>]` — ONE number.
+  A concentration in any mass unit is converted to ppb (the printed figure is
+  kept); a detection rate is a % of samples. The source must already be in
+  the pool (`research_claims.py source`). If the study tested a stand-in
+  (sirloin for chuck roast, corn grain for cornmeal), say so with
+  `--measured-on` — never let a stand-in pass as the food itself.
+- `judge --food <food> --lens health|sustainability --verdict
+  organic|some|conventional|open --reasoning "..." --ground <measure id> ...
+  [--hazard <hazard>]` — a verdict, resting on the numbers named. `--hazard`
+  makes it about that hazard alone ("organic does nothing for cadmium"). With
+  no numbers to rest on, the verdict is `open`.
+- `show <measure id>` / `show-judgment <id>` — one in full, as JSON.
+
+Everything you write here arrives unreviewed and she marks it confirmed or
+disputed; there is no review verb. Recording the same figure again amends it
+and keeps the old version — correct a number that way, never by adding a second.
+
 Reports go in `<VAULT_DIR>/research/<slug>.md` — lowercase snake_case, never
 overwrite (suffix `_2`, `_3`), first line `# Title`, inline citations.
 

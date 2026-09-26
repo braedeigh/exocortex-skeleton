@@ -74,7 +74,9 @@ TYPED_TABLES = ("habits", "habit_aliases", "habit_entries",
                 "foods", "food_names", "products", "receipt_names", "food_links",
                 "recipe_makes", "meal_rotation",
                 "recipes", "recipe_lines", "shopping_trips", "shopping_lines",
-                "grocery_list", "receipts")
+                "grocery_list", "receipts",
+                "hazards", "hazard_names", "hazard_parents", "hazard_measures",
+                "food_judgments", "judgment_grounds", "hazard_history", "research_tables")
 
 _DATE_KEY = re.compile(r"^\d{4}-\d{2}-\d{2}")
 

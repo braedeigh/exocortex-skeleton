@@ -159,7 +159,9 @@ def test_collections_reports_typed_tables_separately(client):
         "foods", "food_names", "products", "receipt_names", "food_links",
         "recipe_makes", "meal_rotation",
         "recipes", "recipe_lines", "shopping_trips", "shopping_lines", "grocery_list",
-        "receipts"}
+        "receipts",
+        "hazards", "hazard_names", "hazard_parents", "hazard_measures",
+        "food_judgments", "judgment_grounds", "hazard_history", "research_tables"}
     assert all(t["kind"] == "table" for t in body["typed"])
     # 'expenses' is BOTH a typed table and a blob collection during the
     # migration — the blob is still the source of truth. They must not collide

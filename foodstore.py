@@ -502,6 +502,12 @@ def merge(keep, drop):
         # and the delete below takes it away with the dropped food.
         conn.execute("UPDATE OR IGNORE food_links SET food_id = ? WHERE food_id = ?",
                      (keep_id, drop_id))
+        # Move the research tables' rows too (hazardstore.py): every number
+        # about the dropped food now describes keep. A verdict keep already has
+        # for the same lens and hazard wins; drop's goes with the delete below.
+        conn.execute("UPDATE hazard_measures SET food_id = ? WHERE food_id = ?", (keep_id, drop_id))
+        conn.execute("UPDATE OR IGNORE food_judgments SET food_id = ? WHERE food_id = ?",
+                     (keep_id, drop_id))
         # Keep's judgments win; drop fills only what keep left empty.
         conn.execute(
             "UPDATE foods SET"
@@ -511,6 +517,10 @@ def merge(keep, drop):
             " WHERE id = ?", (drop_id, drop_id, drop_id, keep_id))
         conn.execute("DELETE FROM foods WHERE id = ?", (drop_id,))
     rebuild()
+    # The research tables keep their own backup file, and the move above
+    # changed their rows; imported here because hazardstore imports this module.
+    import hazardstore
+    hazardstore.refresh_mirror()
     return keep_id
 
 

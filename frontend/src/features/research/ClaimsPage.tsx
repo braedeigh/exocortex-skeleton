@@ -216,6 +216,10 @@ export function ClaimsPage() {
         <Link to="/research" search={{}} className={pageStyles.pageHeadLink} title="Research threads">
           &#9776; Threads
         </Link>
+        {/* The research tables — the numbers inside these claims, as a grid. */}
+        <Link to="/research/tables" search={{}} className={`${pageStyles.pageHeadLink} ${styles.nextHeadLink}`} title="Research tables">
+          &#9638; Tables
+        </Link>
       </div>
 
       {/* Filter pills: one row of fronts, one row of that front's topics. */}

@@ -9,6 +9,11 @@
   max-width: 1280px;
 }
 
+/* A second head link sits beside the first rather than splitting the space. */
+.nextHeadLink {
+  margin-left: 0;
+}
+
 .livePill {
   margin-left: auto;
   align-self: center;
