@@ -3,8 +3,9 @@
 
 routes/pending.py's `_commit()` is the ONLY place that actually applies an
 approved change (shelling out to the add-todo/thread Rust binaries for
-thread_open/thread_link/thread_retire/todo/life_todo/life_remove, or calling
-routes/profile.py's `apply_profile_update` for "profile"). Today the only way
+thread_open/thread_link/thread_retire/todo/life_todo/life_remove, calling
+routes/profile.py's `apply_profile_update` for "profile", or comingup.py's
+`add_item` for "coming_up"). Today the only way
 to get a change INTO that queue is the add-todo binary's `--stage` flag. This
 script is the second door: a small, dependency-light CLI any agent (a Claude
 session, an onboarding flow, a future integration) can shell out to in order
@@ -84,6 +85,9 @@ KNOWN_KINDS = frozenset((
     "agent_note",
     "life_patch",
     "profile",
+    # A Keeper's proposed Coming up item — an event, or a topic to raise at a
+    # set time (comingup.py). Lands marked created_by "keeper" on Approve.
+    "coming_up",
 ))
 
 PENDING_FILE = "pending_changes"  # -> data/pending_changes.json, same key routes/pending.py uses
@@ -156,6 +160,14 @@ def stage_change(kind, payload, summary=None, by=None, conv=None):
             raise StageError(str(exc))
         if not payload.get("id"):
             raise StageError("payload needs the target to-do's `id`")
+    if kind == "coming_up":
+        # Same fail-now rule: check it with the exact cleaner the commit uses,
+        # so a bad date is refused while the Keeper can still fix it.
+        import comingup
+        try:
+            comingup.clean_item(payload, "keeper")
+        except comingup.ItemError as exc:
+            raise StageError(str(exc))
 
     conv = conv or os.environ.get("EXOCORTEX_CONV_ID") or None
     entry = {"id": str(uuid.uuid4()), "kind": kind, "payload": payload,

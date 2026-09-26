@@ -156,6 +156,38 @@ def add_item(raw, created_by):
     return item
 
 
+def update_item(item_id, fields):
+    """Edit one item: re-clean it with the new fields merged over the old, so
+    an edit meets exactly the rules an add does. Who made it and when never
+    change. A changed reminder time puts it back to `pending` so the new time
+    can fire; anything else keeps its status. Returns the item, or None if
+    there's no such id."""
+    with store.mutate(COLLECTION, _empty()) as data:
+        items = data.setdefault("items", [])
+        for i, old in enumerate(items):
+            if not isinstance(old, dict) or old.get("id") != item_id:
+                continue
+            merged = {**old, **(fields or {}), "id": item_id}
+            # A topic's reminder that was only ever its own time (the default)
+            # follows the time when the time changes — otherwise moving "ask
+            # me at 6" to 7 would still ping at 6. A reminder set on purpose
+            # stays put unless the edit names a new one.
+            fields = fields or {}
+            was_default = (old.get("kind") == "topic" and old.get("time")
+                           and old.get("remind_at") == f"{old.get('date')} {old.get('time')}")
+            if was_default and "remind_at" not in fields:
+                merged["remind_at"] = ""
+            new = clean_item(merged, old.get("created_by", "manual"))
+            new["created"] = old.get("created") or new["created"]
+            if new["remind_at"] != old.get("remind_at"):
+                new["status"], new["fired_at"] = "pending", None
+            else:
+                new["status"], new["fired_at"] = old.get("status", "pending"), old.get("fired_at")
+            items[i] = new
+            return new
+    return None
+
+
 def set_status(item_id, status, fired_at=None):
     """Move one item to a new status. Returns True if the item was found."""
     if status not in STATUSES:

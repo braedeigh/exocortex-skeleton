@@ -8,6 +8,7 @@ import { AgentNoteApprovalEditor } from './AgentNoteApprovalEditor';
 import { ContactApprovalEditor } from './ContactApprovalEditor';
 import { LifePatchApprovalEditor } from './LifePatchApprovalEditor';
 import { FoodApprovalEditor } from './FoodApprovalEditor';
+import { GenericApprovalEditor } from './GenericApprovalEditor';
 import { SymptomsApprovalEditor } from './SymptomsApprovalEditor';
 import { ThreadApprovalEditor } from './ThreadApprovalEditor';
 import { TodoApprovalEditor } from './TodoApprovalEditor';
@@ -25,3 +26,7 @@ registerApprovalEditor('life_patch', { title: 'Change a to-do? ✦', Editor: Lif
 registerApprovalEditor('thread_open', { title: 'New thread? 🧵', Editor: ThreadApprovalEditor });
 registerApprovalEditor('thread_link', { title: 'Rewire thread? 🧵', Editor: ThreadApprovalEditor });
 registerApprovalEditor('thread_retire', { title: 'Retire thread? 🧵', Editor: ThreadApprovalEditor });
+// A Keeper's proposed event or topic (scripts/coming_up_propose.py). The generic
+// field-per-line editor is enough: title, date, time, reminder, note — each
+// editable before she approves, and checked again server-side on commit.
+registerApprovalEditor('coming_up', { title: 'Add to Coming up? ⏰', Editor: GenericApprovalEditor });
