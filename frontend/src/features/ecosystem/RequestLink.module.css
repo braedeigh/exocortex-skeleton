@@ -1,0 +1,24 @@
+/* RequestLinkButton — the "Request linking" pill. 40px tall (touch-first),
+   accent outline while it can be pressed, a quiet filled state once asked. */
+.btn {
+  flex: none;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 9px;
+  border: 1px solid var(--accent);
+  background: none;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn:disabled {
+  cursor: default;
+}
+
+.requested {
+  border-color: var(--border);
+  color: var(--text-muted);
+}

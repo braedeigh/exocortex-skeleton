@@ -109,3 +109,14 @@ export function usdaSuggest(name: string): Promise<UsdaSuggestion> {
 export function saveUsdaKey(key: string): Promise<{ ok: boolean; key_set: boolean }> {
   return api.post('/api/ecosystem/usda/key', { key });
 }
+
+/** Queue a food (by id, or by name when it has no id yet) to have its origin
+ *  found. Links nothing — the request waits for the research pass. Idempotent:
+ *  asking again while one is open returns the same request. `from` says where
+ *  she asked: 'recipe:<id>', 'grocery' or 'map'. */
+export function requestLink(
+  food: number | string,
+  from: string,
+): Promise<{ ok: boolean; id: number; food_id: number }> {
+  return api.post('/api/ecosystem/request-link', { food, from });
+}
