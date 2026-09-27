@@ -76,7 +76,7 @@ def mint_helper(kind, slug, brief, title, model=None):
     # Personal room on purpose: these jobs write into the vault (todos.json,
     # parsed recipes, a person's file) and she is the one who pressed the
     # button, so nothing unwatched is being handed autonomy.
-    payload, status = open_spinoff(slug, lane="personal", model=model)
+    payload, status = open_spinoff(slug, lane="personal", model=model, via="helper")
     if status == 200 and payload.get("conversation_id"):
         # Stamp AFTER the mint, in a separate short lock, rather than teaching
         # open_spinoff about helpers: the spawn door stays one door.

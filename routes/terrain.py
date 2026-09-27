@@ -384,6 +384,12 @@ def _redact_sessions(payload):
     for entry in roster:
         if not isinstance(entry, dict):
             continue
+        # The parent link: a non-Coding parent is swapped for its opaque
+        # handle, the same one it gets in the roster, so the arrow still joins
+        # without the real id getting out.
+        parent = entry.get("spawned_from")
+        if parent and not _public(parent):
+            entry = {**entry, "spawned_from": _opaque_session_id(parent)}
         if _public(entry.get("id")):
             sessions_out.append(entry)
             continue
@@ -1239,18 +1245,24 @@ def _build_terrain(file_cap=_TERRAIN_FILE_CAP):
     sessions_out = []
     for cid in session_ids:
         meta = index.get(cid) if isinstance(index.get(cid), dict) else {}
-        sessions_out.append({"id": cid,
-                             "title": _terrain_session_title(cid, gists, index),
-                             "bot": meta.get("bot"),
-                             "running": cid in running_ids,
-                             # Open = not archived. A real, server-side state
-                             # she controls, unlike the browser-local heartbeat
-                             # the map used to call "active".
-                             "open": cid in open_ids,
-                             # Which room it lives in. Derived for entries that
-                             # predate the field, so nothing needs migrating.
-                             "lane": observatory._conv_lane(meta),
-                             "last": meta.get("last_at")})
+        session_out = {"id": cid,
+                       "title": _terrain_session_title(cid, gists, index),
+                       "bot": meta.get("bot"),
+                       "running": cid in running_ids,
+                       # Open = not archived. A real, server-side state
+                       # she controls, unlike the browser-local heartbeat
+                       # the map used to call "active".
+                       "open": cid in open_ids,
+                       # Which room it lives in. Derived for entries that
+                       # predate the field, so nothing needs migrating.
+                       "lane": observatory._conv_lane(meta),
+                       "last": meta.get("last_at")}
+        # Who it was spun off from (routes/spinoff.py), so the map can draw an
+        # arrow parent → child. Only on a spinoff — a session nothing spawned
+        # carries no key at all.
+        if meta.get("spawned_from"):
+            session_out["spawned_from"] = meta["spawned_from"]
+        sessions_out.append(session_out)
     sessions_out.sort(key=lambda s: s.get("last") or "", reverse=True)
 
     return {"generated_at": datetime.now().isoformat(timespec="seconds"),

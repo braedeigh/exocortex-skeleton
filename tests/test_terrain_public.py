@@ -346,3 +346,17 @@ def test_a_host_that_cannot_keep_a_salt_still_anonymizes(data_dir, monkeypatch):
     # Stable within the process, or one payload's roster and file cards would
     # disagree and the orb would lose its own files.
     assert terrain._opaque_session_id(PERSONAL_ID) == handle
+
+
+def test_a_private_parent_link_goes_opaque_but_still_joins(data_dir):
+    """An arrow parent → child can't carry a Personal parent's real id to a
+    stranger. It's swapped for the SAME handle the parent's own orb gets, so
+    the arrow still lands on it."""
+    from routes import terrain
+    payload = {"sessions": [
+        {"id": PERSONAL_ID, "title": PERSONAL_TITLE, "lane": "personal"},
+        {"id": CODING_ID, "title": CODING_TITLE, "lane": "coding",
+         "spawned_from": PERSONAL_ID}], "repos": []}
+    roster = terrain._redact_sessions(payload)["sessions"]
+    parent, child = roster
+    assert child["spawned_from"] == parent["id"] != PERSONAL_ID

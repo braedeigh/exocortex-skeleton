@@ -364,7 +364,8 @@ def open_steward(branch, message):
     # keeping this module import-light is what lets nightcrew.py fold our
     # cards in without dragging the whole observatory machinery along.
     from routes.spinoff import open_spinoff
-    payload, status = open_spinoff(slug, lane="orchestra", branch=branch)
+    payload, status = open_spinoff(slug, lane="orchestra", branch=branch,
+                                   via="steward")
     if status != 200:
         return payload, status
     return {"ok": True, "conversation_id": payload["conversation_id"],

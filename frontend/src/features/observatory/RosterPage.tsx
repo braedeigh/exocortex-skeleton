@@ -24,6 +24,7 @@ import { SessionLane } from './SessionLane';
 import { NightCrewDoor } from './NightCrewDoor';
 import { HelpersDoor } from './HelpersDoor';
 import { ResearchDoor } from './ResearchDoor';
+import { SpinoffTreeDoor } from './SpinoffTreeDoor';
 import { MemoryMeter } from '../runqueue/MemoryMeter';
 import { useTerrain } from '../terrain/api';
 import { NotesPill } from '../todos/NotesPill';
@@ -467,6 +468,9 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
               above; the sessions themselves stay out of the rooms
               (sessionFilters.roomRoster). */}
           <ResearchDoor state={researchState} />
+
+          {/* The spinoff family tree — which session came from which. */}
+          <SpinoffTreeDoor />
 
           {/* Seeded from the '+' she actually pressed, and NOT seeded at all
               from the rail's — that one gets a null lane, which makes the sheet

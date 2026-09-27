@@ -145,9 +145,20 @@ def _inherit_lane(index):
     guessed into Personal would silently hand a session more autonomy than
     anyone granted it.
     """
+    sender = _sender_conv(index)
+    return _conv_lane(index[sender]) if sender else _DEFAULT_LANE
+
+
+def _sender_conv(index):
+    """The conversation this call is being made FROM, or None.
+
+    Read off EXOCORTEX_CONV_ID, which every Observatory turn carries, and only
+    believed if that id is really in the index — a stale or foreign id names
+    no one. A web request (Go, the fork button, a helper button) has no such
+    variable, so those callers name the parent outright instead.
+    """
     sender = os.environ.get("EXOCORTEX_CONV_ID")
-    entry = index.get(sender) if sender else None
-    return _conv_lane(entry) if isinstance(entry, dict) else _DEFAULT_LANE
+    return sender if sender and isinstance(index.get(sender), dict) else None
 
 
 def _live_conv_for(index, slug):
@@ -157,7 +168,8 @@ def _live_conv_for(index, slug):
                  and not entry.get("archived")), None)
 
 
-def open_spinoff(slug, start=True, lane=None, model=None, branch=None):
+def open_spinoff(slug, start=True, lane=None, model=None, branch=None,
+                 parent=None, via=None):
     """Core shared by the route and scripts/spinoff_open.py (the agents' door).
 
     Mints (or rejoins) an Observatory conversation for the spinoff and, by
@@ -195,6 +207,14 @@ def open_spinoff(slug, start=True, lane=None, model=None, branch=None):
     refuses the whole spawn rather than falling back to the shared checkout —
     a session that believes it stands on a branch and doesn't is the exact
     lie the worktree exists to prevent.
+
+    `parent` / `via` record where the child came from, so sessions can be
+    drawn as a family tree (see docs/spinoff-lineage.md). `parent` is the
+    conversation id it was spun off from; left None it's the calling session
+    (_sender_conv), which is right for the skill's script door. `via` says
+    how: "skill", "go", "fork", "helper", "steward" — left None it's "skill"
+    when there is a calling session and "app" when there isn't. Written only
+    at mint; a rejoin never rewrites a child's parentage.
     """
     if not SLUG_RE.match(slug or ""):
         return {"error": "bad slug"}, 400
@@ -230,6 +250,11 @@ def open_spinoff(slug, start=True, lane=None, model=None, branch=None):
     # session can never change afterwards, which is why it's settled here at
     # birth.
     room = lane or _inherit_lane(snapshot)
+    # Who this is spun off from — named by the caller, else the session
+    # making the call. Settled here, beside the room, for the same reason:
+    # it's a fact about the birth.
+    parent = parent or _sender_conv(snapshot)
+    via = via or ("skill" if parent else "app")
     if branch is not None and room != "orchestra":
         # Adoption is steward work, which runs in the gated room — nobody is
         # watching it. Any other room here is a caller bug, refused loudly.
@@ -261,6 +286,10 @@ def open_spinoff(slug, start=True, lane=None, model=None, branch=None):
                 "allowed_tools": list(profile["allowed_tools"]), "draft": kickoff,
                 "autostart": True,
             }
+            # The family-tree link: parent id plus how it was spawned.
+            index[conv_id]["spawned_via"] = via
+            if parent:
+                index[conv_id]["spawned_from"] = parent
             if model:
                 # On the entry, not the reply alone: per-turn resolution
                 # (observatory's effective_model) reads it from here, so the
@@ -293,6 +322,7 @@ def open_spinoff(slug, start=True, lane=None, model=None, branch=None):
         "staged": True,
         "autostart": True,
         "model": model,
+        "spawned_from": parent,
         "brief": str(brief),
         "worktree": str(wt_path) if wt_path else None,
         "branch": wt_branch,
@@ -433,7 +463,9 @@ def go_offer(conv_id):
     spawned, errors = [], []
     # Outside the lock: open_spinoff takes it itself, and launches runners.
     for slug in offer["slugs"]:
-        payload, status = open_spinoff(slug, lane=lane)
+        # The offer sits on the sender's own conversation, so the sender is
+        # the parent even though Go arrives as a web request.
+        payload, status = open_spinoff(slug, lane=lane, parent=conv_id, via="go")
         if status == 200:
             spawned.append({"slug": slug,
                             "conversation_id": payload["conversation_id"],
@@ -456,7 +488,51 @@ def dismiss_offer(conv_id):
     return {"ok": True}, 200
 
 
+# --- The family tree: who was spun off from whom ------------------------------
+# Every spinoff carries `spawned_from` (its parent's conversation id) and
+# `spawned_via` (how it was born), written at mint by open_spinoff and
+# back-filled for older ones by scripts/backfill_spawned_from.py. This reads
+# them back as one flat list the frontend folds into a tree
+# (frontend/src/features/observatory/SpinoffTreePage.tsx).
+
+def spinoff_tree(index):
+    """Every conversation that is part of a spinoff family, flat.
+
+    A conversation is in if it was spun off (has spawned_via) or something was
+    spun off from it. Archived ones stay in — the tree is history, and most of
+    it is closed. Each node names its parent; roots are nodes whose parent is
+    None or isn't in the list.
+    """
+    parents = {entry.get("spawned_from") for entry in index.values()
+               if isinstance(entry, dict) and entry.get("spawned_from")}
+    nodes = []
+    for cid, entry in index.items():
+        if not isinstance(entry, dict):
+            continue
+        if not (entry.get("spawned_via") or cid in parents):
+            continue
+        nodes.append({
+            "id": cid,
+            "title": entry.get("title") or cid,
+            "slug": entry.get("spinoff_slug"),
+            "lane": _conv_lane(entry),
+            "started": entry.get("started"),
+            "last": entry.get("last_at"),
+            "archived": bool(entry.get("archived")),
+            "running": bool(entry.get("running")),
+            "parent": entry.get("spawned_from"),
+            "via": entry.get("spawned_via"),
+        })
+    nodes.sort(key=lambda node: node.get("started") or "")
+    return nodes
+
+
 def register(app):
+
+    # The family tree, flat: the page builds the nesting.
+    @app.route("/api/spinoff/tree", methods=["GET"])
+    def spinoff_tree_read():
+        return jsonify({"nodes": spinoff_tree(store.read("bot_chats/index", {}))})
 
     # The Go card's three doors: read what's offered, start it, or wave it off.
     @app.route("/api/spinoff/offer/<conv_id>", methods=["GET"])

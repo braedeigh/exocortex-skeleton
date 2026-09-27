@@ -98,6 +98,10 @@ export interface TerrainLiveSession {
    * section filter. */
   lane?: string;
   last: string | null;
+  /** The conversation it was spun off from, if it was — drawn as an arrow
+   * parent → child (terrainLineage.ts). For a visitor, a private parent is
+   * its opaque handle, which still matches that orb's id. */
+  spawned_from?: string | null;
 }
 
 export interface TerrainData {

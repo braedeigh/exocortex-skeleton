@@ -66,6 +66,7 @@ import { collapseToPondTile, localDayISO, parseCardPath, POND_TILE_PATH } from '
 import { coilWindowLabel, windowCoils } from './coilFolders';
 import { addTableNodes } from './tableNodes';
 import { tableCodeLinks } from './tableMentions';
+import { lineageLinks } from './terrainLineage';
 import { tapStage } from './hoverSelection';
 import { TerrainTableWindow } from './TerrainTableWindow';
 import { fileTypeCounts, OTHER_FILE_TYPE } from './fileTypes';
@@ -948,6 +949,19 @@ export function TerrainPage() {
     engineRef.current?.setTableCodeLinks(codeLinks);
   }, [codeLinks]);
 
+  // The spinoff arrows: which agent was spun off from which. Every pair goes
+  // over; the canvas draws only those with both orbs on the map
+  // (terrainCanvas.ts setLineage).
+  // Kept in a ref too: the canvas is built by a later effect, and with the map
+  // already cached the first hand-over would find no canvas — so the build
+  // hands the latest pairs over itself.
+  const spinoffLinks = useMemo(() => lineageLinks(data?.sessions ?? []), [data?.sessions]);
+  const spinoffLinksRef = useRef(spinoffLinks);
+  spinoffLinksRef.current = spinoffLinks;
+  useEffect(() => {
+    engineRef.current?.setLineage(spinoffLinks);
+  }, [spinoffLinks]);
+
   // The replay runner. Frames are pre-batched (beats within 40ms share one
   // flash); each frame flashes its dots and appends its threads to the lit
   // set, which stays up for a few seconds after the last beat so the whole
@@ -1228,6 +1242,7 @@ export function TerrainPage() {
     // mount in layoutMemory.ts. The ambient backdrop doesn't ask for it.
     const engine = new TerrainCanvas(canvas, initialInk, { remember: true });
     engineRef.current = engine;
+    engine.setLineage(spinoffLinksRef.current);
     engine.onPins = setPinnedCount;
     setInk(initialInk);
     engine.resize(wrap.clientWidth, wrap.clientHeight);

@@ -622,6 +622,29 @@ export interface HelpersState {
   failed: number;
 }
 
+/** One conversation in the spinoff family tree (GET /api/spinoff/tree,
+ * routes/spinoff.py spinoff_tree). `parent` is the conversation it was spun
+ * off from; `via` is how ("skill", "go", "fork", "helper", "steward",
+ * "terminal", "app"). A parent that was never itself spun off has no `via`. */
+export interface SpinoffTreeNode {
+  id: string;
+  title: string;
+  slug: string | null;
+  lane: string;
+  started: string | null;
+  last: string | null;
+  archived: boolean;
+  running: boolean;
+  parent: string | null;
+  via: string | null;
+}
+
+/** GET /api/spinoff/tree — every conversation in a spinoff family, flat,
+ * archived ones included. SpinoffTreePage folds it into a tree. */
+export function getSpinoffTree(signal?: AbortSignal): Promise<{ nodes: SpinoffTreeNode[] }> {
+  return api.get('/api/spinoff/tree', signal);
+}
+
 /** GET /api/helpers — every helper session ever minted, archived included,
  * newest first. Drawn by HelpersDoor (census) and HelpersPage (the list). */
 export function getHelpers(signal?: AbortSignal): Promise<HelpersState> {

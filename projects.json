@@ -448,6 +448,7 @@
         "turn_host.py",
         "nightcrew_run.py",
         "spinoff_runner.py",
+        "backfill_spawned_from.py",
         "spark_morning.py",
         "sort_bot_chats.py"
       ],

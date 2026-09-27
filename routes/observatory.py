@@ -2564,7 +2564,8 @@ def register(app):
         # inside a REQUEST, so the ambient sender open_spinoff would otherwise
         # read is the web worker (nobody), not the session being forked. A
         # take-over has to land in the same room as the work it takes over.
-        payload, status = open_spinoff(slug, start=False, lane=_conv_lane(meta))
+        payload, status = open_spinoff(slug, start=False, lane=_conv_lane(meta),
+                                       parent=conv_id, via="fork")
         return jsonify(payload), status
 
     @app.route("/api/observatory/conversation/<conv_id>/approve", methods=["POST"])

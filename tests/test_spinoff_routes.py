@@ -559,3 +559,53 @@ def test_a_new_offer_replaces_the_old_one(spinoff_client, monkeypatch):
     _write_brief(store.SPINOFF_DIR, "second-draft")
     spinoff.offer_spinoff(sender, ["second-draft"])
     assert _index()[sender]["spinoff_offer"]["slugs"] == ["second-draft"]
+
+
+# --- the family tree: every child remembers who it was spun off from ---------
+# `spawned_from` is the parent's conversation id and `spawned_via` how it was
+# born; together they let sessions be drawn as a tree (docs/spinoff-lineage.md).
+
+def test_a_spinoff_records_the_session_it_was_spun_off_from(spinoff_client, monkeypatch):
+    sender = _sender(monkeypatch, lane="coding")
+    _write_brief(store.SPINOFF_DIR, "has-a-parent")
+    body = _post(spinoff_client, "has-a-parent").get_json()
+    entry = _index()[body["conversation_id"]]
+    assert (entry["spawned_from"], entry["spawned_via"]) == (sender, "skill")
+
+
+def test_a_spinoff_with_no_calling_session_has_no_parent(spinoff_client):
+    # A terminal or a cron: nobody to point at, and the entry says "app"
+    # rather than inventing a parent.
+    _write_brief(store.SPINOFF_DIR, "orphan")
+    body = _post(spinoff_client, "orphan").get_json()
+    entry = _index()[body["conversation_id"]]
+    assert "spawned_from" not in entry and entry["spawned_via"] == "app"
+
+
+def test_go_records_the_offering_session_as_the_parent(spinoff_client, monkeypatch):
+    # Go is a web request with no EXOCORTEX_CONV_ID; the offer's own
+    # conversation is the parent.
+    sender = _offer_from(monkeypatch, "from-go")
+    body = spinoff_client.post(f"/api/spinoff/offer/{sender}/go").get_json()
+    entry = _index()[body["spawned"][0]["conversation_id"]]
+    assert (entry["spawned_from"], entry["spawned_via"]) == (sender, "go")
+
+
+def test_a_rejoin_never_rewrites_the_parent(spinoff_client, monkeypatch):
+    first = _sender(monkeypatch, conv_id="2026-07-30.101010")
+    _write_brief(store.SPINOFF_DIR, "kept-parent")
+    cid = _post(spinoff_client, "kept-parent").get_json()["conversation_id"]
+    _sender(monkeypatch, conv_id="2026-07-30.202020")
+    _post(spinoff_client, "kept-parent")
+    assert _index()[cid]["spawned_from"] == first
+
+
+def test_the_tree_lists_parents_and_children_but_not_bystanders(spinoff_client, monkeypatch):
+    sender = _sender(monkeypatch, lane="coding")
+    _write_brief(store.SPINOFF_DIR, "leaf")
+    child = _post(spinoff_client, "leaf").get_json()["conversation_id"]
+    with store.mutate("bot_chats/index", {}) as index:
+        index["2026-07-30.111111"] = {"bot": "keeper", "title": "unrelated"}
+    nodes = {n["id"]: n for n in spinoff_client.get("/api/spinoff/tree").get_json()["nodes"]}
+    assert set(nodes) == {sender, child}
+    assert nodes[child]["parent"] == sender and nodes[sender]["parent"] is None

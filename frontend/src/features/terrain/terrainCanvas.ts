@@ -197,6 +197,7 @@ import {
 } from './terrainGraph';
 import type { TerrainThread } from './terrainThreads';
 import type { TableCodeLink } from './tableMentions';
+import { lineageArrow, type LineageLink } from './terrainLineage';
 import { homeChain, wiringTarget } from './hoverSelection';
 import { nearestExit, placeOrbNames, spreadOrbs, type Box, type NameAsk } from './agentLayout';
 import { spiralSpots, tipCurve, type SpiralArrangement } from './spiralLayout';
@@ -1301,6 +1302,10 @@ export class TerrainCanvas {
    * handed to the physics: a spring from a pinned shelf to a file dot would
    * drag the file across the map. Empty until the page hands them over. */
   private tableCodeLinks: readonly TableCodeLink[] = [];
+  /** Parent → child spinoff pairs, by conversation id (terrainLineage.ts).
+   * Drawn as arrows between orbs, never handed to the physics — a spring
+   * between two agents would drag each away from the files it works on. */
+  private lineage: readonly LineageLink[] = [];
   /** Either end of a rope → the node ids at its other ends. The hover reads
    * this; it is rebuilt only when the ropes or the graph change. */
   private codeLinkKin = new Map<string, Set<string>>();
@@ -2166,6 +2171,18 @@ export class TerrainCanvas {
       this.codeLinkKin.get(link.fileId)!.add(link.tableId);
     }
     if (this.hoverFile !== null || this.heldFile !== null) this.recomputeHoverKin();
+    this.requestDraw();
+  }
+
+  /**
+   * Hand over the spinoff pairs: which agent was spun off from which.
+   *
+   * Same contract as setThreads — stored and drawn, never given to the
+   * physics. A pair with an end that isn't on the map (its orb filtered out
+   * by the agent bar, or never drawn) is simply skipped at draw time.
+   */
+  setLineage(links: readonly LineageLink[]): void {
+    this.lineage = links;
     this.requestDraw();
   }
 
@@ -4168,6 +4185,78 @@ export class TerrainCanvas {
   /** The hover that's actually in effect. A committed tap-spotlight outranks
    * it: that gesture has already dimmed the map to one agent, and a second
    * dimming rule layered over it would only fight the first. */
+  /**
+   * Draw the spinoff arrows: parent orb → child orb.
+   *
+   * Solid, in the orbs' own accent, so it reads as agent-to-agent and not as
+   * a tether (dashed) or a thread (teal). A chevron at the middle and a head
+   * at the child end carry the direction. Under an agent hover, that agent's
+   * own arrows (either end) stay up and every other one drops back — the same
+   * split the tethers make. Sizes are divided by the zoom so the arrow keeps
+   * its on-screen size at any zoom.
+   */
+  private drawLineage(
+    ctx: CanvasRenderingContext2D,
+    transform: ZoomTransform,
+    hover: string | null,
+    dimmed: boolean,
+  ): void {
+    if (this.lineage.length === 0) return;
+    const orbs = new Map<string, SimNode>();
+    for (const n of this.simNodes) {
+      if (n.node.kind === 'session' && n.node.session?.id) orbs.set(n.node.session.id, n);
+    }
+    const headLength = 9 / transform.k;
+    const headWidth = 4.5 / transform.k;
+    const gap = 3 / transform.k;   // breathing room between the arrow and the ring
+    const minR = MIN_NODE_PX / transform.k;
+
+    // One arrowhead: a filled triangle at `tip`, pointing along `dir`.
+    const head = (tip: { x: number; y: number }, dir: { x: number; y: number }) => {
+      const baseX = tip.x - dir.x * headLength;
+      const baseY = tip.y - dir.y * headLength;
+      ctx.beginPath();
+      ctx.moveTo(tip.x, tip.y);
+      ctx.lineTo(baseX - dir.y * headWidth, baseY + dir.x * headWidth);
+      ctx.lineTo(baseX + dir.y * headWidth, baseY - dir.x * headWidth);
+      ctx.closePath();
+      ctx.fill();
+    };
+
+    ctx.strokeStyle = this.orbStroke;
+    ctx.fillStyle = this.orbStroke;
+    ctx.lineWidth = 1.6 / transform.k;
+    for (const link of this.lineage) {
+      const parent = orbs.get(link.parentId);
+      const child = orbs.get(link.childId);
+      if (!parent || !child) continue; // one end isn't on the map
+      const arrow = lineageArrow(
+        { x: parent.x ?? 0, y: parent.y ?? 0 },
+        Math.max(parent.radius, minR) + gap,
+        { x: child.x ?? 0, y: child.y ?? 0 },
+        Math.max(child.radius, minR) + gap,
+      );
+      if (!arrow) continue; // orbs overlapping: no room to point
+      const mine = hover !== null && (link.parentId === hover || link.childId === hover);
+      ctx.globalAlpha = hover !== null ? (mine ? 0.9 : 0.08) : dimmed ? 0.25 : 0.7;
+      ctx.beginPath();
+      ctx.moveTo(arrow.start.x, arrow.start.y);
+      ctx.quadraticCurveTo(arrow.control.x, arrow.control.y, arrow.end.x, arrow.end.y);
+      ctx.stroke();
+      // The middle chevron sits centred on the curve, so its tip is half a
+      // head-length ahead of the midpoint.
+      head(
+        {
+          x: arrow.middle.x + arrow.middleDirection.x * headLength * 0.5,
+          y: arrow.middle.y + arrow.middleDirection.y * headLength * 0.5,
+        },
+        arrow.middleDirection,
+      );
+      head(arrow.end, arrow.endDirection);
+    }
+    ctx.globalAlpha = 1;
+  }
+
   private activeHover(): string | null {
     return this.footprint === null ? this.hoverAgent : null;
   }
@@ -4741,6 +4830,8 @@ export class TerrainCanvas {
       ctx.stroke();
     }
     ctx.setLineDash([]);
+
+    this.drawLineage(ctx, transform, hover, dimmed);
 
     this.drawCoilStrands(ctx, transform, theme, dimmed);
     this.drawCoilTips(ctx, transform, theme, dimmed);
