@@ -1735,6 +1735,12 @@ def queue_followup(conv_id, text, record=False, decision=None, system=None):
     """Put a follow-up in this conversation's queue, then try to start it.
     Returns "sent" if it started now, "queued" if it's waiting for the
     current turn to end."""
+    # Send it to whoever is doing this session's work now. A session that
+    # handed off is retired: a follow-up queued there later (a detached job
+    # finishing, a reminder) would start a turn on it, and starting a turn
+    # un-archives it. The same forwarding peermail.send does for mail.
+    import continuation
+    conv_id = continuation.successor(conv_id)
     with _FollowupFile(conv_id) as data:
         data["items"].append({"text": text, "record": bool(record),
                               "decision": decision, "system": system,

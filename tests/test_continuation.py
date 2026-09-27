@@ -120,3 +120,15 @@ def test_mail_waiting_at_handoff_goes_to_the_successor_not_back_to_the_old_one(
     assert store.read("bot_chats/index", {})["old"]["archived"] is True
     assert started == ["new"]
     assert peermail.waiting("old") == []
+
+
+def test_a_follow_up_queued_after_handoff_wakes_the_successor(data_dir, monkeypatch):
+    # Regression: a detached job that finished after its session handed off
+    # queued its wake-up on the retired session and brought it back to life.
+    started = []
+    monkeypatch.setattr(observatory, "begin_turn", lambda conv_id, *a, **kw:
+                        started.append(conv_id) or {"ok": True, "status": 200})
+    _seed("old", continued_by="new", archived=True)
+    _seed("new")
+    observatory.queue_followup("old", "[Background job finished]", system="job")
+    assert started == ["new"]
