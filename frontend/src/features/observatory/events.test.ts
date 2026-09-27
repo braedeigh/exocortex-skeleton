@@ -113,6 +113,18 @@ describe('applyEvent', () => {
   });
 });
 
+describe('reminder', () => {
+  it('is its own System turn carrying who set it, never a user turn', () => {
+    const turns: Turn[] = [];
+    applyEvent(turns, { type: 'reminder', text: 'Permafest is tomorrow', source: 'keeper', ts: 'x' });
+    applyEvent(turns, { type: 'reminder', text: 'Ask about applications', source: 'manual', ts: 'x' });
+    expect(turns.map((t) => t.role)).toEqual(['reminder', 'reminder']);
+    expect(turns[0].source).toBe('keeper');
+    expect(turns[1].source).toBe('manual');
+    expect(turns[0].text).toBe('Permafest is tomorrow');
+  });
+});
+
 describe('journal-mark', () => {
   it('flags the newest assistant turn whose text matches — and only that one', () => {
     const turns: Turn[] = [];

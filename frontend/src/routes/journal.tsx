@@ -7,9 +7,9 @@ export interface JournalSearch {
   /** Search mode: the words being searched for. When set, the journal pane
    * shows matching entries instead of the day (features/journal/SearchResults). */
   q?: string;
-  /** Search filters: who said it (B = the owner, K = the Keeper) and an
-   * inclusive day range. */
-  who?: 'B' | 'K';
+  /** Search filters: who said it (B = the owner, K = the Keeper, S = the
+   * system's reminders) and an inclusive day range. */
+  who?: 'B' | 'K' | 'S';
   from?: string;
   to?: string;
 }
@@ -21,7 +21,7 @@ export const Route = createFileRoute('/journal')({
   validateSearch: (search: Record<string, unknown>): JournalSearch => ({
     date: typeof search.date === 'string' && DATE_RE.test(search.date) ? search.date : undefined,
     q: typeof search.q === 'string' && search.q.trim() ? search.q : undefined,
-    who: search.who === 'B' || search.who === 'K' ? search.who : undefined,
+    who: search.who === 'B' || search.who === 'K' || search.who === 'S' ? search.who : undefined,
     from: typeof search.from === 'string' && DATE_RE.test(search.from) ? search.from : undefined,
     to: typeof search.to === 'string' && DATE_RE.test(search.to) ? search.to : undefined,
   }),

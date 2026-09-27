@@ -44,6 +44,14 @@
   font-style: italic;
 }
 
+/* S — a reminder the app sent. Outlined instead of filled: present, but plainly
+   not a voice in the conversation. */
+.who_S {
+  color: var(--text-secondary);
+  border: 1px dashed var(--border);
+  background: transparent;
+}
+
 .time {
   font-size: var(--font-size-sm);
   color: var(--text-muted);

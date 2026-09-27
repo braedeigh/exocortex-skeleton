@@ -65,7 +65,8 @@
       "modules": [
         "cardstore.py",
         "cardsearch.py",
-        "recap_summary.py"
+        "recap_summary.py",
+        "comingup.py"
       ],
       "routes": [
         "cards.py",
@@ -76,7 +77,8 @@
         "person.py",
         "wiki.py",
         "photos.py",
-        "recordings.py"
+        "recordings.py",
+        "coming_up.py"
       ],
       "frontend": [
         "journal",
@@ -112,7 +114,8 @@
         "cards_fts_config"
       ],
       "collections": [
-        "recordings"
+        "recordings",
+        "coming_up"
       ],
       "dev_note_tabs": [
         "journal",
@@ -409,7 +412,8 @@
         "jobstore.py",
         "worktrees.py",
         "procmem.py",
-        "activityfeed.py"
+        "activityfeed.py",
+        "lanes.py"
       ],
       "routes": [
         "observatory.py",

@@ -39,8 +39,8 @@ import store
 from routes.entities import _parse_frontmatter, CARDS_CUTOVER
 
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-# date . HHMM . b|k . optional counter — see CLAUDE.md background for this task.
-CARD_ID_RE = re.compile(r"^\d{4}-\d{2}-\d{2}\.\d{4}[bk]\d*$")
+# date . HHMM . speaker letter (b owner, k keeper, s system) . optional counter.
+CARD_ID_RE = re.compile(r"^\d{4}-\d{2}-\d{2}\.\d{4}[bks]\d*$")
 # Same shape as routes/threads.py's _SESSION_SLUG — tags mint thread
 # associations, so a tag must be a valid slug.
 TAG_RE = re.compile(r"^[a-z0-9-]{1,40}$")

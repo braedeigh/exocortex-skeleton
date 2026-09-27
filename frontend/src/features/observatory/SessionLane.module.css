@@ -229,6 +229,15 @@
   color: var(--danger, #cd3131);
 }
 
+/* The approval landed and the retry is waiting on the current reply — said
+   plainly, in the calm text color, so a wait never reads as a failure. */
+.decideQueued {
+  margin-top: var(--space-2);
+  font-size: var(--font-size-sm);
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
 /* Once/Always — a two-state segmented pill picking the approval's scope. */
 .scopeToggle {
   display: inline-flex;

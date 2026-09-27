@@ -504,10 +504,14 @@ def register(app):
 
         where, params = _window_sql(window)
         with closing(_read_only_conn()) as conn:
+            # Count each speaker by name — her (B) and the system (S) apart.
+            # This once counted "anything not the Keeper" as hers, which would
+            # have put every system reminder in her column.
             rows = conn.execute(
                 f"""SELECT c.day AS day,
                            COUNT(*) AS cards,
-                           SUM(CASE WHEN c.who = 'K' THEN 0 ELSE 1 END) AS owner
+                           SUM(CASE WHEN c.who = 'B' THEN 1 ELSE 0 END) AS owner,
+                           SUM(CASE WHEN c.who = 'S' THEN 1 ELSE 0 END) AS system
                       FROM cards c
                      WHERE {where}
                   GROUP BY c.day
@@ -535,11 +539,13 @@ def register(app):
                 for r in size_rows[:MAX_CARDS]:
                     chars.setdefault(r["day"], []).append(int(r["chars"] or 0))
 
-        # `owner` comes back from SUM() as whatever SQLite made of it — coerce
-        # here so the client is never handed a null for a day of pure Keeper.
+        # `owner` and `system` come back from SUM() as whatever SQLite made of
+        # them — coerce here so the client is never handed a null for a day of
+        # pure Keeper. The Keeper's share is what's left: cards − owner − system.
         days = []
         for r in rows:
-            day = {"day": r["day"], "cards": r["cards"], "owner": int(r["owner"] or 0)}
+            day = {"day": r["day"], "cards": r["cards"], "owner": int(r["owner"] or 0),
+                   "system": int(r["system"] or 0)}
             if sizes:
                 # A day past the cap gets an empty list rather than a short
                 # one: half a day drawn as a whole day is the drawing lying,
@@ -629,7 +635,7 @@ def register(app):
                     ORDER BY sf.last ASC""",
             ).fetchall()
             session_rows = conn.execute(
-                """SELECT id, title, lane, started, last_at FROM sessions
+                """SELECT id, title, lane, is_keeper, started, last_at FROM sessions
                     ORDER BY started ASC""",
             ).fetchall()
             # Deletes and moves come from a THIRD pipeline into the same
@@ -731,7 +737,12 @@ def register(app):
             sessions.append({
                 "id": r["id"],
                 "title": r["title"] or r["id"],
+                # The room it lived in (derived for old sessions that never
+                # stored one — lanes.py), and whether it was a real Keeper
+                # session rather than just labelled "keeper" like every
+                # other one.
                 "lane": r["lane"],
+                "is_keeper": bool(r["is_keeper"]),
                 "started": started,
                 "last_at": last_at or started,
                 "worked_from": span[0] if span else None,

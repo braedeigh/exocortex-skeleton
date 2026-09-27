@@ -16,14 +16,13 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { dispatchIntent } from '../../shell/panels/windowBus';
 import {
-  approveConversation,
-  denyConversation,
   forkConversation,
   stopConversation,
   streamSend,
   type SessionMeta,
 } from './api';
 import { resumeAfterDecision } from './resumeAfterDecision';
+import { CommandDecision } from './CommandDecision';
 import type { OrchestraRow } from './orchestra';
 import { cardMetaLine } from './sessionStatus';
 import { cardState, sessionIs, type CardState } from './sessionFilters';
@@ -129,9 +128,9 @@ function LastPrompt({ text }: { text: string }) {
 const RESUME_CUE =
   'That turn ended in an error. Check what state things are actually in before continuing.';
 
-/** Needs her OK — a gated command the act-ask gate stopped. The exact command
- * in her face, an Approve (Once/Always toggle, Once default — the safest per
- * Terra) and a Deny. */
+/** Needs her OK — a gated command the act-ask gate stopped: the session's title
+ * and a way into it, then the shared decision body (CommandDecision.tsx). The
+ * same body also appears inside the chat that's asking (ChatApprovalCard.tsx). */
 export function ApprovalCard({
   row,
   onOpen,
@@ -141,69 +140,6 @@ export function ApprovalCard({
   onOpen: (convId: string) => void;
   onChanged?: () => void;
 }) {
-  const [sticky, setSticky] = useState(false);
-  const [deciding, setDeciding] = useState(false);
-  // Set when a decision landed but the resume never got through, so the card
-  // says so instead of looking like the tap did nothing (which is exactly how
-  // this bug presented). Cleared when she taps again.
-  const [decideErr, setDecideErr] = useState('');
-
-  // Resume the blocked turn after she decides: her tap + this send IS the retry
-  // (same transport as request_input). The turn runs detached server-side; the
-  // roster poll shows it running again.
-  // The resume text is what the AGENT sees (its retry cue). The `decision` is
-  // what SHE sees: it makes the server log a "✓ Approved: <cmd>" line in the
-  // transcript instead of a blank off-record gap.
-  //
-  // The send goes through resumeAfterDecision rather than straight out, because
-  // the Approve card is raised the moment the gate blocks — i.e. while the agent
-  // is still writing the last message of the turn it was told to stop. A resume
-  // fired into that window hits the server's one-turn-at-a-time guard (409) and
-  // used to be dropped on the floor, which is what made an approved session sit
-  // there doing nothing. Now it waits for the turn to land and then sends.
-  const resume = async (text: string, decision: { kind: 'approve' | 'deny'; command: string }) => {
-    try {
-      await resumeAfterDecision(() =>
-        streamSend(row.id, text, { record: false, decision }, () => {}),
-      );
-    } catch (err) {
-      // A decision she made that never reached the agent must be visible.
-      setDecideErr(err instanceof Error ? err.message : 'could not resume the session');
-      setDeciding(false);
-    } finally {
-      onChanged?.();
-    }
-  };
-
-  const decide = (
-    resolve: () => Promise<{ command: string }>,
-    kind: 'approve' | 'deny',
-    cue: string,
-  ) => {
-    setDeciding(true);
-    setDecideErr('');
-    resolve()
-      .then((res) => resume(cue, { kind, command: res.command }))
-      .catch((err: unknown) => {
-        setDecideErr(err instanceof Error ? err.message : 'could not record that decision');
-        setDeciding(false);
-      });
-  };
-
-  const doApprove = () =>
-    decide(
-      () => approveConversation(row.id, sticky),
-      'approve',
-      'Approved — go ahead and retry that exact command now.',
-    );
-
-  const doDeny = () =>
-    decide(
-      () => denyConversation(row.id),
-      'deny',
-      "I've denied that command — don't run it. Find another way, or stop and tell me why.",
-    );
-
   return (
     <div className={styles.approval}>
       <div className={styles.awaitTop}>
@@ -218,50 +154,11 @@ export function ApprovalCard({
           open →
         </button>
       </div>
-      <div className={styles.approvalLabel}>wants to run</div>
-      <code className={styles.command}>{row.pendingApproval?.command}</code>
-      <div className={styles.approvalActions}>
-        <div className={styles.scopeToggle} role="group" aria-label="Approval scope">
-          <button
-            type="button"
-            className={[styles.scopeBtn, !sticky ? styles.scopeOn : ''].filter(Boolean).join(' ')}
-            aria-pressed={!sticky}
-            onClick={() => setSticky(false)}
-            title="Allow just this once"
-          >
-            Once
-          </button>
-          <button
-            type="button"
-            className={[styles.scopeBtn, sticky ? styles.scopeOn : ''].filter(Boolean).join(' ')}
-            aria-pressed={sticky}
-            onClick={() => setSticky(true)}
-            title="Allow this command for the rest of the session"
-          >
-            Always
-          </button>
-        </div>
-        <div className={styles.decideBtns}>
-          <button type="button" className={styles.denyBtn} disabled={deciding} onClick={doDeny}>
-            Deny
-          </button>
-          <button
-            type="button"
-            className={styles.approveBtn}
-            disabled={deciding}
-            onClick={doApprove}
-          >
-            {deciding ? 'Sending…' : sticky ? 'Approve · always' : 'Approve · once'}
-          </button>
-        </div>
-      </div>
-      {/* A decision that never reached the agent says so here. Silence was the
-          whole bug: the tap looked accepted and nothing moved. */}
-      {decideErr ? (
-        <div className={styles.decideError} role="alert">
-          Couldn’t resume this session — {decideErr}. Tap again.
-        </div>
-      ) : null}
+      <CommandDecision
+        convId={row.id}
+        command={row.pendingApproval?.command ?? ''}
+        onChanged={onChanged}
+      />
     </div>
   );
 }

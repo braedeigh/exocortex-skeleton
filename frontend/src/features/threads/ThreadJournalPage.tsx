@@ -649,7 +649,8 @@ function JournalCardEntry({
   onSaveNote,
 }: JournalCardEntryProps) {
   const [expanded, setExpanded] = useState(false);
-  const isK = entry.who === 'K';
+  // Same three speaker looks as the journal's EntryCard (B / K / S).
+  const whoClass = entry.who === 'K' ? styles.who_K : entry.who === 'S' ? styles.who_S : styles.who_B;
   const canEdit = entry.editable && entry.who === 'B';
 
   const { text: snippetText, clipped } = useMemo(
@@ -666,7 +667,7 @@ function JournalCardEntry({
   return (
     <div className={`${styles.card} ${editing ? styles.cardEditing : ''}`}>
       <div className={styles.meta}>
-        <span className={`${styles.who} ${isK ? styles.who_K : styles.who_B}`}>{entry.who}</span>
+        <span className={`${styles.who} ${whoClass}`}>{entry.who}</span>
         <button type="button" className={styles.metaTime} onClick={() => onOpenDay(entry.date)}>
           {formatDate(entry.date, serverYear)} &middot; {formatTime(entry.ts)}
         </button>
@@ -689,7 +690,7 @@ function JournalCardEntry({
       ) : (
         <>
           <div
-            className={`${styles.body} ${isK ? styles.body_K : ''}`}
+            className={`${styles.body} ${entry.who === 'K' ? styles.body_K : ''}`}
             dangerouslySetInnerHTML={{ __html: bodyHtml }}
           />
           {clipped ? (

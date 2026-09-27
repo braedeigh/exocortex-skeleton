@@ -275,6 +275,9 @@
       "lane": {
         "holds": "Which room of the Observatory it lives in — personal, coding, or orchestra."
       },
+      "is_keeper": {
+        "holds": "1 when the conversation is a real Keeper journaling session, 0 otherwise. Worked out by lanes.is_keeper, because the `bot` column says \"keeper\" on nearly every session and can't tell them apart."
+      },
       "started": {
         "holds": "When the conversation began."
       },

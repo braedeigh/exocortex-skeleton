@@ -2654,7 +2654,7 @@ def test_create_tags_the_session_with_its_front(bot_client):
 
 def test_create_seeds_the_session_with_the_front_brief(bot_client):
     """Seeding points system_prompt_file at the front's brief, which
-    observatory feeds to --append-system-prompt at spawn — so the conversation
+    observatory hands to --append-system-prompt-file at spawn — so the conversation
     opens already knowing which part of her life it's in."""
     import store
     from pathlib import Path

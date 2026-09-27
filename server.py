@@ -32,7 +32,7 @@ from routes import (
     annotations, spa, fronts, tags, wiki, travel, profile, usage, streaks, spinoff,
     observatory, terrain, terrain_mirror, terrain_tables, automations, nightcrew, push, claude_auth, run_queue,
     branches, recordings, research_room,
-    sqlab, sandbox, pond, tabsets, creek, research_claims, research_tables, food,
+    sqlab, sandbox, pond, tabsets, creek, research_claims, research_tables, food, coming_up,
 )
 from routes.shell import VALID_TABS
 
@@ -1220,6 +1220,7 @@ annotations.register(app)
 research_claims.register(app)  # the claims table: claims beside their sources (routes/research_claims.py)
 research_tables.register(app)  # research tables: foods × hazards, verdicts, her review (routes/research_tables.py)
 reminders.register(app)
+coming_up.register(app)  # dated events + topics the Keeper wakes with (routes/coming_up.py)
 food_test.register(app)
 terminal.register(app)
 if features.enabled("observatory"):

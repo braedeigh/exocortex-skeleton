@@ -6,6 +6,7 @@ import { TermNotesPanel } from '../../shell/TermNotesPanel';
 import { SchedulePanel } from '../../shell/SchedulePanel';
 import { TerrainBackdrop } from '../terrain/TerrainBackdrop';
 import { ConversationApprovals } from '../approvals/ConversationApprovals';
+import { ChatApprovalCard } from './ChatApprovalCard';
 import { CloseSourcePrompt, SpinoffOffer } from './SpinoffOffer';
 import { setTerrainBackdropOn, useTerrainBackdropOn } from '../terrain/backdropPref';
 import { createSession, getConversation, getSessions, isOutOfMemory, journalOutput, stopConversation, streamSend } from './api';
@@ -765,6 +766,18 @@ export function ObservatoryPage({
                   </div>
                 );
               }
+              if (t.role === 'reminder') {
+                // A Coming up reminder the app sent at its set time — labelled
+                // System, with who set it, so it never reads as her words.
+                return (
+                  <div key={i} className={styles.reminder}>
+                    <span className={styles.reminderLabel}>
+                      ⏰ System reminder · set by {t.source === 'keeper' ? 'the keeper' : 'you'}
+                    </span>
+                    <span className={styles.reminderText}>{t.text}</span>
+                  </div>
+                );
+              }
               if (t.role === 'error') {
                 return (
                   <div key={i} className={styles.error}>
@@ -813,6 +826,9 @@ export function ObservatoryPage({
               latest words — Approve / edit / Deny in place. Not the
               window-wide sheet: features/approvals/ConversationApprovals. */}
           {convId ? <ConversationApprovals convId={convId} /> : null}
+          {/* ...and a command the gate stopped, Approve / Deny in place — the
+              same card the room view shows. */}
+          {convId ? <ChatApprovalCard convId={convId} /> : null}
           {/* A /spinoff this agent staged shows up as a Go card here, under its
               latest words: features/observatory/SpinoffOffer. */}
           {convId ? <SpinoffOffer convId={convId} writing={writing} pinned={sessionPinned === true} /> : null}

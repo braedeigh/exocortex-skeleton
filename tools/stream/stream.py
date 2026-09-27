@@ -80,7 +80,10 @@ from typing import Dict, List, Optional, Tuple
 # has passed since the previous line card — mirrors keeper_capture.py's GAP_SECONDS.
 GAP_SECONDS = 10 * 60
 
-VALID_WHO = ("B", "K")
+# Who a card is from: B = the owner, K = the keeper, S = the system — text
+# neither of them wrote, such as a Coming up reminder the app sent into the
+# Keeper's chat at its set time (routes/observatory.py begin_turn).
+VALID_WHO = ("B", "K", "S")
 VALID_KIND = ("line", "context", "ref")
 
 
@@ -424,7 +427,7 @@ def record(
 ) -> str:
     who = (who or "").upper()
     if who not in VALID_WHO:
-        raise StreamError(f"--who must be B or K, got {who!r}")
+        raise StreamError(f"--who must be B, K or S, got {who!r}")
     if kind not in VALID_KIND:
         raise StreamError(f"--kind must be one of {VALID_KIND}, got {kind!r}")
     if not body.strip():
@@ -697,11 +700,12 @@ def _italicize(body: str) -> str:
 
 
 def _render_card_block(card: Card) -> str:
-    """`\\nB: <body>\\n` or `\\nK: *<body>*\\n` — multi-line bodies get the prefix
-    (and, for K, the asterisks) only at the outer edges."""
+    """`\\nB: <body>\\n`, `\\nS: <body>\\n`, or `\\nK: *<body>*\\n` — multi-line
+    bodies get the prefix (and, for K, the asterisks) only at the outer edges.
+    S (the system) is plain like B, set apart by its own letter."""
     lines = card.body.split("\n")
-    if card.who == "B":
-        lines[0] = "B: " + lines[0]
+    if card.who in ("B", "S"):
+        lines[0] = f"{card.who}: " + lines[0]
     else:
         lines[0] = "K: *" + lines[0]
         lines[-1] = lines[-1] + "*"
@@ -1413,7 +1417,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="verb", required=True)
 
     rec = sub.add_parser("record", help="mint a card from --body-file or stdin, re-render its day + month")
-    rec.add_argument("--who", required=True, help="B or K")
+    rec.add_argument("--who", required=True, help="B (owner), K (keeper) or S (system)")
     rec.add_argument(
         "--body-file", default=None,
         help="read the card body from this file instead of stdin (lets a gated "

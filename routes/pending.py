@@ -327,6 +327,13 @@ def _commit(change):
         # same partial-dict shape and merge logic as PUT /api/profile.
         apply_profile_update(payload)
         return
+    elif kind == "coming_up":
+        # A Keeper proposed a Coming up item (scripts/coming_up_propose.py).
+        # Approved = it lands marked as the keeper's, so the reminder later
+        # says who set it.
+        import comingup
+        comingup.add_item(payload, "keeper")
+        return
     else:
         raise ValueError(f"unknown change kind: {kind!r}")
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)

@@ -65,6 +65,14 @@ def test_sync_mirrors_cards_with_tags_and_day(pool):
     assert tagged == [("2026-08-02.0808b",)]
 
 
+def test_system_cards_reach_sql_as_S(pool):
+    # A card id ending in `s` used to fail the id pattern and be skipped by
+    # the sync without a word — a speaker silently missing from exo.db.
+    _write_card(pool, "2026-10-16.1800s", body="Reminder (set by you): Permafest", who="S")
+    cardstore.sync()
+    assert _rows("SELECT id, who FROM cards") == [("2026-10-16.1800s", "S")]
+
+
 def test_edit_flows_through_on_resync(pool):
     _write_card(pool, "2026-08-02.0808b", body="before")
     cardstore.sync()

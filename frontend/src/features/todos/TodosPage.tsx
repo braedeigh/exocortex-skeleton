@@ -18,6 +18,7 @@ import { StreaksRow } from './StreaksRow';
 import { TodoFormSheet } from './TodoFormSheet';
 import { TodoSection } from './TodoSection';
 import { TomorrowCard } from './TomorrowCard';
+import { ComingUpCard } from './ComingUpCard';
 import { WaitingCard } from './WaitingCard';
 import {
   LADDER_LABELS,
@@ -397,6 +398,9 @@ export function TodosPage() {
             onToggle={todoActions.toggle}
             onOpenDetail={setSelected}
           />
+          {/* Dated events and topics the Keeper wakes knowing about, and the
+              timed System reminders it gets sent (ComingUpCard.tsx). */}
+          <ComingUpCard />
           <GraduationPrompts
             habits={habits}
             hidden={data.habit_settings?.hidden || []}

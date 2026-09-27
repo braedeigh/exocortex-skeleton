@@ -537,7 +537,10 @@ export interface PondFileEvent {
 export interface PondSession {
   id: string;
   title: string;
+  /** The room it lived in — derived server-side for old sessions (lanes.py). */
   lane: string | null;
+  /** A real journaling Keeper session (every session's `bot` says "keeper"). */
+  is_keeper?: boolean;
   started: string;
   last_at: string;
   worked_from: string | null;

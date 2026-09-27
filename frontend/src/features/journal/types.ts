@@ -13,7 +13,9 @@ export interface JournalDay {
   error?: string;
 }
 
-export type CardWho = 'B' | 'K';
+/** Who a card is from: B = the owner, K = the Keeper, S = the system (a
+ * reminder the app sent into the Keeper's chat — neither of theirs). */
+export type CardWho = 'B' | 'K' | 'S';
 
 export interface Card {
   id: string;

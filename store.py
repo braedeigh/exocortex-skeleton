@@ -201,6 +201,7 @@ SQL_COLLECTIONS = frozenset((
     "buy_list",
     "car_maintenance",
     "car_notes",
+    "coming_up",
     "contacts",
     "deity_profiles",
     "dev_notes",

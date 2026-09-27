@@ -413,19 +413,25 @@ export function forkConversation(
   return api.post(`/api/observatory/conversation/${encodeURIComponent(convId)}/fork`, {});
 }
 
+/** What the server says after an Approve/Deny. `resume` is how the retry cue
+ * went out: "sent" (the session was idle) or "queued" (it starts the moment
+ * the current reply ends). The server owns that wait now, so a page that sees
+ * `resume` sends nothing itself; one that doesn't is talking to an older
+ * server and falls back to sending its own. */
+export interface DecisionResult {
+  ok: boolean;
+  command: string;
+  resume?: 'sent' | 'queued';
+}
+
 /** Approve the gated command a session is blocked on. `sticky` = whitelist it
- * for the whole session (never asks again); false = one-shot (this retry only).
- * The caller fires a resume send right after so the agent retries and the gate
- * now lets it through. */
-export function approveConversation(
-  convId: string,
-  sticky: boolean,
-): Promise<{ ok: boolean; command: string }> {
+ * for the whole session (never asks again); false = one-shot (this retry only). */
+export function approveConversation(convId: string, sticky: boolean): Promise<DecisionResult> {
   return api.post(`/api/observatory/conversation/${encodeURIComponent(convId)}/approve`, { sticky });
 }
 
 /** Deny the pending gated command — clears it without whitelisting. */
-export function denyConversation(convId: string): Promise<{ ok: boolean; command: string }> {
+export function denyConversation(convId: string): Promise<DecisionResult> {
   return api.post(`/api/observatory/conversation/${encodeURIComponent(convId)}/deny`, {});
 }
 

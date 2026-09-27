@@ -61,6 +61,7 @@ import json
 import os
 import subprocess
 
+import lanes
 import sqlstore
 import store
 
@@ -459,10 +460,17 @@ def _sync_sessions(conn, repos):
         meta = index.get(cid) if isinstance(index.get(cid), dict) else {}
         gist = gists.get(cid) if isinstance(gists.get(cid), dict) else {}
         title = gist.get("title") or meta.get("title") or ""
+        # The room and the Keeper flag are DERIVED here with the app's own
+        # rule (lanes.py), so a session that never stored a lane still lands
+        # in the right one instead of a blank — and "keeper" means a real
+        # journaling session, not the leftover `bot` label every session has.
+        # A footprint-only session (no index entry) has nothing to derive
+        # from, so it stays blank rather than guessed.
+        lane = lanes.derive_lane(meta) if meta else None
         conn.execute(
-            "INSERT INTO sessions (id, title, bot, lane, started, last_at)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
-            (cid, title, meta.get("bot"), meta.get("lane"),
+            "INSERT INTO sessions (id, title, bot, lane, is_keeper, started, last_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (cid, title, meta.get("bot"), lane, 1 if lanes.is_keeper(meta) else 0,
              meta.get("started"), meta.get("last_at")),
         )
 

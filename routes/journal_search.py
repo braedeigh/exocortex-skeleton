@@ -44,7 +44,7 @@ def register(app):
         # Read the optional filters, dropping any that are malformed rather
         # than erroring: a bad date just means "no bound".
         who = request.args.get("who")
-        who = who if who in ("B", "K") else None
+        who = who if who in ("B", "K", "S") else None
         date_from = request.args.get("from") or None
         date_to = request.args.get("to") or None
         date_from = date_from if date_from and _DATE_RE.match(date_from) else None
