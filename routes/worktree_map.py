@@ -21,10 +21,12 @@ the same three the Terrain map draws:
              (Terrain's GOLD);
     looked — Read / Grep / Glob (drawn faint; passing through isn't working).
 
-It's evidence, not a claim: a session that `cd`s by a relative path from a
-directory outside every tree (the Personal room starts one level above both
-repos) isn't caught — only absolute paths and the session's own starting
-folder are matched.
+It's evidence, not a claim: a call counts in a tree when it names the tree's
+absolute path, when it opens with `cd <folder>` into the tree (a relative cd is
+resolved against the session's starting folder, so `cd skeleton && …` from one
+level above both repos is caught), or when it names no path and the session
+started inside the tree. A relative path used later in a long command, after
+some other cd, isn't followed.
 
 Touches: worktrees.py (the main checkout), sqlstore.py (tool_calls), the
 bot_chats index (each session's title, room and starting folder),
@@ -38,6 +40,7 @@ working … reference the terrain UI for colors and signals and make it
 analogous."
 """
 import json
+import os
 import re
 import subprocess
 import threading
@@ -241,10 +244,29 @@ def trees_touched(name, text, cwd, matchers):
         # Blank it out so a shorter path can't re-match the same text.
         rest = rx.sub(" ", rest)
     if not hits:
-        home = _tree_of_folder(cwd, matchers)
+        home = _tree_of_folder(_after_cd(name, text, cwd), matchers)
         if home:
             hits[home] = None
     return hits
+
+
+# A leading `cd <folder>` in a shell command — the folder it names, unquoted.
+_LEADING_CD = re.compile(r"^\s*cd\s+(['\"]?)([^'\"\s;&|]+)\1\s*(?:&&|;|$)")
+
+
+def _after_cd(name, text, cwd):
+    """Where a Bash call actually runs when it opens with a relative `cd`.
+
+    A session rooted one level up (/opt/exocortex) that runs `cd skeleton &&
+    git status` names no tree in full, and its own folder isn't a tree — so
+    without this the call counts nowhere. Resolve the cd against the session's
+    folder; anything else (no cd, a ~ or $VAR, not Bash) leaves cwd as it was."""
+    if name != "Bash" or not cwd:
+        return cwd
+    found = _LEADING_CD.match(text or "")
+    if not found or found.group(2)[0] in "~$-":
+        return cwd
+    return os.path.normpath(os.path.join(cwd, found.group(2)))
 
 
 def _short(name, text, tree_path):

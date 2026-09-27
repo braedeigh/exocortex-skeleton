@@ -70,6 +70,7 @@ export function SessionLane({
   heading,
   blurb,
   keeper = false,
+  bare = false,
   sessions,
   terrain,
   opened,
@@ -91,6 +92,11 @@ export function SessionLane({
    * be something she can shut by accident, or something she has to remember
    * which room she filed it in. */
   keeper?: boolean;
+  /** Just the cards: no title line, no blurb, never shut, and no folding into
+   * swarm cards. For a page that embeds one session's card inside its own
+   * section (the Worktrees page's agent detail) — the host already says what
+   * it is, and folding would swap the one card for "Nothing here yet". */
+  bare?: boolean;
   /** One line under the heading saying what this room IS — the lanes differ in
    * whether they stop and ask, which is invisible unless it's written down. */
   blurb: string;
@@ -122,13 +128,13 @@ export function SessionLane({
   // overruled, so a stale stored '0' can't hide the one card that must not
   // hide.
   const [laneOpen, toggleOpen] = useLaneOpen(laneKey);
-  const open = keeper || laneOpen;
+  const open = keeper || bare || laneOpen;
   // Swarms sit in this room as one card each, and their members (and their
   // helper) leave the room's own list — they're shown inside the swarm. One
   // shared poll for every room (swarmApi.useSwarms). The Keeper's slot never
   // folds: it's the one card that must not hide.
   const { data: allSwarms } = useSwarms();
-  const folding = !keeper && swarmId === undefined;
+  const folding = !keeper && !bare && swarmId === undefined;
   const swarmsHere = folding ? (allSwarms ?? []).filter((s) => s.lane === laneKey) : [];
   const inASwarm = new Set(
     !folding
@@ -164,7 +170,8 @@ export function SessionLane({
   // The Keeper has no title line at all: it isn't a room, it's one card, and a
   // heading over a single card is a label telling her what she's already
   // looking at. The teal ring and the 🌙 badge on the card do that work.
-  const head = keeper ? null : (
+  // A bare lane has none either — its host page is the heading.
+  const head = keeper || bare ? null : (
     <LaneHead
       heading={heading}
       open={open}
@@ -203,7 +210,7 @@ export function SessionLane({
   return (
     <section className={sectionClass} aria-label={heading}>
       {head}
-      {keeper ? null : <p className={styles.blurb}>{blurb}</p>}
+      {keeper || bare ? null : <p className={styles.blurb}>{blurb}</p>}
 
       {swarmsHere.length > 0 ? (
         <div className={styles.rows}>

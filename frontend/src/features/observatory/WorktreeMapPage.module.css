@@ -76,8 +76,11 @@
 
 .swatchEmber,
 .barEmber { background: var(--wt-ember); }
+/* Gold, deepened toward the text ink — raw #ffd700 all but vanishes on the
+   light theme's cream card; mixing with --text darkens it there and only
+   softens it on the dark theme, where it still reads as gold. */
 .swatchGold,
-.barGold { background: var(--wt-gold); }
+.barGold { background: color-mix(in srgb, var(--wt-gold) 72%, var(--text)); }
 .swatchAsh,
 .barAsh { background: color-mix(in srgb, var(--text) 22%, transparent); }
 

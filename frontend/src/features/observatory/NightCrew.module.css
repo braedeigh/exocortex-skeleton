@@ -596,6 +596,14 @@
   border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
 }
 
+/* A door's small drawing, left of its title — the Terrain room cards' motif
+   slot (TerrainRoomsIndex.module.css .motif), in the accent ink. */
+.doorMotif {
+  flex: none;
+  color: var(--accent);
+  line-height: 0;
+}
+
 .doorMain {
   display: flex;
   flex-direction: column;

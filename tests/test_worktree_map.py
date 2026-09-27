@@ -60,6 +60,18 @@ def test_a_bare_command_counts_where_the_session_stands():
     assert (agent["ran"], agent["title"], agent["home"]) == (1, "Builder", True)
 
 
+def test_a_relative_cd_from_the_parent_folder_counts_in_that_tree():
+    rows = [_call("s1", "Bash", command="cd skeleton-copy && git status")]
+    meta = {"s1": {"cwd": "/w"}}
+    assert list(_agents(worktree_map.build_map(_trees(), rows, meta), COPY)) == ["s1"]
+
+
+def test_a_cd_out_of_the_tree_does_not_count_where_the_session_stands():
+    rows = [_call("s1", "Bash", command="cd /tmp && ls")]
+    meta = {"s1": {"cwd": MAIN}}
+    assert _agents(worktree_map.build_map(_trees(), rows, meta), MAIN) == {}
+
+
 def test_reads_count_as_looking_not_working():
     rows = [_call("s1", "Read", file_path=f"{VAULT}/notes.md")]
     agent = _agents(worktree_map.build_map(_trees(), rows, {}), VAULT)["s1"]

@@ -185,6 +185,7 @@ export function WorktreeMapPage() {
                       >
                         {session ? (
                           <SessionLane
+                            bare
                             laneKey={`worktree-${agent.conv}`}
                             heading="Session"
                             blurb=""
