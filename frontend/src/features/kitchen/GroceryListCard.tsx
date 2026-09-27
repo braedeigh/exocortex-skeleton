@@ -6,7 +6,7 @@
  * remove button, then a "Got it" group for what's been checked off. Around
  * the list: the scan-receipt banners and the bulk buttons. Each unchecked row
  * also gets a buy-organic chip that opens a popup with the why
- * (OrganicVerdict.tsx). Every write goes through the actions KitchenPage.tsx
+ * (OrganicVerdict.tsx), including where the food comes from on the map. Every write goes through the actions KitchenPage.tsx
  * passes in (useKitchenData.ts); a logged-out visitor sees the list read-only
  * and no organic chips.
  */
@@ -414,7 +414,12 @@ export function GroceryListCard({
       )}
 
       {organicItem && verdicts.data ? (
-        <OrganicModal item={organicItem} data={verdicts.data} onClose={() => setOrganicOpen(null)} />
+        <OrganicModal
+          item={organicItem}
+          data={verdicts.data}
+          sources={data.ecosystem?.sources || []}
+          onClose={() => setOrganicOpen(null)}
+        />
       ) : null}
     </div>
   );

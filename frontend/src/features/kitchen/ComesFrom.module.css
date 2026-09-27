@@ -1,0 +1,43 @@
+/* ComesFrom.module.css — the small "where it comes from" pieces the Kitchen
+ * draws: a transparency dot, a source name that opens the map, and the
+ * "Comes from" line in the organic popup (ComesFrom.tsx). */
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  font-size: 14px;
+}
+
+.label {
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.source {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.sourceLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  color: var(--accent);
+  text-decoration: underline;
+  overflow-wrap: anywhere;
+}
+
+.muted {
+  color: var(--text-muted);
+}

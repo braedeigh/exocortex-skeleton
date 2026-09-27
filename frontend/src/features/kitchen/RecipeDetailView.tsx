@@ -1,9 +1,24 @@
+/**
+ * RecipeDetailView.tsx — one recipe, read view, on the Kitchen tab.
+ *
+ * What this file does: draws the recipe (meta, ingredients, instructions),
+ * "Where it comes from", her autosaving "My notes", and past versions.
+ * Where it comes from follows each ingredient's food along its real links to
+ * map sources (ecoRecipeSourcing, features/ecosystem/ecoMatch.ts) and opens
+ * with one line — "3 of 9 traced" (traceSummary.ts). Each traced ingredient's
+ * name opens its food's page under Research, and each source name opens that
+ * source on the map. Untraced ones are listed with the closest-named source
+ * as a hint only. KitchenPage.tsx passes in the recipe, the map's sources and
+ * the recipe with its lines resolved to foods (eco_recipes).
+ */
+import { Link } from '@tanstack/react-router';
 import { useEffect, useRef, useState } from 'react';
 import { ecoRecipeSourcing } from '../ecosystem/ecoMatch';
 import type { EcoRecipe } from '../ecosystem/types';
-import { ecoTx } from './ecoMatch';
+import { SourceDot, SourceLink } from './ComesFrom';
 import { walkRecipeChain } from './recipeHelpers';
 import { Section } from './Section';
+import { traceSummary } from './traceSummary';
 import type { EcoSource, Recipe } from './types';
 import styles from './kitchen.module.css';
 
@@ -69,6 +84,7 @@ export function RecipeDetailView({
   const hasSections = Array.isArray(recipe.sections) && recipe.sections.length > 0;
   // Where it comes from: each line's food, followed along its links to the map.
   const sourcing = ecoRecipeSourcing(ecoRecipe, sources);
+  const summary = traceSummary(sourcing);
   const chain = walkRecipeChain(recipe, allRecipes);
 
   return (
@@ -147,27 +163,46 @@ export function RecipeDetailView({
             defaultOpen
             badge={
               <span className={styles.muted12} style={{ fontWeight: 400 }}>
-                traced {sourcing.traced.length}/{sourcing.total}
+                {summary.text}
               </span>
             }
           >
             <div style={{ padding: '0 0 12px' }}>
+              {/* Traced ingredients: the food's name opens its page, each source opens on the map.
+                  A visitor has no Research pages, so there the food name is plain text. */}
               {sourcing.traced.length ? (
                 sourcing.traced.map((t, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', fontSize: 13 }}>
-                    <span
-                      style={{ display: 'inline-block', width: 9, height: 9, borderRadius: '50%', background: ecoTx(t.sources[0]).color, flex: 'none' }}
-                    />
-                    <span style={{ flex: 1 }}>{t.ing.item}</span>
-                    <span className={styles.muted12}>{t.sources.map((src) => src.name).join(', ')}</span>
+                  <div key={i} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0 10px', fontSize: 14 }}>
+                    <span style={{ flex: '1 1 140px' }}>
+                      <FoodName item={t.ing.item || ''} foodName={t.ing.food_name} isPublic={isPublic} />
+                    </span>
+                    {t.sources.map((source) => (
+                      <span key={source.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        <SourceDot source={source} />
+                        <SourceLink source={source} />
+                      </span>
+                    ))}
                   </div>
                 ))
               ) : (
-                <div className={styles.muted13}>Nothing traced yet — place these foods on the map.</div>
+                <div className={styles.muted13}>Nothing traced yet.</div>
               )}
+              {/* Untraced ingredients: each on its own row, with the closest-named source as a
+                  hint only — a guess from shared words, never drawn as a trace. */}
               {sourcing.place.length ? (
-                <div className={styles.muted12} style={{ marginTop: 8 }}>
-                  Not yet traced: {sourcing.place.map((p) => p.ing.item).join(', ')}
+                <div style={{ marginTop: 10 }}>
+                  <div className={styles.muted12} style={{ fontWeight: 700 }}>
+                    Not traced yet
+                  </div>
+                  {sourcing.place.map((p, i) => (
+                    <div key={i} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0 10px', fontSize: 14, minHeight: 40 }}>
+                      <span style={{ flex: '1 1 140px' }}>
+                        <FoodName item={p.ing.item || ''} foodName={p.ing.food_name} isPublic={isPublic} />
+                      </span>
+                      {p.suggestion ? <span className={styles.muted12}>looks like: {p.suggestion.name}?</span> : null}
+                      {p.ing.food_id == null ? <span className={styles.muted12}>not in your food catalog</span> : null}
+                    </div>
+                  ))}
                 </div>
               ) : null}
               {sourcing.pantry.length ? (
@@ -276,5 +311,22 @@ export function RecipeDetailView({
         </div>
       ) : null}
     </div>
+  );
+}
+
+/** An ingredient's name that opens its food's page under Research — keyed by
+ * the catalog food's name when the line resolved to one, else the line as
+ * written (the page still opens and says it isn't in the catalog yet). */
+function FoodName({ item, foodName, isPublic }: { item: string; foodName?: string | null; isPublic: boolean }) {
+  if (isPublic) return <>{item}</>;
+  return (
+    <Link
+      to="/research/foods/$name"
+      params={{ name: foodName || item }}
+      style={{ display: 'inline-flex', alignItems: 'center', minHeight: 40, color: 'var(--text)', textDecoration: 'underline dotted' }}
+      title="This food's page"
+    >
+      {item}
+    </Link>
   );
 }

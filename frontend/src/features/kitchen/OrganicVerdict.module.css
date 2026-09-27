@@ -97,6 +97,13 @@
   line-height: 1.5;
 }
 
+/* The "Comes from" line between the summary and the page button. */
+.comesFrom {
+  margin: 8px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
 .pageBtn {
   display: flex;
   align-items: center;
