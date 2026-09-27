@@ -563,8 +563,11 @@ def _load_research():
     return store.read("research.json", {"topics": [], "entries": []})
 
 
-def _load_ecosystem():
-    return store.read("ecosystem.json", {"sources": []})
+def _load_ecosystem(include_products=True):
+    """The map's sources, read from SQL (sourcestore.py). The public view gets
+    which food each is linked to, never her receipt product names."""
+    import sourcestore
+    return {"sources": sourcestore.all_sources(include_products)}
 
 
 def _load_reminders():
@@ -960,19 +963,21 @@ def get_data_research():
 def get_data_ecosystem():
   try:
     data = _common_data()
+    import sourcestore
+    owner = request.view_mode == "authed"
     data.update({
-        "ecosystem": _load_ecosystem(),
+        "ecosystem": _load_ecosystem(include_products=owner),
     })
     # A light recipe list (no instructions) powers the map's "trace a recipe"
-    # picker — ingredients are all the matcher needs. Kept under its OWN key
-    # (eco_recipes), not "recipes": the public map exposes this safe subset, while
-    # the full "recipes" stream (with instructions, also sent on the public kitchen
-    # tab) stays hidden. See public_config.STREAMS.
-    data["eco_recipes"] = [
-        {"id": r.get("id"), "name": r.get("name"), "ingredients": r.get("ingredients", [])}
-        for r in store.read("recipes.json", {}).get("recipes", [])
-        if not r.get("is_archived")
-    ]
+    # picker. Each ingredient carries the food it resolves to, so tracing is a
+    # walk along food_links, not a guess. Kept under its OWN key (eco_recipes),
+    # not "recipes": the public map exposes this safe subset, while the full
+    # "recipes" stream (with instructions, also sent on the public kitchen tab)
+    # stays hidden. See public_config.STREAMS.
+    data["eco_recipes"] = sourcestore.map_recipes()
+    # Every food, traced or not, for the map's Foods panel.
+    data["eco_foods"] = sourcestore.map_foods(include_products=owner)
+    data["eco_origins"] = sourcestore.ORIGINS
     _eco_cfg = store.read("ecosystem_config", {})
     data["usda_key_set"] = bool((_eco_cfg.get("usda_key") or os.environ.get("EXOCORTEX_USDA_KEY") or "").strip())
     data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("ecosystem", [])
@@ -1043,9 +1048,12 @@ def get_data_kitchen():
 
     data["kitchen_trips"] = store.read("kitchen_trips.json", {}).get("trips", [])
     data["recipes"] = store.read("recipes.json", {}).get("recipes", [])
-    # Ecosystem sources ride along so a recipe can show where its food comes from
-    # (the kitchen "where it comes from" card matches ingredients → placed sources).
-    data["ecosystem"] = _load_ecosystem()
+    # Ecosystem sources ride along so a recipe can show where its food comes from:
+    # the kitchen "where it comes from" card follows each ingredient's food
+    # (from eco_recipes) to the sources linked to it.
+    import sourcestore
+    data["ecosystem"] = _load_ecosystem(include_products=request.view_mode == "authed")
+    data["eco_recipes"] = sourcestore.map_recipes()
 
     return jsonify(filter_for_view(data, request.view_mode))
   except Exception as e:

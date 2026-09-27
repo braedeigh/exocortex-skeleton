@@ -35,6 +35,9 @@ write their blobs, and a rebuild catches these rows up.
 has matched yet, which leaves duplicates ("onion", "onions") in plain sight;
 `merge()` is how two become one. Guessing would hide the decision.
 
+The map's sources are her record too: `sourcestore.py` writes them through
+the same transaction below, so they ride in the same backup.
+
 Touches: `sqlstore.py` (the tables, rungs 20 and 22, and two views:
 food_last_price, recipe_cost), `store.py` (reads recipes / kitchen /
 grocery_trips / kitchen_trips / expense_receipts / food_guide, and the photos
@@ -76,6 +79,12 @@ _RECORD_TABLES = (
     ("food_links", ("id", "food_id", "product_id", "target", "target_id", "note")),
     ("recipe_makes", ("recipe_id", "food_id")),
     ("meal_rotation", ("recipe_id", "per_week", "since", "note")),
+    # The map's sources (sourcestore.py) — her record too, backed up with the rest.
+    ("food_sources", ("id", "layer", "name", "note", "lat", "lng", "precision", "radius_km",
+                      "area_kind", "region_name", "transparency", "geo_source", "origin",
+                      "origin_detail", "origin_url", "origin_date", "created_at",
+                      "updated_at")),
+    ("food_source_counties", ("source_id", "fips", "seq", "county", "state", "value", "unit")),
 )
 
 

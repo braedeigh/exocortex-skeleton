@@ -2696,5 +2696,126 @@
         "holds": "When the model made it."
       }
     }
+  },
+  "food_sources": {
+    "holds": "One place, or rough region, a food comes from — a dot on the ecosystem map. Foods and products are tied to it through food_links.",
+    "source": "Written only through sourcestore.py (routes/ecosystem.py is its HTTP door). Backed up to food_catalog.json with the rest of the food catalog after every change. Never cleared by a rebuild. The first rows were moved in from ecosystem.json by scripts/migrate_ecosystem_sql.py, keeping their ids.",
+    "kind": "record",
+    "time_column": "created_at",
+    "columns": {
+      "id": {
+        "holds": "The source's id, a short text code. Kept from the old JSON so existing links still point at it."
+      },
+      "layer": {
+        "holds": "Which map layer it belongs to; 'food' for now."
+      },
+      "name": {
+        "holds": "What it's called on the map."
+      },
+      "note": {
+        "holds": "What's known about the sourcing, in words."
+      },
+      "lat": {
+        "holds": "Latitude of the dot."
+      },
+      "lng": {
+        "holds": "Longitude of the dot."
+      },
+      "precision": {
+        "holds": "How exact the place is.",
+        "values": {
+          "point": "A crisp spot.",
+          "area": "Somewhere in a region (circle, counties, or a state)."
+        }
+      },
+      "radius_km": {
+        "holds": "For a circle region, its radius in km; 0 otherwise."
+      },
+      "area_kind": {
+        "holds": "How a region is drawn.",
+        "values": {
+          "circle": "A soft circle of radius_km.",
+          "counties": "Real county outlines (food_source_counties).",
+          "state": "A whole-state outline (region_name)."
+        }
+      },
+      "region_name": {
+        "holds": "The state name, for a state outline."
+      },
+      "transparency": {
+        "holds": "How disclosed the supply chain is.",
+        "values": {
+          "disclosed": "Named, certified or confirmed.",
+          "partial": "Country or region known, not the farm.",
+          "opaque": "Nothing disclosed.",
+          "unrated": "Not researched yet."
+        }
+      },
+      "geo_source": {
+        "holds": "How the dot itself got placed.",
+        "values": {
+          "placed": "An exact spot chosen on purpose — a claim about this item.",
+          "proxy": "USDA 'where this is generally grown' — not this item's source.",
+          "guess": "A rough region picked by eye.",
+          "unrated": "Not set."
+        }
+      },
+      "origin": {
+        "holds": "Where the placement information came from.",
+        "values": {
+          "usda-nass": "USDA NASS county or state data (Census of Agriculture).",
+          "geocoded": "An address looked up on OpenStreetMap.",
+          "package": "The package or brand says so.",
+          "visit": "Seen or asked in person.",
+          "research": "A study, article or report.",
+          "hand": "Placed by hand with no record behind it.",
+          "unknown": "Recorded before origins were kept."
+        }
+      },
+      "origin_detail": {
+        "holds": "The citation in words — which dataset and figure, which address, what the label said."
+      },
+      "origin_url": {
+        "holds": "Where to re-check it, when there's a page for that."
+      },
+      "origin_date": {
+        "holds": "The day the information was looked up (YYYY-MM-DD), or empty."
+      },
+      "created_at": {
+        "holds": "When the source was added."
+      },
+      "updated_at": {
+        "holds": "When it was last changed."
+      }
+    }
+  },
+  "food_source_counties": {
+    "holds": "The counties a source's region is drawn as, one row each, with what USDA reported for the county when that's where the outline came from.",
+    "source": "Written only through sourcestore.py, alongside its food_sources row; replaced whenever that source's counties change. Backed up to food_catalog.json.",
+    "kind": "record",
+    "time_column": null,
+    "columns": {
+      "source_id": {
+        "holds": "The source this county belongs to."
+      },
+      "fips": {
+        "holds": "The county's 5-digit FIPS code."
+      },
+      "seq": {
+        "holds": "Its place in the list (USDA's ranking, biggest first)."
+      },
+      "county": {
+        "holds": "County name, when known."
+      },
+      "state": {
+        "holds": "State name, when known."
+      },
+      "value": {
+        "holds": "The figure USDA reported for the county, when known."
+      },
+      "unit": {
+        "holds": "The unit of that figure (ACRES, HEAD, $…)."
+      }
+    }
   }
 }

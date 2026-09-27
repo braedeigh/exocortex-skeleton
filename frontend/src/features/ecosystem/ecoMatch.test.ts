@@ -72,38 +72,48 @@ describe('ecoMatchIngredient', () => {
 });
 
 describe('ecoRecipeSourcing', () => {
-  const sources = [src('on', 'Onions'), src('ch', 'HEB whole chicken')];
+  // Onions is linked to food 1; the chicken source to a product of food 2.
+  const sources: EcoSource[] = [
+    { ...src('on', 'Onions'), links: [{ id: 1, food_id: 1, food_name: 'onion' }] },
+    {
+      ...src('ch', 'HEB whole chicken'),
+      links: [{ id: 2, food_id: 2, food_name: 'chicken', product_id: 9, product_name: 'HEB ROASTER' }],
+    },
+    src('ca', 'Carrots'),
+  ];
   const recipe: EcoRecipe = {
     id: 'r1',
     name: 'Soup',
     ingredients: [
-      { item: 'yellow onion' },
-      { item: 'carrots' },
+      { item: 'yellow onion', food_id: 1 },
+      { item: 'carrots', food_id: 3 },
       { item: 'salt' },
-      { item: 'chicken broth' },
+      { item: 'chicken broth', food_id: 2 },
       { item: 'sparkling water', category: 'drinks' },
       { item: '' },
     ],
   };
 
-  it('classifies traced / place / pantry and counts only real items', () => {
+  it('traces by link, sets aside pantry, and counts only real items', () => {
     const s = ecoRecipeSourcing(recipe, sources);
     expect(s.total).toBe(5);
-    expect(s.traced.map((t) => t.ing.item)).toEqual(['yellow onion']);
-    expect(s.traced[0].source.id).toBe('on');
-    expect(s.place.map((p) => p.ing.item)).toEqual(['carrots']);
+    expect(s.traced.map((t) => [t.ing.item, t.sources.map((x) => x.id)])).toEqual([['yellow onion', ['on']]]);
     expect(s.pantry.map((p) => p.ing.item)).toEqual(['salt', 'chicken broth', 'sparkling water']);
   });
 
-  it('pantry staples win over matching (chicken broth never traces to the chicken source)', () => {
-    const s = ecoRecipeSourcing({ id: 'r', name: 'x', ingredients: [{ item: 'chicken broth' }] }, sources);
-    expect(s.traced).toEqual([]);
-    expect(s.pantry).toHaveLength(1);
+  it('a same-named but unlinked source is only a suggestion, never a trace', () => {
+    const s = ecoRecipeSourcing(recipe, sources);
+    expect(s.place.map((p) => [p.ing.item, p.suggestion?.id])).toEqual([['carrots', 'ca']]);
   });
 
-  it('pantry categories (usually_have) are pantry regardless of name', () => {
+  it('a product link traces its food', () => {
+    const s = ecoRecipeSourcing({ id: 'r', name: 'x', ingredients: [{ item: 'whole chicken', food_id: 2 }] }, sources);
+    expect(s.traced[0].sources.map((x) => x.id)).toEqual(['ch']);
+  });
+
+  it('pantry categories (usually_have) are pantry even when linked', () => {
     const s = ecoRecipeSourcing(
-      { id: 'r', name: 'x', ingredients: [{ item: 'yellow onion', category: 'usually_have' }] },
+      { id: 'r', name: 'x', ingredients: [{ item: 'yellow onion', food_id: 1, category: 'usually_have' }] },
       sources,
     );
     expect(s.pantry).toHaveLength(1);
@@ -112,12 +122,15 @@ describe('ecoRecipeSourcing', () => {
 });
 
 describe('ecoRecipeSourceIds', () => {
-  it('collects the matched source ids as a set', () => {
-    const sources = [src('on', 'Onions'), src('ch', 'HEB whole chicken')];
+  it('collects the linked source ids as a set', () => {
+    const sources: EcoSource[] = [
+      { ...src('on', 'Onions'), links: [{ id: 1, food_id: 1 }] },
+      { ...src('ch', 'Chicken'), links: [{ id: 2, food_id: 2 }] },
+    ];
     const recipe: EcoRecipe = {
       id: 'r',
       name: 'x',
-      ingredients: [{ item: 'onions' }, { item: 'whole chicken' }, { item: 'onion' }],
+      ingredients: [{ item: 'onions', food_id: 1 }, { item: 'whole chicken', food_id: 2 }, { item: 'onion', food_id: 1 }],
     };
     expect(ecoRecipeSourceIds(recipe, sources)).toEqual(new Set(['on', 'ch']));
   });

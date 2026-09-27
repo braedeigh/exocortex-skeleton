@@ -2,9 +2,11 @@
  * SourceList.tsx — the card under the map: search, transparency filter chips,
  * the single-item "Show all" banner, and the source rows (port of _ecoList /
  * _ecoRenderFilterChips / _ecoRenderRows). The search box keeps focus across
- * the 5s poll for free — it's a controlled input, never rebuilt.
+ * the 5s poll for free — it's a controlled input, never rebuilt. Each row
+ * also says where its information came from and how many foods link to it;
+ * tapping a row shows only that source on the map and opens its panel.
  */
-import { ECO_TX, ECO_TX_ORDER, compareSources, metaLabel, txInfo, txOf } from './axes';
+import { ECO_ORIGIN, ECO_TX, ECO_TX_ORDER, compareSources, metaLabel, originOf, txInfo, txOf } from './axes';
 import type { EcoSource, Transparency } from './types';
 import styles from './SourceList.module.css';
 
@@ -109,6 +111,12 @@ export function SourceList({
               <div className={styles.rowMain}>
                 <div className={styles.rowName}>{s.name}</div>
                 {s.note ? <div className={styles.rowNote}>{s.note}</div> : null}
+                <div className={styles.rowNote}>
+                  {ECO_ORIGIN[originOf(s)].icon} {ECO_ORIGIN[originOf(s)].label} ·{' '}
+                  {(s.links || []).length
+                    ? `${(s.links || []).length} linked`
+                    : 'nothing linked yet'}
+                </div>
               </div>
               <span className={styles.rowTag}>
                 {tx.label}

@@ -77,6 +77,8 @@ export interface EcoMapProps {
   onDraftMove: (lat: number, lng: number) => void;
   onEditSource: (id: string) => void;
   onDeleteSource: (id: string, name: string) => void;
+  /** Open the source's panel (the popup's "Details"). Absent → no button. */
+  onOpenSource?: (id: string) => void;
 }
 
 /** Mouse/trackpad devices get the popup on hover — no tap required at a desk.
@@ -106,6 +108,7 @@ function makePopup(
   canEdit: boolean,
   onEdit: (id: string) => void,
   onDelete: (id: string, name: string) => void,
+  onOpen: ((id: string) => void) | null,
 ): HTMLElement {
   const tx = txInfo(s);
   const g = geoSourceInfo(s);
@@ -140,6 +143,16 @@ function makePopup(
       `${g.icon} ${g.label}` +
       (s.geo_source === 'proxy' ? " — generally grown here, not necessarily this item's source" : '');
     root.appendChild(geoLine);
+  }
+
+  // Details opens the source's panel — its origin, foods and recipes.
+  if (onOpen) {
+    const detailsBtn = document.createElement('button');
+    detailsBtn.textContent = 'Details';
+    detailsBtn.style.cssText =
+      'width:100%;height:40px;margin-bottom:6px;border-radius:8px;border:1px solid var(--accent);background:transparent;color:var(--accent);font-size:13px;font-weight:600;cursor:pointer';
+    detailsBtn.addEventListener('click', () => onOpen(s.id));
+    root.appendChild(detailsBtn);
   }
 
   if (canEdit) {
@@ -302,6 +315,9 @@ export const EcoMap = forwardRef<EcoMapHandle, EcoMapProps>(function EcoMap(prop
     }
     const onEdit = (id: string) => propsRef.current.onEditSource(id);
     const onDelete = (id: string, name: string) => propsRef.current.onDeleteSource(id, name);
+    const onOpen = propsRef.current.onOpenSource
+      ? (id: string) => propsRef.current.onOpenSource?.(id)
+      : null;
     const hosts: L.Layer[] = [];
     sources.forEach((s) => {
       if (!hasCoords(s)) return;
@@ -315,7 +331,7 @@ export const EcoMap = forwardRef<EcoMapHandle, EcoMapProps>(function EcoMap(prop
           fillColor: col,
           fillOpacity: 0.95,
         }).addTo(layer);
-        bindPopup(d, makePopup(s, canEdit, onEdit, onDelete));
+        bindPopup(d, makePopup(s, canEdit, onEdit, onDelete, onOpen));
         return d;
       };
       // Each source draws in isolation: a single bad shape must NOT abort the
@@ -336,7 +352,7 @@ export const EcoMap = forwardRef<EcoMapHandle, EcoMapProps>(function EcoMap(prop
             });
             if (grp.getLayers().length) {
               grp.addTo(layer);
-              bindPopup(grp, makePopup(s, canEdit, onEdit, onDelete)); // anywhere in the region
+              bindPopup(grp, makePopup(s, canEdit, onEdit, onDelete, onOpen)); // anywhere in the region
               host = grp;
             }
           }
@@ -351,7 +367,7 @@ export const EcoMap = forwardRef<EcoMapHandle, EcoMapProps>(function EcoMap(prop
             opacity: 0.45,
             dashArray: '4 4',
           }).addTo(layer);
-          bindPopup(c, makePopup(s, canEdit, onEdit, onDelete));
+          bindPopup(c, makePopup(s, canEdit, onEdit, onDelete, onOpen));
           host = c;
         }
         if (!host) host = dot(); // exact point, or shapes not loaded yet

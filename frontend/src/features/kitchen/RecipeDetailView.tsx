@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { ecoRecipeSourcing, ecoTx } from './ecoMatch';
+import { ecoRecipeSourcing } from '../ecosystem/ecoMatch';
+import type { EcoRecipe } from '../ecosystem/types';
+import { ecoTx } from './ecoMatch';
 import { walkRecipeChain } from './recipeHelpers';
 import { Section } from './Section';
 import type { EcoSource, Recipe } from './types';
@@ -9,6 +11,8 @@ export interface RecipeDetailViewProps {
   recipe: Recipe;
   allRecipes: Recipe[];
   sources: EcoSource[];
+  /** The same recipe with each line resolved to its food — what tracing follows. */
+  ecoRecipe: EcoRecipe | null;
   onBack: () => void;
   onEdit: () => void;
   onSendToList: () => void;
@@ -25,6 +29,7 @@ export function RecipeDetailView({
   recipe,
   allRecipes,
   sources,
+  ecoRecipe,
   onBack,
   onEdit,
   onSendToList,
@@ -62,7 +67,8 @@ export function RecipeDetailView({
   if (recipe.cook_min) metaBits.push(`${recipe.cook_min} min cook`);
 
   const hasSections = Array.isArray(recipe.sections) && recipe.sections.length > 0;
-  const sourcing = ecoRecipeSourcing(recipe, sources);
+  // Where it comes from: each line's food, followed along its links to the map.
+  const sourcing = ecoRecipeSourcing(ecoRecipe, sources);
   const chain = walkRecipeChain(recipe, allRecipes);
 
   return (
@@ -150,10 +156,10 @@ export function RecipeDetailView({
                 sourcing.traced.map((t, i) => (
                   <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', fontSize: 13 }}>
                     <span
-                      style={{ display: 'inline-block', width: 9, height: 9, borderRadius: '50%', background: ecoTx(t.source).color, flex: 'none' }}
+                      style={{ display: 'inline-block', width: 9, height: 9, borderRadius: '50%', background: ecoTx(t.sources[0]).color, flex: 'none' }}
                     />
                     <span style={{ flex: 1 }}>{t.ing.item}</span>
-                    <span className={styles.muted12}>{t.source.name}</span>
+                    <span className={styles.muted12}>{t.sources.map((src) => src.name).join(', ')}</span>
                   </div>
                 ))
               ) : (

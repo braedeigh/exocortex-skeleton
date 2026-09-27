@@ -2,16 +2,17 @@ import { describe, expect, it } from 'vitest';
 import { computeVisibleIds } from './visibility';
 import type { EcoRecipe, EcoSource } from './types';
 
+// Onions ← food 1, Beef ← food 2, Milk ← food 3 (links, as the server sends them).
 const sources: EcoSource[] = [
-  { id: 'on', name: 'Onions', transparency: 'disclosed' },
-  { id: 'be', name: 'Beef', transparency: 'partial' },
-  { id: 'mi', name: 'Milk', transparency: 'weird-old-value' }, // normalizes to unrated
+  { id: 'on', name: 'Onions', transparency: 'disclosed', links: [{ id: 1, food_id: 1 }] },
+  { id: 'be', name: 'Beef', transparency: 'partial', links: [{ id: 2, food_id: 2 }] },
+  { id: 'mi', name: 'Milk', transparency: 'weird-old-value', links: [{ id: 3, food_id: 3 }] }, // normalizes to unrated
 ];
 
 const recipe: EcoRecipe = {
   id: 'r',
   name: 'Soup',
-  ingredients: [{ item: 'onion' }, { item: 'beef' }],
+  ingredients: [{ item: 'onion', food_id: 1 }, { item: 'beef', food_id: 2 }],
 };
 
 describe('computeVisibleIds', () => {
@@ -33,6 +34,10 @@ describe('computeVisibleIds', () => {
     expect(computeVisibleIds(sources, 'partial', recipe, 'be')).toEqual(new Set(['be']));
     // the solo item is outside the chip's set → intersection is empty
     expect(computeVisibleIds(sources, 'disclosed', null, 'be')).toEqual(new Set());
+  });
+
+  it('one food narrows to the sources linked to it', () => {
+    expect(computeVisibleIds(sources, '', null, null, 3)).toEqual(new Set(['mi']));
   });
 
   it('solo alone narrows to the one source', () => {
