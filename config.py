@@ -143,3 +143,23 @@ CONTINUE_LANES = frozenset(
 SWARM_HELPER_MODEL = os.environ.get("EXOCORTEX_SWARM_HELPER_MODEL", "sonnet")
 SWARM_HELPER_MIN_SEC = int(os.environ.get("EXOCORTEX_SWARM_HELPER_MIN_SEC", "300"))
 SWARM_HELPER_TIMEOUT_SEC = int(os.environ.get("EXOCORTEX_SWARM_HELPER_TIMEOUT_SEC", "240"))
+
+# The privileged commands an agent may ask the owner to run for it (sudo_requests.py,
+# routes/sudo.py). An agent names one of these KEYS, never a command line — the list
+# is the whole of what the page's password box can ever run as root. The default is
+# the one thing agents need most: reloading this service after a Python edit.
+# EXOCORTEX_SUDO_ACTIONS replaces the list as JSON, e.g.
+# '{"reload": {"label": "Reload the web server", "argv": ["systemctl", "reload", "exo.service"]}}'.
+SERVICE_NAME = os.environ.get("EXOCORTEX_SERVICE_NAME", "exocortex.service")
+SUDO_ACTIONS = {
+    "reload": {"label": "Reload the web server",
+               "argv": ["systemctl", "reload", SERVICE_NAME]},
+}
+try:
+    _sudo_override = _json.loads(os.environ.get("EXOCORTEX_SUDO_ACTIONS", "null"))
+    if isinstance(_sudo_override, dict):
+        SUDO_ACTIONS = {str(k): {"label": str(v.get("label") or k),
+                                 "argv": [str(a) for a in v["argv"]]}
+                        for k, v in _sudo_override.items()}
+except (ValueError, TypeError, AttributeError, KeyError):
+    pass

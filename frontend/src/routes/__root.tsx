@@ -1,4 +1,5 @@
 import { createRootRoute, Outlet } from '@tanstack/react-router';
+import { SudoHost } from '../features/sudo/SudoHost';
 import { ApprovalsHost } from '../features/approvals';
 import { TopTabs } from '../shell/TopTabs';
 import { SplitLayout } from '../shell/SplitLayout';
@@ -87,6 +88,9 @@ function WindowRoot() {
               when empty. Mounted at the root so approvals surface on every
               page (the legacy dashboard polled this globally too). */}
           {!isPublic ? <ApprovalsHost /> : null}
+          {/* Agents' sudo requests — the bottom popup with a password box.
+              Polls /api/sudo/requests, renders nothing when none are open. */}
+          {!isPublic ? <SudoHost /> : null}
         </SplitLayout>
       </SessionsProvider>
     </main>

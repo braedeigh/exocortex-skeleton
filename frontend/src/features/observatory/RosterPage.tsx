@@ -26,6 +26,7 @@ import { HelpersDoor } from './HelpersDoor';
 import { ResearchDoor } from './ResearchDoor';
 import { SpinoffTreeDoor } from './SpinoffTreeDoor';
 import { WorktreeMapDoor } from './WorktreeMapDoor';
+import { SudoRequests } from '../sudo/SudoRequests';
 import { MemoryMeter } from '../runqueue/MemoryMeter';
 import { useTerrain } from '../terrain/api';
 import { NotesPill } from '../todos/NotesPill';
@@ -415,6 +416,8 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
             <h1 className={styles.title}>Observatory</h1>
             <MemoryMeter />
           </div>
+          {/* Agents waiting on her sudo password — orange, first thing in the room. */}
+          <SudoRequests />
           {failed ? <div className={styles.pageError}>Couldn&rsquo;t load sessions.</div> : null}
 
           {keeper.length > 0 ? (

@@ -1,0 +1,172 @@
+/* Sudo requests — orange, the Terrain/roster colour for "waiting on you".
+   The card is shared by the roster (.inline) and the bottom popup (.popup). */
+
+.inline {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: var(--space-3) 0;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: 2px solid var(--orange);
+  border-radius: var(--radius-xl);
+  background: color-mix(in srgb, var(--orange) 12%, var(--card-bg));
+  color: var(--text);
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.tag {
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--orange);
+  color: #fff;
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.label {
+  font-size: var(--font-size-base);
+  font-weight: 700;
+}
+
+.command {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  word-break: break-all;
+  color: var(--text);
+  opacity: 0.85;
+}
+
+.askers {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--font-size-base);
+}
+
+.asker {
+  min-height: 32px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--orange);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.askerPlain {
+  font-weight: 600;
+}
+
+.reason {
+  color: var(--text-muted);
+}
+
+.row {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.password {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--orange);
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px; /* 16px stops iOS zooming the page on focus */
+}
+
+.message {
+  margin: 0;
+  color: var(--orange);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+}
+
+/* The bottom popup: above page content and the approvals pill, under Sheets. */
+.popup {
+  position: fixed;
+  right: var(--space-4);
+  bottom: calc(var(--tap-target) + env(safe-area-inset-bottom) + var(--space-4));
+  z-index: 95;
+  width: min(420px, calc(100vw - 2 * var(--space-4)));
+  border-radius: var(--radius-xl);
+  background: var(--card-bg);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+}
+
+.popup .card {
+  padding-right: 48px; /* room for the × */
+}
+
+.close {
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-1);
+  width: 40px;
+  height: 40px;
+  border: none;
+  background: none;
+  color: var(--text);
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.more {
+  margin: 0;
+  padding: 0 var(--space-4) var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.pill {
+  position: fixed;
+  left: var(--space-4);
+  bottom: calc(var(--tap-target) + env(safe-area-inset-bottom) + var(--space-4));
+  z-index: 95;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--tap-target);
+  padding: var(--space-2) var(--space-4);
+  border: 2px solid var(--orange);
+  border-radius: var(--radius-pill);
+  background: var(--card-bg);
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+  cursor: pointer;
+}
+
+.pillBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  border-radius: var(--radius-pill);
+  background: var(--orange);
+  color: #fff;
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+}
