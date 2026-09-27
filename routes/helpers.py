@@ -65,8 +65,10 @@ def mint_helper(kind, slug, brief, title, model=None):
     """Open (or rejoin) the helper session for `slug` and tag it as a helper.
 
     `brief` is the Markdown body written to SPINOFF_DIR/<slug>/BRIEF.md; it
-    must carry a `## Protocol` section, because that's what the kickoff tells
-    the session to follow. `title` is what the card says. Returns
+    becomes the session's first message, word for word, so it should carry
+    its own `## Protocol` section — a brief without one gets the general
+    spinoff Protocol (claude-commands/spinoff/protocol.md), which is written
+    for build work, not a helper's job. `title` is what the card says. Returns
     (payload, status) exactly like open_spinoff, with `kind` added."""
     from routes.spinoff import open_spinoff
 

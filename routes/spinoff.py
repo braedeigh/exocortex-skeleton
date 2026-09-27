@@ -2,9 +2,12 @@
 
 A skill in any Claude session writes a brief to SPINOFF_DIR/<slug>/BRIEF.md and
 calls this; it mints an Observatory conversation (routes/observatory.py)
-config'd as a builder session and starts it working. The brief travels by FILE,
-never typed/shell-interpolated anywhere — only the fixed, short kickoff sentence
-below is ever staged.
+config'd as a builder session and starts it working. The session's first
+message is the brief's own text, so she can read in the chat what it was asked
+to do; the files the brief lists under "Where to look" (and the default
+Protocol, when the brief has none) are pasted into its hidden instructions —
+see "The kickoff" below. The brief travels by FILE, never typed or
+shell-interpolated anywhere.
 
 A spinoff lands in the ROOM ITS SENDER IS STANDING IN — a /spinoff run from a
 Personal-room session mints a Personal child, from Coding a Coding one — unless
@@ -60,8 +63,8 @@ from routes.observatory import (_BUILDER_TOOLS, _CONV_ID_RE, _DEFAULT_LANE, _LAN
 
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,38}$")
 
-# How long a kickoff's paperwork sticks around. The .txt is the brief-reading
-# sentence handed to the runner and is deleted the moment it's been read; the
+# How long a kickoff's paperwork sticks around. The .txt is the kickoff (the
+# brief's text) handed to the runner and is deleted the moment it's been read; the
 # .log is where a detached runner's stderr lands, and it is the ONLY trace when
 # a spawn fails to start. Every log on disk here has been zero bytes — which is
 # the argument for pruning them, not for removing the channel: a fortnight is
@@ -114,8 +117,8 @@ def _prune_kickoffs():
 
     Runs on each spawn rather than on a clock: the folder only grows when
     something is spawned, so the thing that dirties it is the right thing to
-    tidy it. Unlike a brief this carries no record — the .txt is one fixed
-    sentence pointing at the brief, and the .log is empty unless a spawn broke.
+    tidy it. Unlike a brief this carries no record — the .txt is a copy of the
+    brief's text, and the .log is empty unless a spawn broke.
     """
     kick_dir = store.SPINOFF_DIR / ".kickoffs"
     cutoff = time.time() - KICKOFF_KEEP_DAYS * 86400
@@ -168,6 +171,123 @@ def _live_conv_for(index, slug):
                  and not entry.get("archived")), None)
 
 
+# --- The kickoff: the brief itself, with its files preloaded -----------------
+# A spinoff's first message IS its brief, so she can read in the chat what the
+# session was asked to do. The files the brief lists under "## Where to look"
+# are pasted into the session's hidden instructions (CONTEXT.md, attached as
+# the entry's system_prompt_file), because a session only ASKED to read them
+# opened 60 of 69 across six measured spinoffs, and skipped mostly the tests.
+# A brief with no Protocol of its own gets the default one in there too.
+#
+# Prompt: "The spinoff's first message should be the brief text, not 'Read
+# <path>/BRIEF.md'. Where to look is one path per line; files listed are
+# loaded. Should I have it read them or inject them? If it's sturdy enough to
+# ask it to read them all, hybrid." (Measured: not sturdy — inject.)
+
+PROTOCOL_FILE = (Path(__file__).resolve().parents[1]
+                 / "claude-commands" / "spinoff" / "protocol.md")
+PRELOAD_FILE_MAX = 60_000     # characters; a bigger file is read by the session
+PRELOAD_TOTAL_MAX = 200_000   # the whole snapshot; the Keeper boots on ~214 KB
+
+_LOOK_LINE_RE = re.compile(r"^(?P<path>.+?)(?::(?P<start>\d+)(?:-(?P<end>\d+))?)?$")
+
+
+def _section(text, heading):
+    """The body of `## heading` in a Markdown brief, or None if it's absent."""
+    match = re.search(rf"^##\s+{re.escape(heading)}\s*$(.*?)(?=^##\s|\Z)",
+                      text, re.M | re.S)
+    return match.group(1) if match else None
+
+
+def _where_to_look(brief_text, cwd):
+    """Read the brief's "## Where to look" list. Returns (entries, errors).
+
+    One path per line: `- path`, backticks optional, `path:12-80` for a line
+    range, and anything after a space is a note for the reader. A relative
+    path is taken from the child's cwd. Every line must name a file that
+    exists — a list is refused whole rather than preloading half of it, since
+    a missing file is almost always a typo the sender can fix in a second.
+    Each entry is (as_written, Path, start, end)."""
+    body = _section(brief_text, "Where to look")
+    if body is None:
+        return [], []
+    entries, errors = [], []
+    for line in body.splitlines():
+        token = re.sub(r"^\s*[-*]\s+", "", line).strip()
+        if not token:
+            continue
+        token = token.split()[0].strip("`")
+        match = _LOOK_LINE_RE.match(token)
+        path = Path(match.group("path")).expanduser()
+        if not path.is_absolute():
+            path = Path(cwd) / path
+        if not path.is_file():
+            errors.append(token)
+            continue
+        start = int(match.group("start")) if match.group("start") else None
+        end = int(match.group("end")) if match.group("end") else start
+        entries.append((token, path, start, end))
+    return entries, errors
+
+
+def _write_context(slug, brief_text, entries):
+    """Write the session's hidden instructions. Returns (path, preloaded, too_big).
+
+    The default Protocol goes in when the brief has none of its own (the app's
+    own briefs — triage, helpers, forks, stewards — carry theirs, and it shows
+    in the chat with the rest of the brief). Then each listed file, fenced,
+    under its path, until the size caps; what doesn't fit, or isn't text, is
+    returned as `too_big` for the kickoff to name. `path` is None when there
+    was nothing to write, so the entry gets no system_prompt_file at all."""
+    parts, preloaded, too_big, total = [], [], [], 0
+    if _section(brief_text, "Protocol") is None:
+        parts.append(PROTOCOL_FILE.read_text(encoding="utf-8").strip())
+    snapshots = []
+    for as_written, path, start, end in entries:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            too_big.append(as_written)
+            continue
+        if start:
+            text = "\n".join(text.splitlines()[start - 1:end])
+        if len(text) > PRELOAD_FILE_MAX or total + len(text) > PRELOAD_TOTAL_MAX:
+            too_big.append(as_written)
+            continue
+        total += len(text)
+        # A fence one backtick longer than any run inside, so a Markdown file
+        # full of code blocks can't close it early.
+        fence = "`" * max(3, max((len(r) for r in re.findall(r"`+", text)), default=0) + 1)
+        span = f" (lines {start}-{end})" if start else ""
+        snapshots.append(f"### {path}{span}\n{fence}\n{text}\n{fence}")
+        preloaded.append(as_written)
+    if snapshots:
+        parts.append(f"## Preloaded files (snapshot taken {_now()})\n\n"
+                     "The files the brief lists, as they were when you were "
+                     "spun off. Read a file yourself before you edit it.\n\n"
+                     + "\n\n".join(snapshots))
+    if not parts:
+        return None, preloaded, too_big
+    context = store.SPINOFF_DIR / slug / "CONTEXT.md"
+    context.write_text("\n\n".join(parts) + "\n", encoding="utf-8")
+    return context, preloaded, too_big
+
+
+def _kickoff_text(brief_text, preloaded, too_big):
+    """The first message: the brief as written, then a line naming what was
+    preloaded and what the session must still read itself."""
+    lines = [brief_text.rstrip()]
+    footer = []
+    if preloaded:
+        footer.append("Preloaded into your instructions: " + ", ".join(preloaded))
+    if too_big:
+        footer.append("Too big to preload — read these yourself first: "
+                      + ", ".join(too_big))
+    if footer:
+        lines += ["", "---", *footer]
+    return "\n".join(lines) + "\n"
+
+
 def open_spinoff(slug, start=True, lane=None, model=None, branch=None,
                  parent=None, via=None):
     """Core shared by the route and scripts/spinoff_open.py (the agents' door).
@@ -215,6 +335,11 @@ def open_spinoff(slug, start=True, lane=None, model=None, branch=None,
     how: "skill", "go", "fork", "helper", "steward" — left None it's "skill"
     when there is a calling session and "app" when there isn't. Written only
     at mint; a rejoin never rewrites a child's parentage.
+
+    The kickoff is the brief's text (_kickoff_text), and a brief whose "Where
+    to look" names a file that doesn't exist is refused with a 400 before
+    anything is minted. The listed files are preloaded into CONTEXT.md beside
+    the brief and attached as the entry's system_prompt_file (_write_context).
     """
     if not SLUG_RE.match(slug or ""):
         return {"error": "bad slug"}, 400
@@ -261,6 +386,13 @@ def open_spinoff(slug, start=True, lane=None, model=None, branch=None,
         return {"error": "adopting a branch needs the orchestra room"}, 400
     profile = _lane_profile(room)
     cwd, wt_path, wt_branch = profile["cwd"], None, None
+    # Check the brief's file list before anything is made: a path that
+    # doesn't exist refuses the spawn, so nothing needs undoing.
+    brief_text = brief.read_text(encoding="utf-8")
+    entries, missing = _where_to_look(brief_text, cwd)
+    if missing:
+        return {"error": "Where to look names files that don't exist: "
+                         + ", ".join(missing)}, 400
     # Stand a steward on its branch, in its own worktree. Only with `branch`;
     # a plain spinoff stays in the room's cwd.
     if branch:
@@ -270,8 +402,10 @@ def open_spinoff(slug, start=True, lane=None, model=None, branch=None,
         except (worktrees.WorktreeError, OSError, subprocess.SubprocessError) as e:
             return {"error": f"couldn't stand on {branch}: {e}"}, 409
 
-    kickoff = (f"Read {brief} and follow its Protocol section exactly — "
-               "it defines this session's job.")
+    # The first message is the brief itself; its files and (if it has none of
+    # its own) the Protocol ride in the hidden instructions.
+    context, preloaded, too_big = _write_context(slug, brief_text, entries)
+    kickoff = _kickoff_text(brief_text, preloaded, too_big)
 
     raced = None
     with store.mutate("bot_chats/index", {}) as index:
@@ -290,6 +424,8 @@ def open_spinoff(slug, start=True, lane=None, model=None, branch=None,
             index[conv_id]["spawned_via"] = via
             if parent:
                 index[conv_id]["spawned_from"] = parent
+            if context:
+                index[conv_id]["system_prompt_file"] = str(context)
             if model:
                 # On the entry, not the reply alone: per-turn resolution
                 # (observatory's effective_model) reads it from here, so the
@@ -337,9 +473,10 @@ def _launch_runner(conv_id, kickoff):
     detached scripts/spinoff_runner.py, which posts it through the real send
     route and stays alive draining the stream until the turn ends.
 
-    The kickoff travels by FILE, never on the command line: it's short and
-    fixed today, but an argv-borne prompt is one refactor away from being
-    shell-interpolated, and the brief-by-file doctrine exists for that reason.
+    The kickoff travels by FILE, never on the command line: it's the whole
+    brief, written by another agent, and an argv-borne prompt is one refactor
+    away from being shell-interpolated — the brief-by-file doctrine exists for
+    exactly that.
 
     Returns True if the runner was launched. False is not fatal and is not
     retried — the entry still carries draft+autostart, so opening the session

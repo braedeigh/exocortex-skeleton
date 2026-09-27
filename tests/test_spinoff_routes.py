@@ -123,7 +123,7 @@ def test_valid_slug_mints_an_autostarting_builder_session(spinoff_client):
     index = _index()
     entry = index[conv_id]
     assert entry["spinoff_slug"] == "cool-idea"
-    assert str(brief) in entry["draft"]
+    assert entry["draft"].startswith(brief.read_text().rstrip())
     # The kickoff auto-fires on open (Observatory reads meta.autostart) rather
     # than sitting in the compose box waiting for a manual send.
     assert entry["autostart"] is True
@@ -192,14 +192,13 @@ def test_a_fresh_spinoff_launches_its_own_runner(spinoff_client):
 def test_the_kickoff_reaches_the_runner_by_file_not_argv(spinoff_client):
     # Doctrine: prompts travel as files. An argv-borne prompt is one refactor
     # away from being shell-interpolated.
-    _write_brief(store.SPINOFF_DIR, "by-file")
+    _write_brief(store.SPINOFF_DIR, "by-file", "Do the by-file thing.\n")
     body = _post(spinoff_client, "by-file").get_json()
     argv, _ = spinoff_client._launches[0]
     kick = Path(argv[3])
     assert kick.exists()
-    text = kick.read_text()
-    assert "BRIEF.md" in text
-    assert not any("BRIEF.md" in str(a) for a in argv[:3])
+    assert "Do the by-file thing." in kick.read_text()
+    assert not any("by-file thing" in str(a) for a in argv)
     assert body["conversation_id"] in str(kick)
 
 
@@ -227,7 +226,7 @@ def test_a_failed_launch_still_yields_a_usable_spinoff(spinoff_client, monkeypat
     assert body["started"] is False
     entry = _index()[body["conversation_id"]]
     assert entry["autostart"] is True
-    assert "BRIEF.md" in entry["draft"]
+    assert "Do the thing." in entry["draft"]
 
 
 def test_start_false_mints_without_launching(spinoff_client):
@@ -609,3 +608,98 @@ def test_the_tree_lists_parents_and_children_but_not_bystanders(spinoff_client, 
     nodes = {n["id"]: n for n in spinoff_client.get("/api/spinoff/tree").get_json()["nodes"]}
     assert set(nodes) == {sender, child}
     assert nodes[child]["parent"] == sender and nodes[sender]["parent"] is None
+
+
+# --- The kickoff: the brief itself, with its files preloaded -----------------
+
+def _brief_with_files(tmp_path, lines, protocol=False):
+    body = "# Spinoff: files\n\n## The task\nDo it.\n\n## Where to look\n"
+    body += "".join(f"{line}\n" for line in lines)
+    if protocol:
+        body += "\n## Protocol\n1. Follow this one.\n"
+    return body
+
+
+def test_the_first_message_is_the_brief_itself(spinoff_client):
+    text = "# Spinoff: visible\n\n## The task\nMake the brief show in the chat.\n"
+    _write_brief(store.SPINOFF_DIR, "visible", text)
+    body = _post(spinoff_client, "visible").get_json()
+    kick = Path(spinoff_client._launches[0][0][3]).read_text()
+    assert kick.startswith(text.rstrip())
+    assert "Read " not in kick
+
+
+def test_listed_files_are_preloaded_into_the_hidden_instructions(spinoff_client, tmp_path):
+    code = tmp_path / "thing.py"
+    code.write_text("def thing():\n    return 42\n")
+    _write_brief(store.SPINOFF_DIR, "preload",
+                 _brief_with_files(tmp_path, [f"- `{code}` — the thing"]))
+    body = _post(spinoff_client, "preload").get_json()
+    entry = _index()[body["conversation_id"]]
+    context = Path(entry["system_prompt_file"]).read_text()
+    assert "return 42" in context
+    assert f"Preloaded into your instructions: {code}" in entry["draft"]
+
+
+def test_a_brief_without_a_protocol_gets_the_general_one(spinoff_client):
+    _write_brief(store.SPINOFF_DIR, "no-protocol")
+    body = _post(spinoff_client, "no-protocol").get_json()
+    context = Path(_index()[body["conversation_id"]]["system_prompt_file"]).read_text()
+    assert "Say it in the room" in context
+
+
+def test_a_brief_with_its_own_protocol_keeps_it_alone(spinoff_client, tmp_path):
+    # Helpers, triage, forks and stewards write their own; the general one
+    # must not be stacked on top. No files and no default → no context file.
+    _write_brief(store.SPINOFF_DIR, "own-protocol",
+                 "# Triage\n\n## Protocol\n1. Ask how the day feels.\n")
+    body = _post(spinoff_client, "own-protocol").get_json()
+    assert "system_prompt_file" not in _index()[body["conversation_id"]]
+
+
+def test_a_missing_file_in_where_to_look_refuses_the_spawn(spinoff_client, tmp_path):
+    real = tmp_path / "real.py"
+    real.write_text("x = 1\n")
+    ghost = tmp_path / "ghost.py"
+    _write_brief(store.SPINOFF_DIR, "typo",
+                 _brief_with_files(tmp_path, [f"- {real}", f"- {ghost}"]))
+    r = _post(spinoff_client, "typo")
+    assert r.status_code == 400
+    assert str(ghost) in r.get_json()["error"]
+    assert _index() == {}
+    assert spinoff_client._launches == []
+
+
+def test_a_line_range_preloads_only_those_lines(spinoff_client, tmp_path):
+    notes = tmp_path / "notes.md"
+    notes.write_text("\n".join(f"line {n}" for n in range(1, 11)) + "\n")
+    _write_brief(store.SPINOFF_DIR, "ranged",
+                 _brief_with_files(tmp_path, [f"- {notes}:3-4"]))
+    body = _post(spinoff_client, "ranged").get_json()
+    context = Path(_index()[body["conversation_id"]]["system_prompt_file"]).read_text()
+    assert "line 3\nline 4" in context
+    assert "line 5" not in context
+
+
+def test_a_file_too_big_to_preload_is_named_for_the_session_to_read(
+        spinoff_client, tmp_path, monkeypatch):
+    monkeypatch.setattr(spinoff, "PRELOAD_FILE_MAX", 10)
+    big = tmp_path / "big.py"
+    big.write_text("x = 'far more than ten characters'\n")
+    _write_brief(store.SPINOFF_DIR, "too-big", _brief_with_files(tmp_path, [f"- {big}"]))
+    body = _post(spinoff_client, "too-big").get_json()
+    entry = _index()[body["conversation_id"]]
+    assert "far more" not in Path(entry["system_prompt_file"]).read_text()
+    assert f"read these yourself first: {big}" in entry["draft"]
+
+
+def test_a_relative_path_is_read_from_the_childs_folder(spinoff_client, monkeypatch, tmp_path):
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "mod.py").write_text("VALUE = 7\n")
+    real_profile = spinoff._lane_profile
+    monkeypatch.setattr(spinoff, "_lane_profile",
+                        lambda room: dict(real_profile(room), cwd=str(tmp_path)))
+    _write_brief(store.SPINOFF_DIR, "relative", _brief_with_files(tmp_path, ["- pkg/mod.py"]))
+    body = _post(spinoff_client, "relative").get_json()
+    context = Path(_index()[body["conversation_id"]]["system_prompt_file"]).read_text()
+    assert "VALUE = 7" in context
