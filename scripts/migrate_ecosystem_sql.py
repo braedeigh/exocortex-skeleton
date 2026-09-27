@@ -48,4 +48,7 @@ def main():
 
 
 if __name__ == "__main__":
+    # Put this run on the runtime map (runtime_sensor.py), from __main__ only.
+    import runtime_sensor
+    runtime_sensor.attach()
     main()
