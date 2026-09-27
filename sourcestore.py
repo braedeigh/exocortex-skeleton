@@ -23,10 +23,15 @@ A source is her record: written only here, inside foodstore's write
 transaction, so every change is also backed up to food_catalog.json.
 
 Touches: `sqlstore.py` (the food_sources / food_source_counties tables, rung
-30), `foodstore.py` (the write transaction, the backup list, name matching),
+32; source_requests, rung 33), `foodstore.py` (the write transaction, the backup list, name matching),
 `routes/ecosystem.py` (the map's writes), `server.py` (the map's and kitchen's
 data payloads), `routes/food.py` (a food's page), `scripts/migrate_ecosystem_sql.py`
 (moved the old JSON in), and `tests/test_sourcestore.py`.
+
+**Requests.** An untraced food can be *requested*: her "find where this
+comes from" ask, queued for the research pass. A request links nothing — it
+waits in `source_requests` until a proposal for it is ruled on, or she links
+the food herself.
 
 Prompt that produced this file: "i want it to no longer be json and be in the
 sql along with other foods. i want to be able to identify where foods are from
@@ -272,6 +277,11 @@ def link(source_id, food=None, product_id=None, note=None):
         conn.execute(
             "INSERT OR IGNORE INTO food_links (food_id, product_id, target, target_id, note)"
             " VALUES (?,?,'ecosystem',?,?)", (food_id, product_id, source_id, note))
+        # Answer any open request for this food: she has traced it herself.
+        answered_food = food_id if food_id is not None else conn.execute(
+            "SELECT food_id FROM products WHERE id = ?", (product_id,)).fetchone()[0]
+        if answered_food is not None:
+            _close_requests(conn, answered_food, "answered")
         row = conn.execute(
             "SELECT id FROM food_links WHERE target = 'ecosystem' AND target_id = ?"
             " AND COALESCE(food_id, 0) = ? AND COALESCE(product_id, 0) = ?",
@@ -284,6 +294,91 @@ def unlink(link_id):
     with foodstore._Write() as conn:
         return conn.execute("DELETE FROM food_links WHERE id = ? AND target = 'ecosystem'",
                             (link_id,)).rowcount > 0
+
+
+# --- requests: "find where this comes from" -----------------------------------
+# A request is her ask; the research pass answers it with proposals. Asking
+# again while one is open returns the open one (the table's unique index
+# guarantees there is never a second).
+
+REQUEST_STATUSES = ("open", "answered", "withdrawn")
+
+
+def _close_requests(conn, food_id, status):
+    """Close a food's open request (if any) as answered or withdrawn."""
+    conn.execute(
+        "UPDATE source_requests SET status = ?,"
+        " closed_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')"
+        " WHERE food_id = ? AND status = 'open'", (status, food_id))
+
+
+def request(food, asked_from="", product_id=None):
+    """Queue a food to have its origin found. Returns (request id, food id or None).
+
+    `food` is a food id or any name; a name that isn't a food yet is kept as
+    words (a recipe line can name something the catalog doesn't know).
+    ValueError when neither is usable or the product doesn't exist."""
+    with foodstore._Write() as conn:
+        food_id, name = None, ""
+        if isinstance(food, int) and not isinstance(food, bool):
+            food_id = foodstore._food_id(conn, food)
+        else:
+            name = foodstore._norm(food)
+            if not name:
+                raise ValueError("say which food")
+            row = conn.execute("SELECT food_id FROM food_names WHERE name = ?",
+                               (name,)).fetchone()
+            food_id = row[0] if row else None
+        if product_id is not None and not conn.execute(
+                "SELECT 1 FROM products WHERE id = ?", (product_id,)).fetchone():
+            raise ValueError(f"no such product: {product_id!r}")
+        if food_id is not None:
+            name = conn.execute("SELECT name FROM foods WHERE id = ?", (food_id,)).fetchone()[0]
+        key = f"id:{food_id}" if food_id is not None else f"name:{name}"
+        # Asking twice is safe: the open request for this food comes back.
+        row = conn.execute("SELECT id FROM source_requests WHERE food_key = ? AND status = 'open'",
+                           (key,)).fetchone()
+        if row:
+            return row[0], food_id
+        cur = conn.execute(
+            "INSERT INTO source_requests (food_id, food_name, food_key, product_id, asked_from)"
+            " VALUES (?,?,?,?,?)",
+            (food_id, name, key, product_id, str(asked_from or "").strip()[:80]))
+        return cur.lastrowid, food_id
+
+
+def close_request(request_id, status):
+    """Mark one open request answered or withdrawn. False when not open."""
+    if status not in ("answered", "withdrawn"):
+        raise ValueError(f"a request closes as answered or withdrawn, not {status!r}")
+    with foodstore._Write() as conn:
+        return conn.execute(
+            "UPDATE source_requests SET status = ?,"
+            " closed_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')"
+            " WHERE id = ? AND status = 'open'", (status, request_id)).rowcount > 0
+
+
+def requests(status=None):
+    """Requests, oldest first — every one, or only those with `status`."""
+    columns = ("id", "food_id", "food_name", "product_id", "asked_from", "status",
+               "created_at", "closed_at")
+    conn = _read_conn()
+    try:
+        sql = f"SELECT {', '.join(columns)} FROM source_requests"
+        args = ()
+        if status:
+            sql, args = sql + " WHERE status = ?", (status,)
+        return [dict(zip(columns, row)) for row in conn.execute(sql + " ORDER BY id", args)]
+    finally:
+        conn.close()
+
+
+def requested():
+    """What has an open request, as the pages read it: food ids, plus the
+    matched-as names of lines that aren't foods yet."""
+    open_ones = requests("open")
+    return {"food_ids": [r["food_id"] for r in open_ones if r["food_id"] is not None],
+            "names": [r["food_name"] for r in open_ones if r["food_id"] is None]}
 
 
 # --- reading ------------------------------------------------------------------

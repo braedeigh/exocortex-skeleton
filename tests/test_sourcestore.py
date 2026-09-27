@@ -5,7 +5,8 @@ value outside their vocabulary (a proxy passing as a placement), a removed
 source leaving links pointing at nothing, a recipe line failing to reach its
 source through a product link, USDA's numbers or the origin record being
 dropped on an edit, and the move from ecosystem.json losing or renaming a
-source (every existing link points at those ids).
+source (every existing link points at those ids), and an origin request
+doubling up (the button pressed twice must stay one request).
 """
 import json
 import sqlite3
@@ -177,6 +178,77 @@ def test_sources_ride_in_the_food_catalog_backup(data_dir):
     make_source(source_id="seed0009")
     backup = json.loads((store.DATA_DIR / foodstore.MIRROR_FILE).read_text())
     assert [s["id"] for s in backup["food_sources"]] == ["seed0009"]
+
+
+# --- requests: "find where this comes from" -----------------------------------
+
+def test_asking_twice_returns_the_same_open_request(client):
+    foodstore.add_food("kale")
+    first = post(client, "/api/ecosystem/request-link", {"food": "kale", "from": "recipe:r1"})
+    second = post(client, "/api/ecosystem/request-link", {"food": "Kale", "from": "grocery"})
+    assert first.get_json()["id"] == second.get_json()["id"]
+
+
+def test_a_request_by_id_and_by_name_is_one_request(data_dir):
+    food_id = foodstore.add_food("kale")
+    assert sourcestore.request(food_id)[0] == sourcestore.request("kale")[0]
+
+
+def test_a_request_can_name_something_that_isnt_a_food_yet(data_dir):
+    request_id, food_id = sourcestore.request("chuck roast", asked_from="recipe:r1")
+    assert food_id is None
+    assert sourcestore.requested() == {"food_ids": [], "names": ["chuck roast"]}
+
+
+def test_request_route_refuses_an_empty_food(client):
+    assert post(client, "/api/ecosystem/request-link", {"food": "  "}).status_code == 400
+
+
+def test_linking_the_food_answers_its_request(data_dir):
+    food_id = foodstore.add_food("kale")
+    sourcestore.request("kale")
+    sourcestore.link(make_source(), food="kale")
+    assert sourcestore.requested()["food_ids"] == []
+    assert sourcestore.requests()[0]["status"] == "answered"
+
+
+def test_linking_a_product_answers_its_foods_request(data_dir):
+    foodstore.add_food("eggs")
+    product_id = foodstore.add_product("eggs", "HEB AA LG EGGS")
+    sourcestore.request("eggs")
+    sourcestore.link(make_source(name="HEB eggs"), product_id=product_id)
+    assert sourcestore.requested()["food_ids"] == []
+
+
+def test_a_withdrawn_request_can_be_asked_again(client):
+    foodstore.add_food("kale")
+    first = post(client, "/api/ecosystem/request-link", {"food": "kale"}).get_json()["id"]
+    post(client, "/api/ecosystem/request/close", {"id": first, "status": "withdrawn"})
+    second = post(client, "/api/ecosystem/request-link", {"food": "kale"}).get_json()["id"]
+    assert second != first
+
+
+def test_close_route_refuses_reopening(client):
+    foodstore.add_food("kale")
+    request_id = sourcestore.request("kale")[0]
+    response = post(client, "/api/ecosystem/request/close", {"id": request_id, "status": "open"})
+    assert response.status_code == 400
+
+
+def test_merging_foods_keeps_one_open_request(data_dir):
+    foodstore.add_food("kale")
+    foodstore.add_food("curly kale")
+    sourcestore.request("kale")
+    sourcestore.request("curly kale")
+    foodstore.merge("kale", "curly kale")
+    assert len(sourcestore.requests("open")) == 1
+
+
+def test_requests_ride_in_the_food_catalog_backup(data_dir):
+    foodstore.add_food("kale")
+    sourcestore.request("kale", asked_from="grocery")
+    backup = json.loads((store.DATA_DIR / foodstore.MIRROR_FILE).read_text())
+    assert [r["asked_from"] for r in backup["source_requests"]] == ["grocery"]
 
 
 # --- moving the old JSON in ---------------------------------------------------

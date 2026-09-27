@@ -200,7 +200,8 @@
         "receipts",
         "food_estimates",
         "food_sources",
-        "food_source_counties"
+        "food_source_counties",
+        "source_requests"
       ],
       "collections": [
         "kitchen",

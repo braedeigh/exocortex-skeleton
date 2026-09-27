@@ -85,6 +85,9 @@ _RECORD_TABLES = (
                       "origin_detail", "origin_url", "origin_date", "created_at",
                       "updated_at")),
     ("food_source_counties", ("source_id", "fips", "seq", "county", "state", "value", "unit")),
+    # Her requests to have a food's origin found (sourcestore.request).
+    ("source_requests", ("id", "food_id", "food_name", "food_key", "product_id", "asked_from",
+                         "status", "created_at", "closed_at")),
 )
 
 
@@ -521,6 +524,15 @@ def merge(keep, drop):
         # estimate wins, drop's is deleted with it below.
         conn.execute("UPDATE OR IGNORE food_estimates SET food_id = ? WHERE food_id = ?",
                      (keep_id, drop_id))
+        # Origin requests (sourcestore.py) move too. Only one request per food
+        # may be open, so when both foods have one, drop's is withdrawn first.
+        conn.execute(
+            "UPDATE source_requests SET status = 'withdrawn',"
+            " closed_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')"
+            " WHERE food_id = ? AND status = 'open' AND EXISTS (SELECT 1 FROM source_requests"
+            "   WHERE food_id = ? AND status = 'open')", (drop_id, keep_id))
+        conn.execute("UPDATE source_requests SET food_id = ?, food_key = ? WHERE food_id = ?",
+                     (keep_id, f"id:{keep_id}", drop_id))
         # Keep's judgments win; drop fills only what keep left empty.
         conn.execute(
             "UPDATE foods SET"

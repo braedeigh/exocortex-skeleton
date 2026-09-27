@@ -2817,5 +2817,40 @@
         "holds": "The unit of that figure (ACRES, HEAD, $…)."
       }
     }
+  },
+  "source_requests": {
+    "holds": "Her requests to have a food's origin found — the \"Request linking\" button on an untraced food. One row per request; at most one open per food.",
+    "source": "Written only through sourcestore.py (the request-link route, and closed when she links the food or rules on a proposal). Backed up to food_catalog.json.",
+    "kind": "record",
+    "time_column": "created_at",
+    "columns": {
+      "id": {
+        "holds": "The request's number."
+      },
+      "food_id": {
+        "holds": "The food asked about, when it is a food in the catalog."
+      },
+      "food_name": {
+        "holds": "The food's name — or, when it isn't a food yet, the words it was asked by."
+      },
+      "food_key": {
+        "holds": "Which food this is about, as one value ('id:12' or 'name:chuck roast'), so only one open request per food can exist."
+      },
+      "product_id": {
+        "holds": "The product it was asked from, when one was named."
+      },
+      "asked_from": {
+        "holds": "Where she pressed the button: recipe:<id>, grocery, map."
+      },
+      "status": {
+        "holds": "open, answered (traced, or a proposal ruled on) or withdrawn."
+      },
+      "created_at": {
+        "holds": "When she asked."
+      },
+      "closed_at": {
+        "holds": "When it was answered or withdrawn."
+      }
+    }
   }
 }

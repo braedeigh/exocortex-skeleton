@@ -978,6 +978,8 @@ def get_data_ecosystem():
     # Every food, traced or not, for the map's Foods panel.
     data["eco_foods"] = sourcestore.map_foods(include_products=owner)
     data["eco_origins"] = sourcestore.ORIGINS
+    # Which foods she has asked to have traced — the "Requested ✓" state.
+    data["eco_requested"] = sourcestore.requested()
     _eco_cfg = store.read("ecosystem_config", {})
     data["usda_key_set"] = bool((_eco_cfg.get("usda_key") or os.environ.get("EXOCORTEX_USDA_KEY") or "").strip())
     data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("ecosystem", [])
@@ -1054,6 +1056,8 @@ def get_data_kitchen():
     import sourcestore
     data["ecosystem"] = _load_ecosystem(include_products=request.view_mode == "authed")
     data["eco_recipes"] = sourcestore.map_recipes()
+    # Which foods she has asked to have traced — the "Requested ✓" state.
+    data["eco_requested"] = sourcestore.requested()
 
     return jsonify(filter_for_view(data, request.view_mode))
   except Exception as e:

@@ -42,7 +42,7 @@ import time
 
 import store
 
-_SCHEMA_VERSION = 32
+_SCHEMA_VERSION = 33
 
 
 def _db_path():
@@ -183,7 +183,7 @@ _EXPECTED_TABLES = (
     "recipe_makes", "meal_rotation",
     "recipes", "recipe_lines", "shopping_trips", "shopping_lines", "grocery_list",
     "receipts",
-    "food_sources", "food_source_counties", "food_estimates",
+    "food_sources", "food_source_counties", "food_estimates", "source_requests",
     # The journal word index, plus the five storage tables FTS5 keeps behind it.
     "cards_fts", "cards_fts_data", "cards_fts_idx", "cards_fts_content",
     "cards_fts_docsize", "cards_fts_config",
@@ -2470,6 +2470,35 @@ def _run_ladder(conn):
             "  PRIMARY KEY (source_id, fips)"
             ")"
         )
+    if version < 33:
+        # Rung 33: her requests to have a food's origin found — the "Request
+        # linking" button on an untraced food. A request links nothing; it
+        # queues the food for the research pass, which answers it with
+        # proposals she rules on. Her record, written only by sourcestore.py
+        # and backed up with the food catalog.
+        #
+        # A recipe line can name something that isn't a food yet, so food_id
+        # may be empty and food_name carries the words. food_key is whichever
+        # of the two identifies it ('id:12' or 'name:chuck roast'), and the
+        # partial unique index keeps at most one OPEN request per key — asking
+        # twice returns the first request instead of making another.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS source_requests ("
+            "  id INTEGER PRIMARY KEY,"
+            "  food_id INTEGER REFERENCES foods(id),"
+            "  food_name TEXT NOT NULL DEFAULT '',"
+            "  food_key TEXT NOT NULL,"
+            "  product_id INTEGER REFERENCES products(id),"
+            "  asked_from TEXT NOT NULL DEFAULT '',"
+            "  status TEXT NOT NULL DEFAULT 'open'"
+            "    CHECK (status IN ('open', 'answered', 'withdrawn')),"
+            "  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),"
+            "  closed_at TEXT"
+            ")"
+        )
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS source_requests_one_open"
+            " ON source_requests (food_key) WHERE status = 'open'")
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 

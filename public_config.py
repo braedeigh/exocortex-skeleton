@@ -87,6 +87,8 @@ STREAMS = {
     "growth_notes": "frosted",
 
     # ---- hidden (key dropped entirely) ----
+    # Her "find where this comes from" requests — her queue, not the map's.
+    "eco_requested": "hidden",
     "contacts": "hidden",
     "applications": "hidden",       # shrike_applied
     "dev_notes": "hidden",

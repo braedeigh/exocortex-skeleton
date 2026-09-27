@@ -16,6 +16,9 @@ place a dot: an address geocoder and the USDA "where is this grown" assist.
     POST /api/ecosystem/source/remove   {id} — its links go with it
     POST /api/ecosystem/link            {source_id, food | product_id}
     POST /api/ecosystem/unlink          {link_id}
+    POST /api/ecosystem/request-link    {food, from?, product_id?} — queue a food
+                                         to have its origin found; idempotent
+    POST /api/ecosystem/request/close   {id, status: answered|withdrawn}
     POST /api/ecosystem/geocode         {address}
     POST /api/ecosystem/usda/key        {key}
     POST /api/ecosystem/usda/suggest    {name}
@@ -340,6 +343,35 @@ def register(app):
         link_id = _product_ref((request.json or {}).get("link_id"))
         if link_id is None or not sourcestore.unlink(link_id):
             return jsonify({"ok": False, "error": "no such link"}), 404
+        return jsonify({"ok": True})
+
+    # Queue a food to have its origin found — the "Request linking" button.
+    # Links nothing: the request waits for the research pass. Asking again
+    # while one is open returns the same request.
+    @app.route("/api/ecosystem/request-link", methods=["POST"])
+    def request_ecosystem_link():
+        body = request.json or {}
+        food = _food_ref(body.get("food"))
+        if food is None:
+            return jsonify({"ok": False, "error": "say which food"}), 400
+        try:
+            request_id, food_id = sourcestore.request(
+                food, asked_from=body.get("from") or "",
+                product_id=_product_ref(body.get("product_id")))
+        except (ValueError, sqlite3.IntegrityError) as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        return jsonify({"ok": True, "id": request_id, "food_id": food_id})
+
+    # Close a request by hand: answered, or withdrawn (she no longer wants it).
+    @app.route("/api/ecosystem/request/close", methods=["POST"])
+    def close_ecosystem_request():
+        body = request.json or {}
+        try:
+            closed = sourcestore.close_request(_product_ref(body.get("id")), body.get("status"))
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        if not closed:
+            return jsonify({"ok": False, "error": "no open request with that id"}), 404
         return jsonify({"ok": True})
 
     # --- Address geocoding (for placing an exact spot by address) ---
