@@ -219,6 +219,28 @@ def waiting(conv_id, kind=None):
         conn.close()
 
 
+def readdress(from_conv, to_conv):
+    """Send everything still waiting for one session to another instead —
+    a session that handed off to a continuation passes its unread mail on,
+    so a message sent just before the handoff doesn't wake the retired one.
+    Returns how many moved."""
+    conn = sqlstore.open_db()
+    try:
+        sqlstore.begin_immediate(conn)
+        try:
+            cur = conn.execute(
+                "UPDATE agent_messages SET to_conv = ?"
+                " WHERE to_conv = ? AND status IN ('waiting', 'held')",
+                (to_conv, from_conv))
+            conn.execute("COMMIT")
+        except BaseException:
+            conn.execute("ROLLBACK")
+            raise
+        return cur.rowcount
+    finally:
+        conn.close()
+
+
 def any_waiting():
     """Every session with a message waiting — the minute safety net's list."""
     conn = sqlstore.open_db()

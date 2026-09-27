@@ -100,3 +100,23 @@ def test_messages_to_a_handed_off_session_reach_its_successor(data_dir):
     _seed("new")
     row = peermail.send("old", "are you there?", from_conv="sender")
     assert row["to_conv"] == "new"
+
+
+def test_mail_waiting_at_handoff_goes_to_the_successor_not_back_to_the_old_one(
+        data_dir, monkeypatch):
+    # Regression: a message that arrived just before the handoff was drained
+    # into a fresh turn on the old session, and starting a turn un-archived it.
+    started = []
+    monkeypatch.setattr(observatory, "begin_turn", lambda conv_id, *a, **kw:
+                        started.append(conv_id) or {"ok": True, "status": 200})
+    _seed("sender")
+    _seed("old")
+    _seed("new")
+    peermail.send("old", "one more thing", from_conv="sender")
+    with store.mutate("bot_chats/index", {}) as index:
+        index["old"].update(continued_by="new", archive_after_turn=True)
+    observatory.after_turn("old")
+    observatory.drain_inbox("old")
+    assert store.read("bot_chats/index", {})["old"]["archived"] is True
+    assert started == ["new"]
+    assert peermail.waiting("old") == []

@@ -1836,7 +1836,17 @@ def after_turn(conv_id):
         entry = index.get(conv_id)
         if isinstance(entry, dict) and entry.pop("archive_after_turn", None):
             entry["archived"] = True
-            return
+            successor = entry.get("continued_by")
+        else:
+            successor = None
+    # Pass the retired session's unread mail and reminders to its successor.
+    # Otherwise the drains that run next would start a turn here, and
+    # starting a turn un-archives — the old session would come back to life.
+    if successor:
+        peermail.readdress(conv_id, successor)
+        move_system_followups(conv_id, successor)
+        drain_inbox(successor)
+        return
     continuation.check(conv_id)
     # A member of a swarm just did something: its helper updates its
     # summaries (debounced — see swarm_helper.poke).
@@ -1857,7 +1867,18 @@ def drain_inbox(conv_id, fallback=False):
     if not rows:
         return False
     entry = store.read("bot_chats/index", {}).get(conv_id)
-    if not isinstance(entry, dict) or _effective_running(conv_id, entry):
+    if not isinstance(entry, dict):
+        return False
+    # Mail for a session that handed off goes to its successor instead of
+    # waking it (continuation.py) — mail can arrive between the handoff and
+    # the archive, and the minute tick would otherwise deliver it here.
+    if entry.get("continued_by"):
+        import continuation
+        successor = continuation.successor(conv_id)
+        if successor != conv_id:
+            peermail.readdress(conv_id, successor)
+            return drain_inbox(successor, fallback=fallback)
+    if _effective_running(conv_id, entry):
         return False
     # A swarm helper's mail is answered by a helper run, not a chat turn —
     # each run starts fresh from the summaries (swarm_helper.py).
