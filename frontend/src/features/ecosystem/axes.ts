@@ -4,7 +4,7 @@
  * the origin is); dot SHAPE (crisp vs soft circle vs outline) = precision;
  * geo_source = how the dot itself got placed.
  */
-import type { EcoSource, Transparency, GeoSourceKind } from './types';
+import type { EcoSource, Transparency, GeoSourceKind, OriginKind } from './types';
 
 /** Fallback / draft-pin green. */
 export const ECO_COLOR = '#2f9e7f';
@@ -84,4 +84,32 @@ export function compareSources(a: EcoSource, b: EcoSource): number {
   const rb = ECO_TX_ORDER.indexOf(txOf(b));
   if (ra !== rb) return ra - rb;
   return String(a.name).localeCompare(String(b.name));
+}
+
+/** Where a source's placement information came from — the fourth thing a
+ * source says, beside the three axes. Short labels for chips; the long
+ * meanings come from the server (eco_origins, sourcestore.ORIGINS). */
+export const ECO_ORIGIN: Record<OriginKind, { label: string; icon: string }> = {
+  'usda-nass': { label: 'USDA NASS', icon: '🌾' },
+  geocoded: { label: 'Address lookup', icon: '📫' },
+  package: { label: 'Package / brand', icon: '🏷' },
+  visit: { label: 'In person', icon: '🧺' },
+  research: { label: 'Research', icon: '📄' },
+  hand: { label: 'By hand', icon: '✋' },
+  unknown: { label: 'Not recorded', icon: '·' },
+};
+
+export const ECO_ORIGIN_ORDER: OriginKind[] = [
+  'usda-nass', 'geocoded', 'package', 'visit', 'research', 'hand', 'unknown',
+];
+
+export function originOf(s: Pick<EcoSource, 'origin'> | null | undefined): OriginKind {
+  const v = (s?.origin || '') as OriginKind;
+  return v in ECO_ORIGIN ? v : 'unknown';
+}
+
+/** A USDA county figure as a reader wants it: "1,204,000 HEAD". */
+export function countyFigure(value: number | null | undefined, unit: string | undefined): string {
+  if (typeof value !== 'number') return '';
+  return `${Math.round(value).toLocaleString()}${unit ? ' ' + unit : ''}`;
 }

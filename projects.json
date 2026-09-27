@@ -166,7 +166,8 @@
       "what": "Food in and out: the food catalog, grocery lists and trips, receipts, recipes and meals, and the buy-organic-or-not estimates.",
       "modules": [
         "foodstore.py",
-        "estimatestore.py"
+        "estimatestore.py",
+        "sourcestore.py"
       ],
       "routes": [
         "kitchen",
@@ -177,7 +178,8 @@
       ],
       "tools": [],
       "scripts": [
-        "estimate_organic.py"
+        "estimate_organic.py",
+        "migrate_ecosystem_sql.py"
       ],
       "tables": [
         "foods",
@@ -193,7 +195,9 @@
         "shopping_lines",
         "grocery_list",
         "receipts",
-        "food_estimates"
+        "food_estimates",
+        "food_sources",
+        "food_source_counties"
       ],
       "collections": [
         "kitchen",

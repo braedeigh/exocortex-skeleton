@@ -1,6 +1,5 @@
 """The kitchen↔ecosystem bridge depends on each tab's data payload carrying a bit
-of the *other* tab's data, so the shared matcher (static/js/eco-match.js) has
-something to work with:
+of the *other* tab's data, so a recipe can be traced to the map:
 
   - /api/data/kitchen   must include `ecosystem` (the placed sources), so a recipe
     can show "where it comes from".
@@ -30,10 +29,14 @@ def authed_client(data_dir):
 
 
 def _seed_kitchen_and_eco():
-    store.write("ecosystem.json", {"sources": [
-        {"id": "s1", "name": "Onions", "lat": 31.5, "lng": -99.3,
-         "precision": "area", "transparency": "partial"},
-    ]})
+    import foodstore
+    import sourcestore
+    sourcestore.add(sourcestore.clean({"name": "Onions", "lat": 31.5, "lng": -99.3,
+                                       "precision": "area", "transparency": "partial"}),
+                    source_id="s1")
+    foodstore.add_food("onion")
+    foodstore.add_name("onion", "yellow onion")
+    sourcestore.link("s1", food="onion")
     store.write("recipes.json", {"recipes": [
         {"id": "r1", "name": "Soup", "instructions": ["simmer"],
          "ingredients": [{"item": "yellow onion", "category": "produce"}]},
@@ -60,3 +63,18 @@ def test_ecosystem_payload_includes_light_recipes(authed_client):
     assert "instructions" not in soup
     # Archived recipes are excluded from the picker.
     assert all(r["id"] != "r2" for r in recipes)
+
+
+def test_ecosystem_recipe_lines_carry_their_food(authed_client):
+    _seed_kitchen_and_eco()
+    data = authed_client.get("/api/data/ecosystem").get_json()
+    soup = next(r for r in data["eco_recipes"] if r["id"] == "r1")
+    onion_id = next(f["id"] for f in data["eco_foods"] if f["name"] == "onion")
+    assert soup["ingredients"][0]["food_id"] == onion_id
+
+
+def test_kitchen_payload_carries_resolved_recipes(authed_client):
+    _seed_kitchen_and_eco()
+    data = authed_client.get("/api/data/kitchen").get_json()
+    soup = next(r for r in data["eco_recipes"] if r["id"] == "r1")
+    assert soup["ingredients"][0]["food_name"] == "onion"

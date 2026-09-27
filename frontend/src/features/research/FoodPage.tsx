@@ -3,7 +3,9 @@
  * what do my studies say?
  *
  * What this file does: two pages. FoodPage (/research/foods/<name>) is one
- * food: the research verdict with its reasoning, Claude's estimate with its
+ * food's profile: where it comes from (every map source linked to the food or
+ * one of its products, with its honest labels and where that information came
+ * from, each opening on the map), the research verdict with its reasoning, Claude's estimate with its
  * qualifiers, the contaminants it names, and her confirm/dispute; then every
  * claim and measurement her research tables hold about the food, each linking
  * to the claim on the Claims page and out to the original studies. FoodsIndex
@@ -11,12 +13,15 @@
  * ones first. The grocery list's popup (features/kitchen/OrganicVerdict.tsx)
  * opens FoodPage.
  *
- * Server: routes/food.py (GET /api/food/page, /api/food/pages, POST
+ * Server: routes/food.py (GET /api/food/page — its `sources` come from
+ * sourcestore.for_food —, /api/food/pages, POST
  * /api/food/estimates/<id>/review) → estimatestore.py. Shapes live in the
  * kitchen feature's types.ts, since the grocery list reads the same rows.
  *
  * Prompt that produced this file: "I want for every food item to have its own
- * page on the research section that the popup ports into."
+ * page on the research section that the popup ports into." The sources card:
+ * "i want to be able to identify where foods are from and create profiles of
+ * any food."
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -31,6 +36,7 @@ import type {
   OrganicVerdict,
   VerdictReview,
 } from '../kitchen/types';
+import { ECO_ORIGIN, geoSourceInfo, metaLabel, originOf, txInfo } from '../ecosystem/axes';
 import pageStyles from './ResearchPage.module.css';
 import styles from './FoodPage.module.css';
 
@@ -57,7 +63,7 @@ export function FoodPage({ name }: { name: string }) {
     <div className={pageStyles.page}>
       <div className={pageStyles.pageHead}>
         <h1 className={pageStyles.pageTitle}>{page?.name ?? name}</h1>
-        <span className={pageStyles.pageSub}>buy organic or not</span>
+        <span className={pageStyles.pageSub}>where it comes from · buy organic or not</span>
         <Link to="/research/foods" className={pageStyles.pageHeadLink} title="Every food">
           All foods
         </Link>
@@ -69,12 +75,65 @@ export function FoodPage({ name }: { name: string }) {
       ) : (
         <>
           {!page.food ? <div className={styles.note}>This name isn’t in your food catalog yet, so it has no verdict or guess.</div> : null}
+          <SourcesCard page={page} />
           <ResearchVerdictCard page={page} />
           <EstimateCard page={page} />
           <EvidenceCard page={page} />
         </>
       )}
     </div>
+  );
+}
+
+/** Where it comes from: every map source this food (or a product of it) is
+ * linked to, each with its honest labels and origin record, opening on the
+ * map. An untraced food says so and offers the map, where it can be placed. */
+function SourcesCard({ page }: { page: FoodPageData }) {
+  if (!page.food) return null;
+  const sources = page.sources || [];
+  const foodId = page.food.id;
+  return (
+    <section className={styles.card}>
+      <div className={styles.cardHead}>Where it comes from</div>
+      {sources.length ? (
+        <ul className={styles.list}>
+          {sources.map((source) => {
+            const tx = txInfo(source);
+            const geo = geoSourceInfo(source);
+            const origin = ECO_ORIGIN[originOf(source)];
+            const products = (source.links || []).filter((l) => l.food_id === foodId && l.product_name);
+            return (
+              <li key={source.id} className={styles.listItem}>
+                <div className={styles.evidenceText}>
+                  <span
+                    style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: tx.color, marginRight: 6 }}
+                  />
+                  <Link to="/ecosystem" search={{ source: source.id }} className={styles.sourceLink}>
+                    {source.name}
+                  </Link>
+                </div>
+                <div className={styles.meta}>
+                  {tx.label} · {geo.icon} {geo.label} · {metaLabel(source)}
+                </div>
+                <div className={styles.meta}>
+                  {origin.icon} {origin.label}
+                  {source.origin_date ? ` · looked up ${source.origin_date}` : ''}
+                  {source.origin_detail ? ` — ${source.origin_detail}` : ''}
+                </div>
+                {products.length ? (
+                  <div className={styles.meta}>for {products.map((l) => l.product_name).join(', ')}</div>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <div className={styles.meta}>Not traced yet — no source on the map is linked to this food.</div>
+      )}
+      <Link to="/ecosystem" search={{ food: foodId }} className={styles.linkBtn}>
+        {sources.length ? 'Show on the map →' : 'Place it on the map →'}
+      </Link>
+    </section>
   );
 }
 

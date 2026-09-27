@@ -3,6 +3,7 @@
  * plus the kitchen sub-resources (parsed receipts, parsed recipes, recipes).
  * Mirrors what the old kitchen.js / kitchen-recipes.js read off the global D.
  */
+import type { EcoRecipe, EcoSource } from '../ecosystem/types';
 
 export interface GroceryItem {
   name: string;
@@ -67,11 +68,8 @@ export interface Recipe {
   last_picks?: Record<string, string[]>;
 }
 
-export interface EcoSource {
-  id: string;
-  name?: string;
-  transparency?: string;
-}
+/** A map source as the kitchen reads it — the ecosystem feature's shape. */
+export type { EcoSource } from '../ecosystem/types';
 
 export interface MealPrepConfig {
   protein_rotation?: string[];
@@ -108,6 +106,8 @@ export interface KitchenData {
   kitchen_trips?: KitchenTrip[];
   recipes?: Recipe[];
   ecosystem?: { sources?: EcoSource[] };
+  /** Recipes with each line resolved to its catalog food (server.py → sourcestore.map_recipes). */
+  eco_recipes?: EcoRecipe[];
   meal_defaults?: MealDefaults;
 }
 
@@ -276,6 +276,10 @@ export interface FoodPageData {
   claims: EvidenceClaim[];
   measures: EvidenceMeasure[];
   vocab: { verdicts: Record<OrganicVerdict, string>; qualifiers: Record<string, string> };
+  /** The map sources this food comes from — linked to it or to a product of it. */
+  sources?: EcoSource[];
+  /** origin word → what it means (sourcestore.ORIGINS) */
+  origins?: Record<string, string>;
 }
 
 /** Every food, for the Foods page (GET /api/food/pages). */

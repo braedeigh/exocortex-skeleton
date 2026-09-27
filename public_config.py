@@ -77,6 +77,10 @@ STREAMS = {
     # recipe" picker. Distinct from the full "recipes" stream, which stays hidden
     # (it carries instructions and rides the public kitchen tab too).
     "eco_recipes": "public",
+    # Every food with the sources it's traced to (product names withheld
+    # from the public view by server.py) and the origin vocabulary.
+    "eco_foods": "public",
+    "eco_origins": "public",
 
     # ---- frosted (visible as existing, content blurred) ----
     "todos": "frosted",

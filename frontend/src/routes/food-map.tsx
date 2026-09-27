@@ -18,8 +18,9 @@ const EcosystemPage = lazy(() =>
 );
 
 export const Route = createFileRoute('/food-map')({
-  validateSearch: (raw: Record<string, unknown>): { recipe?: string; embed?: boolean } => ({
+  validateSearch: (raw: Record<string, unknown>): { recipe?: string; source?: string; embed?: boolean } => ({
     ...(typeof raw.recipe === 'string' && raw.recipe ? { recipe: raw.recipe } : {}),
+    ...(typeof raw.source === 'string' && raw.source ? { source: raw.source } : {}),
     ...(raw.embed === '1' || raw.embed === 1 || raw.embed === true ? { embed: true } : {}),
   }),
   component: FoodMapRoute,
@@ -27,10 +28,10 @@ export const Route = createFileRoute('/food-map')({
 
 function FoodMapRoute() {
   useDeactivateFrames();
-  const { recipe, embed } = Route.useSearch();
+  const { recipe, source, embed } = Route.useSearch();
   return (
     <Suspense fallback={null}>
-      <EcosystemPage initialRecipeId={recipe ?? ''} embed={!!embed} />
+      <EcosystemPage initialRecipeId={recipe ?? ''} initialSourceId={source ?? ''} embed={!!embed} />
     </Suspense>
   );
 }
