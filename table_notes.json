@@ -2820,7 +2820,7 @@
   },
   "source_requests": {
     "holds": "Her requests to have a food's origin found — the \"Request linking\" button on an untraced food. One row per request; at most one open per food.",
-    "source": "Written only through sourcestore.py (the request-link route, and closed when she links the food or rules on a proposal). Backed up to food_catalog.json.",
+    "source": "Written only through sourcestore.py (the request-link route; closed when she links the food herself or a machine proposal for it passes the checker). Backed up to food_catalog.json.",
     "kind": "record",
     "time_column": "created_at",
     "columns": {
@@ -2843,13 +2843,201 @@
         "holds": "Where she pressed the button: recipe:<id>, grocery, map."
       },
       "status": {
-        "holds": "open, answered (traced, or a proposal ruled on) or withdrawn."
+        "holds": "open, answered (she traced it, or a proposal passed the checker) or withdrawn."
       },
       "created_at": {
         "holds": "When she asked."
       },
       "closed_at": {
         "holds": "When it was answered or withdrawn."
+      }
+    }
+  },
+  "source_proposals": {
+    "holds": "The machine's proposals for where a food or product comes from — answers to her requests, kept apart from her own sources and drawn as a separate 'checked by machine, not by you' layer.",
+    "source": "Written only through proposalstore.py, by the research pass (propose_sources.py) and its checker (check_proposals.py). Machine output: not backed up — a re-run regenerates it.",
+    "kind": "record",
+    "time_column": "created_at",
+    "columns": {
+      "id": {
+        "holds": "The proposal's number."
+      },
+      "food_id": {
+        "holds": "The food it's for, when it's for a food."
+      },
+      "product_id": {
+        "holds": "The product it's for, when it's for a product."
+      },
+      "request_id": {
+        "holds": "Her request it answers, if any."
+      },
+      "amends_source_id": {
+        "holds": "One of her sources it suggests fixing; empty means a new source."
+      },
+      "name": {
+        "holds": "What the proposed source is called."
+      },
+      "note": {
+        "holds": "Free-text note on it."
+      },
+      "lat": {
+        "holds": "Latitude of the proposed place (the centre, for an area)."
+      },
+      "lng": {
+        "holds": "Longitude of the proposed place."
+      },
+      "precision": {
+        "holds": "point (one spot) or area (a region)."
+      },
+      "radius_km": {
+        "holds": "How wide a circle area is drawn, in km."
+      },
+      "area_kind": {
+        "holds": "How an area is drawn: circle, counties or state."
+      },
+      "region_name": {
+        "holds": "The region in words (for imports, the province)."
+      },
+      "transparency": {
+        "holds": "How open the supply chain is: disclosed, partial, opaque or unrated."
+      },
+      "origin": {
+        "holds": "Where the placement came from (same words as food_sources: usda-nass, research, …)."
+      },
+      "origin_detail": {
+        "holds": "The citation in words: dataset, query, page."
+      },
+      "origin_url": {
+        "holds": "A link to the source of the placement."
+      },
+      "origin_date": {
+        "holds": "The day the information was looked up (YYYY-MM-DD), or empty."
+      },
+      "country": {
+        "holds": "Two-letter country code, for imports."
+      },
+      "geo_source": {
+        "holds": "How it was placed: proxy (from data like USDA counts) or guess. Never 'placed' — a machine can't confirm a location."
+      },
+      "summary": {
+        "holds": "One plain sentence on why here."
+      },
+      "worst_trace_seq": {
+        "holds": "For a product: which ingredient line is least traceable."
+      },
+      "worst_health_seq": {
+        "holds": "For a product: which ingredient line is worst for health."
+      },
+      "check_status": {
+        "holds": "unchecked, passed or failed."
+      },
+      "check_reason": {
+        "holds": "Why the checker passed or failed it."
+      },
+      "checked_at": {
+        "holds": "When the checker ruled."
+      },
+      "model": {
+        "holds": "The model that wrote it."
+      },
+      "run_id": {
+        "holds": "Which research run wrote it."
+      },
+      "superseded_by": {
+        "holds": "The newer proposal that replaced this one, if any."
+      },
+      "created_at": {
+        "holds": "When it was written."
+      }
+    }
+  },
+  "source_proposal_counties": {
+    "holds": "The counties a proposal's region is drawn as, one row each, with what USDA reported for the county.",
+    "source": "Written only through proposalstore.py, by the research pass (propose_sources.py) and its checker (check_proposals.py). Machine output: not backed up — a re-run regenerates it.",
+    "kind": "record",
+    "time_column": null,
+    "columns": {
+      "proposal_id": {
+        "holds": "The proposal this county belongs to."
+      },
+      "fips": {
+        "holds": "The county's 5-digit FIPS code."
+      },
+      "seq": {
+        "holds": "Its place in the list (USDA's ranking, biggest first)."
+      },
+      "county": {
+        "holds": "County name, when known."
+      },
+      "state": {
+        "holds": "State name, when known."
+      },
+      "value": {
+        "holds": "The figure USDA reported for the county, when known."
+      },
+      "unit": {
+        "holds": "The unit of that figure (ACRES, HEAD, $…)."
+      }
+    }
+  },
+  "source_proposal_parts": {
+    "holds": "One row per ingredient of a multi-ingredient product's proposal, rated on how traceable it is and how bad for health.",
+    "source": "Written only through proposalstore.py, by the research pass (propose_sources.py) and its checker (check_proposals.py). Machine output: not backed up — a re-run regenerates it.",
+    "kind": "record",
+    "time_column": null,
+    "columns": {
+      "proposal_id": {
+        "holds": "The proposal this ingredient belongs to."
+      },
+      "seq": {
+        "holds": "Its place in the ingredient list."
+      },
+      "ingredient": {
+        "holds": "The ingredient in words."
+      },
+      "food_id": {
+        "holds": "The matching food in the catalog, when there is one."
+      },
+      "place": {
+        "holds": "Where it comes from, in words."
+      },
+      "transparency": {
+        "holds": "How open its supply chain is: disclosed, partial, opaque or unrated."
+      },
+      "geo_source": {
+        "holds": "How it was placed: proxy, guess or unrated."
+      },
+      "health_concern": {
+        "holds": "How bad for health: high, some, low or unknown."
+      },
+      "health_basis": {
+        "holds": "Where that rating came from: estimate:<id> (one of her organic estimates) or model."
+      },
+      "note": {
+        "holds": "Free-text note."
+      }
+    }
+  },
+  "source_proposal_evidence": {
+    "holds": "The evidence behind each proposal — links to research entries (cited pages, USDA queries, model claims) with the checker's verdict on each.",
+    "source": "Written only through proposalstore.py, by the research pass (propose_sources.py) and its checker (check_proposals.py). Machine output: not backed up — a re-run regenerates it.",
+    "kind": "record",
+    "time_column": null,
+    "columns": {
+      "proposal_id": {
+        "holds": "The proposal it supports."
+      },
+      "entry_id": {
+        "holds": "The research entry holding the evidence."
+      },
+      "role": {
+        "holds": "What kind: usda, web or model."
+      },
+      "check_status": {
+        "holds": "unchecked, passed or failed."
+      },
+      "check_reason": {
+        "holds": "Why the checker ruled that way."
       }
     }
   }

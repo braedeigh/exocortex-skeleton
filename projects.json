@@ -201,7 +201,11 @@
         "food_estimates",
         "food_sources",
         "food_source_counties",
-        "source_requests"
+        "source_requests",
+        "source_proposals",
+        "source_proposal_counties",
+        "source_proposal_parts",
+        "source_proposal_evidence"
       ],
       "collections": [
         "kitchen",

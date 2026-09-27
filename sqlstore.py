@@ -42,7 +42,7 @@ import time
 
 import store
 
-_SCHEMA_VERSION = 33
+_SCHEMA_VERSION = 34
 
 
 def _db_path():
@@ -184,6 +184,8 @@ _EXPECTED_TABLES = (
     "recipes", "recipe_lines", "shopping_trips", "shopping_lines", "grocery_list",
     "receipts",
     "food_sources", "food_source_counties", "food_estimates", "source_requests",
+    "source_proposals", "source_proposal_counties", "source_proposal_parts",
+    "source_proposal_evidence",
     # The journal word index, plus the five storage tables FTS5 keeps behind it.
     "cards_fts", "cards_fts_data", "cards_fts_idx", "cards_fts_content",
     "cards_fts_docsize", "cards_fts_config",
@@ -2474,8 +2476,8 @@ def _run_ladder(conn):
         # Rung 33: her requests to have a food's origin found — the "Request
         # linking" button on an untraced food. A request links nothing; it
         # queues the food for the research pass, which answers it with
-        # proposals she rules on. Her record, written only by sourcestore.py
-        # and backed up with the food catalog.
+        # proposals a machine checker rules on (rung 34). Her record, written
+        # only by sourcestore.py and backed up with the food catalog.
         #
         # A recipe line can name something that isn't a food yet, so food_id
         # may be empty and food_name carries the words. food_key is whichever
@@ -2499,6 +2501,115 @@ def _run_ladder(conn):
         conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS source_requests_one_open"
             " ON source_requests (food_key) WHERE status = 'open'")
+    if version < 34:
+        # Rung 34: the machine's proposals for where a food comes from — the
+        # research pass's answers to her requests, kept apart from
+        # food_sources, which stays her record. propose_sources.py writes a
+        # proposal and check_proposals.py rules on it (a separate model call
+        # re-reads every cited page, and the USDA figures are re-fetched); a
+        # pass closes the request it answers. Written only by proposalstore.py.
+        # Not backed up with the food catalog: it's machine output that a
+        # re-run regenerates.
+        #
+        # The place columns are food_sources' own, with the same vocabularies,
+        # except geo_source: a machine may never claim 'placed' (a location
+        # someone actually confirmed). amends_source_id set means "a suggested
+        # fix to one of her sources"; empty means a new source. A re-run never
+        # deletes — it points the old proposal at its replacement.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS source_proposals ("
+            "  id INTEGER PRIMARY KEY,"
+            "  food_id INTEGER REFERENCES foods(id),"
+            "  product_id INTEGER REFERENCES products(id),"
+            "  request_id INTEGER REFERENCES source_requests(id),"
+            "  amends_source_id TEXT REFERENCES food_sources(id),"
+            "  name TEXT NOT NULL,"
+            "  note TEXT NOT NULL DEFAULT '',"
+            "  lat REAL NOT NULL,"
+            "  lng REAL NOT NULL,"
+            "  precision TEXT NOT NULL DEFAULT 'point' CHECK (precision IN ('point', 'area')),"
+            "  radius_km REAL NOT NULL DEFAULT 0,"
+            "  area_kind TEXT NOT NULL DEFAULT 'circle'"
+            "    CHECK (area_kind IN ('circle', 'counties', 'state')),"
+            "  region_name TEXT NOT NULL DEFAULT '',"
+            "  country TEXT NOT NULL DEFAULT '',"
+            "  transparency TEXT NOT NULL DEFAULT 'unrated'"
+            "    CHECK (transparency IN ('disclosed', 'partial', 'opaque', 'unrated')),"
+            "  geo_source TEXT NOT NULL CHECK (geo_source IN ('proxy', 'guess')),"
+            "  origin TEXT NOT NULL DEFAULT 'unknown'"
+            "    CHECK (origin IN ('usda-nass', 'geocoded', 'package', 'visit',"
+            "                      'research', 'hand', 'unknown')),"
+            "  origin_detail TEXT NOT NULL DEFAULT '',"
+            "  origin_url TEXT NOT NULL DEFAULT '',"
+            "  origin_date TEXT NOT NULL DEFAULT '',"
+            "  summary TEXT NOT NULL DEFAULT '',"
+            "  worst_trace_seq INTEGER,"
+            "  worst_health_seq INTEGER,"
+            "  check_status TEXT NOT NULL DEFAULT 'unchecked'"
+            "    CHECK (check_status IN ('unchecked', 'passed', 'failed')),"
+            "  check_reason TEXT NOT NULL DEFAULT '',"
+            "  checked_at TEXT,"
+            "  model TEXT NOT NULL DEFAULT '',"
+            "  run_id TEXT NOT NULL DEFAULT '',"
+            "  superseded_by INTEGER REFERENCES source_proposals(id),"
+            "  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),"
+            "  CHECK (food_id IS NOT NULL OR product_id IS NOT NULL)"
+            ")"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS source_proposals_food"
+            " ON source_proposals (food_id) WHERE superseded_by IS NULL")
+        # The county outlines a proposal is drawn as — food_source_counties'
+        # shape exactly, so one drawing path serves both.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS source_proposal_counties ("
+            "  proposal_id INTEGER NOT NULL REFERENCES source_proposals(id) ON DELETE CASCADE,"
+            "  fips TEXT NOT NULL CHECK (length(fips) = 5),"
+            "  seq INTEGER NOT NULL DEFAULT 0,"
+            "  county TEXT NOT NULL DEFAULT '',"
+            "  state TEXT NOT NULL DEFAULT '',"
+            "  value REAL,"
+            "  unit TEXT NOT NULL DEFAULT '',"
+            "  PRIMARY KEY (proposal_id, fips)"
+            ")"
+        )
+        # One row per ingredient of a multi-ingredient product, each rated on
+        # how traceable it is and how bad for health. health_basis says where
+        # the health rating came from: 'estimate:<id>' reuses one of her
+        # organic estimates, 'model' means the model was asked.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS source_proposal_parts ("
+            "  proposal_id INTEGER NOT NULL REFERENCES source_proposals(id) ON DELETE CASCADE,"
+            "  seq INTEGER NOT NULL,"
+            "  ingredient TEXT NOT NULL,"
+            "  food_id INTEGER REFERENCES foods(id),"
+            "  place TEXT NOT NULL DEFAULT '',"
+            "  transparency TEXT NOT NULL DEFAULT 'unrated'"
+            "    CHECK (transparency IN ('disclosed', 'partial', 'opaque', 'unrated')),"
+            "  geo_source TEXT NOT NULL DEFAULT 'unrated'"
+            "    CHECK (geo_source IN ('proxy', 'guess', 'unrated')),"
+            "  health_concern TEXT NOT NULL DEFAULT 'unknown'"
+            "    CHECK (health_concern IN ('high', 'some', 'low', 'unknown')),"
+            "  health_basis TEXT NOT NULL DEFAULT '',"
+            "  note TEXT NOT NULL DEFAULT '',"
+            "  PRIMARY KEY (proposal_id, seq)"
+            ")"
+        )
+        # The evidence behind a proposal: each cited page, USDA query and
+        # model claim is a research_entries row (author 'llm', unreviewed),
+        # linked here with the checker's verdict on it. entry_id is a loose
+        # reference, like reply_to, so it has no foreign key.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS source_proposal_evidence ("
+            "  proposal_id INTEGER NOT NULL REFERENCES source_proposals(id) ON DELETE CASCADE,"
+            "  entry_id TEXT NOT NULL,"
+            "  role TEXT NOT NULL CHECK (role IN ('usda', 'web', 'model')),"
+            "  check_status TEXT NOT NULL DEFAULT 'unchecked'"
+            "    CHECK (check_status IN ('unchecked', 'passed', 'failed')),"
+            "  check_reason TEXT NOT NULL DEFAULT '',"
+            "  PRIMARY KEY (proposal_id, entry_id)"
+            ")"
+        )
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 

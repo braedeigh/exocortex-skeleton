@@ -30,8 +30,8 @@ data payloads), `routes/food.py` (a food's page), `scripts/migrate_ecosystem_sql
 
 **Requests.** An untraced food can be *requested*: her "find where this
 comes from" ask, queued for the research pass. A request links nothing — it
-waits in `source_requests` until a proposal for it is ruled on, or she links
-the food herself.
+waits in `source_requests` until a machine proposal for it passes the
+checker (`proposalstore.py`, rung 34), or she links the food herself.
 
 Prompt that produced this file: "i want it to no longer be json and be in the
 sql along with other foods. i want to be able to identify where foods are from

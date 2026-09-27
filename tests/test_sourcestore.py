@@ -295,3 +295,26 @@ def test_food_page_lists_where_it_comes_from(data_dir):
     sourcestore.link(sid, food="onion")
     page = app.test_client().get("/api/food/page?name=onion").get_json()
     assert [s["id"] for s in page["sources"]] == [sid]
+
+
+# --- the machine's proposals (rung 34) ----------------------------------------
+
+def test_a_proposal_may_never_claim_a_confirmed_place(data_dir):
+    conn = sqlstore.open_db()
+    try:
+        conn.execute("INSERT INTO foods (id, name) VALUES (1, 'onions')")
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute("INSERT INTO source_proposals (food_id, name, lat, lng, geo_source)"
+                         " VALUES (1, 'Onions', 1, 2, 'placed')")
+    finally:
+        conn.close()
+
+
+def test_a_proposal_must_be_for_a_food_or_a_product(data_dir):
+    conn = sqlstore.open_db()
+    try:
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute("INSERT INTO source_proposals (name, lat, lng, geo_source)"
+                         " VALUES ('Onions', 1, 2, 'proxy')")
+    finally:
+        conn.close()
