@@ -132,7 +132,13 @@ def _files_in_play(conv_id, entry, limit=40):
 
 def brief_text(conv_id, entry, handoff):
     """The new session's brief: how to start, the handoff, the files, the
-    swarm. open_spinoff's kickoff tells it to follow the Protocol section."""
+    swarm. open_spinoff sends this text itself as the first message, and since
+    it carries its own Protocol section, no default one is added.
+
+    The files go under "Files in play", not "Where to look", on purpose: Where
+    to look would preload every one into the new session (up to ~200 KB of a
+    context that is meant to start fresh), and one deleted file would refuse
+    the spawn. Here they are pointers the session reads as the work needs."""
     title = entry.get("title") or conv_id
     lines = [
         f"# Continuing “{title}”",
