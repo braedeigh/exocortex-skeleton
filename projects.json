@@ -421,6 +421,7 @@
         "spinoff.py",
         "nightcrew.py",
         "branches.py",
+        "worktree_map.py",
         "run_queue.py",
         "automations.py",
         "devnotes.py",

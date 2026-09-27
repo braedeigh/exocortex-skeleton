@@ -25,6 +25,7 @@ import { NightCrewDoor } from './NightCrewDoor';
 import { HelpersDoor } from './HelpersDoor';
 import { ResearchDoor } from './ResearchDoor';
 import { SpinoffTreeDoor } from './SpinoffTreeDoor';
+import { WorktreeMapDoor } from './WorktreeMapDoor';
 import { MemoryMeter } from '../runqueue/MemoryMeter';
 import { useTerrain } from '../terrain/api';
 import { NotesPill } from '../todos/NotesPill';
@@ -451,6 +452,10 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
               onClose={onCloseSession}
             />
           ))}
+
+          {/* Which agents are working in which copy of the code — right under
+              the rooms, since it's about the sessions just above it. */}
+          <WorktreeMapDoor />
 
           {/* Night crew is a PAGE now, and this is the way in — left exactly
               where its section used to sit, because that's where she already

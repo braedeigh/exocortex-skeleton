@@ -31,7 +31,7 @@ from routes import (
     research_search, research_sources, research_import, research_text,
     annotations, spa, fronts, tags, wiki, travel, profile, usage, streaks, spinoff,
     observatory, swarms, terrain, terrain_mirror, terrain_tables, automations, nightcrew, push, claude_auth, run_queue,
-    branches, recordings, research_room,
+    branches, worktree_map, recordings, research_room,
     sqlab, sandbox, pond, tabsets, creek, research_claims, research_tables, food, coming_up,
 )
 from routes.shell import VALID_TABS
@@ -1283,6 +1283,7 @@ sqlab.register(app)
 food.register(app)
 pond.register(app)
 branches.register(app)
+worktree_map.register(app)
 recordings.register(app)
 sandbox.register(app)
 tabsets.register(app)
