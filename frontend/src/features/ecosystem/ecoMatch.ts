@@ -1,15 +1,18 @@
 /**
  * ecoMatch.ts — the bridge between recipe ingredients and ecosystem sources.
- * Port of static/js/eco-match.js (shared there by the kitchen + ecosystem tabs).
  *
- * A recipe lists free-text ingredients ("yellow onion", "HEB chuck roast"); the
- * ecosystem map holds placed sources with free-text names ("Onions", "HEB chuck
- * roast"). This matches one to the other by normalized token overlap, so a recipe
- * can show where its food comes from without anyone hand-linking every item.
+ * Tracing follows real links. The server resolves each recipe line to a
+ * catalog food (by any name the food goes by) and each source carries its
+ * links (food_links in SQL) — so an ingredient is traced when its food, or
+ * any product of that food, is linked to a source. No guessing.
  *
- * Honest by design: an ingredient with no matching source is *untraced* (worth
- * placing), and a pantry staple (salt, water, spices) is *pantry* (nothing
- * meaningful to trace) — neither pretends to a location it doesn't have.
+ * The word matcher (ecoMatchIngredient) survives only as a SUGGESTION: for
+ * an untraced ingredient it offers the source whose name looks closest
+ * ("looks like Onions — link it?"). It never draws a trace on its own.
+ *
+ * Honest by design: an ingredient with no linked source is *untraced* (worth
+ * placing or linking), and a pantry staple (salt, water, spices) is *pantry*
+ * (nothing meaningful to trace) — neither pretends to a location.
  */
 import type { EcoIngredient, EcoRecipe, EcoSource } from './types';
 
@@ -56,7 +59,8 @@ export function ecoTokens(s: string | null | undefined): string[] {
     .filter((w) => w.length > 1); // drop stray single letters (the "h e b" debris)
 }
 
-/** Best-matching source for a free-text ingredient name, or null. Requires at
+/** Closest-named source for a free-text ingredient name, or null — a
+ * suggestion to link, never a trace. Requires at
  * least one shared significant word; scores by overlap, lightly penalizing
  * leftover words so a tighter name wins ties. */
 export function ecoMatchIngredient(item: string, sources: EcoSource[] | null | undefined): EcoSource | null {
@@ -86,16 +90,27 @@ export function ecoMatchIngredient(item: string, sources: EcoSource[] | null | u
   return best;
 }
 
+/** The sources a food comes from: linked to the food itself, or to any
+ * product of it (a product link names its food). */
+export function ecoSourcesForFood(
+  foodId: number | null | undefined,
+  sources: EcoSource[] | null | undefined,
+): EcoSource[] {
+  if (foodId == null) return [];
+  return (sources || []).filter((s) => (s.links || []).some((l) => l.food_id === foodId));
+}
+
 export interface RecipeSourcing {
-  traced: { ing: EcoIngredient; source: EcoSource }[];
-  place: { ing: EcoIngredient }[];
+  traced: { ing: EcoIngredient; sources: EcoSource[] }[];
+  /** Untraced; `suggestion` is the closest-named source, offered, never assumed. */
+  place: { ing: EcoIngredient; suggestion: EcoSource | null }[];
   pantry: { ing: EcoIngredient }[];
   total: number;
 }
 
-/** Full sourcing breakdown for a recipe against the placed sources.
- * traced = matched to a source · place = unmatched but worth placing ·
- * pantry = staple with nothing meaningful to trace. */
+/** Full sourcing breakdown for a recipe against the map's sources.
+ * traced = the line's food is linked to at least one source · place = not
+ * linked yet (worth placing or linking) · pantry = staple, nothing to trace. */
 export function ecoRecipeSourcing(
   recipe: EcoRecipe | null | undefined,
   sources: EcoSource[] | null | undefined,
@@ -105,26 +120,26 @@ export function ecoRecipeSourcing(
     const item = (ing.item || '').trim();
     if (!item) return;
     out.total++;
-    // Pantry staples win over matching — a seasoning or liquid shouldn't trace
-    // to a meat source on a stray shared word ("chicken broth" → "HEB chicken").
+    // Pantry staples are set aside first — a seasoning or liquid isn't worth
+    // tracing even when its food happens to be linked.
     const cat = (ing.category || '').toLowerCase();
     if (ECO_PANTRY_RE.test(item) || ECO_PANTRY_CATS.has(cat)) {
       out.pantry.push({ ing });
       return;
     }
-    const match = ecoMatchIngredient(item, sources);
-    if (match) out.traced.push({ ing, source: match });
-    else out.place.push({ ing });
+    const linked = ecoSourcesForFood(ing.food_id, sources);
+    if (linked.length) out.traced.push({ ing, sources: linked });
+    else out.place.push({ ing, suggestion: ecoMatchIngredient(item, sources) });
   });
   return out;
 }
 
-/** The set of source ids a recipe's ingredients map to (for map highlighting). */
+/** The set of source ids a recipe's ingredients are linked to (for map highlighting). */
 export function ecoRecipeSourceIds(
   recipe: EcoRecipe | null | undefined,
   sources: EcoSource[] | null | undefined,
 ): Set<string> {
   const ids = new Set<string>();
-  ecoRecipeSourcing(recipe, sources).traced.forEach((t) => ids.add(t.source.id));
+  ecoRecipeSourcing(recipe, sources).traced.forEach((t) => t.sources.forEach((s) => ids.add(s.id)));
   return ids;
 }

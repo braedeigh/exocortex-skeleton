@@ -1,111 +1,58 @@
 """Ecosystem routes — a map of where the things she's connected to come from.
 
-First layer is **food**: each source is a grocery / meal-prep item traced back to
-where it's actually sourced. Retail sourcing is mostly opaque, so an origin is
-often only a rough *region*, not a precise farm — hence `precision` + `radius_km`,
-which let a dot honestly say "somewhere in this area" rather than faking a point.
+First layer is **food**: each source is a place (or a rough region) a food or
+product comes from. The sources are rows in SQL beside the foods themselves —
+`sourcestore.py` owns them and explains the four honest things a source says
+(transparency, precision, how the dot was placed, and where that information
+came from). This file is the HTTP seam over it, plus two lookups that help
+place a dot: an address geocoder and the USDA "where is this grown" assist.
 
-Single JSON file, fully editable through the UI (mirrors movement.json / places).
+    POST /api/ecosystem/source/add      {name, lat, lng, precision, radius_km,
+                                         transparency, geo_source, area_kind,
+                                         counties, county_detail, region_name,
+                                         origin, origin_detail, origin_url,
+                                         origin_date, food?, product_id?}
+    POST /api/ecosystem/source/update   {id, …any of the above}
+    POST /api/ecosystem/source/remove   {id} — its links go with it
+    POST /api/ecosystem/link            {source_id, food | product_id}
+    POST /api/ecosystem/unlink          {link_id}
+    POST /api/ecosystem/geocode         {address}
+    POST /api/ecosystem/usda/key        {key}
+    POST /api/ecosystem/usda/suggest    {name}
 
-    {"sources": [
-        {"id", "layer", "name", "note", "lat", "lng", "precision", "radius_km"}
-    ]}
-
-`precision` is "point" (a crisp dot) or "area" (a dot inside a soft circle of
-`radius_km` km). `layer` defaults to "food" so later layers (clothing, …) can
-share the same store without a migration.
+Reading happens through /api/data/ecosystem in server.py.
 """
-from flask import request, jsonify
-import store
-import uuid
+from datetime import date
 import os
 import json
+import sqlite3
 import urllib.parse
 import urllib.request
 import urllib.error
 
+from flask import request, jsonify
 
-def _load():
-    return store.read("ecosystem", {"sources": []})
-
-
-def _save(data):
-    store.write("ecosystem", data)
+import sourcestore
+import store
 
 
-def _find(data, sid):
-    return next((s for s in data["sources"] if s["id"] == sid), None)
+def _food_ref(value):
+    """A food reference from JSON: numbers are ids, anything else a name."""
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    text = str(value).strip()
+    if not text:
+        return None
+    return int(text) if text.isdigit() else text
 
 
-def _new_id():
-    return uuid.uuid4().hex[:8]
-
-
-def _coord(value, default=None):
-    """Parse a lat/lng to float, or return default if blank/unparseable."""
-    if value is None or value == "":
-        return default
+def _product_ref(value):
     try:
-        return float(value)
+        return int(value) if value not in (None, "") else None
     except (TypeError, ValueError):
-        return default
-
-
-def _precision(value):
-    return "area" if str(value).strip().lower() == "area" else "point"
-
-
-# How disclosed an origin is — the "Proper" axis, distinct from precision.
-# disclosed = named/certified/confirmed · partial = country known (e.g. COOL) but
-# not the farm · opaque = nothing disclosed · unrated = not yet researched.
-_TX_LEVELS = ("disclosed", "partial", "opaque", "unrated")
-
-
-def _transparency(value):
-    v = str(value or "").strip().lower()
-    return v if v in _TX_LEVELS else "unrated"
-
-
-# How the DOT itself got placed — a third honest axis, distinct from transparency
-# (how disclosed the supply chain is) and precision (how exact the area is).
-# placed = an exact spot chosen on purpose (geocoded / a known farm); the dot is a
-# claim about THIS item · proxy = USDA "where this commodity is generally grown",
-# NOT this item's source · guess = eyeballed a rough region · unrated = not set.
-_GEO_SOURCES = ("placed", "proxy", "guess", "unrated")
-
-
-def _geo_source(value):
-    v = str(value or "").strip().lower()
-    return v if v in _GEO_SOURCES else "unrated"
-
-
-# An "area" source can be drawn as a soft circle, as real county outlines (USDA),
-# or as a whole-state outline. counties = list of 5-digit FIPS; region_name = a
-# US state name for the state outline.
-_AREA_KINDS = ("circle", "counties", "state")
-
-
-def _area_kind(value):
-    v = str(value or "").strip().lower()
-    return v if v in _AREA_KINDS else "circle"
-
-
-def _fips_list(value):
-    if not isinstance(value, list):
-        return []
-    out = []
-    for x in value:
-        s = str(x).strip()
-        if s.isdigit() and len(s) <= 5:
-            out.append(s.zfill(5))
-    return out
-
-
-def _radius(value):
-    try:
-        return max(0.0, float(value))
-    except (TypeError, ValueError):
-        return 0.0
+        return None
 
 
 # --- USDA NASS QuickStats "suggest region" assist ----------------------------
@@ -115,6 +62,8 @@ def _radius(value):
 # honest regional answer — NOT the specific package's farm, which stays opaque.
 
 USDA_API = "https://quickstats.nass.usda.gov/api/api_GET/"
+# Where a person can re-run the same query by hand (the API link needs a key).
+USDA_SITE = "https://quickstats.nass.usda.gov/"
 
 # Map words in a food's name → a QuickStats `commodity_desc`. First keyword that
 # appears in the name wins. Items with no US survey data (e.g. quinoa) simply
@@ -241,12 +190,13 @@ def _usda_top_counties(rows, limit=8):
                 "county": (r.get("county_name") or "").title(),
                 "state": (r.get("state_name") or "").title(),
                 "value": n,
+                "unit": (r.get("unit_desc") or "").strip(),
             }
     if not by_cat:
         return None
-    best = max(by_cat.values(), key=len)              # the most-counties statistic
-    ranked = sorted(best.values(), key=lambda d: d["value"], reverse=True)
-    return {"counties": ranked[:limit], "year": latest}
+    statistic = max(by_cat, key=lambda cat: len(by_cat[cat]))   # the most-counties statistic
+    ranked = sorted(by_cat[statistic].values(), key=lambda d: d["value"], reverse=True)
+    return {"counties": ranked[:limit], "year": latest, "statistic": statistic}
 
 
 def _usda_num(value):
@@ -323,92 +273,73 @@ def _usda_error_reason(err):
 
 def register(app):
 
+    # Add a source, and link it to a food or product when one is named.
+    # The source and its link are two writes; a link that fails (an unknown
+    # food) leaves the source in place and says why, rather than losing it.
     @app.route("/api/ecosystem/source/add", methods=["POST"])
     def add_ecosystem_source():
         body = request.json or {}
-        name = (body.get("name") or "").strip()
-        if not name:
+        fields = sourcestore.clean(body)
+        if not fields["name"]:
             return jsonify({"error": "missing name"}), 400
-        lat = _coord(body.get("lat"))
-        lng = _coord(body.get("lng"))
-        if lat is None or lng is None:
+        if fields["lat"] is None or fields["lng"] is None:
             return jsonify({"error": "missing location"}), 400
-        precision = _precision(body.get("precision"))
-        source = {
-            "id": _new_id(),
-            "layer": (body.get("layer") or "food").strip() or "food",
-            "name": name,
-            "note": (body.get("note") or "").strip(),
-            "lat": lat,
-            "lng": lng,
-            "precision": precision,
-            "radius_km": _radius(body.get("radius_km")) if precision == "area" else 0.0,
-            "transparency": _transparency(body.get("transparency")),
-            "area_kind": _area_kind(body.get("area_kind")),
-            "counties": _fips_list(body.get("counties")),
-            "region_name": (body.get("region_name") or "").strip(),
-            "geo_source": _geo_source(body.get("geo_source")),
-        }
-        data = _load()
-        data["sources"].append(source)
-        _save(data)
-        return jsonify({"ok": True, "id": source["id"]})
+        counties = sourcestore.fips_list(body.get("counties"))
+        detail = sourcestore.county_detail(body.get("county_detail"), counties)
+        source_id = sourcestore.add(fields, counties, detail)
+        food, product_id = _food_ref(body.get("food")), _product_ref(body.get("product_id"))
+        if food is not None or product_id is not None:
+            try:
+                sourcestore.link(source_id, food=None if product_id else food,
+                                 product_id=product_id)
+            except (ValueError, sqlite3.IntegrityError) as exc:
+                return jsonify({"ok": True, "id": source_id, "link_error": str(exc)})
+        return jsonify({"ok": True, "id": source_id})
 
+    # Change any of a source's fields; what isn't sent stays as it was.
     @app.route("/api/ecosystem/source/update", methods=["POST"])
     def update_ecosystem_source():
         body = request.json or {}
-        sid = body.get("id")
-        data = _load()
-        s = _find(data, sid)
-        if not s:
-            return jsonify({"error": "not found"}), 404
-        if "name" in body:
-            name = (body.get("name") or "").strip()
-            if not name:
-                return jsonify({"error": "name cannot be empty"}), 400
-            s["name"] = name
-        if "note" in body:
-            s["note"] = (body.get("note") or "").strip()
-        if "lat" in body:
-            lat = _coord(body.get("lat"))
-            if lat is None:
-                return jsonify({"error": "bad lat"}), 400
-            s["lat"] = lat
-        if "lng" in body:
-            lng = _coord(body.get("lng"))
-            if lng is None:
-                return jsonify({"error": "bad lng"}), 400
-            s["lng"] = lng
-        if "layer" in body:
-            s["layer"] = (body.get("layer") or "food").strip() or "food"
-        if "precision" in body:
-            s["precision"] = _precision(body.get("precision"))
-        if "radius_km" in body:
-            s["radius_km"] = _radius(body.get("radius_km"))
-        if "transparency" in body:
-            s["transparency"] = _transparency(body.get("transparency"))
-        if "area_kind" in body:
-            s["area_kind"] = _area_kind(body.get("area_kind"))
+        fields = sourcestore.clean(body, partial=True)
+        if "name" in fields and not fields["name"]:
+            return jsonify({"error": "name cannot be empty"}), 400
+        for key in ("lat", "lng"):
+            if key in fields and fields[key] is None:
+                return jsonify({"error": f"bad {key}"}), 400
+        counties = detail = None
         if "counties" in body:
-            s["counties"] = _fips_list(body.get("counties"))
-        if "region_name" in body:
-            s["region_name"] = (body.get("region_name") or "").strip()
-        if "geo_source" in body:
-            s["geo_source"] = _geo_source(body.get("geo_source"))
-        # An area with no radius and a point with a radius are both incoherent —
-        # normalise so the map renders predictably.
-        if s.get("precision") == "point":
-            s["radius_km"] = 0.0
-        _save(data)
+            counties = sourcestore.fips_list(body.get("counties"))
+            detail = sourcestore.county_detail(body.get("county_detail"), counties)
+        try:
+            found = sourcestore.update(body.get("id"), fields, counties, detail)
+        except sqlite3.IntegrityError as exc:
+            return jsonify({"error": str(exc)}), 400
+        if not found:
+            return jsonify({"error": "not found"}), 404
         return jsonify({"ok": True})
 
     @app.route("/api/ecosystem/source/remove", methods=["POST"])
     def remove_ecosystem_source():
+        sourcestore.remove((request.json or {}).get("id"))
+        return jsonify({"ok": True})
+
+    # Link a food (or one product) to a source — "this comes from there".
+    @app.route("/api/ecosystem/link", methods=["POST"])
+    def link_ecosystem_source():
         body = request.json or {}
-        sid = body.get("id")
-        data = _load()
-        data["sources"] = [s for s in data["sources"] if s["id"] != sid]
-        _save(data)
+        food, product_id = _food_ref(body.get("food")), _product_ref(body.get("product_id"))
+        try:
+            link_id = sourcestore.link(body.get("source_id"), food=None if product_id else food,
+                                       product_id=product_id)
+        except (ValueError, sqlite3.IntegrityError) as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        return jsonify({"ok": True, "id": link_id})
+
+    @app.route("/api/ecosystem/unlink", methods=["POST"])
+    def unlink_ecosystem_source():
+        link_id = _product_ref((request.json or {}).get("link_id"))
+        if link_id is None or not sourcestore.unlink(link_id):
+            return jsonify({"ok": False, "error": "no such link"}), 404
         return jsonify({"ok": True})
 
     # --- Address geocoding (for placing an exact spot by address) ---
@@ -434,13 +365,18 @@ def register(app):
             return jsonify({"ok": False, "reason": "Couldn't reach the geocoder — try again."})
         if not rows:
             return jsonify({"ok": False, "reason": "No place matched that — try a fuller address."})
+        # Found — hand back the spot and the origin record to keep with it:
+        # which service answered, what it matched, and on what day.
         top = rows[0]
         try:
+            lat, lng = float(top["lat"]), float(top["lon"])
+            label = top.get("display_name", "")
             return jsonify({
-                "ok": True,
-                "lat": float(top["lat"]),
-                "lng": float(top["lon"]),
-                "label": top.get("display_name", ""),
+                "ok": True, "lat": lat, "lng": lng, "label": label,
+                "origin": "geocoded",
+                "origin_detail": f"OpenStreetMap Nominatim, searched “{q}”: {label}",
+                "origin_url": f"https://www.openstreetmap.org/?mlat={lat}&mlon={lng}#map=13/{lat}/{lng}",
+                "origin_date": date.today().isoformat(),
             })
         except (KeyError, ValueError, TypeError):
             return jsonify({"ok": False, "reason": "Geocoder returned something unexpected — try again."})
@@ -503,10 +439,18 @@ def register(app):
             label = f"{len(ctop['counties'])} counties in {where}" if where else f"{len(ctop['counties'])} counties"
             note = (f"USDA: top {commodity.title()} counties (Census {ctop['year']}). "
                     "Regional estimate, not this item's exact source.")
+            # The origin record: which dataset, which figure ranked the
+            # counties, and the day it was asked. The key never goes in it.
             return jsonify({
                 "ok": True, "mode": "counties", "commodity": commodity,
                 "counties": [c["fips"] for c in ctop["counties"]],
                 "detail": ctop["counties"], "label": label, "note": note,
+                "origin": "usda-nass",
+                "origin_detail": (f"USDA NASS Census of Agriculture {ctop['year']} — "
+                                  f"{commodity}, top {len(ctop['counties'])} counties by "
+                                  f"{(ctop.get('statistic') or 'total').lower()}"),
+                "origin_url": USDA_SITE,
+                "origin_date": date.today().isoformat(),
             })
         # 2. Fall back to the whole-state outline where county data is suppressed.
         sug = _usda_suggestion(name, _try("STATE"))
@@ -516,5 +460,10 @@ def register(app):
                 "region_name": sug["label"], "state": sug["state"],
                 "lat": sug["lat"], "lng": sug["lng"],
                 "label": sug["label"], "note": sug["note"],
+                "origin": "usda-nass",
+                "origin_detail": (f"USDA NASS Census of Agriculture 2022 — {commodity}, "
+                                  f"top producing state ({sug['label']})"),
+                "origin_url": USDA_SITE,
+                "origin_date": date.today().isoformat(),
             })
         return jsonify({"ok": False, "reason": _usda_error_reason(last_err[0])})

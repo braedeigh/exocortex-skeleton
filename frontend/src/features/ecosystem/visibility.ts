@@ -1,11 +1,12 @@
 /**
  * visibility.ts — which source ids are allowed on the map, or null for
  * "show all". Active filters STACK (intersect): transparency chip ∩ traced
- * recipe ∩ single-item pick. So "partial" narrows the map to partial sources,
- * and then clicking a row drills into that one within the chip's filter.
+ * recipe ∩ one food's sources ∩ single-item pick. So "partial" narrows the
+ * map to partial sources, and then clicking a row drills into that one within
+ * the chip's filter.
  */
 import { txOf } from './axes';
-import { ecoRecipeSourceIds } from './ecoMatch';
+import { ecoRecipeSourceIds, ecoSourcesForFood } from './ecoMatch';
 import type { EcoRecipe, EcoSource, Transparency } from './types';
 
 export function computeVisibleIds(
@@ -13,6 +14,7 @@ export function computeVisibleIds(
   txFilter: Transparency | '' | null,
   recipe: EcoRecipe | null,
   soloId: string | null,
+  foodId: number | null = null,
 ): Set<string> | null {
   let ids: Set<string> | null = null; // null = unconstrained
   const intersect = (set: Set<string>) => {
@@ -22,6 +24,7 @@ export function computeVisibleIds(
     intersect(new Set(sources.filter((s) => txOf(s) === txFilter).map((s) => s.id)));
   }
   if (recipe) intersect(ecoRecipeSourceIds(recipe, sources));
+  if (foodId != null) intersect(new Set(ecoSourcesForFood(foodId, sources).map((s) => s.id)));
   if (soloId) intersect(new Set([soloId]));
   return ids;
 }

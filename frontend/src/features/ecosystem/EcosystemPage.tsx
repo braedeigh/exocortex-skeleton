@@ -2,11 +2,22 @@
  * EcosystemPage.tsx — the ECOSYSTEM tab: a map of where her food comes from.
  * React port of templates/index.html #tab-ecosystem + static/js/ecosystem.js.
  *
- * Layout (top to bottom, matching the old tab): section title + subtitle,
- * controls, the persistent Leaflet map, legend, recipe-trace panel, inline
- * add form, source list. Editing an existing source opens the shared Sheet
- * (the old page used its focused-editor modal). The map instance lives in
- * EcoMap and survives the 5s poll; everything here re-renders freely.
+ * Layout (top to bottom): section title + subtitle, controls, the
+ * persistent Leaflet map, legend, the "one food" banner, the open source's
+ * panel, recipe-trace panel, inline add form, the Foods panel (every food,
+ * traced or not), and the source list. Editing an existing source opens the
+ * shared Sheet. The map instance lives in EcoMap and survives the 5s poll;
+ * everything here re-renders freely.
+ *
+ * Everything is navigable: a source opens from its list row, its map popup
+ * ("Details"), a food's chip, or a traced recipe line; a food shows only its
+ * sources on the map. The open source and food ride in the address
+ * (?source=<id>, ?food=<id>) so a view can be bookmarked or shared, and a
+ * food's page under Research links straight here.
+ *
+ * The data is SQL now (sourcestore.py via /api/data/ecosystem): sources carry
+ * their links to foods and products, and every recipe line carries its food,
+ * so tracing follows links rather than matching words.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Sheet, ToastStack } from '../../ui';
@@ -17,14 +28,17 @@ import type { EcoView } from './EcoControls';
 import { EcoLegend } from './EcoLegend';
 import { EcoMap } from './EcoMap';
 import type { EcoMapHandle } from './EcoMap';
+import { FoodsPanel } from './FoodsPanel';
+import type { FoodFilter } from './FoodsPanel';
 import { RecipePanel } from './RecipePanel';
 import { SourceEditor } from './SourceEditor';
 import { SourceList } from './SourceList';
+import { SourcePanel } from './SourcePanel';
 import type { SourcePayload } from './api';
 import { ecoRecipeSourceIds, ecoRecipeSourcing } from './ecoMatch';
 import { ECO_TX, ECO_TX_ORDER } from './axes';
 import { draftFromSource, newDraft } from './types';
-import type { EcoDraft, EcoSource, Transparency } from './types';
+import type { EcoDraft, EcoFood, EcoIngredient, EcoSource, Transparency } from './types';
 import { useEcosystemData, useSourceMutations } from './useEcosystemData';
 import { computeVisibleIds } from './visibility';
 import styles from './EcosystemPage.module.css';
@@ -51,13 +65,35 @@ function canEditNow(): boolean {
  * "center over everything showing all at once"; then "make it center over
  * the US stuff actually".
  */
+/** Keep ?source= / ?food= / ?recipe= in the address bar in step with what's
+ * open, without a navigation (replaceState), so the view can be shared. */
+function syncAddress(params: { source: string | null; food: number | null; recipe: string }) {
+  if (typeof window === 'undefined') return;
+  const url = new URL(window.location.href);
+  const set = (key: string, value: string | null) => {
+    if (value) url.searchParams.set(key, value);
+    else url.searchParams.delete(key);
+  };
+  set('source', params.source);
+  set('food', params.food != null ? String(params.food) : null);
+  set('recipe', params.recipe || null);
+  if (url.href !== window.location.href) window.history.replaceState(window.history.state, '', url.href);
+}
+
 export function EcosystemPage({
   initialRecipeId = '',
+  initialSourceId = '',
+  initialFoodId = null,
   embed = false,
-}: { initialRecipeId?: string; embed?: boolean } = {}) {
+}: {
+  initialRecipeId?: string;
+  initialSourceId?: string;
+  initialFoodId?: number | null;
+  embed?: boolean;
+} = {}) {
   const { data, isLoading, error } = useEcosystemData();
   const { toasts, push, dismiss } = useToasts();
-  const { save, remove } = useSourceMutations(push);
+  const { save, remove, link, unlink } = useSourceMutations(push);
   const canEdit = canEditNow();
 
   const mapRef = useRef<EcoMapHandle>(null);
@@ -71,26 +107,52 @@ export function EcosystemPage({
   const [search, setSearch] = useState('');
   const [draft, setDraft] = useState<EcoDraft | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<{ id: string; name: string } | null>(null);
+  // The open source's panel, and the one food whose sources the map shows.
+  const [openSourceId, setOpenSourceId] = useState<string | null>(initialSourceId || null);
+  const [foodId, setFoodId] = useState<number | null>(initialFoodId);
+  const [foodFilter, setFoodFilter] = useState<FoodFilter>('all');
+  const [foodSearch, setFoodSearch] = useState('');
 
   const didInitialFit = useRef(false);
   const fittedRecipe = useRef<string | null>(null);
 
   const sources: EcoSource[] = useMemo(() => data?.ecosystem?.sources ?? [], [data]);
   const recipes = useMemo(() => data?.eco_recipes ?? [], [data]);
+  const foods: EcoFood[] = useMemo(() => data?.eco_foods ?? [], [data]);
+  const origins = useMemo(() => data?.eco_origins ?? {}, [data]);
+  const openSource = useMemo(
+    () => sources.find((s) => s.id === openSourceId) || null,
+    [sources, openSourceId],
+  );
+  const shownFood = useMemo(() => foods.find((f) => f.id === foodId) || null, [foods, foodId]);
   const activeRecipe = useMemo(
     () => recipes.find((r) => r.id === recipeId) || null,
     [recipes, recipeId],
   );
   const visibleIds = useMemo(
-    () => computeVisibleIds(sources, txFilter, activeRecipe, soloId),
-    [sources, txFilter, activeRecipe, soloId],
+    () => computeVisibleIds(sources, txFilter, activeRecipe, soloId, foodId),
+    [sources, txFilter, activeRecipe, soloId, foodId],
   );
+
+  useEffect(() => {
+    if (!embed) syncAddress({ source: openSourceId, food: foodId, recipe: recipeId });
+  }, [embed, openSourceId, foodId, recipeId]);
+
+  // A ?source= deep link zooms to it once the data (and so the dot) is in.
+  const zoomedDeepLink = useRef(false);
+  useEffect(() => {
+    if (!data || zoomedDeepLink.current || !initialSourceId) return;
+    zoomedDeepLink.current = true;
+    const t = setTimeout(() => mapRef.current?.focusSource(initialSourceId), 50);
+    return () => clearTimeout(t);
+  }, [data, initialSourceId]);
 
   // If the solo'd source disappears (deleted elsewhere), drop the filter
   // instead of stranding an empty map with no banner to clear it.
   useEffect(() => {
     if (soloId && sources.length && !sources.some((s) => s.id === soloId)) setSoloId(null);
-  }, [soloId, sources]);
+    if (openSourceId && data && !sources.some((s) => s.id === openSourceId)) setOpenSourceId(null);
+  }, [soloId, openSourceId, sources, data]);
 
   // The host div was hidden until the route opened — after the first data
   // lands, center over her sources near home with every one of them in view
@@ -146,12 +208,44 @@ export function EcosystemPage({
   function toggleSolo(id: string) {
     const next = soloId === id ? null : id;
     setSoloId(next);
+    setOpenSourceId(next);
     if (next) {
       setRecipeId('');
+      setFoodId(null);
       fittedRecipe.current = null;
       // after the markers re-sync for the new filter: zoom + open its popup
       setTimeout(() => mapRef.current?.focusSource(next), 0);
     }
+  }
+
+  /** Open a source's panel and zoom to it, leaving the other dots in view. */
+  function openSourcePanel(id: string) {
+    setOpenSourceId(id);
+    mapRef.current?.closePopup();
+    setTimeout(() => mapRef.current?.focusSource(id), 0);
+  }
+
+  function closeSourcePanel() {
+    if (soloId === openSourceId) setSoloId(null);
+    setOpenSourceId(null);
+  }
+
+  /** Show only one food's sources on the map (null clears). */
+  function showFood(id: number | null) {
+    setFoodId(id);
+    setSoloId(null);
+    if (id != null) setTimeout(() => mapRef.current?.fitVisible(), 0);
+  }
+
+  function linkTo(sourceId: string, target: { food?: number; product_id?: number }) {
+    link.mutate({ sourceId, target });
+  }
+
+  /** Open the add form for a food: named after it, and linked to it on save. */
+  function placeFood(food: EcoFood) {
+    setOpenSourceId(null);
+    setDraft({ ...newDraft(), name: food.name, food: food.id, food_label: food.name });
+    setTimeout(() => addPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 0);
   }
 
   /** The transparency chip filters the MAP too (not just the list). Changing
@@ -188,11 +282,16 @@ export function EcosystemPage({
     setDraft((d) => (d ? { ...d, lat, lng } : d));
   }
 
-  /** Open the add-source form pre-filled with an untraced ingredient's name,
-   * so placing it is one tap → name already typed → suggest region or tap the
-   * map. */
-  function placeIngredient(name: string) {
-    setDraft({ ...newDraft(), name: name || '' });
+  /** Open the add-source form pre-filled with an untraced ingredient's name
+   * (and linked to its food on save, when the line has one), so placing it
+   * is one tap → name already typed → suggest region or tap the map. */
+  function placeIngredient(ing: EcoIngredient) {
+    setDraft({
+      ...newDraft(),
+      name: (ing.item || '').trim(),
+      food: ing.food_id ?? null,
+      food_label: ing.food_name || undefined,
+    });
     setTimeout(
       () => addPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }),
       0,
@@ -222,8 +321,15 @@ export function EcosystemPage({
       counties: kind === 'counties' ? draft.counties || [] : [],
       region_name: kind === 'state' ? draft.region_name || '' : '',
       geo_source: draft.geo_source || 'unrated',
+      origin: draft.origin || 'unknown',
+      origin_detail: (draft.origin_detail || '').trim(),
+      origin_url: (draft.origin_url || '').trim(),
+      origin_date: draft.origin_date || '',
+      county_detail: kind === 'counties' ? draft.county_detail || [] : [],
     };
     if (draft.id) payload.id = draft.id;
+    else if (draft.product_id) payload.product_id = draft.product_id;
+    else if (draft.food != null) payload.food = draft.food;
     save.mutate(payload, {
       onSuccess: () => setDraft(null), // close the editor immediately; the invalidate paints the marker
     });
@@ -347,9 +453,62 @@ export function EcosystemPage({
         onDraftMove={placeDraftPin}
         onEditSource={editOpen}
         onDeleteSource={requestDelete}
+        onOpenSource={openSourcePanel}
       />
 
       <EcoLegend />
+
+      {shownFood ? (
+        <div className={styles.addCard}>
+          <div className={styles.addTitle}>
+            Where {shownFood.name} comes from &middot; {shownFood.source_ids.length} source
+            {shownFood.source_ids.length === 1 ? '' : 's'}
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {canEdit && !draft ? (
+              <button type="button" className={styles.confirmDeleteBtn} style={{ background: 'var(--accent)' }} onClick={() => placeFood(shownFood)}>
+                ＋ Place a source
+              </button>
+            ) : null}
+            {canEdit ? (
+              <a
+                className={styles.confirmCancelBtn}
+                style={{ display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }}
+                href={`/research/foods/${encodeURIComponent(shownFood.name)}`}
+              >
+                Its page
+              </a>
+            ) : null}
+            <button type="button" className={styles.confirmCancelBtn} onClick={() => showFood(null)}>
+              Show all
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {openSource && !draft ? (
+        <SourcePanel
+          key={openSource.id}
+          source={openSource}
+          foods={foods}
+          recipes={recipes}
+          origins={origins}
+          canEdit={canEdit}
+          onClose={closeSourcePanel}
+          onEdit={editOpen}
+          onZoom={(id) => mapRef.current?.focusSource(id)}
+          onShowFood={(id) => {
+            closeSourcePanel();
+            showFood(id);
+          }}
+          onTraceRecipe={(id) => {
+            closeSourcePanel();
+            setRecipe(id);
+          }}
+          onLink={linkTo}
+          onUnlink={(id) => unlink.mutate(id)}
+        />
+      ) : null}
 
       {/* Hidden while adding/editing a source, or while a single item is
           isolated from the list — reappears when that filter is cleared. */}
@@ -358,8 +517,9 @@ export function EcosystemPage({
           recipe={activeRecipe}
           sources={sources}
           canEdit={canEdit}
-          onFocusSource={(id) => mapRef.current?.focusSource(id)}
+          onOpenSource={openSourcePanel}
           onPlaceIngredient={placeIngredient}
+          onLinkSuggestion={(sourceId, id) => linkTo(sourceId, { food: id })}
           onClear={() => setRecipe('')}
         />
       ) : null}
@@ -382,6 +542,22 @@ export function EcosystemPage({
           />
         </div>
       ) : null}
+
+      <FoodsPanel
+        foods={foods}
+        sources={sources}
+        filter={foodFilter}
+        onFilter={setFoodFilter}
+        search={foodSearch}
+        onSearch={setFoodSearch}
+        selectedFoodId={foodId}
+        onSelectFood={showFood}
+        onOpenSource={openSourcePanel}
+        openSource={draft ? null : openSource}
+        canEdit={canEdit}
+        onLinkHere={(id) => openSource && linkTo(openSource.id, { food: id })}
+        onPlace={placeFood}
+      />
 
       <SourceList
         sources={sources}

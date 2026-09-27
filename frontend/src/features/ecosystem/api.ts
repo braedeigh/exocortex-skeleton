@@ -7,7 +7,7 @@
  * types carry the failure shape instead of throwing.
  */
 import { api } from '../../api/client';
-import type { EcosystemData } from './types';
+import type { CountyDetail, EcosystemData } from './types';
 
 /** GET /api/data/ecosystem — sources + light recipes, polled every 5s. */
 export function getEcosystemData(signal?: AbortSignal): Promise<EcosystemData> {
@@ -27,6 +27,22 @@ export interface SourcePayload {
   counties: string[];
   region_name: string;
   geo_source: string;
+  origin: string;
+  origin_detail: string;
+  origin_url: string;
+  origin_date: string;
+  county_detail: CountyDetail[];
+  /** Adding only: link the new source to this food (id or name) or product. */
+  food?: number | string | null;
+  product_id?: number | null;
+}
+
+/** The origin record an assist hands back with its answer (sourcestore.ORIGINS). */
+export interface OriginRecord {
+  origin?: string;
+  origin_detail?: string;
+  origin_url?: string;
+  origin_date?: string;
 }
 
 export function addSource(payload: SourcePayload): Promise<{ ok: boolean; id: string }> {
@@ -41,7 +57,19 @@ export function removeSource(id: string): Promise<{ ok: boolean }> {
   return api.post('/api/ecosystem/source/remove', { id });
 }
 
-export interface GeocodeResult {
+/** Say a food (by id or name) or one product comes from this source. */
+export function linkSource(
+  sourceId: string,
+  target: { food?: number | string; product_id?: number },
+): Promise<{ ok: boolean; id: number }> {
+  return api.post('/api/ecosystem/link', { source_id: sourceId, ...target });
+}
+
+export function unlinkSource(linkId: number): Promise<{ ok: boolean }> {
+  return api.post('/api/ecosystem/unlink', { link_id: linkId });
+}
+
+export interface GeocodeResult extends OriginRecord {
   ok: boolean;
   lat?: number;
   lng?: number;
@@ -54,12 +82,14 @@ export function geocodeAddress(address: string): Promise<GeocodeResult> {
   return api.post('/api/ecosystem/geocode', { address });
 }
 
-export interface UsdaSuggestion {
+export interface UsdaSuggestion extends OriginRecord {
   ok: boolean;
   mode?: 'counties' | 'state';
   commodity?: string;
   /** counties mode: 5-digit FIPS codes. */
   counties?: string[];
+  /** counties mode: what USDA reported for each, biggest first. */
+  detail?: CountyDetail[];
   /** state mode */
   region_name?: string;
   state?: string;

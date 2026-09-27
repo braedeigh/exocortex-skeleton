@@ -26,7 +26,8 @@ Buy-organic-or-not for the grocery list (estimatestore.py):
                                       and Claude's estimate, plus the vocab,
                                       whether a run is going, and the last run
     GET  /api/food/page?name=         one food's page under Research: verdict,
-                                      estimate, claims and measurements
+                                      estimate, claims and measurements, and
+                                      the map sources it comes from
     GET  /api/food/pages              every food with what's known about it
     POST /api/food/estimates/run      {force?} — start scripts/estimate_organic.py
     POST /api/food/estimates/<id>/review   {review: unreviewed|confirmed|disputed}
@@ -44,6 +45,7 @@ from flask import jsonify, request
 
 import estimatestore
 import foodstore
+import sourcestore
 import store
 
 # The estimate run, started detached so it outlives this request and worker.
@@ -173,6 +175,10 @@ def register(app):
             return jsonify({"ok": False, "error": "missing name"}), 400
         view = estimatestore.food_page(name)
         view["vocab"] = estimatestore.vocab()
+        # Where it comes from: the sources linked to this food or its products.
+        food = view.get("food")
+        view["sources"] = sourcestore.for_food(food["id"]) if food else []
+        view["origins"] = sourcestore.ORIGINS
         return jsonify(view)
 
     @app.route("/api/food/pages")

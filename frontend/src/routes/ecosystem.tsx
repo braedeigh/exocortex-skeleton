@@ -11,19 +11,25 @@ const EcosystemPage = lazy(() =>
 
 export const Route = createFileRoute('/ecosystem')({
   component: EcosystemRoute,
-  // ?recipe=<id> deep link from kitchen's "View on map".
-  validateSearch: (search: Record<string, unknown>): { recipe?: string } => {
-    const recipe = typeof search.recipe === 'string' && search.recipe ? search.recipe : undefined;
-    return recipe ? { recipe } : {};
+  // Deep links: ?recipe=<id> (kitchen's "View on map"), ?source=<id> (one
+  // source's panel open), ?food=<id> (only that food's sources — a food's
+  // page under Research links here).
+  validateSearch: (search: Record<string, unknown>): { recipe?: string; source?: string; food?: number } => {
+    const out: { recipe?: string; source?: string; food?: number } = {};
+    if (typeof search.recipe === 'string' && search.recipe) out.recipe = search.recipe;
+    if (typeof search.source === 'string' && search.source) out.source = search.source;
+    const food = Number(search.food);
+    if (search.food != null && search.food !== '' && Number.isInteger(food)) out.food = food;
+    return out;
   },
 });
 
 function EcosystemRoute() {
   useDeactivateFrames();
-  const { recipe } = Route.useSearch();
+  const { recipe, source, food } = Route.useSearch();
   return (
     <Suspense fallback={null}>
-      <EcosystemPage initialRecipeId={recipe ?? ''} />
+      <EcosystemPage initialRecipeId={recipe ?? ''} initialSourceId={source ?? ''} initialFoodId={food ?? null} />
     </Suspense>
   );
 }

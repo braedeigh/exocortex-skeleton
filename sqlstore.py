@@ -42,7 +42,7 @@ import time
 
 import store
 
-_SCHEMA_VERSION = 31
+_SCHEMA_VERSION = 32
 
 
 def _db_path():
@@ -183,6 +183,7 @@ _EXPECTED_TABLES = (
     "recipe_makes", "meal_rotation",
     "recipes", "recipe_lines", "shopping_trips", "shopping_lines", "grocery_list",
     "receipts",
+    "food_sources", "food_source_counties", "food_estimates",
     # The journal word index, plus the five storage tables FTS5 keeps behind it.
     "cards_fts", "cards_fts_data", "cards_fts_idx", "cards_fts_content",
     "cards_fts_docsize", "cards_fts_config",
@@ -2408,6 +2409,67 @@ def _run_ladder(conn):
         except sqlite3.OperationalError as e:
             if "duplicate column" not in str(e):
                 raise
+    if version < 32:
+        # Rung 32: the ecosystem map's sources, moved out of ecosystem.json so
+        # they sit beside the foods and products they belong to (the links
+        # already live in food_links, target 'ecosystem'). Her record, written
+        # only by sourcestore.py and backed up with the food catalog. The id
+        # stays TEXT so the ids the JSON file gave out (and food_links already
+        # points at) carry over unchanged.
+        #
+        # Three honest axes, each held to its vocabulary by a CHECK so no
+        # value outside it can land: transparency (how disclosed the supply
+        # chain is), precision (a crisp spot or a rough area), and geo_source
+        # (how the dot itself got placed — a USDA proxy must never pass as a
+        # placement). The origin_* columns are a fourth thing: where the
+        # placement information came from and when it was looked up.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS food_sources ("
+            "  id TEXT PRIMARY KEY,"
+            "  layer TEXT NOT NULL DEFAULT 'food',"
+            "  name TEXT NOT NULL,"
+            "  note TEXT NOT NULL DEFAULT '',"
+            "  lat REAL NOT NULL,"
+            "  lng REAL NOT NULL,"
+            "  precision TEXT NOT NULL DEFAULT 'point' CHECK (precision IN ('point', 'area')),"
+            "  radius_km REAL NOT NULL DEFAULT 0,"
+            "  area_kind TEXT NOT NULL DEFAULT 'circle'"
+            "    CHECK (area_kind IN ('circle', 'counties', 'state')),"
+            "  region_name TEXT NOT NULL DEFAULT '',"
+            "  transparency TEXT NOT NULL DEFAULT 'unrated'"
+            "    CHECK (transparency IN ('disclosed', 'partial', 'opaque', 'unrated')),"
+            "  geo_source TEXT NOT NULL DEFAULT 'unrated'"
+            "    CHECK (geo_source IN ('placed', 'proxy', 'guess', 'unrated')),"
+            # Where the placement came from — the vocabulary and what each
+            # word means live in sourcestore.ORIGINS.
+            "  origin TEXT NOT NULL DEFAULT 'unknown'"
+            "    CHECK (origin IN ('usda-nass', 'geocoded', 'package', 'visit',"
+            "                      'research', 'hand', 'unknown')),"
+            # The citation in words: which dataset, query, address or label.
+            "  origin_detail TEXT NOT NULL DEFAULT '',"
+            "  origin_url TEXT NOT NULL DEFAULT '',"
+            # The day the information was looked up (YYYY-MM-DD), '' if not known.
+            "  origin_date TEXT NOT NULL DEFAULT '',"
+            "  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),"
+            "  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+            ")"
+        )
+        # The county outlines an area source is drawn as, one row per county,
+        # with what USDA reported for it when that's where they came from
+        # (value + unit, e.g. 1,204,000 HEAD), so the number behind the
+        # outline can be shown and re-checked.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS food_source_counties ("
+            "  source_id TEXT NOT NULL REFERENCES food_sources(id) ON DELETE CASCADE,"
+            "  fips TEXT NOT NULL CHECK (length(fips) = 5),"
+            "  seq INTEGER NOT NULL DEFAULT 0,"
+            "  county TEXT NOT NULL DEFAULT '',"
+            "  state TEXT NOT NULL DEFAULT '',"
+            "  value REAL,"
+            "  unit TEXT NOT NULL DEFAULT '',"
+            "  PRIMARY KEY (source_id, fips)"
+            ")"
+        )
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 

@@ -1,6 +1,6 @@
 """Behavioral tests for the Ecosystem API (routes/ecosystem.py).
 
-The ecosystem store is a flat list of food sources, each a point on a map. A
+The map's sources are rows in SQL (sourcestore.py), each a point on a map. A
 source carries a location (lat/lng) and a `precision` — "point" (a crisp dot) or
 "area" (a dot inside a soft circle of `radius_km`). These tests pin down the
 CRUD + the field contracts that matter: required name + location, partial
@@ -32,7 +32,9 @@ def _post(client, path, payload):
 
 
 def read_eco():
-    return store.read("ecosystem", {"sources": []})
+    """The map as the routes left it — read from SQL, where sources live now."""
+    import sourcestore
+    return {"sources": sourcestore.all_sources()}
 
 
 # --- helpers to build state --------------------------------------------------
